@@ -22,10 +22,10 @@
     ];
     ?>
 
-    <div class="kanban-scroll">
-        <div class="row g-3 flex-nowrap">
+    <div class="kanban-scroll" style="overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:10px;">
+        <div class="d-flex gap-3" style="min-width:max-content;">
             <?php foreach ($statusLabels as $status => $info): ?>
-            <div class="col" style="min-width:270px;">
+            <div style="width:250px;flex-shrink:0;">
                 <div class="kanban-column">
                     <div class="d-flex justify-content-between align-items-center mb-3">
                         <h6 class="mb-0 fw-bold" style="color:<?= $info[1] ?>;font-size:0.85rem;">
