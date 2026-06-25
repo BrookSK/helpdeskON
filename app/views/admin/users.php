@@ -1,4 +1,4 @@
-<?php $pageTitle = 'Usuários - ON Solutions Helpdesk'; $currentPage = 'users'; ?>
+﻿<?php $pageTitle = 'Usuários - ON Solutions Helpdesk'; $currentPage = 'users'; ?>
 <?php require APP_PATH . '/views/layouts/header.php'; ?>
 <?php require APP_PATH . '/views/layouts/sidebar.php'; ?>
 
@@ -38,16 +38,13 @@
                         </tr>
                     </thead>
                     <tbody>
-                        <?php
-                        $roleLabels = ['super_admin' => 'Admin', 'attendant' => 'Atendente', 'client' => 'Cliente'];
-                        ?>
                         <?php foreach ($users as $u): ?>
                         <tr>
                             <td><?= $u['id'] ?></td>
                             <td><?= escape($u['name']) ?></td>
                             <td class="text-truncate" style="max-width:160px"><?= escape($u['email']) ?></td>
                             <td><?= escape($u['phone'] ?? '-') ?></td>
-                            <td><?= $roleLabels[$u['role']] ?? $u['role'] ?></td>
+                            <td><?= roleLabel($u['role']) ?></td>
                             <td>
                                 <?= $u['is_active']
                                     ? '<span class="badge bg-success" style="font-size:0.7rem">Ativo</span>'
@@ -83,7 +80,7 @@
                             : '<span class="badge bg-secondary" style="font-size:0.68rem">Inativo</span>' ?>
                     </div>
                     <div class="d-flex gap-2 align-items-center mt-2 flex-wrap" style="font-size:0.78rem">
-                        <span class="badge bg-light text-dark"><?= $roleLabels[$u['role']] ?? $u['role'] ?></span>
+                        <span class="badge bg-light text-dark"><?= roleLabel($u['role']) ?></span>
                         <?php if ($u['phone']): ?><span class="text-muted"><?= escape($u['phone']) ?></span><?php endif; ?>
                     </div>
                     <div class="mt-2 d-flex gap-2">

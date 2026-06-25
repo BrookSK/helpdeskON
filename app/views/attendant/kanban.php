@@ -1,4 +1,4 @@
-<?php $pageTitle = 'Kanban - ON Solutions Helpdesk'; $currentPage = 'kanban'; ?>
+﻿<?php $pageTitle = 'Kanban - ON Solutions Helpdesk'; $currentPage = 'kanban'; ?>
 <?php require APP_PATH . '/views/layouts/header.php'; ?>
 <?php require APP_PATH . '/views/layouts/sidebar.php'; ?>
 
@@ -38,7 +38,7 @@
                         <div class="kanban-card" data-id="<?= $ticket['id'] ?>">
                             <div class="d-flex justify-content-between align-items-start mb-1">
                                 <span class="text-muted" style="font-size:0.72rem">#<?= $ticket['id'] ?></span>
-                                <span class="priority-<?= $ticket['priority'] ?>" style="font-size:0.72rem"><?= ucfirst($ticket['priority']) ?></span>
+                                <span class="priority-<?= $ticket['priority'] ?>" style="font-size:0.72rem"><?= priorityLabel($ticket['priority']) ?></span>
                             </div>
                             <a href="<?= baseUrl('tickets/show/' . $ticket['id']) ?>" class="text-dark text-decoration-none fw-medium" style="font-size:0.82rem">
                                 <?= escape($ticket['title']) ?>

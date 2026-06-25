@@ -1,4 +1,4 @@
-<?php $pageTitle = 'Demanda #' . $ticket['id'] . ' - ON Solutions Helpdesk'; $currentPage = 'tickets'; ?>
+﻿<?php $pageTitle = 'Demanda #' . $ticket['id'] . ' - ON Solutions Helpdesk'; $currentPage = 'tickets'; ?>
 <?php require APP_PATH . '/views/layouts/header.php'; ?>
 <?php require APP_PATH . '/views/layouts/sidebar.php'; ?>
 
@@ -27,7 +27,7 @@
             <div class="card mb-4">
                 <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
                     <h6 class="mb-0">Detalhes</h6>
-                    <span class="badge-status badge-<?= $ticket['status'] ?>"><?= ucfirst(str_replace('_', ' ', $ticket['status'])) ?></span>
+                    <span class="badge-status badge-<?= $ticket['status'] ?>"><?= statusLabel($ticket['status']) ?></span>
                 </div>
                 <div class="card-body">
                     <div class="row g-2" style="font-size:0.88rem">
@@ -41,7 +41,7 @@
                             <strong>Categoria:</strong> <?= escape($ticket['category'] ?? 'Não definida') ?>
                         </div>
                         <div class="col-sm-6">
-                            <strong>Prioridade:</strong> <span class="priority-<?= $ticket['priority'] ?>"><?= ucfirst($ticket['priority']) ?></span>
+                            <strong>Prioridade:</strong> <span class="priority-<?= $ticket['priority'] ?>"><?= priorityLabel($ticket['priority']) ?></span>
                         </div>
                         <div class="col-sm-6">
                             <strong>Atendente:</strong> <?= escape($ticket['attendant_name'] ?? 'Não atribuído') ?>

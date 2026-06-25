@@ -1,4 +1,4 @@
-<?php $pageTitle = 'Minhas Demandas - ON Solutions Helpdesk'; $currentPage = 'tickets'; ?>
+﻿<?php $pageTitle = 'Minhas Demandas - ON Solutions Helpdesk'; $currentPage = 'tickets'; ?>
 <?php require APP_PATH . '/views/layouts/header.php'; ?>
 <?php require APP_PATH . '/views/layouts/sidebar.php'; ?>
 
@@ -40,8 +40,8 @@
                             <td><?= $t['id'] ?></td>
                             <td class="text-truncate" style="max-width:200px"><?= escape($t['title']) ?></td>
                             <td><?= escape($t['category'] ?? '-') ?></td>
-                            <td><span class="badge-status badge-<?= $t['status'] ?>"><?= ucfirst(str_replace('_', ' ', $t['status'])) ?></span></td>
-                            <td><span class="priority-<?= $t['priority'] ?>"><?= ucfirst($t['priority']) ?></span></td>
+                            <td><span class="badge-status badge-<?= $t['status'] ?>"><?= statusLabel($t['status']) ?></span></td>
+                            <td><span class="priority-<?= $t['priority'] ?>"><?= priorityLabel($t['priority']) ?></span></td>
                             <td><?= escape($t['attendant_name'] ?? 'Aguardando') ?></td>
                             <td><?= date('d/m/Y', strtotime($t['created_at'])) ?></td>
                             <td><a href="<?= baseUrl('tickets/show/' . $t['id']) ?>" class="btn btn-sm btn-outline-primary">Ver</a></td>
@@ -59,10 +59,10 @@
                 <a href="<?= baseUrl('tickets/show/' . $t['id']) ?>" class="d-block text-decoration-none mb-2 p-3 border rounded-3">
                     <div class="d-flex justify-content-between align-items-start mb-1">
                         <span class="fw-medium text-dark text-truncate" style="max-width:65%">#<?= $t['id'] ?> <?= escape($t['title']) ?></span>
-                        <span class="badge-status badge-<?= $t['status'] ?>"><?= ucfirst(str_replace('_', ' ', $t['status'])) ?></span>
+                        <span class="badge-status badge-<?= $t['status'] ?>"><?= statusLabel($t['status']) ?></span>
                     </div>
                     <div class="d-flex gap-2 align-items-center flex-wrap" style="font-size:0.75rem">
-                        <span class="priority-<?= $t['priority'] ?>"><?= ucfirst($t['priority']) ?></span>
+                        <span class="priority-<?= $t['priority'] ?>"><?= priorityLabel($t['priority']) ?></span>
                         <span class="text-muted"><?= escape($t['attendant_name'] ?? 'Aguardando') ?></span>
                         <span class="text-muted"><?= timeAgo($t['created_at']) ?></span>
                     </div>

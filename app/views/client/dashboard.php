@@ -1,4 +1,4 @@
-<?php $pageTitle = 'Dashboard - ON Solutions Helpdesk'; $currentPage = 'dashboard'; ?>
+﻿<?php $pageTitle = 'Dashboard - ON Solutions Helpdesk'; $currentPage = 'dashboard'; ?>
 <?php require APP_PATH . '/views/layouts/header.php'; ?>
 <?php require APP_PATH . '/views/layouts/sidebar.php'; ?>
 
@@ -68,8 +68,8 @@
                         <tr>
                             <td><?= $t['id'] ?></td>
                             <td class="text-truncate" style="max-width:200px"><?= escape($t['title']) ?></td>
-                            <td><span class="badge-status badge-<?= $t['status'] ?>"><?= ucfirst(str_replace('_', ' ', $t['status'])) ?></span></td>
-                            <td><span class="priority-<?= $t['priority'] ?>"><?= ucfirst($t['priority']) ?></span></td>
+                            <td><span class="badge-status badge-<?= $t['status'] ?>"><?= statusLabel($t['status']) ?></span></td>
+                            <td><span class="priority-<?= $t['priority'] ?>"><?= priorityLabel($t['priority']) ?></span></td>
                             <td><?= date('d/m/Y', strtotime($t['created_at'])) ?></td>
                             <td><a href="<?= baseUrl('tickets/show/' . $t['id']) ?>" class="btn btn-sm btn-outline-primary">Ver</a></td>
                         </tr>
@@ -88,8 +88,8 @@
                         <span class="fw-medium text-dark">#<?= $t['id'] ?> <?= escape($t['title']) ?></span>
                     </div>
                     <div class="d-flex gap-2 align-items-center flex-wrap">
-                        <span class="badge-status badge-<?= $t['status'] ?>"><?= ucfirst(str_replace('_', ' ', $t['status'])) ?></span>
-                        <span class="priority-<?= $t['priority'] ?>" style="font-size:0.75rem"><?= ucfirst($t['priority']) ?></span>
+                        <span class="badge-status badge-<?= $t['status'] ?>"><?= statusLabel($t['status']) ?></span>
+                        <span class="priority-<?= $t['priority'] ?>" style="font-size:0.75rem"><?= priorityLabel($t['priority']) ?></span>
                         <span class="text-muted" style="font-size:0.72rem"><?= timeAgo($t['created_at']) ?></span>
                     </div>
                 </a>

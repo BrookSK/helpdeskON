@@ -1,4 +1,4 @@
-<?php $pageTitle = 'Demandas - ON Solutions Helpdesk'; $currentPage = 'tickets'; ?>
+﻿<?php $pageTitle = 'Demandas - ON Solutions Helpdesk'; $currentPage = 'tickets'; ?>
 <?php require APP_PATH . '/views/layouts/header.php'; ?>
 <?php require APP_PATH . '/views/layouts/sidebar.php'; ?>
 
@@ -67,8 +67,8 @@
                             <td class="text-truncate" style="max-width:180px"><?= escape($t['title']) ?></td>
                             <td><?= escape($t['client_name']) ?></td>
                             <td><?= escape($t['attendant_name'] ?? 'Não atribuído') ?></td>
-                            <td><span class="badge-status badge-<?= $t['status'] ?>"><?= ucfirst(str_replace('_', ' ', $t['status'])) ?></span></td>
-                            <td><span class="priority-<?= $t['priority'] ?>"><?= ucfirst($t['priority']) ?></span></td>
+                            <td><span class="badge-status badge-<?= $t['status'] ?>"><?= statusLabel($t['status']) ?></span></td>
+                            <td><span class="priority-<?= $t['priority'] ?>"><?= priorityLabel($t['priority']) ?></span></td>
                             <td><?= timeAgo($t['updated_at']) ?></td>
                             <td><a href="<?= baseUrl('tickets/show/' . $t['id']) ?>" class="btn btn-sm btn-outline-primary">Ver</a></td>
                         </tr>
@@ -85,11 +85,11 @@
                 <a href="<?= baseUrl('tickets/show/' . $t['id']) ?>" class="d-block text-decoration-none mb-2 p-3 border rounded-3">
                     <div class="d-flex justify-content-between align-items-start mb-1">
                         <span class="fw-medium text-dark text-truncate" style="max-width:70%">#<?= $t['id'] ?> <?= escape($t['title']) ?></span>
-                        <span class="badge-status badge-<?= $t['status'] ?>"><?= ucfirst(str_replace('_', ' ', $t['status'])) ?></span>
+                        <span class="badge-status badge-<?= $t['status'] ?>"><?= statusLabel($t['status']) ?></span>
                     </div>
                     <div class="d-flex gap-2 align-items-center flex-wrap" style="font-size:0.75rem">
                         <span class="text-muted"><i class="bi bi-person"></i> <?= escape($t['client_name']) ?></span>
-                        <span class="priority-<?= $t['priority'] ?>"><?= ucfirst($t['priority']) ?></span>
+                        <span class="priority-<?= $t['priority'] ?>"><?= priorityLabel($t['priority']) ?></span>
                         <span class="text-muted"><?= timeAgo($t['updated_at']) ?></span>
                     </div>
                 </a>

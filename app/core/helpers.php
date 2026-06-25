@@ -69,3 +69,37 @@ function timeAgo($datetime)
     if ($diff < 604800) return floor($diff / 86400) . 'd atrás';
     return date('d/m/Y H:i', $time);
 }
+
+function statusLabel($status)
+{
+    $labels = [
+        'open' => 'Aberto',
+        'in_progress' => 'Em andamento',
+        'waiting_client' => 'Aguardando',
+        'completed' => 'Concluído',
+        'denied' => 'Negado',
+        'archived' => 'Arquivado',
+    ];
+    return $labels[$status] ?? $status;
+}
+
+function priorityLabel($priority)
+{
+    $labels = [
+        'low' => 'Baixa',
+        'medium' => 'Média',
+        'high' => 'Alta',
+        'urgent' => 'Urgente',
+    ];
+    return $labels[$priority] ?? $priority;
+}
+
+function roleLabel($role)
+{
+    $labels = [
+        'super_admin' => 'Administrador',
+        'attendant' => 'Atendente',
+        'client' => 'Cliente',
+    ];
+    return $labels[$role] ?? $role;
+}

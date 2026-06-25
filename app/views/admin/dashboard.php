@@ -1,4 +1,4 @@
-<?php $pageTitle = 'Admin Dashboard - ON Solutions Helpdesk'; $currentPage = 'dashboard'; ?>
+﻿<?php $pageTitle = 'Admin Dashboard - ON Solutions Helpdesk'; $currentPage = 'dashboard'; ?>
 <?php require APP_PATH . '/views/layouts/header.php'; ?>
 <?php require APP_PATH . '/views/layouts/sidebar.php'; ?>
 
@@ -75,7 +75,7 @@
                                     <span class="fw-medium">#<?= $t['id'] ?></span>
                                     <span class="text-dark"><?= escape($t['title']) ?></span>
                                 </div>
-                                <span class="badge-status badge-<?= $t['status'] ?>"><?= ucfirst(str_replace('_', ' ', $t['status'])) ?></span>
+                                <span class="badge-status badge-<?= $t['status'] ?>"><?= statusLabel($t['status']) ?></span>
                             </div>
                             <small class="text-muted"><?= escape($t['client_name']) ?> · <?= timeAgo($t['created_at']) ?></small>
                         </a>

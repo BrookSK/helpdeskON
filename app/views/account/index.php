@@ -1,4 +1,4 @@
-<?php $pageTitle = 'Minha Conta - ON Solutions Helpdesk'; $currentPage = 'account'; ?>
+﻿<?php $pageTitle = 'Minha Conta - ON Solutions Helpdesk'; $currentPage = 'account'; ?>
 <?php require APP_PATH . '/views/layouts/header.php'; ?>
 <?php require APP_PATH . '/views/layouts/sidebar.php'; ?>
 
@@ -40,7 +40,7 @@
                         </div>
                         <div class="mb-3">
                             <label class="form-label fw-medium">Papel</label>
-                            <input type="text" class="form-control" value="<?= ucfirst(str_replace('_', ' ', $userData['role'])) ?>" disabled>
+                            <input type="text" class="form-control" value="<?= roleLabel($userData['role']) ?>" disabled>
                         </div>
                         <div class="mb-3">
                             <label class="form-label fw-medium">Membro desde</label>

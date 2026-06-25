@@ -1,4 +1,4 @@
-<!-- Mobile Top Bar -->
+﻿<!-- Mobile Top Bar -->
 <div class="mobile-topbar">
     <button class="btn btn-sm btn-outline-secondary" id="btn-toggle-sidebar" aria-label="Menu">
         <i class="bi bi-list fs-5"></i>
@@ -97,7 +97,7 @@
             </div>
             <div class="ms-2 flex-grow-1 overflow-hidden">
                 <div class="small fw-medium text-truncate"><?= escape($user['name'] ?? '') ?></div>
-                <div style="font-size:0.68rem;color:rgba(255,255,255,0.5);"><?= ucfirst(str_replace('_', ' ', $user['role'] ?? '')) ?></div>
+                <div style="font-size:0.68rem;color:rgba(255,255,255,0.5);"><?= roleLabel($user['role'] ?? '') ?></div>
             </div>
             <a href="<?= baseUrl('login/logout') ?>" class="btn btn-sm btn-outline-danger ms-2 flex-shrink-0" title="Sair" style="padding:5px 10px;border-radius:8px;">
                 <i class="bi bi-box-arrow-right"></i>
