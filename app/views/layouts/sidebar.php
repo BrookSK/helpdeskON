@@ -45,6 +45,20 @@
                     <i class="bi bi-plus-circle"></i> Nova Demanda
                 </a>
             </li>
+            <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'documents' ? 'active' : '' ?>" href="<?= baseUrl('documents') ?>">
+                    <i class="bi bi-folder"></i> Documentos
+                </a>
+            </li>
+            <?php
+            $fullUserSidebar = (new User())->findById($user['id'] ?? 0);
+            if ($fullUserSidebar && $fullUserSidebar['is_company_owner']): ?>
+            <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'subusers' ? 'active' : '' ?>" href="<?= baseUrl('subusers') ?>">
+                    <i class="bi bi-people"></i> Minha Equipe
+                </a>
+            </li>
+            <?php endif; ?>
             <?php endif; ?>
 
             <?php if (in_array($user['role'] ?? '', ['super_admin', 'attendant'])): ?>
@@ -56,6 +70,11 @@
             <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'kanban' ? 'active' : '' ?>" href="<?= baseUrl('tickets/kanban') ?>">
                     <i class="bi bi-kanban"></i> Kanban
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'documents' ? 'active' : '' ?>" href="<?= baseUrl('documents') ?>">
+                    <i class="bi bi-folder"></i> Documentos
                 </a>
             </li>
             <?php endif; ?>

@@ -33,6 +33,8 @@ class LoginController extends Controller
             $_SESSION['user_email'] = $user['email'];
             $_SESSION['user_role'] = $user['role'];
             $_SESSION['user_avatar'] = $user['avatar'];
+            $_SESSION['user_company_id'] = $user['company_id'] ?? null;
+            $_SESSION['user_is_company_owner'] = $user['is_company_owner'] ?? 0;
             $this->redirect('dashboard');
         } else {
             flash('error', 'Email ou senha inválidos.');

@@ -5,7 +5,12 @@
 <div class="main-content">
     <div class="top-bar">
         <div>
-            <h5 class="mb-0">Demanda #<?= $ticket['id'] ?></h5>
+            <?php
+            $ticketDisplayNumber = ($user['role'] === 'client' && !empty($ticket['client_ticket_number']))
+                ? $ticket['client_ticket_number']
+                : $ticket['id'];
+            ?>
+            <h5 class="mb-0">Demanda #<?= $ticketDisplayNumber ?></h5>
             <small class="text-muted text-truncate d-block" style="max-width:250px"><?= escape($ticket['title']) ?></small>
         </div>
         <a href="<?= baseUrl('tickets') ?>" class="btn btn-outline-secondary btn-sm">

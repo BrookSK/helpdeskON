@@ -66,7 +66,7 @@
                     <tbody>
                         <?php foreach (array_slice($tickets, 0, 10) as $t): ?>
                         <tr>
-                            <td><?= $t['id'] ?></td>
+                            <td><?= $t['client_ticket_number'] ?? $t['id'] ?></td>
                             <td class="text-truncate" style="max-width:200px"><?= escape($t['title']) ?></td>
                             <td><span class="badge-status badge-<?= $t['status'] ?>"><?= statusLabel($t['status']) ?></span></td>
                             <td><span class="priority-<?= $t['priority'] ?>"><?= priorityLabel($t['priority']) ?></span></td>
@@ -85,7 +85,7 @@
                 <?php foreach (array_slice($tickets, 0, 10) as $t): ?>
                 <a href="<?= baseUrl('tickets/show/' . $t['id']) ?>" class="d-block text-decoration-none mb-2 p-3 border rounded-3">
                     <div class="d-flex justify-content-between align-items-center mb-1">
-                        <span class="fw-medium text-dark">#<?= $t['id'] ?> <?= escape($t['title']) ?></span>
+                        <span class="fw-medium text-dark">#<?= $t['client_ticket_number'] ?? $t['id'] ?> <?= escape($t['title']) ?></span>
                     </div>
                     <div class="d-flex gap-2 align-items-center flex-wrap">
                         <span class="badge-status badge-<?= $t['status'] ?>"><?= statusLabel($t['status']) ?></span>

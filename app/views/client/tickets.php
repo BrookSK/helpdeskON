@@ -37,7 +37,7 @@
                     <tbody>
                         <?php foreach ($tickets as $t): ?>
                         <tr>
-                            <td><?= $t['id'] ?></td>
+                            <td><?= $t['client_ticket_number'] ?? $t['id'] ?></td>
                             <td class="text-truncate" style="max-width:200px"><?= escape($t['title']) ?></td>
                             <td><?= escape($t['category'] ?? '-') ?></td>
                             <td><span class="badge-status badge-<?= $t['status'] ?>"><?= statusLabel($t['status']) ?></span></td>
@@ -58,7 +58,7 @@
                 <?php foreach ($tickets as $t): ?>
                 <a href="<?= baseUrl('tickets/show/' . $t['id']) ?>" class="d-block text-decoration-none mb-2 p-3 border rounded-3">
                     <div class="d-flex justify-content-between align-items-start mb-1">
-                        <span class="fw-medium text-dark text-truncate" style="max-width:65%">#<?= $t['id'] ?> <?= escape($t['title']) ?></span>
+                        <span class="fw-medium text-dark text-truncate" style="max-width:65%">#<?= $t['client_ticket_number'] ?? $t['id'] ?> <?= escape($t['title']) ?></span>
                         <span class="badge-status badge-<?= $t['status'] ?>"><?= statusLabel($t['status']) ?></span>
                     </div>
                     <div class="d-flex gap-2 align-items-center flex-wrap" style="font-size:0.75rem">

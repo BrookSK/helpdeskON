@@ -82,6 +82,14 @@ class TicketsController extends Controller
             $ticketData['transcription'] = $transcription;
         }
 
+        // Calcular número sequencial do cliente
+        $db = Database::getInstance();
+        $lastNumber = $db->fetch(
+            "SELECT MAX(client_ticket_number) as last_num FROM tickets WHERE client_id = ?",
+            [$user['id']]
+        );
+        $ticketData['client_ticket_number'] = ($lastNumber['last_num'] ?? 0) + 1;
+
         $ticketId = $this->ticketModel->create($ticketData);
 
         // Upload de arquivos
