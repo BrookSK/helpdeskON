@@ -97,11 +97,11 @@ class TicketsController extends Controller
         $this->sendNewTicketNotification($ticketId);
 
         flash('success', 'Demanda criada com sucesso!');
-        $this->redirect('tickets/view/' . $ticketId);
+        $this->redirect('tickets/show/' . $ticketId);
     }
 
     // Visualizar ticket
-    public function view($id = null)
+    public function show($id = null)
     {
         $this->requireLogin();
         if (!$id) $this->redirect('tickets');
@@ -148,7 +148,7 @@ class TicketsController extends Controller
         $status = $_POST['status'] ?? '';
         $validStatuses = ['open', 'in_progress', 'waiting_client', 'completed', 'denied', 'archived'];
         if (!in_array($status, $validStatuses)) {
-            $this->redirect('tickets/view/' . $id);
+            $this->redirect('tickets/show/' . $id);
         }
 
         $this->ticketModel->updateStatus($id, $status);
@@ -158,7 +158,7 @@ class TicketsController extends Controller
         $this->sendStatusChangeNotification($ticket, $status);
 
         flash('success', 'Status atualizado com sucesso!');
-        $this->redirect('tickets/view/' . $id);
+        $this->redirect('tickets/show/' . $id);
     }
 
     // Atribuir atendente
@@ -175,7 +175,7 @@ class TicketsController extends Controller
             flash('success', 'Atendente atribuído com sucesso!');
         }
 
-        $this->redirect('tickets/view/' . $id);
+        $this->redirect('tickets/show/' . $id);
     }
 
     // Enviar mensagem no chat

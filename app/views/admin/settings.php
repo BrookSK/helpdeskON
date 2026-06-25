@@ -34,8 +34,14 @@
 
         <!-- SMTP -->
         <div class="card mb-4">
-            <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-envelope"></i> Email (SMTP)</h6></div>
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                <h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-envelope"></i> Email (SMTP)</h6>
+                <button type="button" class="btn btn-outline-primary btn-sm" onclick="testSmtp()">
+                    <i class="bi bi-send-check"></i> Testar
+                </button>
+            </div>
             <div class="card-body">
+                <div id="smtp-test-result" class="mb-3" style="display:none"></div>
                 <div class="row g-3">
                     <div class="col-sm-6">
                         <label class="form-label fw-medium small">Servidor SMTP</label>
@@ -131,5 +137,37 @@
         </button>
     </form>
 </div>
+
+<script>
+function testSmtp() {
+    const btn = event.target.closest('button');
+    const result = document.getElementById('smtp-test-result');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Enviando...';
+    result.style.display = 'none';
+
+    fetch('<?= baseUrl("settings/testEmail") ?>', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            result.style.display = 'block';
+            if (data.success) {
+                result.className = 'mb-3 alert alert-success py-2';
+                result.innerHTML = '<small><i class="bi bi-check-circle"></i> ' + data.message + '</small>';
+            } else {
+                result.className = 'mb-3 alert alert-danger py-2';
+                result.innerHTML = '<small><i class="bi bi-x-circle"></i> ' + data.message + '</small>';
+            }
+        })
+        .catch(() => {
+            result.style.display = 'block';
+            result.className = 'mb-3 alert alert-danger py-2';
+            result.innerHTML = '<small>Erro na requisição.</small>';
+        })
+        .finally(() => {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-send-check"></i> Testar';
+        });
+}
+</script>
 
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>

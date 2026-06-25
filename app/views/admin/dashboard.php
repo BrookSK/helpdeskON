@@ -69,7 +69,7 @@
                 <div class="card-body p-0">
                     <div class="list-group list-group-flush">
                         <?php foreach (array_slice($tickets, 0, 8) as $t): ?>
-                        <a href="<?= baseUrl('tickets/view/' . $t['id']) ?>" class="list-group-item list-group-item-action px-3 py-2">
+                        <a href="<?= baseUrl('tickets/show/' . $t['id']) ?>" class="list-group-item list-group-item-action px-3 py-2">
                             <div class="d-flex justify-content-between align-items-center">
                                 <div class="text-truncate me-2">
                                     <span class="fw-medium">#<?= $t['id'] ?></span>

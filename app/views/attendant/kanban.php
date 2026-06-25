@@ -34,7 +34,7 @@
                         <span class="badge bg-secondary rounded-pill" style="font-size:0.7rem"><?= count($grouped[$status] ?? []) ?></span>
                     </div>
                     <?php foreach (($grouped[$status] ?? []) as $ticket): ?>
-                    <a href="<?= baseUrl('tickets/view/' . $ticket['id']) ?>" class="text-decoration-none">
+                    <a href="<?= baseUrl('tickets/show/' . $ticket['id']) ?>" class="text-decoration-none">
                         <div class="kanban-card">
                             <div class="d-flex justify-content-between align-items-start mb-1">
                                 <span class="text-muted" style="font-size:0.72rem">#<?= $ticket['id'] ?></span>

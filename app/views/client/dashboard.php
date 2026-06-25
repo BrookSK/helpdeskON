@@ -71,7 +71,7 @@
                             <td><span class="badge-status badge-<?= $t['status'] ?>"><?= ucfirst(str_replace('_', ' ', $t['status'])) ?></span></td>
                             <td><span class="priority-<?= $t['priority'] ?>"><?= ucfirst($t['priority']) ?></span></td>
                             <td><?= date('d/m/Y', strtotime($t['created_at'])) ?></td>
-                            <td><a href="<?= baseUrl('tickets/view/' . $t['id']) ?>" class="btn btn-sm btn-outline-primary">Ver</a></td>
+                            <td><a href="<?= baseUrl('tickets/show/' . $t['id']) ?>" class="btn btn-sm btn-outline-primary">Ver</a></td>
                         </tr>
                         <?php endforeach; ?>
                         <?php if (empty($tickets)): ?>
@@ -83,7 +83,7 @@
             <!-- Mobile cards -->
             <div class="d-md-none p-3">
                 <?php foreach (array_slice($tickets, 0, 10) as $t): ?>
-                <a href="<?= baseUrl('tickets/view/' . $t['id']) ?>" class="d-block text-decoration-none mb-2 p-3 border rounded-3">
+                <a href="<?= baseUrl('tickets/show/' . $t['id']) ?>" class="d-block text-decoration-none mb-2 p-3 border rounded-3">
                     <div class="d-flex justify-content-between align-items-center mb-1">
                         <span class="fw-medium text-dark">#<?= $t['id'] ?> <?= escape($t['title']) ?></span>
                     </div>

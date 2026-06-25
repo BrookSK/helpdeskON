@@ -29,6 +29,7 @@ require_once APP_PATH . '/core/helpers.php';
 // Carregar configurações do banco
 require_once APP_PATH . '/core/Database.php';
 require_once APP_PATH . '/core/Config.php';
+require_once APP_PATH . '/core/Mailer.php';
 
 // Inicializar roteador
 $router = new Router();

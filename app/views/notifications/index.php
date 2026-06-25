@@ -26,7 +26,7 @@
                         </div>
                         <div class="d-flex gap-1 flex-shrink-0">
                             <?php if ($n['ticket_id']): ?>
-                            <a href="<?= baseUrl('tickets/view/' . $n['ticket_id']) ?>" class="btn btn-sm btn-outline-primary">Ver</a>
+                            <a href="<?= baseUrl('tickets/show/' . $n['ticket_id']) ?>" class="btn btn-sm btn-outline-primary">Ver</a>
                             <?php endif; ?>
                             <?php if (!$n['is_read']): ?>
                             <button onclick="markRead(<?= $n['id'] ?>)" class="btn btn-sm btn-outline-secondary" title="Lida">

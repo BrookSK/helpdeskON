@@ -75,4 +75,38 @@ class SettingsController extends Controller
         flash('success', 'Configuração do banco de dados salva!');
         $this->redirect('settings');
     }
+
+    // Testar envio de email SMTP
+    public function testEmail()
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            $this->json(['success' => false, 'message' => 'Método inválido'], 405);
+        }
+
+        $fromEmail = Config::get('smtp_from_email');
+        $smtpHost = Config::get('smtp_host');
+        $adminEmail = $_SESSION['user_email'] ?? '';
+
+        if (empty($smtpHost) || empty($fromEmail)) {
+            $this->json(['success' => false, 'message' => 'SMTP não configurado. Preencha os campos e salve antes de testar.']);
+        }
+
+        $toEmail = $adminEmail ?: $fromEmail;
+        $subject = 'Teste de Email - ON Solutions Helpdesk';
+        $body = Mailer::template(
+            'Teste de Email',
+            '<p>Este é um email de teste enviado pelo sistema ON Solutions Helpdesk.</p>
+             <p>Se você está recebendo este email, a configuração SMTP está funcionando corretamente!</p>
+             <p style="font-size:0.8rem;color:#999;">Enviado em: ' . date('d/m/Y H:i:s') . '</p>'
+        );
+
+        $sent = Mailer::send($toEmail, $subject, $body);
+
+        if ($sent) {
+            $this->json(['success' => true, 'message' => "Email de teste enviado para {$toEmail}!"]);
+        } else {
+            $this->json(['success' => false, 'message' => 'Falha no envio. Verifique as credenciais SMTP.']);
+        }
+    }
 }
