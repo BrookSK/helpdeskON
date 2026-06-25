@@ -14,7 +14,7 @@
         <div class="alert alert-success alert-dismissible fade show"><?= escape($msg) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
     <?php endif; ?>
 
-    <form action="<?= baseUrl('settings/save') ?>" method="POST">
+    <form action="<?= baseUrl('settings/save') ?>" method="POST" enctype="multipart/form-data">
         <!-- Geral -->
         <div class="card mb-4">
             <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-gear"></i> Geral</h6></div>
@@ -27,6 +27,60 @@
                     <div class="col-sm-6">
                         <label class="form-label fw-medium small">Email do Sistema</label>
                         <input type="email" name="app_email" class="form-control form-control-sm" value="<?= escape($settings['app_email'] ?? '') ?>">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Logo e Favicon -->
+        <div class="card mb-4">
+            <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-image"></i> Logo e Favicon</h6></div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-sm-6">
+                        <label class="form-label fw-medium small">Logo do Sistema</label>
+                        <?php if (!empty($settings['app_logo'])): ?>
+                        <div class="mb-2">
+                            <img src="<?= baseUrl($settings['app_logo']) ?>" alt="Logo" style="max-height:50px;background:#1a1a2e;padding:8px 12px;border-radius:8px;">
+                        </div>
+                        <?php endif; ?>
+                        <input type="file" name="app_logo" class="form-control form-control-sm" accept="image/*">
+                        <small class="text-muted">PNG ou SVG recomendado. Fundo transparente.</small>
+                    </div>
+                    <div class="col-sm-6">
+                        <label class="form-label fw-medium small">Favicon</label>
+                        <?php if (!empty($settings['app_favicon'])): ?>
+                        <div class="mb-2">
+                            <img src="<?= baseUrl($settings['app_favicon']) ?>" alt="Favicon" style="width:32px;height:32px;border-radius:4px;border:1px solid #ddd;">
+                        </div>
+                        <?php endif; ?>
+                        <input type="file" name="app_favicon" class="form-control form-control-sm" accept="image/*,.ico">
+                        <small class="text-muted">ICO, PNG ou SVG. Tamanho ideal: 32x32 ou 64x64.</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- WhatsApp Flutuante -->
+        <div class="card mb-4">
+            <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-whatsapp"></i> WhatsApp Flutuante</h6></div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-12">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" name="whatsapp_enabled" value="1" id="whatsappEnabled" <?= ($settings['whatsapp_enabled'] ?? '') === '1' ? 'checked' : '' ?>>
+                            <label class="form-check-label fw-medium small" for="whatsappEnabled">Botão flutuante ativado</label>
+                        </div>
+                    </div>
+                    <div class="col-sm-6">
+                        <label class="form-label fw-medium small">Número do WhatsApp</label>
+                        <input type="text" name="whatsapp_number" class="form-control form-control-sm" value="<?= escape($settings['whatsapp_number'] ?? '') ?>" placeholder="5511999999999">
+                        <small class="text-muted">Código do país + DDD + número, sem espaços.</small>
+                    </div>
+                    <div class="col-sm-6">
+                        <label class="form-label fw-medium small">Mensagem Padrão</label>
+                        <input type="text" name="whatsapp_message" class="form-control form-control-sm" value="<?= escape($settings['whatsapp_message'] ?? 'Olá! Preciso de ajuda.') ?>">
+                        <small class="text-muted">Texto pré-preenchido no WhatsApp.</small>
                     </div>
                 </div>
             </div>

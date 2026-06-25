@@ -24,6 +24,7 @@ class SettingsController extends Controller
             'openai_api_key',
             'webhook_url', 'webhook_phone', 'webhook_name', 'webhook_enabled',
             'webhook_message_template',
+            'whatsapp_number', 'whatsapp_message', 'whatsapp_enabled',
         ];
 
         foreach ($fields as $field) {
@@ -32,14 +33,56 @@ class SettingsController extends Controller
             }
         }
 
-        // Checkbox
+        // Checkboxes
         if (!isset($_POST['webhook_enabled'])) {
             Config::set('webhook_enabled', '0');
+        }
+        if (!isset($_POST['whatsapp_enabled'])) {
+            Config::set('whatsapp_enabled', '0');
+        }
+
+        // Upload de Logo
+        if (!empty($_FILES['app_logo']['name']) && $_FILES['app_logo']['error'] === UPLOAD_ERR_OK) {
+            $logoPath = $this->uploadBrandFile($_FILES['app_logo'], 'logo');
+            if ($logoPath) {
+                Config::set('app_logo', $logoPath);
+            }
+        }
+
+        // Upload de Favicon
+        if (!empty($_FILES['app_favicon']['name']) && $_FILES['app_favicon']['error'] === UPLOAD_ERR_OK) {
+            $faviconPath = $this->uploadBrandFile($_FILES['app_favicon'], 'favicon');
+            if ($faviconPath) {
+                Config::set('app_favicon', $faviconPath);
+            }
         }
 
         Config::reload();
         flash('success', 'Configurações salvas com sucesso!');
         $this->redirect('settings');
+    }
+
+    private function uploadBrandFile($file, $prefix)
+    {
+        $allowedTypes = ['image/png', 'image/jpeg', 'image/svg+xml', 'image/gif', 'image/x-icon', 'image/vnd.microsoft.icon', 'image/webp'];
+        if (!in_array($file['type'], $allowedTypes)) {
+            return null;
+        }
+        if ($file['size'] > 2 * 1024 * 1024) { // 2MB max
+            return null;
+        }
+
+        $ext = pathinfo($file['name'], PATHINFO_EXTENSION);
+        $fileName = $prefix . '_' . time() . '.' . $ext;
+        $uploadDir = PUBLIC_PATH . '/uploads/brand';
+        if (!is_dir($uploadDir)) {
+            mkdir($uploadDir, 0755, true);
+        }
+        $filePath = 'uploads/brand/' . $fileName;
+        if (move_uploaded_file($file['tmp_name'], PUBLIC_PATH . '/' . $filePath)) {
+            return $filePath;
+        }
+        return null;
     }
 
     // Configuração do banco via tela (primeira execução)

@@ -3,7 +3,12 @@
     <button class="btn btn-sm btn-outline-secondary" id="btn-toggle-sidebar" aria-label="Menu">
         <i class="bi bi-list fs-5"></i>
     </button>
+    <?php $logoUrlMobile = Config::get('app_logo'); ?>
+    <?php if ($logoUrlMobile): ?>
+    <img src="<?= baseUrl($logoUrlMobile) ?>" alt="Logo" style="max-height:28px;">
+    <?php else: ?>
     <span class="logo-text">ON</span><span class="fw-light"> Solutions</span>
+    <?php endif; ?>
 </div>
 
 <!-- Overlay -->
@@ -12,8 +17,13 @@
 <!-- Sidebar -->
 <div class="sidebar" id="sidebar">
     <div class="sidebar-header">
+        <?php $logoUrl = Config::get('app_logo'); ?>
+        <?php if ($logoUrl): ?>
+        <img src="<?= baseUrl($logoUrl) ?>" alt="Logo" style="max-height:38px;max-width:180px;">
+        <?php else: ?>
         <span class="logo-text">ON</span>
         <span class="text-white fw-light"> Solutions</span>
+        <?php endif; ?>
         <div style="color:#00BFA6;font-size:0.78rem;font-weight:500;margin-top:3px;">Helpdesk</div>
     </div>
     <nav class="mt-2 flex-grow-1" style="overflow-y:auto;">
