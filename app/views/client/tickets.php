@@ -5,8 +5,8 @@
 <div class="main-content">
     <div class="top-bar">
         <div>
-            <h5 class="mb-0">Minhas Demandas</h5>
-            <small class="text-muted">Acompanhe suas solicitações</small>
+            <h5 class="mb-0"><?= !empty($isOwner) ? 'Demandas da Empresa' : 'Minhas Demandas' ?></h5>
+            <small class="text-muted"><?= !empty($isOwner) ? 'Todas as demandas da sua empresa' : 'Acompanhe suas solicitações' ?></small>
         </div>
         <a href="<?= baseUrl('tickets/create') ?>" class="btn btn-primary btn-sm">
             <i class="bi bi-plus-lg"></i> Nova Demanda
@@ -26,6 +26,7 @@
                         <tr>
                             <th>#</th>
                             <th>Título</th>
+                            <?php if (!empty($isOwner)): ?><th>Solicitante</th><?php endif; ?>
                             <th>Categoria</th>
                             <th>Status</th>
                             <th>Prioridade</th>
@@ -39,6 +40,7 @@
                         <tr>
                             <td><?= $t['client_ticket_number'] ?? $t['id'] ?></td>
                             <td class="text-truncate" style="max-width:200px"><?= escape($t['title']) ?></td>
+                            <?php if (!empty($isOwner)): ?><td style="font-size:0.85rem"><?= escape($t['client_name'] ?? '-') ?></td><?php endif; ?>
                             <td><?= escape($t['category'] ?? '-') ?></td>
                             <td><span class="badge-status badge-<?= $t['status'] ?>"><?= statusLabel($t['status']) ?></span></td>
                             <td><span class="priority-<?= $t['priority'] ?>"><?= priorityLabel($t['priority']) ?></span></td>
@@ -48,7 +50,7 @@
                         </tr>
                         <?php endforeach; ?>
                         <?php if (empty($tickets)): ?>
-                        <tr><td colspan="8" class="text-center text-muted py-4">Nenhuma demanda encontrada.</td></tr>
+                        <tr><td colspan="<?= !empty($isOwner) ? 9 : 8 ?>" class="text-center text-muted py-4">Nenhuma demanda encontrada.</td></tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
@@ -62,6 +64,9 @@
                         <span class="badge-status badge-<?= $t['status'] ?>"><?= statusLabel($t['status']) ?></span>
                     </div>
                     <div class="d-flex gap-2 align-items-center flex-wrap" style="font-size:0.75rem">
+                        <?php if (!empty($isOwner) && !empty($t['client_name'])): ?>
+                        <span class="text-dark fw-medium"><i class="bi bi-person"></i> <?= escape($t['client_name']) ?></span>
+                        <?php endif; ?>
                         <span class="priority-<?= $t['priority'] ?>"><?= priorityLabel($t['priority']) ?></span>
                         <span class="text-muted"><?= escape($t['attendant_name'] ?? 'Aguardando') ?></span>
                         <span class="text-muted"><?= timeAgo($t['created_at']) ?></span>

@@ -19,7 +19,12 @@ class DashboardController extends Controller
         ];
 
         if ($user['role'] === 'client') {
-            $data['tickets'] = $ticketModel->getByClient($user['id']);
+            $fullUser = (new User())->findById($user['id']);
+            if ($fullUser['is_company_owner'] && $fullUser['company_id']) {
+                $data['tickets'] = $ticketModel->getByCompany($fullUser['company_id']);
+            } else {
+                $data['tickets'] = $ticketModel->getByClient($user['id']);
+            }
             $this->view('client/dashboard', $data);
         } elseif ($user['role'] === 'attendant') {
             $data['tickets'] = $ticketModel->getByAttendant($user['id']);

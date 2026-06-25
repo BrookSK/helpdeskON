@@ -20,8 +20,15 @@ class TicketsController extends Controller
         $user = $this->currentUser();
 
         if ($user['role'] === 'client') {
-            $tickets = $this->ticketModel->getByClient($user['id']);
-            $this->view('client/tickets', ['user' => $user, 'tickets' => $tickets]);
+            $fullUser = (new User())->findById($user['id']);
+            // Dono da empresa vê todos os tickets da empresa
+            if ($fullUser['is_company_owner'] && $fullUser['company_id']) {
+                $tickets = $this->ticketModel->getByCompany($fullUser['company_id']);
+                $this->view('client/tickets', ['user' => $user, 'tickets' => $tickets, 'isOwner' => true]);
+            } else {
+                $tickets = $this->ticketModel->getByClient($user['id']);
+                $this->view('client/tickets', ['user' => $user, 'tickets' => $tickets, 'isOwner' => false]);
+            }
         } else {
             $filters = [];
             if (!empty($_GET['status'])) $filters['status'] = $_GET['status'];
@@ -131,7 +138,16 @@ class TicketsController extends Controller
 
         // Verificar permissão
         if ($user['role'] === 'client' && $ticket['client_id'] != $user['id']) {
-            $this->redirect('tickets');
+            // Dono da empresa pode ver tickets de membros da empresa
+            $fullUser = (new User())->findById($user['id']);
+            if ($fullUser['is_company_owner'] && $fullUser['company_id']) {
+                $ticketOwner = (new User())->findById($ticket['client_id']);
+                if (!$ticketOwner || $ticketOwner['company_id'] != $fullUser['company_id']) {
+                    $this->redirect('tickets');
+                }
+            } else {
+                $this->redirect('tickets');
+            }
         }
 
         $messages = $this->messageModel->getByTicket($id);

@@ -35,6 +35,19 @@ class Ticket
         );
     }
 
+    public function getByCompany($companyId)
+    {
+        return $this->db->fetchAll(
+            "SELECT t.*, a.name as attendant_name, c.name as client_name
+             FROM tickets t
+             LEFT JOIN users a ON t.attendant_id = a.id
+             LEFT JOIN users c ON t.client_id = c.id
+             WHERE c.company_id = ?
+             ORDER BY t.updated_at DESC",
+            [$companyId]
+        );
+    }
+
     public function getByAttendant($attendantId)
     {
         return $this->db->fetchAll(
