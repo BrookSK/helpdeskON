@@ -26,7 +26,7 @@
         <?php endif; ?>
         <div style="color:#00BFA6;font-size:0.78rem;font-weight:500;margin-top:3px;">Helpdesk</div>
     </div>
-    <nav class="mt-2 flex-grow-1" style="overflow-y:auto;">
+    <nav class="sidebar-nav">
         <ul class="nav flex-column">
             <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'dashboard' ? 'active' : '' ?>" href="<?= baseUrl('dashboard') ?>">

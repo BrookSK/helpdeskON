@@ -87,11 +87,38 @@
             padding: 18px 15px;
             text-align: center;
             border-bottom: 1px solid rgba(255,255,255,0.08);
+            flex-shrink: 0;
         }
         .sidebar-footer {
             margin-top: auto;
             padding: 15px;
             border-top: 1px solid rgba(255,255,255,0.08);
+            flex-shrink: 0;
+        }
+        .sidebar-nav {
+            flex: 1;
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding: 8px 0;
+        }
+        /* Scrollbar estilizada para sidebar */
+        .sidebar-nav::-webkit-scrollbar {
+            width: 5px;
+        }
+        .sidebar-nav::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .sidebar-nav::-webkit-scrollbar-thumb {
+            background: rgba(0, 191, 166, 0.3);
+            border-radius: 10px;
+        }
+        .sidebar-nav::-webkit-scrollbar-thumb:hover {
+            background: rgba(0, 191, 166, 0.5);
+        }
+        /* Firefox */
+        .sidebar-nav {
+            scrollbar-width: thin;
+            scrollbar-color: rgba(0, 191, 166, 0.3) transparent;
         }
 
         /* ===== MAIN CONTENT ===== */
