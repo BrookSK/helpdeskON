@@ -50,11 +50,15 @@
                     <i class="bi bi-folder"></i> Documentos
                 </a>
             </li>
+            <?php
+            $sidebarFullUser = (new User())->findById($user['id'] ?? 0);
+            if ($sidebarFullUser && $sidebarFullUser['is_company_owner']): ?>
             <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'subusers' ? 'active' : '' ?>" href="<?= baseUrl('subusers') ?>">
                     <i class="bi bi-people"></i> Minha Equipe
                 </a>
             </li>
+            <?php endif; ?>
             <?php endif; ?>
 
             <?php if (in_array($user['role'] ?? '', ['super_admin', 'attendant'])): ?>

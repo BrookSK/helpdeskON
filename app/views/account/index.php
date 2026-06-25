@@ -42,6 +42,17 @@
                             <label class="form-label fw-medium">Papel</label>
                             <input type="text" class="form-control" value="<?= roleLabel($userData['role']) ?>" disabled>
                         </div>
+                        <?php
+                        $accountCompany = null;
+                        if (!empty($userData['company_id'])) {
+                            $accountCompany = (new Company())->findById($userData['company_id']);
+                        }
+                        if ($accountCompany): ?>
+                        <div class="mb-3">
+                            <label class="form-label fw-medium">Empresa</label>
+                            <input type="text" class="form-control" value="<?= escape($accountCompany['name']) ?>" disabled>
+                        </div>
+                        <?php endif; ?>
                         <div class="mb-3">
                             <label class="form-label fw-medium">Membro desde</label>
                             <input type="text" class="form-control" value="<?= date('d/m/Y', strtotime($userData['created_at'])) ?>" disabled>
