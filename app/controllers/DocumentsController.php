@@ -19,7 +19,7 @@ class DocumentsController extends Controller
             $documents = $this->docModel->getForTeam();
         } else {
             $companyId = $fullUser['company_id'] ?? null;
-            $documents = $companyId ? $this->docModel->getForClient($companyId, $user['id']) : [];
+            $documents = $this->docModel->getForClient($companyId, $user['id']);
         }
 
         $this->view('documents/index', [

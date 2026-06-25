@@ -15,10 +15,10 @@ class SubusersController extends Controller
         $user = $this->currentUser();
         $fullUser = $this->userModel->findById($user['id']);
 
-        // Só o dono da empresa pode gerenciar sub-usuários
+        // Se não é dono da empresa, mostrar mensagem
         if (!$fullUser['is_company_owner']) {
-            flash('error', 'Acesso restrito ao responsável da empresa.');
-            $this->redirect('dashboard');
+            $this->view('client/subusers_restricted', ['user' => $user]);
+            return;
         }
 
         $companyId = $fullUser['company_id'];

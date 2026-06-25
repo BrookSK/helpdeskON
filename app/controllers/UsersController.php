@@ -124,6 +124,9 @@ class UsersController extends Controller
         $password = $_POST['password'] ?? '';
         $phone = trim($_POST['phone'] ?? '');
         $role = $_POST['role'] ?? 'client';
+        $companyId = $_POST['company_id'] ?? null;
+        $companyName = trim($_POST['company_name'] ?? '');
+        $isOwner = isset($_POST['is_company_owner']) ? 1 : 0;
 
         if (empty($name) || empty($email)) {
             flash('error', 'Nome e email são obrigatórios.');
@@ -136,17 +139,33 @@ class UsersController extends Controller
             $this->redirect('users/edit/' . $id);
         }
 
+        // Resolver empresa
+        $finalCompanyId = null;
+        if ($role === 'client') {
+            if (!empty($companyName) && empty($companyId)) {
+                $companyModel = new Company();
+                $finalCompanyId = $companyModel->create(['name' => $companyName, 'email' => $email, 'phone' => $phone]);
+            } elseif (!empty($companyId)) {
+                $finalCompanyId = (int)$companyId;
+            }
+        }
+
         $data = [
             'name' => $name,
             'email' => $email,
             'phone' => $phone,
             'role' => $role,
+            'company_id' => $finalCompanyId,
+            'is_company_owner' => ($role === 'client') ? $isOwner : 0,
         ];
+
         if (!empty($password)) {
-            $data['password'] = $password;
+            $data['password'] = password_hash($password, PASSWORD_DEFAULT);
         }
 
-        $this->userModel->update($id, $data);
+        $db = Database::getInstance();
+        $db->update('users', $data, 'id = ?', [$id]);
+
         flash('success', 'Usuário atualizado com sucesso!');
         $this->redirect('users');
     }

@@ -34,13 +34,25 @@ class SharedDocument
 
     public function getForClient($companyId, $userId)
     {
+        // Mostra: docs da empresa dele, docs com visibilidade 'all', ou docs que ele mesmo enviou
+        if ($companyId) {
+            return $this->db->fetchAll(
+                "SELECT d.*, u.name as uploaded_by
+                 FROM shared_documents d
+                 LEFT JOIN users u ON d.user_id = u.id
+                 WHERE d.company_id = ? OR d.visibility = 'all' OR d.user_id = ?
+                 ORDER BY d.created_at DESC",
+                [$companyId, $userId]
+            );
+        }
+        // Se não tem empresa, mostra só os dele e os de visibilidade 'all'
         return $this->db->fetchAll(
             "SELECT d.*, u.name as uploaded_by
              FROM shared_documents d
              LEFT JOIN users u ON d.user_id = u.id
-             WHERE d.company_id = ? OR d.visibility = 'all'
+             WHERE d.visibility = 'all' OR d.user_id = ?
              ORDER BY d.created_at DESC",
-            [$companyId]
+            [$userId]
         );
     }
 

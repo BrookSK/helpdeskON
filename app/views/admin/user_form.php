@@ -67,15 +67,19 @@
                             </div>
                             <?php else: ?>
                             <div class="col-sm-6">
-                                <label class="form-label fw-medium small">Empresa</label>
-                                <select name="company_id" class="form-select form-select-sm">
-                                    <option value="">Nenhuma</option>
+                                <label class="form-label fw-medium small">Empresa existente</label>
+                                <select name="company_id" class="form-select form-select-sm" id="company-select" onchange="toggleNewCompany()">
+                                    <option value="">Nova empresa</option>
                                     <?php
                                     $companies = (new Company())->getAll();
                                     foreach ($companies as $c): ?>
                                     <option value="<?= $c['id'] ?>" <?= ($editUser['company_id'] ?? '') == $c['id'] ? 'selected' : '' ?>><?= escape($c['name']) ?></option>
                                     <?php endforeach; ?>
                                 </select>
+                            </div>
+                            <div class="col-sm-6" id="new-company-field" style="<?= !empty($editUser['company_id']) ? 'display:none' : '' ?>">
+                                <label class="form-label fw-medium small">Nome da nova empresa</label>
+                                <input type="text" name="company_name" class="form-control form-control-sm" placeholder="Nome da empresa">
                             </div>
                             <?php endif; ?>
                             <div class="col-12">
