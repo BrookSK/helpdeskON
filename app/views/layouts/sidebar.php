@@ -89,7 +89,7 @@
                 <div class="small fw-medium text-truncate"><?= escape($user['name'] ?? '') ?></div>
                 <div style="font-size:0.68rem;color:rgba(255,255,255,0.5);"><?= ucfirst(str_replace('_', ' ', $user['role'] ?? '')) ?></div>
             </div>
-            <a href="<?= baseUrl('login/logout') ?>" class="text-muted ms-2 flex-shrink-0" title="Sair">
+            <a href="<?= baseUrl('login/logout') ?>" class="btn btn-sm btn-outline-danger ms-2 flex-shrink-0" title="Sair" style="padding:5px 10px;border-radius:8px;">
                 <i class="bi bi-box-arrow-right"></i>
             </a>
         </div>
