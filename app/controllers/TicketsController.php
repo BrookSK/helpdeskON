@@ -60,6 +60,7 @@ class TicketsController extends Controller
         $user = $this->currentUser();
         $title = trim($_POST['title'] ?? '');
         $description = trim($_POST['description'] ?? '');
+        $transcription = trim($_POST['transcription'] ?? '');
         $category = trim($_POST['category'] ?? '');
         $priority = $_POST['priority'] ?? 'medium';
 
@@ -68,14 +69,20 @@ class TicketsController extends Controller
             $this->redirect('tickets/create');
         }
 
-        $ticketId = $this->ticketModel->create([
+        $ticketData = [
             'client_id' => $user['id'],
             'title' => $title,
             'description' => $description,
             'category' => $category,
             'priority' => $priority,
             'status' => 'open',
-        ]);
+        ];
+
+        if (!empty($transcription)) {
+            $ticketData['transcription'] = $transcription;
+        }
+
+        $ticketId = $this->ticketModel->create($ticketData);
 
         // Upload de arquivos
         if (!empty($_FILES['attachments']['name'][0])) {

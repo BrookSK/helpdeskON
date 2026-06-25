@@ -65,6 +65,7 @@
                         <label class="form-label fw-medium">Descrição *</label>
                         <textarea name="description" id="field-description" class="form-control" rows="5" placeholder="Descreva detalhadamente sua demanda..." required></textarea>
                     </div>
+                    <input type="hidden" name="transcription" id="field-transcription" value="">
                     <div class="col-12">
                         <label class="form-label fw-medium">Anexos</label>
                         <input type="file" name="attachments[]" class="form-control" multiple accept="image/*,.pdf,.doc,.docx">
@@ -157,6 +158,7 @@ async function processAudio() {
             if (data.success && data.organized) {
                 document.getElementById('field-title').value = data.organized.title || '';
                 document.getElementById('field-description').value = data.organized.description || data.transcription;
+                document.getElementById('field-transcription').value = data.transcription || '';
                 if (data.organized.category) {
                     document.getElementById('field-category').value = data.organized.category;
                 }

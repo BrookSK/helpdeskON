@@ -53,6 +53,15 @@
                     <hr>
                     <h6 class="fw-bold" style="font-size:0.88rem">Descrição</h6>
                     <div class="p-3 bg-light rounded" style="font-size:0.85rem;line-height:1.6"><?= nl2br(escape($ticket['description'])) ?></div>
+
+                    <?php if (!empty($ticket['transcription'])): ?>
+                    <div class="mt-3">
+                        <h6 class="fw-bold" style="font-size:0.88rem"><i class="bi bi-mic"></i> Transcrição Original</h6>
+                        <div class="p-3 rounded border" style="font-size:0.83rem;line-height:1.6;background:#f0faf8;border-color:#b2f2e8 !important;">
+                            <?= nl2br(escape($ticket['transcription'])) ?>
+                        </div>
+                    </div>
+                    <?php endif; ?>
                 </div>
             </div>
 
