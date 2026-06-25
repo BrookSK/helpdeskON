@@ -303,18 +303,81 @@ class TicketsController extends Controller
         ];
 
         $label = $statusLabels[$newStatus] ?? $newStatus;
-        $message = "Sua demanda \"{$ticket['title']}\" teve o status alterado para: {$label}";
-
         $db = Database::getInstance();
-        $db->insert('notifications', [
-            'user_id' => $ticket['client_id'],
-            'ticket_id' => $ticket['id'],
-            'title' => 'Status atualizado',
-            'message' => $message,
-            'type' => 'system',
-        ]);
+        $userModel = new User();
+        $currentUser = $this->currentUser();
 
-        $this->triggerWebhook($message, $ticket['client_phone'] ?? '');
+        // Mensagem para o cliente
+        $clientMessage = "Sua demanda \"{$ticket['title']}\" teve o status alterado para: {$label}";
+        // Mensagem para atendentes/admins
+        $internalMessage = "A demanda #{$ticket['id']} \"{$ticket['title']}\" foi alterada para: {$label}";
+
+        // Lista de quem será notificado (evitar duplicatas)
+        $notifiedIds = [];
+
+        // 1. Notificar o cliente
+        if ($ticket['client_id'] && $ticket['client_id'] != $currentUser['id']) {
+            $db->insert('notifications', [
+                'user_id' => $ticket['client_id'],
+                'ticket_id' => $ticket['id'],
+                'title' => 'Status atualizado',
+                'message' => $clientMessage,
+                'type' => 'system',
+            ]);
+            $notifiedIds[] = $ticket['client_id'];
+
+            // Enviar email ao cliente
+            $client = $userModel->findById($ticket['client_id']);
+            if ($client && $client['email']) {
+                $htmlBody = Mailer::template('Status Atualizado', "
+                    <p>Olá, <strong>" . htmlspecialchars($client['name']) . "</strong>!</p>
+                    <p>{$clientMessage}</p>
+                    <p><a href='" . baseUrl('tickets/show/' . $ticket['id']) . "' style='color:#00BFA6;font-weight:600;'>Ver demanda</a></p>
+                ");
+                Mailer::send($client['email'], "Status atualizado - #{$ticket['id']}", $htmlBody);
+            }
+        }
+
+        // 2. Notificar o atendente atribuído (se não foi ele quem fez a ação)
+        if ($ticket['attendant_id'] && $ticket['attendant_id'] != $currentUser['id'] && !in_array($ticket['attendant_id'], $notifiedIds)) {
+            $db->insert('notifications', [
+                'user_id' => $ticket['attendant_id'],
+                'ticket_id' => $ticket['id'],
+                'title' => 'Status atualizado',
+                'message' => $internalMessage,
+                'type' => 'system',
+            ]);
+            $notifiedIds[] = $ticket['attendant_id'];
+
+            // Enviar email ao atendente
+            $attendant = $userModel->findById($ticket['attendant_id']);
+            if ($attendant && $attendant['email']) {
+                $htmlBody = Mailer::template('Status Atualizado', "
+                    <p>Olá, <strong>" . htmlspecialchars($attendant['name']) . "</strong>!</p>
+                    <p>{$internalMessage}</p>
+                    <p><a href='" . baseUrl('tickets/show/' . $ticket['id']) . "' style='color:#00BFA6;font-weight:600;'>Ver demanda</a></p>
+                ");
+                Mailer::send($attendant['email'], "Status atualizado - #{$ticket['id']}", $htmlBody);
+            }
+        }
+
+        // 3. Notificar todos os super admins (que não sejam quem fez a ação)
+        $admins = $db->fetchAll("SELECT id, email, name FROM users WHERE role = 'super_admin' AND id != ? AND is_active = 1", [$currentUser['id']]);
+        foreach ($admins as $admin) {
+            if (!in_array($admin['id'], $notifiedIds)) {
+                $db->insert('notifications', [
+                    'user_id' => $admin['id'],
+                    'ticket_id' => $ticket['id'],
+                    'title' => 'Status atualizado',
+                    'message' => $internalMessage,
+                    'type' => 'system',
+                ]);
+                $notifiedIds[] = $admin['id'];
+            }
+        }
+
+        // 4. Webhook
+        $this->triggerWebhook($clientMessage, $ticket['client_phone'] ?? '');
     }
 
     private function sendMessageNotification($ticket, $sender, $messageText)
