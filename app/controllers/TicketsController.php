@@ -142,12 +142,18 @@ class TicketsController extends Controller
     {
         $this->requireRole(['super_admin', 'attendant']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
+            if ($this->isAjax()) {
+                $this->json(['error' => 'Requisição inválida'], 400);
+            }
             $this->redirect('tickets');
         }
 
         $status = $_POST['status'] ?? '';
         $validStatuses = ['open', 'in_progress', 'waiting_client', 'completed', 'denied', 'archived'];
         if (!in_array($status, $validStatuses)) {
+            if ($this->isAjax()) {
+                $this->json(['error' => 'Status inválido'], 400);
+            }
             $this->redirect('tickets/show/' . $id);
         }
 
@@ -156,6 +162,10 @@ class TicketsController extends Controller
         // Notificar cliente sobre mudança de status
         $ticket = $this->ticketModel->findById($id);
         $this->sendStatusChangeNotification($ticket, $status);
+
+        if ($this->isAjax()) {
+            $this->json(['success' => true, 'status' => $status]);
+        }
 
         flash('success', 'Status atualizado com sucesso!');
         $this->redirect('tickets/show/' . $id);

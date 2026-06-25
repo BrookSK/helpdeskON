@@ -27,6 +27,13 @@ class Controller
         exit;
     }
 
+    protected function isAjax()
+    {
+        return !empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest'
+            || (isset($_SERVER['HTTP_ACCEPT']) && strpos($_SERVER['HTTP_ACCEPT'], 'application/json') !== false)
+            || !empty($_SERVER['HTTP_FETCH']);
+    }
+
     protected function isLoggedIn()
     {
         return isset($_SESSION['user_id']);

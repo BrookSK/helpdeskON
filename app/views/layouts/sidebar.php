@@ -14,7 +14,7 @@
     <div class="sidebar-header">
         <span class="logo-text">ON</span>
         <span class="text-white fw-light"> Solutions</span>
-        <div class="text-muted small mt-1">Helpdesk</div>
+        <div style="color:#00BFA6;font-size:0.78rem;font-weight:500;margin-top:3px;">Helpdesk</div>
     </div>
     <nav class="mt-2 flex-grow-1" style="overflow-y:auto;">
         <ul class="nav flex-column">
