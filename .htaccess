@@ -1,0 +1,17 @@
+RewriteEngine On
+
+# Servir assets diretamente do /public
+RewriteRule ^assets/(.*)$ public/assets/$1 [L]
+RewriteRule ^uploads/(.*)$ public/uploads/$1 [L]
+RewriteRule ^import\.png$ public/import.png [L]
+RewriteRule ^favicon\.ico$ public/favicon.ico [L]
+RewriteRule ^cron-notifications\.php$ public/cron-notifications.php [L]
+RewriteRule ^cron\.php$ public/cron.php [L]
+
+# Se o arquivo ou diretório existir na raiz, entrega direto
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# Caso contrário, envia tudo para o front controller em /public com a URL
+RewriteRule ^(.*)$ public/index.php?url=$1 [QSA,L]

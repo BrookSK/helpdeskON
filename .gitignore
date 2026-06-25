@@ -1,0 +1,14 @@
+# Uploads dos usuários
+public/uploads/tickets/*
+!public/uploads/tickets/.gitkeep
+
+# Configuração local do banco
+config/database.php
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
