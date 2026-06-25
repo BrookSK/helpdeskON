@@ -54,7 +54,7 @@
         /* ===== SIDEBAR ===== */
         .sidebar {
             width: var(--sidebar-width);
-            min-height: 100vh;
+            height: 100vh;
             background: var(--sidebar-bg);
             position: fixed;
             left: 0;
@@ -63,6 +63,7 @@
             transition: transform 0.3s ease;
             display: flex;
             flex-direction: column;
+            overflow: hidden;
         }
         .sidebar .nav-link {
             color: rgba(255,255,255,0.7);
@@ -100,25 +101,27 @@
             overflow-y: auto;
             overflow-x: hidden;
             padding: 8px 0;
+            min-height: 0; /* necessário para flex overflow funcionar */
         }
         /* Scrollbar estilizada para sidebar */
         .sidebar-nav::-webkit-scrollbar {
-            width: 5px;
+            width: 6px;
         }
         .sidebar-nav::-webkit-scrollbar-track {
-            background: transparent;
+            background: rgba(255,255,255,0.05);
+            border-radius: 10px;
         }
         .sidebar-nav::-webkit-scrollbar-thumb {
-            background: rgba(0, 191, 166, 0.3);
+            background: rgba(0, 191, 166, 0.4);
             border-radius: 10px;
         }
         .sidebar-nav::-webkit-scrollbar-thumb:hover {
-            background: rgba(0, 191, 166, 0.5);
+            background: rgba(0, 191, 166, 0.7);
         }
         /* Firefox */
         .sidebar-nav {
             scrollbar-width: thin;
-            scrollbar-color: rgba(0, 191, 166, 0.3) transparent;
+            scrollbar-color: rgba(0, 191, 166, 0.4) rgba(255,255,255,0.05);
         }
 
         /* ===== MAIN CONTENT ===== */
