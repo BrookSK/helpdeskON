@@ -6,7 +6,7 @@
     <div class="top-bar">
         <div>
             <h5 class="mb-0">Demanda #<?= $ticket['id'] ?></h5>
-            <small class="text-muted"><?= escape($ticket['title']) ?></small>
+            <small class="text-muted text-truncate d-block" style="max-width:250px"><?= escape($ticket['title']) ?></small>
         </div>
         <a href="<?= baseUrl('tickets') ?>" class="btn btn-outline-secondary btn-sm">
             <i class="bi bi-arrow-left"></i> Voltar
@@ -21,41 +21,38 @@
     <?php endif; ?>
 
     <div class="row g-4">
-        <!-- Detalhes do ticket -->
+        <!-- Detalhes + Chat -->
         <div class="col-lg-8">
+            <!-- Detalhes -->
             <div class="card mb-4">
-                <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
                     <h6 class="mb-0">Detalhes</h6>
                     <span class="badge-status badge-<?= $ticket['status'] ?>"><?= ucfirst(str_replace('_', ' ', $ticket['status'])) ?></span>
                 </div>
                 <div class="card-body">
-                    <div class="row mb-3">
-                        <div class="col-md-4"><strong>Cliente:</strong></div>
-                        <div class="col-md-8"><?= escape($ticket['client_name']) ?></div>
-                    </div>
-                    <div class="row mb-3">
-                        <div class="col-md-4"><strong>Email:</strong></div>
-                        <div class="col-md-8"><?= escape($ticket['client_email']) ?></div>
-                    </div>
-                    <div class="row mb-3">
-                        <div class="col-md-4"><strong>Categoria:</strong></div>
-                        <div class="col-md-8"><?= escape($ticket['category'] ?? 'Não definida') ?></div>
-                    </div>
-                    <div class="row mb-3">
-                        <div class="col-md-4"><strong>Prioridade:</strong></div>
-                        <div class="col-md-8"><span class="priority-<?= $ticket['priority'] ?> fw-bold"><?= ucfirst($ticket['priority']) ?></span></div>
-                    </div>
-                    <div class="row mb-3">
-                        <div class="col-md-4"><strong>Atendente:</strong></div>
-                        <div class="col-md-8"><?= escape($ticket['attendant_name'] ?? 'Não atribuído') ?></div>
-                    </div>
-                    <div class="row mb-3">
-                        <div class="col-md-4"><strong>Criado em:</strong></div>
-                        <div class="col-md-8"><?= date('d/m/Y H:i', strtotime($ticket['created_at'])) ?></div>
+                    <div class="row g-2" style="font-size:0.88rem">
+                        <div class="col-sm-6">
+                            <strong>Cliente:</strong> <?= escape($ticket['client_name']) ?>
+                        </div>
+                        <div class="col-sm-6">
+                            <strong>Email:</strong> <?= escape($ticket['client_email']) ?>
+                        </div>
+                        <div class="col-sm-6">
+                            <strong>Categoria:</strong> <?= escape($ticket['category'] ?? 'Não definida') ?>
+                        </div>
+                        <div class="col-sm-6">
+                            <strong>Prioridade:</strong> <span class="priority-<?= $ticket['priority'] ?>"><?= ucfirst($ticket['priority']) ?></span>
+                        </div>
+                        <div class="col-sm-6">
+                            <strong>Atendente:</strong> <?= escape($ticket['attendant_name'] ?? 'Não atribuído') ?>
+                        </div>
+                        <div class="col-sm-6">
+                            <strong>Criado:</strong> <?= date('d/m/Y H:i', strtotime($ticket['created_at'])) ?>
+                        </div>
                     </div>
                     <hr>
-                    <h6>Descrição</h6>
-                    <div class="p-3 bg-light rounded"><?= nl2br(escape($ticket['description'])) ?></div>
+                    <h6 class="fw-bold" style="font-size:0.88rem">Descrição</h6>
+                    <div class="p-3 bg-light rounded" style="font-size:0.85rem;line-height:1.6"><?= nl2br(escape($ticket['description'])) ?></div>
                 </div>
             </div>
 
@@ -68,18 +65,18 @@
                 <div class="card-body">
                     <div class="row g-2">
                         <?php foreach ($attachments as $att): ?>
-                        <div class="col-md-4">
+                        <div class="col-6 col-md-4">
                             <div class="border rounded p-2 text-center">
                                 <?php if (strpos($att['file_type'], 'image') !== false): ?>
                                     <a href="<?= baseUrl($att['file_path']) ?>" target="_blank">
-                                        <img src="<?= baseUrl($att['file_path']) ?>" class="img-fluid rounded" style="max-height:120px">
+                                        <img src="<?= baseUrl($att['file_path']) ?>" class="img-fluid rounded" style="max-height:100px;object-fit:cover" alt="Anexo">
                                     </a>
                                 <?php else: ?>
                                     <a href="<?= baseUrl($att['file_path']) ?>" target="_blank" class="text-decoration-none">
-                                        <i class="bi bi-file-earmark fs-1 text-muted"></i>
+                                        <i class="bi bi-file-earmark fs-2 text-muted"></i>
                                     </a>
                                 <?php endif; ?>
-                                <div class="small text-muted mt-1"><?= escape($att['file_name']) ?></div>
+                                <div class="small text-muted mt-1 text-truncate"><?= escape($att['file_name']) ?></div>
                             </div>
                         </div>
                         <?php endforeach; ?>
@@ -105,12 +102,12 @@
                         </div>
                         <?php endforeach; ?>
                         <?php if (empty($messages)): ?>
-                        <p class="text-center text-muted" id="no-messages">Nenhuma mensagem ainda. Inicie a conversa!</p>
+                        <p class="text-center text-muted mb-0" id="no-messages">Nenhuma mensagem. Inicie a conversa!</p>
                         <?php endif; ?>
                     </div>
                     <div class="mt-3 d-flex gap-2">
-                        <input type="text" id="chat-input" class="form-control" placeholder="Digite sua mensagem..." onkeypress="if(event.key==='Enter')sendMessage()">
-                        <button type="button" onclick="sendMessage()" class="btn btn-primary px-3">
+                        <input type="text" id="chat-input" class="form-control form-control-sm" placeholder="Digite sua mensagem..." onkeypress="if(event.key==='Enter')sendMessage()">
+                        <button type="button" onclick="sendMessage()" class="btn btn-primary btn-sm px-3">
                             <i class="bi bi-send"></i>
                         </button>
                     </div>
@@ -123,11 +120,10 @@
             <?php if (in_array($user['role'], ['super_admin', 'attendant'])): ?>
             <!-- Alterar Status -->
             <div class="card mb-3">
-                <div class="card-header bg-white"><h6 class="mb-0">Ações</h6></div>
+                <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.88rem">Alterar Status</h6></div>
                 <div class="card-body">
                     <form action="<?= baseUrl('tickets/updateStatus/' . $ticket['id']) ?>" method="POST">
-                        <label class="form-label fw-medium">Alterar Status</label>
-                        <select name="status" class="form-select mb-2">
+                        <select name="status" class="form-select form-select-sm mb-2">
                             <option value="open" <?= $ticket['status'] === 'open' ? 'selected' : '' ?>>Aberto</option>
                             <option value="in_progress" <?= $ticket['status'] === 'in_progress' ? 'selected' : '' ?>>Em andamento</option>
                             <option value="waiting_client" <?= $ticket['status'] === 'waiting_client' ? 'selected' : '' ?>>Aguardando cliente</option>
@@ -142,10 +138,10 @@
 
             <!-- Atribuir Atendente -->
             <div class="card mb-3">
-                <div class="card-header bg-white"><h6 class="mb-0">Atribuir Atendente</h6></div>
+                <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.88rem">Atribuir Atendente</h6></div>
                 <div class="card-body">
                     <form action="<?= baseUrl('tickets/assign/' . $ticket['id']) ?>" method="POST">
-                        <select name="attendant_id" class="form-select mb-2">
+                        <select name="attendant_id" class="form-select form-select-sm mb-2">
                             <option value="">Selecione</option>
                             <?php foreach ($attendants as $att): ?>
                             <option value="<?= $att['id'] ?>" <?= $ticket['attendant_id'] == $att['id'] ? 'selected' : '' ?>>
@@ -161,14 +157,12 @@
 
             <!-- Upload de anexo -->
             <div class="card mb-3">
-                <div class="card-header bg-white"><h6 class="mb-0">Enviar Anexo</h6></div>
+                <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.88rem">Enviar Anexo</h6></div>
                 <div class="card-body">
-                    <form id="upload-form" enctype="multipart/form-data">
-                        <input type="file" id="upload-file" class="form-control mb-2" accept="image/*,.pdf,.doc,.docx">
-                        <button type="button" onclick="uploadFile()" class="btn btn-outline-primary btn-sm w-100">
-                            <i class="bi bi-upload"></i> Enviar
-                        </button>
-                    </form>
+                    <input type="file" id="upload-file" class="form-control form-control-sm mb-2" accept="image/*,.pdf,.doc,.docx">
+                    <button type="button" onclick="uploadFile()" class="btn btn-outline-primary btn-sm w-100">
+                        <i class="bi bi-upload"></i> Enviar
+                    </button>
                     <div id="upload-result" class="mt-2"></div>
                 </div>
             </div>
@@ -199,7 +193,8 @@ function sendMessage() {
             appendMessage(data.message, true);
             input.value = '';
             lastMessageId = data.message.id;
-            document.getElementById('no-messages')?.remove();
+            const noMsg = document.getElementById('no-messages');
+            if (noMsg) noMsg.remove();
         }
     });
 }
@@ -208,18 +203,16 @@ function appendMessage(msg, isMine) {
     const container = document.getElementById('chat-container');
     const div = document.createElement('div');
     div.className = 'chat-message ' + (isMine ? 'mine' : 'other');
-    div.innerHTML = `
-        <div class="chat-bubble">
-            <div class="chat-sender">${msg.user_name}</div>
-            ${msg.message}
-            <div class="chat-time">${msg.created_at}</div>
-        </div>
-    `;
+    div.innerHTML = `<div class="chat-bubble">
+        <div class="chat-sender">${msg.user_name}</div>
+        ${msg.message}
+        <div class="chat-time">${msg.created_at}</div>
+    </div>`;
     container.appendChild(div);
     container.scrollTop = container.scrollHeight;
 }
 
-// Polling para novas mensagens
+// Polling
 setInterval(() => {
     fetch(`<?= baseUrl("tickets/getMessages/") ?>${ticketId}?last_id=${lastMessageId}`)
         .then(r => r.json())
@@ -235,7 +228,8 @@ setInterval(() => {
                     }
                     lastMessageId = msg.id;
                 });
-                document.getElementById('no-messages')?.remove();
+                const noMsg = document.getElementById('no-messages');
+                if (noMsg) noMsg.remove();
             }
         });
 }, 5000);
@@ -255,16 +249,16 @@ function uploadFile() {
     .then(data => {
         const result = document.getElementById('upload-result');
         if (data.success) {
-            result.innerHTML = '<div class="text-success small">Arquivo enviado com sucesso!</div>';
+            result.innerHTML = '<div class="text-success small"><i class="bi bi-check-circle"></i> Enviado!</div>';
             fileInput.value = '';
-            setTimeout(() => location.reload(), 1000);
+            setTimeout(() => location.reload(), 1200);
         } else {
-            result.innerHTML = '<div class="text-danger small">' + (data.error || 'Erro no upload') + '</div>';
+            result.innerHTML = '<div class="text-danger small">' + (data.error || 'Erro') + '</div>';
         }
     });
 }
 
-// Scroll chat para o final
+// Scroll chat
 document.getElementById('chat-container').scrollTop = document.getElementById('chat-container').scrollHeight;
 </script>
 

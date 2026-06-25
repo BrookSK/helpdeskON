@@ -6,7 +6,7 @@
     <div class="top-bar">
         <div>
             <h5 class="mb-0">Configurações</h5>
-            <small class="text-muted">Configurar sistema, email, IA e webhooks</small>
+            <small class="text-muted">Sistema, email, IA e webhooks</small>
         </div>
     </div>
 
@@ -17,16 +17,16 @@
     <form action="<?= baseUrl('settings/save') ?>" method="POST">
         <!-- Geral -->
         <div class="card mb-4">
-            <div class="card-header bg-white"><h6 class="mb-0"><i class="bi bi-gear"></i> Geral</h6></div>
+            <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-gear"></i> Geral</h6></div>
             <div class="card-body">
                 <div class="row g-3">
-                    <div class="col-md-6">
-                        <label class="form-label fw-medium">Nome do Sistema</label>
-                        <input type="text" name="app_name" class="form-control" value="<?= escape($settings['app_name'] ?? '') ?>">
+                    <div class="col-sm-6">
+                        <label class="form-label fw-medium small">Nome do Sistema</label>
+                        <input type="text" name="app_name" class="form-control form-control-sm" value="<?= escape($settings['app_name'] ?? '') ?>">
                     </div>
-                    <div class="col-md-6">
-                        <label class="form-label fw-medium">Email do Sistema</label>
-                        <input type="email" name="app_email" class="form-control" value="<?= escape($settings['app_email'] ?? '') ?>">
+                    <div class="col-sm-6">
+                        <label class="form-label fw-medium small">Email do Sistema</label>
+                        <input type="email" name="app_email" class="form-control form-control-sm" value="<?= escape($settings['app_email'] ?? '') ?>">
                     </div>
                 </div>
             </div>
@@ -34,40 +34,40 @@
 
         <!-- SMTP -->
         <div class="card mb-4">
-            <div class="card-header bg-white"><h6 class="mb-0"><i class="bi bi-envelope"></i> Configuração de Email (SMTP)</h6></div>
+            <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-envelope"></i> Email (SMTP)</h6></div>
             <div class="card-body">
                 <div class="row g-3">
-                    <div class="col-md-6">
-                        <label class="form-label fw-medium">Servidor SMTP</label>
-                        <input type="text" name="smtp_host" class="form-control" value="<?= escape($settings['smtp_host'] ?? '') ?>" placeholder="smtp.gmail.com">
+                    <div class="col-sm-6">
+                        <label class="form-label fw-medium small">Servidor SMTP</label>
+                        <input type="text" name="smtp_host" class="form-control form-control-sm" value="<?= escape($settings['smtp_host'] ?? '') ?>" placeholder="smtp.gmail.com">
                     </div>
-                    <div class="col-md-3">
-                        <label class="form-label fw-medium">Porta</label>
-                        <input type="text" name="smtp_port" class="form-control" value="<?= escape($settings['smtp_port'] ?? '587') ?>">
+                    <div class="col-6 col-sm-3">
+                        <label class="form-label fw-medium small">Porta</label>
+                        <input type="text" name="smtp_port" class="form-control form-control-sm" value="<?= escape($settings['smtp_port'] ?? '587') ?>">
                     </div>
-                    <div class="col-md-3">
-                        <label class="form-label fw-medium">Criptografia</label>
-                        <select name="smtp_encryption" class="form-select">
+                    <div class="col-6 col-sm-3">
+                        <label class="form-label fw-medium small">Criptografia</label>
+                        <select name="smtp_encryption" class="form-select form-select-sm">
                             <option value="tls" <?= ($settings['smtp_encryption'] ?? '') === 'tls' ? 'selected' : '' ?>>TLS</option>
                             <option value="ssl" <?= ($settings['smtp_encryption'] ?? '') === 'ssl' ? 'selected' : '' ?>>SSL</option>
                             <option value="" <?= empty($settings['smtp_encryption'] ?? '') ? 'selected' : '' ?>>Nenhuma</option>
                         </select>
                     </div>
-                    <div class="col-md-6">
-                        <label class="form-label fw-medium">Usuário SMTP</label>
-                        <input type="text" name="smtp_username" class="form-control" value="<?= escape($settings['smtp_username'] ?? '') ?>">
+                    <div class="col-sm-6">
+                        <label class="form-label fw-medium small">Usuário SMTP</label>
+                        <input type="text" name="smtp_username" class="form-control form-control-sm" value="<?= escape($settings['smtp_username'] ?? '') ?>">
                     </div>
-                    <div class="col-md-6">
-                        <label class="form-label fw-medium">Senha SMTP</label>
-                        <input type="password" name="smtp_password" class="form-control" value="<?= escape($settings['smtp_password'] ?? '') ?>">
+                    <div class="col-sm-6">
+                        <label class="form-label fw-medium small">Senha SMTP</label>
+                        <input type="password" name="smtp_password" class="form-control form-control-sm" value="<?= escape($settings['smtp_password'] ?? '') ?>">
                     </div>
-                    <div class="col-md-6">
-                        <label class="form-label fw-medium">Nome do Remetente</label>
-                        <input type="text" name="smtp_from_name" class="form-control" value="<?= escape($settings['smtp_from_name'] ?? '') ?>">
+                    <div class="col-sm-6">
+                        <label class="form-label fw-medium small">Nome do Remetente</label>
+                        <input type="text" name="smtp_from_name" class="form-control form-control-sm" value="<?= escape($settings['smtp_from_name'] ?? '') ?>">
                     </div>
-                    <div class="col-md-6">
-                        <label class="form-label fw-medium">Email do Remetente</label>
-                        <input type="email" name="smtp_from_email" class="form-control" value="<?= escape($settings['smtp_from_email'] ?? '') ?>">
+                    <div class="col-sm-6">
+                        <label class="form-label fw-medium small">Email do Remetente</label>
+                        <input type="email" name="smtp_from_email" class="form-control form-control-sm" value="<?= escape($settings['smtp_from_email'] ?? '') ?>">
                     </div>
                 </div>
             </div>
@@ -75,64 +75,58 @@
 
         <!-- OpenAI -->
         <div class="card mb-4">
-            <div class="card-header bg-white"><h6 class="mb-0"><i class="bi bi-robot"></i> OpenAI (Transcrição de Áudio)</h6></div>
+            <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-robot"></i> OpenAI</h6></div>
             <div class="card-body">
-                <div class="row g-3">
-                    <div class="col-12">
-                        <label class="form-label fw-medium">API Key da OpenAI</label>
-                        <input type="password" name="openai_api_key" class="form-control" value="<?= escape($settings['openai_api_key'] ?? '') ?>" placeholder="sk-...">
-                        <small class="text-muted">Necessário para transcrição por voz e organização automática de demandas.</small>
-                    </div>
-                </div>
+                <label class="form-label fw-medium small">API Key</label>
+                <input type="password" name="openai_api_key" class="form-control form-control-sm" value="<?= escape($settings['openai_api_key'] ?? '') ?>" placeholder="sk-...">
+                <small class="text-muted">Necessário para transcrição por voz.</small>
             </div>
         </div>
 
         <!-- Webhook -->
         <div class="card mb-4">
-            <div class="card-header bg-white"><h6 class="mb-0"><i class="bi bi-broadcast"></i> Webhook (Notificações Externas)</h6></div>
+            <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-broadcast"></i> Webhook</h6></div>
             <div class="card-body">
                 <div class="row g-3">
                     <div class="col-12">
                         <div class="form-check form-switch">
                             <input class="form-check-input" type="checkbox" name="webhook_enabled" value="1" id="webhookEnabled" <?= ($settings['webhook_enabled'] ?? '') === '1' ? 'checked' : '' ?>>
-                            <label class="form-check-label fw-medium" for="webhookEnabled">Webhook Ativado</label>
+                            <label class="form-check-label fw-medium small" for="webhookEnabled">Ativado</label>
                         </div>
                     </div>
                     <div class="col-12">
-                        <label class="form-label fw-medium">URL do Webhook</label>
-                        <input type="url" name="webhook_url" class="form-control" value="<?= escape($settings['webhook_url'] ?? '') ?>" placeholder="https://api.exemplo.com/webhook">
-                        <small class="text-muted">Receberá um POST com JSON: {message, phone, name}</small>
+                        <label class="form-label fw-medium small">URL do Webhook</label>
+                        <input type="url" name="webhook_url" class="form-control form-control-sm" value="<?= escape($settings['webhook_url'] ?? '') ?>" placeholder="https://...">
+                        <small class="text-muted">POST com JSON: {message, phone, name}</small>
                     </div>
-                    <div class="col-md-6">
-                        <label class="form-label fw-medium">Número de Telefone (padrão)</label>
-                        <input type="text" name="webhook_phone" class="form-control" value="<?= escape($settings['webhook_phone'] ?? '') ?>" placeholder="5511999999999">
-                        <small class="text-muted">Número para envio via webhook.</small>
+                    <div class="col-sm-6">
+                        <label class="form-label fw-medium small">Telefone (padrão)</label>
+                        <input type="text" name="webhook_phone" class="form-control form-control-sm" value="<?= escape($settings['webhook_phone'] ?? '') ?>" placeholder="5511999999999">
                     </div>
-                    <div class="col-md-6">
-                        <label class="form-label fw-medium">Nome (padrão)</label>
-                        <input type="text" name="webhook_name" class="form-control" value="<?= escape($settings['webhook_name'] ?? '') ?>" placeholder="ON Solutions Helpdesk">
-                        <small class="text-muted">Nome que será enviado no payload.</small>
+                    <div class="col-sm-6">
+                        <label class="form-label fw-medium small">Nome (padrão)</label>
+                        <input type="text" name="webhook_name" class="form-control form-control-sm" value="<?= escape($settings['webhook_name'] ?? '') ?>">
                     </div>
                     <div class="col-12">
-                        <label class="form-label fw-medium">Template da Mensagem</label>
-                        <input type="text" name="webhook_message_template" class="form-control" value="<?= escape($settings['webhook_message_template'] ?? '') ?>">
+                        <label class="form-label fw-medium small">Template da Mensagem</label>
+                        <input type="text" name="webhook_message_template" class="form-control form-control-sm" value="<?= escape($settings['webhook_message_template'] ?? '') ?>">
                         <small class="text-muted">Variáveis: {ticket_id}, {message}, {client_name}</small>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Configuração do Banco -->
+        <!-- Banco -->
         <div class="card mb-4">
-            <div class="card-header bg-white"><h6 class="mb-0"><i class="bi bi-database"></i> Banco de Dados</h6></div>
+            <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-database"></i> Banco de Dados</h6></div>
             <div class="card-body">
-                <a href="<?= baseUrl('settings/database') ?>" class="btn btn-outline-primary">
-                    <i class="bi bi-wrench"></i> Configurar Banco de Dados
+                <a href="<?= baseUrl('settings/database') ?>" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-wrench"></i> Configurar Banco
                 </a>
             </div>
         </div>
 
-        <button type="submit" class="btn btn-primary btn-lg px-5">
+        <button type="submit" class="btn btn-primary px-4">
             <i class="bi bi-check-lg"></i> Salvar Configurações
         </button>
     </form>

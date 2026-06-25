@@ -6,7 +6,7 @@
     <div class="top-bar">
         <div>
             <h5 class="mb-0">Nova Demanda</h5>
-            <small class="text-muted">Descreva sua necessidade por texto ou áudio</small>
+            <small class="text-muted">Descreva por texto ou áudio</small>
         </div>
     </div>
 
@@ -18,19 +18,19 @@
         <div class="card-body">
             <!-- Gravação de áudio -->
             <div class="mb-4 p-3 border rounded-3 bg-light">
-                <h6><i class="bi bi-mic"></i> Gravação por Voz (opcional)</h6>
-                <p class="text-muted small mb-3">Clique no microfone, descreva sua demanda e o sistema transcreverá e organizará automaticamente.</p>
-                <div class="d-flex align-items-center gap-3">
-                    <button type="button" id="btn-record" class="btn btn-lg btn-outline-danger rounded-circle" style="width:60px;height:60px">
-                        <i class="bi bi-mic-fill fs-4"></i>
+                <h6 class="mb-2" style="font-size:0.9rem"><i class="bi bi-mic"></i> Gravação por Voz</h6>
+                <p class="text-muted small mb-3">Clique no microfone, descreva sua demanda e o sistema transcreverá automaticamente.</p>
+                <div class="d-flex align-items-center gap-3 flex-wrap">
+                    <button type="button" id="btn-record" class="btn btn-lg btn-outline-danger rounded-circle flex-shrink-0" style="width:56px;height:56px">
+                        <i class="bi bi-mic-fill fs-5"></i>
                     </button>
                     <div>
-                        <span id="record-status" class="text-muted">Clique para gravar</span>
+                        <span id="record-status" class="text-muted small">Clique para gravar</span>
                         <div id="record-timer" class="fw-bold" style="display:none">00:00</div>
                     </div>
-                    <div id="record-loading" style="display:none" class="ms-3">
+                    <div id="record-loading" style="display:none" class="ms-auto">
                         <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
-                        <span class="text-muted ms-2">Processando com IA...</span>
+                        <span class="text-muted ms-1 small">Processando...</span>
                     </div>
                 </div>
             </div>
@@ -38,10 +38,10 @@
             <form action="<?= baseUrl('tickets/store') ?>" method="POST" enctype="multipart/form-data">
                 <div class="row g-3">
                     <div class="col-12">
-                        <label class="form-label fw-medium">Título da Demanda *</label>
+                        <label class="form-label fw-medium">Título *</label>
                         <input type="text" name="title" id="field-title" class="form-control" placeholder="Resumo da sua demanda" required>
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-sm-6">
                         <label class="form-label fw-medium">Categoria</label>
                         <select name="category" id="field-category" class="form-select">
                             <option value="">Selecione</option>
@@ -52,7 +52,7 @@
                             <option value="outro">Outro</option>
                         </select>
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-sm-6">
                         <label class="form-label fw-medium">Prioridade</label>
                         <select name="priority" id="field-priority" class="form-select">
                             <option value="low">Baixa</option>
@@ -62,19 +62,19 @@
                         </select>
                     </div>
                     <div class="col-12">
-                        <label class="form-label fw-medium">Descrição Detalhada *</label>
-                        <textarea name="description" id="field-description" class="form-control" rows="6" placeholder="Descreva detalhadamente sua demanda..." required></textarea>
+                        <label class="form-label fw-medium">Descrição *</label>
+                        <textarea name="description" id="field-description" class="form-control" rows="5" placeholder="Descreva detalhadamente sua demanda..." required></textarea>
                     </div>
                     <div class="col-12">
-                        <label class="form-label fw-medium">Anexos (imagens, documentos)</label>
+                        <label class="form-label fw-medium">Anexos</label>
                         <input type="file" name="attachments[]" class="form-control" multiple accept="image/*,.pdf,.doc,.docx">
-                        <small class="text-muted">Máx. 10MB por arquivo. Formatos: JPG, PNG, GIF, PDF, DOC</small>
+                        <small class="text-muted">Máx. 10MB/arquivo. JPG, PNG, GIF, PDF, DOC</small>
                     </div>
-                    <div class="col-12">
-                        <button type="submit" class="btn btn-primary px-4 py-2">
+                    <div class="col-12 d-flex gap-2 flex-wrap">
+                        <button type="submit" class="btn btn-primary px-4">
                             <i class="bi bi-send"></i> Enviar Demanda
                         </button>
-                        <a href="<?= baseUrl('tickets') ?>" class="btn btn-outline-secondary px-4 py-2 ms-2">Cancelar</a>
+                        <a href="<?= baseUrl('tickets') ?>" class="btn btn-outline-secondary px-4">Cancelar</a>
                     </div>
                 </div>
             </form>
@@ -113,8 +113,9 @@ async function startRecording() {
         mediaRecorder.start();
         btnRecord.classList.remove('btn-outline-danger');
         btnRecord.classList.add('btn-danger');
-        btnRecord.innerHTML = '<i class="bi bi-stop-fill fs-4"></i>';
+        btnRecord.innerHTML = '<i class="bi bi-stop-fill fs-5"></i>';
         recordStatus.textContent = 'Gravando...';
+        recordStatus.className = 'text-danger small fw-medium';
         recordTimer.style.display = 'block';
         seconds = 0;
         recordingTimer = setInterval(() => {
@@ -124,7 +125,7 @@ async function startRecording() {
             recordTimer.textContent = `${min}:${sec}`;
         }, 1000);
     } catch (err) {
-        alert('Não foi possível acessar o microfone. Verifique as permissões.');
+        alert('Não foi possível acessar o microfone.');
     }
 }
 
@@ -134,10 +135,11 @@ function stopRecording() {
     clearInterval(recordingTimer);
     btnRecord.classList.remove('btn-danger');
     btnRecord.classList.add('btn-outline-danger');
-    btnRecord.innerHTML = '<i class="bi bi-mic-fill fs-4"></i>';
+    btnRecord.innerHTML = '<i class="bi bi-mic-fill fs-5"></i>';
     recordStatus.textContent = 'Processando...';
+    recordStatus.className = 'text-muted small';
     recordTimer.style.display = 'none';
-    recordLoading.style.display = 'block';
+    recordLoading.style.display = 'flex';
 }
 
 async function processAudio() {
@@ -161,15 +163,15 @@ async function processAudio() {
                 if (data.organized.priority) {
                     document.getElementById('field-priority').value = data.organized.priority;
                 }
-                recordStatus.textContent = 'Transcrição aplicada com sucesso!';
-                recordStatus.classList.add('text-success');
+                recordStatus.textContent = '✓ Campos preenchidos!';
+                recordStatus.className = 'text-success small fw-medium';
             } else {
                 recordStatus.textContent = data.error || 'Erro na transcrição';
-                recordStatus.classList.add('text-danger');
+                recordStatus.className = 'text-danger small';
             }
         } catch (err) {
             recordStatus.textContent = 'Erro ao processar áudio.';
-            recordStatus.classList.add('text-danger');
+            recordStatus.className = 'text-danger small';
         }
         recordLoading.style.display = 'none';
     };

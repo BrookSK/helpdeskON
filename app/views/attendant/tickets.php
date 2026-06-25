@@ -8,16 +8,14 @@
             <h5 class="mb-0">Todas as Demandas</h5>
             <small class="text-muted">Gerencie as demandas dos clientes</small>
         </div>
-        <div class="d-flex gap-2">
-            <a href="<?= baseUrl('tickets/kanban') ?>" class="btn btn-outline-primary btn-sm"><i class="bi bi-kanban"></i> Kanban</a>
-        </div>
+        <a href="<?= baseUrl('tickets/kanban') ?>" class="btn btn-outline-primary btn-sm"><i class="bi bi-kanban"></i> Kanban</a>
     </div>
 
     <!-- Filtros -->
     <div class="card mb-3">
-        <div class="card-body py-2">
+        <div class="card-body py-2 px-3">
             <form method="GET" class="row g-2 align-items-center">
-                <div class="col-auto">
+                <div class="col-6 col-md-auto">
                     <select name="status" class="form-select form-select-sm">
                         <option value="">Todos Status</option>
                         <option value="open" <?= ($_GET['status'] ?? '') === 'open' ? 'selected' : '' ?>>Aberto</option>
@@ -28,7 +26,7 @@
                         <option value="archived" <?= ($_GET['status'] ?? '') === 'archived' ? 'selected' : '' ?>>Arquivado</option>
                     </select>
                 </div>
-                <div class="col-auto">
+                <div class="col-6 col-md-auto">
                     <select name="priority" class="form-select form-select-sm">
                         <option value="">Todas Prioridades</option>
                         <option value="low" <?= ($_GET['priority'] ?? '') === 'low' ? 'selected' : '' ?>>Baixa</option>
@@ -37,7 +35,7 @@
                         <option value="urgent" <?= ($_GET['priority'] ?? '') === 'urgent' ? 'selected' : '' ?>>Urgente</option>
                     </select>
                 </div>
-                <div class="col-auto">
+                <div class="col-12 col-md-auto">
                     <button type="submit" class="btn btn-sm btn-primary">Filtrar</button>
                     <a href="<?= baseUrl('tickets') ?>" class="btn btn-sm btn-outline-secondary">Limpar</a>
                 </div>
@@ -47,7 +45,8 @@
 
     <div class="card">
         <div class="card-body p-0">
-            <div class="table-responsive">
+            <!-- Desktop -->
+            <div class="table-responsive d-none d-md-block">
                 <table class="table table-hover mb-0">
                     <thead class="table-light">
                         <tr>
@@ -65,7 +64,7 @@
                         <?php foreach ($tickets as $t): ?>
                         <tr>
                             <td><?= $t['id'] ?></td>
-                            <td><?= escape($t['title']) ?></td>
+                            <td class="text-truncate" style="max-width:180px"><?= escape($t['title']) ?></td>
                             <td><?= escape($t['client_name']) ?></td>
                             <td><?= escape($t['attendant_name'] ?? 'Não atribuído') ?></td>
                             <td><span class="badge-status badge-<?= $t['status'] ?>"><?= ucfirst(str_replace('_', ' ', $t['status'])) ?></span></td>
@@ -79,6 +78,25 @@
                         <?php endif; ?>
                     </tbody>
                 </table>
+            </div>
+            <!-- Mobile -->
+            <div class="d-md-none p-3">
+                <?php foreach ($tickets as $t): ?>
+                <a href="<?= baseUrl('tickets/view/' . $t['id']) ?>" class="d-block text-decoration-none mb-2 p-3 border rounded-3">
+                    <div class="d-flex justify-content-between align-items-start mb-1">
+                        <span class="fw-medium text-dark text-truncate" style="max-width:70%">#<?= $t['id'] ?> <?= escape($t['title']) ?></span>
+                        <span class="badge-status badge-<?= $t['status'] ?>"><?= ucfirst(str_replace('_', ' ', $t['status'])) ?></span>
+                    </div>
+                    <div class="d-flex gap-2 align-items-center flex-wrap" style="font-size:0.75rem">
+                        <span class="text-muted"><i class="bi bi-person"></i> <?= escape($t['client_name']) ?></span>
+                        <span class="priority-<?= $t['priority'] ?>"><?= ucfirst($t['priority']) ?></span>
+                        <span class="text-muted"><?= timeAgo($t['updated_at']) ?></span>
+                    </div>
+                </a>
+                <?php endforeach; ?>
+                <?php if (empty($tickets)): ?>
+                <p class="text-center text-muted py-4">Nenhuma demanda encontrada.</p>
+                <?php endif; ?>
             </div>
         </div>
     </div>

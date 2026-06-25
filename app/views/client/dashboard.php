@@ -6,9 +6,9 @@
     <div class="top-bar">
         <div>
             <h5 class="mb-0">Olá, <?= escape($user['name']) ?>!</h5>
-            <small class="text-muted">Bem-vindo ao seu painel de demandas</small>
+            <small class="text-muted">Bem-vindo ao seu painel</small>
         </div>
-        <a href="<?= baseUrl('tickets/create') ?>" class="btn btn-primary">
+        <a href="<?= baseUrl('tickets/create') ?>" class="btn btn-primary btn-sm">
             <i class="bi bi-plus-lg"></i> Nova Demanda
         </a>
     </div>
@@ -17,29 +17,29 @@
         <div class="alert alert-success alert-dismissible fade show"><?= escape($msg) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
     <?php endif; ?>
 
-    <div class="row g-4 mb-4">
-        <div class="col-md-3">
-            <div class="card stat-card p-3">
-                <div class="text-muted small">Abertas</div>
-                <div class="fs-3 fw-bold text-primary"><?= $counts['open'] ?? 0 ?></div>
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-md-3">
+            <div class="card stat-card">
+                <div class="stat-label">Abertas</div>
+                <div class="stat-value text-primary"><?= $counts['open'] ?? 0 ?></div>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="card stat-card p-3" style="border-left-color:#ff9800">
-                <div class="text-muted small">Em andamento</div>
-                <div class="fs-3 fw-bold" style="color:#ff9800"><?= $counts['in_progress'] ?? 0 ?></div>
+        <div class="col-6 col-md-3">
+            <div class="card stat-card" style="border-left-color:#ff9800">
+                <div class="stat-label">Em andamento</div>
+                <div class="stat-value" style="color:#ff9800"><?= $counts['in_progress'] ?? 0 ?></div>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="card stat-card p-3" style="border-left-color:#4caf50">
-                <div class="text-muted small">Concluídas</div>
-                <div class="fs-3 fw-bold" style="color:#4caf50"><?= $counts['completed'] ?? 0 ?></div>
+        <div class="col-6 col-md-3">
+            <div class="card stat-card" style="border-left-color:#4caf50">
+                <div class="stat-label">Concluídas</div>
+                <div class="stat-value" style="color:#4caf50"><?= $counts['completed'] ?? 0 ?></div>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="card stat-card p-3" style="border-left-color:#9c27b0">
-                <div class="text-muted small">Total</div>
-                <div class="fs-3 fw-bold" style="color:#9c27b0"><?= array_sum($counts) ?></div>
+        <div class="col-6 col-md-3">
+            <div class="card stat-card" style="border-left-color:#607d8b">
+                <div class="stat-label">Total</div>
+                <div class="stat-value" style="color:#607d8b"><?= array_sum($counts) ?></div>
             </div>
         </div>
     </div>
@@ -50,7 +50,8 @@
             <a href="<?= baseUrl('tickets') ?>" class="btn btn-sm btn-outline-primary">Ver todas</a>
         </div>
         <div class="card-body p-0">
-            <div class="table-responsive">
+            <!-- Desktop table -->
+            <div class="table-responsive d-none d-md-block">
                 <table class="table table-hover mb-0">
                     <thead class="table-light">
                         <tr>
@@ -66,7 +67,7 @@
                         <?php foreach (array_slice($tickets, 0, 10) as $t): ?>
                         <tr>
                             <td><?= $t['id'] ?></td>
-                            <td><?= escape($t['title']) ?></td>
+                            <td class="text-truncate" style="max-width:200px"><?= escape($t['title']) ?></td>
                             <td><span class="badge-status badge-<?= $t['status'] ?>"><?= ucfirst(str_replace('_', ' ', $t['status'])) ?></span></td>
                             <td><span class="priority-<?= $t['priority'] ?>"><?= ucfirst($t['priority']) ?></span></td>
                             <td><?= date('d/m/Y', strtotime($t['created_at'])) ?></td>
@@ -78,6 +79,24 @@
                         <?php endif; ?>
                     </tbody>
                 </table>
+            </div>
+            <!-- Mobile cards -->
+            <div class="d-md-none p-3">
+                <?php foreach (array_slice($tickets, 0, 10) as $t): ?>
+                <a href="<?= baseUrl('tickets/view/' . $t['id']) ?>" class="d-block text-decoration-none mb-2 p-3 border rounded-3">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <span class="fw-medium text-dark">#<?= $t['id'] ?> <?= escape($t['title']) ?></span>
+                    </div>
+                    <div class="d-flex gap-2 align-items-center flex-wrap">
+                        <span class="badge-status badge-<?= $t['status'] ?>"><?= ucfirst(str_replace('_', ' ', $t['status'])) ?></span>
+                        <span class="priority-<?= $t['priority'] ?>" style="font-size:0.75rem"><?= ucfirst($t['priority']) ?></span>
+                        <span class="text-muted" style="font-size:0.72rem"><?= timeAgo($t['created_at']) ?></span>
+                    </div>
+                </a>
+                <?php endforeach; ?>
+                <?php if (empty($tickets)): ?>
+                <p class="text-center text-muted py-4">Nenhuma demanda encontrada.</p>
+                <?php endif; ?>
             </div>
         </div>
     </div>

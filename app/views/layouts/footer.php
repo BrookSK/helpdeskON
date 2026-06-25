@@ -5,8 +5,7 @@
             fetch('<?= baseUrl("notifications/getUnread") ?>')
                 .then(r => r.json())
                 .then(data => {
-                    const badges = document.querySelectorAll('.notification-count-sidebar');
-                    badges.forEach(b => {
+                    document.querySelectorAll('.notification-count-sidebar').forEach(b => {
                         if (data.count > 0) {
                             b.textContent = data.count;
                             b.style.display = 'inline-block';
