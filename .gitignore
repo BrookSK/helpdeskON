@@ -3,7 +3,7 @@ public/uploads/tickets/*
 !public/uploads/tickets/.gitkeep
 
 # Configuração local do banco
-config/database.php
+# config/database.php
 
 # IDE
 .vscode/
