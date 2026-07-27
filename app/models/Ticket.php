@@ -81,6 +81,10 @@ class Ticket
             $sql .= " AND t.attendant_id = ?";
             $params[] = $filters['attendant_id'];
         }
+        if (!empty($filters['company_id'])) {
+            $sql .= " AND c.company_id = ?";
+            $params[] = $filters['company_id'];
+        }
 
         $sql .= " ORDER BY t.updated_at DESC";
         return $this->db->fetchAll($sql, $params);

@@ -35,6 +35,14 @@
                         <option value="urgent" <?= ($_GET['priority'] ?? '') === 'urgent' ? 'selected' : '' ?>>Urgente</option>
                     </select>
                 </div>
+                <div class="col-6 col-md-auto">
+                    <select name="company" class="form-select form-select-sm">
+                        <option value="">Todas Empresas</option>
+                        <?php foreach ($companies ?? [] as $company): ?>
+                        <option value="<?= $company['id'] ?>" <?= ($_GET['company'] ?? '') == $company['id'] ? 'selected' : '' ?>><?= escape($company['name']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
                 <div class="col-12 col-md-auto">
                     <button type="submit" class="btn btn-sm btn-primary">Filtrar</button>
                     <a href="<?= baseUrl('tickets') ?>" class="btn btn-sm btn-outline-secondary">Limpar</a>

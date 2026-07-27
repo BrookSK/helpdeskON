@@ -33,8 +33,11 @@ class TicketsController extends Controller
             $filters = [];
             if (!empty($_GET['status'])) $filters['status'] = $_GET['status'];
             if (!empty($_GET['priority'])) $filters['priority'] = $_GET['priority'];
+            if (!empty($_GET['company'])) $filters['company_id'] = $_GET['company'];
             $tickets = $this->ticketModel->getAll($filters);
-            $this->view('attendant/tickets', ['user' => $user, 'tickets' => $tickets]);
+            $companyModel = new Company();
+            $companies = $companyModel->getAll();
+            $this->view('attendant/tickets', ['user' => $user, 'tickets' => $tickets, 'companies' => $companies]);
         }
     }
 
@@ -333,7 +336,17 @@ class TicketsController extends Controller
             'archived' => 'Arquivado',
         ];
 
+        $statusColors = [
+            'open' => '#3b82f6',
+            'in_progress' => '#f59e0b',
+            'waiting_client' => '#8b5cf6',
+            'completed' => '#10b981',
+            'denied' => '#ef4444',
+            'archived' => '#6b7280',
+        ];
+
         $label = $statusLabels[$newStatus] ?? $newStatus;
+        $statusColor = $statusColors[$newStatus] ?? '#6b7280';
         $db = Database::getInstance();
         $userModel = new User();
         $currentUser = $this->currentUser();
@@ -346,7 +359,10 @@ class TicketsController extends Controller
         // Lista de quem será notificado (evitar duplicatas)
         $notifiedIds = [];
 
-        // 1. Notificar o cliente
+        // Template de email bonito para mudança de status
+        $ticketUrl = baseUrl('tickets/show/' . $ticket['id']);
+
+        // 1. Notificar o cliente (criador da demanda)
         if ($ticket['client_id'] && $ticket['client_id'] != $currentUser['id']) {
             $db->insert('notifications', [
                 'user_id' => $ticket['client_id'],
@@ -357,15 +373,20 @@ class TicketsController extends Controller
             ]);
             $notifiedIds[] = $ticket['client_id'];
 
-            // Enviar email ao cliente
+            // Enviar email ao cliente/criador
             $client = $userModel->findById($ticket['client_id']);
             if ($client && $client['email']) {
-                $htmlBody = Mailer::template('Status Atualizado', "
-                    <p>Olá, <strong>" . htmlspecialchars($client['name']) . "</strong>!</p>
-                    <p>{$clientMessage}</p>
-                    <p><a href='" . baseUrl('tickets/show/' . $ticket['id']) . "' style='color:#00BFA6;font-weight:600;'>Ver demanda</a></p>
-                ");
-                Mailer::send($client['email'], "Status atualizado - #{$ticket['id']}", $htmlBody);
+                $emailBody = $this->buildStatusChangeEmailBody([
+                    'recipient_name' => $client['name'],
+                    'ticket_id' => $ticket['id'],
+                    'ticket_title' => $ticket['title'],
+                    'new_status' => $label,
+                    'status_color' => $statusColor,
+                    'changed_by' => $currentUser['name'],
+                    'ticket_url' => $ticketUrl,
+                ]);
+                $htmlBody = Mailer::template('Status da Demanda Atualizado', $emailBody);
+                Mailer::send($client['email'], "Demanda #{$ticket['id']} - Status atualizado para: {$label}", $htmlBody);
             }
         }
 
@@ -383,12 +404,17 @@ class TicketsController extends Controller
             // Enviar email ao atendente
             $attendant = $userModel->findById($ticket['attendant_id']);
             if ($attendant && $attendant['email']) {
-                $htmlBody = Mailer::template('Status Atualizado', "
-                    <p>Olá, <strong>" . htmlspecialchars($attendant['name']) . "</strong>!</p>
-                    <p>{$internalMessage}</p>
-                    <p><a href='" . baseUrl('tickets/show/' . $ticket['id']) . "' style='color:#00BFA6;font-weight:600;'>Ver demanda</a></p>
-                ");
-                Mailer::send($attendant['email'], "Status atualizado - #{$ticket['id']}", $htmlBody);
+                $emailBody = $this->buildStatusChangeEmailBody([
+                    'recipient_name' => $attendant['name'],
+                    'ticket_id' => $ticket['id'],
+                    'ticket_title' => $ticket['title'],
+                    'new_status' => $label,
+                    'status_color' => $statusColor,
+                    'changed_by' => $currentUser['name'],
+                    'ticket_url' => $ticketUrl,
+                ]);
+                $htmlBody = Mailer::template('Status da Demanda Atualizado', $emailBody);
+                Mailer::send($attendant['email'], "Demanda #{$ticket['id']} - Status atualizado para: {$label}", $htmlBody);
             }
         }
 
@@ -404,11 +430,78 @@ class TicketsController extends Controller
                     'type' => 'system',
                 ]);
                 $notifiedIds[] = $admin['id'];
+
+                // Enviar email ao admin
+                if ($admin['email']) {
+                    $emailBody = $this->buildStatusChangeEmailBody([
+                        'recipient_name' => $admin['name'],
+                        'ticket_id' => $ticket['id'],
+                        'ticket_title' => $ticket['title'],
+                        'new_status' => $label,
+                        'status_color' => $statusColor,
+                        'changed_by' => $currentUser['name'],
+                        'ticket_url' => $ticketUrl,
+                    ]);
+                    $htmlBody = Mailer::template('Status da Demanda Atualizado', $emailBody);
+                    Mailer::send($admin['email'], "Demanda #{$ticket['id']} - Status atualizado para: {$label}", $htmlBody);
+                }
             }
         }
 
         // 4. Webhook
         $this->triggerWebhook($clientMessage, $ticket['client_phone'] ?? '');
+    }
+
+    /**
+     * Monta o corpo HTML bonito do email de mudança de status
+     */
+    private function buildStatusChangeEmailBody($data)
+    {
+        $name = htmlspecialchars($data['recipient_name']);
+        $ticketId = $data['ticket_id'];
+        $title = htmlspecialchars($data['ticket_title']);
+        $status = htmlspecialchars($data['new_status']);
+        $color = $data['status_color'];
+        $changedBy = htmlspecialchars($data['changed_by']);
+        $url = $data['ticket_url'];
+
+        return "
+            <p>Olá, <strong>{$name}</strong>!</p>
+            <p>O status da sua demanda foi atualizado:</p>
+
+            <div style='background:#f8fafc;border-radius:8px;padding:16px 20px;margin:16px 0;border-left:4px solid {$color};'>
+                <table style='width:100%;border-collapse:collapse;'>
+                    <tr>
+                        <td style='padding:6px 0;color:#666;font-size:0.85rem;'>Demanda</td>
+                        <td style='padding:6px 0;font-weight:600;color:#333;'>#{$ticketId} — {$title}</td>
+                    </tr>
+                    <tr>
+                        <td style='padding:6px 0;color:#666;font-size:0.85rem;'>Novo Status</td>
+                        <td style='padding:6px 0;'>
+                            <span style='display:inline-block;background:{$color};color:#fff;padding:3px 12px;border-radius:20px;font-size:0.8rem;font-weight:600;'>{$status}</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style='padding:6px 0;color:#666;font-size:0.85rem;'>Alterado por</td>
+                        <td style='padding:6px 0;color:#333;'>{$changedBy}</td>
+                    </tr>
+                    <tr>
+                        <td style='padding:6px 0;color:#666;font-size:0.85rem;'>Data</td>
+                        <td style='padding:6px 0;color:#333;'>" . date('d/m/Y H:i') . "</td>
+                    </tr>
+                </table>
+            </div>
+
+            <p style='margin-top:20px;'>
+                <a href='{$url}' style='display:inline-block;background:#00BFA6;color:#fff;padding:10px 24px;border-radius:6px;text-decoration:none;font-weight:600;font-size:0.9rem;'>
+                    Ver Demanda
+                </a>
+            </p>
+
+            <p style='color:#888;font-size:0.8rem;margin-top:20px;'>
+                Você recebeu este email porque está vinculado à demanda #{$ticketId} no sistema de helpdesk.
+            </p>
+        ";
     }
 
     private function sendMessageNotification($ticket, $sender, $messageText)
