@@ -131,7 +131,14 @@
 
         <!-- Sidebar de ações -->
         <div class="col-lg-4">
-            <?php if (in_array($user['role'], ['super_admin', 'attendant'])): ?>
+            <?php
+            $fullUserView = (new User())->findById($user['id']);
+            $isCompanyOwner = ($user['role'] === 'client' && $fullUserView && $fullUserView['is_company_owner']);
+            $canEditPriority = in_array($user['role'], ['super_admin']) || $isCompanyOwner;
+            $canEditStatus = in_array($user['role'], ['super_admin', 'attendant']);
+            ?>
+
+            <?php if ($canEditStatus): ?>
             <!-- Alterar Status -->
             <div class="card mb-3">
                 <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.88rem">Alterar Status</h6></div>
@@ -149,7 +156,28 @@
                     </form>
                 </div>
             </div>
+            <?php endif; ?>
 
+            <?php if ($canEditPriority): ?>
+            <!-- Alterar Prioridade -->
+            <div class="card mb-3">
+                <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.88rem">Alterar Prioridade</h6></div>
+                <div class="card-body">
+                    <form action="<?= baseUrl('tickets/updatePriority/' . $ticket['id']) ?>" method="POST">
+                        <select name="priority" class="form-select form-select-sm mb-2">
+                            <option value="low" <?= $ticket['priority'] === 'low' ? 'selected' : '' ?>>Baixa</option>
+                            <option value="medium" <?= $ticket['priority'] === 'medium' ? 'selected' : '' ?>>Média</option>
+                            <option value="high" <?= $ticket['priority'] === 'high' ? 'selected' : '' ?>>Alta</option>
+                            <option value="urgent" <?= $ticket['priority'] === 'urgent' ? 'selected' : '' ?>>Urgente</option>
+                        </select>
+                        <button type="submit" class="btn btn-primary btn-sm w-100">Atualizar</button>
+                    </form>
+                </div>
+            </div>
+
+            <?php endif; ?>
+
+            <?php if ($canEditStatus): ?>
             <!-- Atribuir Atendente -->
             <div class="card mb-3">
                 <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.88rem">Atribuir Atendente</h6></div>

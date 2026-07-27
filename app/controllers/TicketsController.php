@@ -205,6 +205,51 @@ class TicketsController extends Controller
         $this->redirect('tickets/show/' . $id);
     }
 
+    // Atualizar prioridade do ticket
+    public function updatePriority($id = null)
+    {
+        $this->requireLogin();
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
+            $this->redirect('tickets');
+        }
+
+        $user = $this->currentUser();
+        $fullUser = (new User())->findById($user['id']);
+
+        // Permitir super_admin e donos de empresa
+        $isCompanyOwner = ($user['role'] === 'client' && $fullUser && $fullUser['is_company_owner']);
+        if ($user['role'] !== 'super_admin' && !$isCompanyOwner) {
+            flash('error', 'Sem permissão para alterar prioridade.');
+            $this->redirect('tickets/show/' . $id);
+        }
+
+        // Se é dono de empresa, verificar se o ticket pertence à empresa dele
+        if ($isCompanyOwner) {
+            $ticket = $this->ticketModel->findById($id);
+            if (!$ticket) {
+                flash('error', 'Demanda não encontrada.');
+                $this->redirect('tickets');
+            }
+            $ticketOwner = (new User())->findById($ticket['client_id']);
+            if (!$ticketOwner || $ticketOwner['company_id'] != $fullUser['company_id']) {
+                flash('error', 'Sem permissão para alterar esta demanda.');
+                $this->redirect('tickets');
+            }
+        }
+
+        $priority = $_POST['priority'] ?? '';
+        $validPriorities = ['low', 'medium', 'high', 'urgent'];
+        if (!in_array($priority, $validPriorities)) {
+            flash('error', 'Prioridade inválida.');
+            $this->redirect('tickets/show/' . $id);
+        }
+
+        $this->ticketModel->update($id, ['priority' => $priority]);
+
+        flash('success', 'Prioridade atualizada com sucesso!');
+        $this->redirect('tickets/show/' . $id);
+    }
+
     // Atribuir atendente
     public function assign($id = null)
     {
