@@ -2,7 +2,9 @@
 /**
  * CRON: Processar fila de webhooks WhatsApp
  * Envia um por vez, aguarda resposta, depois vai pro próximo.
- * Configure no crontab: * * * * * php /caminho/para/public/cron-webhook.php
+ * 
+ * Acesse via URL: https://helpdesk.onsolutionsbrasil.com.br/cron-webhook.php
+ * Ou configure no crontab: * * * * * curl -s https://helpdesk.onsolutionsbrasil.com.br/cron-webhook.php
  */
 
 define('BASE_PATH', dirname(__DIR__));
