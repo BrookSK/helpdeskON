@@ -34,6 +34,7 @@ class TicketsController extends Controller
             if (!empty($_GET['status'])) $filters['status'] = $_GET['status'];
             if (!empty($_GET['priority'])) $filters['priority'] = $_GET['priority'];
             if (!empty($_GET['company'])) $filters['company_id'] = $_GET['company'];
+            if (!empty($_GET['hide_completed'])) $filters['hide_completed'] = true;
             $tickets = $this->ticketModel->getAll($filters);
             $companyModel = new Company();
             $companies = $companyModel->getAll();

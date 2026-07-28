@@ -85,6 +85,9 @@ class Ticket
             $sql .= " AND c.company_id = ?";
             $params[] = $filters['company_id'];
         }
+        if (!empty($filters['hide_completed'])) {
+            $sql .= " AND t.status NOT IN ('completed', 'archived')";
+        }
 
         $sql .= " ORDER BY t.updated_at DESC";
         return $this->db->fetchAll($sql, $params);
