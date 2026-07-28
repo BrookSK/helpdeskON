@@ -119,6 +119,70 @@ class SettingsController extends Controller
         $this->redirect('settings');
     }
 
+    // Testar webhook WhatsApp
+    public function testWebhook()
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            $this->json(['success' => false, 'message' => 'Método inválido'], 405);
+        }
+
+        $webhookUrl = Config::get('webhook_url');
+        $phonesRaw = Config::get('webhook_phones') ?: Config::get('webhook_phone') ?: '';
+        $namesRaw = Config::get('webhook_names') ?: Config::get('webhook_name') ?: 'Admin';
+
+        if (empty($webhookUrl)) {
+            $this->json(['success' => false, 'message' => 'URL do webhook não configurada. Salve as configurações antes de testar.']);
+        }
+
+        if (empty($phonesRaw)) {
+            $this->json(['success' => false, 'message' => 'Nenhum telefone configurado. Preencha os telefones e salve antes de testar.']);
+        }
+
+        $phones = array_map('trim', explode(',', $phonesRaw));
+        $names = array_map('trim', explode(',', $namesRaw));
+
+        // Pegar o primeiro telefone/nome para o teste
+        $phone = preg_replace('/[^0-9]/', '', $phones[0] ?? '');
+        $name = $names[0] ?? 'Admin';
+
+        if (empty($phone)) {
+            $this->json(['success' => false, 'message' => 'Telefone inválido.']);
+        }
+
+        $message = "🔔 *Teste de Webhook*\n\nOlá, {$name}! Este é um teste do webhook do helpdesk.\n\nSe você recebeu esta mensagem, a configuração está funcionando!\n\nData: " . date('d/m/Y H:i:s');
+
+        $payload = json_encode([
+            'phone' => $phone,
+            'name' => $name,
+            'message' => $message,
+        ]);
+
+        $ch = curl_init($webhookUrl);
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => $payload,
+            CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 15,
+        ]);
+
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $error = curl_error($ch);
+        curl_close($ch);
+
+        if (!empty($error)) {
+            $this->json(['success' => false, 'message' => "Erro de conexão: {$error}"]);
+        }
+
+        if ($httpCode >= 200 && $httpCode < 300) {
+            $this->json(['success' => true, 'message' => "Webhook enviado com sucesso para {$phone} (HTTP {$httpCode})!"]);
+        } else {
+            $this->json(['success' => false, 'message' => "Falha no webhook. HTTP {$httpCode}. Resposta: " . substr($response, 0, 200)]);
+        }
+    }
+
     // Testar envio de email SMTP
     public function testEmail()
     {
