@@ -22,7 +22,7 @@ class SettingsController extends Controller
             'smtp_host', 'smtp_port', 'smtp_username', 'smtp_password',
             'smtp_encryption', 'smtp_from_name', 'smtp_from_email',
             'openai_api_key',
-            'webhook_url', 'webhook_phone', 'webhook_name', 'webhook_enabled',
+            'webhook_url', 'webhook_phones', 'webhook_names', 'webhook_enabled',
             'webhook_message_template',
             'whatsapp_number', 'whatsapp_message', 'whatsapp_enabled',
         ];

@@ -143,34 +143,38 @@
             </div>
         </div>
 
-        <!-- Webhook -->
+        <!-- Webhook WhatsApp -->
         <div class="card mb-4">
-            <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-broadcast"></i> Webhook</h6></div>
+            <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-broadcast"></i> Webhook WhatsApp (Notificação de Novas Demandas)</h6></div>
             <div class="card-body">
                 <div class="row g-3">
                     <div class="col-12">
                         <div class="form-check form-switch">
                             <input class="form-check-input" type="checkbox" name="webhook_enabled" value="1" id="webhookEnabled" <?= ($settings['webhook_enabled'] ?? '') === '1' ? 'checked' : '' ?>>
-                            <label class="form-check-label fw-medium small" for="webhookEnabled">Ativado</label>
+                            <label class="form-check-label fw-medium small" for="webhookEnabled">Webhook ativado</label>
                         </div>
                     </div>
                     <div class="col-12">
                         <label class="form-label fw-medium small">URL do Webhook</label>
-                        <input type="url" name="webhook_url" class="form-control form-control-sm" value="<?= escape($settings['webhook_url'] ?? '') ?>" placeholder="https://...">
-                        <small class="text-muted">POST com JSON: {message, phone, name}</small>
+                        <input type="url" name="webhook_url" class="form-control form-control-sm" value="<?= escape($settings['webhook_url'] ?? '') ?>" placeholder="https://seu-disparo-whatsapp.com/api/send">
+                        <small class="text-muted">URL que receberá o POST com os campos: <code>phone</code>, <code>name</code>, <code>message</code></small>
                     </div>
                     <div class="col-sm-6">
-                        <label class="form-label fw-medium small">Telefone (padrão)</label>
-                        <input type="text" name="webhook_phone" class="form-control form-control-sm" value="<?= escape($settings['webhook_phone'] ?? '') ?>" placeholder="5511999999999">
+                        <label class="form-label fw-medium small">Telefones (separados por vírgula)</label>
+                        <textarea name="webhook_phones" class="form-control form-control-sm" rows="3" placeholder="5511999999999, 5511888888888"><?= escape($settings['webhook_phones'] ?? $settings['webhook_phone'] ?? '') ?></textarea>
+                        <small class="text-muted">Um disparo será feito para cada número. Formato: código do país + DDD + número.</small>
                     </div>
                     <div class="col-sm-6">
-                        <label class="form-label fw-medium small">Nome (padrão)</label>
-                        <input type="text" name="webhook_name" class="form-control form-control-sm" value="<?= escape($settings['webhook_name'] ?? '') ?>">
+                        <label class="form-label fw-medium small">Nomes (separados por vírgula, mesma ordem dos telefones)</label>
+                        <textarea name="webhook_names" class="form-control form-control-sm" rows="3" placeholder="João, Maria"><?= escape($settings['webhook_names'] ?? $settings['webhook_name'] ?? '') ?></textarea>
+                        <small class="text-muted">Nome de cada destinatário correspondente ao telefone.</small>
                     </div>
                     <div class="col-12">
                         <label class="form-label fw-medium small">Template da Mensagem</label>
-                        <input type="text" name="webhook_message_template" class="form-control form-control-sm" value="<?= escape($settings['webhook_message_template'] ?? '') ?>">
-                        <small class="text-muted">Variáveis: {ticket_id}, {message}, {client_name}</small>
+                        <textarea name="webhook_message_template" class="form-control form-control-sm" rows="4" placeholder="🔔 *Nova Demanda #{ticket_id}*&#10;&#10;*Cliente:* {client_name}&#10;*Título:* {ticket_title}&#10;*Prioridade:* {priority}&#10;&#10;Acesse o painel para ver os detalhes."><?= escape($settings['webhook_message_template'] ?? '') ?></textarea>
+                        <small class="text-muted">
+                            Variáveis disponíveis: <code>{ticket_id}</code>, <code>{ticket_title}</code>, <code>{client_name}</code>, <code>{priority}</code>, <code>{category}</code>, <code>{name}</code> (destinatário), <code>{date}</code>
+                        </small>
                     </div>
                 </div>
             </div>

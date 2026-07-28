@@ -367,8 +367,8 @@ class TicketsController extends Controller
             ]);
         }
 
-        // Webhook
-        $this->triggerWebhook($notificationMessage, $ticket['client_phone'] ?? '');
+        // Webhook - dispara para cada telefone configurado
+        $this->triggerWebhook($notificationMessage, '', $ticket);
     }
 
     private function sendStatusChangeNotification($ticket, $newStatus)
@@ -495,7 +495,7 @@ class TicketsController extends Controller
         }
 
         // 4. Webhook
-        $this->triggerWebhook($clientMessage, $ticket['client_phone'] ?? '');
+        $this->triggerWebhook($clientMessage, '', $ticket);
     }
 
     /**
@@ -573,30 +573,60 @@ class TicketsController extends Controller
         }
     }
 
-    private function triggerWebhook($message, $phone = '')
+    private function triggerWebhook($message, $phone = '', $ticketData = [])
     {
-        $webhookUrl = Config::get('webhook_url');
         $webhookEnabled = Config::get('webhook_enabled');
-        $webhookPhone = Config::get('webhook_phone') ?: $phone;
-        $webhookName = Config::get('webhook_name', 'ON Solutions Helpdesk');
 
-        if ($webhookEnabled && $webhookUrl) {
-            $payload = json_encode([
-                'message' => $message,
-                'phone' => $webhookPhone,
-                'name' => $webhookName,
-            ]);
-
-            $ch = curl_init($webhookUrl);
-            curl_setopt_array($ch, [
-                CURLOPT_POST => true,
-                CURLOPT_POSTFIELDS => $payload,
-                CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_TIMEOUT => 10,
-            ]);
-            curl_exec($ch);
-            curl_close($ch);
+        if (!$webhookEnabled) {
+            return;
         }
+
+        // Buscar telefones e nomes configurados
+        $phonesRaw = Config::get('webhook_phones') ?: Config::get('webhook_phone') ?: $phone;
+        $namesRaw = Config::get('webhook_names') ?: Config::get('webhook_name') ?: 'Admin';
+        $template = Config::get('webhook_message_template') ?: '';
+
+        $phones = array_map('trim', explode(',', $phonesRaw));
+        $names = array_map('trim', explode(',', $namesRaw));
+
+        // Montar a mensagem pré-formatada
+        $formattedMessage = $message;
+        if (!empty($template) && !empty($ticketData)) {
+            $formattedMessage = str_replace(
+                ['{ticket_id}', '{ticket_title}', '{client_name}', '{priority}', '{category}', '{date}'],
+                [
+                    $ticketData['id'] ?? '',
+                    $ticketData['title'] ?? '',
+                    $ticketData['client_name'] ?? '',
+                    $this->priorityLabelText($ticketData['priority'] ?? 'medium'),
+                    $ticketData['category'] ?? 'Não definida',
+                    date('d/m/Y H:i'),
+                ],
+                $template
+            );
+        }
+
+        // Inserir na fila para cada telefone (processado pelo cron sequencialmente)
+        $db = Database::getInstance();
+        foreach ($phones as $index => $phoneNumber) {
+            $phoneNumber = preg_replace('/[^0-9]/', '', $phoneNumber);
+            if (empty($phoneNumber)) continue;
+
+            $recipientName = $names[$index] ?? ($names[0] ?? 'Admin');
+            $finalMessage = str_replace('{name}', $recipientName, $formattedMessage);
+
+            $db->insert('webhook_queue', [
+                'phone' => $phoneNumber,
+                'name' => $recipientName,
+                'message' => $finalMessage,
+                'status' => 'pending',
+            ]);
+        }
+    }
+
+    private function priorityLabelText($priority)
+    {
+        $labels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'urgent' => 'Urgente'];
+        return $labels[$priority] ?? $priority;
     }
 }
