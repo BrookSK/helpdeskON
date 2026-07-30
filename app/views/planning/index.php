@@ -174,6 +174,16 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                                 <input type="datetime-local" name="due_date" class="form-control form-control-sm">
                             </div>
                         </div>
+                        <div class="row g-2">
+                            <div class="col-sm-6 mb-3">
+                                <label class="form-label small fw-medium">Início Desenvolvimento</label>
+                                <input type="datetime-local" name="start_date" class="form-control form-control-sm">
+                            </div>
+                            <div class="col-sm-6 mb-3">
+                                <label class="form-label small fw-medium">Fim Desenvolvimento</label>
+                                <input type="datetime-local" name="end_date" class="form-control form-control-sm">
+                            </div>
+                        </div>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -236,8 +246,18 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                             </select>
                         </div>
                         <div class="col-sm-2">
-                            <label class="form-label small fw-medium">Prazo</label>
+                            <label class="form-label small fw-medium">Prazo Entrega</label>
                             <input type="datetime-local" id="detail-due-date" class="form-control form-control-sm">
+                        </div>
+                    </div>
+                    <div class="row g-3 mb-3">
+                        <div class="col-sm-6">
+                            <label class="form-label small fw-medium">Início Desenvolvimento</label>
+                            <input type="datetime-local" id="detail-start-date" class="form-control form-control-sm">
+                        </div>
+                        <div class="col-sm-6">
+                            <label class="form-label small fw-medium">Fim Desenvolvimento</label>
+                            <input type="datetime-local" id="detail-end-date" class="form-control form-control-sm">
                         </div>
                     </div>
                     <div class="mb-2 d-flex justify-content-between align-items-center">
@@ -379,6 +399,8 @@ function openCardModal(id) {
         document.getElementById('detail-priority').value = c.priority;
         document.getElementById('detail-status').value = c.status;
         document.getElementById('detail-due-date').value = c.due_date ? c.due_date.slice(0,16) : '';
+        document.getElementById('detail-start-date').value = c.start_date ? c.start_date.slice(0,16) : '';
+        document.getElementById('detail-end-date').value = c.end_date ? c.end_date.slice(0,16) : '';
         document.getElementById('detail-meta').textContent = 'Criado por ' + c.created_by_name + ' em ' + new Date(c.created_at).toLocaleString('pt-BR') + (c.ticket_id ? ' | Vinculado à demanda #'+c.ticket_id : '');
 
         // Quill editor
@@ -402,6 +424,8 @@ function saveCard() {
     formData.append('priority', document.getElementById('detail-priority').value);
     formData.append('status', document.getElementById('detail-status').value);
     formData.append('due_date', document.getElementById('detail-due-date').value);
+    formData.append('start_date', document.getElementById('detail-start-date').value);
+    formData.append('end_date', document.getElementById('detail-end-date').value);
 
     fetch(BASE + 'planning/update/' + currentCardId, { method: 'POST', body: formData, headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json()).then(data => {
@@ -540,6 +564,65 @@ function renderCalendar(start, end) {
     const days = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
     const today = new Date(); today.setHours(0,0,0,0);
 
+    // Helper: check if a date falls within the card's range or is its due_date
+    function getEventsForDay(cellDate) {
+        const results = [];
+        const cellStr = cellDate.toISOString().slice(0,10);
+        calendarEvents.forEach(e => {
+            // Range de desenvolvimento (aparece todos os dias do range)
+            if (e.start_date && e.end_date) {
+                const sd = new Date(e.start_date); sd.setHours(0,0,0,0);
+                const ed = new Date(e.end_date); ed.setHours(0,0,0,0);
+                if (cellDate >= sd && cellDate <= ed) {
+                    results.push({id:e.id, label: '🔨 ' + e.title, color: priorityColors[e.priority]||'#666'});
+                }
+            } else if (e.start_date && !e.end_date) {
+                const sd = new Date(e.start_date);
+                if (sd.toISOString().slice(0,10) === cellStr) {
+                    results.push({id:e.id, label: '🔨 ' + e.title, color: priorityColors[e.priority]||'#666'});
+                }
+            }
+            // Due date (prazo de entrega)
+            if (e.due_date) {
+                const dd = new Date(e.due_date);
+                if (dd.toISOString().slice(0,10) === cellStr) {
+                    results.push({id:e.id, label: '📦 Entrega: ' + e.title, color: '#2e7d32'});
+                }
+            }
+        });
+        return results;
+    }
+
+    // Helper for time grid (week/day views)
+    function getEventsForHour(dayDate, hour) {
+        const results = [];
+        const dayStr = dayDate.toISOString().slice(0,10);
+        calendarEvents.forEach(e => {
+            // Range dev: show at 8h on each day of range
+            if (e.start_date && e.end_date) {
+                const sd = new Date(e.start_date); sd.setHours(0,0,0,0);
+                const ed = new Date(e.end_date); ed.setHours(0,0,0,0);
+                const checkDate = new Date(dayDate); checkDate.setHours(0,0,0,0);
+                if (checkDate >= sd && checkDate <= ed && hour === 8) {
+                    results.push({id:e.id, label: '🔨 ' + e.title, color: priorityColors[e.priority]||'#666'});
+                }
+            } else if (e.start_date && !e.end_date) {
+                const sd = new Date(e.start_date);
+                if (sd.toISOString().slice(0,10) === dayStr && sd.getHours() === hour) {
+                    results.push({id:e.id, label: '🔨 ' + e.title, color: priorityColors[e.priority]||'#666'});
+                }
+            }
+            // Due date
+            if (e.due_date) {
+                const dd = new Date(e.due_date);
+                if (dd.toISOString().slice(0,10) === dayStr && dd.getHours() === hour) {
+                    results.push({id:e.id, label: '📦 Entrega: ' + e.title, color: '#2e7d32'});
+                }
+            }
+        });
+        return results;
+    }
+
     if (calMode === 'month') {
         title.textContent = months[calDate.getMonth()] + ' ' + calDate.getFullYear();
         let html = '<table><thead><tr>';
@@ -557,8 +640,8 @@ function renderCalendar(start, end) {
                 const isToday = cellDate.getTime() === today.getTime();
                 html += `<td class="cal-day ${isOther?'other-month':''} ${isToday?'today':''}">`;
                 html += `<div class="cal-day-num">${cellDate.getDate()}</div>`;
-                const dayEvents = calendarEvents.filter(e => { const ed = new Date(e.start); return ed.getDate()===cellDate.getDate() && ed.getMonth()===cellDate.getMonth() && ed.getFullYear()===cellDate.getFullYear(); });
-                dayEvents.slice(0,3).forEach(e => { html += `<div class="cal-event" style="background:${priorityColors[e.priority]||'#666'}" onclick="openCardModal(${e.id})" title="${e.title}">${e.title}</div>`; });
+                const dayEvents = getEventsForDay(cellDate);
+                dayEvents.slice(0,3).forEach(e => { html += `<div class="cal-event" style="background:${e.color}" onclick="openCardModal(${e.id})" title="${e.label}">${e.label}</div>`; });
                 if (dayEvents.length > 3) html += `<div style="font-size:0.65rem;color:#999;">+${dayEvents.length-3} mais</div>`;
                 html += '</td>';
             }
@@ -591,12 +674,9 @@ function renderTimeGrid(container, startDate, numDays) {
         for (let d = 0; d < numDays; d++) {
             const dd = new Date(startDate); dd.setDate(dd.getDate() + d);
             html += '<td class="cal-time-slot" style="position:relative;">';
-            const hourEvents = calendarEvents.filter(e => {
-                const ed = new Date(e.start);
-                return ed.getDate()===dd.getDate() && ed.getMonth()===dd.getMonth() && ed.getFullYear()===dd.getFullYear() && ed.getHours()===h;
-            });
+            const hourEvents = getEventsForHour(dd, h);
             hourEvents.forEach(e => {
-                html += `<div class="cal-time-event" style="background:${priorityColors[e.priority]||'#666'}" onclick="openCardModal(${e.id})" title="${e.title}">${e.title}</div>`;
+                html += `<div class="cal-time-event" style="background:${e.color}" onclick="openCardModal(${e.id})" title="${e.label}">${e.label}</div>`;
             });
             html += '</td>';
         }

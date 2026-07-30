@@ -19,10 +19,22 @@ class PlanningController extends Controller
         if (!empty($_GET['company_id'])) $filters['company_id'] = $_GET['company_id'];
         if (!empty($_GET['assigned_to'])) $filters['assigned_to'] = $_GET['assigned_to'];
 
+        // Controle de acesso por empresa
+        $allowedCompanies = PlanningCard::getUserAllowedCompanies($user['id'], $user['role']);
+        if ($allowedCompanies !== null) {
+            $filters['allowed_companies'] = $allowedCompanies;
+        }
+
         $grouped = $this->cardModel->getGroupedByStatus($filters);
 
         $companyModel = new Company();
-        $companies = $companyModel->getAll();
+        // Atendente só vê empresas que tem acesso
+        if ($allowedCompanies !== null && !in_array(0, $allowedCompanies)) {
+            $allCompanies = $companyModel->getAll();
+            $companies = array_filter($allCompanies, fn($c) => in_array($c['id'], $allowedCompanies));
+        } else {
+            $companies = $companyModel->getAll();
+        }
 
         $userModel = new User();
         $team = $userModel->getAttendants();
@@ -45,6 +57,7 @@ class PlanningController extends Controller
     public function calendar()
     {
         $this->requireRole(['super_admin', 'attendant']);
+        $user = $this->currentUser();
 
         $start = $_GET['start'] ?? date('Y-m-01');
         $end = $_GET['end'] ?? date('Y-m-t 23:59:59');
@@ -54,6 +67,12 @@ class PlanningController extends Controller
         if (!empty($_GET['assigned_to'])) $filters['assigned_to'] = $_GET['assigned_to'];
         if (!empty($_GET['hide_completed'])) $filters['hide_completed'] = true;
 
+        // Controle de acesso por empresa
+        $allowedCompanies = PlanningCard::getUserAllowedCompanies($user['id'], $user['role']);
+        if ($allowedCompanies !== null) {
+            $filters['allowed_companies'] = $allowedCompanies;
+        }
+
         $cards = $this->cardModel->getForCalendar($start, $end, $filters);
 
         $events = [];
@@ -61,7 +80,9 @@ class PlanningController extends Controller
             $events[] = [
                 'id' => $card['id'],
                 'title' => $card['title'],
-                'start' => $card['due_date'],
+                'start_date' => $card['start_date'],
+                'end_date' => $card['end_date'],
+                'due_date' => $card['due_date'],
                 'priority' => $card['priority'],
                 'status' => $card['status'],
                 'assigned_name' => $card['assigned_name'] ?? 'Não atribuído',
@@ -100,6 +121,8 @@ class PlanningController extends Controller
             'priority' => $_POST['priority'] ?? 'medium',
             'status' => $_POST['status'] ?? 'open',
             'due_date' => !empty($_POST['due_date']) ? $_POST['due_date'] : null,
+            'start_date' => !empty($_POST['start_date']) ? $_POST['start_date'] : null,
+            'end_date' => !empty($_POST['end_date']) ? $_POST['end_date'] : null,
             'position' => 0,
         ];
 
@@ -159,6 +182,8 @@ class PlanningController extends Controller
         if (isset($_POST['priority'])) $data['priority'] = $_POST['priority'];
         if (isset($_POST['status'])) $data['status'] = $_POST['status'];
         if (isset($_POST['due_date'])) $data['due_date'] = $_POST['due_date'] ?: null;
+        if (isset($_POST['start_date'])) $data['start_date'] = $_POST['start_date'] ?: null;
+        if (isset($_POST['end_date'])) $data['end_date'] = $_POST['end_date'] ?: null;
 
         if (empty($data)) {
             $this->json(['error' => 'Nenhum campo para atualizar'], 400);
@@ -354,15 +379,87 @@ class PlanningController extends Controller
         $this->json(['success' => true]);
     }
 
-    // Notificação de atribuição
+    // Notificação de atribuição (sistema + email + webhook)
     private function notifyAssignment($cardId, $assignedTo, $currentUser, $cardTitle)
     {
         $db = Database::getInstance();
+        $card = $this->cardModel->findById($cardId);
+
+        // Notificação no sistema
         $db->insert('notifications', [
             'user_id' => $assignedTo,
             'title' => 'Card atribuído a você',
             'message' => "{$currentUser['name']} atribuiu o card \"{$cardTitle}\" para você.",
             'type' => 'system',
         ]);
+
+        // Email para o responsável
+        $userModel = new User();
+        $assignedUser = $userModel->findById($assignedTo);
+        if ($assignedUser && $assignedUser['email']) {
+            $startStr = $card['start_date'] ? date('d/m/Y', strtotime($card['start_date'])) : 'Não definido';
+            $endStr = $card['end_date'] ? date('d/m/Y', strtotime($card['end_date'])) : 'Não definido';
+            $dueStr = $card['due_date'] ? date('d/m/Y H:i', strtotime($card['due_date'])) : 'Não definido';
+            $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'urgent' => 'Urgente'];
+            $priorityLabel = $priorityLabels[$card['priority']] ?? $card['priority'];
+
+            $emailBody = "
+                <p>Olá, <strong>{$assignedUser['name']}</strong>!</p>
+                <p>Uma nova tarefa foi atribuída a você:</p>
+                <div style='background:#f8fafc;border-radius:8px;padding:16px 20px;margin:16px 0;border-left:4px solid #00BFA6;'>
+                    <table style='width:100%;border-collapse:collapse;'>
+                        <tr><td style='padding:6px 0;color:#666;font-size:0.85rem;'>Card</td><td style='padding:6px 0;font-weight:600;color:#333;'>#{$card['id']} — {$cardTitle}</td></tr>
+                        <tr><td style='padding:6px 0;color:#666;font-size:0.85rem;'>Empresa</td><td style='padding:6px 0;color:#333;'>" . ($card['company_name'] ?? 'Não definida') . "</td></tr>
+                        <tr><td style='padding:6px 0;color:#666;font-size:0.85rem;'>Prioridade</td><td style='padding:6px 0;color:#333;'>{$priorityLabel}</td></tr>
+                        <tr><td style='padding:6px 0;color:#666;font-size:0.85rem;'>Desenvolvimento</td><td style='padding:6px 0;color:#333;'>{$startStr} até {$endStr}</td></tr>
+                        <tr><td style='padding:6px 0;color:#666;font-size:0.85rem;'>Prazo de Entrega</td><td style='padding:6px 0;font-weight:600;color:#e65100;'>{$dueStr}</td></tr>
+                        <tr><td style='padding:6px 0;color:#666;font-size:0.85rem;'>Atribuído por</td><td style='padding:6px 0;color:#333;'>{$currentUser['name']}</td></tr>
+                    </table>
+                </div>
+                <p style='margin-top:20px;'>
+                    <a href='" . baseUrl('planning') . "' style='display:inline-block;background:#00BFA6;color:#fff;padding:10px 24px;border-radius:6px;text-decoration:none;font-weight:600;font-size:0.9rem;'>Ver no Planejamento</a>
+                </p>
+            ";
+            $htmlBody = Mailer::template('Nova Tarefa Atribuída', $emailBody);
+            Mailer::send($assignedUser['email'], "Nova tarefa: {$cardTitle}", $htmlBody);
+        }
+
+        // Webhook WhatsApp
+        $webhookEnabled = Config::get('webhook_enabled');
+        if ($webhookEnabled) {
+            $startStr = $card['start_date'] ? date('d/m/Y', strtotime($card['start_date'])) : '?';
+            $endStr = $card['end_date'] ? date('d/m/Y', strtotime($card['end_date'])) : '?';
+            $dueStr = $card['due_date'] ? date('d/m/Y', strtotime($card['due_date'])) : '?';
+            $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'urgent' => 'Urgente'];
+
+            $webhookMessage = "📋 *Nova Tarefa Atribuída*\n\n"
+                . "*Card:* #{$card['id']} — {$cardTitle}\n"
+                . "*Empresa:* " . ($card['company_name'] ?? 'N/A') . "\n"
+                . "*Prioridade:* " . ($priorityLabels[$card['priority']] ?? '') . "\n"
+                . "*Desenvolvimento:* {$startStr} até {$endStr}\n"
+                . "*Entrega:* {$dueStr}\n"
+                . "*Atribuído por:* {$currentUser['name']}\n"
+                . "*Responsável:* " . ($assignedUser['name'] ?? '') . "\n\n"
+                . "Acesse o painel para ver os detalhes.";
+
+            // Inserir na fila de webhook para cada telefone configurado
+            $phonesRaw = Config::get('webhook_phones') ?: Config::get('webhook_phone') ?: '';
+            $namesRaw = Config::get('webhook_names') ?: Config::get('webhook_name') ?: 'Admin';
+            $phones = array_map('trim', explode(',', $phonesRaw));
+            $names = array_map('trim', explode(',', $namesRaw));
+
+            foreach ($phones as $index => $phone) {
+                $phone = preg_replace('/[^0-9]/', '', $phone);
+                if (empty($phone)) continue;
+                $recipientName = $names[$index] ?? ($names[0] ?? 'Admin');
+
+                $db->insert('webhook_queue', [
+                    'phone' => $phone,
+                    'name' => $recipientName,
+                    'message' => $webhookMessage,
+                    'status' => 'pending',
+                ]);
+            }
+        }
     }
 }

@@ -101,6 +101,26 @@
                     </div>
                     <?php endif; ?>
 
+                    <!-- Acesso a Empresas (só para atendentes) -->
+                    <div id="access-fields" class="col-12" style="<?= ($editUser['role'] ?? '') !== 'attendant' ? 'display:none' : '' ?>">
+                        <hr class="my-2">
+                        <h6 class="fw-medium mb-3" style="font-size:0.88rem"><i class="bi bi-shield-lock"></i> Acesso a Empresas no Planejamento</h6>
+                        <p class="small text-muted mb-2">Selecione quais empresas este atendente pode visualizar no módulo de Planejamento. Se nenhuma for selecionada, ele só verá cards sem empresa.</p>
+                        <div class="row g-2">
+                            <?php
+                            $allCompaniesAccess = (new Company())->getAll();
+                            $userAccessIds = $editUser ? PlanningCard::getUserCompanyAccessIds($editUser['id']) : [];
+                            foreach ($allCompaniesAccess as $c): ?>
+                            <div class="col-sm-6 col-md-4">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="company_access[]" value="<?= $c['id'] ?>" id="access_<?= $c['id'] ?>" <?= in_array($c['id'], $userAccessIds) ? 'checked' : '' ?>>
+                                    <label class="form-check-label small" for="access_<?= $c['id'] ?>"><?= escape($c['name']) ?></label>
+                                </div>
+                            </div>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+
                     <div class="col-12 mt-3">
                         <button type="submit" class="btn btn-primary px-4">
                             <i class="bi bi-check-lg"></i> <?= $editUser ? 'Atualizar' : 'Cadastrar' ?>
@@ -116,7 +136,9 @@
 function toggleCompanyFields() {
     const role = document.getElementById('role-select').value;
     const fields = document.getElementById('company-fields');
+    const accessFields = document.getElementById('access-fields');
     fields.style.display = role === 'client' ? '' : 'none';
+    accessFields.style.display = role === 'attendant' ? '' : 'none';
 }
 
 function toggleNewCompany() {

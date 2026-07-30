@@ -57,6 +57,11 @@ class PlanningCard
         if (!empty($filters['hide_completed'])) {
             $sql .= " AND pc.status NOT IN ('completed', 'archived')";
         }
+        if (!empty($filters['allowed_companies'])) {
+            $placeholders = implode(',', array_fill(0, count($filters['allowed_companies']), '?'));
+            $sql .= " AND (pc.company_id IS NULL OR pc.company_id IN ($placeholders))";
+            $params = array_merge($params, $filters['allowed_companies']);
+        }
 
         $sql .= " ORDER BY pc.position ASC, pc.updated_at DESC";
         return $this->db->fetchAll($sql, $params);
@@ -85,6 +90,11 @@ class PlanningCard
                 $sql .= " AND pc.assigned_to = ?";
                 $params[] = $filters['assigned_to'];
             }
+            if (!empty($filters['allowed_companies'])) {
+                $placeholders = implode(',', array_fill(0, count($filters['allowed_companies']), '?'));
+                $sql .= " AND (pc.company_id IS NULL OR pc.company_id IN ($placeholders))";
+                $params = array_merge($params, $filters['allowed_companies']);
+            }
 
             $sql .= " ORDER BY pc.position ASC, pc.updated_at DESC";
             $result[$status] = $this->db->fetchAll($sql, $params);
@@ -95,16 +105,21 @@ class PlanningCard
 
     public function getForCalendar($startDate, $endDate, $filters = [])
     {
+        // Buscar cards que tenham qualquer data dentro do range:
+        // - due_date (prazo/entrega) dentro do range
+        // - start_date/end_date (range desenvolvimento) que intersecte o range
         $sql = "SELECT pc.*, 
                        u.name as assigned_name,
                        co.name as company_name
                 FROM planning_cards pc
                 LEFT JOIN users u ON pc.assigned_to = u.id
                 LEFT JOIN companies co ON pc.company_id = co.id
-                WHERE pc.due_date IS NOT NULL
-                  AND pc.due_date >= ?
-                  AND pc.due_date <= ?";
-        $params = [$startDate, $endDate];
+                WHERE (
+                    (pc.due_date IS NOT NULL AND pc.due_date >= ? AND pc.due_date <= ?)
+                    OR (pc.start_date IS NOT NULL AND pc.end_date IS NOT NULL AND pc.start_date <= ? AND pc.end_date >= ?)
+                    OR (pc.start_date IS NOT NULL AND pc.end_date IS NULL AND pc.start_date >= ? AND pc.start_date <= ?)
+                )";
+        $params = [$startDate, $endDate, $endDate, $startDate, $startDate, $endDate];
 
         if (!empty($filters['company_id'])) {
             $sql .= " AND pc.company_id = ?";
@@ -117,8 +132,13 @@ class PlanningCard
         if (!empty($filters['hide_completed'])) {
             $sql .= " AND pc.status NOT IN ('completed', 'archived')";
         }
+        if (!empty($filters['allowed_companies'])) {
+            $placeholders = implode(',', array_fill(0, count($filters['allowed_companies']), '?'));
+            $sql .= " AND (pc.company_id IS NULL OR pc.company_id IN ($placeholders))";
+            $params = array_merge($params, $filters['allowed_companies']);
+        }
 
-        $sql .= " ORDER BY pc.due_date ASC";
+        $sql .= " ORDER BY pc.start_date ASC, pc.due_date ASC";
         return $this->db->fetchAll($sql, $params);
     }
 
@@ -226,5 +246,49 @@ class PlanningCard
     public function findAttachment($id)
     {
         return $this->db->fetch("SELECT * FROM planning_attachments WHERE id = ?", [$id]);
+    }
+
+    // Obter empresas que o usuário tem acesso
+    public static function getUserAllowedCompanies($userId, $role)
+    {
+        // Super admin tem acesso a tudo
+        if ($role === 'super_admin') {
+            return null; // null = sem restrição
+        }
+
+        $db = Database::getInstance();
+        $rows = $db->fetchAll("SELECT company_id FROM user_company_access WHERE user_id = ?", [$userId]);
+
+        if (empty($rows)) {
+            // Se não tem nenhum registro, não tem acesso a nenhuma empresa específica
+            // mas pode ver cards sem empresa
+            return [0]; // retorna 0 para filtrar apenas cards sem company
+        }
+
+        return array_column($rows, 'company_id');
+    }
+
+    // Gerenciar acesso do usuário a empresas
+    public static function setUserCompanyAccess($userId, $companyIds)
+    {
+        $db = Database::getInstance();
+        // Remover acessos antigos
+        $db->delete('user_company_access', 'user_id = ?', [$userId]);
+        // Inserir novos
+        foreach ($companyIds as $companyId) {
+            if ($companyId) {
+                $db->insert('user_company_access', [
+                    'user_id' => $userId,
+                    'company_id' => $companyId,
+                ]);
+            }
+        }
+    }
+
+    public static function getUserCompanyAccessIds($userId)
+    {
+        $db = Database::getInstance();
+        $rows = $db->fetchAll("SELECT company_id FROM user_company_access WHERE user_id = ?", [$userId]);
+        return array_column($rows, 'company_id');
     }
 }

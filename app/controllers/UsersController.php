@@ -63,7 +63,7 @@ class UsersController extends Controller
 
         $db = Database::getInstance();
         $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
-        $db->insert('users', [
+        $userId = $db->insert('users', [
             'name' => $name,
             'email' => $email,
             'password' => $hashedPassword,
@@ -94,6 +94,12 @@ class UsersController extends Controller
         Mailer::send($email, 'Seu acesso ao Helpdesk - ON Solutions', $htmlBody);
 
         flash('success', 'Usuário criado com sucesso! Email enviado com as credenciais.');
+
+        // Salvar acesso a empresas (para atendentes)
+        if ($role === 'attendant' && isset($_POST['company_access'])) {
+            PlanningCard::setUserCompanyAccess($userId, $_POST['company_access']);
+        }
+
         $this->redirect('users');
     }
 
@@ -165,6 +171,13 @@ class UsersController extends Controller
 
         $db = Database::getInstance();
         $db->update('users', $data, 'id = ?', [$id]);
+
+        // Salvar acesso a empresas (para atendentes)
+        $role = $data['role'] ?? $_POST['role'] ?? '';
+        if ($role === 'attendant') {
+            $companyAccess = $_POST['company_access'] ?? [];
+            PlanningCard::setUserCompanyAccess($id, $companyAccess);
+        }
 
         flash('success', 'Usuário atualizado com sucesso!');
         $this->redirect('users');
