@@ -35,9 +35,24 @@ class TicketsController extends Controller
             if (!empty($_GET['priority'])) $filters['priority'] = $_GET['priority'];
             if (!empty($_GET['company'])) $filters['company_id'] = $_GET['company'];
             if (!empty($_GET['hide_completed'])) $filters['hide_completed'] = true;
+
+            // Controle de acesso por empresa para atendentes
+            $allowedCompanies = PlanningCard::getUserAllowedCompanies($user['id'], $user['role']);
+            if ($allowedCompanies !== null) {
+                $filters['allowed_companies'] = $allowedCompanies;
+            }
+
             $tickets = $this->ticketModel->getAll($filters);
             $companyModel = new Company();
-            $companies = $companyModel->getAll();
+
+            // Atendente só vê empresas que tem acesso no filtro
+            if ($allowedCompanies !== null && !in_array(0, $allowedCompanies)) {
+                $allCompanies = $companyModel->getAll();
+                $companies = array_filter($allCompanies, fn($c) => in_array($c['id'], $allowedCompanies));
+            } else {
+                $companies = $companyModel->getAll();
+            }
+
             $this->view('attendant/tickets', ['user' => $user, 'tickets' => $tickets, 'companies' => $companies]);
         }
     }
@@ -48,7 +63,11 @@ class TicketsController extends Controller
         $this->requireRole(['super_admin', 'attendant']);
         $user = $this->currentUser();
         $attendantId = ($user['role'] === 'attendant') ? $user['id'] : null;
-        $grouped = $this->ticketModel->getGroupedByStatus($attendantId);
+
+        // Controle de acesso por empresa
+        $allowedCompanies = PlanningCard::getUserAllowedCompanies($user['id'], $user['role']);
+        $grouped = $this->ticketModel->getGroupedByStatus($attendantId, $allowedCompanies);
+
         $this->view('attendant/kanban', ['user' => $user, 'grouped' => $grouped]);
     }
 

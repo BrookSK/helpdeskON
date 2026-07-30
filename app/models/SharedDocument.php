@@ -32,6 +32,20 @@ class SharedDocument
         );
     }
 
+    public function getForTeamFiltered($allowedCompanyIds)
+    {
+        $placeholders = implode(',', array_fill(0, count($allowedCompanyIds), '?'));
+        return $this->db->fetchAll(
+            "SELECT d.*, u.name as uploaded_by, c.name as company_name
+             FROM shared_documents d
+             LEFT JOIN users u ON d.user_id = u.id
+             LEFT JOIN companies c ON d.company_id = c.id
+             WHERE d.company_id IS NULL OR d.company_id IN ($placeholders)
+             ORDER BY d.created_at DESC",
+            $allowedCompanyIds
+        );
+    }
+
     public function getForClient($companyId, $userId)
     {
         // Mostra: docs da empresa dele, docs com visibilidade 'all', ou docs que ele mesmo enviou

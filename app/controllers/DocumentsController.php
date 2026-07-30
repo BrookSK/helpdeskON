@@ -16,7 +16,13 @@ class DocumentsController extends Controller
         $fullUser = (new User())->findById($user['id']);
 
         if (in_array($user['role'], ['super_admin', 'attendant'])) {
-            $documents = $this->docModel->getForTeam();
+            // Controle de acesso por empresa para atendentes
+            $allowedCompanies = PlanningCard::getUserAllowedCompanies($user['id'], $user['role']);
+            if ($allowedCompanies !== null && !in_array(0, $allowedCompanies)) {
+                $documents = $this->docModel->getForTeamFiltered($allowedCompanies);
+            } else {
+                $documents = $this->docModel->getForTeam();
+            }
         } else {
             $companyId = $fullUser['company_id'] ?? null;
             $documents = $this->docModel->getForClient($companyId, $user['id']);

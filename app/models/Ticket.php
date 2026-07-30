@@ -88,12 +88,17 @@ class Ticket
         if (!empty($filters['hide_completed'])) {
             $sql .= " AND t.status NOT IN ('completed', 'archived')";
         }
+        if (!empty($filters['allowed_companies'])) {
+            $placeholders = implode(',', array_fill(0, count($filters['allowed_companies']), '?'));
+            $sql .= " AND (c.company_id IS NULL OR c.company_id IN ($placeholders))";
+            $params = array_merge($params, $filters['allowed_companies']);
+        }
 
         $sql .= " ORDER BY t.updated_at DESC";
         return $this->db->fetchAll($sql, $params);
     }
 
-    public function getGroupedByStatus($attendantId = null)
+    public function getGroupedByStatus($attendantId = null, $allowedCompanies = null)
     {
         $statuses = ['open', 'in_progress', 'waiting_client', 'completed', 'denied', 'archived'];
         $result = [];
@@ -106,6 +111,11 @@ class Ticket
             if ($attendantId) {
                 $sql .= " AND (t.attendant_id = ? OR t.attendant_id IS NULL)";
                 $params[] = $attendantId;
+            }
+            if ($allowedCompanies !== null) {
+                $placeholders = implode(',', array_fill(0, count($allowedCompanies), '?'));
+                $sql .= " AND (c.company_id IS NULL OR c.company_id IN ($placeholders))";
+                $params = array_merge($params, $allowedCompanies);
             }
             $sql .= " ORDER BY t.updated_at DESC";
             $result[$status] = $this->db->fetchAll($sql, $params);
