@@ -8,10 +8,46 @@ class NotificationsController extends Controller
         $user = $this->currentUser();
         $db = Database::getInstance();
 
-        $notifications = $db->fetchAll(
-            "SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50",
-            [$user['id']]
-        );
+        // Para atendentes, filtrar notificações de tickets de empresas sem acesso
+        if ($user['role'] === 'attendant') {
+            $allowedCompanies = PlanningCard::getUserAllowedCompanies($user['id'], $user['role']);
+            if ($allowedCompanies !== null) {
+                $realIds = array_filter($allowedCompanies, fn($id) => $id > 0);
+                if (!empty($realIds)) {
+                    $placeholders = implode(',', array_fill(0, count($realIds), '?'));
+                    $notifications = $db->fetchAll(
+                        "SELECT n.* FROM notifications n
+                         LEFT JOIN tickets t ON n.ticket_id = t.id
+                         LEFT JOIN users cu ON t.client_id = cu.id
+                         WHERE n.user_id = ?
+                           AND (n.ticket_id IS NULL OR cu.company_id IS NULL OR cu.company_id IN ($placeholders))
+                         ORDER BY n.created_at DESC LIMIT 50",
+                        array_merge([$user['id']], $realIds)
+                    );
+                } else {
+                    // Nenhuma empresa — só notificações sem ticket ou de tickets sem empresa
+                    $notifications = $db->fetchAll(
+                        "SELECT n.* FROM notifications n
+                         LEFT JOIN tickets t ON n.ticket_id = t.id
+                         LEFT JOIN users cu ON t.client_id = cu.id
+                         WHERE n.user_id = ?
+                           AND (n.ticket_id IS NULL OR cu.company_id IS NULL)
+                         ORDER BY n.created_at DESC LIMIT 50",
+                        [$user['id']]
+                    );
+                }
+            } else {
+                $notifications = $db->fetchAll(
+                    "SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50",
+                    [$user['id']]
+                );
+            }
+        } else {
+            $notifications = $db->fetchAll(
+                "SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50",
+                [$user['id']]
+            );
+        }
 
         $this->view('notifications/index', ['user' => $user, 'notifications' => $notifications]);
     }
@@ -38,10 +74,48 @@ class NotificationsController extends Controller
     {
         $this->requireLogin();
         $db = Database::getInstance();
-        $notifications = $db->fetchAll(
-            "SELECT * FROM notifications WHERE user_id = ? AND is_read = 0 ORDER BY created_at DESC LIMIT 10",
-            [$_SESSION['user_id']]
-        );
+        $userId = $_SESSION['user_id'];
+        $role = $_SESSION['user_role'] ?? '';
+
+        if ($role === 'attendant') {
+            $allowedCompanies = PlanningCard::getUserAllowedCompanies($userId, 'attendant');
+            if ($allowedCompanies !== null) {
+                $realIds = array_filter($allowedCompanies, fn($id) => $id > 0);
+                if (!empty($realIds)) {
+                    $placeholders = implode(',', array_fill(0, count($realIds), '?'));
+                    $notifications = $db->fetchAll(
+                        "SELECT n.* FROM notifications n
+                         LEFT JOIN tickets t ON n.ticket_id = t.id
+                         LEFT JOIN users cu ON t.client_id = cu.id
+                         WHERE n.user_id = ? AND n.is_read = 0
+                           AND (n.ticket_id IS NULL OR cu.company_id IS NULL OR cu.company_id IN ($placeholders))
+                         ORDER BY n.created_at DESC LIMIT 10",
+                        array_merge([$userId], $realIds)
+                    );
+                } else {
+                    $notifications = $db->fetchAll(
+                        "SELECT n.* FROM notifications n
+                         LEFT JOIN tickets t ON n.ticket_id = t.id
+                         LEFT JOIN users cu ON t.client_id = cu.id
+                         WHERE n.user_id = ? AND n.is_read = 0
+                           AND (n.ticket_id IS NULL OR cu.company_id IS NULL)
+                         ORDER BY n.created_at DESC LIMIT 10",
+                        [$userId]
+                    );
+                }
+            } else {
+                $notifications = $db->fetchAll(
+                    "SELECT * FROM notifications WHERE user_id = ? AND is_read = 0 ORDER BY created_at DESC LIMIT 10",
+                    [$userId]
+                );
+            }
+        } else {
+            $notifications = $db->fetchAll(
+                "SELECT * FROM notifications WHERE user_id = ? AND is_read = 0 ORDER BY created_at DESC LIMIT 10",
+                [$userId]
+            );
+        }
+
         $count = count($notifications);
         $this->json(['count' => $count, 'notifications' => $notifications]);
     }
