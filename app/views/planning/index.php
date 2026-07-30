@@ -401,7 +401,7 @@ function openCardModal(id) {
         document.getElementById('detail-due-date').value = c.due_date ? c.due_date.slice(0,16) : '';
         document.getElementById('detail-start-date').value = c.start_date ? c.start_date.slice(0,16) : '';
         document.getElementById('detail-end-date').value = c.end_date ? c.end_date.slice(0,16) : '';
-        document.getElementById('detail-meta').textContent = 'Criado por ' + c.created_by_name + ' em ' + new Date(c.created_at).toLocaleString('pt-BR') + (c.ticket_id ? ' | Vinculado à demanda #'+c.ticket_id : '');
+        document.getElementById('detail-meta').innerHTML = 'Criado por ' + c.created_by_name + ' em ' + new Date(c.created_at).toLocaleString('pt-BR') + (c.ticket_id ? ' | Vinculado à demanda <a href="'+BASE+'tickets/show/'+c.ticket_id+'" target="_blank" class="text-decoration-none fw-medium" style="color:var(--primary);">#'+c.ticket_id+' <i class="bi bi-box-arrow-up-right" style="font-size:0.7rem;"></i></a>' : '');
 
         // Quill editor
         if (quill) quill.root.innerHTML = c.description || '';
