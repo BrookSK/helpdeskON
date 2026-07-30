@@ -122,6 +122,11 @@ class TicketsController extends Controller
         // Enviar notificação
         $this->sendNewTicketNotification($ticketId);
 
+        // Criar card automático no Planejamento
+        $ticket = $this->ticketModel->findById($ticketId);
+        $planningCard = new PlanningCard();
+        $planningCard->createFromTicket($ticket);
+
         flash('success', 'Demanda criada com sucesso!');
         $this->redirect('tickets/show/' . $ticketId);
     }
@@ -193,6 +198,10 @@ class TicketsController extends Controller
         }
 
         $this->ticketModel->updateStatus($id, $status);
+
+        // Sincronizar card do planejamento
+        $planningCard = new PlanningCard();
+        $planningCard->syncFromTicket($id, $status);
 
         // Notificar cliente sobre mudança de status
         $ticket = $this->ticketModel->findById($id);

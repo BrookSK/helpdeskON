@@ -77,6 +77,11 @@
                     <i class="bi bi-folder"></i> Documentos
                 </a>
             </li>
+            <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'planning' ? 'active' : '' ?>" href="<?= baseUrl('planning') ?>">
+                    <i class="bi bi-calendar2-check"></i> Planejamento
+                </a>
+            </li>
             <?php endif; ?>
 
             <?php if (($user['role'] ?? '') === 'super_admin'): ?>

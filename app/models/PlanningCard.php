@@ -1,0 +1,230 @@
+<?php
+
+class PlanningCard
+{
+    private $db;
+
+    public function __construct()
+    {
+        $this->db = Database::getInstance();
+    }
+
+    public function findById($id)
+    {
+        return $this->db->fetch(
+            "SELECT pc.*, 
+                    u.name as assigned_name,
+                    cb.name as created_by_name,
+                    co.name as company_name,
+                    t.title as ticket_title
+             FROM planning_cards pc
+             LEFT JOIN users u ON pc.assigned_to = u.id
+             LEFT JOIN users cb ON pc.created_by = cb.id
+             LEFT JOIN companies co ON pc.company_id = co.id
+             LEFT JOIN tickets t ON pc.ticket_id = t.id
+             WHERE pc.id = ?",
+            [$id]
+        );
+    }
+
+    public function getAll($filters = [])
+    {
+        $sql = "SELECT pc.*, 
+                       u.name as assigned_name,
+                       co.name as company_name
+                FROM planning_cards pc
+                LEFT JOIN users u ON pc.assigned_to = u.id
+                LEFT JOIN companies co ON pc.company_id = co.id
+                WHERE 1=1";
+        $params = [];
+
+        if (!empty($filters['status'])) {
+            $sql .= " AND pc.status = ?";
+            $params[] = $filters['status'];
+        }
+        if (!empty($filters['priority'])) {
+            $sql .= " AND pc.priority = ?";
+            $params[] = $filters['priority'];
+        }
+        if (!empty($filters['company_id'])) {
+            $sql .= " AND pc.company_id = ?";
+            $params[] = $filters['company_id'];
+        }
+        if (!empty($filters['assigned_to'])) {
+            $sql .= " AND pc.assigned_to = ?";
+            $params[] = $filters['assigned_to'];
+        }
+        if (!empty($filters['hide_completed'])) {
+            $sql .= " AND pc.status NOT IN ('completed', 'archived')";
+        }
+
+        $sql .= " ORDER BY pc.position ASC, pc.updated_at DESC";
+        return $this->db->fetchAll($sql, $params);
+    }
+
+    public function getGroupedByStatus($filters = [])
+    {
+        $statuses = ['open', 'in_progress', 'waiting_client', 'completed', 'denied', 'archived'];
+        $result = [];
+
+        foreach ($statuses as $status) {
+            $sql = "SELECT pc.*, 
+                           u.name as assigned_name,
+                           co.name as company_name
+                    FROM planning_cards pc
+                    LEFT JOIN users u ON pc.assigned_to = u.id
+                    LEFT JOIN companies co ON pc.company_id = co.id
+                    WHERE pc.status = ?";
+            $params = [$status];
+
+            if (!empty($filters['company_id'])) {
+                $sql .= " AND pc.company_id = ?";
+                $params[] = $filters['company_id'];
+            }
+            if (!empty($filters['assigned_to'])) {
+                $sql .= " AND pc.assigned_to = ?";
+                $params[] = $filters['assigned_to'];
+            }
+
+            $sql .= " ORDER BY pc.position ASC, pc.updated_at DESC";
+            $result[$status] = $this->db->fetchAll($sql, $params);
+        }
+
+        return $result;
+    }
+
+    public function getForCalendar($startDate, $endDate, $filters = [])
+    {
+        $sql = "SELECT pc.*, 
+                       u.name as assigned_name,
+                       co.name as company_name
+                FROM planning_cards pc
+                LEFT JOIN users u ON pc.assigned_to = u.id
+                LEFT JOIN companies co ON pc.company_id = co.id
+                WHERE pc.due_date IS NOT NULL
+                  AND pc.due_date >= ?
+                  AND pc.due_date <= ?";
+        $params = [$startDate, $endDate];
+
+        if (!empty($filters['company_id'])) {
+            $sql .= " AND pc.company_id = ?";
+            $params[] = $filters['company_id'];
+        }
+        if (!empty($filters['assigned_to'])) {
+            $sql .= " AND pc.assigned_to = ?";
+            $params[] = $filters['assigned_to'];
+        }
+        if (!empty($filters['hide_completed'])) {
+            $sql .= " AND pc.status NOT IN ('completed', 'archived')";
+        }
+
+        $sql .= " ORDER BY pc.due_date ASC";
+        return $this->db->fetchAll($sql, $params);
+    }
+
+    public function create($data)
+    {
+        return $this->db->insert('planning_cards', $data);
+    }
+
+    public function update($id, $data)
+    {
+        return $this->db->update('planning_cards', $data, 'id = ?', [$id]);
+    }
+
+    public function updateStatus($id, $status)
+    {
+        return $this->db->update('planning_cards', ['status' => $status], 'id = ?', [$id]);
+    }
+
+    public function updatePosition($id, $position, $status = null)
+    {
+        $data = ['position' => $position];
+        if ($status) {
+            $data['status'] = $status;
+        }
+        return $this->db->update('planning_cards', $data, 'id = ?', [$id]);
+    }
+
+    public function delete($id)
+    {
+        return $this->db->delete('planning_cards', 'id = ?', [$id]);
+    }
+
+    // Criar card automaticamente a partir de um ticket
+    public function createFromTicket($ticket)
+    {
+        $clientUser = $this->db->fetch("SELECT company_id FROM users WHERE id = ?", [$ticket['client_id']]);
+
+        return $this->create([
+            'ticket_id' => $ticket['id'],
+            'title' => $ticket['title'],
+            'description' => '<p>' . nl2br(htmlspecialchars($ticket['description'])) . '</p>',
+            'company_id' => $clientUser['company_id'] ?? null,
+            'assigned_to' => $ticket['attendant_id'] ?? null,
+            'created_by' => $ticket['client_id'],
+            'priority' => $ticket['priority'],
+            'status' => $ticket['status'] ?? 'open',
+            'position' => 0,
+        ]);
+    }
+
+    // Sincronizar status do card quando ticket muda
+    public function syncFromTicket($ticketId, $status)
+    {
+        $card = $this->db->fetch("SELECT id FROM planning_cards WHERE ticket_id = ?", [$ticketId]);
+        if ($card) {
+            $this->updateStatus($card['id'], $status);
+        }
+    }
+
+    // Comentários
+    public function getComments($cardId)
+    {
+        return $this->db->fetchAll(
+            "SELECT pc.*, u.name as user_name, u.avatar as user_avatar
+             FROM planning_comments pc
+             LEFT JOIN users u ON pc.user_id = u.id
+             WHERE pc.card_id = ?
+             ORDER BY pc.created_at ASC",
+            [$cardId]
+        );
+    }
+
+    public function addComment($cardId, $userId, $message)
+    {
+        return $this->db->insert('planning_comments', [
+            'card_id' => $cardId,
+            'user_id' => $userId,
+            'message' => $message,
+        ]);
+    }
+
+    // Anexos
+    public function getAttachments($cardId)
+    {
+        return $this->db->fetchAll(
+            "SELECT pa.*, u.name as user_name
+             FROM planning_attachments pa
+             LEFT JOIN users u ON pa.user_id = u.id
+             WHERE pa.card_id = ?
+             ORDER BY pa.created_at DESC",
+            [$cardId]
+        );
+    }
+
+    public function addAttachment($data)
+    {
+        return $this->db->insert('planning_attachments', $data);
+    }
+
+    public function deleteAttachment($id)
+    {
+        return $this->db->delete('planning_attachments', 'id = ?', [$id]);
+    }
+
+    public function findAttachment($id)
+    {
+        return $this->db->fetch("SELECT * FROM planning_attachments WHERE id = ?", [$id]);
+    }
+}
