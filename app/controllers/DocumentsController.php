@@ -18,9 +18,17 @@ class DocumentsController extends Controller
         if (in_array($user['role'], ['super_admin', 'attendant'])) {
             // Controle de acesso por empresa para atendentes
             $allowedCompanies = PlanningCard::getUserAllowedCompanies($user['id'], $user['role']);
-            if ($allowedCompanies !== null && !in_array(0, $allowedCompanies)) {
-                $documents = $this->docModel->getForTeamFiltered($allowedCompanies);
+            if ($allowedCompanies !== null) {
+                // Atendente com restrição — filtrar por empresas autorizadas
+                $realIds = array_filter($allowedCompanies, fn($id) => $id > 0);
+                if (!empty($realIds)) {
+                    $documents = $this->docModel->getForTeamFiltered($realIds);
+                } else {
+                    // Nenhuma empresa autorizada — só docs sem empresa
+                    $documents = $this->docModel->getForTeamFiltered([0]);
+                }
             } else {
+                // Super admin — vê tudo
                 $documents = $this->docModel->getForTeam();
             }
         } else {

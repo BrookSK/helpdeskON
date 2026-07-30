@@ -34,6 +34,17 @@ class SharedDocument
 
     public function getForTeamFiltered($allowedCompanyIds)
     {
+        if (empty($allowedCompanyIds) || (count($allowedCompanyIds) === 1 && $allowedCompanyIds[0] == 0)) {
+            // Só docs sem empresa vinculada
+            return $this->db->fetchAll(
+                "SELECT d.*, u.name as uploaded_by, c.name as company_name
+                 FROM shared_documents d
+                 LEFT JOIN users u ON d.user_id = u.id
+                 LEFT JOIN companies c ON d.company_id = c.id
+                 WHERE d.company_id IS NULL
+                 ORDER BY d.created_at DESC"
+            );
+        }
         $placeholders = implode(',', array_fill(0, count($allowedCompanyIds), '?'));
         return $this->db->fetchAll(
             "SELECT d.*, u.name as uploaded_by, c.name as company_name

@@ -89,9 +89,14 @@ class Ticket
             $sql .= " AND t.status NOT IN ('completed', 'archived')";
         }
         if (!empty($filters['allowed_companies'])) {
-            $placeholders = implode(',', array_fill(0, count($filters['allowed_companies']), '?'));
-            $sql .= " AND (c.company_id IS NULL OR c.company_id IN ($placeholders))";
-            $params = array_merge($params, $filters['allowed_companies']);
+            $ids = $filters['allowed_companies'];
+            if (count($ids) === 1 && $ids[0] == 0) {
+                $sql .= " AND c.company_id IS NULL";
+            } else {
+                $placeholders = implode(',', array_fill(0, count($ids), '?'));
+                $sql .= " AND (c.company_id IS NULL OR c.company_id IN ($placeholders))";
+                $params = array_merge($params, $ids);
+            }
         }
 
         $sql .= " ORDER BY t.updated_at DESC";
@@ -113,9 +118,13 @@ class Ticket
                 $params[] = $attendantId;
             }
             if ($allowedCompanies !== null) {
-                $placeholders = implode(',', array_fill(0, count($allowedCompanies), '?'));
-                $sql .= " AND (c.company_id IS NULL OR c.company_id IN ($placeholders))";
-                $params = array_merge($params, $allowedCompanies);
+                if (count($allowedCompanies) === 1 && $allowedCompanies[0] == 0) {
+                    $sql .= " AND c.company_id IS NULL";
+                } else {
+                    $placeholders = implode(',', array_fill(0, count($allowedCompanies), '?'));
+                    $sql .= " AND (c.company_id IS NULL OR c.company_id IN ($placeholders))";
+                    $params = array_merge($params, $allowedCompanies);
+                }
             }
             $sql .= " ORDER BY t.updated_at DESC";
             $result[$status] = $this->db->fetchAll($sql, $params);

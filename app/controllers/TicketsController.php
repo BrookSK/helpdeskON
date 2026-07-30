@@ -39,16 +39,22 @@ class TicketsController extends Controller
             // Controle de acesso por empresa para atendentes
             $allowedCompanies = PlanningCard::getUserAllowedCompanies($user['id'], $user['role']);
             if ($allowedCompanies !== null) {
-                $filters['allowed_companies'] = $allowedCompanies;
+                $realIds = array_filter($allowedCompanies, fn($id) => $id > 0);
+                $filters['allowed_companies'] = !empty($realIds) ? $realIds : [0];
             }
 
             $tickets = $this->ticketModel->getAll($filters);
             $companyModel = new Company();
 
             // Atendente só vê empresas que tem acesso no filtro
-            if ($allowedCompanies !== null && !in_array(0, $allowedCompanies)) {
-                $allCompanies = $companyModel->getAll();
-                $companies = array_filter($allCompanies, fn($c) => in_array($c['id'], $allowedCompanies));
+            if ($allowedCompanies !== null) {
+                $realIds = array_filter($allowedCompanies, fn($id) => $id > 0);
+                if (!empty($realIds)) {
+                    $allCompanies = $companyModel->getAll();
+                    $companies = array_filter($allCompanies, fn($c) => in_array($c['id'], $realIds));
+                } else {
+                    $companies = [];
+                }
             } else {
                 $companies = $companyModel->getAll();
             }
@@ -66,7 +72,12 @@ class TicketsController extends Controller
 
         // Controle de acesso por empresa
         $allowedCompanies = PlanningCard::getUserAllowedCompanies($user['id'], $user['role']);
-        $grouped = $this->ticketModel->getGroupedByStatus($attendantId, $allowedCompanies);
+        $filterCompanies = null;
+        if ($allowedCompanies !== null) {
+            $realIds = array_filter($allowedCompanies, fn($id) => $id > 0);
+            $filterCompanies = !empty($realIds) ? $realIds : [0];
+        }
+        $grouped = $this->ticketModel->getGroupedByStatus($attendantId, $filterCompanies);
 
         $this->view('attendant/kanban', ['user' => $user, 'grouped' => $grouped]);
     }
