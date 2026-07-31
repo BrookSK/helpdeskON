@@ -113,9 +113,9 @@
         <div class="text-center mt-4">
             <small class="text-muted" style="font-size:0.75rem">&copy; <?= date('Y') ?> ON Solutions. Todos os direitos reservados.</small>
             <div class="mt-2" style="font-size:0.72rem;">
-                <a href="<?= baseUrl('termos-de-uso.php') ?>" target="_blank" style="color:#888;text-decoration:none;">Termos de Uso</a>
+                <a href="<?= baseUrl('pages/termos') ?>" target="_blank" style="color:#888;text-decoration:none;">Termos de Uso</a>
                 <span class="mx-1" style="color:#ccc;">|</span>
-                <a href="<?= baseUrl('politica-privacidade.php') ?>" target="_blank" style="color:#888;text-decoration:none;">Política de Privacidade</a>
+                <a href="<?= baseUrl('pages/privacidade') ?>" target="_blank" style="color:#888;text-decoration:none;">Política de Privacidade</a>
             </div>
         </div>
     </div>
