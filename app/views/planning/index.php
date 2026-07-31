@@ -417,9 +417,19 @@ function openCardModal(id) {
 }
 
 function saveCard() {
+    const description = quill ? quill.root.innerHTML : '';
+
+    // Verificar se ainda existem imagens base64 grandes (proteção extra)
+    const base64Pattern = /src="data:image\/[^;]+;base64,[^"]{50000,}"/;
+    if (base64Pattern.test(description)) {
+        if (!confirm('A descrição contém imagens coladas muito grandes que podem causar perda de dados. Deseja tentar salvar assim mesmo?\n\nRecomendação: remova as imagens e cole novamente (elas serão enviadas para o servidor automaticamente).')) {
+            return;
+        }
+    }
+
     const formData = new FormData();
     formData.append('title', document.getElementById('detail-title-input').value);
-    formData.append('description', quill ? quill.root.innerHTML : '');
+    formData.append('description', description);
     formData.append('assigned_to', document.getElementById('detail-assigned').value);
     formData.append('company_id', document.getElementById('detail-company').value);
     formData.append('priority', document.getElementById('detail-priority').value);
@@ -696,25 +706,93 @@ function renderTimeGrid(container, startDate, numDays) {
 }
 
 // === INIT QUILL ===
+function quillImageHandler() {
+    const input = document.createElement('input');
+    input.setAttribute('type', 'file');
+    input.setAttribute('accept', 'image/*');
+    input.click();
+    input.onchange = () => {
+        const file = input.files[0];
+        if (file) uploadImageToServer(file);
+    };
+}
+
+function uploadImageToServer(file) {
+    const formData = new FormData();
+    formData.append('image', file);
+    fetch(BASE + 'planning/uploadImage/' + (currentCardId || 0), {
+        method: 'POST',
+        body: formData,
+        headers: {'X-Requested-With': 'XMLHttpRequest'}
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success && data.url) {
+            const range = quill.getSelection(true);
+            quill.insertEmbed(range.index, 'image', data.url);
+            quill.setSelection(range.index + 1);
+        } else {
+            alert('Erro ao enviar imagem: ' + (data.error || 'Erro desconhecido'));
+        }
+    })
+    .catch(err => {
+        console.error('Erro upload imagem:', err);
+        alert('Erro ao enviar imagem para o servidor.');
+    });
+}
+
 document.getElementById('cardDetailModal').addEventListener('shown.bs.modal', function() {
     if (!quill) {
         quill = new Quill('#quill-editor', {
             theme: 'snow',
             modules: {
-                toolbar: [
-                    [{'header':[1,2,3,false]}],
-                    ['bold','italic','underline','strike'],
-                    [{'list':'ordered'},{'list':'bullet'}],
-                    ['blockquote','code-block'],
-                    ['link','image'],
-                    [{'color':[]},{'background':[]}],
-                    ['clean']
-                ],
+                toolbar: {
+                    container: [
+                        [{'header':[1,2,3,false]}],
+                        ['bold','italic','underline','strike'],
+                        [{'list':'ordered'},{'list':'bullet'}],
+                        ['blockquote','code-block'],
+                        ['link','image'],
+                        [{'color':[]},{'background':[]}],
+                        ['clean']
+                    ],
+                    handlers: {
+                        image: quillImageHandler
+                    }
+                },
                 clipboard: {
                     matchVisual: false
                 }
             },
             placeholder: 'Escreva aqui... (texto, imagens, tabelas, listas...)'
+        });
+
+        // Interceptar imagens coladas (paste) e arrastadas (drop)
+        quill.root.addEventListener('paste', function(e) {
+            const clipboardData = e.clipboardData || window.clipboardData;
+            if (!clipboardData) return;
+            const items = clipboardData.items;
+            for (let i = 0; i < items.length; i++) {
+                if (items[i].type.indexOf('image') !== -1) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const file = items[i].getAsFile();
+                    if (file) uploadImageToServer(file);
+                    return;
+                }
+            }
+        });
+
+        quill.root.addEventListener('drop', function(e) {
+            const files = e.dataTransfer ? e.dataTransfer.files : [];
+            for (let i = 0; i < files.length; i++) {
+                if (files[i].type.indexOf('image') !== -1) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    uploadImageToServer(files[i]);
+                    return;
+                }
+            }
         });
     }
     // Setar conteúdo após Quill estar pronto

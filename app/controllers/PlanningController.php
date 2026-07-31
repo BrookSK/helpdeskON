@@ -379,6 +379,48 @@ class PlanningController extends Controller
         $this->json(['success' => true]);
     }
 
+    // Upload de imagem colada no editor (Quill)
+    public function uploadImage($id = null)
+    {
+        $this->requireRole(['super_admin', 'attendant']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+
+        if (empty($_FILES['image']['name']) || $_FILES['image']['error'] !== UPLOAD_ERR_OK) {
+            $this->json(['error' => 'Nenhuma imagem enviada'], 400);
+        }
+
+        $file = $_FILES['image'];
+        $maxSize = 10 * 1024 * 1024; // 10MB
+        if ($file['size'] > $maxSize) {
+            $this->json(['error' => 'Imagem muito grande (máx 10MB)'], 400);
+        }
+
+        // Validar tipo
+        $allowedTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml'];
+        if (!in_array($file['type'], $allowedTypes)) {
+            $this->json(['error' => 'Tipo de imagem não permitido'], 400);
+        }
+
+        $ext = pathinfo($file['name'], PATHINFO_EXTENSION) ?: 'png';
+        $fileName = 'img_' . uniqid() . '_' . time() . '.' . $ext;
+        $uploadDir = PUBLIC_PATH . '/uploads/planning';
+        if (!is_dir($uploadDir)) {
+            mkdir($uploadDir, 0755, true);
+        }
+
+        $filePath = 'uploads/planning/' . $fileName;
+        if (!move_uploaded_file($file['tmp_name'], PUBLIC_PATH . '/' . $filePath)) {
+            $this->json(['error' => 'Erro ao salvar imagem'], 500);
+        }
+
+        $this->json([
+            'success' => true,
+            'url' => baseUrl($filePath),
+        ]);
+    }
+
     // Notificação de atribuição (sistema + email + webhook)
     private function notifyAssignment($cardId, $assignedTo, $currentUser, $cardTitle)
     {

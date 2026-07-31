@@ -1,6 +1,11 @@
 <?php
 session_start();
 
+// Garantir limites de POST adequados para conteúdo rico (descrições com imagens)
+@ini_set('post_max_size', '50M');
+@ini_set('upload_max_filesize', '10M');
+@ini_set('max_input_vars', '5000');
+
 // Definir constantes base
 define('BASE_PATH', dirname(__DIR__));
 define('APP_PATH', BASE_PATH . '/app');
