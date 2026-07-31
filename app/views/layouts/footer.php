@@ -53,6 +53,14 @@
     <?php endif; ?>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- Links legais -->
+    <div class="text-center py-3" style="font-size:0.75rem;color:#aaa;">
+        <a href="<?= baseUrl('termos-de-uso.php') ?>" target="_blank" style="color:#888;text-decoration:none;">Termos de Uso</a>
+        <span class="mx-1">|</span>
+        <a href="<?= baseUrl('politica-privacidade.php') ?>" target="_blank" style="color:#888;text-decoration:none;">Política de Privacidade</a>
+    </div>
+
     <script>
         // Polling de notificações
         function checkNotifications() {
