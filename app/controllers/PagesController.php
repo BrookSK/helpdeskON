@@ -5,14 +5,22 @@ class PagesController extends Controller
     // Termos de Uso (público, sem login)
     public function termos()
     {
-        require PUBLIC_PATH . '/termos-de-uso.php';
+        $appName = Config::get('app_name') ?: 'ON Solutions Helpdesk';
+        $faviconUrl = Config::get('app_favicon');
+        $logoUrl = Config::get('app_logo');
+        $base = baseUrl('');
+        require APP_PATH . '/views/pages/termos.php';
         exit;
     }
 
     // Política de Privacidade (público, sem login)
     public function privacidade()
     {
-        require PUBLIC_PATH . '/politica-privacidade.php';
+        $appName = Config::get('app_name') ?: 'ON Solutions Helpdesk';
+        $faviconUrl = Config::get('app_favicon');
+        $logoUrl = Config::get('app_logo');
+        $base = baseUrl('');
+        require APP_PATH . '/views/pages/privacidade.php';
         exit;
     }
 }

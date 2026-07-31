@@ -1,13 +1,3 @@
-<?php
-define('BASE_PATH', dirname(__DIR__));
-define('APP_PATH', BASE_PATH . '/app');
-require_once APP_PATH . '/core/helpers.php';
-require_once APP_PATH . '/core/Database.php';
-require_once APP_PATH . '/core/Config.php';
-$appName = Config::get('app_name') ?: 'ON Solutions Helpdesk';
-$faviconUrl = Config::get('app_favicon');
-$logoUrl = Config::get('app_logo');
-?>
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -15,7 +5,7 @@ $logoUrl = Config::get('app_logo');
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Política de Privacidade - <?= htmlspecialchars($appName) ?></title>
     <?php if ($faviconUrl): ?>
-    <link rel="icon" href="<?= $faviconUrl ?>">
+    <link rel="icon" href="<?= $base . $faviconUrl ?>">
     <?php endif; ?>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -27,7 +17,6 @@ $logoUrl = Config::get('app_logo');
         .legal-card { background: #fff; border-radius: 12px; padding: 40px; box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
         .legal-card h1 { font-size: 1.6rem; font-weight: 700; color: #1a1a2e; margin-bottom: 8px; }
         .legal-card h2 { font-size: 1.1rem; font-weight: 600; color: #333; margin-top: 28px; margin-bottom: 12px; }
-        .legal-card h3 { font-size: 0.95rem; font-weight: 600; color: #444; margin-top: 16px; margin-bottom: 8px; }
         .legal-card p, .legal-card li { font-size: 0.9rem; color: #555; line-height: 1.7; }
         .legal-card ul { padding-left: 20px; }
         .legal-card ul li { margin-bottom: 6px; }
@@ -45,7 +34,7 @@ $logoUrl = Config::get('app_logo');
     <div class="legal-header">
         <?php if ($logoUrl): ?>
         <div style="background:#1a1a2e;display:inline-block;padding:12px 20px;border-radius:10px;margin-bottom:10px;">
-            <img src="<?= $logoUrl ?>" alt="Logo">
+            <img src="<?= $base . $logoUrl ?>" alt="Logo">
         </div>
         <?php else: ?>
         <h3 style="color:#00BFA6;font-weight:700;">ON Solutions</h3>
