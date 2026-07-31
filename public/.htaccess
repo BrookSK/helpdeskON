@@ -1,5 +1,10 @@
 RewriteEngine On
 
+# Permitir POST grande (para descrições com imagens/conteúdo rico)
+php_value post_max_size 50M
+php_value upload_max_filesize 10M
+php_value max_input_vars 5000
+
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^(.*)$ index.php?url=$1 [QSA,L]

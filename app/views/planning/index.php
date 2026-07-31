@@ -403,15 +403,16 @@ function openCardModal(id) {
         document.getElementById('detail-end-date').value = c.end_date ? c.end_date.slice(0,16) : '';
         document.getElementById('detail-meta').innerHTML = 'Criado por ' + c.created_by_name + ' em ' + new Date(c.created_at).toLocaleString('pt-BR') + (c.ticket_id ? ' | Vinculado à demanda <a href="'+BASE+'tickets/show/'+c.ticket_id+'" target="_blank" class="text-decoration-none fw-medium" style="color:var(--primary);">#'+c.ticket_id+' <i class="bi bi-box-arrow-up-right" style="font-size:0.7rem;"></i></a>' : '');
 
-        // Quill editor
-        if (quill) quill.root.innerHTML = c.description || '';
-
         // Attachments
         renderAttachments(data.attachments);
         // Comments
         renderComments(data.comments);
 
-        new bootstrap.Modal(document.getElementById('cardDetailModal')).show();
+        // Guardar description para setar após o Quill estar pronto
+        window._pendingDescription = c.description || '';
+
+        const modal = new bootstrap.Modal(document.getElementById('cardDetailModal'));
+        modal.show();
     });
 }
 
@@ -429,7 +430,15 @@ function saveCard() {
 
     fetch(BASE + 'planning/update/' + currentCardId, { method: 'POST', body: formData, headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json()).then(data => {
-            if (data.success) location.reload();
+            if (data.success) {
+                alert('Card salvo com sucesso!');
+                location.reload();
+            } else {
+                alert('Erro ao salvar: ' + (data.error || 'Erro desconhecido'));
+            }
+        }).catch(err => {
+            alert('Erro na requisição. Verifique se o conteúdo não é muito grande.');
+            console.error(err);
         });
 }
 
@@ -700,10 +709,18 @@ document.getElementById('cardDetailModal').addEventListener('shown.bs.modal', fu
                     ['link','image'],
                     [{'color':[]},{'background':[]}],
                     ['clean']
-                ]
+                ],
+                clipboard: {
+                    matchVisual: false
+                }
             },
             placeholder: 'Escreva aqui... (texto, imagens, tabelas, listas...)'
         });
+    }
+    // Setar conteúdo após Quill estar pronto
+    if (window._pendingDescription !== undefined) {
+        quill.root.innerHTML = window._pendingDescription;
+        delete window._pendingDescription;
     }
 });
 </script>
