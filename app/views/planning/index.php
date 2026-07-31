@@ -314,36 +314,39 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
 #calendar-container th, #calendar-container td { border: 1px solid #e9ecef; padding: 4px; vertical-align: top; font-size: 0.8rem; }
 #calendar-container th { background: #f8f9fa; text-align: center; font-weight: 600; }
 #calendar-container td { min-height: 120px; height: 120px; }
-#calendar-container .cal-day { cursor: pointer; transition: background 0.15s; position: relative; }
-#calendar-container .cal-day:hover { background: #f0faf8; }
-#calendar-container .cal-day-num { font-weight: 600; font-size: 0.75rem; color: #666; }
-#calendar-container .cal-day.today .cal-day-num { background: var(--primary); color: #fff; border-radius: 50%; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; }
-#calendar-container .cal-day.other-month { opacity: 0.4; }
-#calendar-container .cal-event { font-size: 0.68rem; padding: 2px 4px; border-radius: 3px; margin-top: 2px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #fff; }
-/* Notion-style calendar cards */
-.cal-card-notion { background: #fff; border: 1px solid #e9ecef; border-radius: 6px; padding: 6px 8px; margin-top: 4px; cursor: pointer; transition: box-shadow 0.15s, transform 0.1s; font-size: 0.72rem; overflow: hidden; }
-.cal-card-notion:hover { box-shadow: 0 3px 10px rgba(0,0,0,0.12); transform: translateY(-1px); }
-.cal-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px; }
-.cal-card-type { font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; }
-.cal-card-id { font-size: 0.6rem; color: #999; }
-.cal-card-title { font-weight: 600; font-size: 0.75rem; color: #1a1a1a; line-height: 1.2; margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cal-card-meta { font-size: 0.65rem; color: #666; margin-bottom: 3px; display: flex; flex-wrap: wrap; gap: 4px; }
-.cal-card-meta i { font-size: 0.6rem; }
-.cal-card-company, .cal-card-assigned { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-.cal-card-badges { display: flex; gap: 3px; flex-wrap: wrap; }
-.cal-card-badge { font-size: 0.58rem; padding: 1px 5px; border-radius: 3px; color: #fff; font-weight: 600; white-space: nowrap; }
-/* Time grid notion card */
+/* Notion-style month calendar grid */
+.cal-month-grid { width: 100%; }
+.cal-month-header { display: grid; grid-template-columns: repeat(7, 1fr); border-bottom: 2px solid #e2e8f0; }
+.cal-month-header-cell { text-align: center; font-weight: 600; font-size: 0.78rem; padding: 8px 4px; color: #555; background: #f8f9fa; border-right: 1px solid #e9ecef; }
+.cal-month-header-cell:last-child { border-right: none; }
+.cal-month-week { border-bottom: 1px solid #e9ecef; }
+.cal-month-days-row { display: grid; grid-template-columns: repeat(7, 1fr); border-bottom: 1px solid #f0f0f0; }
+.cal-month-day-num { padding: 6px 8px 4px; font-size: 0.78rem; font-weight: 600; color: #555; border-right: 1px solid #f0f0f0; min-height: 28px; }
+.cal-month-day-num:last-child { border-right: none; }
+.cal-month-day-num.other-month { opacity: 0.3; }
+.cal-month-day-num.today .day-number { background: var(--primary, #00BFA6); color: #fff; border-radius: 50%; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.75rem; }
+.cal-month-events { position: relative; min-height: 32px; padding: 2px 0; overflow: visible; }
+/* Spanning event bar (Notion-style multi-day) */
+.cal-span-event { position: absolute; height: 24px; display: flex; align-items: center; gap: 4px; padding: 2px 8px; cursor: pointer; overflow: hidden; white-space: nowrap; transition: filter 0.15s, box-shadow 0.15s; z-index: 1; }
+.cal-span-event:hover { filter: brightness(0.88); box-shadow: 0 2px 8px rgba(0,0,0,0.15); z-index: 10; }
+.cal-span-icon { font-size: 0.65rem; flex-shrink: 0; }
+.cal-span-title { font-size: 0.7rem; font-weight: 600; color: #1a1a1a; overflow: hidden; text-overflow: ellipsis; }
+.cal-span-info { font-size: 0.58rem; color: #444; margin-left: 4px; overflow: hidden; text-overflow: ellipsis; flex-shrink: 1; }
+.cal-span-info i { font-size: 0.55rem; }
+.cal-span-badges { display: flex; gap: 2px; margin-left: auto; flex-shrink: 0; }
+.cal-card-badge { font-size: 0.55rem; padding: 1px 5px; border-radius: 3px; color: #fff; font-weight: 600; white-space: nowrap; }
+/* Time grid notion card (week/day) */
 .cal-time-event-notion { position: relative; left: 0; right: 0; font-size: 0.7rem; padding: 3px 6px; border-radius: 5px; background: #f8f9fa; border: 1px solid #e9ecef; cursor: pointer; margin-bottom: 2px; display: flex; align-items: center; gap: 4px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .cal-time-event-notion:hover { background: #e8f5e9; border-color: #c8e6c9; }
 /* Week/Day view */
 .cal-time-slot { height: 50px; border-bottom: 1px solid #eee; position: relative; }
 .cal-time-label { font-size: 0.7rem; color: #999; width: 50px; text-align: right; padding-right: 8px; }
 @media (max-width: 768px) {
-    #calendar-container td { font-size: 0.7rem; padding: 2px; min-height: 80px; height: 80px; }
-    .cal-card-notion { padding: 4px 5px; font-size: 0.65rem; }
-    .cal-card-title { font-size: 0.68rem; }
-    .cal-card-meta { display: none; }
-    .cal-card-badges .cal-card-badge { font-size: 0.5rem; padding: 1px 3px; }
+    .cal-month-day-num { padding: 4px 4px 2px; font-size: 0.7rem; }
+    .cal-span-event { height: 20px; padding: 1px 4px; }
+    .cal-span-title { font-size: 0.6rem; }
+    .cal-span-info { display: none; }
+    .cal-span-badges { display: none; }
     .cal-time-label { width: 35px; font-size: 0.6rem; }
 }
 </style>
@@ -687,31 +690,182 @@ function renderCalendar(start, end) {
 
     if (calMode === 'month') {
         title.textContent = months[calDate.getMonth()] + ' ' + calDate.getFullYear();
-        let html = '<table><thead><tr>';
-        days.forEach(d => html += '<th>'+d+'</th>');
-        html += '</tr></thead><tbody>';
+
+        // Build grid of weeks
         const first = new Date(calDate.getFullYear(), calDate.getMonth(), 1);
         const startDay = first.getDay();
         const totalDays = new Date(calDate.getFullYear(), calDate.getMonth()+1, 0).getDate();
+
+        // Generate all dates in the grid
+        const weeks = [];
         let day = 1 - startDay;
         for (let w = 0; w < 6; w++) {
-            html += '<tr>';
+            const week = [];
             for (let d = 0; d < 7; d++, day++) {
-                const cellDate = new Date(calDate.getFullYear(), calDate.getMonth(), day);
-                const isOther = day < 1 || day > totalDays;
-                const isToday = cellDate.getTime() === today.getTime();
-                html += `<td class="cal-day ${isOther?'other-month':''} ${isToday?'today':''}">`;
-                html += `<div class="cal-day-num">${cellDate.getDate()}</div>`;
-                const dayEvents = getEventsForDay(cellDate);
-                dayEvents.slice(0,3).forEach(e => { html += renderCalCard(e); });
-                if (dayEvents.length > 3) html += `<div style="font-size:0.65rem;color:#999;margin-top:2px;">+${dayEvents.length-3} mais</div>`;
-                html += '</td>';
+                week.push(new Date(calDate.getFullYear(), calDate.getMonth(), day));
             }
-            html += '</tr>';
+            weeks.push(week);
             if (day > totalDays) break;
         }
-        html += '</tbody></table>';
+
+        // Assign colors to events for visual distinction
+        const eventColorPalette = [
+            'rgba(59,130,246,0.15)', 'rgba(245,158,11,0.15)', 'rgba(16,185,129,0.15)',
+            'rgba(139,92,246,0.15)', 'rgba(236,72,153,0.15)', 'rgba(20,184,166,0.15)',
+            'rgba(249,115,22,0.15)', 'rgba(99,102,241,0.15)'
+        ];
+        const eventBorderPalette = [
+            '#3b82f6', '#f59e0b', '#10b981', '#8b5cf6',
+            '#ec4899', '#14b8a6', '#f97316', '#6366f1'
+        ];
+        const eventColorMap = {};
+        let colorIdx = 0;
+        calendarEvents.forEach(e => {
+            if (!eventColorMap[e.id]) {
+                eventColorMap[e.id] = { bg: eventColorPalette[colorIdx % eventColorPalette.length], border: eventBorderPalette[colorIdx % eventBorderPalette.length] };
+                colorIdx++;
+            }
+        });
+
+        // For each event, compute its start/end as day indices relative to grid
+        function dateToStr(d) { return d.toISOString().slice(0,10); }
+        const gridStart = weeks[0][0];
+        const gridEnd = weeks[weeks.length-1][6];
+
+        // Flatten events into segments per week (Notion-style spanning)
+        function getEventSegments(weekDates) {
+            const weekStartStr = dateToStr(weekDates[0]);
+            const weekEndStr = dateToStr(weekDates[6]);
+            const segments = [];
+
+            calendarEvents.forEach(ev => {
+                // Determine event's effective start and end dates
+                let evStart = null, evEnd = null, type = 'dev';
+
+                if (ev.start_date && ev.end_date) {
+                    evStart = new Date(ev.start_date); evStart.setHours(0,0,0,0);
+                    evEnd = new Date(ev.end_date); evEnd.setHours(0,0,0,0);
+                } else if (ev.start_date && !ev.end_date) {
+                    evStart = new Date(ev.start_date); evStart.setHours(0,0,0,0);
+                    evEnd = new Date(evStart);
+                }
+
+                // Dev range segment
+                if (evStart && evEnd) {
+                    const segStart = new Date(Math.max(evStart.getTime(), weekDates[0].getTime()));
+                    const segEnd = new Date(Math.min(evEnd.getTime(), weekDates[6].getTime()));
+                    if (segStart <= weekDates[6] && segEnd >= weekDates[0]) {
+                        const colStart = Math.round((segStart - weekDates[0]) / 86400000);
+                        const colEnd = Math.round((segEnd - weekDates[0]) / 86400000);
+                        const isStart = evStart.getTime() === segStart.getTime();
+                        const isEnd = evEnd.getTime() === segEnd.getTime();
+                        segments.push({ ...ev, type: 'dev', colStart: Math.max(0, colStart), colEnd: Math.min(6, colEnd), isStart, isEnd });
+                    }
+                }
+
+                // Due date segment (single day)
+                if (ev.due_date) {
+                    const dd = new Date(ev.due_date); dd.setHours(0,0,0,0);
+                    if (dd >= weekDates[0] && dd <= weekDates[6]) {
+                        const col = Math.round((dd - weekDates[0]) / 86400000);
+                        // Don't duplicate if same as dev range end
+                        const alreadyHasDev = evStart && evEnd && dd.getTime() >= evStart.getTime() && dd.getTime() <= evEnd.getTime();
+                        if (!alreadyHasDev) {
+                            segments.push({ ...ev, type: 'due', colStart: Math.max(0, col), colEnd: Math.max(0, col), isStart: true, isEnd: true });
+                        }
+                    }
+                }
+            });
+
+            return segments;
+        }
+
+        // Allocate lanes (rows) for segments avoiding overlap
+        function allocateLanes(segments) {
+            segments.sort((a, b) => a.colStart - b.colStart || (b.colEnd - b.colStart) - (a.colEnd - a.colStart));
+            const lanes = []; // each lane is array of segments
+            segments.forEach(seg => {
+                let placed = false;
+                for (let i = 0; i < lanes.length; i++) {
+                    const lastInLane = lanes[i][lanes[i].length - 1];
+                    if (lastInLane.colEnd < seg.colStart) {
+                        lanes[i].push(seg);
+                        seg.lane = i;
+                        placed = true;
+                        break;
+                    }
+                }
+                if (!placed) {
+                    seg.lane = lanes.length;
+                    lanes.push([seg]);
+                }
+            });
+            return lanes.length;
+        }
+
+        // Build HTML
+        let html = '<div class="cal-month-grid">';
+        // Header
+        html += '<div class="cal-month-header">';
+        days.forEach(d => html += `<div class="cal-month-header-cell">${d}</div>`);
+        html += '</div>';
+
+        weeks.forEach(weekDates => {
+            const segments = getEventSegments(weekDates);
+            const laneCount = allocateLanes(segments);
+
+            html += '<div class="cal-month-week">';
+            // Day numbers row
+            html += '<div class="cal-month-days-row">';
+            weekDates.forEach((d, i) => {
+                const isOther = d.getMonth() !== calDate.getMonth();
+                const isToday = d.getTime() === today.getTime();
+                html += `<div class="cal-month-day-num ${isOther?'other-month':''} ${isToday?'today':''}">
+                    <span class="day-number">${d.getDate()}</span>
+                </div>`;
+            });
+            html += '</div>';
+
+            // Event lanes
+            const eventsHeight = laneCount > 0 ? laneCount * 28 + 4 : 4;
+            html += `<div class="cal-month-events" style="min-height:${eventsHeight}px;">`;
+            segments.forEach(seg => {
+                const colors = eventColorMap[seg.id] || { bg: '#f3f4f6', border: '#6b7280' };
+                const left = (seg.colStart / 7 * 100).toFixed(2);
+                const width = ((seg.colEnd - seg.colStart + 1) / 7 * 100).toFixed(2);
+                const top = seg.lane * 28 + 2;
+                const pColor = priorityColors[seg.priority] || '#666';
+                const sColor = statusColors[seg.status] || '#666';
+                const sLabel = statusLabelsJs[seg.status] || seg.status;
+                const pLabel = priorityLabelsJs[seg.priority] || seg.priority;
+                const typeIcon = seg.type === 'due' ? '📦' : '🔨';
+
+                const borderRadiusLeft = seg.isStart ? '6px' : '0';
+                const borderRadiusRight = seg.isEnd ? '6px' : '0';
+
+                html += `<div class="cal-span-event" onclick="openCardModal(${seg.id})" 
+                    style="left:${left}%;width:${width}%;top:${top}px;
+                    background:${colors.bg};border-left:3px solid ${colors.border};
+                    border-radius:${borderRadiusLeft} ${borderRadiusRight} ${borderRadiusRight} ${borderRadiusLeft};"
+                    title="${seg.title}">
+                    <span class="cal-span-icon">${typeIcon}</span>
+                    <span class="cal-span-title">${seg.title}</span>
+                    ${seg.isStart ? `<span class="cal-span-info">
+                        ${seg.company_name ? '<i class="bi bi-building"></i> ' + seg.company_name + ' ' : ''}
+                        <i class="bi bi-person"></i> ${seg.assigned_name || '—'}
+                    </span>
+                    <span class="cal-span-badges">
+                        <span class="cal-card-badge" style="background:${pColor}">${pLabel}</span>
+                        <span class="cal-card-badge" style="background:${sColor}">${sLabel}</span>
+                    </span>` : ''}
+                </div>`;
+            });
+            html += '</div>';
+            html += '</div>'; // end week
+        });
+        html += '</div>';
         container.innerHTML = html;
+
     } else if (calMode === 'week') {
         const weekStart = new Date(calDate); weekStart.setDate(weekStart.getDate() - weekStart.getDay());
         title.textContent = `${weekStart.getDate()}/${weekStart.getMonth()+1} - ${new Date(weekStart.getTime()+6*86400000).getDate()}/${new Date(weekStart.getTime()+6*86400000).getMonth()+1}/${weekStart.getFullYear()}`;
