@@ -82,18 +82,30 @@ class TicketsController extends Controller
         $this->view('attendant/kanban', ['user' => $user, 'grouped' => $grouped]);
     }
 
-    // Formulário para criar nova demanda (cliente)
+    // Formulário para criar nova demanda (cliente e super_admin)
     public function create()
     {
-        $this->requireRole(['client']);
+        $this->requireRole(['client', 'super_admin']);
         $user = $this->currentUser();
-        $this->view('client/ticket_create', ['user' => $user]);
+
+        $data = ['user' => $user];
+
+        // Se for super_admin, carregar lista de clientes para selecionar
+        if ($user['role'] === 'super_admin') {
+            $userModel = new User();
+            $clients = Database::getInstance()->fetchAll(
+                "SELECT id, name, email FROM users WHERE role = 'client' AND is_active = 1 ORDER BY name ASC"
+            );
+            $data['clients'] = $clients;
+        }
+
+        $this->view('client/ticket_create', $data);
     }
 
     // Salvar nova demanda
     public function store()
     {
-        $this->requireRole(['client']);
+        $this->requireRole(['client', 'super_admin']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             $this->redirect('tickets');
         }
@@ -110,8 +122,18 @@ class TicketsController extends Controller
             $this->redirect('tickets/create');
         }
 
+        // Determinar o client_id: se super_admin pode selecionar um cliente
+        $clientId = $user['id'];
+        if ($user['role'] === 'super_admin') {
+            $selectedClient = $_POST['client_id'] ?? '';
+            if (!empty($selectedClient)) {
+                $clientId = (int)$selectedClient;
+            }
+            // Se não selecionou, o ticket fica vinculado ao próprio admin
+        }
+
         $ticketData = [
-            'client_id' => $user['id'],
+            'client_id' => $clientId,
             'title' => $title,
             'description' => $description,
             'category' => $category,
@@ -127,7 +149,7 @@ class TicketsController extends Controller
         $db = Database::getInstance();
         $lastNumber = $db->fetch(
             "SELECT MAX(client_ticket_number) as last_num FROM tickets WHERE client_id = ?",
-            [$user['id']]
+            [$clientId]
         );
         $ticketData['client_ticket_number'] = ($lastNumber['last_num'] ?? 0) + 1;
 
@@ -219,7 +241,7 @@ class TicketsController extends Controller
         }
 
         $status = $_POST['status'] ?? '';
-        $validStatuses = ['open', 'in_progress', 'waiting_client', 'completed', 'denied', 'archived'];
+        $validStatuses = ['open', 'in_progress', 'waiting_client', 'em_homologacao', 'completed', 'denied', 'archived'];
         if (!in_array($status, $validStatuses)) {
             if ($this->isAjax()) {
                 $this->json(['error' => 'Status inválido'], 400);
@@ -441,6 +463,7 @@ class TicketsController extends Controller
             'open' => 'Aberto',
             'in_progress' => 'Em andamento',
             'waiting_client' => 'Aguardando cliente',
+            'em_homologacao' => 'Em Homologação',
             'completed' => 'Concluído',
             'denied' => 'Negado',
             'archived' => 'Arquivado',
@@ -450,6 +473,7 @@ class TicketsController extends Controller
             'open' => '#3b82f6',
             'in_progress' => '#f59e0b',
             'waiting_client' => '#8b5cf6',
+            'em_homologacao' => '#0097a7',
             'completed' => '#10b981',
             'denied' => '#ef4444',
             'archived' => '#6b7280',

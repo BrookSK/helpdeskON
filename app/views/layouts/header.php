@@ -177,6 +177,7 @@
         .badge-open { background: #e3f2fd; color: #1565c0; }
         .badge-in_progress { background: #fff3e0; color: #e65100; }
         .badge-waiting_client { background: #fce4ec; color: #c62828; }
+        .badge-em_homologacao { background: #e0f7fa; color: #0097a7; }
         .badge-completed { background: #e8f5e9; color: #2e7d32; }
         .badge-denied { background: #fbe9e7; color: #d84315; }
         .badge-archived { background: #eceff1; color: #546e7a; }

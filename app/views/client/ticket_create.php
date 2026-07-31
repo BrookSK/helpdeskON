@@ -37,6 +37,18 @@
 
             <form action="<?= baseUrl('tickets/store') ?>" method="POST" enctype="multipart/form-data">
                 <div class="row g-3">
+                    <?php if (($user['role'] ?? '') === 'super_admin' && !empty($clients)): ?>
+                    <div class="col-12">
+                        <label class="form-label fw-medium">Cliente (solicitante) *</label>
+                        <select name="client_id" class="form-select" required>
+                            <option value="">Selecione o cliente</option>
+                            <?php foreach ($clients as $client): ?>
+                            <option value="<?= $client['id'] ?>"><?= escape($client['name']) ?> (<?= escape($client['email']) ?>)</option>
+                            <?php endforeach; ?>
+                        </select>
+                        <small class="text-muted">Selecione em nome de qual cliente esta demanda será criada</small>
+                    </div>
+                    <?php endif; ?>
                     <div class="col-12">
                         <label class="form-label fw-medium">Título *</label>
                         <input type="text" name="title" id="field-title" class="form-control" placeholder="Resumo da sua demanda" required>

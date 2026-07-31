@@ -72,6 +72,13 @@
                     <i class="bi bi-kanban"></i> Kanban
                 </a>
             </li>
+            <?php if (($user['role'] ?? '') === 'super_admin'): ?>
+            <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'create' ? 'active' : '' ?>" href="<?= baseUrl('tickets/create') ?>">
+                    <i class="bi bi-plus-circle"></i> Nova Demanda
+                </a>
+            </li>
+            <?php endif; ?>
             <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'documents' ? 'active' : '' ?>" href="<?= baseUrl('documents') ?>">
                     <i class="bi bi-folder"></i> Documentos

@@ -16,6 +16,7 @@
         'open' => ['Aberto', '#1565c0'],
         'in_progress' => ['Em andamento', '#e65100'],
         'waiting_client' => ['Aguardando', '#c62828'],
+        'em_homologacao' => ['Em Homologação', '#0097a7'],
         'completed' => ['Concluído', '#2e7d32'],
         'denied' => ['Negado', '#d84315'],
         'archived' => ['Arquivado', '#546e7a'],

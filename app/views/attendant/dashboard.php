@@ -34,6 +34,12 @@
             </div>
         </div>
         <div class="col-4 col-md-2">
+            <div class="card stat-card" style="border-left-color:#0097a7">
+                <div class="stat-label">Homologação</div>
+                <div class="stat-value" style="color:#0097a7"><?= $counts['em_homologacao'] ?? 0 ?></div>
+            </div>
+        </div>
+        <div class="col-4 col-md-2">
             <div class="card stat-card" style="border-left-color:#4caf50">
                 <div class="stat-label">Concluídas</div>
                 <div class="stat-value" style="color:#4caf50"><?= $counts['completed'] ?? 0 ?></div>

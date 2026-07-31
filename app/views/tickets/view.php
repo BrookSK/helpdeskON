@@ -148,6 +148,7 @@
                             <option value="open" <?= $ticket['status'] === 'open' ? 'selected' : '' ?>>Aberto</option>
                             <option value="in_progress" <?= $ticket['status'] === 'in_progress' ? 'selected' : '' ?>>Em andamento</option>
                             <option value="waiting_client" <?= $ticket['status'] === 'waiting_client' ? 'selected' : '' ?>>Aguardando cliente</option>
+                            <option value="em_homologacao" <?= $ticket['status'] === 'em_homologacao' ? 'selected' : '' ?>>Em Homologação</option>
                             <option value="completed" <?= $ticket['status'] === 'completed' ? 'selected' : '' ?>>Concluído</option>
                             <option value="denied" <?= $ticket['status'] === 'denied' ? 'selected' : '' ?>>Negado</option>
                             <option value="archived" <?= $ticket['status'] === 'archived' ? 'selected' : '' ?>>Arquivado</option>

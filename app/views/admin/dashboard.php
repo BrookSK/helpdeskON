@@ -28,6 +28,12 @@
             </div>
         </div>
         <div class="col-6 col-md-3">
+            <div class="card stat-card" style="border-left-color:#0097a7">
+                <div class="stat-label">Em Homologação</div>
+                <div class="stat-value" style="color:#0097a7"><?= $counts['em_homologacao'] ?? 0 ?></div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
             <div class="card stat-card" style="border-left-color:#2196f3">
                 <div class="stat-label">Total Clientes</div>
                 <div class="stat-value" style="color:#2196f3"><?= $totalClients ?></div>

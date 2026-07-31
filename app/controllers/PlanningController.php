@@ -222,7 +222,7 @@ class PlanningController extends Controller
         $status = $_POST['status'] ?? '';
         $position = intval($_POST['position'] ?? 0);
 
-        $validStatuses = ['open', 'in_progress', 'waiting_client', 'completed', 'denied', 'archived'];
+        $validStatuses = ['open', 'in_progress', 'waiting_client', 'em_homologacao', 'completed', 'denied', 'archived'];
         if (!in_array($status, $validStatuses)) {
             $this->json(['error' => 'Status inválido'], 400);
         }

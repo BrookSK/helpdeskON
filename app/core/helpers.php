@@ -76,6 +76,7 @@ function statusLabel($status)
         'open' => 'Aberto',
         'in_progress' => 'Em andamento',
         'waiting_client' => 'Aguardando',
+        'em_homologacao' => 'Em Homologação',
         'completed' => 'Concluído',
         'denied' => 'Negado',
         'archived' => 'Arquivado',
