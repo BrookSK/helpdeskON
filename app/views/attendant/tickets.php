@@ -20,6 +20,7 @@
                         <option value="">Todos Status</option>
                         <option value="open" <?= ($_GET['status'] ?? '') === 'open' ? 'selected' : '' ?>>Aberto</option>
                         <option value="in_progress" <?= ($_GET['status'] ?? '') === 'in_progress' ? 'selected' : '' ?>>Em andamento</option>
+                        <option value="em_revisao_interna" <?= ($_GET['status'] ?? '') === 'em_revisao_interna' ? 'selected' : '' ?>>Em Revisão Interna</option>
                         <option value="waiting_client" <?= ($_GET['status'] ?? '') === 'waiting_client' ? 'selected' : '' ?>>Aguardando</option>
                         <option value="em_homologacao" <?= ($_GET['status'] ?? '') === 'em_homologacao' ? 'selected' : '' ?>>Em Homologação</option>
                         <option value="completed" <?= ($_GET['status'] ?? '') === 'completed' ? 'selected' : '' ?>>Concluído</option>

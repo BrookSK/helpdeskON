@@ -15,6 +15,7 @@
     $statusLabels = [
         'open' => ['Aberto', '#1565c0'],
         'in_progress' => ['Em andamento', '#e65100'],
+        'em_revisao_interna' => ['Em Revisão Interna', '#5c6bc0'],
         'waiting_client' => ['Aguardando', '#c62828'],
         'em_homologacao' => ['Em Homologação', '#0097a7'],
         'completed' => ['Concluído', '#2e7d32'],

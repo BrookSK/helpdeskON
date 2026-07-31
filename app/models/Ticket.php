@@ -105,7 +105,7 @@ class Ticket
 
     public function getGroupedByStatus($attendantId = null, $allowedCompanies = null)
     {
-        $statuses = ['open', 'in_progress', 'waiting_client', 'em_homologacao', 'completed', 'denied', 'archived'];
+        $statuses = ['open', 'in_progress', 'em_revisao_interna', 'waiting_client', 'em_homologacao', 'completed', 'denied', 'archived'];
         $result = [];
         foreach ($statuses as $status) {
             $sql = "SELECT t.*, c.name as client_name

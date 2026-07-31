@@ -28,6 +28,12 @@
             </div>
         </div>
         <div class="col-4 col-md-2">
+            <div class="card stat-card" style="border-left-color:#5c6bc0">
+                <div class="stat-label">Revisão</div>
+                <div class="stat-value" style="color:#5c6bc0"><?= $counts['em_revisao_interna'] ?? 0 ?></div>
+            </div>
+        </div>
+        <div class="col-4 col-md-2">
             <div class="card stat-card" style="border-left-color:#e91e63">
                 <div class="stat-label">Aguardando</div>
                 <div class="stat-value" style="color:#e91e63"><?= $counts['waiting_client'] ?? 0 ?></div>

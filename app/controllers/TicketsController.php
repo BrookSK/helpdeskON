@@ -241,7 +241,7 @@ class TicketsController extends Controller
         }
 
         $status = $_POST['status'] ?? '';
-        $validStatuses = ['open', 'in_progress', 'waiting_client', 'em_homologacao', 'completed', 'denied', 'archived'];
+        $validStatuses = ['open', 'in_progress', 'em_revisao_interna', 'waiting_client', 'em_homologacao', 'completed', 'denied', 'archived'];
         if (!in_array($status, $validStatuses)) {
             if ($this->isAjax()) {
                 $this->json(['error' => 'Status inválido'], 400);
@@ -462,6 +462,7 @@ class TicketsController extends Controller
         $statusLabels = [
             'open' => 'Aberto',
             'in_progress' => 'Em andamento',
+            'em_revisao_interna' => 'Em Revisão Interna',
             'waiting_client' => 'Aguardando cliente',
             'em_homologacao' => 'Em Homologação',
             'completed' => 'Concluído',
@@ -472,6 +473,7 @@ class TicketsController extends Controller
         $statusColors = [
             'open' => '#3b82f6',
             'in_progress' => '#f59e0b',
+            'em_revisao_interna' => '#5c6bc0',
             'waiting_client' => '#8b5cf6',
             'em_homologacao' => '#0097a7',
             'completed' => '#10b981',
