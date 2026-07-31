@@ -429,7 +429,6 @@ function saveCard() {
 
     const formData = new FormData();
     formData.append('title', document.getElementById('detail-title-input').value);
-    formData.append('description', description);
     formData.append('assigned_to', document.getElementById('detail-assigned').value);
     formData.append('company_id', document.getElementById('detail-company').value);
     formData.append('priority', document.getElementById('detail-priority').value);
@@ -438,8 +437,17 @@ function saveCard() {
     formData.append('start_date', document.getElementById('detail-start-date').value);
     formData.append('end_date', document.getElementById('detail-end-date').value);
 
+    // Enviar descrição como arquivo Blob para contornar limite do ModSecurity
+    // (SecRequestBodyNoFilesLimit não se aplica a file parts)
+    const descBlob = new Blob([description], { type: 'text/html' });
+    formData.append('description_file', descBlob, 'description.html');
+
     fetch(BASE + 'planning/update/' + currentCardId, { method: 'POST', body: formData, headers: {'X-Requested-With':'XMLHttpRequest'} })
-        .then(r => r.json()).then(data => {
+        .then(r => {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json();
+        })
+        .then(data => {
             if (data.success) {
                 alert('Card salvo com sucesso!');
                 location.reload();

@@ -176,7 +176,12 @@ class PlanningController extends Controller
 
         $data = [];
         if (isset($_POST['title'])) $data['title'] = trim($_POST['title']);
-        if (isset($_POST['description'])) $data['description'] = $_POST['description'];
+        // Descrição pode vir como arquivo (para contornar limite do ModSecurity)
+        if (!empty($_FILES['description_file']['tmp_name']) && $_FILES['description_file']['error'] === UPLOAD_ERR_OK) {
+            $data['description'] = file_get_contents($_FILES['description_file']['tmp_name']);
+        } elseif (isset($_POST['description'])) {
+            $data['description'] = $_POST['description'];
+        }
         if (isset($_POST['company_id'])) $data['company_id'] = $_POST['company_id'] ?: null;
         if (isset($_POST['assigned_to'])) $data['assigned_to'] = $_POST['assigned_to'] ?: null;
         if (isset($_POST['priority'])) $data['priority'] = $_POST['priority'];
