@@ -313,20 +313,37 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
 #calendar-container table { width: 100%; border-collapse: collapse; }
 #calendar-container th, #calendar-container td { border: 1px solid #e9ecef; padding: 4px; vertical-align: top; font-size: 0.8rem; }
 #calendar-container th { background: #f8f9fa; text-align: center; font-weight: 600; }
-#calendar-container td { min-height: 80px; height: 80px; }
+#calendar-container td { min-height: 120px; height: 120px; }
 #calendar-container .cal-day { cursor: pointer; transition: background 0.15s; position: relative; }
 #calendar-container .cal-day:hover { background: #f0faf8; }
 #calendar-container .cal-day-num { font-weight: 600; font-size: 0.75rem; color: #666; }
 #calendar-container .cal-day.today .cal-day-num { background: var(--primary); color: #fff; border-radius: 50%; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; }
 #calendar-container .cal-day.other-month { opacity: 0.4; }
 #calendar-container .cal-event { font-size: 0.68rem; padding: 2px 4px; border-radius: 3px; margin-top: 2px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #fff; }
+/* Notion-style calendar cards */
+.cal-card-notion { background: #fff; border: 1px solid #e9ecef; border-radius: 6px; padding: 6px 8px; margin-top: 4px; cursor: pointer; transition: box-shadow 0.15s, transform 0.1s; font-size: 0.72rem; overflow: hidden; }
+.cal-card-notion:hover { box-shadow: 0 3px 10px rgba(0,0,0,0.12); transform: translateY(-1px); }
+.cal-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px; }
+.cal-card-type { font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; }
+.cal-card-id { font-size: 0.6rem; color: #999; }
+.cal-card-title { font-weight: 600; font-size: 0.75rem; color: #1a1a1a; line-height: 1.2; margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-card-meta { font-size: 0.65rem; color: #666; margin-bottom: 3px; display: flex; flex-wrap: wrap; gap: 4px; }
+.cal-card-meta i { font-size: 0.6rem; }
+.cal-card-company, .cal-card-assigned { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.cal-card-badges { display: flex; gap: 3px; flex-wrap: wrap; }
+.cal-card-badge { font-size: 0.58rem; padding: 1px 5px; border-radius: 3px; color: #fff; font-weight: 600; white-space: nowrap; }
+/* Time grid notion card */
+.cal-time-event-notion { position: relative; left: 0; right: 0; font-size: 0.7rem; padding: 3px 6px; border-radius: 5px; background: #f8f9fa; border: 1px solid #e9ecef; cursor: pointer; margin-bottom: 2px; display: flex; align-items: center; gap: 4px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.cal-time-event-notion:hover { background: #e8f5e9; border-color: #c8e6c9; }
 /* Week/Day view */
 .cal-time-slot { height: 50px; border-bottom: 1px solid #eee; position: relative; }
 .cal-time-label { font-size: 0.7rem; color: #999; width: 50px; text-align: right; padding-right: 8px; }
-.cal-time-event { position: absolute; left: 55px; right: 4px; font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; color: #fff; cursor: pointer; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 @media (max-width: 768px) {
-    #calendar-container td { font-size: 0.7rem; padding: 2px; min-height: 50px; height: 50px; }
-    #calendar-container .cal-event { font-size: 0.6rem; }
+    #calendar-container td { font-size: 0.7rem; padding: 2px; min-height: 80px; height: 80px; }
+    .cal-card-notion { padding: 4px 5px; font-size: 0.65rem; }
+    .cal-card-title { font-size: 0.68rem; }
+    .cal-card-meta { display: none; }
+    .cal-card-badges .cal-card-badge { font-size: 0.5rem; padding: 1px 3px; }
     .cal-time-label { width: 35px; font-size: 0.6rem; }
 }
 </style>
@@ -584,71 +601,89 @@ function loadCalendar() {
 
 function fmt(d) { return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')+':00'; }
 
+const statusLabelsJs = {open:'Aberto',in_progress:'Em andamento',waiting_client:'Aguardando',completed:'Concluído',denied:'Negado',archived:'Arquivado'};
+const priorityLabelsJs = {low:'Baixa',medium:'Média',high:'Alta',urgent:'Urgente'};
+
+// Helper: check if a date falls within the card's range or is its due_date
+function getEventsForDay(cellDate) {
+    const results = [];
+    const cellStr = cellDate.toISOString().slice(0,10);
+    calendarEvents.forEach(e => {
+        let type = null;
+        if (e.start_date && e.end_date) {
+            const sd = new Date(e.start_date); sd.setHours(0,0,0,0);
+            const ed = new Date(e.end_date); ed.setHours(0,0,0,0);
+            if (cellDate >= sd && cellDate <= ed) type = 'dev';
+        } else if (e.start_date && !e.end_date) {
+            const sd = new Date(e.start_date);
+            if (sd.toISOString().slice(0,10) === cellStr) type = 'dev';
+        }
+        if (e.due_date) {
+            const dd = new Date(e.due_date);
+            if (dd.toISOString().slice(0,10) === cellStr) type = type || 'due';
+        }
+        if (type) results.push({...e, type});
+    });
+    const map = {};
+    results.forEach(r => { if (!map[r.id] || r.type === 'due') map[r.id] = r; });
+    return Object.values(map);
+}
+
+// Helper for time grid (week/day views)
+function getEventsForHour(dayDate, hour) {
+    const results = [];
+    const dayStr = dayDate.toISOString().slice(0,10);
+    calendarEvents.forEach(e => {
+        let type = null;
+        if (e.start_date && e.end_date) {
+            const sd = new Date(e.start_date); sd.setHours(0,0,0,0);
+            const ed = new Date(e.end_date); ed.setHours(0,0,0,0);
+            const checkDate = new Date(dayDate); checkDate.setHours(0,0,0,0);
+            if (checkDate >= sd && checkDate <= ed && hour === 8) type = 'dev';
+        } else if (e.start_date && !e.end_date) {
+            const sd = new Date(e.start_date);
+            if (sd.toISOString().slice(0,10) === dayStr && sd.getHours() === hour) type = 'dev';
+        }
+        if (e.due_date) {
+            const dd = new Date(e.due_date);
+            if (dd.toISOString().slice(0,10) === dayStr && dd.getHours() === hour) type = type || 'due';
+        }
+        if (type) results.push({...e, type});
+    });
+    return results;
+}
+
+// Render card estilo Notion para o calendário
+function renderCalCard(e) {
+    const typeIcon = e.type === 'due' ? '📦' : '🔨';
+    const typeLabel = e.type === 'due' ? 'ENTREGA' : 'DEV';
+    const pColor = priorityColors[e.priority] || '#666';
+    const sColor = statusColors[e.status] || '#666';
+    const sLabel = statusLabelsJs[e.status] || e.status;
+    const pLabel = priorityLabelsJs[e.priority] || e.priority;
+    return `<div class="cal-card-notion" onclick="openCardModal(${e.id})" title="${e.title}">
+        <div class="cal-card-header">
+            <span class="cal-card-type" style="color:${e.type==='due'?'#2e7d32':pColor}">${typeIcon} ${typeLabel}</span>
+            <span class="cal-card-id">#${e.id}</span>
+        </div>
+        <div class="cal-card-title">${e.title}</div>
+        <div class="cal-card-meta">
+            ${e.company_name ? `<span class="cal-card-company"><i class="bi bi-building"></i> ${e.company_name}</span>` : ''}
+            <span class="cal-card-assigned"><i class="bi bi-person"></i> ${e.assigned_name || 'Não atribuído'}</span>
+        </div>
+        <div class="cal-card-badges">
+            <span class="cal-card-badge" style="background:${pColor}">${pLabel}</span>
+            <span class="cal-card-badge" style="background:${sColor}">${sLabel}</span>
+        </div>
+    </div>`;
+}
+
 function renderCalendar(start, end) {
     const container = document.getElementById('calendar-container');
     const title = document.getElementById('cal-title');
     const months = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
     const days = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
     const today = new Date(); today.setHours(0,0,0,0);
-
-    // Helper: check if a date falls within the card's range or is its due_date
-    function getEventsForDay(cellDate) {
-        const results = [];
-        const cellStr = cellDate.toISOString().slice(0,10);
-        calendarEvents.forEach(e => {
-            // Range de desenvolvimento (aparece todos os dias do range)
-            if (e.start_date && e.end_date) {
-                const sd = new Date(e.start_date); sd.setHours(0,0,0,0);
-                const ed = new Date(e.end_date); ed.setHours(0,0,0,0);
-                if (cellDate >= sd && cellDate <= ed) {
-                    results.push({id:e.id, label: '🔨 ' + e.title, color: priorityColors[e.priority]||'#666'});
-                }
-            } else if (e.start_date && !e.end_date) {
-                const sd = new Date(e.start_date);
-                if (sd.toISOString().slice(0,10) === cellStr) {
-                    results.push({id:e.id, label: '🔨 ' + e.title, color: priorityColors[e.priority]||'#666'});
-                }
-            }
-            // Due date (prazo de entrega)
-            if (e.due_date) {
-                const dd = new Date(e.due_date);
-                if (dd.toISOString().slice(0,10) === cellStr) {
-                    results.push({id:e.id, label: '📦 Entrega: ' + e.title, color: '#2e7d32'});
-                }
-            }
-        });
-        return results;
-    }
-
-    // Helper for time grid (week/day views)
-    function getEventsForHour(dayDate, hour) {
-        const results = [];
-        const dayStr = dayDate.toISOString().slice(0,10);
-        calendarEvents.forEach(e => {
-            // Range dev: show at 8h on each day of range
-            if (e.start_date && e.end_date) {
-                const sd = new Date(e.start_date); sd.setHours(0,0,0,0);
-                const ed = new Date(e.end_date); ed.setHours(0,0,0,0);
-                const checkDate = new Date(dayDate); checkDate.setHours(0,0,0,0);
-                if (checkDate >= sd && checkDate <= ed && hour === 8) {
-                    results.push({id:e.id, label: '🔨 ' + e.title, color: priorityColors[e.priority]||'#666'});
-                }
-            } else if (e.start_date && !e.end_date) {
-                const sd = new Date(e.start_date);
-                if (sd.toISOString().slice(0,10) === dayStr && sd.getHours() === hour) {
-                    results.push({id:e.id, label: '🔨 ' + e.title, color: priorityColors[e.priority]||'#666'});
-                }
-            }
-            // Due date
-            if (e.due_date) {
-                const dd = new Date(e.due_date);
-                if (dd.toISOString().slice(0,10) === dayStr && dd.getHours() === hour) {
-                    results.push({id:e.id, label: '📦 Entrega: ' + e.title, color: '#2e7d32'});
-                }
-            }
-        });
-        return results;
-    }
 
     if (calMode === 'month') {
         title.textContent = months[calDate.getMonth()] + ' ' + calDate.getFullYear();
@@ -668,8 +703,8 @@ function renderCalendar(start, end) {
                 html += `<td class="cal-day ${isOther?'other-month':''} ${isToday?'today':''}">`;
                 html += `<div class="cal-day-num">${cellDate.getDate()}</div>`;
                 const dayEvents = getEventsForDay(cellDate);
-                dayEvents.slice(0,3).forEach(e => { html += `<div class="cal-event" style="background:${e.color}" onclick="openCardModal(${e.id})" title="${e.label}">${e.label}</div>`; });
-                if (dayEvents.length > 3) html += `<div style="font-size:0.65rem;color:#999;">+${dayEvents.length-3} mais</div>`;
+                dayEvents.slice(0,3).forEach(e => { html += renderCalCard(e); });
+                if (dayEvents.length > 3) html += `<div style="font-size:0.65rem;color:#999;margin-top:2px;">+${dayEvents.length-3} mais</div>`;
                 html += '</td>';
             }
             html += '</tr>';
@@ -703,7 +738,11 @@ function renderTimeGrid(container, startDate, numDays) {
             html += '<td class="cal-time-slot" style="position:relative;">';
             const hourEvents = getEventsForHour(dd, h);
             hourEvents.forEach(e => {
-                html += `<div class="cal-time-event" style="background:${e.color}" onclick="openCardModal(${e.id})" title="${e.label}">${e.label}</div>`;
+                html += `<div class="cal-time-event-notion" onclick="openCardModal(${e.id})" title="${e.title}">
+                    <span class="cal-card-type" style="color:${e.type==='due'?'#2e7d32':priorityColors[e.priority]||'#666'};font-size:0.6rem;">${e.type==='due'?'📦':'🔨'}</span>
+                    <span style="font-weight:500;">${e.title}</span>
+                    <span class="cal-card-badge" style="background:${priorityColors[e.priority]||'#666'};font-size:0.55rem;padding:1px 4px;">${priorityLabelsJs[e.priority]||''}</span>
+                </div>`;
             });
             html += '</td>';
         }
