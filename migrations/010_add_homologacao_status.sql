@@ -1,16 +1,14 @@
--- Migration 010: Adicionar status 'em_homologacao' e 'em_revisao_interna' aos tickets e planning_cards
--- O status é armazenado como VARCHAR, então não precisa alterar a coluna.
--- Apenas atualizar o ENUM se o banco usar ENUM (MySQL), ou nada se for VARCHAR.
+-- Migration 010: Adicionar status 'em_revisao_interna' e 'em_homologacao' aos tickets e planning_cards
+-- A coluna status é ENUM no MySQL, então PRECISA de ALTER TABLE para aceitar os novos valores.
 
--- Se a coluna status for ENUM, executar:
--- ALTER TABLE tickets MODIFY COLUMN status ENUM('open','in_progress','em_revisao_interna','waiting_client','em_homologacao','completed','denied','archived') DEFAULT 'open';
--- ALTER TABLE planning_cards MODIFY COLUMN status ENUM('open','in_progress','em_revisao_interna','waiting_client','em_homologacao','completed','denied','archived') DEFAULT 'open';
+-- Atualizar ENUM da tabela tickets
+ALTER TABLE tickets MODIFY COLUMN status ENUM('open', 'in_progress', 'em_revisao_interna', 'waiting_client', 'em_homologacao', 'completed', 'denied', 'archived') NOT NULL DEFAULT 'open';
 
--- Se a coluna status for VARCHAR (caso atual), nenhuma alteração de schema é necessária.
--- Os novos valores serão aceitos automaticamente.
+-- Atualizar ENUM da tabela planning_cards
+ALTER TABLE planning_cards MODIFY COLUMN status ENUM('open', 'in_progress', 'em_revisao_interna', 'waiting_client', 'em_homologacao', 'completed', 'denied', 'archived') NOT NULL DEFAULT 'open';
 
--- Nota: Este arquivo serve como documentação da mudança.
--- O status 'em_revisao_interna' representa que o desenvolvimento foi concluído e está
--- aguardando revisão de código (PR) antes de ir para homologação.
--- O status 'em_homologacao' representa que a demanda está em ambiente de homologação
--- aguardando testes/validação do cliente antes de ir para produção (concluído).
+-- Nota sobre o fluxo:
+-- open -> in_progress -> em_revisao_interna -> em_homologacao -> completed
+-- O status 'em_revisao_interna' indica que o dev terminou e o PR está aguardando revisão/aprovação interna.
+-- O status 'em_homologacao' indica que passou pela revisão, foi deployado no ambiente de homologação
+-- e está aguardando o cliente testar/validar antes de ir para produção (completed).
