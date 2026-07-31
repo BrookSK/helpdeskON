@@ -126,7 +126,7 @@ class Ticket
                     $params = array_merge($params, $allowedCompanies);
                 }
             }
-            $sql .= " ORDER BY t.updated_at DESC";
+            $sql .= " ORDER BY FIELD(t.priority, 'urgent', 'high', 'medium', 'low'), t.updated_at DESC";
             $result[$status] = $this->db->fetchAll($sql, $params);
         }
         return $result;
