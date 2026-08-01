@@ -99,6 +99,43 @@
             </div>
             <?php endif; ?>
 
+            <?php if (in_array($user['role'], ['super_admin', 'attendant'])): ?>
+            <!-- Observações Internas -->
+            <div class="card mb-4">
+                <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0"><i class="bi bi-journal-text"></i> Observações Internas</h6>
+                    <span class="badge bg-warning text-dark" style="font-size:0.65rem"><i class="bi bi-lock-fill"></i> Visível só para equipe</span>
+                </div>
+                <div class="card-body">
+                    <div id="internal-notes-container" style="max-height:300px;overflow-y:auto;">
+                        <?php foreach ($internalNotes ?? [] as $note): ?>
+                        <div class="d-flex gap-2 mb-3">
+                            <div class="rounded-circle bg-warning d-flex align-items-center justify-content-center flex-shrink-0" style="width:30px;height:30px;">
+                                <i class="bi bi-person-fill text-dark" style="font-size:0.7rem;"></i>
+                            </div>
+                            <div class="flex-grow-1">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <strong style="font-size:0.8rem"><?= escape($note['user_name']) ?></strong>
+                                    <small class="text-muted" style="font-size:0.7rem"><?= date('d/m/Y H:i', strtotime($note['created_at'])) ?></small>
+                                </div>
+                                <div class="p-2 rounded mt-1" style="font-size:0.83rem;background:#fff8e1;border:1px solid #ffe082;"><?= nl2br(escape($note['note'])) ?></div>
+                            </div>
+                        </div>
+                        <?php endforeach; ?>
+                        <?php if (empty($internalNotes)): ?>
+                        <p class="text-muted small text-center mb-0" id="no-notes">Nenhuma observação interna.</p>
+                        <?php endif; ?>
+                    </div>
+                    <div class="mt-3 d-flex gap-2">
+                        <input type="text" id="note-input" class="form-control form-control-sm" placeholder="Escreva uma observação interna..." onkeypress="if(event.key==='Enter')addInternalNote()">
+                        <button type="button" onclick="addInternalNote()" class="btn btn-warning btn-sm px-3" title="Adicionar observação">
+                            <i class="bi bi-plus-lg"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
+
             <!-- Chat -->
             <div class="card">
                 <div class="card-header bg-white">
@@ -304,6 +341,47 @@ function uploadFile() {
 
 // Scroll chat
 document.getElementById('chat-container').scrollTop = document.getElementById('chat-container').scrollHeight;
+
+// Observações internas
+function addInternalNote() {
+    const input = document.getElementById('note-input');
+    if (!input) return;
+    const note = input.value.trim();
+    if (!note) return;
+
+    const formData = new FormData();
+    formData.append('note', note);
+
+    fetch('<?= baseUrl("tickets/addNote/") ?>' + ticketId, {
+        method: 'POST',
+        body: formData
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            const container = document.getElementById('internal-notes-container');
+            const noNotes = document.getElementById('no-notes');
+            if (noNotes) noNotes.remove();
+
+            const noteHtml = `
+                <div class="d-flex gap-2 mb-3">
+                    <div class="rounded-circle bg-warning d-flex align-items-center justify-content-center flex-shrink-0" style="width:30px;height:30px;">
+                        <i class="bi bi-person-fill text-dark" style="font-size:0.7rem;"></i>
+                    </div>
+                    <div class="flex-grow-1">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <strong style="font-size:0.8rem">${data.note.user_name}</strong>
+                            <small class="text-muted" style="font-size:0.7rem">${data.note.created_at}</small>
+                        </div>
+                        <div class="p-2 rounded mt-1" style="font-size:0.83rem;background:#fff8e1;border:1px solid #ffe082;">${data.note.note}</div>
+                    </div>
+                </div>`;
+            container.insertAdjacentHTML('beforeend', noteHtml);
+            container.scrollTop = container.scrollHeight;
+            input.value = '';
+        }
+    });
+}
 </script>
 
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>

@@ -220,12 +220,26 @@ class TicketsController extends Controller
         $userModel = new User();
         $attendants = $userModel->getAttendants();
 
+        // Buscar observações internas (apenas para equipe)
+        $internalNotes = [];
+        if (in_array($user['role'], ['super_admin', 'attendant'])) {
+            $internalNotes = Database::getInstance()->fetchAll(
+                "SELECT n.*, u.name as user_name
+                 FROM ticket_internal_notes n
+                 LEFT JOIN users u ON n.user_id = u.id
+                 WHERE n.ticket_id = ?
+                 ORDER BY n.created_at ASC",
+                [$id]
+            );
+        }
+
         $this->view('tickets/view', [
             'user' => $user,
             'ticket' => $ticket,
             'messages' => $messages,
             'attachments' => $attachments,
             'attendants' => $attendants,
+            'internalNotes' => $internalNotes,
         ]);
     }
 
@@ -718,5 +732,57 @@ class TicketsController extends Controller
     {
         $labels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'urgent' => 'Urgente'];
         return $labels[$priority] ?? $priority;
+    }
+
+    // Observações internas (apenas equipe)
+    public function addNote($id = null)
+    {
+        $this->requireRole(['super_admin', 'attendant']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+
+        $user = $this->currentUser();
+        $note = trim($_POST['note'] ?? '');
+
+        if (empty($note)) {
+            $this->json(['error' => 'Observação vazia'], 400);
+        }
+
+        $db = Database::getInstance();
+        $noteId = $db->insert('ticket_internal_notes', [
+            'ticket_id' => $id,
+            'user_id' => $user['id'],
+            'note' => $note,
+        ]);
+
+        $this->json([
+            'success' => true,
+            'note' => [
+                'id' => $noteId,
+                'user_name' => $user['name'],
+                'note' => escape($note),
+                'created_at' => date('d/m/Y H:i'),
+            ]
+        ]);
+    }
+
+    // Buscar observações internas
+    public function getNotes($id = null)
+    {
+        $this->requireRole(['super_admin', 'attendant']);
+        if (!$id) $this->json(['error' => 'ID inválido'], 400);
+
+        $db = Database::getInstance();
+        $notes = $db->fetchAll(
+            "SELECT n.*, u.name as user_name
+             FROM ticket_internal_notes n
+             LEFT JOIN users u ON n.user_id = u.id
+             WHERE n.ticket_id = ?
+             ORDER BY n.created_at ASC",
+            [$id]
+        );
+
+        $this->json(['notes' => $notes]);
     }
 }
