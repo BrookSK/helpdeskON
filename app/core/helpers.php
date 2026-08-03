@@ -78,6 +78,7 @@ function statusLabel($status)
         'em_revisao_interna' => 'Em Revisão Interna',
         'waiting_client' => 'Aguardando',
         'em_homologacao' => 'Em Homologação',
+        'aprovado_producao' => 'Aprov. Produção',
         'completed' => 'Concluído',
         'denied' => 'Negado',
         'archived' => 'Arquivado',

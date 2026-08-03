@@ -23,6 +23,7 @@
                         <option value="em_revisao_interna" <?= ($_GET['status'] ?? '') === 'em_revisao_interna' ? 'selected' : '' ?>>Em Revisão Interna</option>
                         <option value="waiting_client" <?= ($_GET['status'] ?? '') === 'waiting_client' ? 'selected' : '' ?>>Aguardando</option>
                         <option value="em_homologacao" <?= ($_GET['status'] ?? '') === 'em_homologacao' ? 'selected' : '' ?>>Em Homologação</option>
+                        <option value="aprovado_producao" <?= ($_GET['status'] ?? '') === 'aprovado_producao' ? 'selected' : '' ?>>Aprov. Produção</option>
                         <option value="completed" <?= ($_GET['status'] ?? '') === 'completed' ? 'selected' : '' ?>>Concluído</option>
                         <option value="denied" <?= ($_GET['status'] ?? '') === 'denied' ? 'selected' : '' ?>>Negado</option>
                         <option value="archived" <?= ($_GET['status'] ?? '') === 'archived' ? 'selected' : '' ?>>Arquivado</option>

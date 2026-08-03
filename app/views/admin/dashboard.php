@@ -40,6 +40,12 @@
             </div>
         </div>
         <div class="col-6 col-md-3">
+            <div class="card stat-card" style="border-left-color:#8bc34a">
+                <div class="stat-label">Aprov. Produção</div>
+                <div class="stat-value" style="color:#8bc34a"><?= $counts['aprovado_producao'] ?? 0 ?></div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
             <div class="card stat-card" style="border-left-color:#2196f3">
                 <div class="stat-label">Total Clientes</div>
                 <div class="stat-value" style="color:#2196f3"><?= $totalClients ?></div>

@@ -69,7 +69,7 @@ class PlanningCard
 
     public function getGroupedByStatus($filters = [])
     {
-        $statuses = ['open', 'in_progress', 'em_revisao_interna', 'waiting_client', 'em_homologacao', 'completed', 'denied', 'archived'];
+        $statuses = ['open', 'in_progress', 'em_revisao_interna', 'waiting_client', 'em_homologacao', 'aprovado_producao', 'completed', 'denied', 'archived'];
         $result = [];
 
         foreach ($statuses as $status) {

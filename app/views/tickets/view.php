@@ -187,6 +187,7 @@
                             <option value="em_revisao_interna" <?= $ticket['status'] === 'em_revisao_interna' ? 'selected' : '' ?>>Em Revisão Interna</option>
                             <option value="waiting_client" <?= $ticket['status'] === 'waiting_client' ? 'selected' : '' ?>>Aguardando cliente</option>
                             <option value="em_homologacao" <?= $ticket['status'] === 'em_homologacao' ? 'selected' : '' ?>>Em Homologação</option>
+                            <option value="aprovado_producao" <?= $ticket['status'] === 'aprovado_producao' ? 'selected' : '' ?>>Aprovado para Produção</option>
                             <option value="completed" <?= $ticket['status'] === 'completed' ? 'selected' : '' ?>>Concluído</option>
                             <option value="denied" <?= $ticket['status'] === 'denied' ? 'selected' : '' ?>>Negado</option>
                             <option value="archived" <?= $ticket['status'] === 'archived' ? 'selected' : '' ?>>Arquivado</option>

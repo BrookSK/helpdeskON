@@ -9,6 +9,7 @@ $statusLabels = [
     'em_revisao_interna' => ['Em Revisão Interna', '#5c6bc0'],
     'waiting_client' => ['Aguardando', '#7b1fa2'],
     'em_homologacao' => ['Em Homologação', '#0097a7'],
+    'aprovado_producao' => ['Aprov. Produção', '#8bc34a'],
     'completed' => ['Concluído', '#2e7d32'],
     'denied' => ['Negado', '#d84315'],
     'archived' => ['Arquivado', '#546e7a'],
@@ -362,7 +363,7 @@ let calDate = new Date();
 let calMode = 'month';
 
 const priorityColors = {low:'#6b7280',medium:'#f59e0b',high:'#ef4444',urgent:'#dc2626'};
-const statusColors = {open:'#1565c0',in_progress:'#e65100',em_revisao_interna:'#5c6bc0',waiting_client:'#7b1fa2',em_homologacao:'#0097a7',completed:'#2e7d32',denied:'#d84315',archived:'#546e7a'};
+const statusColors = {open:'#1565c0',in_progress:'#e65100',em_revisao_interna:'#5c6bc0',waiting_client:'#7b1fa2',em_homologacao:'#0097a7',aprovado_producao:'#8bc34a',completed:'#2e7d32',denied:'#d84315',archived:'#546e7a'};
 
 // === VIEW TOGGLE ===
 document.querySelectorAll('#view-toggle button').forEach(btn => {
@@ -606,7 +607,7 @@ function loadCalendar() {
 
 function fmt(d) { return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')+':00'; }
 
-const statusLabelsJs = {open:'Aberto',in_progress:'Em andamento',em_revisao_interna:'Em Revisão Interna',waiting_client:'Aguardando',em_homologacao:'Em Homologação',completed:'Concluído',denied:'Negado',archived:'Arquivado'};
+const statusLabelsJs = {open:'Aberto',in_progress:'Em andamento',em_revisao_interna:'Em Revisão Interna',waiting_client:'Aguardando',em_homologacao:'Em Homologação',aprovado_producao:'Aprov. Produção',completed:'Concluído',denied:'Negado',archived:'Arquivado'};
 const priorityLabelsJs = {low:'Baixa',medium:'Média',high:'Alta',urgent:'Urgente'};
 
 // Helper: check if a date falls within the card's range or is its due_date

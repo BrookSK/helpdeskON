@@ -46,6 +46,12 @@
             </div>
         </div>
         <div class="col-4 col-md-2">
+            <div class="card stat-card" style="border-left-color:#8bc34a">
+                <div class="stat-label">Aprov. Prod.</div>
+                <div class="stat-value" style="color:#8bc34a"><?= $counts['aprovado_producao'] ?? 0 ?></div>
+            </div>
+        </div>
+        <div class="col-4 col-md-2">
             <div class="card stat-card" style="border-left-color:#4caf50">
                 <div class="stat-label">Concluídas</div>
                 <div class="stat-value" style="color:#4caf50"><?= $counts['completed'] ?? 0 ?></div>

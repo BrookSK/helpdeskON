@@ -18,6 +18,7 @@
         'em_revisao_interna' => ['Em Revisão Interna', '#5c6bc0'],
         'waiting_client' => ['Aguardando', '#c62828'],
         'em_homologacao' => ['Em Homologação', '#0097a7'],
+        'aprovado_producao' => ['Aprov. Produção', '#8bc34a'],
         'completed' => ['Concluído', '#2e7d32'],
         'denied' => ['Negado', '#d84315'],
         'archived' => ['Arquivado', '#546e7a'],
