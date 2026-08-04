@@ -669,12 +669,15 @@ class TicketsController extends Controller
                 'message' => mb_substr($messageText, 0, 200),
                 'type' => 'system',
             ]);
+        }
 
-            $userModel = new User();
-            $recipient = $userModel->findById($recipientId);
+        // Disparar webhook/WhatsApp para a equipe quando o CLIENTE enviar mensagem
+        // Usa os telefones configurados no sistema (webhook_phones)
+        if ($sender['role'] === 'client') {
             $this->triggerWebhook(
-                "Nova mensagem de {$sender['name']} no ticket #{$ticket['id']}: " . mb_substr($messageText, 0, 100),
-                $recipient['phone'] ?? ''
+                "📩 Nova mensagem de {$sender['name']} no ticket #{$ticket['id']} ({$ticket['title']}): " . mb_substr($messageText, 0, 100),
+                '',
+                $ticket
             );
         }
     }
