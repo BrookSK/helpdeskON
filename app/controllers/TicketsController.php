@@ -690,6 +690,11 @@ class TicketsController extends Controller
             return;
         }
 
+        $webhookUrl = Config::get('webhook_url');
+        if (empty($webhookUrl)) {
+            return;
+        }
+
         // Buscar telefones e nomes configurados
         $phonesRaw = Config::get('webhook_phones') ?: Config::get('webhook_phone') ?: $phone;
         $namesRaw = Config::get('webhook_names') ?: Config::get('webhook_name') ?: 'Admin';
@@ -702,7 +707,7 @@ class TicketsController extends Controller
         $formattedMessage = $message;
         if (!empty($template) && !empty($ticketData)) {
             $formattedMessage = str_replace(
-                ['{ticket_id}', '{ticket_title}', '{client_name}', '{priority}', '{category}', '{date}'],
+                ['{ticket_id}', '{ticket_title}', '{client_name}', '{priority}', '{category}', '{date}', '{message}'],
                 [
                     $ticketData['id'] ?? '',
                     $ticketData['title'] ?? '',
@@ -710,13 +715,13 @@ class TicketsController extends Controller
                     $this->priorityLabelText($ticketData['priority'] ?? 'medium'),
                     $ticketData['category'] ?? 'Não definida',
                     date('d/m/Y H:i'),
+                    $message,
                 ],
                 $template
             );
         }
 
-        // Inserir na fila para cada telefone (processado pelo cron sequencialmente)
-        $db = Database::getInstance();
+        // Enviar diretamente via cURL para cada telefone (sem depender do cron)
         foreach ($phones as $index => $phoneNumber) {
             $phoneNumber = preg_replace('/[^0-9]/', '', $phoneNumber);
             if (empty($phoneNumber)) continue;
@@ -724,12 +729,22 @@ class TicketsController extends Controller
             $recipientName = $names[$index] ?? ($names[0] ?? 'Admin');
             $finalMessage = str_replace('{name}', $recipientName, $formattedMessage);
 
-            $db->insert('webhook_queue', [
+            $payload = json_encode([
                 'phone' => $phoneNumber,
                 'name' => $recipientName,
                 'message' => $finalMessage,
-                'status' => 'pending',
             ]);
+
+            $ch = curl_init($webhookUrl);
+            curl_setopt_array($ch, [
+                CURLOPT_POST => true,
+                CURLOPT_POSTFIELDS => $payload,
+                CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT => 10,
+            ]);
+            curl_exec($ch);
+            curl_close($ch);
         }
     }
 

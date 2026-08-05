@@ -133,6 +133,11 @@ class PlanningController extends Controller
             $this->notifyAssignment($cardId, $data['assigned_to'], $user, $title);
         }
 
+        // Webhook WhatsApp para qualquer card criado (mesmo sem atribuição)
+        if (!($data['assigned_to'] && $data['assigned_to'] != $user['id'])) {
+            $this->triggerCardWebhook($cardId, $user, $title);
+        }
+
         if ($this->isAjax()) {
             $card = $this->cardModel->findById($cardId);
             $this->json(['success' => true, 'card' => $card]);
@@ -474,39 +479,102 @@ class PlanningController extends Controller
         // Webhook WhatsApp
         $webhookEnabled = Config::get('webhook_enabled');
         if ($webhookEnabled) {
-            $startStr = $card['start_date'] ? date('d/m/Y', strtotime($card['start_date'])) : '?';
-            $endStr = $card['end_date'] ? date('d/m/Y', strtotime($card['end_date'])) : '?';
-            $dueStr = $card['due_date'] ? date('d/m/Y', strtotime($card['due_date'])) : '?';
-            $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'urgent' => 'Urgente'];
+            $webhookUrl = Config::get('webhook_url');
+            if (!empty($webhookUrl)) {
+                $startStr = $card['start_date'] ? date('d/m/Y', strtotime($card['start_date'])) : '?';
+                $endStr = $card['end_date'] ? date('d/m/Y', strtotime($card['end_date'])) : '?';
+                $dueStr = $card['due_date'] ? date('d/m/Y', strtotime($card['due_date'])) : '?';
+                $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'urgent' => 'Urgente'];
 
-            $webhookMessage = "📋 *Nova Tarefa Atribuída*\n\n"
-                . "*Card:* #{$card['id']} — {$cardTitle}\n"
-                . "*Empresa:* " . ($card['company_name'] ?? 'N/A') . "\n"
-                . "*Prioridade:* " . ($priorityLabels[$card['priority']] ?? '') . "\n"
-                . "*Desenvolvimento:* {$startStr} até {$endStr}\n"
-                . "*Entrega:* {$dueStr}\n"
-                . "*Atribuído por:* {$currentUser['name']}\n"
-                . "*Responsável:* " . ($assignedUser['name'] ?? '') . "\n\n"
-                . "Acesse o painel para ver os detalhes.";
+                $webhookMessage = "📋 *Nova Tarefa Atribuída*\n\n"
+                    . "*Card:* #{$card['id']} — {$cardTitle}\n"
+                    . "*Empresa:* " . ($card['company_name'] ?? 'N/A') . "\n"
+                    . "*Prioridade:* " . ($priorityLabels[$card['priority']] ?? '') . "\n"
+                    . "*Desenvolvimento:* {$startStr} até {$endStr}\n"
+                    . "*Entrega:* {$dueStr}\n"
+                    . "*Atribuído por:* {$currentUser['name']}\n"
+                    . "*Responsável:* " . ($assignedUser['name'] ?? '') . "\n\n"
+                    . "Acesse o painel para ver os detalhes.";
 
-            // Inserir na fila de webhook para cada telefone configurado
-            $phonesRaw = Config::get('webhook_phones') ?: Config::get('webhook_phone') ?: '';
-            $namesRaw = Config::get('webhook_names') ?: Config::get('webhook_name') ?: 'Admin';
-            $phones = array_map('trim', explode(',', $phonesRaw));
-            $names = array_map('trim', explode(',', $namesRaw));
+                // Enviar diretamente via cURL para cada telefone configurado
+                $phonesRaw = Config::get('webhook_phones') ?: Config::get('webhook_phone') ?: '';
+                $namesRaw = Config::get('webhook_names') ?: Config::get('webhook_name') ?: 'Admin';
+                $phones = array_map('trim', explode(',', $phonesRaw));
+                $names = array_map('trim', explode(',', $namesRaw));
 
-            foreach ($phones as $index => $phone) {
-                $phone = preg_replace('/[^0-9]/', '', $phone);
-                if (empty($phone)) continue;
-                $recipientName = $names[$index] ?? ($names[0] ?? 'Admin');
+                foreach ($phones as $index => $phone) {
+                    $phone = preg_replace('/[^0-9]/', '', $phone);
+                    if (empty($phone)) continue;
+                    $recipientName = $names[$index] ?? ($names[0] ?? 'Admin');
 
-                $db->insert('webhook_queue', [
-                    'phone' => $phone,
-                    'name' => $recipientName,
-                    'message' => $webhookMessage,
-                    'status' => 'pending',
-                ]);
+                    $payload = json_encode([
+                        'phone' => $phone,
+                        'name' => $recipientName,
+                        'message' => $webhookMessage,
+                    ]);
+
+                    $ch = curl_init($webhookUrl);
+                    curl_setopt_array($ch, [
+                        CURLOPT_POST => true,
+                        CURLOPT_POSTFIELDS => $payload,
+                        CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+                        CURLOPT_RETURNTRANSFER => true,
+                        CURLOPT_TIMEOUT => 10,
+                    ]);
+                    curl_exec($ch);
+                    curl_close($ch);
+                }
             }
+        }
+    }
+
+    // Webhook para criação de card (quando não há atribuição)
+    private function triggerCardWebhook($cardId, $currentUser, $cardTitle)
+    {
+        $webhookEnabled = Config::get('webhook_enabled');
+        if (!$webhookEnabled) return;
+
+        $webhookUrl = Config::get('webhook_url');
+        if (empty($webhookUrl)) return;
+
+        $card = $this->cardModel->findById($cardId);
+        $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'urgent' => 'Urgente'];
+        $dueStr = $card['due_date'] ? date('d/m/Y', strtotime($card['due_date'])) : '?';
+
+        $webhookMessage = "📋 *Novo Card Criado*\n\n"
+            . "*Card:* #{$card['id']} — {$cardTitle}\n"
+            . "*Empresa:* " . ($card['company_name'] ?? 'N/A') . "\n"
+            . "*Prioridade:* " . ($priorityLabels[$card['priority']] ?? '') . "\n"
+            . "*Entrega:* {$dueStr}\n"
+            . "*Criado por:* {$currentUser['name']}\n\n"
+            . "Acesse o painel para ver os detalhes.";
+
+        $phonesRaw = Config::get('webhook_phones') ?: Config::get('webhook_phone') ?: '';
+        $namesRaw = Config::get('webhook_names') ?: Config::get('webhook_name') ?: 'Admin';
+        $phones = array_map('trim', explode(',', $phonesRaw));
+        $names = array_map('trim', explode(',', $namesRaw));
+
+        foreach ($phones as $index => $phone) {
+            $phone = preg_replace('/[^0-9]/', '', $phone);
+            if (empty($phone)) continue;
+            $recipientName = $names[$index] ?? ($names[0] ?? 'Admin');
+
+            $payload = json_encode([
+                'phone' => $phone,
+                'name' => $recipientName,
+                'message' => $webhookMessage,
+            ]);
+
+            $ch = curl_init($webhookUrl);
+            curl_setopt_array($ch, [
+                CURLOPT_POST => true,
+                CURLOPT_POSTFIELDS => $payload,
+                CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT => 10,
+            ]);
+            curl_exec($ch);
+            curl_close($ch);
         }
     }
 }
