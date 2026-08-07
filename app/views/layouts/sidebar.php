@@ -89,6 +89,19 @@
                     <i class="bi bi-calendar2-check"></i> Planejamento
                 </a>
             </li>
+            <li class="nav-item mt-3">
+                <small class="text-uppercase px-3" style="font-size:0.65rem;color:rgba(255,255,255,0.35);letter-spacing:0.5px;">WhatsApp & CRM</small>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link <?= in_array($currentPage ?? '', ['whatsapp', 'whatsapp_chat']) ? 'active' : '' ?>" href="<?= baseUrl('whatsapp/chat') ?>">
+                    <i class="bi bi-whatsapp"></i> WhatsApp Chat
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'crm' ? 'active' : '' ?>" href="<?= baseUrl('crm') ?>">
+                    <i class="bi bi-kanban"></i> CRM
+                </a>
+            </li>
             <?php endif; ?>
 
             <?php if (($user['role'] ?? '') === 'super_admin'): ?>
