@@ -67,16 +67,49 @@ class WhatsappController extends Controller
         $db = Database::getInstance();
         $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE is_default = 1 LIMIT 1");
         if (!$instance) {
-            $this->json(['error' => 'Nenhuma instância configurada'], 400);
+            $instance = $db->fetch("SELECT * FROM whatsapp_instances LIMIT 1");
+        }
+        if (!$instance) {
+            $this->json(['contacts' => [], 'groups' => []]);
         }
 
         $filters = [];
         if (!empty($_GET['assigned_to'])) $filters['assigned_to'] = $_GET['assigned_to'];
         if (!empty($_GET['label_id'])) $filters['label_id'] = $_GET['label_id'];
         if (!empty($_GET['search'])) $filters['search'] = $_GET['search'];
+        if (!empty($_GET['service_status'])) $filters['service_status'] = $_GET['service_status'];
 
-        $contacts = $this->contactModel->getAll($instance['id'], $filters);
-        $this->json($contacts);
+        // Tipo: contacts, groups ou all
+        $type = $_GET['type'] ?? 'all';
+
+        if ($type === 'all') {
+            $contacts = $this->contactModel->getAll($instance['id'], $filters, 'contacts');
+            $groups = $this->contactModel->getAll($instance['id'], $filters, 'groups');
+            $this->json(['contacts' => $contacts, 'groups' => $groups]);
+        } else {
+            $results = $this->contactModel->getAll($instance['id'], $filters, $type);
+            $this->json($results);
+        }
+    }
+
+    /**
+     * API: Atualizar status de atendimento
+     */
+    public function updateServiceStatus($contactId = null)
+    {
+        $this->requireRole(['super_admin', 'attendant']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$contactId) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+
+        $status = $_POST['service_status'] ?? '';
+        $result = $this->contactModel->updateServiceStatus($contactId, $status);
+
+        if ($result === false) {
+            $this->json(['error' => 'Status inválido'], 400);
+        }
+
+        $this->json(['success' => true]);
     }
 
     /**
@@ -290,6 +323,7 @@ class WhatsappController extends Controller
         if (isset($_POST['contact_name'])) $data['contact_name'] = trim($_POST['contact_name']);
         if (isset($_POST['internal_notes'])) $data['internal_notes'] = trim($_POST['internal_notes']);
         if (isset($_POST['assigned_to'])) $data['assigned_to'] = $_POST['assigned_to'] ?: null;
+        if (isset($_POST['service_status'])) $data['service_status'] = $_POST['service_status'] ?: 'novo';
 
         if (!empty($data)) {
             $db = Database::getInstance();
@@ -633,10 +667,9 @@ class WhatsappController extends Controller
         $contactId = $this->contactModel->upsert($instance['id'], $normalizedJid, [
             'phone' => $phone,
             'push_name' => $pushName ?: null,
-            'contact_name' => $pushName ?: null,
             'is_group' => $isGroup ? 1 : 0,
             'last_message_at' => date('Y-m-d H:i:s'),
-        ]);
+        ], $pushName);
 
         // Download de mídia base64 se disponível
         if (isset($msg['message']['base64'])) {

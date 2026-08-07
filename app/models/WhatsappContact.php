@@ -24,8 +24,9 @@ class WhatsappContact
 
     /**
      * Retorna contatos com filtros (para lista do chat)
+     * @param string $type 'contacts', 'groups' ou 'all'
      */
-    public function getAll($instanceId, $filters = [])
+    public function getAll($instanceId, $filters = [], $type = 'contacts')
     {
         $sql = "SELECT c.*, 
                     (SELECT GROUP_CONCAT(l.name SEPARATOR ', ') 
@@ -35,8 +36,21 @@ class WhatsappContact
                     u.name as assigned_name
                 FROM whatsapp_contacts c
                 LEFT JOIN users u ON c.assigned_to = u.id
-                WHERE c.instance_id = ? AND c.is_group = 0";
+                WHERE c.instance_id = ?";
         $params = [$instanceId];
+
+        // Filtro por tipo (contatos individuais vs grupos)
+        if ($type === 'contacts') {
+            $sql .= " AND c.is_group = 0";
+        } elseif ($type === 'groups') {
+            $sql .= " AND c.is_group = 1";
+        }
+
+        // Filtro por status de atendimento
+        if (!empty($filters['service_status'])) {
+            $sql .= " AND c.service_status = ?";
+            $params[] = $filters['service_status'];
+        }
 
         // Filtro por atendente atribuído
         if (!empty($filters['assigned_to'])) {
@@ -78,23 +92,38 @@ class WhatsappContact
     }
 
     /**
-     * Cria ou atualiza um contato (upsert)
+     * Atualizar status de atendimento
      */
-    public function upsert($instanceId, $remoteJid, $data)
+    public function updateServiceStatus($id, $status)
+    {
+        $validStatuses = ['em_atendimento', 'aguardando', 'concluido', 'novo'];
+        if (!in_array($status, $validStatuses)) return false;
+        return $this->db->update('whatsapp_contacts', ['service_status' => $status], 'id = ?', [$id]);
+    }
+
+    /**
+     * Cria ou atualiza um contato (upsert)
+     * No update, NÃO sobrescreve contact_name se já editado manualmente
+     */
+    public function upsert($instanceId, $remoteJid, $data, $pushName = null)
     {
         $existing = $this->findByJid($instanceId, $remoteJid);
 
         if ($existing) {
             $updateData = array_filter($data, fn($v) => $v !== null);
+            // Não sobrescrever contact_name se já foi definido manualmente
+            unset($updateData['contact_name']);
             if (!empty($updateData)) {
                 $this->db->update('whatsapp_contacts', $updateData, 'id = ?', [$existing['id']]);
             }
             return $existing['id'];
         }
 
+        // Novo contato — definir contact_name a partir do pushName
         $insertData = array_merge([
             'instance_id' => $instanceId,
             'remote_jid' => $remoteJid,
+            'contact_name' => $pushName ?: null,
         ], $data);
 
         return $this->db->insert('whatsapp_contacts', $insertData);

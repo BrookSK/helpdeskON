@@ -20,25 +20,41 @@
         <!-- COLUNA ESQUERDA: Lista de contatos -->
         <div class="wpp-contacts-panel" id="contacts-panel">
             <div class="wpp-contacts-header">
-                <input type="text" class="form-control form-control-sm" id="contact-search" placeholder="Buscar contato...">
+                <input type="text" class="form-control form-control-sm" id="contact-search" placeholder="Buscar contato ou grupo...">
                 <div class="d-flex gap-1 mt-2 flex-wrap">
-                    <select class="form-select form-select-sm" id="filter-assigned" style="font-size:0.72rem;max-width:130px;">
+                    <select class="form-select form-select-sm" id="filter-assigned" style="font-size:0.72rem;max-width:120px;">
                         <option value="">Todos</option>
                         <option value="unassigned">Sem dono</option>
                         <?php foreach ($teamMembers as $m): ?>
                         <option value="<?= $m['id'] ?>"><?= escape($m['name']) ?></option>
                         <?php endforeach; ?>
                     </select>
-                    <select class="form-select form-select-sm" id="filter-label" style="font-size:0.72rem;max-width:120px;">
+                    <select class="form-select form-select-sm" id="filter-label" style="font-size:0.72rem;max-width:100px;">
                         <option value="">Etiquetas</option>
                         <?php foreach ($labels as $l): ?>
                         <option value="<?= $l['id'] ?>"><?= escape($l['name']) ?></option>
                         <?php endforeach; ?>
                     </select>
+                    <select class="form-select form-select-sm" id="filter-status" style="font-size:0.72rem;max-width:120px;">
+                        <option value="">Status</option>
+                        <option value="em_atendimento">Em atendimento</option>
+                        <option value="aguardando">Aguardando</option>
+                        <option value="concluido">Concluído</option>
+                        <option value="novo">Novo</option>
+                    </select>
                 </div>
             </div>
+            <!-- Abas Contatos / Grupos -->
+            <div class="wpp-tabs">
+                <button class="wpp-tab active" data-tab="contacts" onclick="switchTab('contacts')">
+                    <i class="bi bi-person"></i> Contatos <span class="wpp-tab-count" id="count-contacts">0</span>
+                </button>
+                <button class="wpp-tab" data-tab="groups" onclick="switchTab('groups')">
+                    <i class="bi bi-people"></i> Grupos <span class="wpp-tab-count" id="count-groups">0</span>
+                </button>
+            </div>
             <div class="wpp-contacts-list" id="contacts-list">
-                <div class="text-center py-4 text-muted small">Carregando contatos...</div>
+                <div class="text-center py-4 text-muted small">Carregando...</div>
             </div>
         </div>
 
@@ -57,7 +73,13 @@
                         <small class="text-muted" id="chat-contact-phone"></small>
                     </div>
                 </div>
-                <div class="d-flex gap-2">
+                <div class="d-flex gap-2 align-items-center">
+                    <select class="form-select form-select-sm" id="chat-service-status" style="font-size:0.7rem;max-width:130px;" onchange="changeServiceStatus()">
+                        <option value="novo">Novo</option>
+                        <option value="em_atendimento">Em atendimento</option>
+                        <option value="aguardando">Aguardando</option>
+                        <option value="concluido">Concluído</option>
+                    </select>
                     <button class="btn btn-sm btn-outline-secondary" onclick="toggleDetailPanel()" title="Detalhes">
                         <i class="bi bi-person-lines-fill"></i>
                     </button>
@@ -116,12 +138,17 @@
                     <div id="detail-labels" class="d-flex flex-wrap gap-1 mb-2"></div>
                     <div class="d-flex gap-1">
                         <select class="form-select form-select-sm" id="add-label-select" style="font-size:0.75rem;">
-                            <option value="">+ Adicionar</option>
+                            <option value="">Selecionar...</option>
                             <?php foreach ($labels as $l): ?>
                             <option value="<?= $l['id'] ?>" data-color="<?= $l['color'] ?>"><?= escape($l['name']) ?></option>
                             <?php endforeach; ?>
                         </select>
-                        <button class="btn btn-sm btn-outline-primary" onclick="addLabelToContact()" style="font-size:0.72rem;">+</button>
+                        <button class="btn btn-sm btn-outline-primary" onclick="addLabelToContact()" title="Adicionar etiqueta selecionada">
+                            <i class="bi bi-plus"></i>
+                        </button>
+                        <button class="btn btn-sm btn-outline-success" onclick="openCreateLabelModal()" title="Criar nova etiqueta">
+                            <i class="bi bi-tag"></i>
+                        </button>
                     </div>
                 </div>
                 <hr>
@@ -143,23 +170,62 @@
     </div>
 </div>
 
+<!-- Modal Criar Etiqueta -->
+<div class="modal fade" id="createLabelModal" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title">Nova Etiqueta</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label small fw-medium">Nome *</label>
+                    <input type="text" id="new-label-name" class="form-control form-control-sm" placeholder="ex: VIP, Urgente..." required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small fw-medium">Cor</label>
+                    <input type="color" id="new-label-color" class="form-control form-control-sm form-control-color" value="#00BFA6">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-sm btn-primary" onclick="createLabel()">Criar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <style>
 .wpp-topbar { padding: 10px 20px; background: #fff; border-bottom: 1px solid #e9ecef; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
 .wpp-layout { display: flex; flex: 1; overflow: hidden; }
-.wpp-contacts-panel { width: 320px; min-width: 320px; border-right: 1px solid #e9ecef; display: flex; flex-direction: column; background: #fff; }
+.wpp-contacts-panel { width: 340px; min-width: 340px; border-right: 1px solid #e9ecef; display: flex; flex-direction: column; background: #fff; }
 .wpp-contacts-header { padding: 10px; border-bottom: 1px solid #f0f0f0; }
+.wpp-tabs { display: flex; border-bottom: 1px solid #e9ecef; flex-shrink: 0; }
+.wpp-tab { flex: 1; padding: 8px; font-size: 0.78rem; font-weight: 500; border: none; background: none; color: #666; cursor: pointer; transition: all 0.2s; border-bottom: 2px solid transparent; }
+.wpp-tab.active { color: var(--primary); border-bottom-color: var(--primary); background: #f0faf8; }
+.wpp-tab:hover { background: #f5f5f5; }
+.wpp-tab-count { font-size: 0.65rem; background: #e0e0e0; padding: 1px 5px; border-radius: 8px; color: #555; }
+.wpp-tab.active .wpp-tab-count { background: var(--primary-light); color: var(--primary-dark); }
 .wpp-contacts-list { flex: 1; overflow-y: auto; }
+.wpp-section-header { padding: 6px 12px; font-size: 0.68rem; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: 0.5px; background: #fafafa; border-bottom: 1px solid #f0f0f0; position: sticky; top: 0; z-index: 1; }
 .wpp-contact-item { padding: 10px 12px; display: flex; align-items: center; gap: 10px; cursor: pointer; border-bottom: 1px solid #f8f8f8; transition: background 0.15s; }
 .wpp-contact-item:hover { background: #f0faf8; }
 .wpp-contact-item.active { background: #e0f7f4; border-left: 3px solid var(--primary); }
-.wpp-avatar-sm { width: 38px; height: 38px; border-radius: 50%; background: #e0e0e0; display: flex; align-items: center; justify-content: center; font-size: 0.85rem; color: #555; flex-shrink: 0; font-weight: 600; }
+.wpp-avatar-sm { width: 38px; height: 38px; border-radius: 50%; background: #e0e0e0; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; color: #555; flex-shrink: 0; font-weight: 600; }
+.wpp-avatar-sm.group-avatar { background: #c8e6c9; color: #2e7d32; }
 .wpp-avatar-lg { width: 70px; height: 70px; border-radius: 50%; background: #e0e0e0; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; color: #555; font-weight: 600; }
 .wpp-contact-info { flex: 1; min-width: 0; }
-.wpp-contact-name { font-size: 0.85rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.wpp-contact-last { font-size: 0.72rem; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wpp-contact-name { font-size: 0.83rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wpp-contact-last { font-size: 0.7rem; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wpp-contact-meta { text-align: right; flex-shrink: 0; }
-.wpp-contact-time { font-size: 0.65rem; color: #999; }
+.wpp-contact-time { font-size: 0.62rem; color: #999; }
 .wpp-unread { background: var(--primary); color: #fff; font-size: 0.6rem; padding: 2px 6px; border-radius: 10px; display: inline-block; margin-top: 2px; }
+.wpp-status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+.wpp-status-dot.em_atendimento { background: #ff9800; }
+.wpp-status-dot.aguardando { background: #f44336; }
+.wpp-status-dot.concluido { background: #4caf50; }
+.wpp-status-dot.novo { background: #2196f3; }
 .wpp-chat-panel { flex: 1; display: flex; flex-direction: column; background: #efeae2; position: relative; }
 .wpp-chat-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .wpp-chat-header { padding: 10px 16px; background: #fff; border-bottom: 1px solid #e9ecef; display: flex; justify-content: space-between; align-items: center; }
@@ -174,8 +240,7 @@
 .wpp-msg.other { align-self: flex-start; background: #fff; border-bottom-left-radius: 2px; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
 .wpp-msg-time { font-size: 0.62rem; color: #888; margin-top: 3px; text-align: right; }
 .wpp-msg-media img { max-width: 220px; border-radius: 6px; cursor: pointer; }
-.wpp-msg-media audio { max-width: 220px; }
-.wpp-label-badge { font-size: 0.65rem; padding: 2px 8px; border-radius: 10px; color: #fff; display: inline-block; }
+.wpp-label-badge { font-size: 0.65rem; padding: 2px 8px; border-radius: 10px; color: #fff; display: inline-block; cursor: default; }
 .cursor-pointer { cursor: pointer; }
 @media (max-width: 768px) {
     .wpp-contacts-panel { width: 100%; min-width: 100%; }
@@ -189,49 +254,115 @@
 const BASE = '<?= baseUrl("") ?>';
 let activeContactId = <?= $activeContactId ? intval($activeContactId) : 'null' ?>;
 let pollInterval = null;
+let contactsPollInterval = null;
 let lastMessageId = 0;
+let currentTab = 'contacts'; // 'contacts' ou 'groups'
+let allContacts = [];
+let allGroups = [];
 
 // =========================================
-// CONTATOS
+// TABS (Contatos / Grupos)
 // =========================================
-function loadContacts() {
+function switchTab(tab) {
+    currentTab = tab;
+    document.querySelectorAll('.wpp-tab').forEach(t => t.classList.remove('active'));
+    document.querySelector(`.wpp-tab[data-tab="${tab}"]`).classList.add('active');
+    renderContactsList();
+}
+
+// =========================================
+// CONTATOS — Carregamento
+// =========================================
+function loadContacts(silent = false) {
     const search = document.getElementById('contact-search').value;
     const assigned = document.getElementById('filter-assigned').value;
     const label = document.getElementById('filter-label').value;
+    const status = document.getElementById('filter-status').value;
 
-    let url = BASE + 'whatsapp/contacts?';
-    if (search) url += 'search=' + encodeURIComponent(search) + '&';
-    if (assigned) url += 'assigned_to=' + encodeURIComponent(assigned) + '&';
-    if (label) url += 'label_id=' + encodeURIComponent(label) + '&';
+    let url = BASE + 'whatsapp/contacts?type=all';
+    if (search) url += '&search=' + encodeURIComponent(search);
+    if (assigned) url += '&assigned_to=' + encodeURIComponent(assigned);
+    if (label) url += '&label_id=' + encodeURIComponent(label);
+    if (status) url += '&service_status=' + encodeURIComponent(status);
 
     fetch(url, { headers: {'X-Requested-With': 'XMLHttpRequest'} })
     .then(r => r.json())
-    .then(contacts => {
-        const list = document.getElementById('contacts-list');
-        if (!contacts.length) {
-            list.innerHTML = '<div class="text-center py-4 text-muted small">Nenhum contato encontrado</div>';
-            return;
+    .then(data => {
+        allContacts = data.contacts || [];
+        allGroups = data.groups || [];
+
+        // Atualizar contadores
+        document.getElementById('count-contacts').textContent = allContacts.length;
+        document.getElementById('count-groups').textContent = allGroups.length;
+
+        renderContactsList();
+    })
+    .catch(() => {});
+}
+
+function renderContactsList() {
+    const list = document.getElementById('contacts-list');
+    const items = currentTab === 'contacts' ? allContacts : allGroups;
+
+    if (!items.length) {
+        list.innerHTML = `<div class="text-center py-4 text-muted small">Nenhum ${currentTab === 'contacts' ? 'contato' : 'grupo'} encontrado</div>`;
+        return;
+    }
+
+    let html = '';
+
+    if (currentTab === 'contacts') {
+        // Separar por status de atendimento
+        const emAtendimento = items.filter(c => c.service_status === 'em_atendimento');
+        const aguardando = items.filter(c => c.service_status === 'aguardando');
+        const novos = items.filter(c => c.service_status === 'novo' || !c.service_status);
+        const concluidos = items.filter(c => c.service_status === 'concluido');
+
+        if (emAtendimento.length) {
+            html += '<div class="wpp-section-header"><span class="wpp-status-dot em_atendimento"></span>Em Atendimento (' + emAtendimento.length + ')</div>';
+            html += emAtendimento.map(c => renderContactItem(c, false)).join('');
         }
-        list.innerHTML = contacts.map(c => {
-            const initials = (c.contact_name || c.push_name || c.phone || '?').substring(0, 2).toUpperCase();
-            const name = c.contact_name || c.push_name || c.phone || 'Desconhecido';
-            const time = c.last_message_at ? formatTime(c.last_message_at) : '';
-            const isActive = activeContactId == c.id ? 'active' : '';
-            const unread = c.unread_count > 0 ? `<span class="wpp-unread">${c.unread_count}</span>` : '';
-            const assignedBadge = c.assigned_name ? `<small style="font-size:0.6rem;color:var(--primary);">${c.assigned_name}</small>` : '';
-            return `<div class="wpp-contact-item ${isActive}" onclick="openChat(${c.id})" data-id="${c.id}">
-                <div class="wpp-avatar-sm">${initials}</div>
-                <div class="wpp-contact-info">
-                    <div class="wpp-contact-name">${escapeHtml(name)}</div>
-                    <div class="wpp-contact-last">${assignedBadge}</div>
-                </div>
-                <div class="wpp-contact-meta">
-                    <div class="wpp-contact-time">${time}</div>
-                    ${unread}
-                </div>
-            </div>`;
-        }).join('');
-    });
+        if (aguardando.length) {
+            html += '<div class="wpp-section-header"><span class="wpp-status-dot aguardando"></span>Aguardando (' + aguardando.length + ')</div>';
+            html += aguardando.map(c => renderContactItem(c, false)).join('');
+        }
+        if (novos.length) {
+            html += '<div class="wpp-section-header"><span class="wpp-status-dot novo"></span>Novos (' + novos.length + ')</div>';
+            html += novos.map(c => renderContactItem(c, false)).join('');
+        }
+        if (concluidos.length) {
+            html += '<div class="wpp-section-header"><span class="wpp-status-dot concluido"></span>Concluídos (' + concluidos.length + ')</div>';
+            html += concluidos.map(c => renderContactItem(c, false)).join('');
+        }
+    } else {
+        // Grupos — sem divisão por status
+        html += items.map(c => renderContactItem(c, true)).join('');
+    }
+
+    list.innerHTML = html;
+}
+
+function renderContactItem(c, isGroup) {
+    const name = c.contact_name || c.push_name || c.phone || 'Desconhecido';
+    const initials = name.substring(0, 2).toUpperCase();
+    const time = c.last_message_at ? formatTime(c.last_message_at) : '';
+    const isActive = activeContactId == c.id ? 'active' : '';
+    const unread = c.unread_count > 0 ? `<span class="wpp-unread">${c.unread_count}</span>` : '';
+    const assignedBadge = c.assigned_name ? `<small style="font-size:0.6rem;color:var(--primary);">${escapeHtml(c.assigned_name)}</small>` : '';
+    const avatarClass = isGroup ? 'wpp-avatar-sm group-avatar' : 'wpp-avatar-sm';
+    const icon = isGroup ? '<i class="bi bi-people-fill" style="font-size:0.9rem;"></i>' : initials;
+
+    return `<div class="wpp-contact-item ${isActive}" onclick="openChat(${c.id})" data-id="${c.id}">
+        <div class="${avatarClass}">${icon}</div>
+        <div class="wpp-contact-info">
+            <div class="wpp-contact-name">${escapeHtml(name)}</div>
+            <div class="wpp-contact-last">${assignedBadge}</div>
+        </div>
+        <div class="wpp-contact-meta">
+            <div class="wpp-contact-time">${time}</div>
+            ${unread}
+        </div>
+    </div>`;
 }
 
 // =========================================
@@ -253,6 +384,7 @@ function openChat(contactId) {
 
     // Load messages
     document.getElementById('messages-area').innerHTML = '<div class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></div>';
+    lastMessageId = 0;
 
     fetch(BASE + 'whatsapp/messages/' + contactId, { headers: {'X-Requested-With': 'XMLHttpRequest'} })
     .then(r => r.json())
@@ -271,6 +403,7 @@ function openChat(contactId) {
         document.getElementById('chat-contact-name').textContent = name;
         document.getElementById('chat-contact-phone').textContent = contact.phone || '';
         document.getElementById('chat-avatar').textContent = initials;
+        document.getElementById('chat-service-status').value = contact.service_status || 'novo';
         // Detail panel
         document.getElementById('detail-name').textContent = name;
         document.getElementById('detail-phone').textContent = contact.phone || '';
@@ -316,6 +449,26 @@ function renderSingleMessage(m) {
     const time = m.timestamp ? formatTime(m.timestamp) : '';
     return `<div class="wpp-msg ${cls}">${content}<div class="wpp-msg-time">${time}</div></div>`;
 }
+
+// =========================================
+// STATUS DE ATENDIMENTO
+// =========================================
+function changeServiceStatus() {
+    if (!activeContactId) return;
+    const status = document.getElementById('chat-service-status').value;
+
+    const fd = new FormData();
+    fd.append('service_status', status);
+
+    fetch(BASE + 'whatsapp/updateServiceStatus/' + activeContactId, { method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'} })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            showToast('Status atualizado!');
+            loadContacts(true);
+        }
+    });
+}
 </script>
 
 <script>
@@ -328,7 +481,6 @@ function sendMessage() {
     if (!text || !activeContactId) return;
 
     input.value = '';
-    // Otimistic UI
     const area = document.getElementById('messages-area');
     const tempHtml = `<div class="wpp-msg mine">${escapeHtml(text).replace(/\n/g, '<br>')}<div class="wpp-msg-time">agora</div></div>`;
     area.insertAdjacentHTML('beforeend', tempHtml);
@@ -366,31 +518,38 @@ function sendMediaFile() {
             lastMessageId = Math.max(lastMessageId, data.message.id || 0);
         }
     });
-
     fileInput.value = '';
 }
 
 // =========================================
-// POLLING
+// POLLING — Mensagens (rápido) + Contatos (periódico)
 // =========================================
 function startPolling() {
     if (pollInterval) clearInterval(pollInterval);
+    // Polling de mensagens a cada 1.5s
     pollInterval = setInterval(() => {
         if (!activeContactId) return;
         fetch(BASE + 'whatsapp/poll/' + activeContactId + '?after_id=' + lastMessageId, { headers: {'X-Requested-With': 'XMLHttpRequest'} })
         .then(r => r.json())
         .then(messages => {
-            if (messages.length) {
+            if (messages && messages.length) {
                 const area = document.getElementById('messages-area');
                 messages.forEach(m => {
                     lastMessageId = Math.max(lastMessageId, m.id);
                     area.insertAdjacentHTML('beforeend', renderSingleMessage(m));
                 });
                 scrollToBottom();
-                // Refresh contact list
-                loadContacts();
             }
-        });
+        })
+        .catch(() => {});
+    }, 1500);
+}
+
+function startContactsPolling() {
+    if (contactsPollInterval) clearInterval(contactsPollInterval);
+    // Polling da lista de contatos a cada 3s para detectar novos contatos/grupos
+    contactsPollInterval = setInterval(() => {
+        loadContacts(true);
     }, 3000);
 }
 
@@ -412,11 +571,10 @@ function saveContactDetails() {
     .then(r => r.json())
     .then(data => {
         if (data.success) {
-            // Atualizar header
             const name = document.getElementById('detail-name-input').value || document.getElementById('detail-phone').textContent;
             document.getElementById('chat-contact-name').textContent = name;
             document.getElementById('detail-name').textContent = name;
-            loadContacts();
+            loadContacts(true);
             showToast('Contato atualizado!');
         }
     });
@@ -432,7 +590,7 @@ function renderContactLabels(labels) {
 function addLabelToContact() {
     const select = document.getElementById('add-label-select');
     const labelId = select.value;
-    if (!labelId || !activeContactId) return;
+    if (!labelId || !activeContactId) { alert('Selecione uma etiqueta'); return; }
 
     const fd = new FormData();
     fd.append('contact_id', activeContactId);
@@ -441,12 +599,14 @@ function addLabelToContact() {
 
     fetch(BASE + 'whatsapp/toggleLabel', { method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'} })
     .then(r => r.json())
-    .then(() => {
-        // Reload labels
-        fetch(BASE + 'whatsapp/contactDetail/' + activeContactId, { headers: {'X-Requested-With': 'XMLHttpRequest'} })
-        .then(r => r.json())
-        .then(c => renderContactLabels(c.labels || []));
-        select.value = '';
+    .then(data => {
+        if (data.success) {
+            fetch(BASE + 'whatsapp/contactDetail/' + activeContactId, { headers: {'X-Requested-With': 'XMLHttpRequest'} })
+            .then(r => r.json())
+            .then(c => renderContactLabels(c.labels || []));
+            select.value = '';
+            showToast('Etiqueta adicionada!');
+        }
     });
 }
 
@@ -464,6 +624,68 @@ function removeLabelFromContact(labelId) {
         .then(c => renderContactLabels(c.labels || []));
     });
 }
+
+// =========================================
+// CRIAR ETIQUETA
+// =========================================
+function openCreateLabelModal() {
+    document.getElementById('new-label-name').value = '';
+    document.getElementById('new-label-color').value = '#00BFA6';
+    new bootstrap.Modal(document.getElementById('createLabelModal')).show();
+}
+
+function createLabel() {
+    const name = document.getElementById('new-label-name').value.trim();
+    const color = document.getElementById('new-label-color').value;
+
+    if (!name) { alert('Digite o nome da etiqueta'); return; }
+
+    const fd = new FormData();
+    fd.append('name', name);
+    fd.append('color', color);
+
+    fetch(BASE + 'whatsapp/createLabel', { method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'} })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            // Adicionar ao select de etiquetas
+            const select = document.getElementById('add-label-select');
+            const opt = document.createElement('option');
+            opt.value = data.label.id;
+            opt.textContent = data.label.name;
+            opt.dataset.color = data.label.color;
+            select.appendChild(opt);
+
+            // Adicionar ao filtro
+            const filterSelect = document.getElementById('filter-label');
+            const filterOpt = document.createElement('option');
+            filterOpt.value = data.label.id;
+            filterOpt.textContent = data.label.name;
+            filterSelect.appendChild(filterOpt);
+
+            // Fechar modal
+            bootstrap.Modal.getInstance(document.getElementById('createLabelModal')).hide();
+            showToast('Etiqueta "' + name + '" criada!');
+
+            // Se tiver contato ativo, já adicionar a etiqueta
+            if (activeContactId) {
+                const addFd = new FormData();
+                addFd.append('contact_id', activeContactId);
+                addFd.append('label_id', data.label.id);
+                addFd.append('action', 'add');
+                fetch(BASE + 'whatsapp/toggleLabel', { method: 'POST', body: addFd, headers: {'X-Requested-With': 'XMLHttpRequest'} })
+                .then(r => r.json())
+                .then(() => {
+                    fetch(BASE + 'whatsapp/contactDetail/' + activeContactId, { headers: {'X-Requested-With': 'XMLHttpRequest'} })
+                    .then(r => r.json())
+                    .then(c => renderContactLabels(c.labels || []));
+                });
+            }
+        } else {
+            alert(data.error || 'Erro ao criar etiqueta');
+        }
+    });
+}
 </script>
 
 <script>
@@ -476,10 +698,13 @@ function loadCrmBoards() {
     .then(boards => {
         const select = document.getElementById('crm-board-select');
         select.innerHTML = '<option value="">Selecione board</option>';
-        boards.forEach(b => {
-            select.innerHTML += `<option value="${b.id}" data-columns='${JSON.stringify(b.columns)}'>${escapeHtml(b.name)}</option>`;
-        });
-    });
+        if (Array.isArray(boards)) {
+            boards.forEach(b => {
+                select.innerHTML += `<option value="${b.id}" data-columns='${JSON.stringify(b.columns || [])}'>${escapeHtml(b.name)}</option>`;
+            });
+        }
+    })
+    .catch(() => {});
 }
 
 function loadBoardColumns() {
@@ -487,7 +712,7 @@ function loadBoardColumns() {
     const opt = select.options[select.selectedIndex];
     const colSelect = document.getElementById('crm-column-select');
 
-    if (!opt.value) {
+    if (!opt || !opt.value) {
         colSelect.style.display = 'none';
         return;
     }
@@ -525,7 +750,7 @@ function addContactToCrm() {
 // =========================================
 function scrollToBottom() {
     const area = document.getElementById('messages-area');
-    area.scrollTop = area.scrollHeight;
+    if (area) area.scrollTop = area.scrollHeight;
 }
 
 function formatTime(datetime) {
@@ -565,15 +790,17 @@ function showToast(msg) {
 // =========================================
 document.addEventListener('DOMContentLoaded', () => {
     loadContacts();
+    startContactsPolling();
 
     // Debounce search
     let searchTimer;
     document.getElementById('contact-search').addEventListener('input', () => {
         clearTimeout(searchTimer);
-        searchTimer = setTimeout(loadContacts, 400);
+        searchTimer = setTimeout(() => loadContacts(), 300);
     });
-    document.getElementById('filter-assigned').addEventListener('change', loadContacts);
-    document.getElementById('filter-label').addEventListener('change', loadContacts);
+    document.getElementById('filter-assigned').addEventListener('change', () => loadContacts());
+    document.getElementById('filter-label').addEventListener('change', () => loadContacts());
+    document.getElementById('filter-status').addEventListener('change', () => loadContacts());
 
     // Se tem um contato ativo na URL
     if (activeContactId) {
