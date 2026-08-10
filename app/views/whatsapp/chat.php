@@ -195,7 +195,7 @@
 /* Override do main-content padrão — zerar padding e fixar height sem scroll */
 .wpp-main-override {
     padding: 0 !important;
-    margin-left: var(--sidebar-width) !important;
+    margin-left: 0 !important;
     height: 100vh !important;
     min-height: unset !important;
     max-height: 100vh !important;
