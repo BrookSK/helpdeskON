@@ -617,33 +617,34 @@ body { overflow: hidden !important; margin: 0; padding: 0; }
 .qr-message-auto { resize: none; overflow-y: auto; min-height: 34px; max-height: 200px; line-height: 1.4; }
 
 /* ===== Player de áudio customizado ===== */
-.wpp-audio { display: flex; align-items: center; gap: 12px; min-width: 260px; max-width: 320px; padding: 2px 0; }
+.wpp-audio { display: flex; align-items: center; gap: 10px; min-width: 230px; max-width: 290px; padding: 2px 0; }
 .wpp-audio audio { display: none; }
 .wpp-audio-play {
     flex-shrink: 0;
-    width: 44px; height: 44px;
+    width: 34px; height: 34px;
     border-radius: 50%;
     border: none;
     background: #1f2937;
     color: #fff;
     display: flex; align-items: center; justify-content: center;
-    font-size: 1.3rem;
+    font-size: 1rem;
     cursor: pointer;
     transition: background 0.15s, transform 0.1s;
 }
 .wpp-audio-play:hover { background: #111827; }
 .wpp-audio-play:active { transform: scale(0.94); }
 .wpp-audio-main { flex: 1; min-width: 0; }
-.wpp-wave { position: relative; height: 34px; cursor: pointer; }
+.wpp-wave { position: relative; height: 28px; cursor: pointer; }
 .wpp-wave-bars { display: flex; align-items: center; gap: 2px; height: 100%; width: 100%; }
 .wpp-wave-bar { flex: 1; min-width: 2px; background: #cbd5e1; border-radius: 2px; }
 .wpp-wave-fill {
     position: absolute; top: 0; left: 0; height: 100%; width: 100%;
     pointer-events: none;
+    will-change: clip-path;
 }
 .wpp-wave-fill .wpp-wave-bar { background: var(--primary); }
-.wpp-audio-times { display: flex; justify-content: space-between; font-size: 0.68rem; color: #6b7280; margin-top: 2px; }
-.wpp-audio-vol { color: #4b5563; font-size: 1.05rem; flex-shrink: 0; }
+.wpp-audio-times { display: flex; justify-content: space-between; font-size: 0.66rem; color: #6b7280; margin-top: 1px; }
+.wpp-audio-vol { color: #4b5563; font-size: 0.95rem; flex-shrink: 0; }
 .wpp-emoji-picker {
     position: absolute;
     bottom: 52px;
@@ -692,7 +693,10 @@ body { overflow: hidden !important; margin: 0; padding: 0; }
 
 <script>
 const BASE = '<?= baseUrl("") ?>';
+const CURRENT_USER_ID = <?= intval($user['id'] ?? 0) ?>;
+const CURRENT_USER_NAME = '<?= escape($user['name'] ?? '') ?>';
 let activeContactId = <?= $activeContactId ? intval($activeContactId) : 'null' ?>;
+let activeContactAssignedTo = null; // dono atual do contato aberto (para atribuição automática no envio)
 let activeContactIsGroup = false;
 let pollInterval = null;
 let contactsPollInterval = null;
@@ -994,6 +998,7 @@ function openChat(contactId, isGroup = false) {
         document.getElementById('detail-name-input').value = contact.contact_name || '';
         document.getElementById('detail-assigned').value = contact.assigned_to || '';
         document.getElementById('detail-notes').value = contact.internal_notes || '';
+        activeContactAssignedTo = contact.assigned_to || null;
         renderContactLabels(contact.labels || []);
     });
 
@@ -1136,7 +1141,6 @@ function renderAudioPlayer(m) {
     }
     return `<div class="wpp-audio" id="${pid}">
         <audio src="${src}" preload="metadata"
-            ontimeupdate="wppAudioProgress('${pid}')"
             onloadedmetadata="wppAudioMeta('${pid}')"
             onended="wppAudioEnded('${pid}')"></audio>
         <button type="button" class="wpp-audio-play" onclick="wppAudioToggle('${pid}')"><i class="bi bi-play-fill"></i></button>
@@ -1163,57 +1167,101 @@ function wppFmtTime(s) {
     return m + ':' + (sec < 10 ? '0' : '') + sec;
 }
 
+let wppRafId = null;
+
+// Cacheia as referências de um player para evitar buscas de DOM durante a reprodução
+function wppAudioRefs(wrap) {
+    if (!wrap._refs) {
+        wrap._refs = {
+            audio: wrap.querySelector('audio'),
+            icon: wrap.querySelector('.wpp-audio-play i'),
+            fill: wrap.querySelector('.wpp-wave-fill'),
+            cur: wrap.querySelector('.wpp-audio-cur'),
+            dur: wrap.querySelector('.wpp-audio-dur'),
+            wave: wrap.querySelector('.wpp-wave'),
+        };
+    }
+    return wrap._refs;
+}
+
 function wppAudioToggle(pid) {
     const wrap = document.getElementById(pid);
     if (!wrap) return;
-    const audio = wrap.querySelector('audio');
+    const r = wppAudioRefs(wrap);
     // Pausa qualquer outro áudio tocando
-    document.querySelectorAll('.wpp-audio audio').forEach(a => { if (a !== audio) { a.pause(); } });
-    document.querySelectorAll('.wpp-audio').forEach(w => { if (w !== wrap) w.classList.remove('playing'); });
-    if (audio.paused) {
-        audio.play();
+    document.querySelectorAll('.wpp-audio').forEach(w => {
+        if (w !== wrap) {
+            const a = w.querySelector('audio');
+            if (a && !a.paused) a.pause();
+            w.classList.remove('playing');
+            const ic = w.querySelector('.wpp-audio-play i');
+            if (ic) ic.className = 'bi bi-play-fill';
+        }
+    });
+    if (r.audio.paused) {
+        r.audio.playbackRate = 1;
+        r.audio.play();
         wrap.classList.add('playing');
-        wrap.querySelector('.wpp-audio-play i').className = 'bi bi-pause-fill';
+        r.icon.className = 'bi bi-pause-fill';
+        wppStartRaf(wrap);
     } else {
-        audio.pause();
+        r.audio.pause();
         wrap.classList.remove('playing');
-        wrap.querySelector('.wpp-audio-play i').className = 'bi bi-play-fill';
+        r.icon.className = 'bi bi-play-fill';
+        wppStopRaf();
     }
+}
+
+// Atualiza a barra de progresso via requestAnimationFrame (não bloqueia o áudio)
+function wppStartRaf(wrap) {
+    wppStopRaf();
+    const r = wppAudioRefs(wrap);
+    let lastSec = -1;
+    const tick = () => {
+        if (r.audio.paused) { wppRafId = null; return; }
+        const pct = r.audio.duration ? (r.audio.currentTime / r.audio.duration) * 100 : 0;
+        r.fill.style.clipPath = 'inset(0 ' + (100 - pct) + '% 0 0)';
+        const sec = Math.floor(r.audio.currentTime);
+        if (sec !== lastSec) { r.cur.textContent = wppFmtTime(r.audio.currentTime); lastSec = sec; }
+        wppRafId = requestAnimationFrame(tick);
+    };
+    wppRafId = requestAnimationFrame(tick);
+}
+
+function wppStopRaf() {
+    if (wppRafId) { cancelAnimationFrame(wppRafId); wppRafId = null; }
 }
 
 function wppAudioMeta(pid) {
     const wrap = document.getElementById(pid);
     if (!wrap) return;
-    const audio = wrap.querySelector('audio');
-    wrap.querySelector('.wpp-audio-dur').textContent = wppFmtTime(audio.duration);
-}
-
-function wppAudioProgress(pid) {
-    const wrap = document.getElementById(pid);
-    if (!wrap) return;
-    const audio = wrap.querySelector('audio');
-    const pct = audio.duration ? (audio.currentTime / audio.duration) * 100 : 0;
-    wrap.querySelector('.wpp-wave-fill').style.clipPath = 'inset(0 ' + (100 - pct) + '% 0 0)';
-    wrap.querySelector('.wpp-audio-cur').textContent = wppFmtTime(audio.currentTime);
+    const r = wppAudioRefs(wrap);
+    r.dur.textContent = wppFmtTime(r.audio.duration);
 }
 
 function wppAudioEnded(pid) {
     const wrap = document.getElementById(pid);
     if (!wrap) return;
+    const r = wppAudioRefs(wrap);
     wrap.classList.remove('playing');
-    wrap.querySelector('.wpp-audio-play i').className = 'bi bi-play-fill';
-    wrap.querySelector('.wpp-wave-fill').style.clipPath = 'inset(0 100% 0 0)';
-    wrap.querySelector('.wpp-audio-cur').textContent = '0:00';
+    r.icon.className = 'bi bi-play-fill';
+    r.fill.style.clipPath = 'inset(0 100% 0 0)';
+    r.cur.textContent = '0:00';
+    wppStopRaf();
 }
 
 function wppAudioSeek(e, pid) {
     const wrap = document.getElementById(pid);
     if (!wrap) return;
-    const audio = wrap.querySelector('audio');
-    const wave = wrap.querySelector('.wpp-wave');
-    const rect = wave.getBoundingClientRect();
+    const r = wppAudioRefs(wrap);
+    const rect = r.wave.getBoundingClientRect();
     const ratio = Math.min(Math.max((e.clientX - rect.left) / rect.width, 0), 1);
-    if (audio.duration) audio.currentTime = ratio * audio.duration;
+    if (r.audio.duration) {
+        r.audio.currentTime = ratio * r.audio.duration;
+        const pct = ratio * 100;
+        r.fill.style.clipPath = 'inset(0 ' + (100 - pct) + '% 0 0)';
+        r.cur.textContent = wppFmtTime(r.audio.currentTime);
+    }
 }
 
 // Transcrever áudio recebido
@@ -1407,6 +1455,7 @@ function sendQuickReplyWithAttachment(q) {
     .then(data => {
         const temp = document.getElementById(tempId);
         if (data.success && data.message) {
+            reflectAutoAssign();
             renderedMessageIds.add(data.message.id);
             lastMessageId = Math.max(lastMessageId, data.message.id || 0);
             if (temp) temp.outerHTML = renderSingleMessage(data.message);
@@ -1642,6 +1691,14 @@ function cancelStagedMedia() {
     document.getElementById('message-input').placeholder = 'Digite uma mensagem...';
 }
 
+// Reflete na UI a atribuição automática do contato ao usuário atual (quando estava sem dono)
+function reflectAutoAssign() {
+    if (activeContactAssignedTo || !CURRENT_USER_ID) return;
+    activeContactAssignedTo = CURRENT_USER_ID;
+    const sel = document.getElementById('detail-assigned');
+    if (sel && !sel.value) sel.value = String(CURRENT_USER_ID);
+}
+
 function sendMessage() {
     const input = document.getElementById('message-input');
     const text = input.value.trim();
@@ -1669,6 +1726,7 @@ function sendMessage() {
     .then(r => r.json())
     .then(data => {
         if (data.success && data.message) {
+            reflectAutoAssign();
             renderedMessageIds.add(data.message.id);
             lastMessageId = Math.max(lastMessageId, data.message.id);
             const area = document.getElementById('messages-area');
@@ -1728,6 +1786,7 @@ function sendStagedMedia() {
     .then(data => {
         const temp = document.getElementById(tempId);
         if (data.success && data.message) {
+            reflectAutoAssign();
             renderedMessageIds.add(data.message.id);
             lastMessageId = Math.max(lastMessageId, data.message.id || 0);
             if (temp) temp.outerHTML = renderSingleMessage(data.message);

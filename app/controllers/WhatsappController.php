@@ -367,6 +367,9 @@ class WhatsappController extends Controller
         $contact = $this->contactModel->findById($contactId);
         if (!$contact) $this->json(['error' => 'Contato não encontrado'], 404);
 
+        // Atribui o contato ao usuário atual se estiver sem dono
+        $this->autoAssignContact($contact);
+
         $reply = Database::getInstance()->fetch("SELECT * FROM whatsapp_quick_replies WHERE id = ?", [$replyId]);
         if (!$reply || empty($reply['attachment_path'])) {
             $this->json(['error' => 'Resposta rápida sem anexo'], 400);
@@ -506,6 +509,20 @@ class WhatsappController extends Controller
     }
 
     /**
+     * Atribui automaticamente o contato ao usuário atual quando ninguém está atribuído.
+     * Chamado ao enviar mensagens (texto, mídia ou resposta rápida).
+     */
+    private function autoAssignContact($contact)
+    {
+        if (!empty($contact['assigned_to'])) return;
+        $user = $this->currentUser();
+        if (empty($user['id'])) return;
+        try {
+            $this->contactModel->assignTo($contact['id'], $user['id']);
+        } catch (\Throwable $e) { /* ignora falha de atribuição */ }
+    }
+
+    /**
      * API: Enviar mensagem de texto
      */
     public function send()
@@ -524,6 +541,9 @@ class WhatsappController extends Controller
 
         $contact = $this->contactModel->findById($contactId);
         if (!$contact) $this->json(['error' => 'Contato não encontrado'], 404);
+
+        // Atribui o contato ao usuário atual se estiver sem dono
+        $this->autoAssignContact($contact);
 
         $api = EvolutionApi::fromInstance($contact['instance_id']);
         if (!$api) $this->json(['error' => 'Instância não encontrada'], 400);
@@ -585,6 +605,9 @@ class WhatsappController extends Controller
         $contactId = $_POST['contact_id'] ?? null;
         $contact = $this->contactModel->findById($contactId);
         if (!$contact) $this->json(['error' => 'Contato não encontrado'], 404);
+
+        // Atribui o contato ao usuário atual se estiver sem dono
+        $this->autoAssignContact($contact);
 
         if (empty($_FILES['file']['name']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
             $this->json(['error' => 'Nenhum arquivo enviado'], 400);
