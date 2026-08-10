@@ -92,21 +92,18 @@
             <div class="wpp-messages-wrap" style="flex:1;position:relative;min-height:0;display:flex;flex-direction:column;">
                 <div class="wpp-messages" id="messages-area" style="display:none;"></div>
 
-                <!-- Overlay de prévia do arquivo (dentro da janela do chat, estilo WhatsApp) -->
-                <div id="media-staging" class="wpp-media-overlay" style="display:none;">
-                    <div class="wpp-media-overlay-top">
-                        <button class="btn btn-sm btn-light" onclick="cancelStagedMedia()" title="Cancelar"><i class="bi bi-x-lg"></i></button>
-                        <span class="text-white" id="media-staging-name" style="font-size:0.9rem;"></span>
-                    </div>
-                    <div class="wpp-media-overlay-center">
-                        <div id="media-staging-preview"></div>
-                        <div id="media-staging-size" class="text-white-50 mt-2" style="font-size:0.8rem;"></div>
-                    </div>
-                    <div class="wpp-media-overlay-bottom">
-                        <input type="text" id="media-caption" class="form-control form-control-sm" placeholder="Adicione uma legenda (opcional)...">
-                        <button class="btn btn-success" id="btn-send-media" onclick="sendStagedMedia()"><i class="bi bi-send"></i></button>
-                    </div>
+            </div>
+
+            <!-- Prévia minimizada do arquivo selecionado (barra acima da caixa de texto) -->
+            <div id="media-staging" class="wpp-media-bar" style="display:none;">
+                <div id="media-staging-preview" class="wpp-media-bar-thumb"></div>
+                <div class="flex-grow-1 overflow-hidden">
+                    <div id="media-staging-name" class="fw-medium text-truncate" style="font-size:0.82rem;"></div>
+                    <div id="media-staging-size" class="text-muted" style="font-size:0.72rem;"></div>
                 </div>
+                <input type="text" id="media-caption" class="form-control form-control-sm" placeholder="Legenda (opcional)..." style="max-width:280px;">
+                <button class="btn btn-sm btn-success" id="btn-send-media" onclick="sendStagedMedia()" title="Enviar"><i class="bi bi-send"></i></button>
+                <button class="btn btn-sm btn-outline-danger" onclick="cancelStagedMedia()" title="Cancelar"><i class="bi bi-x-lg"></i></button>
             </div>
 
             <!-- Input de mensagem (textarea para Shift+Enter) -->
@@ -460,47 +457,30 @@ body { overflow: hidden !important; margin: 0; padding: 0; }
     box-shadow: 0 1px 3px rgba(0,0,0,0.15);
 }
 .wpp-msg.mine .wpp-reaction-badge { right: auto; left: 8px; }
-/* Overlay de envio de mídia (dentro da janela do chat, estilo WhatsApp) */
-.wpp-media-overlay {
-    position: absolute;
-    inset: 0;
-    background: rgba(20,20,20,0.92);
-    z-index: 40;
-    display: flex;
-    flex-direction: column;
-}
-.wpp-media-overlay-top {
+/* Barra minimizada de prévia do arquivo (acima da caixa de texto) */
+.wpp-media-bar {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 12px 16px;
+    gap: 10px;
+    padding: 8px 12px;
+    background: #f5f6f6;
+    border-top: 1px solid #e0e0e0;
     flex-shrink: 0;
 }
-.wpp-media-overlay-center {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 20px;
-    overflow: auto;
-}
-.wpp-media-preview-img {
-    max-width: 80%;
-    max-height: 60vh;
-    border-radius: 8px;
-    object-fit: contain;
-    box-shadow: 0 8px 30px rgba(0,0,0,0.4);
-}
-.wpp-media-overlay-bottom {
-    display: flex;
-    gap: 8px;
-    padding: 12px 16px;
-    background: rgba(0,0,0,0.2);
+.wpp-media-bar-thumb {
+    width: 44px; height: 44px;
+    border-radius: 6px;
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    display: flex; align-items: center; justify-content: center;
     flex-shrink: 0;
+    overflow: hidden;
 }
-.wpp-media-overlay-bottom .form-control { border-radius: 20px; }
-.wpp-media-overlay-bottom .btn { border-radius: 50%; width: 40px; height: 38px; flex-shrink: 0; }
+/* Spinner sobre a imagem em upload */
+.wpp-upload-spinner {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+}
 .wpp-doc { min-width: 220px; }
 .wpp-doc-info { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; margin-bottom: 6px; }
 .wpp-doc-info i { font-size: 1.3rem; color: #d32f2f; }
@@ -1133,10 +1113,10 @@ function stageMediaFile() {
     const ext = (stagedFile.name.split('.').pop() || '').toLowerCase();
     if (['jpg','jpeg','png','gif','webp'].includes(ext)) {
         const url = URL.createObjectURL(stagedFile);
-        preview.innerHTML = `<img src="${url}" class="wpp-media-preview-img">`;
+        preview.innerHTML = `<img src="${url}" style="width:100%;height:100%;object-fit:cover;border-radius:6px;">`;
     } else {
-        const icon = ['pdf'].includes(ext) ? 'bi-file-earmark-pdf' : 'bi-file-earmark-text';
-        preview.innerHTML = `<i class="bi ${icon}" style="font-size:5rem;color:#fff;"></i>`;
+        const icon = (ext === 'pdf') ? 'bi-file-earmark-pdf' : 'bi-file-earmark-text';
+        preview.innerHTML = `<i class="bi ${icon}" style="font-size:1.6rem;color:#00997D;"></i>`;
     }
     staging.style.display = 'flex';
     document.getElementById('media-caption').value = '';
@@ -1197,35 +1177,60 @@ function sendStagedMedia() {
     isSendingMedia = true;
     isSending = true;
 
-    const btn = document.getElementById('btn-send-media');
-    const original = btn.innerHTML;
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
-
     const caption = document.getElementById('media-caption').value.trim();
+    const fileObj = stagedFile;
+    const ext = (fileObj.name.split('.').pop() || '').toLowerCase();
+    const isImg = ['jpg','jpeg','png','gif','webp'].includes(ext);
+    const previewUrl = isImg ? URL.createObjectURL(fileObj) : null;
+
+    // Bolha otimista com spinner de carregamento, dentro da janela do chat
+    const tempId = 'uploading-' + Date.now();
+    const area = document.getElementById('messages-area');
+    let inner = '';
+    if (isImg) {
+        inner = `<div class="wpp-msg-media" style="position:relative;">
+            <img src="${previewUrl}" style="opacity:0.6;">
+            <div class="wpp-upload-spinner"><span class="spinner-border text-light"></span></div>
+        </div>`;
+    } else {
+        inner = `<div class="wpp-doc">
+            <div class="wpp-doc-info"><i class="bi bi-file-earmark-text"></i> <span class="wpp-doc-name">${escapeHtml(fileObj.name)}</span></div>
+            <div class="text-muted" style="font-size:0.72rem;"><span class="spinner-border spinner-border-sm"></span> Enviando...</div>
+        </div>`;
+    }
+    if (caption) inner += `<div>${escapeHtml(caption)}</div>`;
+    area.insertAdjacentHTML('beforeend', `<div class="wpp-msg mine" id="${tempId}"><div class="wpp-msg-body">${inner}</div><div class="wpp-msg-time"><i class="bi bi-clock wpp-ack"></i></div></div>`);
+    scrollToBottom();
+
+    // Fecha a barra de prévia; o progresso agora está na bolha do chat
+    cancelStagedMedia();
+
     const fd = new FormData();
     fd.append('contact_id', activeContactId);
-    fd.append('file', stagedFile);
+    fd.append('file', fileObj);
     fd.append('caption', caption);
 
     fetch(BASE + 'whatsapp/sendMedia', { method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'} })
     .then(r => r.json())
     .then(data => {
+        const temp = document.getElementById(tempId);
         if (data.success && data.message) {
             renderedMessageIds.add(data.message.id);
             lastMessageId = Math.max(lastMessageId, data.message.id || 0);
-            const area = document.getElementById('messages-area');
-            area.insertAdjacentHTML('beforeend', renderSingleMessage(data.message));
+            if (temp) temp.outerHTML = renderSingleMessage(data.message);
             scrollToBottom();
-            cancelStagedMedia();
         } else {
+            if (temp) {
+                temp.querySelector('.wpp-msg-time').innerHTML = '<i class="bi bi-exclamation-circle text-danger" title="Falha"></i>';
+            }
             alert(data.error || 'Erro ao enviar arquivo.');
         }
     })
-    .catch(() => alert('Erro ao enviar arquivo.'))
+    .catch(() => {
+        const temp = document.getElementById(tempId);
+        if (temp) temp.querySelector('.wpp-msg-time').innerHTML = '<i class="bi bi-exclamation-circle text-danger"></i>';
+    })
     .finally(() => {
-        btn.disabled = false;
-        btn.innerHTML = original;
         isSendingMedia = false;
         setTimeout(() => { isSending = false; }, 2000);
     });
