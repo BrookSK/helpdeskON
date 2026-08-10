@@ -465,6 +465,14 @@ function openChat(contactId, isGroup = false) {
     .then(messages => {
         renderMessages(messages);
         scrollToBottom();
+        // Scroll novamente após imagens/mídias carregarem
+        setTimeout(scrollToBottom, 300);
+        setTimeout(scrollToBottom, 800);
+        // Também scrollar quando imagens terminarem de carregar
+        document.querySelectorAll('#messages-area img, #messages-area video').forEach(el => {
+            el.addEventListener('load', scrollToBottom);
+            el.addEventListener('loadeddata', scrollToBottom);
+        });
         startPolling();
     });
 
