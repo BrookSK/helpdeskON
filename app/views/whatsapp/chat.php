@@ -420,6 +420,7 @@ body { overflow: hidden !important; margin: 0; padding: 0; }
 .wpp-msg-time { font-size: 0.62rem; color: #888; margin-top: 3px; text-align: right; }
 .wpp-ack { color: #8a8a8a; font-size: 0.8rem; }
 .wpp-ack-read { color: #34b7f1; font-size: 0.8rem; }
+.wpp-msg-reaction { background: transparent !important; box-shadow: none !important; padding: 2px 6px !important; }
 .wpp-msg-media img { max-width: 220px; border-radius: 6px; cursor: pointer; }
 .wpp-mention { color: #075e54; font-weight: 600; background: rgba(7,94,84,0.08); padding: 1px 4px; border-radius: 4px; cursor: default; }
 .wpp-label-badge { font-size: 0.65rem; padding: 2px 8px; border-radius: 10px; color: #fff; display: inline-block; cursor: default; }
@@ -783,7 +784,14 @@ function renderSingleMessage(m) {
         content += `<div class="wpp-msg-sender">${escapeHtml(m.sender_name)}</div>`;
     }
 
-    if (m.message_type === 'image' && m.media_url) {
+    if (m.message_type === 'reaction') {
+        // Reação: mostra o emoji de forma destacada
+        return `<div class="wpp-msg ${cls} wpp-msg-reaction" data-msg-id="${m.id}"><span style="font-size:1.4rem;">${escapeHtml(m.message_text || '❤️')}</span><div class="wpp-msg-time">${m.timestamp ? formatFullTime(m.timestamp) : ''}</div></div>`;
+    } else if (m.message_type === 'sticker' && m.media_url) {
+        content += `<div class="wpp-msg-media"><img src="${BASE + m.media_url}" style="max-width:130px;" onclick="window.open(this.src)"></div>`;
+    } else if (m.message_type === 'sticker') {
+        content += `<span class="text-muted"><i class="bi bi-emoji-smile"></i> Figurinha</span>`;
+    } else if (m.message_type === 'image' && m.media_url) {
         content += `<div class="wpp-msg-media"><img src="${BASE + m.media_url}" onclick="window.open(this.src)"></div>`;
         if (m.message_text) content += `<div>${formatWhatsApp(m.message_text)}</div>`;
     } else if (m.message_type === 'audio' && m.media_url) {
@@ -801,7 +809,7 @@ function renderSingleMessage(m) {
     // Checkzinho de status (apenas mensagens enviadas por nós)
     let ack = '';
     if (m.from_me == 1) {
-        ack = ' ' + renderAckIcon(m.ack_status);
+        ack = ` <span class="wpp-msg-ack-holder">${renderAckIcon(m.ack_status)}</span>`;
     }
     return `<div class="wpp-msg ${cls}" data-msg-id="${m.id}"><div class="wpp-msg-body">${content}</div><div class="wpp-msg-time">${time}${ack}</div></div>`;
 }
@@ -979,7 +987,25 @@ function startPolling() {
             }
         })
         .catch(() => {});
+
+        // Atualizar os checks (ack) das mensagens já enviadas
+        refreshAckStatuses();
     }, 1500);
+}
+
+// Atualiza os checkzinhos das mensagens enviadas sem recarregar
+function refreshAckStatuses() {
+    if (!activeContactId) return;
+    fetch(BASE + 'whatsapp/messageStatuses/' + activeContactId, { headers: {'X-Requested-With': 'XMLHttpRequest'} })
+    .then(r => r.json())
+    .then(data => {
+        if (!data.statuses) return;
+        data.statuses.forEach(s => {
+            const el = document.querySelector(`.wpp-msg[data-msg-id="${s.id}"] .wpp-msg-ack-holder`);
+            if (el) el.innerHTML = renderAckIcon(s.ack_status);
+        });
+    })
+    .catch(() => {});
 }
 
 function startContactsPolling() {

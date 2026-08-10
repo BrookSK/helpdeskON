@@ -169,6 +169,27 @@ class WhatsappController extends Controller
     }
 
     /**
+     * API: Status (ack) das mensagens enviadas de um contato — para atualizar os checks.
+     */
+    public function messageStatuses($contactId = null)
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
+        if (!$contactId) $this->json(['error' => 'ID obrigatório'], 400);
+
+        try {
+            $rows = Database::getInstance()->fetchAll(
+                "SELECT id, ack_status FROM whatsapp_messages
+                 WHERE contact_id = ? AND from_me = 1
+                 ORDER BY id DESC LIMIT 50",
+                [$contactId]
+            );
+        } catch (Exception $e) {
+            $rows = [];
+        }
+        $this->json(['statuses' => $rows]);
+    }
+
+    /**
      * API: Polling — novas mensagens
      */
     public function poll($contactId = null)
@@ -771,8 +792,14 @@ class WhatsappController extends Controller
             $mediaMime = $message['documentMessage']['mimetype'] ?? 'application/octet-stream';
         } elseif (isset($message['stickerMessage'])) {
             $msgType = 'sticker';
+            $mediaMime = $message['stickerMessage']['mimetype'] ?? 'image/webp';
         } elseif (isset($message['reactionMessage'])) {
-            return;
+            // Reação: emoji + referência à mensagem reagida
+            $msgType = 'reaction';
+            $msgText = $message['reactionMessage']['text'] ?? '';
+            $reactionTargetId = $message['reactionMessage']['key']['id'] ?? null;
+            // Se a reação foi removida (texto vazio), ignorar
+            if ($msgText === '') return;
         } elseif (isset($message['protocolMessage']) || isset($message['senderKeyDistributionMessage'])) {
             return;
         }
@@ -842,12 +869,19 @@ class WhatsappController extends Controller
         }
 
         // Download de mídia base64 se disponível
-        if (isset($msg['message']['base64'])) {
-            $mediaData = $msg['message']['base64'];
+        $mediaData = $msg['message']['base64'] ?? $msg['base64'] ?? null;
+
+        // Se é mídia (incl. figurinha) mas não veio base64, buscar via API
+        if (empty($mediaData) && in_array($msgType, ['image', 'audio', 'video', 'document', 'sticker']) && !empty($messageId)) {
+            $mediaData = $this->fetchMediaBase64($instance, $msg);
+        }
+
+        if (!empty($mediaData)) {
             $mediaDir = PUBLIC_PATH . '/uploads/whatsapp_media/' . date('Y-m');
             if (!is_dir($mediaDir)) mkdir($mediaDir, 0755, true);
             $ext = explode('/', $mediaMime ?? 'application/octet-stream')[1] ?? 'bin';
             $ext = preg_replace('/;.*/', '', $ext);
+            if ($msgType === 'sticker') $ext = 'webp';
             $filename = uniqid() . '.' . $ext;
             file_put_contents($mediaDir . '/' . $filename, base64_decode($mediaData));
             $mediaUrl = 'uploads/whatsapp_media/' . date('Y-m') . '/' . $filename;
@@ -1055,6 +1089,36 @@ class WhatsappController extends Controller
     }
 
     /**
+     * Baixa o base64 de uma mídia (incl. figurinha) via Evolution API,
+     * quando o webhook não envia o base64 embutido.
+     */
+    private function fetchMediaBase64($instance, $msg)
+    {
+        try {
+            $url = rtrim($instance['api_url'], '/') . '/chat/getBase64FromMediaMessage/' . $instance['instance_name'];
+            $payload = json_encode(['message' => ['key' => $msg['key']], 'convertToMp4' => false]);
+            $ch = curl_init($url);
+            curl_setopt_array($ch, [
+                CURLOPT_POST => true,
+                CURLOPT_POSTFIELDS => $payload,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_HTTPHEADER => ['apikey: ' . $instance['api_key'], 'Content-Type: application/json'],
+                CURLOPT_SSL_VERIFYPEER => false,
+                CURLOPT_TIMEOUT => 30,
+            ]);
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            if ($httpCode >= 400 || empty($response)) return null;
+            $data = json_decode($response, true);
+            if (!is_array($data)) return null;
+            return $data['base64'] ?? $data['media'] ?? null;
+        } catch (Exception $e) {
+            return null;
+        }
+    }
+
+    /**
      * Busca a URL da foto de perfil via Evolution API (endpoint POST v2).
      * Chamada HTTP direta para não alterar a classe EvolutionApi.
      */
@@ -1090,6 +1154,8 @@ class WhatsappController extends Controller
      */
     private function handleMessageUpdate($payload)
     {
+        @file_put_contents(PUBLIC_PATH . '/uploads/ack_debug.log', '[' . date('Y-m-d H:i:s') . '] ' . json_encode($payload) . "\n", FILE_APPEND);
+
         $items = [];
         if (isset($payload['data']['messages'])) {
             $items = $payload['data']['messages'];
@@ -1101,11 +1167,11 @@ class WhatsappController extends Controller
 
         $db = Database::getInstance();
         foreach ($items as $item) {
-            $msgId = $item['key']['id'] ?? ($item['keyId'] ?? null);
+            $msgId = $item['key']['id'] ?? ($item['keyId'] ?? ($item['id'] ?? null));
             if (!$msgId) continue;
 
             // status pode vir como número (ack) ou string
-            $raw = $item['status'] ?? $item['update']['status'] ?? null;
+            $raw = $item['status'] ?? $item['update']['status'] ?? ($item['ack'] ?? null);
             $ack = $this->mapAckStatus($raw);
             if (!$ack) continue;
 
