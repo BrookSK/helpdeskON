@@ -73,7 +73,13 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                         </div>
                         <div class="kanban-list" data-status="<?= $status ?>" style="min-height:60px;">
                             <?php foreach (($grouped[$status] ?? []) as $card): ?>
-                            <div class="kanban-card planning-card" data-id="<?= $card['id'] ?>" onclick="openCardModal(<?= $card['id'] ?>)">
+                            <?php
+                            // Card em atraso: tem prazo no passado e não está concluído/arquivado
+                            $isOverdue = !empty($card['due_date'])
+                                && strtotime($card['due_date']) < time()
+                                && !in_array($card['status'], ['completed', 'archived']);
+                            ?>
+                            <div class="kanban-card planning-card<?= $isOverdue ? ' overdue' : '' ?>" data-id="<?= $card['id'] ?>" onclick="openCardModal(<?= $card['id'] ?>)">
                                 <div class="d-flex justify-content-between align-items-start mb-1">
                                     <span class="text-muted" style="font-size:0.7rem">#<?= $card['id'] ?></span>
                                     <span class="priority-<?= $card['priority'] ?>" style="font-size:0.7rem"><?= $priorityLabels[$card['priority']] ?? '' ?></span>
@@ -85,7 +91,7 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                                     <?php endif; ?>
                                     <span><i class="bi bi-person"></i> <?= escape($card['assigned_name'] ?? 'Não atribuído') ?></span>
                                     <?php if ($card['due_date']): ?>
-                                    <span class="float-end"><i class="bi bi-clock"></i> <?= date('d/m H:i', strtotime($card['due_date'])) ?></span>
+                                    <span class="float-end <?= $isOverdue ? 'text-danger fw-semibold' : '' ?>"><i class="bi bi-clock"></i> <?= date('d/m H:i', strtotime($card['due_date'])) ?></span>
                                     <?php endif; ?>
                                 </div>
                             </div>
@@ -356,6 +362,7 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
 <style>
 .planning-card { cursor: pointer; transition: box-shadow 0.2s; }
 .planning-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+.planning-card.overdue { border: 1.5px solid #dc3545 !important; box-shadow: 0 0 0 1px rgba(220,53,69,0.15); }
 .kanban-ghost { opacity: 0.4; background: var(--primary-50) !important; border: 2px dashed var(--primary) !important; }
 .kanban-drag { box-shadow: 0 8px 25px rgba(0,0,0,0.15) !important; transform: rotate(1deg); }
 #calendar-container table { width: 100%; border-collapse: collapse; }
