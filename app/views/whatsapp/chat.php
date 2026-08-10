@@ -444,21 +444,30 @@ body { overflow: hidden !important; margin: 0; padding: 0; }
     position: absolute;
     bottom: 52px;
     left: 8px;
-    width: 300px;
-    max-height: 260px;
+    right: 8px;
+    width: auto;
+    max-height: 240px;
     overflow-y: auto;
+    overflow-x: hidden;
     background: #fff;
     border: 1px solid #e0e0e0;
     border-radius: 10px;
     box-shadow: 0 6px 24px rgba(0,0,0,0.15);
     padding: 8px;
     z-index: 30;
+    box-sizing: border-box;
 }
 .wpp-emoji-cat-title { font-size: 0.68rem; color: #999; text-transform: uppercase; margin: 6px 2px 2px; font-weight: 600; }
-.wpp-emoji-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; }
+.wpp-emoji-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(34px, 1fr));
+    gap: 2px;
+    width: 100%;
+}
 .wpp-emoji-grid button {
     border: none; background: transparent; font-size: 1.25rem; line-height: 1;
-    padding: 4px; border-radius: 6px; cursor: pointer;
+    padding: 4px; border-radius: 6px; cursor: pointer; width: 100%;
+    display: flex; align-items: center; justify-content: center;
 }
 .wpp-emoji-grid button:hover { background: #f0f0f0; }
 .wpp-msg-media img { max-width: 220px; border-radius: 6px; cursor: pointer; }
