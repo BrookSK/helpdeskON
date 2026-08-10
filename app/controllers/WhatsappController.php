@@ -240,6 +240,10 @@ class WhatsappController extends Controller
     {
         $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
         $rows = Database::getInstance()->fetchAll("SELECT * FROM whatsapp_quick_replies ORDER BY shortcut ASC");
+        foreach ($rows as &$r) {
+            $r['attachment_url'] = !empty($r['attachment_path']) ? baseUrl($r['attachment_path']) : null;
+        }
+        unset($r);
         $this->json(['replies' => $rows]);
     }
 
@@ -257,14 +261,39 @@ class WhatsappController extends Controller
         $shortcut = ltrim(trim($_POST['shortcut'] ?? ''), '/');
         $message = trim($_POST['message'] ?? '');
 
-        if ($shortcut === '' || $message === '') {
-            $this->json(['error' => 'Atalho e mensagem são obrigatórios.'], 400);
-        }
         // Normaliza o atalho: sem espaços, minúsculo
         $shortcut = strtolower(preg_replace('/\s+/', '', $shortcut));
 
         $db = Database::getInstance();
         $user = $this->currentUser();
+
+        // Registro existente (para edição / substituição de anexo)
+        $current = $id ? $db->fetch("SELECT * FROM whatsapp_quick_replies WHERE id = ?", [$id]) : null;
+
+        // Processar upload de anexo (opcional)
+        $attachment = null;
+        if (!empty($_FILES['attachment']['name']) && $_FILES['attachment']['error'] === UPLOAD_ERR_OK) {
+            $file = $_FILES['attachment'];
+            $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+            $uploadDir = PUBLIC_PATH . '/uploads/quick_replies';
+            if (!is_dir($uploadDir)) mkdir($uploadDir, 0755, true);
+            $fileName = uniqid() . '_' . time() . ($ext ? '.' . $ext : '');
+            $relPath = 'uploads/quick_replies/' . $fileName;
+            if (!move_uploaded_file($file['tmp_name'], PUBLIC_PATH . '/' . $relPath)) {
+                $this->json(['error' => 'Falha ao salvar o anexo.'], 500);
+            }
+            $attachment = [
+                'attachment_path' => $relPath,
+                'attachment_name' => $file['name'],
+                'attachment_mime' => $file['type'],
+            ];
+        }
+
+        // A mensagem só é obrigatória quando não há anexo (novo ou já existente)
+        $hasAttachment = $attachment !== null || (!empty($current['attachment_path']) && empty($_POST['remove_attachment']));
+        if ($shortcut === '' || ($message === '' && !$hasAttachment)) {
+            $this->json(['error' => 'Informe o atalho e a mensagem ou um anexo.'], 400);
+        }
 
         // Checar duplicidade de atalho (exceto o próprio na edição)
         $existing = $db->fetch("SELECT id FROM whatsapp_quick_replies WHERE shortcut = ?", [$shortcut]);
@@ -272,14 +301,29 @@ class WhatsappController extends Controller
             $this->json(['error' => 'Já existe uma resposta com esse atalho.'], 400);
         }
 
+        $data = ['shortcut' => $shortcut, 'message' => $message];
+
+        if ($attachment) {
+            // Substituindo: remove o anexo antigo do disco
+            if (!empty($current['attachment_path'])) {
+                @unlink(PUBLIC_PATH . '/' . $current['attachment_path']);
+            }
+            $data = array_merge($data, $attachment);
+        } elseif (!empty($_POST['remove_attachment'])) {
+            // Removendo anexo existente
+            if (!empty($current['attachment_path'])) {
+                @unlink(PUBLIC_PATH . '/' . $current['attachment_path']);
+            }
+            $data['attachment_path'] = null;
+            $data['attachment_name'] = null;
+            $data['attachment_mime'] = null;
+        }
+
         if ($id) {
-            $db->update('whatsapp_quick_replies', ['shortcut' => $shortcut, 'message' => $message], 'id = ?', [$id]);
+            $db->update('whatsapp_quick_replies', $data, 'id = ?', [$id]);
         } else {
-            $id = $db->insert('whatsapp_quick_replies', [
-                'shortcut' => $shortcut,
-                'message' => $message,
-                'created_by' => $user['id'],
-            ]);
+            $data['created_by'] = $user['id'];
+            $id = $db->insert('whatsapp_quick_replies', $data);
         }
 
         $this->json(['success' => true, 'id' => $id]);
@@ -294,8 +338,136 @@ class WhatsappController extends Controller
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
             $this->json(['error' => 'Requisição inválida'], 400);
         }
-        Database::getInstance()->delete('whatsapp_quick_replies', 'id = ?', [$id]);
+        $db = Database::getInstance();
+        $row = $db->fetch("SELECT attachment_path FROM whatsapp_quick_replies WHERE id = ?", [$id]);
+        if (!empty($row['attachment_path'])) {
+            @unlink(PUBLIC_PATH . '/' . $row['attachment_path']);
+        }
+        $db->delete('whatsapp_quick_replies', 'id = ?', [$id]);
         $this->json(['success' => true]);
+    }
+
+    /**
+     * API: Enviar uma resposta rápida com anexo (arquivo já armazenado no servidor).
+     * A legenda opcional é enviada junto com o anexo.
+     */
+    public function sendQuickReply()
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            $this->json(['error' => 'Método inválido'], 405);
+        }
+        @ignore_user_abort(true);
+        @set_time_limit(120);
+
+        $contactId = $_POST['contact_id'] ?? null;
+        $replyId = $_POST['reply_id'] ?? null;
+        $caption = trim($_POST['caption'] ?? '');
+
+        $contact = $this->contactModel->findById($contactId);
+        if (!$contact) $this->json(['error' => 'Contato não encontrado'], 404);
+
+        $reply = Database::getInstance()->fetch("SELECT * FROM whatsapp_quick_replies WHERE id = ?", [$replyId]);
+        if (!$reply || empty($reply['attachment_path'])) {
+            $this->json(['error' => 'Resposta rápida sem anexo'], 400);
+        }
+
+        $srcPath = PUBLIC_PATH . '/' . $reply['attachment_path'];
+        if (!is_file($srcPath)) {
+            $this->json(['error' => 'Arquivo do anexo não encontrado'], 404);
+        }
+
+        // Copiar para a pasta de mídia do WhatsApp (histórico de mensagens)
+        $origName = $reply['attachment_name'] ?: basename($srcPath);
+        $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
+        $mime = $reply['attachment_mime'] ?: 'application/octet-stream';
+
+        if (in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp'])) {
+            $mediaType = 'image';
+        } elseif (in_array($ext, ['mp4', 'avi', 'mov', '3gp'])) {
+            $mediaType = 'video';
+        } elseif (in_array($ext, ['mp3', 'ogg', 'wav', 'aac', 'm4a'])) {
+            $mediaType = 'audio';
+        } else {
+            $mediaType = 'document';
+        }
+
+        $fileName = uniqid() . '_' . time() . ($ext ? '.' . $ext : '');
+        $uploadDir = PUBLIC_PATH . '/uploads/whatsapp_media/' . date('Y-m');
+        if (!is_dir($uploadDir)) mkdir($uploadDir, 0755, true);
+        $filePath = 'uploads/whatsapp_media/' . date('Y-m') . '/' . $fileName;
+        @copy($srcPath, PUBLIC_PATH . '/' . $filePath);
+
+        $publicUrl = baseUrl($filePath);
+        $msgType = $mediaType;
+
+        $tempMsgId = uniqid('sending_');
+        try {
+            $messageId = $this->messageModel->create([
+                'instance_id' => $contact['instance_id'],
+                'contact_id' => $contactId,
+                'remote_jid' => $contact['remote_jid'],
+                'message_id' => $tempMsgId,
+                'from_me' => 1,
+                'message_type' => $msgType,
+                'message_text' => $caption,
+                'media_url' => $filePath,
+                'media_mime_type' => $mime,
+                'media_filename' => $origName,
+                'sender_name' => $this->currentUser()['name'],
+                'timestamp' => date('Y-m-d H:i:s'),
+                'is_read' => 1,
+            ]);
+        } catch (\Throwable $e) {
+            $this->json(['error' => 'Erro ao salvar: ' . $e->getMessage()], 500);
+        }
+        $this->setAckStatusSafe($messageId, 'pending');
+        $this->contactModel->updateLastMessage($contactId, date('Y-m-d H:i:s'));
+
+        $result = null;
+        try {
+            $api = EvolutionApi::fromInstance($contact['instance_id']);
+            if (!$api) $this->json(['error' => 'Instância não encontrada'], 400);
+
+            if ($mediaType === 'audio') {
+                $base64 = base64_encode(file_get_contents(PUBLIC_PATH . '/' . $filePath));
+                $result = $api->sendAudio($contact['remote_jid'], "data:{$mime};base64,{$base64}");
+            } else {
+                $result = $api->sendMedia($contact['remote_jid'], $mediaType, $publicUrl, $caption, $origName);
+                if (is_array($result) && isset($result['error']) && $result['error']) {
+                    $base64 = base64_encode(file_get_contents(PUBLIC_PATH . '/' . $filePath));
+                    $result = $api->sendMedia($contact['remote_jid'], $mediaType, "data:{$mime};base64,{$base64}", $caption, $origName);
+                }
+            }
+        } catch (\Throwable $e) {
+            $this->setAckStatusSafe($messageId, 'failed');
+            $this->json(['error' => 'Erro ao enviar: ' . $e->getMessage()], 500);
+        }
+
+        if (is_array($result) && isset($result['error']) && $result['error']) {
+            $this->setAckStatusSafe($messageId, 'failed');
+            $this->json(['error' => 'A mídia não pôde ser entregue: ' . ($result['message'] ?? 'erro na API')], 500);
+        }
+
+        $sentMsgId = (is_array($result) && !empty($result['key']['id'])) ? $result['key']['id'] : $tempMsgId;
+        try {
+            Database::getInstance()->update('whatsapp_messages', ['message_id' => $sentMsgId], 'id = ?', [$messageId]);
+        } catch (\Throwable $e) { /* ignora */ }
+        $this->setAckStatusSafe($messageId, 'sent');
+
+        $this->json([
+            'success' => true,
+            'message' => [
+                'id' => $messageId,
+                'from_me' => 1,
+                'message_type' => $msgType,
+                'message_text' => $caption,
+                'media_url' => $filePath,
+                'media_filename' => $origName,
+                'timestamp' => date('Y-m-d H:i:s'),
+                'ack_status' => 'sent',
+            ],
+        ]);
     }
 
     /**

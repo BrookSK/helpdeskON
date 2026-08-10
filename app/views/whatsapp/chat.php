@@ -220,27 +220,39 @@
             </div>
             <div class="modal-body">
                 <p class="small text-muted">Cadastre mensagens de uso frequente. No chat, digite <code>/atalho</code> para inserir rapidamente.</p>
-                <div class="row g-2 align-items-end mb-3 p-2 rounded" style="background:#f8f9fa;">
+                <div class="row g-2 align-items-end mb-2 p-2 rounded" style="background:#f8f9fa;">
                     <input type="hidden" id="qr-id">
-                    <div class="col-sm-4">
+                    <div class="col-sm-3">
                         <label class="form-label small fw-medium mb-1">Atalho</label>
                         <div class="input-group input-group-sm">
                             <span class="input-group-text">/</span>
                             <input type="text" id="qr-shortcut" class="form-control" placeholder="ex: bomdia">
                         </div>
                     </div>
-                    <div class="col-sm-6">
+                    <div class="col-sm-5">
                         <label class="form-label small fw-medium mb-1">Mensagem</label>
-                        <textarea id="qr-message" class="form-control form-control-sm" rows="1" placeholder="Texto da resposta..."></textarea>
+                        <textarea id="qr-message" class="form-control form-control-sm qr-message-auto" rows="1" placeholder="Texto da resposta (opcional se houver anexo)..." oninput="autoGrowQrMessage(this)"></textarea>
+                    </div>
+                    <div class="col-sm-2">
+                        <label class="form-label small fw-medium mb-1">Anexo</label>
+                        <input type="file" id="qr-attachment" class="form-control form-control-sm" onchange="onQrAttachmentChange()">
                     </div>
                     <div class="col-sm-2 d-grid">
                         <button class="btn btn-sm btn-primary" onclick="saveQuickReply()"><i class="bi bi-check-lg"></i> Salvar</button>
                     </div>
+                    <div class="col-12" id="qr-current-attachment" style="display:none;">
+                        <div class="d-flex align-items-center gap-2 small mt-1">
+                            <i class="bi bi-paperclip text-muted"></i>
+                            <a href="#" id="qr-current-attachment-link" target="_blank" class="text-truncate" style="max-width:280px;"></a>
+                            <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1" onclick="removeQrAttachment()" title="Remover anexo"><i class="bi bi-x-lg"></i></button>
+                            <input type="hidden" id="qr-remove-attachment" value="0">
+                        </div>
+                    </div>
                 </div>
                 <div class="table-responsive">
                     <table class="table table-sm table-hover align-middle mb-0">
-                        <thead class="table-light"><tr><th>Atalho</th><th>Mensagem</th><th></th></tr></thead>
-                        <tbody id="qr-list"><tr><td colspan="3" class="text-muted small text-center py-3">Carregando...</td></tr></tbody>
+                        <thead class="table-light"><tr><th>Atalho</th><th>Mensagem</th><th>Anexo</th><th></th></tr></thead>
+                        <tbody id="qr-list"><tr><td colspan="4" class="text-muted small text-center py-3">Carregando...</td></tr></tbody>
                     </table>
                 </div>
             </div>
@@ -574,7 +586,26 @@ body { overflow: hidden !important; margin: 0; padding: 0; }
     font-weight: 300;
 }
 .wpp-transcription { margin-top: 5px; font-size: 0.78rem; color: #444; background: rgba(0,0,0,0.04); border-radius: 6px; padding: 5px 8px; font-style: italic; }
-.wpp-transcription-action { margin-top: 3px; }
+.wpp-transcription-action { margin-top: 6px; }
+.btn-transcribe {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.76rem;
+    font-weight: 600;
+    color: var(--primary-dark);
+    background: var(--primary-50);
+    border: 1px solid var(--primary-light);
+    border-radius: 20px;
+    padding: 4px 12px;
+    line-height: 1;
+    cursor: pointer;
+    transition: all 0.18s ease;
+}
+.btn-transcribe:hover { background: var(--primary); border-color: var(--primary); color: #fff; }
+.btn-transcribe:disabled { opacity: 0.7; cursor: default; }
+.btn-transcribe i { font-size: 1rem; }
+.qr-message-auto { resize: none; overflow-y: auto; min-height: 34px; max-height: 200px; line-height: 1.4; }
 .wpp-emoji-picker {
     position: absolute;
     bottom: 52px;
@@ -1001,7 +1032,7 @@ function renderSingleMessage(m) {
         if (m.transcription) {
             content += `<div class="wpp-transcription"><i class="bi bi-quote"></i> ${escapeHtml(m.transcription)}</div>`;
         } else {
-            content += `<div class="wpp-transcription-action"><button class="btn btn-sm btn-link p-0" style="font-size:0.72rem;" onclick="transcribeAudio(${m.id}, this)"><i class="bi bi-soundwave"></i> Transcrever áudio</button></div>`;
+            content += `<div class="wpp-transcription-action"><button class="btn-transcribe" onclick="transcribeAudio(${m.id}, this)"><i class="bi bi-soundwave"></i> Transcrever áudio</button></div>`;
         }
     } else if (m.message_type === 'document' && m.media_url) {
         const fileUrl = BASE + m.media_url;
@@ -1179,8 +1210,8 @@ function handleQuickReplyInput() {
 
     box.innerHTML = matches.map((q, i) =>
         `<div class="wpp-quick-item ${i === 0 ? 'active' : ''}" data-idx="${i}" onclick="applyQuickReply(${q.id})">
-            <div class="qr-sc">/${escapeHtml(q.shortcut)}</div>
-            <div class="qr-msg">${escapeHtml(q.message)}</div>
+            <div class="qr-sc">/${escapeHtml(q.shortcut)} ${q.attachment_url ? '<i class="bi bi-paperclip" title="Com anexo"></i>' : ''}</div>
+            <div class="qr-msg">${escapeHtml(q.message) || '<span class="text-muted">(anexo)</span>'}</div>
         </div>`).join('');
     box._matches = matches;
     quickSuggestIndex = 0;
@@ -1191,10 +1222,76 @@ function applyQuickReply(id) {
     const q = quickReplies.find(x => x.id == id);
     if (!q) return;
     const input = document.getElementById('message-input');
-    input.value = q.message;
     document.getElementById('quick-reply-suggest').style.display = 'none';
     quickSuggestIndex = -1;
+
+    // Se tiver anexo, envia o arquivo (armazenado no servidor) com a mensagem como legenda
+    if (q.attachment_url) {
+        input.value = '';
+        input.style.height = '34px';
+        sendQuickReplyWithAttachment(q);
+        return;
+    }
+
+    input.value = q.message;
     input.focus();
+}
+
+// Envia uma resposta rápida que possui anexo (arquivo já no servidor)
+function sendQuickReplyWithAttachment(q) {
+    if (!activeContactId || isSendingMedia) return;
+    isSendingMedia = true;
+    isSending = true;
+
+    const caption = q.message || '';
+    const ext = (q.attachment_name || q.attachment_url).split('.').pop().toLowerCase();
+    const isImg = ['jpg','jpeg','png','gif','webp'].includes(ext);
+
+    const tempId = 'uploading-' + Date.now();
+    const area = document.getElementById('messages-area');
+    let inner = '';
+    if (isImg) {
+        inner = `<div class="wpp-msg-media" style="position:relative;">
+            <img src="${q.attachment_url}" style="opacity:0.6;">
+            <div class="wpp-upload-spinner"><span class="spinner-border text-light"></span></div>
+        </div>`;
+    } else {
+        inner = `<div class="wpp-doc">
+            <div class="wpp-doc-info"><i class="bi bi-file-earmark-text"></i> <span class="wpp-doc-name">${escapeHtml(q.attachment_name || 'arquivo')}</span></div>
+            <div class="text-muted" style="font-size:0.72rem;"><span class="spinner-border spinner-border-sm"></span> Enviando...</div>
+        </div>`;
+    }
+    if (caption) inner += `<div>${escapeHtml(caption)}</div>`;
+    area.insertAdjacentHTML('beforeend', `<div class="wpp-msg mine" id="${tempId}"><div class="wpp-msg-body">${inner}</div><div class="wpp-msg-time"><i class="bi bi-clock wpp-ack"></i></div></div>`);
+    scrollToBottom();
+
+    const fd = new FormData();
+    fd.append('contact_id', activeContactId);
+    fd.append('reply_id', q.id);
+    fd.append('caption', caption);
+
+    fetch(BASE + 'whatsapp/sendQuickReply', { method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'} })
+    .then(r => r.json())
+    .then(data => {
+        const temp = document.getElementById(tempId);
+        if (data.success && data.message) {
+            renderedMessageIds.add(data.message.id);
+            lastMessageId = Math.max(lastMessageId, data.message.id || 0);
+            if (temp) temp.outerHTML = renderSingleMessage(data.message);
+            scrollToBottom();
+        } else {
+            if (temp) temp.querySelector('.wpp-msg-time').innerHTML = '<i class="bi bi-exclamation-circle text-danger" title="Falha"></i>';
+            alert(data.error || 'Erro ao enviar anexo.');
+        }
+    })
+    .catch(() => {
+        const temp = document.getElementById(tempId);
+        if (temp) temp.querySelector('.wpp-msg-time').innerHTML = '<i class="bi bi-exclamation-circle text-danger"></i>';
+    })
+    .finally(() => {
+        isSendingMedia = false;
+        setTimeout(() => { isSending = false; }, 2000);
+    });
 }
 
 // Navegação por teclado no autocomplete
@@ -1224,10 +1321,25 @@ function handleQuickReplyKeydown(e) {
 }
 
 // === MODAL DE GESTÃO DE RESPOSTAS RÁPIDAS ===
-function openQuickRepliesModal() {
+// Ajusta a altura do textarea de mensagem conforme o conteúdo (cresce para baixo)
+function autoGrowQrMessage(el) {
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+}
+
+function resetQuickReplyForm() {
     document.getElementById('qr-id').value = '';
     document.getElementById('qr-shortcut').value = '';
-    document.getElementById('qr-message').value = '';
+    const msg = document.getElementById('qr-message');
+    msg.value = '';
+    msg.style.height = 'auto';
+    document.getElementById('qr-attachment').value = '';
+    document.getElementById('qr-remove-attachment').value = '0';
+    document.getElementById('qr-current-attachment').style.display = 'none';
+}
+
+function openQuickRepliesModal() {
+    resetQuickReplyForm();
     renderQuickRepliesList();
     new bootstrap.Modal(document.getElementById('quickRepliesModal')).show();
 }
@@ -1239,13 +1351,14 @@ function renderQuickRepliesList() {
         quickReplies = data.replies || [];
         const tbody = document.getElementById('qr-list');
         if (!quickReplies.length) {
-            tbody.innerHTML = '<tr><td colspan="3" class="text-muted small text-center py-3">Nenhuma resposta cadastrada.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="4" class="text-muted small text-center py-3">Nenhuma resposta cadastrada.</td></tr>';
             return;
         }
         tbody.innerHTML = quickReplies.map(q => `
             <tr>
                 <td><span class="qr-sc">/${escapeHtml(q.shortcut)}</span></td>
-                <td class="small text-truncate" style="max-width:340px;">${escapeHtml(q.message)}</td>
+                <td class="small text-truncate" style="max-width:300px;">${escapeHtml(q.message)}</td>
+                <td class="small">${q.attachment_url ? `<a href="${q.attachment_url}" target="_blank" title="${escapeHtml(q.attachment_name || '')}"><i class="bi bi-paperclip"></i></a>` : '<span class="text-muted">—</span>'}</td>
                 <td class="text-end">
                     <button class="btn btn-sm btn-outline-primary" onclick="editQuickReply(${q.id})"><i class="bi bi-pencil"></i></button>
                     <button class="btn btn-sm btn-outline-danger" onclick="deleteQuickReply(${q.id})"><i class="bi bi-trash"></i></button>
@@ -1259,27 +1372,63 @@ function editQuickReply(id) {
     if (!q) return;
     document.getElementById('qr-id').value = q.id;
     document.getElementById('qr-shortcut').value = q.shortcut;
-    document.getElementById('qr-message').value = q.message;
+    const msg = document.getElementById('qr-message');
+    msg.value = q.message;
+    autoGrowQrMessage(msg);
+    document.getElementById('qr-attachment').value = '';
+    document.getElementById('qr-remove-attachment').value = '0';
+    const box = document.getElementById('qr-current-attachment');
+    if (q.attachment_url) {
+        const link = document.getElementById('qr-current-attachment-link');
+        link.href = q.attachment_url;
+        link.textContent = q.attachment_name || 'anexo';
+        box.style.display = 'block';
+    } else {
+        box.style.display = 'none';
+    }
+}
+
+// Quando o usuário escolhe um novo arquivo, cancela a marcação de remoção
+function onQrAttachmentChange() {
+    document.getElementById('qr-remove-attachment').value = '0';
+}
+
+// Marca o anexo atual para remoção ao salvar
+function removeQrAttachment() {
+    document.getElementById('qr-remove-attachment').value = '1';
+    document.getElementById('qr-current-attachment').style.display = 'none';
 }
 
 function saveQuickReply() {
     const shortcut = document.getElementById('qr-shortcut').value.trim().replace(/^\//, '');
     const message = document.getElementById('qr-message').value.trim();
     const id = document.getElementById('qr-id').value;
-    if (!shortcut || !message) { alert('Preencha o atalho e a mensagem.'); return; }
+    const fileInput = document.getElementById('qr-attachment');
+    const hasNewFile = fileInput.files.length > 0;
+    const removeAttachment = document.getElementById('qr-remove-attachment').value === '1';
+
+    // Descobre se a resposta em edição já possui anexo mantido
+    const editing = id ? quickReplies.find(x => x.id == id) : null;
+    const keepsAttachment = editing && editing.attachment_url && !removeAttachment && !hasNewFile;
+    const willHaveAttachment = hasNewFile || keepsAttachment;
+
+    if (!shortcut || (!message && !willHaveAttachment)) {
+        alert('Informe o atalho e a mensagem ou um anexo.');
+        return;
+    }
 
     const fd = new FormData();
     if (id) fd.append('id', id);
     fd.append('shortcut', shortcut);
     fd.append('message', message);
+    if (hasNewFile) fd.append('attachment', fileInput.files[0]);
+    if (removeAttachment) fd.append('remove_attachment', '1');
 
     fetch(BASE + 'whatsapp/saveQuickReply', { method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'} })
     .then(r => r.json())
     .then(data => {
         if (data.error) { alert(data.error); return; }
-        document.getElementById('qr-id').value = '';
-        document.getElementById('qr-shortcut').value = '';
-        document.getElementById('qr-message').value = '';
+        resetQuickReplyForm();
         renderQuickRepliesList();
     });
 }
