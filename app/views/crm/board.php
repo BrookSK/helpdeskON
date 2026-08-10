@@ -107,7 +107,7 @@
                     </div>
                     <div class="col-sm-6 mb-3">
                         <label class="form-label small fw-medium">Valor (R$)</label>
-                        <input type="number" step="0.01" id="new-card-value" class="form-control form-control-sm" placeholder="0,00">
+                        <input type="text" id="new-card-value" class="form-control form-control-sm" placeholder="R$ 0,00" oninput="formatCardCurrency(this)">
                         <small class="text-muted" style="font-size:0.68rem">Sincroniza com a Faixa de investimento do briefing.</small>
                     </div>
                 </div>
@@ -244,8 +244,8 @@
                             <input type="text" id="card-phone" class="form-control form-control-sm">
                         </div>
                         <div class="mb-3">
-                            <label class="form-label small fw-medium">Valor (R$)</label>
-                            <input type="number" step="0.01" id="card-value" class="form-control form-control-sm">
+                            <label class="form-label small fw-medium">Valor (R$) <span class="text-muted" style="font-weight:400;font-size:0.68rem">— Faixa de investimento do briefing</span></label>
+                            <input type="text" id="card-value" class="form-control form-control-sm" placeholder="R$ 0,00" oninput="formatCardCurrency(this)">
                         </div>
                         <div class="mb-3">
                             <label class="form-label small fw-medium">Responsável</label>
@@ -256,23 +256,33 @@
                                 <?php endforeach; ?>
                             </select>
                         </div>
-                        <div class="mb-3">
-                            <label class="form-label small fw-medium">Retomar contato em (dias)</label>
-                            <div class="input-group input-group-sm">
-                                <input type="number" min="1" id="card-followup-days" class="form-control form-control-sm" placeholder="Ex: 7">
-                                <button class="btn btn-outline-warning" onclick="setFollowUp()" title="Agendar retomada"><i class="bi bi-clock"></i></button>
+                        <div class="mb-3 p-2 rounded" style="background:#fff8e1;">
+                            <label class="form-label small fw-medium mb-1"><i class="bi bi-clock-history"></i> Retomar contato em</label>
+                            <div class="d-flex gap-1 mb-1">
+                                <input type="number" min="1" id="card-followup-amount" class="form-control form-control-sm" placeholder="Ex: 7" style="max-width:80px;">
+                                <select id="card-followup-unit" class="form-select form-select-sm">
+                                    <option value="minutes">Minutos</option>
+                                    <option value="hours">Horas</option>
+                                    <option value="days" selected>Dias</option>
+                                </select>
                             </div>
-                            <small id="card-followup-info" class="text-muted" style="font-size:0.68rem;"></small>
+                            <label class="form-label small fw-medium mb-1" style="font-size:0.72rem;">Mover para a coluna:</label>
+                            <select id="card-followup-column" class="form-select form-select-sm mb-2">
+                                <option value="">Primeira coluna (padrão)</option>
+                                <?php foreach ($columns as $col): ?>
+                                <option value="<?= $col['id'] ?>"><?= escape($col['name']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <button class="btn btn-sm btn-warning w-100" onclick="setFollowUp()"><i class="bi bi-clock"></i> Agendar retomada</button>
+                            <small id="card-followup-info" class="text-muted d-block mt-1" style="font-size:0.68rem;"></small>
                         </div>
                         <div class="d-flex gap-2 mb-2">
                             <button class="btn btn-sm btn-success flex-fill" onclick="convertLead()"><i class="bi bi-check-circle"></i> Convertido</button>
                             <button class="btn btn-sm btn-danger flex-fill" onclick="lostLead()"><i class="bi bi-x-circle"></i> Perdido</button>
                         </div>
-                        <?php if (isset($card['contact_phone']) && $card['contact_phone']): ?>
-                        <a href="<?= baseUrl('whatsapp/chat') ?>" class="btn btn-sm btn-outline-success w-100 mb-2">
+                        <a href="#" id="card-open-chat" class="btn btn-sm btn-outline-success w-100 mb-2" style="display:none;">
                             <i class="bi bi-whatsapp"></i> Abrir no Chat
                         </a>
-                        <?php endif; ?>
                         <button class="btn btn-sm btn-primary w-100 mb-2" onclick="saveCardDetail()">Salvar</button>
                         <button class="btn btn-sm btn-outline-danger w-100" onclick="deleteCard()"><i class="bi bi-trash"></i> Excluir</button>
                     </div>
@@ -363,7 +373,7 @@ function createCard() {
     fd.append('column_id', document.getElementById('new-card-column').value);
     fd.append('title', document.getElementById('new-card-title').value);
     fd.append('phone', document.getElementById('new-card-phone').value);
-    fd.append('value', document.getElementById('new-card-value').value);
+    fd.append('value', parseCurrency(document.getElementById('new-card-value').value));
     fd.append('assigned_to', document.getElementById('new-card-assigned').value);
     fd.append('label_id', document.getElementById('new-card-label').value);
     fd.append('status', document.getElementById('new-card-status').value);
@@ -392,11 +402,38 @@ function openCardDetail(cardId) {
         document.getElementById('card-title').value = card.title || '';
         document.getElementById('card-description').value = card.description || '';
         document.getElementById('card-phone').value = card.phone || '';
-        document.getElementById('card-value').value = card.value || '';
+        // Valor: prioriza a faixa de investimento do briefing; senão usa o value numérico
+        let displayValue = '';
+        if (card.investment_range) {
+            displayValue = card.investment_range;
+        } else if (card.value) {
+            displayValue = 'R$ ' + parseFloat(card.value).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+        document.getElementById('card-value').value = displayValue;
         document.getElementById('card-assigned').value = card.assigned_to || '';
-        document.getElementById('card-followup-days').value = '';
+
+        // Botão "Abrir no Chat" — leva direto à conversa do contato vinculado
+        const openChatBtn = document.getElementById('card-open-chat');
+        if (openChatBtn) {
+            if (card.contact_id) {
+                openChatBtn.href = BASE + 'whatsapp/chat/' + card.contact_id;
+                openChatBtn.style.display = '';
+            } else {
+                openChatBtn.style.display = 'none';
+            }
+        }
+        document.getElementById('card-followup-amount').value = '';
+        document.getElementById('card-followup-unit').value = 'days';
+        document.getElementById('card-followup-column').value = card.follow_up_column_id || '';
         const fuInfo = document.getElementById('card-followup-info');
-        if (fuInfo) fuInfo.textContent = card.follow_up_at ? ('Retomada agendada para ' + card.follow_up_at.split('-').reverse().join('/')) : '';
+        if (fuInfo) {
+            if (card.follow_up_at) {
+                const dt = new Date(card.follow_up_at.replace(' ', 'T'));
+                fuInfo.textContent = 'Retomada agendada para ' + dt.toLocaleString('pt-BR');
+            } else {
+                fuInfo.textContent = '';
+            }
+        }
 
         // Atividades
         const actDiv = document.getElementById('card-activities');
@@ -420,7 +457,7 @@ function saveCardDetail() {
     fd.append('title', document.getElementById('card-title').value);
     fd.append('description', document.getElementById('card-description').value);
     fd.append('phone', document.getElementById('card-phone').value);
-    fd.append('value', document.getElementById('card-value').value);
+    fd.append('value', parseCurrency(document.getElementById('card-value').value));
     fd.append('assigned_to', document.getElementById('card-assigned').value);
 
     fetch(BASE + 'crm/updateCard/' + currentCardId, { method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'} })
@@ -454,18 +491,39 @@ function lostLead() {
 
 function setFollowUp() {
     if (!currentCardId) return;
-    const days = parseInt(document.getElementById('card-followup-days').value, 10);
-    if (!days || days <= 0) { alert('Informe um número de dias válido.'); return; }
+    const amount = parseInt(document.getElementById('card-followup-amount').value, 10);
+    const unit = document.getElementById('card-followup-unit').value;
+    const targetColumn = document.getElementById('card-followup-column').value;
+    if (!amount || amount <= 0) { alert('Informe um valor válido.'); return; }
     const fd = new FormData();
-    fd.append('days', days);
+    fd.append('amount', amount);
+    fd.append('unit', unit);
+    fd.append('target_column_id', targetColumn);
     fetch(BASE + 'crm/setFollowUp/' + currentCardId, { method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'} })
     .then(r => r.json())
     .then(data => {
         if (data.success) {
-            document.getElementById('card-followup-info').textContent = 'Retomada agendada para ' + data.follow_up_at.split('-').reverse().join('/');
+            const dt = new Date(data.follow_up_at.replace(' ', 'T'));
+            document.getElementById('card-followup-info').textContent = 'Retomada agendada para ' + dt.toLocaleString('pt-BR');
             showToast && showToast('Retomada de contato agendada!');
         } else alert(data.error || 'Erro');
     });
+}
+
+// Formata o campo de valor do card como moeda BRL enquanto digita
+function formatCardCurrency(el) {
+    let digits = (el.value || '').replace(/\D/g, '');
+    if (!digits) { el.value = ''; return; }
+    const value = (parseInt(digits, 10) / 100);
+    el.value = 'R$ ' + value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// Extrai número de uma string monetária "R$ 1.234,56" -> 1234.56
+function parseCurrency(str) {
+    if (!str) return '';
+    const digits = String(str).replace(/\D/g, '');
+    if (!digits) return '';
+    return (parseInt(digits, 10) / 100).toFixed(2);
 }
 
 function addCardNote() {

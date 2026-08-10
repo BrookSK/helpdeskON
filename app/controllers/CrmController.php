@@ -376,15 +376,32 @@ class CrmController extends Controller
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$cardId) {
             $this->json(['error' => 'Requisição inválida'], 400);
         }
-        $days = intval($_POST['days'] ?? 0);
-        if ($days <= 0) {
-            $this->json(['error' => 'Informe um número de dias válido.'], 400);
+        $amount = intval($_POST['amount'] ?? 0);
+        $unit = $_POST['unit'] ?? 'days';
+        $targetColumnId = !empty($_POST['target_column_id']) ? intval($_POST['target_column_id']) : null;
+
+        if ($amount <= 0) {
+            $this->json(['error' => 'Informe um valor válido.'], 400);
         }
-        $date = date('Y-m-d', strtotime("+{$days} days"));
-        $this->boardModel->updateCard($cardId, ['follow_up_at' => $date]);
+
+        $unitMap = [
+            'minutes' => 'minutes',
+            'hours' => 'hours',
+            'days' => 'days',
+        ];
+        $strUnit = $unitMap[$unit] ?? 'days';
+        $datetime = date('Y-m-d H:i:s', strtotime("+{$amount} {$strUnit}"));
+
+        $this->boardModel->updateCard($cardId, [
+            'follow_up_at' => $datetime,
+            'follow_up_column_id' => $targetColumnId,
+        ]);
+
+        $unitLabels = ['minutes' => 'minuto(s)', 'hours' => 'hora(s)', 'days' => 'dia(s)'];
         $user = $this->currentUser();
-        $this->boardModel->addActivity($cardId, $user['id'], 'note', "⏰ Retomar contato em {$days} dia(s) — {$date}");
-        $this->json(['success' => true, 'follow_up_at' => $date]);
+        $this->boardModel->addActivity($cardId, $user['id'], 'note', "⏰ Retomar contato em {$amount} {$unitLabels[$strUnit]} — " . date('d/m/Y H:i', strtotime($datetime)));
+
+        $this->json(['success' => true, 'follow_up_at' => $datetime]);
     }
 
     /**

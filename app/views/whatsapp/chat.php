@@ -260,15 +260,28 @@
                     </div>
                     <div class="col-md-6">
                         <label class="form-label small fw-medium">Urgência/prazo</label>
-                        <input type="text" id="bf-urgency" class="form-control form-control-sm">
+                        <select id="bf-urgency" class="form-select form-select-sm">
+                            <option value="">Selecione</option>
+                            <option value="Baixa">Baixa</option>
+                            <option value="Média">Média</option>
+                            <option value="Alta">Alta</option>
+                            <option value="Urgente">Urgente</option>
+                        </select>
                     </div>
                     <div class="col-md-6">
                         <label class="form-label small fw-medium">Faixa de investimento</label>
-                        <input type="text" id="bf-investment_range" class="form-control form-control-sm" placeholder="Ex: R$ 5.000 - R$ 10.000">
+                        <input type="text" id="bf-investment_range" class="form-control form-control-sm" placeholder="R$ 0,00" oninput="formatCurrencyInput(this)">
                     </div>
                     <div class="col-md-6">
                         <label class="form-label small fw-medium">Nível de decisão do contato</label>
-                        <input type="text" id="bf-decision_level" class="form-control form-control-sm" placeholder="Ex: Decisor, Influenciador...">
+                        <select id="bf-decision_level" class="form-select form-select-sm">
+                            <option value="">Selecione</option>
+                            <option value="Decisor">Decisor</option>
+                            <option value="Influenciador">Influenciador</option>
+                            <option value="Usuário">Usuário</option>
+                            <option value="Técnico">Técnico</option>
+                            <option value="Sem influência">Sem influência</option>
+                        </select>
                     </div>
                     <div class="col-md-6">
                         <label class="form-label small fw-medium">Temperatura do lead</label>
@@ -1033,6 +1046,15 @@ function startConversation() {
         btn.disabled = false;
         btn.innerHTML = 'Iniciar';
     });
+}
+
+// Formata um input de texto como moeda brasileira (R$) enquanto digita
+function formatCurrencyInput(el) {
+    let digits = (el.value || '').replace(/\D/g, '');
+    if (!digits) { el.value = ''; return; }
+    // trata como centavos
+    const value = (parseInt(digits, 10) / 100);
+    el.value = 'R$ ' + value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 // === BRIEFING COMERCIAL ===

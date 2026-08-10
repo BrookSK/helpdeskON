@@ -203,23 +203,34 @@ class CrmBoard
     public function processFollowUps()
     {
         $cards = $this->db->fetchAll(
-            "SELECT c.id, col.board_id
+            "SELECT c.id, c.follow_up_column_id, col.board_id
              FROM crm_cards c
              JOIN crm_columns col ON c.column_id = col.id
              WHERE c.follow_up_at IS NOT NULL
-               AND c.follow_up_at <= CURDATE()
+               AND c.follow_up_at <= NOW()
                AND c.lead_outcome = 'open'"
         );
         $moved = 0;
         foreach ($cards as $c) {
-            $first = $this->getFirstColumn($c['board_id']);
-            if ($first) {
+            // Coluna de destino escolhida, ou a primeira coluna como fallback
+            $targetColumnId = null;
+            $targetName = '';
+            if (!empty($c['follow_up_column_id'])) {
+                $target = $this->findColumn($c['follow_up_column_id']);
+                if ($target) { $targetColumnId = $target['id']; $targetName = $target['name']; }
+            }
+            if (!$targetColumnId) {
+                $first = $this->getFirstColumn($c['board_id']);
+                if ($first) { $targetColumnId = $first['id']; $targetName = $first['name']; }
+            }
+            if ($targetColumnId) {
                 $this->db->update('crm_cards', [
-                    'column_id' => $first['id'],
+                    'column_id' => $targetColumnId,
                     'position' => 0,
                     'follow_up_at' => null,
+                    'follow_up_column_id' => null,
                 ], 'id = ?', [$c['id']]);
-                $this->addActivity($c['id'], null, 'move', 'Retomada de contato — movido para a primeira coluna');
+                $this->addActivity($c['id'], null, 'move', "Retomada de contato — movido para \"{$targetName}\"");
                 $moved++;
             }
         }
