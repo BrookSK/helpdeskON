@@ -101,8 +101,6 @@
                     <div id="media-staging-name" class="fw-medium text-truncate" style="font-size:0.82rem;"></div>
                     <div id="media-staging-size" class="text-muted" style="font-size:0.72rem;"></div>
                 </div>
-                <input type="text" id="media-caption" class="form-control form-control-sm" placeholder="Legenda (opcional)..." style="max-width:280px;">
-                <button class="btn btn-sm btn-success" id="btn-send-media" onclick="sendStagedMedia()" title="Enviar"><i class="bi bi-send"></i></button>
                 <button class="btn btn-sm btn-outline-danger" onclick="cancelStagedMedia()" title="Cancelar"><i class="bi bi-x-lg"></i></button>
             </div>
 
@@ -1094,9 +1092,13 @@ document.addEventListener('click', function(e) {
 let stagedFile = null;
 let isSendingMedia = false;
 
-// Botão de enviar da caixa de texto: só envia texto (mídia tem botão próprio no overlay)
+// Botão de enviar: se houver arquivo em espera, envia a mídia (com a legenda do campo de texto)
 function handleSend() {
-    sendMessage();
+    if (stagedFile) {
+        sendStagedMedia();
+    } else {
+        sendMessage();
+    }
 }
 
 // Seleciona o arquivo e mostra a prévia como overlay dentro da janela do chat
@@ -1119,8 +1121,9 @@ function stageMediaFile() {
         preview.innerHTML = `<i class="bi ${icon}" style="font-size:1.6rem;color:#00997D;"></i>`;
     }
     staging.style.display = 'flex';
-    document.getElementById('media-caption').value = '';
-    setTimeout(() => document.getElementById('media-caption').focus(), 100);
+    const input = document.getElementById('message-input');
+    input.placeholder = 'Adicione uma legenda (opcional)...';
+    setTimeout(() => input.focus(), 100);
 }
 
 function cancelStagedMedia() {
@@ -1128,8 +1131,7 @@ function cancelStagedMedia() {
     document.getElementById('media-input').value = '';
     document.getElementById('media-staging').style.display = 'none';
     document.getElementById('media-staging-preview').innerHTML = '';
-    const cap = document.getElementById('media-caption');
-    if (cap) cap.value = '';
+    document.getElementById('message-input').placeholder = 'Digite uma mensagem...';
 }
 
 function sendMessage() {
@@ -1177,7 +1179,8 @@ function sendStagedMedia() {
     isSendingMedia = true;
     isSending = true;
 
-    const caption = document.getElementById('media-caption').value.trim();
+    const input = document.getElementById('message-input');
+    const caption = input.value.trim();
     const fileObj = stagedFile;
     const ext = (fileObj.name.split('.').pop() || '').toLowerCase();
     const isImg = ['jpg','jpeg','png','gif','webp'].includes(ext);
@@ -1202,7 +1205,9 @@ function sendStagedMedia() {
     area.insertAdjacentHTML('beforeend', `<div class="wpp-msg mine" id="${tempId}"><div class="wpp-msg-body">${inner}</div><div class="wpp-msg-time"><i class="bi bi-clock wpp-ack"></i></div></div>`);
     scrollToBottom();
 
-    // Fecha a barra de prévia; o progresso agora está na bolha do chat
+    // Fecha a barra de prévia e limpa a legenda; o progresso agora está na bolha do chat
+    input.value = '';
+    input.style.height = '34px';
     cancelStagedMedia();
 
     const fd = new FormData();
