@@ -45,6 +45,15 @@
     <?php endif; ?>
 
     <?php if ($isCompaniesMode): ?>
+    <!-- Filtro de empresas -->
+    <div class="card mb-3">
+        <div class="card-body py-2 px-3">
+            <div class="input-group input-group-sm">
+                <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+                <input type="text" id="filter-doc-company" class="form-control" placeholder="Filtrar empresa por nome...">
+            </div>
+        </div>
+    </div>
     <!-- Listagem de empresas -->
     <div class="card">
         <div class="card-body p-0">
@@ -59,7 +68,7 @@
                     </thead>
                     <tbody>
                         <?php foreach (($companies ?? []) as $c): ?>
-                        <tr style="cursor:pointer" onclick="window.location='<?= baseUrl('documents?company=' . $c['id']) ?>'">
+                        <tr class="doc-company-row" data-search="<?= escape(mb_strtolower($c['name'])) ?>" style="cursor:pointer" onclick="window.location='<?= baseUrl('documents?company=' . $c['id']) ?>'">
                             <td class="fw-medium"><i class="bi bi-building text-primary me-1"></i> <?= escape($c['name']) ?></td>
                             <td><span class="badge bg-info text-dark"><?= $c['documents_count'] ?? 0 ?></span></td>
                             <td onclick="event.stopPropagation()">
@@ -82,6 +91,20 @@
             </div>
         </div>
     </div>
+    <script>
+    (function() {
+        const input = document.getElementById('filter-doc-company');
+        const rows = document.querySelectorAll('.doc-company-row');
+        if (!input) return;
+        input.addEventListener('input', function() {
+            const term = this.value.trim().toLowerCase();
+            rows.forEach(function(row) {
+                const hay = row.getAttribute('data-search') || '';
+                row.style.display = (term === '' || hay.indexOf(term) !== -1) ? '' : 'none';
+            });
+        });
+    })();
+    </script>
     <?php else: ?>
 
     <div class="card">

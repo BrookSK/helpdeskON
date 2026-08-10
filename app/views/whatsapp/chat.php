@@ -16,21 +16,21 @@
                     </div>
                 </div>
                 <input type="text" class="form-control form-control-sm" id="contact-search" placeholder="Buscar contato ou grupo...">
-                <div class="d-flex gap-1 mt-2 flex-wrap">
-                    <select class="form-select form-select-sm" id="filter-assigned" style="font-size:0.72rem;max-width:120px;">
+                <div class="d-flex gap-1 mt-2 flex-nowrap">
+                    <select class="form-select form-select-sm flex-fill" id="filter-assigned" style="font-size:0.72rem;min-width:0;width:33%;">
                         <option value="">Todos</option>
                         <option value="unassigned">Sem dono</option>
                         <?php foreach ($teamMembers as $m): ?>
                         <option value="<?= $m['id'] ?>"><?= escape($m['name']) ?></option>
                         <?php endforeach; ?>
                     </select>
-                    <select class="form-select form-select-sm" id="filter-label" style="font-size:0.72rem;max-width:100px;">
+                    <select class="form-select form-select-sm flex-fill" id="filter-label" style="font-size:0.72rem;min-width:0;width:33%;">
                         <option value="">Etiquetas</option>
                         <?php foreach ($labels as $l): ?>
                         <option value="<?= $l['id'] ?>"><?= escape($l['name']) ?></option>
                         <?php endforeach; ?>
                     </select>
-                    <select class="form-select form-select-sm" id="filter-status" style="font-size:0.72rem;max-width:120px;">
+                    <select class="form-select form-select-sm flex-fill" id="filter-status" style="font-size:0.72rem;min-width:0;width:33%;">
                         <option value="">Status</option>
                         <option value="em_atendimento">Em atendimento</option>
                         <option value="aguardando">Aguardando</option>

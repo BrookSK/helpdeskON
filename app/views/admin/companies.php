@@ -17,6 +17,15 @@
         <div class="alert alert-success alert-dismissible fade show"><?= escape($msg) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
     <?php endif; ?>
 
+    <div class="card mb-3">
+        <div class="card-body py-2 px-3">
+            <div class="input-group input-group-sm">
+                <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+                <input type="text" id="filter-company-name" class="form-control" placeholder="Filtrar por nome, CNPJ/CPF ou email...">
+            </div>
+        </div>
+    </div>
+
     <div class="card">
         <div class="card-body p-0">
             <div class="table-responsive">
@@ -33,9 +42,9 @@
                             <th>Ações</th>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody id="companies-tbody">
                         <?php foreach ($companies as $c): ?>
-                        <tr style="cursor:pointer" onclick="window.location='<?= baseUrl('companies/details/' . $c['id']) ?>'">
+                        <tr class="company-row" data-search="<?= escape(mb_strtolower($c['name'] . ' ' . ($c['document'] ?? '') . ' ' . ($c['email'] ?? ''))) ?>" style="cursor:pointer" onclick="window.location='<?= baseUrl('companies/details/' . $c['id']) ?>'">
                             <td><?= $c['id'] ?></td>
                             <td class="fw-medium">
                                 <i class="bi bi-building text-primary me-1"></i>
@@ -58,11 +67,32 @@
                         <?php if (empty($companies)): ?>
                         <tr><td colspan="8" class="text-center text-muted py-4">Nenhuma empresa cadastrada.</td></tr>
                         <?php endif; ?>
+                        <tr id="no-companies-msg" style="display:none"><td colspan="8" class="text-center text-muted py-4">Nenhuma empresa encontrada.</td></tr>
                     </tbody>
                 </table>
             </div>
         </div>
     </div>
 </div>
+
+<script>
+(function() {
+    const input = document.getElementById('filter-company-name');
+    const rows = document.querySelectorAll('.company-row');
+    const noMsg = document.getElementById('no-companies-msg');
+    if (!input) return;
+    input.addEventListener('input', function() {
+        const term = this.value.trim().toLowerCase();
+        let visible = 0;
+        rows.forEach(function(row) {
+            const hay = row.getAttribute('data-search') || '';
+            const show = term === '' || hay.indexOf(term) !== -1;
+            row.style.display = show ? '' : 'none';
+            if (show) visible++;
+        });
+        if (noMsg) noMsg.style.display = visible === 0 ? '' : 'none';
+    });
+})();
+</script>
 
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>

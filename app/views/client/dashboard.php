@@ -17,63 +17,68 @@
         <div class="alert alert-success alert-dismissible fade show"><?= escape($msg) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
     <?php endif; ?>
 
-    <div class="row g-3 mb-4">
-        <div class="col-6 col-md-3">
-            <div class="card stat-card">
+    <style>
+        .stat-card.compact { padding: 0.6rem 0.75rem; }
+        .stat-card.compact .stat-label { font-size: 0.68rem; margin-bottom: 2px; }
+        .stat-card.compact .stat-value { font-size: 1.25rem; font-weight: 700; line-height: 1.1; }
+    </style>
+    <div class="row row-cols-2 row-cols-md-5 g-2 mb-4">
+        <div class="col">
+            <div class="card stat-card compact">
                 <div class="stat-label">Abertas</div>
                 <div class="stat-value text-primary"><?= $counts['open'] ?? 0 ?></div>
             </div>
         </div>
-        <div class="col-6 col-md-3">
-            <div class="card stat-card" style="border-left-color:#ff9800">
+        <div class="col">
+            <div class="card stat-card compact" style="border-left-color:#ff9800">
                 <div class="stat-label">Em andamento</div>
                 <div class="stat-value" style="color:#ff9800"><?= $counts['in_progress'] ?? 0 ?></div>
             </div>
         </div>
-        <div class="col-6 col-md-3">
-            <div class="card stat-card" style="border-left-color:#5c6bc0">
+        <div class="col">
+            <div class="card stat-card compact" style="border-left-color:#5c6bc0">
                 <div class="stat-label">Em Revisão Interna</div>
                 <div class="stat-value" style="color:#5c6bc0"><?= $counts['em_revisao_interna'] ?? 0 ?></div>
             </div>
         </div>
-        <div class="col-6 col-md-3">
-            <div class="card stat-card" style="border-left-color:#0097a7">
+        <div class="col">
+            <div class="card stat-card compact" style="border-left-color:#0097a7">
                 <div class="stat-label">Em Homologação</div>
                 <div class="stat-value" style="color:#0097a7"><?= $counts['em_homologacao'] ?? 0 ?></div>
             </div>
         </div>
-        <div class="col-6 col-md-3">
-            <div class="card stat-card" style="border-left-color:#8bc34a">
+        <div class="col">
+            <div class="card stat-card compact" style="border-left-color:#8bc34a">
                 <div class="stat-label">Aprov. Produção</div>
                 <div class="stat-value" style="color:#8bc34a"><?= $counts['aprovado_producao'] ?? 0 ?></div>
             </div>
         </div>
-        <div class="col-6 col-md-3">
-            <div class="card stat-card" style="border-left-color:#e91e63">
+        <div class="col">
+            <div class="card stat-card compact" style="border-left-color:#e91e63">
                 <div class="stat-label">Aguardando</div>
                 <div class="stat-value" style="color:#e91e63"><?= $counts['waiting_client'] ?? 0 ?></div>
             </div>
         </div>
-        <div class="col-6 col-md-3">
-            <div class="card stat-card" style="border-left-color:#4caf50">
+        <div class="col">
+            <div class="card stat-card compact" style="border-left-color:#4caf50">
                 <div class="stat-label">Concluídas</div>
                 <div class="stat-value" style="color:#4caf50"><?= $counts['completed'] ?? 0 ?></div>
             </div>
         </div>
-        <div class="col-6 col-md-3">
-            <div class="card stat-card" style="border-left-color:#f44336">
+        <div class="col">
+            <div class="card stat-card compact" style="border-left-color:#f44336">
                 <div class="stat-label">Negadas</div>
                 <div class="stat-value" style="color:#f44336"><?= $counts['denied'] ?? 0 ?></div>
             </div>
         </div>
-        <div class="col-6 col-md-3">
-            <div class="card stat-card" style="border-left-color:#9e9e9e">
+        <div class="col">
+            <div class="card stat-card compact" style="border-left-color:#9e9e9e">
                 <div class="stat-label">Arquivadas</div>
                 <div class="stat-value" style="color:#9e9e9e"><?= $counts['archived'] ?? 0 ?></div>
             </div>
         </div>
-        <div class="col-6 col-md-3">
-            <div class="card stat-card" style="border-left-color:#607d8b">
+        <div class="col">
+            <div class="card stat-card compact" style="border-left-color:#607d8b">
                 <div class="stat-label">Total</div>
                 <div class="stat-value" style="color:#607d8b"><?= array_sum($counts) ?></div>
             </div>
