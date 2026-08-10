@@ -61,7 +61,7 @@
             <?php endif; ?>
             <?php endif; ?>
 
-            <?php if (in_array($user['role'] ?? '', ['super_admin', 'attendant'])): ?>
+            <?php if (in_array($user['role'] ?? '', ['super_admin', 'attendant', 'whatsapp_agent'])): ?>
             <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'tickets' ? 'active' : '' ?>" href="<?= baseUrl('tickets') ?>">
                     <i class="bi bi-list-task"></i> Demandas

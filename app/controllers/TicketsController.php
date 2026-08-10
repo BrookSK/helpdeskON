@@ -66,7 +66,7 @@ class TicketsController extends Controller
     // Kanban view para atendentes/admin
     public function kanban()
     {
-        $this->requireRole(['super_admin', 'attendant']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
         $user = $this->currentUser();
         $attendantId = ($user['role'] === 'attendant') ? $user['id'] : null;
 
@@ -246,7 +246,7 @@ class TicketsController extends Controller
     // Atualizar status do ticket
     public function updateStatus($id = null)
     {
-        $this->requireRole(['super_admin', 'attendant']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
             if ($this->isAjax()) {
                 $this->json(['error' => 'Requisição inválida'], 400);
@@ -329,7 +329,7 @@ class TicketsController extends Controller
     // Atribuir atendente
     public function assign($id = null)
     {
-        $this->requireRole(['super_admin', 'attendant']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
             $this->redirect('tickets');
         }
@@ -757,7 +757,7 @@ class TicketsController extends Controller
     // Observações internas (apenas equipe)
     public function addNote($id = null)
     {
-        $this->requireRole(['super_admin', 'attendant']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
             $this->json(['error' => 'Requisição inválida'], 400);
         }
@@ -790,7 +790,7 @@ class TicketsController extends Controller
     // Buscar observações internas
     public function getNotes($id = null)
     {
-        $this->requireRole(['super_admin', 'attendant']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
         if (!$id) $this->json(['error' => 'ID inválido'], 400);
 
         $db = Database::getInstance();

@@ -12,7 +12,7 @@ class PlanningController extends Controller
     // Página principal — Kanban + Calendário
     public function index()
     {
-        $this->requireRole(['super_admin', 'attendant']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
         $user = $this->currentUser();
 
         $filters = [];
@@ -56,7 +56,7 @@ class PlanningController extends Controller
     // API: Retornar cards para o calendário (JSON)
     public function calendar()
     {
-        $this->requireRole(['super_admin', 'attendant']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
         $user = $this->currentUser();
 
         $start = $_GET['start'] ?? date('Y-m-01');
@@ -96,7 +96,7 @@ class PlanningController extends Controller
     // Criar card
     public function create()
     {
-        $this->requireRole(['super_admin', 'attendant']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             $this->redirect('planning');
         }
@@ -150,7 +150,7 @@ class PlanningController extends Controller
     // Obter card (JSON)
     public function get($id = null)
     {
-        $this->requireRole(['super_admin', 'attendant']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
         if (!$id) $this->json(['error' => 'ID não informado'], 400);
 
         $card = $this->cardModel->findById($id);
@@ -169,7 +169,7 @@ class PlanningController extends Controller
     // Atualizar card
     public function update($id = null)
     {
-        $this->requireRole(['super_admin', 'attendant']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
             $this->json(['error' => 'Requisição inválida'], 400);
         }
@@ -219,7 +219,7 @@ class PlanningController extends Controller
     // Atualizar status via drag-and-drop (Kanban)
     public function updateStatus($id = null)
     {
-        $this->requireRole(['super_admin', 'attendant']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
             $this->json(['error' => 'Requisição inválida'], 400);
         }
@@ -249,7 +249,7 @@ class PlanningController extends Controller
     // Deletar card
     public function delete($id = null)
     {
-        $this->requireRole(['super_admin', 'attendant']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
             $this->json(['error' => 'Requisição inválida'], 400);
         }
@@ -264,7 +264,7 @@ class PlanningController extends Controller
     // Adicionar comentário
     public function comment($id = null)
     {
-        $this->requireRole(['super_admin', 'attendant']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
             $this->json(['error' => 'Requisição inválida'], 400);
         }
@@ -317,7 +317,7 @@ class PlanningController extends Controller
     // Upload de anexo no card
     public function upload($id = null)
     {
-        $this->requireRole(['super_admin', 'attendant']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
             $this->json(['error' => 'Requisição inválida'], 400);
         }
@@ -371,7 +371,7 @@ class PlanningController extends Controller
     // Deletar anexo
     public function deleteAttachment($id = null)
     {
-        $this->requireRole(['super_admin', 'attendant']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
             $this->json(['error' => 'Requisição inválida'], 400);
         }
@@ -392,7 +392,7 @@ class PlanningController extends Controller
     // Upload de imagem colada no editor (Quill)
     public function uploadImage($id = null)
     {
-        $this->requireRole(['super_admin', 'attendant']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             $this->json(['error' => 'Requisição inválida'], 400);
         }

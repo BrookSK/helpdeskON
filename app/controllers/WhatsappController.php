@@ -16,14 +16,14 @@ class WhatsappController extends Controller
      */
     public function index()
     {
-        $this->requireRole(['super_admin', 'attendant']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
         $user = $this->currentUser();
 
         $db = Database::getInstance();
         $instances = $db->fetchAll("SELECT wi.*, u.name as linked_user_name FROM whatsapp_instances wi LEFT JOIN users u ON wi.user_id = u.id ORDER BY wi.is_default DESC, wi.created_at DESC");
 
-        // Lista de usuários para vincular instância (super_admin + attendant)
-        $teamMembers = $db->fetchAll("SELECT id, name, role FROM users WHERE role IN ('super_admin','attendant') AND is_active = 1 ORDER BY name ASC");
+        // Lista de usuários para vincular instância (super_admin + attendant + whatsapp_agent)
+        $teamMembers = $db->fetchAll("SELECT id, name, role FROM users WHERE role IN ('super_admin','attendant','whatsapp_agent') AND is_active = 1 ORDER BY name ASC");
 
         // Pegar instância padrão para preencher URL/Key no formulário de nova instância
         $defaultInstance = $db->fetch("SELECT api_url, api_key FROM whatsapp_instances WHERE is_default = 1 LIMIT 1");
@@ -41,18 +41,18 @@ class WhatsappController extends Controller
      */
     public function chat($contactId = null)
     {
-        $this->requireRole(['super_admin', 'attendant']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
         $user = $this->currentUser();
 
         $db = Database::getInstance();
 
-        // Instância vinculada ao usuário ou padrão
+        // Instância vinculada ao usuário ou sem vínculo (mesma lógica do getUserInstance)
         $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE user_id = ? LIMIT 1", [$user['id']]);
         if (!$instance) {
-            $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE is_default = 1 LIMIT 1");
+            $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE is_default = 1 AND user_id IS NULL LIMIT 1");
         }
         if (!$instance) {
-            $instance = $db->fetch("SELECT * FROM whatsapp_instances LIMIT 1");
+            $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE user_id IS NULL LIMIT 1");
         }
 
         $labels = $this->contactModel->getAllLabels();
@@ -78,23 +78,25 @@ class WhatsappController extends Controller
         $db = Database::getInstance();
         $user = $this->currentUser();
 
-        // Primeiro: instância vinculada ao usuário
+        // 1. Instância vinculada diretamente ao meu usuário
         $instance = $db->fetch(
-            "SELECT * FROM whatsapp_instances WHERE user_id = ? AND connection_status IN ('open','connected') LIMIT 1",
+            "SELECT * FROM whatsapp_instances WHERE user_id = ? LIMIT 1",
             [$user['id']]
         );
+        if ($instance) return $instance;
 
-        // Fallback: instância padrão
-        if (!$instance) {
-            $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE is_default = 1 LIMIT 1");
-        }
+        // 2. Instância padrão SEM vínculo a nenhum usuário (disponível para todos)
+        $instance = $db->fetch(
+            "SELECT * FROM whatsapp_instances WHERE is_default = 1 AND user_id IS NULL LIMIT 1"
+        );
+        if ($instance) return $instance;
 
-        // Último fallback: qualquer instância
-        if (!$instance) {
-            $instance = $db->fetch("SELECT * FROM whatsapp_instances LIMIT 1");
-        }
+        // 3. Qualquer instância SEM vínculo (disponível para todos)
+        $instance = $db->fetch(
+            "SELECT * FROM whatsapp_instances WHERE user_id IS NULL LIMIT 1"
+        );
 
-        return $instance;
+        return $instance; // Pode ser null — usuário não tem acesso a nada
     }
 
     /**
@@ -102,7 +104,7 @@ class WhatsappController extends Controller
      */
     public function contacts()
     {
-        $this->requireRole(['super_admin', 'attendant']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
 
         $instance = $this->getUserInstance();
         if (!$instance) {
@@ -133,7 +135,7 @@ class WhatsappController extends Controller
      */
     public function updateServiceStatus($contactId = null)
     {
-        $this->requireRole(['super_admin', 'attendant']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$contactId) {
             $this->json(['error' => 'Requisição inválida'], 400);
         }
@@ -153,7 +155,7 @@ class WhatsappController extends Controller
      */
     public function messages($contactId = null)
     {
-        $this->requireRole(['super_admin', 'attendant']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
         if (!$contactId) $this->json(['error' => 'ID obrigatório'], 400);
 
         $beforeId = $_GET['before_id'] ?? null;
@@ -171,7 +173,7 @@ class WhatsappController extends Controller
      */
     public function poll($contactId = null)
     {
-        $this->requireRole(['super_admin', 'attendant']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
         if (!$contactId) $this->json(['error' => 'ID obrigatório'], 400);
 
         $afterId = $_GET['after_id'] ?? 0;
@@ -185,7 +187,7 @@ class WhatsappController extends Controller
      */
     public function send()
     {
-        $this->requireRole(['super_admin', 'attendant']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             $this->json(['error' => 'Método inválido'], 405);
         }
@@ -244,7 +246,7 @@ class WhatsappController extends Controller
      */
     public function sendMedia()
     {
-        $this->requireRole(['super_admin', 'attendant']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             $this->json(['error' => 'Método inválido'], 405);
         }
@@ -331,7 +333,7 @@ class WhatsappController extends Controller
      */
     public function contactDetail($contactId = null)
     {
-        $this->requireRole(['super_admin', 'attendant']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
         if (!$contactId) $this->json(['error' => 'ID obrigatório'], 400);
 
         $contact = $this->contactModel->findById($contactId);
@@ -348,7 +350,7 @@ class WhatsappController extends Controller
      */
     public function updateContact($contactId = null)
     {
-        $this->requireRole(['super_admin', 'attendant']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$contactId) {
             $this->json(['error' => 'Requisição inválida'], 400);
         }
@@ -375,7 +377,7 @@ class WhatsappController extends Controller
      */
     public function toggleLabel()
     {
-        $this->requireRole(['super_admin', 'attendant']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             $this->json(['error' => 'Método inválido'], 405);
         }
@@ -402,7 +404,7 @@ class WhatsappController extends Controller
      */
     public function createLabel()
     {
-        $this->requireRole(['super_admin', 'attendant']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             $this->json(['error' => 'Método inválido'], 405);
         }
@@ -472,7 +474,7 @@ class WhatsappController extends Controller
      */
     public function connect($instanceId = null)
     {
-        $this->requireRole(['super_admin', 'attendant']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
         if (!$instanceId) $this->json(['error' => 'ID obrigatório'], 400);
 
         $db = Database::getInstance();
@@ -493,7 +495,7 @@ class WhatsappController extends Controller
      */
     public function status($instanceId = null)
     {
-        $this->requireRole(['super_admin', 'attendant']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
         if (!$instanceId) $this->json(['error' => 'ID obrigatório'], 400);
 
         $db = Database::getInstance();
@@ -848,7 +850,7 @@ class WhatsappController extends Controller
      */
     public function addToCrm()
     {
-        $this->requireRole(['super_admin', 'attendant']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             $this->json(['error' => 'Método inválido'], 405);
         }

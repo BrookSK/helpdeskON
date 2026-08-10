@@ -95,8 +95,8 @@ class UsersController extends Controller
 
         flash('success', 'Usuário criado com sucesso! Email enviado com as credenciais.');
 
-        // Salvar acesso a empresas (para atendentes)
-        if ($role === 'attendant' && isset($_POST['company_access'])) {
+        // Salvar acesso a empresas (para atendentes e agentes whatsapp)
+        if (in_array($role, ['attendant', 'whatsapp_agent']) && isset($_POST['company_access'])) {
             PlanningCard::setUserCompanyAccess($userId, $_POST['company_access']);
         }
 
@@ -174,7 +174,7 @@ class UsersController extends Controller
 
         // Salvar acesso a empresas (para atendentes)
         $role = $data['role'] ?? $_POST['role'] ?? '';
-        if ($role === 'attendant') {
+        if (in_array($role, ['attendant', 'whatsapp_agent'])) {
             $companyAccess = $_POST['company_access'] ?? [];
             PlanningCard::setUserCompanyAccess($id, $companyAccess);
         }

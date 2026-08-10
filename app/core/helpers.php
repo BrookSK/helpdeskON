@@ -103,6 +103,7 @@ function roleLabel($role)
         'super_admin' => 'Administrador',
         'attendant' => 'Atendente',
         'client' => 'Cliente',
+        'whatsapp_agent' => 'Agente WhatsApp',
     ];
     return $labels[$role] ?? $role;
 }

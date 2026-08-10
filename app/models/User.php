@@ -34,7 +34,7 @@ class User
 
     public function getAttendants()
     {
-        return $this->db->fetchAll("SELECT * FROM users WHERE role = 'attendant' ORDER BY name");
+        return $this->db->fetchAll("SELECT * FROM users WHERE role IN ('attendant', 'whatsapp_agent') AND is_active = 1 ORDER BY name");
     }
 
     public function create($data)

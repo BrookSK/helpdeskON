@@ -40,6 +40,7 @@
                         <select name="role" id="role-select" class="form-select" required onchange="toggleCompanyFields()">
                             <option value="client" <?= ($editUser['role'] ?? '') === 'client' ? 'selected' : '' ?>>Cliente</option>
                             <option value="attendant" <?= ($editUser['role'] ?? '') === 'attendant' ? 'selected' : '' ?>>Atendente</option>
+                            <option value="whatsapp_agent" <?= ($editUser['role'] ?? '') === 'whatsapp_agent' ? 'selected' : '' ?>>Agente WhatsApp</option>
                             <option value="super_admin" <?= ($editUser['role'] ?? '') === 'super_admin' ? 'selected' : '' ?>>Super Admin</option>
                         </select>
                     </div>
@@ -101,11 +102,11 @@
                     </div>
                     <?php endif; ?>
 
-                    <!-- Acesso a Empresas (só para atendentes) -->
-                    <div id="access-fields" class="col-12" style="<?= ($editUser['role'] ?? '') !== 'attendant' ? 'display:none' : '' ?>">
+                    <!-- Acesso a Empresas (para atendentes e agentes whatsapp) -->
+                    <div id="access-fields" class="col-12" style="<?= in_array($editUser['role'] ?? '', ['attendant', 'whatsapp_agent']) ? '' : 'display:none' ?>">
                         <hr class="my-2">
-                        <h6 class="fw-medium mb-3" style="font-size:0.88rem"><i class="bi bi-shield-lock"></i> Acesso a Empresas no Planejamento</h6>
-                        <p class="small text-muted mb-2">Selecione quais empresas este atendente pode visualizar no módulo de Planejamento. Se nenhuma for selecionada, ele só verá cards sem empresa.</p>
+                        <h6 class="fw-medium mb-3" style="font-size:0.88rem"><i class="bi bi-shield-lock"></i> Acesso a Empresas</h6>
+                        <p class="small text-muted mb-2">Selecione quais empresas este usuário pode visualizar nos módulos de Planejamento, Demandas e CRM. Se nenhuma for selecionada, ele só verá cards sem empresa.</p>
                         <div class="row g-2">
                             <?php
                             $allCompaniesAccess = (new Company())->getAll();
@@ -138,7 +139,7 @@ function toggleCompanyFields() {
     const fields = document.getElementById('company-fields');
     const accessFields = document.getElementById('access-fields');
     fields.style.display = role === 'client' ? '' : 'none';
-    accessFields.style.display = role === 'attendant' ? '' : 'none';
+    accessFields.style.display = (role === 'attendant' || role === 'whatsapp_agent') ? '' : 'none';
 }
 
 function toggleNewCompany() {
