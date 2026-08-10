@@ -37,7 +37,12 @@ class WhatsappController extends Controller
         $user = $this->currentUser();
 
         $db = Database::getInstance();
-        $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE is_default = 1 LIMIT 1");
+
+        // Instância vinculada ao usuário ou padrão
+        $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE user_id = ? LIMIT 1", [$user['id']]);
+        if (!$instance) {
+            $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE is_default = 1 LIMIT 1");
+        }
         if (!$instance) {
             $instance = $db->fetch("SELECT * FROM whatsapp_instances LIMIT 1");
         }
@@ -58,17 +63,40 @@ class WhatsappController extends Controller
     }
 
     /**
+     * Retorna a instância do usuário logado (ou a padrão como fallback)
+     */
+    private function getUserInstance()
+    {
+        $db = Database::getInstance();
+        $user = $this->currentUser();
+
+        // Primeiro: instância vinculada ao usuário
+        $instance = $db->fetch(
+            "SELECT * FROM whatsapp_instances WHERE user_id = ? AND connection_status IN ('open','connected') LIMIT 1",
+            [$user['id']]
+        );
+
+        // Fallback: instância padrão
+        if (!$instance) {
+            $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE is_default = 1 LIMIT 1");
+        }
+
+        // Último fallback: qualquer instância
+        if (!$instance) {
+            $instance = $db->fetch("SELECT * FROM whatsapp_instances LIMIT 1");
+        }
+
+        return $instance;
+    }
+
+    /**
      * API: Listar contatos (AJAX)
      */
     public function contacts()
     {
         $this->requireRole(['super_admin', 'attendant']);
 
-        $db = Database::getInstance();
-        $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE is_default = 1 LIMIT 1");
-        if (!$instance) {
-            $instance = $db->fetch("SELECT * FROM whatsapp_instances LIMIT 1");
-        }
+        $instance = $this->getUserInstance();
         if (!$instance) {
             $this->json(['contacts' => [], 'groups' => []]);
         }
@@ -646,30 +674,56 @@ class WhatsappController extends Controller
         } elseif (isset($message['stickerMessage'])) {
             $msgType = 'sticker';
         } elseif (isset($message['reactionMessage'])) {
-            // Ignorar reações por ora
             return;
         } elseif (isset($message['protocolMessage']) || isset($message['senderKeyDistributionMessage'])) {
-            // Mensagens de sistema — ignorar
             return;
         }
 
-        // Dados do contato
+        // Dados do contato / remetente
         $pushName = $msg['pushName'] ?? '';
         $isGroup = strpos($remoteJid, '@g.us') !== false;
-        $participantJid = $key['participant'] ?? null;
+        $participantJid = $key['participant'] ?? ($msg['participant'] ?? null);
+
+        // Para grupos, pegar nome real do remetente
+        $senderName = $pushName;
+        if ($isGroup && $participantJid) {
+            // sender_name é quem mandou a mensagem no grupo
+            $senderName = $pushName ?: $participantJid;
+        }
 
         // Normalizar JID
         $api = new EvolutionApi();
         $normalizedJid = $api->normalizeJid($remoteJid);
         $phone = $api->extractPhone($normalizedJid);
 
-        // Upsert contato
+        // Nome do grupo — tentar pegar do campo correto
+        $contactName = $pushName ?: null;
+        if ($isGroup) {
+            // Em grupos, o pushName é do remetente, não do grupo
+            // O nome do grupo vem em campos específicos
+            $groupSubject = $msg['groupMetadata']['subject'] 
+                ?? $msg['groupSubject'] 
+                ?? $msg['verifiedBizName'] 
+                ?? null;
+            $contactName = $groupSubject;
+        }
+
+        // Upsert contato/grupo
         $contactId = $this->contactModel->upsert($instance['id'], $normalizedJid, [
             'phone' => $phone,
-            'push_name' => $pushName ?: null,
+            'push_name' => $isGroup ? null : ($pushName ?: null),
             'is_group' => $isGroup ? 1 : 0,
             'last_message_at' => date('Y-m-d H:i:s'),
-        ], $pushName);
+        ], $contactName);
+
+        // Se é grupo e temos o nome, garantir que está salvo
+        if ($isGroup && $contactName) {
+            $existingContact = $this->contactModel->findById($contactId);
+            if ($existingContact && empty($existingContact['contact_name'])) {
+                $db = Database::getInstance();
+                $db->update('whatsapp_contacts', ['contact_name' => $contactName], 'id = ?', [$contactId]);
+            }
+        }
 
         // Download de mídia base64 se disponível
         if (isset($msg['message']['base64'])) {
@@ -677,13 +731,13 @@ class WhatsappController extends Controller
             $mediaDir = PUBLIC_PATH . '/uploads/whatsapp_media/' . date('Y-m');
             if (!is_dir($mediaDir)) mkdir($mediaDir, 0755, true);
             $ext = explode('/', $mediaMime ?? 'application/octet-stream')[1] ?? 'bin';
-            $ext = preg_replace('/;.*/', '', $ext); // limpar charset do mime
+            $ext = preg_replace('/;.*/', '', $ext);
             $filename = uniqid() . '.' . $ext;
             file_put_contents($mediaDir . '/' . $filename, base64_decode($mediaData));
             $mediaUrl = 'uploads/whatsapp_media/' . date('Y-m') . '/' . $filename;
         }
 
-        // Salvar mensagem
+        // Salvar mensagem com timestamp e sender_name
         $timestamp = isset($msg['messageTimestamp'])
             ? date('Y-m-d H:i:s', intval($msg['messageTimestamp']))
             : date('Y-m-d H:i:s');
@@ -700,7 +754,7 @@ class WhatsappController extends Controller
             'media_mime_type' => $mediaMime,
             'media_filename' => $mediaFilename,
             'quoted_message_id' => $msg['message']['extendedTextMessage']['contextInfo']['stanzaId'] ?? null,
-            'sender_name' => $pushName,
+            'sender_name' => $senderName,
             'participant_jid' => $participantJid,
             'timestamp' => $timestamp,
         ]);

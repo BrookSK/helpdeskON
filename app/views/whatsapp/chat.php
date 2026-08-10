@@ -2,24 +2,19 @@
 <?php require APP_PATH . '/views/layouts/header.php'; ?>
 <?php require APP_PATH . '/views/layouts/sidebar.php'; ?>
 
-<div class="main-content p-0" style="height:100vh;display:flex;flex-direction:column;">
-    <!-- Top bar compacta -->
-    <div class="wpp-topbar">
-        <div class="d-flex align-items-center gap-2">
-            <i class="bi bi-whatsapp text-success fs-5"></i>
-            <span class="fw-medium">WhatsApp Chat</span>
-        </div>
-        <div class="d-flex gap-2">
-            <a href="<?= baseUrl('whatsapp') ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-gear"></i></a>
-            <a href="<?= baseUrl('crm') ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-kanban"></i> CRM</a>
-        </div>
-    </div>
-
+<div class="main-content wpp-main-override">
     <!-- Layout principal 3 colunas -->
     <div class="wpp-layout">
         <!-- COLUNA ESQUERDA: Lista de contatos -->
         <div class="wpp-contacts-panel" id="contacts-panel">
             <div class="wpp-contacts-header">
+                <div class="d-flex align-items-center justify-content-between mb-2">
+                    <span class="fw-medium" style="font-size:0.9rem;"><i class="bi bi-whatsapp text-success"></i> Chat</span>
+                    <div class="d-flex gap-1">
+                        <a href="<?= baseUrl('whatsapp') ?>" class="btn btn-sm btn-outline-secondary py-0 px-1" title="Conexões"><i class="bi bi-gear" style="font-size:0.75rem;"></i></a>
+                        <a href="<?= baseUrl('crm') ?>" class="btn btn-sm btn-outline-primary py-0 px-1" title="CRM"><i class="bi bi-kanban" style="font-size:0.75rem;"></i></a>
+                    </div>
+                </div>
                 <input type="text" class="form-control form-control-sm" id="contact-search" placeholder="Buscar contato ou grupo...">
                 <div class="d-flex gap-1 mt-2 flex-wrap">
                     <select class="form-select form-select-sm" id="filter-assigned" style="font-size:0.72rem;max-width:120px;">
@@ -87,13 +82,13 @@
             </div>
             <!-- Área de mensagens -->
             <div class="wpp-messages" id="messages-area" style="display:none;"></div>
-            <!-- Input de mensagem -->
+            <!-- Input de mensagem (textarea para Shift+Enter) -->
             <div class="wpp-input-area" id="input-area" style="display:none;">
                 <button class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('media-input').click()" title="Enviar arquivo">
                     <i class="bi bi-paperclip"></i>
                 </button>
                 <input type="file" id="media-input" style="display:none;" onchange="sendMediaFile()">
-                <input type="text" class="form-control form-control-sm" id="message-input" placeholder="Digite uma mensagem..." onkeypress="if(event.key==='Enter')sendMessage()">
+                <textarea class="form-control form-control-sm" id="message-input" placeholder="Digite uma mensagem..." rows="1"></textarea>
                 <button class="btn btn-sm btn-success" onclick="sendMessage()"><i class="bi bi-send"></i></button>
             </div>
         </div>
@@ -197,10 +192,22 @@
 </div>
 
 <style>
-.wpp-topbar { padding: 10px 20px; background: #fff; border-bottom: 1px solid #e9ecef; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
-.wpp-layout { display: flex; flex: 1; overflow: hidden; }
-.wpp-contacts-panel { width: 340px; min-width: 340px; border-right: 1px solid #e9ecef; display: flex; flex-direction: column; background: #fff; }
-.wpp-contacts-header { padding: 10px; border-bottom: 1px solid #f0f0f0; }
+/* Override do main-content padrão — zerar padding e fixar 100vh sem scroll */
+.wpp-main-override {
+    padding: 0 !important;
+    margin-left: var(--sidebar-width) !important;
+    height: 100vh !important;
+    min-height: 100vh !important;
+    max-height: 100vh !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
+}
+body { overflow: hidden; }
+
+.wpp-layout { display: flex; flex: 1; overflow: hidden; height: 100%; }
+.wpp-contacts-panel { width: 340px; min-width: 340px; border-right: 1px solid #e9ecef; display: flex; flex-direction: column; background: #fff; height: 100%; }
+.wpp-contacts-header { padding: 10px; border-bottom: 1px solid #f0f0f0; flex-shrink: 0; }
 .wpp-tabs { display: flex; border-bottom: 1px solid #e9ecef; flex-shrink: 0; }
 .wpp-tab { flex: 1; padding: 8px; font-size: 0.78rem; font-weight: 500; border: none; background: none; color: #666; cursor: pointer; transition: all 0.2s; border-bottom: 2px solid transparent; }
 .wpp-tab.active { color: var(--primary); border-bottom-color: var(--primary); background: #f0faf8; }
@@ -226,22 +233,34 @@
 .wpp-status-dot.aguardando { background: #f44336; }
 .wpp-status-dot.concluido { background: #4caf50; }
 .wpp-status-dot.novo { background: #2196f3; }
-.wpp-chat-panel { flex: 1; display: flex; flex-direction: column; background: #efeae2; position: relative; }
+.wpp-chat-panel { flex: 1; display: flex; flex-direction: column; background: #efeae2; position: relative; min-width: 0; }
 .wpp-chat-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-.wpp-chat-header { padding: 10px 16px; background: #fff; border-bottom: 1px solid #e9ecef; display: flex; justify-content: space-between; align-items: center; }
-.wpp-messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 4px; }
-.wpp-input-area { padding: 10px 16px; background: #fff; border-top: 1px solid #e9ecef; display: flex; gap: 8px; align-items: center; }
+.wpp-chat-header { padding: 10px 16px; background: #fff; border-bottom: 1px solid #e9ecef; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
+.wpp-messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 4px; min-height: 0; }
+.wpp-input-area { padding: 10px 16px; background: #fff; border-top: 1px solid #e9ecef; display: flex; gap: 8px; align-items: flex-end; flex-shrink: 0; }
+.wpp-input-area textarea {
+    resize: none;
+    min-height: 34px;
+    max-height: 120px;
+    overflow-y: auto;
+    line-height: 1.4;
+    font-size: 0.85rem;
+}
 .wpp-detail-panel { width: 320px; min-width: 320px; background: #fff; border-left: 1px solid #e9ecef; display: none; flex-direction: column; overflow-y: auto; }
 .wpp-detail-panel.open { display: flex; }
-.wpp-detail-header { padding: 12px 16px; border-bottom: 1px solid #e9ecef; display: flex; justify-content: space-between; align-items: center; }
+.wpp-detail-header { padding: 12px 16px; border-bottom: 1px solid #e9ecef; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
 .wpp-detail-body { padding: 16px; overflow-y: auto; flex: 1; }
 .wpp-msg { max-width: 65%; padding: 8px 12px; border-radius: 8px; font-size: 0.84rem; word-wrap: break-word; position: relative; }
 .wpp-msg.mine { align-self: flex-end; background: #d9fdd3; border-bottom-right-radius: 2px; }
 .wpp-msg.other { align-self: flex-start; background: #fff; border-bottom-left-radius: 2px; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+.wpp-msg-sender { font-size: 0.7rem; font-weight: 600; color: #075e54; margin-bottom: 2px; }
 .wpp-msg-time { font-size: 0.62rem; color: #888; margin-top: 3px; text-align: right; }
 .wpp-msg-media img { max-width: 220px; border-radius: 6px; cursor: pointer; }
 .wpp-label-badge { font-size: 0.65rem; padding: 2px 8px; border-radius: 10px; color: #fff; display: inline-block; cursor: default; }
 .cursor-pointer { cursor: pointer; }
+@media (max-width: 992px) {
+    .wpp-main-override { margin-left: 0 !important; }
+}
 @media (max-width: 768px) {
     .wpp-contacts-panel { width: 100%; min-width: 100%; }
     .wpp-chat-panel { display: none; }
@@ -253,15 +272,35 @@
 <script>
 const BASE = '<?= baseUrl("") ?>';
 let activeContactId = <?= $activeContactId ? intval($activeContactId) : 'null' ?>;
+let activeContactIsGroup = false;
 let pollInterval = null;
 let contactsPollInterval = null;
 let lastMessageId = 0;
-let currentTab = 'contacts'; // 'contacts' ou 'groups'
+let currentTab = 'contacts';
 let allContacts = [];
 let allGroups = [];
 
 // =========================================
-// TABS (Contatos / Grupos)
+// FORMATAÇÃO WHATSAPP — *bold* _italic_ ~strike~ ```mono```
+// =========================================
+function formatWhatsApp(text) {
+    if (!text) return '';
+    let html = escapeHtml(text);
+    // Monospace ```text```
+    html = html.replace(/```([\s\S]+?)```/g, '<code>$1</code>');
+    // Bold *text*
+    html = html.replace(/\*((?!\s)([^\n*]+?)(?<!\s))\*/g, '<strong>$1</strong>');
+    // Italic _text_
+    html = html.replace(/_((?!\s)([^\n_]+?)(?<!\s))_/g, '<em>$1</em>');
+    // Strikethrough ~text~
+    html = html.replace(/~((?!\s)([^\n~]+?)(?<!\s))~/g, '<del>$1</del>');
+    // Newlines
+    html = html.replace(/\n/g, '<br>');
+    return html;
+}
+
+// =========================================
+// TABS
 // =========================================
 function switchTab(tab) {
     currentTab = tab;
@@ -271,7 +310,7 @@ function switchTab(tab) {
 }
 
 // =========================================
-// CONTATOS — Carregamento
+// CONTATOS
 // =========================================
 function loadContacts(silent = false) {
     const search = document.getElementById('contact-search').value;
@@ -290,11 +329,8 @@ function loadContacts(silent = false) {
     .then(data => {
         allContacts = data.contacts || [];
         allGroups = data.groups || [];
-
-        // Atualizar contadores
         document.getElementById('count-contacts').textContent = allContacts.length;
         document.getElementById('count-groups').textContent = allGroups.length;
-
         renderContactsList();
     })
     .catch(() => {});
@@ -310,9 +346,7 @@ function renderContactsList() {
     }
 
     let html = '';
-
     if (currentTab === 'contacts') {
-        // Separar por status de atendimento
         const emAtendimento = items.filter(c => c.service_status === 'em_atendimento');
         const aguardando = items.filter(c => c.service_status === 'aguardando');
         const novos = items.filter(c => c.service_status === 'novo' || !c.service_status);
@@ -335,10 +369,8 @@ function renderContactsList() {
             html += concluidos.map(c => renderContactItem(c, false)).join('');
         }
     } else {
-        // Grupos — sem divisão por status
         html += items.map(c => renderContactItem(c, true)).join('');
     }
-
     list.innerHTML = html;
 }
 
@@ -352,7 +384,7 @@ function renderContactItem(c, isGroup) {
     const avatarClass = isGroup ? 'wpp-avatar-sm group-avatar' : 'wpp-avatar-sm';
     const icon = isGroup ? '<i class="bi bi-people-fill" style="font-size:0.9rem;"></i>' : initials;
 
-    return `<div class="wpp-contact-item ${isActive}" onclick="openChat(${c.id})" data-id="${c.id}">
+    return `<div class="wpp-contact-item ${isActive}" onclick="openChat(${c.id}, ${isGroup})" data-id="${c.id}">
         <div class="${avatarClass}">${icon}</div>
         <div class="wpp-contact-info">
             <div class="wpp-contact-name">${escapeHtml(name)}</div>
@@ -368,21 +400,19 @@ function renderContactItem(c, isGroup) {
 // =========================================
 // CHAT
 // =========================================
-function openChat(contactId) {
+function openChat(contactId, isGroup = false) {
     activeContactId = contactId;
+    activeContactIsGroup = isGroup;
 
-    // Highlight
     document.querySelectorAll('.wpp-contact-item').forEach(el => el.classList.remove('active'));
     const active = document.querySelector(`.wpp-contact-item[data-id="${contactId}"]`);
     if (active) active.classList.add('active');
 
-    // Show chat UI
     document.getElementById('chat-empty').style.display = 'none';
     document.getElementById('chat-header').style.display = 'flex';
     document.getElementById('messages-area').style.display = 'flex';
     document.getElementById('input-area').style.display = 'flex';
 
-    // Load messages
     document.getElementById('messages-area').innerHTML = '<div class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></div>';
     lastMessageId = 0;
 
@@ -394,7 +424,6 @@ function openChat(contactId) {
         startPolling();
     });
 
-    // Load contact detail
     fetch(BASE + 'whatsapp/contactDetail/' + contactId, { headers: {'X-Requested-With': 'XMLHttpRequest'} })
     .then(r => r.json())
     .then(contact => {
@@ -404,18 +433,15 @@ function openChat(contactId) {
         document.getElementById('chat-contact-phone').textContent = contact.phone || '';
         document.getElementById('chat-avatar').textContent = initials;
         document.getElementById('chat-service-status').value = contact.service_status || 'novo';
-        // Detail panel
         document.getElementById('detail-name').textContent = name;
         document.getElementById('detail-phone').textContent = contact.phone || '';
         document.getElementById('detail-avatar').textContent = initials;
         document.getElementById('detail-name-input').value = contact.contact_name || '';
         document.getElementById('detail-assigned').value = contact.assigned_to || '';
         document.getElementById('detail-notes').value = contact.internal_notes || '';
-        // Labels
         renderContactLabels(contact.labels || []);
     });
 
-    // Load CRM boards
     loadCrmBoards();
 }
 
@@ -434,46 +460,34 @@ function renderMessages(messages) {
 function renderSingleMessage(m) {
     const cls = m.from_me == 1 ? 'mine' : 'other';
     let content = '';
-    if (m.message_type === 'image' && m.media_url) {
-        content = `<div class="wpp-msg-media"><img src="${BASE + m.media_url}" onclick="window.open(this.src)"></div>`;
-        if (m.message_text) content += `<div>${escapeHtml(m.message_text)}</div>`;
-    } else if (m.message_type === 'audio' && m.media_url) {
-        content = `<audio controls src="${BASE + m.media_url}" style="max-width:200px;"></audio>`;
-    } else if (m.message_type === 'document' && m.media_url) {
-        content = `<a href="${BASE + m.media_url}" target="_blank" class="text-decoration-none"><i class="bi bi-file-earmark"></i> ${escapeHtml(m.media_filename || 'Documento')}</a>`;
-    } else if (m.message_type === 'video' && m.media_url) {
-        content = `<video controls src="${BASE + m.media_url}" style="max-width:220px;border-radius:6px;"></video>`;
-    } else {
-        content = escapeHtml(m.message_text || '').replace(/\n/g, '<br>');
+
+    // Mostrar nome do remetente em grupos (mensagens de outros)
+    if (activeContactIsGroup && m.from_me != 1 && m.sender_name) {
+        content += `<div class="wpp-msg-sender">${escapeHtml(m.sender_name)}</div>`;
     }
-    const time = m.timestamp ? formatTime(m.timestamp) : '';
+
+    if (m.message_type === 'image' && m.media_url) {
+        content += `<div class="wpp-msg-media"><img src="${BASE + m.media_url}" onclick="window.open(this.src)"></div>`;
+        if (m.message_text) content += `<div>${formatWhatsApp(m.message_text)}</div>`;
+    } else if (m.message_type === 'audio' && m.media_url) {
+        content += `<audio controls src="${BASE + m.media_url}" style="max-width:200px;"></audio>`;
+    } else if (m.message_type === 'document' && m.media_url) {
+        content += `<a href="${BASE + m.media_url}" target="_blank" class="text-decoration-none"><i class="bi bi-file-earmark"></i> ${escapeHtml(m.media_filename || 'Documento')}</a>`;
+    } else if (m.message_type === 'video' && m.media_url) {
+        content += `<video controls src="${BASE + m.media_url}" style="max-width:220px;border-radius:6px;"></video>`;
+    } else {
+        content += formatWhatsApp(m.message_text || '');
+    }
+
+    // Horário com formato HH:MM
+    const time = m.timestamp ? formatFullTime(m.timestamp) : '';
     return `<div class="wpp-msg ${cls}">${content}<div class="wpp-msg-time">${time}</div></div>`;
-}
-
-// =========================================
-// STATUS DE ATENDIMENTO
-// =========================================
-function changeServiceStatus() {
-    if (!activeContactId) return;
-    const status = document.getElementById('chat-service-status').value;
-
-    const fd = new FormData();
-    fd.append('service_status', status);
-
-    fetch(BASE + 'whatsapp/updateServiceStatus/' + activeContactId, { method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'} })
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) {
-            showToast('Status atualizado!');
-            loadContacts(true);
-        }
-    });
 }
 </script>
 
 <script>
 // =========================================
-// ENVIO DE MENSAGEM
+// ENVIO — Shift+Enter = nova linha, Enter = enviar
 // =========================================
 function sendMessage() {
     const input = document.getElementById('message-input');
@@ -481,8 +495,9 @@ function sendMessage() {
     if (!text || !activeContactId) return;
 
     input.value = '';
+    input.style.height = '34px';
     const area = document.getElementById('messages-area');
-    const tempHtml = `<div class="wpp-msg mine">${escapeHtml(text).replace(/\n/g, '<br>')}<div class="wpp-msg-time">agora</div></div>`;
+    const tempHtml = `<div class="wpp-msg mine">${formatWhatsApp(text)}<div class="wpp-msg-time">agora</div></div>`;
     area.insertAdjacentHTML('beforeend', tempHtml);
     scrollToBottom();
 
@@ -522,11 +537,10 @@ function sendMediaFile() {
 }
 
 // =========================================
-// POLLING — Mensagens (rápido) + Contatos (periódico)
+// POLLING
 // =========================================
 function startPolling() {
     if (pollInterval) clearInterval(pollInterval);
-    // Polling de mensagens a cada 1.5s
     pollInterval = setInterval(() => {
         if (!activeContactId) return;
         fetch(BASE + 'whatsapp/poll/' + activeContactId + '?after_id=' + lastMessageId, { headers: {'X-Requested-With': 'XMLHttpRequest'} })
@@ -547,10 +561,28 @@ function startPolling() {
 
 function startContactsPolling() {
     if (contactsPollInterval) clearInterval(contactsPollInterval);
-    // Polling da lista de contatos a cada 3s para detectar novos contatos/grupos
     contactsPollInterval = setInterval(() => {
         loadContacts(true);
     }, 3000);
+}
+
+// =========================================
+// STATUS DE ATENDIMENTO
+// =========================================
+function changeServiceStatus() {
+    if (!activeContactId) return;
+    const status = document.getElementById('chat-service-status').value;
+    const fd = new FormData();
+    fd.append('service_status', status);
+
+    fetch(BASE + 'whatsapp/updateServiceStatus/' + activeContactId, { method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'} })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            showToast('Status atualizado!');
+            loadContacts(true);
+        }
+    });
 }
 
 // =========================================
@@ -637,7 +669,6 @@ function openCreateLabelModal() {
 function createLabel() {
     const name = document.getElementById('new-label-name').value.trim();
     const color = document.getElementById('new-label-color').value;
-
     if (!name) { alert('Digite o nome da etiqueta'); return; }
 
     const fd = new FormData();
@@ -648,26 +679,21 @@ function createLabel() {
     .then(r => r.json())
     .then(data => {
         if (data.success) {
-            // Adicionar ao select de etiquetas
             const select = document.getElementById('add-label-select');
             const opt = document.createElement('option');
             opt.value = data.label.id;
             opt.textContent = data.label.name;
-            opt.dataset.color = data.label.color;
             select.appendChild(opt);
 
-            // Adicionar ao filtro
             const filterSelect = document.getElementById('filter-label');
             const filterOpt = document.createElement('option');
             filterOpt.value = data.label.id;
             filterOpt.textContent = data.label.name;
             filterSelect.appendChild(filterOpt);
 
-            // Fechar modal
             bootstrap.Modal.getInstance(document.getElementById('createLabelModal')).hide();
             showToast('Etiqueta "' + name + '" criada!');
 
-            // Se tiver contato ativo, já adicionar a etiqueta
             if (activeContactId) {
                 const addFd = new FormData();
                 addFd.append('contact_id', activeContactId);
@@ -711,12 +737,7 @@ function loadBoardColumns() {
     const select = document.getElementById('crm-board-select');
     const opt = select.options[select.selectedIndex];
     const colSelect = document.getElementById('crm-column-select');
-
-    if (!opt || !opt.value) {
-        colSelect.style.display = 'none';
-        return;
-    }
-
+    if (!opt || !opt.value) { colSelect.style.display = 'none'; return; }
     const columns = JSON.parse(opt.dataset.columns || '[]');
     colSelect.innerHTML = columns.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
     colSelect.style.display = 'block';
@@ -726,7 +747,6 @@ function addContactToCrm() {
     if (!activeContactId) return;
     const boardId = document.getElementById('crm-board-select').value;
     const columnId = document.getElementById('crm-column-select').value;
-
     if (!boardId) { alert('Selecione um board'); return; }
 
     const fd = new FormData();
@@ -737,11 +757,8 @@ function addContactToCrm() {
     fetch(BASE + 'whatsapp/addToCrm', { method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'} })
     .then(r => r.json())
     .then(data => {
-        if (data.success) {
-            showToast('Contato adicionado ao CRM!');
-        } else {
-            alert(data.error || 'Erro');
-        }
+        if (data.success) showToast('Contato adicionado ao CRM!');
+        else alert(data.error || 'Erro');
     });
 }
 
@@ -768,6 +785,22 @@ function formatTime(datetime) {
     return d.getDate().toString().padStart(2,'0') + '/' + (d.getMonth()+1).toString().padStart(2,'0');
 }
 
+function formatFullTime(datetime) {
+    if (!datetime) return '';
+    const d = new Date(datetime.replace(' ', 'T'));
+    const now = new Date();
+    const diff = now - d;
+    const time = d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0');
+    if (diff < 86400000 && d.getDate() === now.getDate()) {
+        return time;
+    }
+    const dias = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+    if (diff < 604800000) {
+        return dias[d.getDay()] + ' ' + time;
+    }
+    return d.getDate().toString().padStart(2,'0') + '/' + (d.getMonth()+1).toString().padStart(2,'0') + ' ' + time;
+}
+
 function escapeHtml(str) {
     if (!str) return '';
     const div = document.createElement('div');
@@ -786,13 +819,34 @@ function showToast(msg) {
 }
 
 // =========================================
+// TEXTAREA — Auto-resize + Shift+Enter / Enter
+// =========================================
+function setupTextarea() {
+    const textarea = document.getElementById('message-input');
+    if (!textarea) return;
+
+    textarea.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
+        // Shift+Enter insere a quebra de linha (comportamento padrão do textarea)
+    });
+
+    textarea.addEventListener('input', function() {
+        this.style.height = '34px';
+        this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+    });
+}
+
+// =========================================
 // INIT
 // =========================================
 document.addEventListener('DOMContentLoaded', () => {
     loadContacts();
     startContactsPolling();
+    setupTextarea();
 
-    // Debounce search
     let searchTimer;
     document.getElementById('contact-search').addEventListener('input', () => {
         clearTimeout(searchTimer);
@@ -802,9 +856,8 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('filter-label').addEventListener('change', () => loadContacts());
     document.getElementById('filter-status').addEventListener('change', () => loadContacts());
 
-    // Se tem um contato ativo na URL
     if (activeContactId) {
-        setTimeout(() => openChat(activeContactId), 500);
+        setTimeout(() => openChat(activeContactId, false), 500);
     }
 });
 </script>
