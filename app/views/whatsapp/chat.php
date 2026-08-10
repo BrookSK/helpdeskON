@@ -203,6 +203,12 @@
     </div>
 </div>
 
+<!-- Lightbox de imagem -->
+<div id="img-lightbox" class="wpp-lightbox" onclick="closeLightbox(event)">
+    <span class="wpp-lightbox-close" onclick="closeLightbox(event)">&times;</span>
+    <img id="img-lightbox-img" src="" alt="">
+</div>
+
 <!-- Modal Criar Etiqueta -->
 <div class="modal fade" id="createLabelModal" tabindex="-1">
     <div class="modal-dialog modal-sm">
@@ -439,6 +445,34 @@ body { overflow: hidden !important; margin: 0; padding: 0; }
     box-shadow: 0 1px 3px rgba(0,0,0,0.15);
 }
 .wpp-msg.mine .wpp-reaction-badge { right: auto; left: 8px; }
+.wpp-lightbox {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 2000;
+    align-items: center;
+    justify-content: center;
+    cursor: zoom-out;
+}
+.wpp-lightbox.open { display: flex; }
+.wpp-lightbox img {
+    max-width: 90vw;
+    max-height: 90vh;
+    border-radius: 8px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+    cursor: default;
+}
+.wpp-lightbox-close {
+    position: absolute;
+    top: 18px;
+    right: 28px;
+    color: #fff;
+    font-size: 2.4rem;
+    line-height: 1;
+    cursor: pointer;
+    font-weight: 300;
+}
 .wpp-transcription { margin-top: 5px; font-size: 0.78rem; color: #444; background: rgba(0,0,0,0.04); border-radius: 6px; padding: 5px 8px; font-style: italic; }
 .wpp-transcription-action { margin-top: 3px; }
 .wpp-emoji-picker {
@@ -863,11 +897,11 @@ function renderSingleMessage(m) {
         // Reações não são renderizadas como bolha; são anexadas via applyReaction()
         return '';
     } else if (m.message_type === 'sticker' && m.media_url) {
-        content += `<div class="wpp-msg-media"><img src="${BASE + m.media_url}" style="max-width:130px;" onclick="window.open(this.src)"></div>`;
+        content += `<div class="wpp-msg-media"><img src="${BASE + m.media_url}" style="max-width:130px;cursor:pointer;" onclick="openLightbox(this.src)"></div>`;
     } else if (m.message_type === 'sticker') {
         content += `<span class="text-muted"><i class="bi bi-emoji-smile"></i> Figurinha</span>`;
     } else if (m.message_type === 'image' && m.media_url) {
-        content += `<div class="wpp-msg-media"><img src="${BASE + m.media_url}" onclick="window.open(this.src)"></div>`;
+        content += `<div class="wpp-msg-media"><img src="${BASE + m.media_url}" style="cursor:pointer;" onclick="openLightbox(this.src)"></div>`;
         if (m.message_text) content += `<div>${formatWhatsApp(m.message_text)}</div>`;
     } else if (m.message_type === 'audio' && m.media_url) {
         content += `<audio controls src="${BASE + m.media_url}" style="max-width:200px;"></audio>`;
@@ -894,6 +928,26 @@ function renderSingleMessage(m) {
     const waId = m.message_id ? ` data-wa-id="${escapeHtml(m.message_id)}"` : '';
     return `<div class="wpp-msg ${cls}" data-msg-id="${m.id}"${waId}><div class="wpp-msg-body">${content}</div><div class="wpp-msg-time">${time}${ack}</div></div>`;
 }
+
+// === LIGHTBOX DE IMAGEM ===
+function openLightbox(src) {
+    const box = document.getElementById('img-lightbox');
+    document.getElementById('img-lightbox-img').src = src;
+    box.classList.add('open');
+}
+function closeLightbox(e) {
+    // Fecha ao clicar no fundo, no X, ou em qualquer lugar exceto na própria imagem
+    if (e && e.target && e.target.id === 'img-lightbox-img') return;
+    document.getElementById('img-lightbox').classList.remove('open');
+    document.getElementById('img-lightbox-img').src = '';
+}
+// Fecha com ESC
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        const box = document.getElementById('img-lightbox');
+        if (box && box.classList.contains('open')) closeLightbox();
+    }
+});
 
 // Transcrever áudio recebido
 function transcribeAudio(messageId, btn) {
