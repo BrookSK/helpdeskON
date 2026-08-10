@@ -174,6 +174,14 @@
                         <i class="bi bi-kanban"></i> Adicionar ao CRM
                     </button>
                 </div>
+                <?php if (($user['role'] ?? '') === 'super_admin'): ?>
+                <hr>
+                <div class="mb-3">
+                    <button class="btn btn-sm btn-outline-danger w-100" onclick="deleteContact()">
+                        <i class="bi bi-trash3"></i> Excluir contato permanentemente
+                    </button>
+                </div>
+                <?php endif; ?>
             </div>
         </div>
     </div>
@@ -717,7 +725,12 @@ function openChat(contactId, isGroup = false) {
         document.getElementById('chat-service-status').value = contact.service_status || 'novo';
         document.getElementById('detail-name').textContent = name;
         document.getElementById('detail-phone').textContent = contact.phone || '';
-        document.getElementById('detail-avatar').textContent = initials;
+        const detailAvatar = document.getElementById('detail-avatar');
+        if (contact.profile_picture_url) {
+            detailAvatar.innerHTML = `<img src="${escapeHtml(contact.profile_picture_url)}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" onerror="this.parentNode.textContent='${escapeHtml(initials)}'">`;
+        } else {
+            detailAvatar.textContent = initials;
+        }
         document.getElementById('detail-name-input').value = contact.contact_name || '';
         document.getElementById('detail-assigned').value = contact.assigned_to || '';
         document.getElementById('detail-notes').value = contact.internal_notes || '';
@@ -923,6 +936,29 @@ function saveContactDetails() {
             document.getElementById('detail-name').textContent = name;
             loadContacts(true);
             showToast('Contato atualizado!');
+        }
+    });
+}
+
+function deleteContact() {
+    if (!activeContactId) return;
+    if (!confirm('Excluir PERMANENTEMENTE este contato? Isso remove a conversa, mensagens, etiquetas e briefing. Esta ação não pode ser desfeita.')) return;
+    fetch(BASE + 'whatsapp/deleteContact/' + activeContactId, { method: 'POST', body: new FormData(), headers: {'X-Requested-With': 'XMLHttpRequest'} })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            showToast('Contato excluído.');
+            activeContactId = null;
+            // Fechar painéis e voltar ao estado inicial
+            const detailPanel = document.getElementById('detail-panel');
+            if (detailPanel) detailPanel.classList.remove('open');
+            document.getElementById('chat-header').style.display = 'none';
+            document.getElementById('messages-area').style.display = 'none';
+            document.getElementById('input-area').style.display = 'none';
+            document.getElementById('chat-empty').style.display = 'flex';
+            loadContacts();
+        } else {
+            alert(data.error || 'Erro ao excluir contato.');
         }
     });
 }

@@ -1149,6 +1149,33 @@ class WhatsappController extends Controller
     }
 
     /**
+     * API: Excluir contato permanentemente (apenas super_admin).
+     * Remove o contato, suas mensagens, etiquetas e briefing.
+     */
+    public function deleteContact($contactId = null)
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$contactId) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+
+        $contact = $this->contactModel->findById($contactId);
+        if (!$contact) $this->json(['error' => 'Contato não encontrado'], 404);
+
+        $db = Database::getInstance();
+        // Dependências (mensagens e vínculos de etiqueta saem por cascade via FK,
+        // mas removemos explicitamente para garantir consistência)
+        $db->delete('whatsapp_messages', 'contact_id = ?', [$contactId]);
+        $db->delete('whatsapp_contact_labels', 'contact_id = ?', [$contactId]);
+        $db->query("DELETE FROM commercial_briefings WHERE contact_id = ?", [$contactId]);
+        // Desvincular de cards do CRM (não apaga o card)
+        $db->query("UPDATE crm_cards SET contact_id = NULL WHERE contact_id = ?", [$contactId]);
+        $db->delete('whatsapp_contacts', 'id = ?', [$contactId]);
+
+        $this->json(['success' => true]);
+    }
+
+    /**
      * API: Obter briefing comercial de um contato
      */
     public function getBriefing($contactId = null)

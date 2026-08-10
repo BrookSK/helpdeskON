@@ -179,6 +179,22 @@ class WhatsappContact
     {
         $existing = $this->findByJid($instanceId, $remoteJid);
 
+        // Evitar duplicatas: se não achou pelo JID exato, tenta casar pelo telefone
+        // (mesma pessoa pode aparecer com/sem o 9º dígito ou variações de JID)
+        if (!$existing && empty($data['is_group'])) {
+            $phoneDigits = preg_replace('/\D/', '', $data['phone'] ?? preg_replace('/@.*/', '', $remoteJid));
+            if (!empty($phoneDigits)) {
+                $last8 = substr($phoneDigits, -8);
+                $existing = $this->db->fetch(
+                    "SELECT * FROM whatsapp_contacts
+                     WHERE instance_id = ? AND is_group = 0
+                       AND REPLACE(REPLACE(REPLACE(phone,' ',''),'-',''),'+','') LIKE ?
+                     LIMIT 1",
+                    [$instanceId, '%' . $last8]
+                );
+            }
+        }
+
         if ($existing) {
             $updateData = array_filter($data, fn($v) => $v !== null);
             // Não sobrescrever contact_name se já foi definido manualmente
