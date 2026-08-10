@@ -560,12 +560,42 @@ body { overflow: hidden !important; margin: 0; padding: 0; }
 .wpp-quick-item.active, .wpp-quick-item:hover { background: #e0f7f4; }
 .wpp-quick-item .qr-sc { font-weight: 600; color: #00997D; font-size: 0.8rem; }
 .wpp-quick-item .qr-msg { font-size: 0.78rem; color: #666; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.wpp-doc { min-width: 220px; }
-.wpp-doc-info { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; margin-bottom: 6px; }
-.wpp-doc-info i { font-size: 1.3rem; color: #d32f2f; }
-.wpp-doc-name { word-break: break-word; }
-.wpp-doc-actions { display: flex; gap: 6px; }
-.wpp-doc-actions .btn { font-size: 0.72rem; padding: 2px 8px; }
+.wpp-doc {
+    min-width: 260px;
+    max-width: 320px;
+    background: #fff;
+    border-radius: 12px;
+    padding: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+.wpp-doc-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.wpp-doc-icon {
+    flex-shrink: 0;
+    width: 42px; height: 42px;
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.35rem;
+}
+.wpp-doc-meta { min-width: 0; flex: 1; }
+.wpp-doc-name {
+    font-size: 0.84rem; font-weight: 600; color: #1f2937; line-height: 1.25;
+    word-break: break-word;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.wpp-doc-type { font-size: 0.72rem; color: #9ca3af; margin-top: 2px; }
+.wpp-doc-actions { display: flex; gap: 8px; }
+.wpp-doc-btn-view {
+    background: var(--primary); border: 1px solid var(--primary); color: #fff;
+    font-size: 0.76rem; font-weight: 500; padding: 5px 14px; border-radius: 8px;
+    display: inline-flex; align-items: center; gap: 5px;
+}
+.wpp-doc-btn-view:hover { background: var(--primary-dark); border-color: var(--primary-dark); color: #fff; }
+.wpp-doc-btn-download {
+    background: #fff; border: 1px solid #d1d5db; color: #374151;
+    font-size: 0.76rem; font-weight: 500; padding: 5px 14px; border-radius: 8px;
+    display: inline-flex; align-items: center; gap: 5px;
+}
+.wpp-doc-btn-download:hover { background: #f3f4f6; color: #111827; }
 .wpp-lightbox {
     display: none;
     position: fixed;
@@ -1080,13 +1110,7 @@ function renderSingleMessage(m) {
     } else if (m.message_type === 'document' && m.media_url) {
         const fileUrl = BASE + m.media_url;
         const fileName = m.media_filename || 'Documento';
-        content += `<div class="wpp-doc">
-            <div class="wpp-doc-info"><i class="bi bi-file-earmark-text"></i> <span class="wpp-doc-name">${escapeHtml(fileName)}</span></div>
-            <div class="wpp-doc-actions">
-                <a href="${fileUrl}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary" title="Visualizar"><i class="bi bi-eye"></i> Ver</a>
-                <a href="${fileUrl}" download="${escapeHtml(fileName)}" class="btn btn-sm btn-outline-success" title="Baixar"><i class="bi bi-download"></i> Baixar</a>
-            </div>
-        </div>`;
+        content += renderDocument(fileUrl, fileName);
         if (m.message_text) content += `<div class="mt-1">${formatWhatsApp(m.message_text)}</div>`;
     } else if (m.message_type === 'video' && m.media_url) {
         content += `<video controls src="${BASE + m.media_url}" style="max-width:220px;border-radius:6px;"></video>`;
@@ -1126,6 +1150,43 @@ document.addEventListener('keydown', function(e) {
         if (box && box.classList.contains('open')) closeLightbox();
     }
 });
+
+// ===== Card de documento/arquivo =====
+function docMeta(ext) {
+    ext = (ext || '').toLowerCase();
+    const map = {
+        pdf:  { icon: 'bi-file-earmark-pdf',        color: '#e53935', label: 'Documento PDF' },
+        doc:  { icon: 'bi-file-earmark-word',       color: '#1565c0', label: 'Documento Word' },
+        docx: { icon: 'bi-file-earmark-word',       color: '#1565c0', label: 'Documento Word' },
+        xls:  { icon: 'bi-file-earmark-excel',      color: '#2e7d32', label: 'Planilha Excel' },
+        xlsx: { icon: 'bi-file-earmark-excel',      color: '#2e7d32', label: 'Planilha Excel' },
+        csv:  { icon: 'bi-file-earmark-spreadsheet',color: '#2e7d32', label: 'Planilha CSV' },
+        ppt:  { icon: 'bi-file-earmark-ppt',        color: '#e64a19', label: 'Apresentação' },
+        pptx: { icon: 'bi-file-earmark-ppt',        color: '#e64a19', label: 'Apresentação' },
+        zip:  { icon: 'bi-file-earmark-zip',        color: '#795548', label: 'Arquivo compactado' },
+        rar:  { icon: 'bi-file-earmark-zip',        color: '#795548', label: 'Arquivo compactado' },
+        txt:  { icon: 'bi-file-earmark-text',       color: '#546e7a', label: 'Texto' },
+    };
+    return map[ext] || { icon: 'bi-file-earmark', color: '#546e7a', label: 'Arquivo' };
+}
+
+function renderDocument(fileUrl, fileName) {
+    const ext = (fileName.split('.').pop() || '').toLowerCase();
+    const meta = docMeta(ext);
+    return `<div class="wpp-doc">
+        <div class="wpp-doc-head">
+            <div class="wpp-doc-icon" style="background:${meta.color}1a;color:${meta.color};"><i class="bi ${meta.icon}"></i></div>
+            <div class="wpp-doc-meta">
+                <div class="wpp-doc-name" title="${escapeHtml(fileName)}">${escapeHtml(fileName)}</div>
+                <div class="wpp-doc-type">${meta.label}</div>
+            </div>
+        </div>
+        <div class="wpp-doc-actions">
+            <a href="${fileUrl}" target="_blank" rel="noopener" class="btn btn-sm wpp-doc-btn-view"><i class="bi bi-eye"></i> Ver</a>
+            <a href="${fileUrl}" download="${escapeHtml(fileName)}" class="btn btn-sm wpp-doc-btn-download"><i class="bi bi-download"></i> Baixar</a>
+        </div>
+    </div>`;
+}
 
 // ===== Player de áudio customizado (waveform) =====
 function renderAudioPlayer(m) {
@@ -1436,8 +1497,12 @@ function sendQuickReplyWithAttachment(q) {
             <div class="wpp-upload-spinner"><span class="spinner-border text-light"></span></div>
         </div>`;
     } else {
+        const dm = docMeta((q.attachment_name || '').split('.').pop());
         inner = `<div class="wpp-doc">
-            <div class="wpp-doc-info"><i class="bi bi-file-earmark-text"></i> <span class="wpp-doc-name">${escapeHtml(q.attachment_name || 'arquivo')}</span></div>
+            <div class="wpp-doc-head">
+                <div class="wpp-doc-icon" style="background:${dm.color}1a;color:${dm.color};"><i class="bi ${dm.icon}"></i></div>
+                <div class="wpp-doc-meta"><div class="wpp-doc-name">${escapeHtml(q.attachment_name || 'arquivo')}</div><div class="wpp-doc-type">${dm.label}</div></div>
+            </div>
             <div class="text-muted" style="font-size:0.72rem;"><span class="spinner-border spinner-border-sm"></span> Enviando...</div>
         </div>`;
     }
@@ -1762,8 +1827,12 @@ function sendStagedMedia() {
             <div class="wpp-upload-spinner"><span class="spinner-border text-light"></span></div>
         </div>`;
     } else {
+        const dm = docMeta((fileObj.name || '').split('.').pop());
         inner = `<div class="wpp-doc">
-            <div class="wpp-doc-info"><i class="bi bi-file-earmark-text"></i> <span class="wpp-doc-name">${escapeHtml(fileObj.name)}</span></div>
+            <div class="wpp-doc-head">
+                <div class="wpp-doc-icon" style="background:${dm.color}1a;color:${dm.color};"><i class="bi ${dm.icon}"></i></div>
+                <div class="wpp-doc-meta"><div class="wpp-doc-name">${escapeHtml(fileObj.name)}</div><div class="wpp-doc-type">${dm.label}</div></div>
+            </div>
             <div class="text-muted" style="font-size:0.72rem;"><span class="spinner-border spinner-border-sm"></span> Enviando...</div>
         </div>`;
     }
