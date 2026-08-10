@@ -169,6 +169,71 @@ class WhatsappController extends Controller
     }
 
     /**
+     * API: Transcrever um áudio recebido (Whisper/OpenAI) e salvar a transcrição.
+     */
+    public function transcribeAudio($messageId = null)
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
+        if (!$messageId) $this->json(['error' => 'ID obrigatório'], 400);
+
+        $db = Database::getInstance();
+        $msg = $db->fetch("SELECT * FROM whatsapp_messages WHERE id = ?", [$messageId]);
+        if (!$msg) $this->json(['error' => 'Mensagem não encontrada'], 404);
+        if ($msg['message_type'] !== 'audio' || empty($msg['media_url'])) {
+            $this->json(['error' => 'Mensagem não é um áudio válido'], 400);
+        }
+
+        // Se já foi transcrito, retorna o cache
+        if (!empty($msg['transcription'])) {
+            $this->json(['success' => true, 'transcription' => $msg['transcription']]);
+        }
+
+        $apiKey = Config::get('openai_api_key');
+        if (empty($apiKey)) {
+            $this->json(['error' => 'Chave da API OpenAI não configurada.'], 400);
+        }
+
+        $filePath = PUBLIC_PATH . '/' . $msg['media_url'];
+        if (!file_exists($filePath)) {
+            $this->json(['error' => 'Arquivo de áudio não encontrado no servidor.'], 404);
+        }
+
+        $mime = $msg['media_mime_type'] ?: 'audio/ogg';
+        $ext = pathinfo($msg['media_url'], PATHINFO_EXTENSION) ?: 'ogg';
+
+        try {
+            $ch = curl_init('https://api.openai.com/v1/audio/transcriptions');
+            $cfile = new CURLFile($filePath, $mime, 'audio.' . $ext);
+            curl_setopt_array($ch, [
+                CURLOPT_POST => true,
+                CURLOPT_POSTFIELDS => [
+                    'file' => $cfile,
+                    'model' => 'whisper-1',
+                    'language' => 'pt',
+                ],
+                CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $apiKey],
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT => 60,
+            ]);
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+
+            $data = json_decode($response, true);
+            $text = $data['text'] ?? null;
+
+            if ($httpCode >= 400 || !$text) {
+                $this->json(['error' => 'Falha na transcrição.'], 500);
+            }
+
+            $db->update('whatsapp_messages', ['transcription' => $text], 'id = ?', [$messageId]);
+            $this->json(['success' => true, 'transcription' => $text]);
+        } catch (\Throwable $e) {
+            $this->json(['error' => 'Erro: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
      * API: Status (ack) das mensagens enviadas de um contato — para atualizar os checks.
      */
     public function messageStatuses($contactId = null)

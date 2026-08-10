@@ -101,7 +101,12 @@
                 </div>
             </div>
             <!-- Input de mensagem (textarea para Shift+Enter) -->
-            <div class="wpp-input-area" id="input-area" style="display:none;">
+            <div class="wpp-input-area" id="input-area" style="display:none;position:relative;">
+                <!-- Galeria de emojis -->
+                <div id="emoji-picker" class="wpp-emoji-picker" style="display:none;"></div>
+                <button class="btn btn-sm btn-outline-secondary" id="btn-emoji" onclick="toggleEmojiPicker()" title="Emojis">
+                    <i class="bi bi-emoji-smile"></i>
+                </button>
                 <button class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('media-input').click()" title="Anexar arquivo">
                     <i class="bi bi-paperclip"></i>
                 </button>
@@ -421,6 +426,41 @@ body { overflow: hidden !important; margin: 0; padding: 0; }
 .wpp-ack { color: #8a8a8a; font-size: 0.8rem; }
 .wpp-ack-read { color: #34b7f1; font-size: 0.8rem; }
 .wpp-msg-reaction { background: transparent !important; box-shadow: none !important; padding: 2px 6px !important; }
+.wpp-reaction-note {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: #f0f0f0;
+    border-radius: 14px;
+    padding: 2px 10px;
+    margin: 2px 0;
+    max-width: max-content;
+}
+.wpp-reaction-emoji { font-size: 1rem; line-height: 1; }
+.wpp-reaction-label { font-size: 0.68rem; color: #888; }
+.wpp-transcription { margin-top: 5px; font-size: 0.78rem; color: #444; background: rgba(0,0,0,0.04); border-radius: 6px; padding: 5px 8px; font-style: italic; }
+.wpp-transcription-action { margin-top: 3px; }
+.wpp-emoji-picker {
+    position: absolute;
+    bottom: 52px;
+    left: 8px;
+    width: 300px;
+    max-height: 260px;
+    overflow-y: auto;
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 10px;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.15);
+    padding: 8px;
+    z-index: 30;
+}
+.wpp-emoji-cat-title { font-size: 0.68rem; color: #999; text-transform: uppercase; margin: 6px 2px 2px; font-weight: 600; }
+.wpp-emoji-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; }
+.wpp-emoji-grid button {
+    border: none; background: transparent; font-size: 1.25rem; line-height: 1;
+    padding: 4px; border-radius: 6px; cursor: pointer;
+}
+.wpp-emoji-grid button:hover { background: #f0f0f0; }
 .wpp-msg-media img { max-width: 220px; border-radius: 6px; cursor: pointer; }
 .wpp-mention { color: #075e54; font-weight: 600; background: rgba(7,94,84,0.08); padding: 1px 4px; border-radius: 4px; cursor: default; }
 .wpp-label-badge { font-size: 0.65rem; padding: 2px 8px; border-radius: 10px; color: #fff; display: inline-block; cursor: default; }
@@ -785,8 +825,13 @@ function renderSingleMessage(m) {
     }
 
     if (m.message_type === 'reaction') {
-        // Reação: mostra o emoji de forma destacada
-        return `<div class="wpp-msg ${cls} wpp-msg-reaction" data-msg-id="${m.id}"><span style="font-size:1.4rem;">${escapeHtml(m.message_text || '❤️')}</span><div class="wpp-msg-time">${m.timestamp ? formatFullTime(m.timestamp) : ''}</div></div>`;
+        // Reação: anotação discreta (não é uma mensagem "voando")
+        const who = (m.from_me == 1) ? 'Você reagiu' : 'Reagiu';
+        const align = (m.from_me == 1) ? 'flex-end' : 'flex-start';
+        return `<div class="wpp-reaction-note" style="align-self:${align};" data-msg-id="${m.id}">
+            <span class="wpp-reaction-emoji">${escapeHtml(m.message_text || '❤️')}</span>
+            <span class="wpp-reaction-label">${who}</span>
+        </div>`;
     } else if (m.message_type === 'sticker' && m.media_url) {
         content += `<div class="wpp-msg-media"><img src="${BASE + m.media_url}" style="max-width:130px;" onclick="window.open(this.src)"></div>`;
     } else if (m.message_type === 'sticker') {
@@ -796,6 +841,11 @@ function renderSingleMessage(m) {
         if (m.message_text) content += `<div>${formatWhatsApp(m.message_text)}</div>`;
     } else if (m.message_type === 'audio' && m.media_url) {
         content += `<audio controls src="${BASE + m.media_url}" style="max-width:200px;"></audio>`;
+        if (m.transcription) {
+            content += `<div class="wpp-transcription"><i class="bi bi-quote"></i> ${escapeHtml(m.transcription)}</div>`;
+        } else {
+            content += `<div class="wpp-transcription-action"><button class="btn btn-sm btn-link p-0" style="font-size:0.72rem;" onclick="transcribeAudio(${m.id}, this)"><i class="bi bi-soundwave"></i> Transcrever áudio</button></div>`;
+        }
     } else if (m.message_type === 'document' && m.media_url) {
         content += `<a href="${BASE + m.media_url}" target="_blank" class="text-decoration-none"><i class="bi bi-file-earmark"></i> ${escapeHtml(m.media_filename || 'Documento')}</a>`;
     } else if (m.message_type === 'video' && m.media_url) {
@@ -812,6 +862,28 @@ function renderSingleMessage(m) {
         ack = ` <span class="wpp-msg-ack-holder">${renderAckIcon(m.ack_status)}</span>`;
     }
     return `<div class="wpp-msg ${cls}" data-msg-id="${m.id}"><div class="wpp-msg-body">${content}</div><div class="wpp-msg-time">${time}${ack}</div></div>`;
+}
+
+// Transcrever áudio recebido
+function transcribeAudio(messageId, btn) {
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:0.7rem;height:0.7rem;"></span> Transcrevendo...'; }
+    fetch(BASE + 'whatsapp/transcribeAudio/' + messageId, { method: 'POST', headers: {'X-Requested-With': 'XMLHttpRequest'} })
+    .then(r => r.json())
+    .then(data => {
+        const holder = btn ? btn.closest('.wpp-transcription-action') : null;
+        if (data.success && data.transcription) {
+            const div = document.createElement('div');
+            div.className = 'wpp-transcription';
+            div.innerHTML = '<i class="bi bi-quote"></i> ' + escapeHtml(data.transcription);
+            if (holder) holder.replaceWith(div);
+        } else {
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-soundwave"></i> Transcrever áudio'; }
+            alert(data.error || 'Falha na transcrição.');
+        }
+    })
+    .catch(() => {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-soundwave"></i> Transcrever áudio'; }
+    });
 }
 
 // Ícone de confirmação estilo WhatsApp
@@ -836,6 +908,58 @@ function renderAckIcon(status) {
 // =========================================
 // ENVIO — Shift+Enter = nova linha, Enter = enviar
 // =========================================
+// === GALERIA DE EMOJIS ===
+const EMOJI_CATEGORIES = {
+    'Sorrisos': ['😀','😁','😂','🤣','😊','😇','🙂','🙃','😉','😌','😍','🥰','😘','😗','😋','😛','😜','🤪','😝','🤗','🤭','🤫','🤔','😐','😑','😶','😏','😒','🙄','😬','😔','😪','😴','😷','🤒','🤕','🤢','🤮','🥵','🥶','😵','🤯','🤠','🥳','😎','🤓','🧐'],
+    'Gestos': ['👍','👎','👌','✌️','🤞','🤟','🤙','👈','👉','👆','👇','☝️','✋','🤚','🖐️','🖖','👋','🤝','🙏','💪','🙌','👏','🤲','🤦','🤷','👐'],
+    'Corações': ['❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','❣️','💕','💞','💓','💗','💖','💘','💝'],
+    'Objetos': ['🔥','⭐','🌟','✨','⚡','💯','✅','❌','❗','❓','⚠️','🎉','🎊','🎁','📌','📎','📞','📱','💻','📧','📅','🕐','💰','💵','📈','📉','🤑'],
+    'Diversos': ['🚀','🏆','🎯','👀','🗣️','💬','🙈','🙉','🙊','🐶','🐱','☀️','🌈','☕','🍕','🍔','🎵','⚽','🏠','🚗'],
+};
+
+let emojiPickerBuilt = false;
+function buildEmojiPicker() {
+    if (emojiPickerBuilt) return;
+    const picker = document.getElementById('emoji-picker');
+    let html = '';
+    for (const cat in EMOJI_CATEGORIES) {
+        html += `<div class="wpp-emoji-cat-title">${cat}</div><div class="wpp-emoji-grid">`;
+        html += EMOJI_CATEGORIES[cat].map(e => `<button type="button" onclick="insertEmoji('${e}')">${e}</button>`).join('');
+        html += '</div>';
+    }
+    picker.innerHTML = html;
+    emojiPickerBuilt = true;
+}
+
+function toggleEmojiPicker() {
+    const picker = document.getElementById('emoji-picker');
+    if (picker.style.display === 'none' || !picker.style.display) {
+        buildEmojiPicker();
+        picker.style.display = 'block';
+    } else {
+        picker.style.display = 'none';
+    }
+}
+
+function insertEmoji(emoji) {
+    const input = document.getElementById('message-input');
+    const start = input.selectionStart ?? input.value.length;
+    const end = input.selectionEnd ?? input.value.length;
+    input.value = input.value.slice(0, start) + emoji + input.value.slice(end);
+    const pos = start + emoji.length;
+    input.selectionStart = input.selectionEnd = pos;
+    input.focus();
+}
+
+// Fechar o picker ao clicar fora
+document.addEventListener('click', function(e) {
+    const picker = document.getElementById('emoji-picker');
+    const btn = document.getElementById('btn-emoji');
+    if (picker && picker.style.display === 'block' && !picker.contains(e.target) && btn && !btn.contains(e.target)) {
+        picker.style.display = 'none';
+    }
+});
+
 let stagedFile = null;
 let isSendingMedia = false;
 
