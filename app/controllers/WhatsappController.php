@@ -225,8 +225,8 @@ class WhatsappController extends Controller
             'sender_name' => $this->currentUser()['name'],
             'timestamp' => date('Y-m-d H:i:s'),
             'is_read' => 1,
-            'ack_status' => 'sent',
         ]);
+        $this->setAckStatusSafe($messageId, 'sent');
 
         // Atualizar última mensagem do contato
         $this->contactModel->updateLastMessage($contactId, date('Y-m-d H:i:s'));
@@ -320,8 +320,8 @@ class WhatsappController extends Controller
             'sender_name' => $this->currentUser()['name'],
             'timestamp' => date('Y-m-d H:i:s'),
             'is_read' => 1,
-            'ack_status' => 'sent',
         ]);
+        $this->setAckStatusSafe($messageId, 'sent');
 
         $this->contactModel->updateLastMessage($contactId, date('Y-m-d H:i:s'));
 
@@ -1061,6 +1061,85 @@ class WhatsappController extends Controller
         } catch (Exception $e) {
             return null;
         }
+    }
+
+    /**
+     * Processa atualização de status (ack) das mensagens enviadas.
+     * Atualiza o checkzinho: sent (1), delivered (2), read (2 azul).
+     */
+    private function handleMessageUpdate($payload)
+    {
+        $items = [];
+        if (isset($payload['data']['messages'])) {
+            $items = $payload['data']['messages'];
+        } elseif (isset($payload['data'][0])) {
+            $items = $payload['data'];
+        } elseif (isset($payload['data'])) {
+            $items = [$payload['data']];
+        }
+
+        $db = Database::getInstance();
+        foreach ($items as $item) {
+            $msgId = $item['key']['id'] ?? ($item['keyId'] ?? null);
+            if (!$msgId) continue;
+
+            // status pode vir como número (ack) ou string
+            $raw = $item['status'] ?? $item['update']['status'] ?? null;
+            $ack = $this->mapAckStatus($raw);
+            if (!$ack) continue;
+
+            try {
+                $db->query(
+                    "UPDATE whatsapp_messages SET ack_status = ? WHERE message_id = ? AND from_me = 1",
+                    [$ack, $msgId]
+                );
+            } catch (Exception $e) {
+                // Coluna ainda não migrada — ignora
+            }
+        }
+    }
+
+    /**
+     * Atualiza o ack_status de forma segura (ignora se a coluna ainda não existe).
+     */
+    private function setAckStatusSafe($messageId, $status)
+    {
+        try {
+            Database::getInstance()->query(
+                "UPDATE whatsapp_messages SET ack_status = ? WHERE id = ?",
+                [$status, $messageId]
+            );
+        } catch (Exception $e) {
+            // Coluna ainda não migrada — ignora silenciosamente
+        }
+    }
+
+    /**
+     * Mapeia o status recebido da Evolution para o enum interno.
+     */
+    private function mapAckStatus($raw)
+    {
+        if ($raw === null) return null;
+        if (is_numeric($raw)) {
+            // Padrão Baileys: 1=sent, 2=delivered, 3/4=read
+            $n = (int)$raw;
+            if ($n >= 4) return 'read';
+            if ($n === 3) return 'read';
+            if ($n === 2) return 'delivered';
+            if ($n === 1) return 'sent';
+            return null;
+        }
+        $s = strtoupper((string)$raw);
+        $map = [
+            'PENDING' => 'pending',
+            'SERVER_ACK' => 'sent',
+            'SENT' => 'sent',
+            'DELIVERY_ACK' => 'delivered',
+            'DELIVERED' => 'delivered',
+            'READ' => 'read',
+            'PLAYED' => 'read',
+        ];
+        return $map[$s] ?? null;
     }
 
     /**
