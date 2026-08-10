@@ -234,6 +234,71 @@ class WhatsappController extends Controller
     }
 
     /**
+     * API: Listar respostas rápidas
+     */
+    public function quickReplies()
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
+        $rows = Database::getInstance()->fetchAll("SELECT * FROM whatsapp_quick_replies ORDER BY shortcut ASC");
+        $this->json(['replies' => $rows]);
+    }
+
+    /**
+     * API: Salvar (criar/editar) resposta rápida
+     */
+    public function saveQuickReply()
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            $this->json(['error' => 'Método inválido'], 405);
+        }
+
+        $id = $_POST['id'] ?? null;
+        $shortcut = ltrim(trim($_POST['shortcut'] ?? ''), '/');
+        $message = trim($_POST['message'] ?? '');
+
+        if ($shortcut === '' || $message === '') {
+            $this->json(['error' => 'Atalho e mensagem são obrigatórios.'], 400);
+        }
+        // Normaliza o atalho: sem espaços, minúsculo
+        $shortcut = strtolower(preg_replace('/\s+/', '', $shortcut));
+
+        $db = Database::getInstance();
+        $user = $this->currentUser();
+
+        // Checar duplicidade de atalho (exceto o próprio na edição)
+        $existing = $db->fetch("SELECT id FROM whatsapp_quick_replies WHERE shortcut = ?", [$shortcut]);
+        if ($existing && (!$id || $existing['id'] != $id)) {
+            $this->json(['error' => 'Já existe uma resposta com esse atalho.'], 400);
+        }
+
+        if ($id) {
+            $db->update('whatsapp_quick_replies', ['shortcut' => $shortcut, 'message' => $message], 'id = ?', [$id]);
+        } else {
+            $id = $db->insert('whatsapp_quick_replies', [
+                'shortcut' => $shortcut,
+                'message' => $message,
+                'created_by' => $user['id'],
+            ]);
+        }
+
+        $this->json(['success' => true, 'id' => $id]);
+    }
+
+    /**
+     * API: Excluir resposta rápida
+     */
+    public function deleteQuickReply($id = null)
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+        Database::getInstance()->delete('whatsapp_quick_replies', 'id = ?', [$id]);
+        $this->json(['success' => true]);
+    }
+
+    /**
      * API: Status (ack) das mensagens enviadas de um contato — para atualizar os checks.
      */
     public function messageStatuses($contactId = null)

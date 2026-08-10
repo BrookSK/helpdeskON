@@ -12,6 +12,7 @@
                     <span class="fw-medium" style="font-size:0.9rem;"><i class="bi bi-whatsapp text-success"></i> Chat</span>
                     <div class="d-flex gap-1">
                         <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1" title="Sincronizar nomes dos grupos" onclick="syncGroups(this)"><i class="bi bi-arrow-repeat" style="font-size:0.75rem;"></i></button>
+                        <button type="button" class="btn btn-sm btn-outline-warning py-0 px-1" title="Respostas rápidas" onclick="openQuickRepliesModal()"><i class="bi bi-lightning-charge-fill" style="font-size:0.75rem;"></i></button>
                         <a href="<?= baseUrl('whatsapp') ?>" class="btn btn-sm btn-outline-secondary py-0 px-1" title="Conexões"><i class="bi bi-gear" style="font-size:0.75rem;"></i></a>
                         <a href="<?= baseUrl('crm') ?>" class="btn btn-sm btn-outline-primary py-0 px-1" title="CRM"><i class="bi bi-kanban" style="font-size:0.75rem;"></i></a>
                     </div>
@@ -108,6 +109,8 @@
             <div class="wpp-input-area" id="input-area" style="display:none;position:relative;">
                 <!-- Galeria de emojis -->
                 <div id="emoji-picker" class="wpp-emoji-picker" style="display:none;"></div>
+                <!-- Autocomplete de respostas rápidas (/atalho) -->
+                <div id="quick-reply-suggest" class="wpp-quick-suggest" style="display:none;"></div>
                 <button class="btn btn-sm btn-outline-secondary" id="btn-emoji" onclick="toggleEmojiPicker()" title="Emojis">
                     <i class="bi bi-emoji-smile"></i>
                 </button>
@@ -202,6 +205,44 @@
                     </button>
                 </div>
                 <?php endif; ?>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Respostas Rápidas -->
+<div class="modal fade" id="quickRepliesModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title"><i class="bi bi-lightning-charge-fill text-warning"></i> Respostas Rápidas</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="small text-muted">Cadastre mensagens de uso frequente. No chat, digite <code>/atalho</code> para inserir rapidamente.</p>
+                <div class="row g-2 align-items-end mb-3 p-2 rounded" style="background:#f8f9fa;">
+                    <input type="hidden" id="qr-id">
+                    <div class="col-sm-4">
+                        <label class="form-label small fw-medium mb-1">Atalho</label>
+                        <div class="input-group input-group-sm">
+                            <span class="input-group-text">/</span>
+                            <input type="text" id="qr-shortcut" class="form-control" placeholder="ex: bomdia">
+                        </div>
+                    </div>
+                    <div class="col-sm-6">
+                        <label class="form-label small fw-medium mb-1">Mensagem</label>
+                        <textarea id="qr-message" class="form-control form-control-sm" rows="1" placeholder="Texto da resposta..."></textarea>
+                    </div>
+                    <div class="col-sm-2 d-grid">
+                        <button class="btn btn-sm btn-primary" onclick="saveQuickReply()"><i class="bi bi-check-lg"></i> Salvar</button>
+                    </div>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover align-middle mb-0">
+                        <thead class="table-light"><tr><th>Atalho</th><th>Mensagem</th><th></th></tr></thead>
+                        <tbody id="qr-list"><tr><td colspan="3" class="text-muted small text-center py-3">Carregando...</td></tr></tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
@@ -479,6 +520,25 @@ body { overflow: hidden !important; margin: 0; padding: 0; }
     position: absolute; inset: 0;
     display: flex; align-items: center; justify-content: center;
 }
+/* Autocomplete de respostas rápidas */
+.wpp-quick-suggest {
+    position: absolute;
+    bottom: 52px;
+    left: 8px;
+    right: 8px;
+    max-height: 220px;
+    overflow-y: auto;
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 10px;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.15);
+    z-index: 35;
+}
+.wpp-quick-item { padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #f0f0f0; }
+.wpp-quick-item:last-child { border-bottom: none; }
+.wpp-quick-item.active, .wpp-quick-item:hover { background: #e0f7f4; }
+.wpp-quick-item .qr-sc { font-weight: 600; color: #00997D; font-size: 0.8rem; }
+.wpp-quick-item .qr-msg { font-size: 0.78rem; color: #666; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wpp-doc { min-width: 220px; }
 .wpp-doc-info { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; margin-bottom: 6px; }
 .wpp-doc-info i { font-size: 1.3rem; color: #d32f2f; }
@@ -1091,6 +1151,145 @@ document.addEventListener('click', function(e) {
         picker.style.display = 'none';
     }
 });
+
+// === RESPOSTAS RÁPIDAS (/atalho) ===
+let quickReplies = [];
+let quickSuggestIndex = -1;
+
+function loadQuickReplies() {
+    fetch(BASE + 'whatsapp/quickReplies', { headers: {'X-Requested-With': 'XMLHttpRequest'} })
+    .then(r => r.json())
+    .then(data => { quickReplies = data.replies || []; })
+    .catch(() => {});
+}
+
+// Chamado a cada tecla no campo de mensagem
+function handleQuickReplyInput() {
+    const input = document.getElementById('message-input');
+    const val = input.value;
+    const box = document.getElementById('quick-reply-suggest');
+
+    // Só ativa se começar com "/" e não tiver espaço/quebra ainda
+    const match = val.match(/^\/(\S*)$/);
+    if (!match) { box.style.display = 'none'; quickSuggestIndex = -1; return; }
+
+    const term = match[1].toLowerCase();
+    const matches = quickReplies.filter(q => q.shortcut.toLowerCase().includes(term));
+    if (!matches.length) { box.style.display = 'none'; return; }
+
+    box.innerHTML = matches.map((q, i) =>
+        `<div class="wpp-quick-item ${i === 0 ? 'active' : ''}" data-idx="${i}" onclick="applyQuickReply(${q.id})">
+            <div class="qr-sc">/${escapeHtml(q.shortcut)}</div>
+            <div class="qr-msg">${escapeHtml(q.message)}</div>
+        </div>`).join('');
+    box._matches = matches;
+    quickSuggestIndex = 0;
+    box.style.display = 'block';
+}
+
+function applyQuickReply(id) {
+    const q = quickReplies.find(x => x.id == id);
+    if (!q) return;
+    const input = document.getElementById('message-input');
+    input.value = q.message;
+    document.getElementById('quick-reply-suggest').style.display = 'none';
+    quickSuggestIndex = -1;
+    input.focus();
+}
+
+// Navegação por teclado no autocomplete
+function handleQuickReplyKeydown(e) {
+    const box = document.getElementById('quick-reply-suggest');
+    if (box.style.display !== 'block' || !box._matches) return false;
+    const items = box.querySelectorAll('.wpp-quick-item');
+    if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        quickSuggestIndex = Math.min(quickSuggestIndex + 1, items.length - 1);
+    } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        quickSuggestIndex = Math.max(quickSuggestIndex - 1, 0);
+    } else if (e.key === 'Enter') {
+        e.preventDefault();
+        const m = box._matches[quickSuggestIndex] || box._matches[0];
+        if (m) applyQuickReply(m.id);
+        return true;
+    } else if (e.key === 'Escape') {
+        box.style.display = 'none';
+        return true;
+    } else {
+        return false;
+    }
+    items.forEach((el, i) => el.classList.toggle('active', i === quickSuggestIndex));
+    return true;
+}
+
+// === MODAL DE GESTÃO DE RESPOSTAS RÁPIDAS ===
+function openQuickRepliesModal() {
+    document.getElementById('qr-id').value = '';
+    document.getElementById('qr-shortcut').value = '';
+    document.getElementById('qr-message').value = '';
+    renderQuickRepliesList();
+    new bootstrap.Modal(document.getElementById('quickRepliesModal')).show();
+}
+
+function renderQuickRepliesList() {
+    fetch(BASE + 'whatsapp/quickReplies', { headers: {'X-Requested-With': 'XMLHttpRequest'} })
+    .then(r => r.json())
+    .then(data => {
+        quickReplies = data.replies || [];
+        const tbody = document.getElementById('qr-list');
+        if (!quickReplies.length) {
+            tbody.innerHTML = '<tr><td colspan="3" class="text-muted small text-center py-3">Nenhuma resposta cadastrada.</td></tr>';
+            return;
+        }
+        tbody.innerHTML = quickReplies.map(q => `
+            <tr>
+                <td><span class="qr-sc">/${escapeHtml(q.shortcut)}</span></td>
+                <td class="small text-truncate" style="max-width:340px;">${escapeHtml(q.message)}</td>
+                <td class="text-end">
+                    <button class="btn btn-sm btn-outline-primary" onclick="editQuickReply(${q.id})"><i class="bi bi-pencil"></i></button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="deleteQuickReply(${q.id})"><i class="bi bi-trash"></i></button>
+                </td>
+            </tr>`).join('');
+    });
+}
+
+function editQuickReply(id) {
+    const q = quickReplies.find(x => x.id == id);
+    if (!q) return;
+    document.getElementById('qr-id').value = q.id;
+    document.getElementById('qr-shortcut').value = q.shortcut;
+    document.getElementById('qr-message').value = q.message;
+}
+
+function saveQuickReply() {
+    const shortcut = document.getElementById('qr-shortcut').value.trim().replace(/^\//, '');
+    const message = document.getElementById('qr-message').value.trim();
+    const id = document.getElementById('qr-id').value;
+    if (!shortcut || !message) { alert('Preencha o atalho e a mensagem.'); return; }
+
+    const fd = new FormData();
+    if (id) fd.append('id', id);
+    fd.append('shortcut', shortcut);
+    fd.append('message', message);
+
+    fetch(BASE + 'whatsapp/saveQuickReply', { method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'} })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) { alert(data.error); return; }
+        document.getElementById('qr-id').value = '';
+        document.getElementById('qr-shortcut').value = '';
+        document.getElementById('qr-message').value = '';
+        renderQuickRepliesList();
+    });
+}
+
+function deleteQuickReply(id) {
+    if (!confirm('Excluir esta resposta rápida?')) return;
+    fetch(BASE + 'whatsapp/deleteQuickReply/' + id, { method: 'POST', body: new FormData(), headers: {'X-Requested-With': 'XMLHttpRequest'} })
+    .then(r => r.json())
+    .then(() => renderQuickRepliesList());
+}
 
 let stagedFile = null;
 let isSendingMedia = false;
@@ -1709,9 +1908,13 @@ function setupTextarea() {
     if (!textarea) return;
 
     textarea.addEventListener('keydown', function(e) {
+        // Se o autocomplete de respostas rápidas estiver aberto, ele trata as setas/Enter/Esc
+        if (['ArrowDown','ArrowUp','Enter','Escape'].includes(e.key)) {
+            if (handleQuickReplyKeydown(e)) return;
+        }
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
-            sendMessage();
+            handleSend();
         }
         // Shift+Enter insere a quebra de linha (comportamento padrão do textarea)
     });
@@ -1719,6 +1922,7 @@ function setupTextarea() {
     textarea.addEventListener('input', function() {
         this.style.height = '34px';
         this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+        handleQuickReplyInput();
     });
 }
 
@@ -1729,6 +1933,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadContacts();
     startContactsPolling();
     setupTextarea();
+    loadQuickReplies();
 
     let searchTimer;
     document.getElementById('contact-search').addEventListener('input', () => {
