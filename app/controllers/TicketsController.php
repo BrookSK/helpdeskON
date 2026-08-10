@@ -68,7 +68,7 @@ class TicketsController extends Controller
     {
         $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
         $user = $this->currentUser();
-        $attendantId = ($user['role'] === 'attendant') ? $user['id'] : null;
+        $attendantId = (in_array($user['role'], ['attendant', 'whatsapp_agent'])) ? $user['id'] : null;
 
         // Controle de acesso por empresa
         $allowedCompanies = PlanningCard::getUserAllowedCompanies($user['id'], $user['role']);

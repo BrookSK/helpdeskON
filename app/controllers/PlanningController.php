@@ -19,6 +19,11 @@ class PlanningController extends Controller
         if (!empty($_GET['company_id'])) $filters['company_id'] = $_GET['company_id'];
         if (!empty($_GET['assigned_to'])) $filters['assigned_to'] = $_GET['assigned_to'];
 
+        // whatsapp_agent só vê cards atribuídos a ele (forçar filtro)
+        if ($user['role'] === 'whatsapp_agent') {
+            $filters['assigned_to'] = $user['id'];
+        }
+
         // Controle de acesso por empresa
         $allowedCompanies = PlanningCard::getUserAllowedCompanies($user['id'], $user['role']);
         if ($allowedCompanies !== null) {
@@ -28,7 +33,7 @@ class PlanningController extends Controller
         $grouped = $this->cardModel->getGroupedByStatus($filters);
 
         $companyModel = new Company();
-        // Atendente só vê empresas que tem acesso
+        // Atendente/agent só vê empresas que tem acesso
         if ($allowedCompanies !== null && !in_array(0, $allowedCompanies)) {
             $allCompanies = $companyModel->getAll();
             $companies = array_filter($allCompanies, fn($c) => in_array($c['id'], $allowedCompanies));
@@ -39,10 +44,14 @@ class PlanningController extends Controller
         $userModel = new User();
         $team = $userModel->getAttendants();
 
-        // Admins também aparecem na lista de responsáveis
-        $db = Database::getInstance();
-        $admins = $db->fetchAll("SELECT id, name FROM users WHERE role = 'super_admin' AND is_active = 1");
-        $teamMembers = array_merge($admins, $team);
+        // whatsapp_agent só vê a si mesmo na lista de responsáveis
+        if ($user['role'] === 'whatsapp_agent') {
+            $teamMembers = [['id' => $user['id'], 'name' => $user['name']]];
+        } else {
+            $db = Database::getInstance();
+            $admins = $db->fetchAll("SELECT id, name FROM users WHERE role = 'super_admin' AND is_active = 1");
+            $teamMembers = array_merge($admins, $team);
+        }
 
         $this->view('planning/index', [
             'user' => $user,
