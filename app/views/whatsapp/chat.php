@@ -953,8 +953,10 @@ function renderSingleMessage(m) {
                 <a href="${fileUrl}" download="${escapeHtml(fileName)}" class="btn btn-sm btn-outline-success" title="Baixar"><i class="bi bi-download"></i> Baixar</a>
             </div>
         </div>`;
+        if (m.message_text) content += `<div class="mt-1">${formatWhatsApp(m.message_text)}</div>`;
     } else if (m.message_type === 'video' && m.media_url) {
         content += `<video controls src="${BASE + m.media_url}" style="max-width:220px;border-radius:6px;"></video>`;
+        if (m.message_text) content += `<div class="mt-1">${formatWhatsApp(m.message_text)}</div>`;
     } else {
         content += formatWhatsApp(m.message_text || '');
     }
