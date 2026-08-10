@@ -136,14 +136,12 @@ class WhatsappNotifier
         $jid = $api->normalizeJid($api->normalizeNumber($phone));
         $phoneOnly = $api->extractPhone($jid);
 
+        // Enviar a mensagem
+        $result = [];
         try {
             $result = $api->sendText($jid, $message);
         } catch (Exception $e) {
-            return false;
-        }
-
-        if (isset($result['error']) && $result['error']) {
-            return false;
+            $result = [];
         }
 
         // Usar o JID real retornado pela Evolution (pode diferir do normalizado por causa do 9º dígito)
@@ -153,8 +151,9 @@ class WhatsappNotifier
         }
         $realPhone = $api->extractPhone($realJid);
 
-        // Registrar no chat usando os MESMOS models do fluxo de mensagens recebidas,
-        // garantindo consistência com a lógica já existente do chat.
+        // Registrar no chat SEMPRE (mesmo que a resposta da API não traga a key),
+        // usando os mesmos models do fluxo de mensagens recebidas. Assim a conversa
+        // aparece no chat independentemente do formato de resposta da Evolution.
         if ($instance) {
             try {
                 $contactModel = new WhatsappContact();
@@ -181,11 +180,28 @@ class WhatsappNotifier
                 ]);
 
                 $contactModel->updateLastMessage($contactId, date('Y-m-d H:i:s'));
+
+                self::log("OK phone={$phone} jid={$realJid} instance={$instance['id']} contact={$contactId} result=" . json_encode($result));
             } catch (Exception $e) {
-                // Silencioso — o envio já ocorreu
+                self::log("ERRO persistencia phone={$phone} jid={$realJid}: " . $e->getMessage());
             }
+        } else {
+            self::log("SEM INSTANCIA para phone={$phone}");
         }
 
         return true;
+    }
+
+    /**
+     * Log de diagnóstico em arquivo (public/uploads/whatsapp_notifier.log).
+     */
+    private static function log($msg)
+    {
+        try {
+            $file = PUBLIC_PATH . '/uploads/whatsapp_notifier.log';
+            file_put_contents($file, '[' . date('Y-m-d H:i:s') . '] ' . $msg . "\n", FILE_APPEND);
+        } catch (\Throwable $e) {
+            // ignora
+        }
     }
 }
