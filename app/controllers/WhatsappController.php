@@ -340,6 +340,11 @@ class WhatsappController extends Controller
             $this->json(['error' => 'Método inválido'], 405);
         }
 
+        // Garante que o envio conclua no servidor mesmo se o usuário sair da tela
+        // (browser aborta a requisição, mas o PHP continua e marca a mensagem como enviada)
+        @ignore_user_abort(true);
+        @set_time_limit(120);
+
         $contactId = $_POST['contact_id'] ?? null;
         $contact = $this->contactModel->findById($contactId);
         if (!$contact) $this->json(['error' => 'Contato não encontrado'], 404);
