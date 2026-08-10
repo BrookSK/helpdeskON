@@ -14,11 +14,7 @@ $defaultApiKey = $defaultInstance['api_key'] ?? '';
             <small class="text-muted">Gerencie suas instâncias e conexões</small>
         </div>
         <div class="d-flex gap-2">
-            <a href="<?= baseUrl('whatsapp/chat') ?>" class="btn btn-sm btn-primary"><i class="bi bi-chat-dots"></i> Ir para Chat</a>
             <?php if (($user['role'] ?? '') === 'super_admin'): ?>
-            <button class="btn btn-sm btn-outline-success" onclick="fixDeliveryEvents(this)" title="Ativar confirmação de entrega/leitura (checks)">
-                <i class="bi bi-check2-all"></i> Ativar confirmações
-            </button>
             <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#newInstanceModal">
                 <i class="bi bi-plus-lg"></i> Nova Instância
             </button>
@@ -204,6 +200,14 @@ $defaultApiKey = $defaultInstance['api_key'] ?? '';
                     </select>
                     <small class="text-muted">Se vinculada, apenas este usuário verá os contatos desta instância no chat.</small>
                 </div>
+                <hr>
+                <div class="mb-2">
+                    <label class="form-label small fw-medium">Confirmações de mensagem</label>
+                    <button type="button" class="btn btn-sm btn-outline-success w-100" onclick="fixDeliveryEvents(this)">
+                        <i class="bi bi-check2-all"></i> Ativar confirmação de entrega/leitura
+                    </button>
+                    <small class="text-muted d-block mt-1">Habilita os checks de entregue/lida (registra o evento de status no webhook desta instância).</small>
+                </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -365,8 +369,13 @@ function checkStatus(id) {
 }
 
 function fixDeliveryEvents(btn) {
+    const instanceId = document.getElementById('edit-instance-id').value;
+    const url = instanceId
+        ? BASE + 'whatsapp/registerWebhookEvents/' + instanceId
+        : BASE + 'whatsapp/registerWebhookEvents';
+    const original = btn ? btn.innerHTML : '';
     if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Ativando...'; }
-    fetch(BASE + 'whatsapp/registerWebhookEvents', { method: 'POST', headers: {'X-Requested-With': 'XMLHttpRequest'} })
+    fetch(url, { method: 'POST', headers: {'X-Requested-With': 'XMLHttpRequest'} })
     .then(r => r.json())
     .then(data => {
         if (data.success) {
@@ -377,7 +386,7 @@ function fixDeliveryEvents(btn) {
     })
     .catch(() => alert('Erro ao ativar confirmações.'))
     .finally(() => {
-        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-check2-all"></i> Ativar confirmações'; }
+        if (btn) { btn.disabled = false; btn.innerHTML = original || '<i class="bi bi-check2-all"></i> Ativar confirmação de entrega/leitura'; }
     });
 }
 

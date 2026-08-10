@@ -429,8 +429,14 @@ body { overflow: hidden !important; margin: 0; padding: 0; }
 .wpp-msg.other { align-self: flex-start; background: #fff; border-bottom-left-radius: 2px; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
 .wpp-msg-sender { font-size: 0.7rem; font-weight: 600; color: #075e54; margin-bottom: 2px; }
 .wpp-msg-time { font-size: 0.62rem; color: #888; margin-top: 3px; text-align: right; }
-.wpp-ack { color: #8a8a8a; font-size: 0.8rem; }
-.wpp-ack-read { color: #34b7f1; font-size: 0.8rem; }
+.wpp-ack { color: #8a8a8a; font-size: 0.85rem; margin-left: 2px; }
+.wpp-ack-read { color: #34b7f1; }
+/* Dois checks sobrepostos (entregue/lida) */
+.wpp-double-check { position: relative; display: inline-block; width: 1.15em; height: 1em; margin-left: 3px; vertical-align: middle; }
+.wpp-double-check i { position: absolute; top: 0; font-size: 0.85rem; color: #8a8a8a; }
+.wpp-double-check i:first-child { left: 0; }
+.wpp-double-check i:last-child { left: 0.32em; }
+.wpp-double-check.wpp-ack-read i { color: #34b7f1; }
 .wpp-msg { position: relative; }
 .wpp-reaction-badge {
     position: absolute;
@@ -987,11 +993,14 @@ function transcribeAudio(messageId, btn) {
 
 // Ícone de confirmação estilo WhatsApp
 function renderAckIcon(status) {
+    // Dois checks sobrepostos para visual claro de "entregue"/"lida"
+    const doubleCheck = (cls, title) =>
+        `<span class="wpp-double-check ${cls}" title="${title}"><i class="bi bi-check2"></i><i class="bi bi-check2"></i></span>`;
     switch (status) {
         case 'read':
-            return '<i class="bi bi-check2-all wpp-ack-read" title="Lida"></i>';
+            return doubleCheck('wpp-ack-read', 'Lida');
         case 'delivered':
-            return '<i class="bi bi-check2-all wpp-ack" title="Entregue"></i>';
+            return doubleCheck('wpp-ack', 'Entregue');
         case 'sent':
             return '<i class="bi bi-check2 wpp-ack" title="Enviada"></i>';
         case 'failed':
