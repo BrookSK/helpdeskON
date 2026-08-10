@@ -615,6 +615,35 @@ body { overflow: hidden !important; margin: 0; padding: 0; }
 .btn-transcribe:disabled { opacity: 0.7; cursor: default; }
 .btn-transcribe i { font-size: 1rem; }
 .qr-message-auto { resize: none; overflow-y: auto; min-height: 34px; max-height: 200px; line-height: 1.4; }
+
+/* ===== Player de áudio customizado ===== */
+.wpp-audio { display: flex; align-items: center; gap: 12px; min-width: 260px; max-width: 320px; padding: 2px 0; }
+.wpp-audio audio { display: none; }
+.wpp-audio-play {
+    flex-shrink: 0;
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    border: none;
+    background: #1f2937;
+    color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.3rem;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.1s;
+}
+.wpp-audio-play:hover { background: #111827; }
+.wpp-audio-play:active { transform: scale(0.94); }
+.wpp-audio-main { flex: 1; min-width: 0; }
+.wpp-wave { position: relative; height: 34px; cursor: pointer; }
+.wpp-wave-bars { display: flex; align-items: center; gap: 2px; height: 100%; width: 100%; }
+.wpp-wave-bar { flex: 1; min-width: 2px; background: #cbd5e1; border-radius: 2px; }
+.wpp-wave-fill {
+    position: absolute; top: 0; left: 0; height: 100%; width: 100%;
+    pointer-events: none;
+}
+.wpp-wave-fill .wpp-wave-bar { background: var(--primary); }
+.wpp-audio-times { display: flex; justify-content: space-between; font-size: 0.68rem; color: #6b7280; margin-top: 2px; }
+.wpp-audio-vol { color: #4b5563; font-size: 1.05rem; flex-shrink: 0; }
 .wpp-emoji-picker {
     position: absolute;
     bottom: 52px;
@@ -1037,7 +1066,7 @@ function renderSingleMessage(m) {
         content += `<div class="wpp-msg-media"><img src="${BASE + m.media_url}" style="cursor:pointer;" onclick="openLightbox(this.src)"></div>`;
         if (m.message_text) content += `<div>${formatWhatsApp(m.message_text)}</div>`;
     } else if (m.message_type === 'audio' && m.media_url) {
-        content += `<audio controls src="${BASE + m.media_url}" style="max-width:200px;"></audio>`;
+        content += renderAudioPlayer(m);
         if (m.transcription) {
             content += `<div class="wpp-transcription"><i class="bi bi-quote"></i> ${escapeHtml(m.transcription)}</div>`;
         } else {
@@ -1092,6 +1121,100 @@ document.addEventListener('keydown', function(e) {
         if (box && box.classList.contains('open')) closeLightbox();
     }
 });
+
+// ===== Player de áudio customizado (waveform) =====
+function renderAudioPlayer(m) {
+    const src = BASE + m.media_url;
+    const pid = 'aud-' + m.id;
+    // Barras da waveform (alturas pseudo-aleatórias porém estáveis por id)
+    let bars = '';
+    let seed = parseInt(m.id, 10) || 1;
+    for (let i = 0; i < 40; i++) {
+        seed = (seed * 9301 + 49297) % 233280;
+        const h = 20 + Math.floor((seed / 233280) * 80); // 20% a 100%
+        bars += `<span class="wpp-wave-bar" style="height:${h}%"></span>`;
+    }
+    return `<div class="wpp-audio" id="${pid}">
+        <audio src="${src}" preload="metadata"
+            ontimeupdate="wppAudioProgress('${pid}')"
+            onloadedmetadata="wppAudioMeta('${pid}')"
+            onended="wppAudioEnded('${pid}')"></audio>
+        <button type="button" class="wpp-audio-play" onclick="wppAudioToggle('${pid}')"><i class="bi bi-play-fill"></i></button>
+        <div class="wpp-audio-main">
+            <div class="wpp-wave" onclick="wppAudioSeek(event,'${pid}')">
+                <div class="wpp-wave-bars">${bars}</div>
+                <div class="wpp-wave-fill" style="clip-path:inset(0 100% 0 0)">
+                    <div class="wpp-wave-bars">${bars}</div>
+                </div>
+            </div>
+            <div class="wpp-audio-times">
+                <span class="wpp-audio-cur">0:00</span>
+                <span class="wpp-audio-dur">0:00</span>
+            </div>
+        </div>
+        <i class="bi bi-volume-up wpp-audio-vol"></i>
+    </div>`;
+}
+
+function wppFmtTime(s) {
+    if (!isFinite(s) || s < 0) s = 0;
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return m + ':' + (sec < 10 ? '0' : '') + sec;
+}
+
+function wppAudioToggle(pid) {
+    const wrap = document.getElementById(pid);
+    if (!wrap) return;
+    const audio = wrap.querySelector('audio');
+    // Pausa qualquer outro áudio tocando
+    document.querySelectorAll('.wpp-audio audio').forEach(a => { if (a !== audio) { a.pause(); } });
+    document.querySelectorAll('.wpp-audio').forEach(w => { if (w !== wrap) w.classList.remove('playing'); });
+    if (audio.paused) {
+        audio.play();
+        wrap.classList.add('playing');
+        wrap.querySelector('.wpp-audio-play i').className = 'bi bi-pause-fill';
+    } else {
+        audio.pause();
+        wrap.classList.remove('playing');
+        wrap.querySelector('.wpp-audio-play i').className = 'bi bi-play-fill';
+    }
+}
+
+function wppAudioMeta(pid) {
+    const wrap = document.getElementById(pid);
+    if (!wrap) return;
+    const audio = wrap.querySelector('audio');
+    wrap.querySelector('.wpp-audio-dur').textContent = wppFmtTime(audio.duration);
+}
+
+function wppAudioProgress(pid) {
+    const wrap = document.getElementById(pid);
+    if (!wrap) return;
+    const audio = wrap.querySelector('audio');
+    const pct = audio.duration ? (audio.currentTime / audio.duration) * 100 : 0;
+    wrap.querySelector('.wpp-wave-fill').style.clipPath = 'inset(0 ' + (100 - pct) + '% 0 0)';
+    wrap.querySelector('.wpp-audio-cur').textContent = wppFmtTime(audio.currentTime);
+}
+
+function wppAudioEnded(pid) {
+    const wrap = document.getElementById(pid);
+    if (!wrap) return;
+    wrap.classList.remove('playing');
+    wrap.querySelector('.wpp-audio-play i').className = 'bi bi-play-fill';
+    wrap.querySelector('.wpp-wave-fill').style.clipPath = 'inset(0 100% 0 0)';
+    wrap.querySelector('.wpp-audio-cur').textContent = '0:00';
+}
+
+function wppAudioSeek(e, pid) {
+    const wrap = document.getElementById(pid);
+    if (!wrap) return;
+    const audio = wrap.querySelector('audio');
+    const wave = wrap.querySelector('.wpp-wave');
+    const rect = wave.getBoundingClientRect();
+    const ratio = Math.min(Math.max((e.clientX - rect.left) / rect.width, 0), 1);
+    if (audio.duration) audio.currentTime = ratio * audio.duration;
+}
 
 // Transcrever áudio recebido
 function transcribeAudio(messageId, btn) {
