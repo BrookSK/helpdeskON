@@ -191,7 +191,10 @@ class WhatsappNotifier
 
                 $contactModel->updateLastMessage($contactId, date('Y-m-d H:i:s'));
 
-                self::log("OK phone={$phone} jid={$realJid} instance={$instance['id']} contact={$contactId} result=" . json_encode($result));
+                // Diagnóstico: linha real do contato + quantos o chat enxerga nesta instância
+                $row = $db->fetch("SELECT id, instance_id, remote_jid, phone, contact_name, is_group, is_archived, service_status FROM whatsapp_contacts WHERE id = ?", [$contactId]);
+                $visible = $db->fetch("SELECT COUNT(*) as t FROM whatsapp_contacts WHERE instance_id = ? AND is_group = 0 AND is_archived = 0", [$instance['id']]);
+                self::log("OK phone={$phone} jid={$realJid} instance={$instance['id']} contact={$contactId} row=" . json_encode($row) . " visiveis={$visible['t']}");
             } catch (Exception $e) {
                 self::log("ERRO persistencia phone={$phone} jid={$realJid}: " . $e->getMessage());
             }
