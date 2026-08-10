@@ -2,6 +2,11 @@
 <?php require APP_PATH . '/views/layouts/header.php'; ?>
 <?php require APP_PATH . '/views/layouts/sidebar.php'; ?>
 
+<?php
+$defaultApiUrl = $defaultInstance['api_url'] ?? '';
+$defaultApiKey = $defaultInstance['api_key'] ?? '';
+?>
+
 <div class="main-content">
     <div class="top-bar">
         <div>
@@ -36,14 +41,14 @@
         <div class="col-md-6 col-lg-4">
             <div class="card instance-card" data-id="<?= $inst['id'] ?>">
                 <div class="card-body">
-                    <div class="d-flex justify-content-between align-items-start mb-3">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
                         <div>
                             <h6 class="mb-1"><?= escape($inst['display_name'] ?: $inst['instance_name']) ?></h6>
                             <small class="text-muted"><?= escape($inst['instance_name']) ?></small>
                         </div>
-                        <div class="d-flex align-items-center gap-2">
+                        <div class="d-flex align-items-center gap-1">
                             <?php if ($inst['is_default']): ?>
-                            <span class="badge bg-primary" style="font-size:0.65rem;">Padrão</span>
+                            <span class="badge bg-primary" style="font-size:0.6rem;">Padrão</span>
                             <?php endif; ?>
                             <span class="badge connection-badge status-<?= $inst['connection_status'] ?>">
                                 <?= $inst['connection_status'] === 'open' ? 'Conectado' : ($inst['connection_status'] === 'connecting' ? 'Conectando...' : 'Desconectado') ?>
@@ -52,7 +57,13 @@
                     </div>
 
                     <?php if ($inst['owner_phone']): ?>
-                    <p class="small text-muted mb-2"><i class="bi bi-phone"></i> <?= escape($inst['owner_phone']) ?></p>
+                    <p class="small text-muted mb-1"><i class="bi bi-phone"></i> <?= escape($inst['owner_phone']) ?></p>
+                    <?php endif; ?>
+
+                    <?php if ($inst['linked_user_name']): ?>
+                    <p class="small mb-2"><i class="bi bi-person-badge"></i> <span class="text-primary fw-medium"><?= escape($inst['linked_user_name']) ?></span></p>
+                    <?php else: ?>
+                    <p class="small text-muted mb-2"><i class="bi bi-person-badge"></i> Sem usuário vinculado</p>
                     <?php endif; ?>
 
                     <!-- QR Code area -->
@@ -73,16 +84,20 @@
                         <?php endif; ?>
 
                         <button class="btn btn-sm btn-outline-secondary" onclick="checkStatus(<?= $inst['id'] ?>)">
-                            <i class="bi bi-arrow-repeat"></i> Status
+                            <i class="bi bi-arrow-repeat"></i>
                         </button>
 
-                        <?php if (!$inst['is_default'] && ($user['role'] ?? '') === 'super_admin'): ?>
-                        <button class="btn btn-sm btn-outline-primary" onclick="setDefault(<?= $inst['id'] ?>)">
-                            <i class="bi bi-star"></i> Padrão
+                        <?php if (($user['role'] ?? '') === 'super_admin'): ?>
+                        <button class="btn btn-sm btn-outline-primary" onclick="openEditModal(<?= $inst['id'] ?>, '<?= escape($inst['display_name']) ?>', '<?= escape($inst['api_url']) ?>', '<?= escape($inst['api_key']) ?>', '<?= $inst['user_id'] ?? '' ?>')">
+                            <i class="bi bi-pencil"></i> Editar
+                        </button>
+
+                        <?php if (!$inst['is_default']): ?>
+                        <button class="btn btn-sm btn-outline-warning" onclick="setDefault(<?= $inst['id'] ?>)" title="Definir como padrão">
+                            <i class="bi bi-star"></i>
                         </button>
                         <?php endif; ?>
 
-                        <?php if (($user['role'] ?? '') === 'super_admin'): ?>
                         <button class="btn btn-sm btn-outline-danger" onclick="deleteInstance(<?= $inst['id'] ?>)">
                             <i class="bi bi-trash"></i>
                         </button>
@@ -113,18 +128,83 @@
                     <label class="form-label small fw-medium">Nome de Exibição</label>
                     <input type="text" id="new-display-name" class="form-control form-control-sm" placeholder="ex: WhatsApp Empresa">
                 </div>
-                <div class="mb-3">
-                    <label class="form-label small fw-medium">URL da Evolution API *</label>
-                    <input type="url" id="new-api-url" class="form-control form-control-sm" placeholder="https://api.seuservidor.com">
+                <hr>
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" id="use-default-credentials" checked onchange="toggleDefaultCredentials()">
+                    <label class="form-check-label small" for="use-default-credentials">
+                        Usar URL e API Key da instância padrão
+                    </label>
                 </div>
+                <div id="custom-credentials" style="display:none;">
+                    <div class="mb-3">
+                        <label class="form-label small fw-medium">URL da Evolution API *</label>
+                        <input type="url" id="new-api-url" class="form-control form-control-sm" placeholder="https://api.seuservidor.com">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-medium">API Key *</label>
+                        <input type="text" id="new-api-key" class="form-control form-control-sm" placeholder="Sua chave de API">
+                    </div>
+                </div>
+                <div id="default-credentials-info" class="alert alert-light small py-2">
+                    <i class="bi bi-info-circle"></i> Será usada a mesma URL e chave da instância padrão.
+                </div>
+                <hr>
                 <div class="mb-3">
-                    <label class="form-label small fw-medium">API Key *</label>
-                    <input type="text" id="new-api-key" class="form-control form-control-sm" placeholder="Sua chave de API">
+                    <label class="form-label small fw-medium">Vincular ao Usuário (opcional)</label>
+                    <select id="new-user-id" class="form-select form-select-sm">
+                        <option value="">Nenhum (disponível para todos)</option>
+                        <?php foreach ($teamMembers as $m): ?>
+                        <option value="<?= $m['id'] ?>"><?= escape($m['name']) ?> (<?= roleLabel($m['role']) ?>)</option>
+                        <?php endforeach; ?>
+                    </select>
+                    <small class="text-muted">Se vinculada, apenas este usuário verá os contatos desta instância.</small>
                 </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
                 <button type="button" class="btn btn-sm btn-primary" onclick="createInstance()">Criar Instância</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Editar Instância -->
+<div class="modal fade" id="editInstanceModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title">Editar Instância</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="edit-instance-id">
+                <div class="mb-3">
+                    <label class="form-label small fw-medium">Nome de Exibição</label>
+                    <input type="text" id="edit-display-name" class="form-control form-control-sm">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small fw-medium">URL da Evolution API</label>
+                    <input type="url" id="edit-api-url" class="form-control form-control-sm">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small fw-medium">API Key</label>
+                    <input type="text" id="edit-api-key" class="form-control form-control-sm">
+                </div>
+                <hr>
+                <div class="mb-3">
+                    <label class="form-label small fw-medium">Vincular ao Usuário</label>
+                    <select id="edit-user-id" class="form-select form-select-sm">
+                        <option value="">Nenhum (disponível para todos)</option>
+                        <?php foreach ($teamMembers as $m): ?>
+                        <option value="<?= $m['id'] ?>"><?= escape($m['name']) ?> (<?= roleLabel($m['role']) ?>)</option>
+                        <?php endforeach; ?>
+                    </select>
+                    <small class="text-muted">Se vinculada, apenas este usuário verá os contatos desta instância no chat.</small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-sm btn-primary" onclick="saveInstance()">Salvar</button>
             </div>
         </div>
     </div>
@@ -143,7 +223,93 @@
 
 <script>
 const BASE = '<?= baseUrl("") ?>';
+const DEFAULT_API_URL = '<?= escape($defaultApiUrl) ?>';
+const DEFAULT_API_KEY = '<?= escape($defaultApiKey) ?>';
 
+// =========================================
+// Toggle credenciais padrão no modal de criar
+// =========================================
+function toggleDefaultCredentials() {
+    const checked = document.getElementById('use-default-credentials').checked;
+    document.getElementById('custom-credentials').style.display = checked ? 'none' : 'block';
+    document.getElementById('default-credentials-info').style.display = checked ? 'block' : 'none';
+}
+
+// =========================================
+// Criar instância
+// =========================================
+function createInstance() {
+    const useDefault = document.getElementById('use-default-credentials').checked;
+    const apiUrl = useDefault ? DEFAULT_API_URL : document.getElementById('new-api-url').value;
+    const apiKey = useDefault ? DEFAULT_API_KEY : document.getElementById('new-api-key').value;
+    const instanceName = document.getElementById('new-instance-name').value.trim();
+
+    if (!instanceName) { alert('Nome da instância é obrigatório'); return; }
+    if (!apiUrl || !apiKey) { alert('URL e API Key são obrigatórios. Configure uma instância padrão primeiro.'); return; }
+
+    const fd = new FormData();
+    fd.append('instance_name', instanceName);
+    fd.append('display_name', document.getElementById('new-display-name').value);
+    fd.append('api_url', apiUrl);
+    fd.append('api_key', apiKey);
+
+    const userId = document.getElementById('new-user-id').value;
+    if (userId) fd.append('user_id', userId);
+
+    fetch(BASE + 'whatsapp/createInstance', { method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'} })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            // Se tiver user_id, vincular
+            if (userId && data.instance_id) {
+                const fd2 = new FormData();
+                fd2.append('user_id', userId);
+                fetch(BASE + 'whatsapp/updateInstance/' + data.instance_id, { method: 'POST', body: fd2, headers: {'X-Requested-With': 'XMLHttpRequest'} })
+                .then(() => location.reload());
+            } else {
+                location.reload();
+            }
+        } else {
+            alert(data.error || 'Erro ao criar instância');
+        }
+    })
+    .catch(() => alert('Erro de conexão'));
+}
+
+// =========================================
+// Editar instância
+// =========================================
+function openEditModal(id, displayName, apiUrl, apiKey, userId) {
+    document.getElementById('edit-instance-id').value = id;
+    document.getElementById('edit-display-name').value = displayName || '';
+    document.getElementById('edit-api-url').value = apiUrl || '';
+    document.getElementById('edit-api-key').value = apiKey || '';
+    document.getElementById('edit-user-id').value = userId || '';
+    new bootstrap.Modal(document.getElementById('editInstanceModal')).show();
+}
+
+function saveInstance() {
+    const id = document.getElementById('edit-instance-id').value;
+    const fd = new FormData();
+    fd.append('display_name', document.getElementById('edit-display-name').value);
+    fd.append('api_url', document.getElementById('edit-api-url').value);
+    fd.append('api_key', document.getElementById('edit-api-key').value);
+    fd.append('user_id', document.getElementById('edit-user-id').value);
+
+    fetch(BASE + 'whatsapp/updateInstance/' + id, { method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'} })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        } else {
+            alert(data.error || 'Erro ao salvar');
+        }
+    });
+}
+
+// =========================================
+// Conexão / Status / Padrão / Deletar
+// =========================================
 function connectInstance(id) {
     const qrArea = document.getElementById('qr-area-' + id);
     qrArea.style.display = 'block';
@@ -155,15 +321,14 @@ function connectInstance(id) {
     .then(data => {
         qrArea.querySelector('.qr-loading').style.display = 'none';
         if (data.base64) {
-            qrArea.querySelector('.qr-image').innerHTML = '<img src="' + data.base64 + '" alt="QR Code"><br><small class="text-muted mt-2 d-block">Escaneie com seu WhatsApp</small>';
+            qrArea.querySelector('.qr-image').innerHTML = '<img src="' + data.base64 + '"><br><small class="text-muted mt-2 d-block">Escaneie com seu WhatsApp</small>';
         } else if (data.code) {
-            qrArea.querySelector('.qr-image').innerHTML = '<img src="data:image/png;base64,' + data.code + '" alt="QR Code"><br><small class="text-muted mt-2 d-block">Escaneie com seu WhatsApp</small>';
+            qrArea.querySelector('.qr-image').innerHTML = '<img src="data:image/png;base64,' + data.code + '"><br><small class="text-muted mt-2 d-block">Escaneie com seu WhatsApp</small>';
         } else if (data.pairingCode) {
             qrArea.querySelector('.qr-image').innerHTML = '<div class="alert alert-info small">Código de pareamento: <strong>' + data.pairingCode + '</strong></div>';
         } else {
             qrArea.querySelector('.qr-image').innerHTML = '<div class="alert alert-warning small">QR Code não disponível. Verifique o status.</div>';
         }
-        // Polling status
         startStatusPolling(id);
     })
     .catch(() => {
@@ -215,25 +380,6 @@ function deleteInstance(id) {
     fetch(BASE + 'whatsapp/deleteInstance/' + id, { method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'} })
     .then(r => r.json())
     .then(() => location.reload());
-}
-
-function createInstance() {
-    const fd = new FormData();
-    fd.append('instance_name', document.getElementById('new-instance-name').value);
-    fd.append('display_name', document.getElementById('new-display-name').value);
-    fd.append('api_url', document.getElementById('new-api-url').value);
-    fd.append('api_key', document.getElementById('new-api-key').value);
-
-    fetch(BASE + 'whatsapp/createInstance', { method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'} })
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) {
-            location.reload();
-        } else {
-            alert(data.error || 'Erro ao criar instância');
-        }
-    })
-    .catch(() => alert('Erro de conexão'));
 }
 </script>
 

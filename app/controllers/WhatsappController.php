@@ -20,11 +20,19 @@ class WhatsappController extends Controller
         $user = $this->currentUser();
 
         $db = Database::getInstance();
-        $instances = $db->fetchAll("SELECT * FROM whatsapp_instances ORDER BY is_default DESC, created_at DESC");
+        $instances = $db->fetchAll("SELECT wi.*, u.name as linked_user_name FROM whatsapp_instances wi LEFT JOIN users u ON wi.user_id = u.id ORDER BY wi.is_default DESC, wi.created_at DESC");
+
+        // Lista de usuários para vincular instância (super_admin + attendant)
+        $teamMembers = $db->fetchAll("SELECT id, name, role FROM users WHERE role IN ('super_admin','attendant') AND is_active = 1 ORDER BY name ASC");
+
+        // Pegar instância padrão para preencher URL/Key no formulário de nova instância
+        $defaultInstance = $db->fetch("SELECT api_url, api_key FROM whatsapp_instances WHERE is_default = 1 LIMIT 1");
 
         $this->view('whatsapp/connect', [
             'user' => $user,
             'instances' => $instances,
+            'teamMembers' => $teamMembers,
+            'defaultInstance' => $defaultInstance,
         ]);
     }
 
@@ -450,7 +458,7 @@ class WhatsappController extends Controller
             'display_name' => $displayName ?: $instanceName,
             'api_url' => $apiUrl,
             'api_key' => $apiKey,
-            'user_id' => $user['id'],
+            'user_id' => !empty($_POST['user_id']) ? intval($_POST['user_id']) : $user['id'],
             'connection_status' => 'close',
             'is_default' => 0,
         ]);
@@ -556,6 +564,34 @@ class WhatsappController extends Controller
         // Deletar do banco (cascade remove contatos e mensagens)
         $db->delete('whatsapp_instances', 'id = ?', [$instanceId]);
 
+        $this->json(['success' => true]);
+    }
+
+    /**
+     * API: Atualizar instância (display_name, api_url, api_key, user_id)
+     */
+    public function updateInstance($instanceId = null)
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$instanceId) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+
+        $db = Database::getInstance();
+        $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE id = ?", [$instanceId]);
+        if (!$instance) $this->json(['error' => 'Instância não encontrada'], 404);
+
+        $data = [];
+        if (isset($_POST['display_name'])) $data['display_name'] = trim($_POST['display_name']);
+        if (isset($_POST['api_url'])) $data['api_url'] = trim($_POST['api_url']);
+        if (isset($_POST['api_key'])) $data['api_key'] = trim($_POST['api_key']);
+        if (isset($_POST['user_id'])) $data['user_id'] = $_POST['user_id'] ?: null;
+
+        if (empty($data)) {
+            $this->json(['error' => 'Nada para atualizar'], 400);
+        }
+
+        $db->update('whatsapp_instances', $data, 'id = ?', [$instanceId]);
         $this->json(['success' => true]);
     }
 
