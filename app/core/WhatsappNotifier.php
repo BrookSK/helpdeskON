@@ -138,19 +138,31 @@ class WhatsappNotifier
             return false;
         }
 
+        // Usar o JID real retornado pela Evolution (pode diferir do normalizado por causa do 9º dígito)
+        $realJid = $result['key']['remoteJid'] ?? $jid;
+        if (strpos($realJid, '@') === false) {
+            $realJid = $api->normalizeJid($realJid);
+        }
+        $realPhone = $api->extractPhone($realJid);
+
         // Registrar no chat (localiza ou cria o contato)
         if ($instance) {
             try {
+                // 1) Tenta pelo JID real; 2) pelo JID normalizado; 3) pelos últimos 8 dígitos do telefone
+                $last8 = substr(preg_replace('/\D/', '', $phoneOnly), -8);
                 $contact = $db->fetch(
-                    "SELECT * FROM whatsapp_contacts WHERE instance_id = ? AND remote_jid = ? LIMIT 1",
-                    [$instance['id'], $jid]
+                    "SELECT * FROM whatsapp_contacts
+                     WHERE instance_id = ? AND is_group = 0
+                       AND (remote_jid = ? OR remote_jid = ? OR REPLACE(REPLACE(phone,' ',''),'-','') LIKE ?)
+                     LIMIT 1",
+                    [$instance['id'], $realJid, $jid, '%' . $last8]
                 );
 
                 if (!$contact) {
                     $contactId = $db->insert('whatsapp_contacts', [
                         'instance_id' => $instance['id'],
-                        'remote_jid' => $jid,
-                        'phone' => $phoneOnly,
+                        'remote_jid' => $realJid,
+                        'phone' => $realPhone,
                         'is_group' => 0,
                         'last_message_at' => date('Y-m-d H:i:s'),
                     ]);
@@ -161,7 +173,7 @@ class WhatsappNotifier
                 $db->insert('whatsapp_messages', [
                     'instance_id' => $instance['id'],
                     'contact_id' => $contactId,
-                    'remote_jid' => $jid,
+                    'remote_jid' => $realJid,
                     'message_id' => $result['key']['id'] ?? uniqid('notif_'),
                     'from_me' => 1,
                     'message_type' => 'text',
