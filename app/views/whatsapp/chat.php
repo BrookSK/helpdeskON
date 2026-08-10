@@ -445,6 +445,12 @@ body { overflow: hidden !important; margin: 0; padding: 0; }
     box-shadow: 0 1px 3px rgba(0,0,0,0.15);
 }
 .wpp-msg.mine .wpp-reaction-badge { right: auto; left: 8px; }
+.wpp-doc { min-width: 220px; }
+.wpp-doc-info { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; margin-bottom: 6px; }
+.wpp-doc-info i { font-size: 1.3rem; color: #d32f2f; }
+.wpp-doc-name { word-break: break-word; }
+.wpp-doc-actions { display: flex; gap: 6px; }
+.wpp-doc-actions .btn { font-size: 0.72rem; padding: 2px 8px; }
 .wpp-lightbox {
     display: none;
     position: fixed;
@@ -911,7 +917,15 @@ function renderSingleMessage(m) {
             content += `<div class="wpp-transcription-action"><button class="btn btn-sm btn-link p-0" style="font-size:0.72rem;" onclick="transcribeAudio(${m.id}, this)"><i class="bi bi-soundwave"></i> Transcrever áudio</button></div>`;
         }
     } else if (m.message_type === 'document' && m.media_url) {
-        content += `<a href="${BASE + m.media_url}" target="_blank" class="text-decoration-none"><i class="bi bi-file-earmark"></i> ${escapeHtml(m.media_filename || 'Documento')}</a>`;
+        const fileUrl = BASE + m.media_url;
+        const fileName = m.media_filename || 'Documento';
+        content += `<div class="wpp-doc">
+            <div class="wpp-doc-info"><i class="bi bi-file-earmark-text"></i> <span class="wpp-doc-name">${escapeHtml(fileName)}</span></div>
+            <div class="wpp-doc-actions">
+                <a href="${fileUrl}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary" title="Visualizar"><i class="bi bi-eye"></i> Ver</a>
+                <a href="${fileUrl}" download="${escapeHtml(fileName)}" class="btn btn-sm btn-outline-success" title="Baixar"><i class="bi bi-download"></i> Baixar</a>
+            </div>
+        </div>`;
     } else if (m.message_type === 'video' && m.media_url) {
         content += `<video controls src="${BASE + m.media_url}" style="max-width:220px;border-radius:6px;"></video>`;
     } else {

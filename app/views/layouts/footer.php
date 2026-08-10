@@ -2,7 +2,9 @@
     <?php
     $whatsappEnabled = Config::get('whatsapp_enabled');
     $whatsappNumber = Config::get('whatsapp_number');
-    if ($whatsappEnabled === '1' && !empty($whatsappNumber)):
+    // Botão flutuante do WhatsApp apenas para clientes
+    $currentUserRole = $_SESSION['user_role'] ?? '';
+    if ($currentUserRole === 'client' && $whatsappEnabled === '1' && !empty($whatsappNumber)):
         $whatsappMessage = urlencode(Config::get('whatsapp_message', 'Olá! Preciso de ajuda.'));
     ?>
     <a href="https://wa.me/<?= escape($whatsappNumber) ?>?text=<?= $whatsappMessage ?>" 
