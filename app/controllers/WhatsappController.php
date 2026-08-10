@@ -286,41 +286,54 @@ class WhatsappController extends Controller
         move_uploaded_file($file['tmp_name'], PUBLIC_PATH . '/' . $filePath);
 
         // Converter para base64 e enviar
-        $base64 = base64_encode(file_get_contents(PUBLIC_PATH . '/' . $filePath));
-        $dataUri = "data:{$mime};base64,{$base64}";
-
-        $api = EvolutionApi::fromInstance($contact['instance_id']);
         $caption = $_POST['caption'] ?? '';
+        try {
+            $api = EvolutionApi::fromInstance($contact['instance_id']);
+            if (!$api) {
+                $this->json(['error' => 'Instância não encontrada'], 400);
+            }
 
-        if ($mediaType === 'audio') {
-            $result = $api->sendAudio($contact['remote_jid'], $dataUri);
-        } else {
-            $result = $api->sendMedia($contact['remote_jid'], $mediaType, $dataUri, $caption, $file['name']);
+            $base64 = base64_encode(file_get_contents(PUBLIC_PATH . '/' . $filePath));
+            $dataUri = "data:{$mime};base64,{$base64}";
+
+            if ($mediaType === 'audio') {
+                $result = $api->sendAudio($contact['remote_jid'], $dataUri);
+            } else {
+                $result = $api->sendMedia($contact['remote_jid'], $mediaType, $dataUri, $caption, $file['name']);
+            }
+        } catch (\Throwable $e) {
+            @file_put_contents(PUBLIC_PATH . '/uploads/sendmedia_error.log', '[' . date('Y-m-d H:i:s') . '] EXCEPTION: ' . $e->getMessage() . "\n", FILE_APPEND);
+            $this->json(['error' => 'Erro ao enviar: ' . $e->getMessage()], 500);
         }
 
-        // Salvar no banco
-        // Se a Evolution retornou erro, não salva (evita registro fantasma)
-        if (isset($result['error']) && $result['error']) {
-            $this->json(['error' => $result['message'] ?? 'Erro ao enviar arquivo'], 500);
+        // A mídia pode ter sido entregue mesmo com resposta não-padrão.
+        // Só tratamos como falha real se a Evolution indicar erro explícito.
+        if (is_array($result) && isset($result['error']) && $result['error']) {
+            @file_put_contents(PUBLIC_PATH . '/uploads/sendmedia_error.log', '[' . date('Y-m-d H:i:s') . '] API ERROR: ' . json_encode($result) . "\n", FILE_APPEND);
         }
 
         $msgType = $mediaType === 'image' ? 'image' : ($mediaType === 'video' ? 'video' : ($mediaType === 'audio' ? 'audio' : 'document'));
-        $sentMsgId = $result['key']['id'] ?? uniqid('sent_');
-        $messageId = $this->messageModel->create([
-            'instance_id' => $contact['instance_id'],
-            'contact_id' => $contactId,
-            'remote_jid' => $contact['remote_jid'],
-            'message_id' => $sentMsgId,
-            'from_me' => 1,
-            'message_type' => $msgType,
-            'message_text' => $caption,
-            'media_url' => $filePath,
-            'media_mime_type' => $mime,
-            'media_filename' => $file['name'],
-            'sender_name' => $this->currentUser()['name'],
-            'timestamp' => date('Y-m-d H:i:s'),
-            'is_read' => 1,
-        ]);
+        $sentMsgId = (is_array($result) && !empty($result['key']['id'])) ? $result['key']['id'] : uniqid('sent_');
+        try {
+            $messageId = $this->messageModel->create([
+                'instance_id' => $contact['instance_id'],
+                'contact_id' => $contactId,
+                'remote_jid' => $contact['remote_jid'],
+                'message_id' => $sentMsgId,
+                'from_me' => 1,
+                'message_type' => $msgType,
+                'message_text' => $caption,
+                'media_url' => $filePath,
+                'media_mime_type' => $mime,
+                'media_filename' => $file['name'],
+                'sender_name' => $this->currentUser()['name'],
+                'timestamp' => date('Y-m-d H:i:s'),
+                'is_read' => 1,
+            ]);
+        } catch (\Throwable $e) {
+            @file_put_contents(PUBLIC_PATH . '/uploads/sendmedia_error.log', '[' . date('Y-m-d H:i:s') . '] DB ERROR: ' . $e->getMessage() . "\n", FILE_APPEND);
+            $this->json(['error' => 'Erro ao salvar: ' . $e->getMessage()], 500);
+        }
         $this->setAckStatusSafe($messageId, 'sent');
 
         $this->contactModel->updateLastMessage($contactId, date('Y-m-d H:i:s'));
