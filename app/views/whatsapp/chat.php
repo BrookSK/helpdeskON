@@ -240,12 +240,21 @@
                     <div class="col-sm-2 d-grid">
                         <button class="btn btn-sm btn-primary" onclick="saveQuickReply()"><i class="bi bi-check-lg"></i> Salvar</button>
                     </div>
+                    <input type="hidden" id="qr-remove-attachment" value="0">
+                    <div class="col-12" id="qr-selected-attachment" style="display:none;">
+                        <div class="d-inline-flex align-items-center gap-2 small mt-1 px-2 py-1 rounded" style="background:var(--primary-50);border:1px solid var(--primary-light);color:var(--primary-dark);">
+                            <i class="bi bi-check-circle-fill"></i>
+                            <span class="fw-medium">Arquivo anexado:</span>
+                            <span id="qr-selected-attachment-name" class="text-truncate" style="max-width:260px;"></span>
+                            <button type="button" class="btn-close btn-close-sm ms-1" style="font-size:0.6rem;" onclick="clearQrSelectedAttachment()" title="Remover"></button>
+                        </div>
+                    </div>
                     <div class="col-12" id="qr-current-attachment" style="display:none;">
-                        <div class="d-flex align-items-center gap-2 small mt-1">
+                        <div class="d-inline-flex align-items-center gap-2 small mt-1 px-2 py-1 rounded" style="background:#f1f3f5;border:1px solid #dee2e6;">
                             <i class="bi bi-paperclip text-muted"></i>
-                            <a href="#" id="qr-current-attachment-link" target="_blank" class="text-truncate" style="max-width:280px;"></a>
+                            <span class="text-muted">Anexo atual:</span>
+                            <a href="#" id="qr-current-attachment-link" target="_blank" class="text-truncate fw-medium" style="max-width:240px;"></a>
                             <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1" onclick="removeQrAttachment()" title="Remover anexo"><i class="bi bi-x-lg"></i></button>
-                            <input type="hidden" id="qr-remove-attachment" value="0">
                         </div>
                     </div>
                 </div>
@@ -1336,6 +1345,7 @@ function resetQuickReplyForm() {
     document.getElementById('qr-attachment').value = '';
     document.getElementById('qr-remove-attachment').value = '0';
     document.getElementById('qr-current-attachment').style.display = 'none';
+    document.getElementById('qr-selected-attachment').style.display = 'none';
 }
 
 function openQuickRepliesModal() {
@@ -1377,6 +1387,7 @@ function editQuickReply(id) {
     autoGrowQrMessage(msg);
     document.getElementById('qr-attachment').value = '';
     document.getElementById('qr-remove-attachment').value = '0';
+    document.getElementById('qr-selected-attachment').style.display = 'none';
     const box = document.getElementById('qr-current-attachment');
     if (q.attachment_url) {
         const link = document.getElementById('qr-current-attachment-link');
@@ -1388,9 +1399,32 @@ function editQuickReply(id) {
     }
 }
 
-// Quando o usuário escolhe um novo arquivo, cancela a marcação de remoção
+// Quando o usuário escolhe um novo arquivo, mostra o nome anexado
 function onQrAttachmentChange() {
     document.getElementById('qr-remove-attachment').value = '0';
+    const input = document.getElementById('qr-attachment');
+    const box = document.getElementById('qr-selected-attachment');
+    if (input.files && input.files[0]) {
+        document.getElementById('qr-selected-attachment-name').textContent = input.files[0].name;
+        box.style.display = 'block';
+        // Ao anexar um novo, esconde o indicador do anexo atual (será substituído)
+        document.getElementById('qr-current-attachment').style.display = 'none';
+    } else {
+        box.style.display = 'none';
+    }
+}
+
+// Remove o arquivo recém-selecionado (ainda não salvo)
+function clearQrSelectedAttachment() {
+    const input = document.getElementById('qr-attachment');
+    input.value = '';
+    document.getElementById('qr-selected-attachment').style.display = 'none';
+    // Se estava editando e havia um anexo atual, volta a mostrá-lo
+    const id = document.getElementById('qr-id').value;
+    const editing = id ? quickReplies.find(x => x.id == id) : null;
+    if (editing && editing.attachment_url) {
+        document.getElementById('qr-current-attachment').style.display = 'block';
+    }
 }
 
 // Marca o anexo atual para remoção ao salvar
