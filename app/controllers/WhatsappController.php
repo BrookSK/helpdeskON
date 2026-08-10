@@ -339,22 +339,17 @@ class WhatsappController extends Controller
         $contact = $this->contactModel->findById($contactId);
         if (!$contact) $this->json(['error' => 'Contato não encontrado'], 404);
 
-        // Backfill da foto de perfil, se ainda não tiver e não for grupo
-        if (empty($contact['profile_picture_url']) && empty($contact['is_group']) && !empty($contact['phone'])) {
-            try {
-                $db = Database::getInstance();
-                $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE id = ?", [$contact['instance_id']]);
-                if ($instance) {
-                    $api = new EvolutionApi($instance['api_url'], $instance['api_key'], $instance['instance_name']);
-                    $pic = $api->fetchProfilePicture($contact['phone']);
-                    $picUrl = $pic['profilePictureUrl'] ?? $pic['url'] ?? null;
-                    if (!empty($picUrl)) {
-                        $db->update('whatsapp_contacts', ['profile_picture_url' => $picUrl], 'id = ?', [$contactId]);
-                        $contact['profile_picture_url'] = $picUrl;
-                    }
+        // Backfill da foto de perfil, se ainda não tiver
+        if (empty($contact['profile_picture_url']) && !empty($contact['phone'])) {
+            $db = Database::getInstance();
+            $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE id = ?", [$contact['instance_id']]);
+            $numberForPic = !empty($contact['is_group']) ? $contact['remote_jid'] : $contact['phone'];
+            if ($instance) {
+                $picUrl = $this->fetchProfilePicUrl($instance, $numberForPic);
+                if (!empty($picUrl)) {
+                    $db->update('whatsapp_contacts', ['profile_picture_url' => $picUrl], 'id = ?', [$contactId]);
+                    $contact['profile_picture_url'] = $picUrl;
                 }
-            } catch (Exception $e) {
-                // ignora
             }
         }
 
@@ -786,16 +781,9 @@ class WhatsappController extends Controller
         if (!$isGroup) {
             $existing = $this->contactModel->findById($contactId);
             if ($existing && empty($existing['profile_picture_url'])) {
-                try {
-                    $api2 = new EvolutionApi($instance['api_url'], $instance['api_key'], $instance['instance_name']);
-                    $pic = $api2->fetchProfilePicture($phone);
-                    $picUrl = $pic['profilePictureUrl'] ?? $pic['url'] ?? null;
-                    if (!empty($picUrl)) {
-                        $db2 = Database::getInstance();
-                        $db2->update('whatsapp_contacts', ['profile_picture_url' => $picUrl], 'id = ?', [$contactId]);
-                    }
-                } catch (Exception $e) {
-                    // ignora
+                $picUrl = $this->fetchProfilePicUrl($instance, $phone);
+                if (!empty($picUrl)) {
+                    Database::getInstance()->update('whatsapp_contacts', ['profile_picture_url' => $picUrl], 'id = ?', [$contactId]);
                 }
             }
         }
@@ -961,6 +949,68 @@ class WhatsappController extends Controller
         if (empty($map)) return null;
         $targetNum = preg_replace('/@.*/', '', $groupJid);
         return $map[$targetNum] ?? null;
+    }
+
+    /**
+     * Sincroniza as fotos de perfil de todos os contatos sem foto.
+     */
+    public function syncPhotos()
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
+        $instance = $this->getUserInstance();
+        if (!$instance) {
+            $this->json(['success' => false, 'message' => 'Nenhuma instância disponível.']);
+        }
+
+        $db = Database::getInstance();
+        $contacts = $db->fetchAll(
+            "SELECT id, phone, remote_jid, is_group FROM whatsapp_contacts
+             WHERE instance_id = ? AND (profile_picture_url IS NULL OR profile_picture_url = '')
+             LIMIT 100",
+            [$instance['id']]
+        );
+
+        $updated = 0;
+        foreach ($contacts as $c) {
+            $number = !empty($c['is_group']) ? $c['remote_jid'] : ($c['phone'] ?: $c['remote_jid']);
+            $picUrl = $this->fetchProfilePicUrl($instance, $number);
+            if (!empty($picUrl)) {
+                $db->update('whatsapp_contacts', ['profile_picture_url' => $picUrl], 'id = ?', [$c['id']]);
+                $updated++;
+            }
+        }
+
+        $this->json(['success' => true, 'updated' => $updated, 'total' => count($contacts)]);
+    }
+
+    /**
+     * Busca a URL da foto de perfil via Evolution API (endpoint POST v2).
+     * Chamada HTTP direta para não alterar a classe EvolutionApi.
+     */
+    private function fetchProfilePicUrl($instance, $number)
+    {
+        try {
+            $num = preg_replace('/@.*/', '', $number);
+            $url = rtrim($instance['api_url'], '/') . '/chat/fetchProfilePictureUrl/' . $instance['instance_name'];
+            $ch = curl_init($url);
+            curl_setopt_array($ch, [
+                CURLOPT_POST => true,
+                CURLOPT_POSTFIELDS => json_encode(['number' => $num]),
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_HTTPHEADER => ['apikey: ' . $instance['api_key'], 'Content-Type: application/json'],
+                CURLOPT_SSL_VERIFYPEER => false,
+                CURLOPT_TIMEOUT => 15,
+            ]);
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            if ($httpCode >= 400 || empty($response)) return null;
+            $data = json_decode($response, true);
+            if (!is_array($data)) return null;
+            return $data['profilePictureUrl'] ?? $data['url'] ?? null;
+        } catch (Exception $e) {
+            return null;
+        }
     }
 
     /**

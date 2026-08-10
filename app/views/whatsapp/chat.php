@@ -11,6 +11,7 @@
                 <div class="d-flex align-items-center justify-content-between mb-2">
                     <span class="fw-medium" style="font-size:0.9rem;"><i class="bi bi-whatsapp text-success"></i> Chat</span>
                     <div class="d-flex gap-1">
+                        <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1" title="Sincronizar fotos" onclick="syncPhotos(this)"><i class="bi bi-images" style="font-size:0.75rem;"></i></button>
                         <a href="<?= baseUrl('whatsapp') ?>" class="btn btn-sm btn-outline-secondary py-0 px-1" title="Conexões"><i class="bi bi-gear" style="font-size:0.75rem;"></i></a>
                         <a href="<?= baseUrl('crm') ?>" class="btn btn-sm btn-outline-primary py-0 px-1" title="CRM"><i class="bi bi-kanban" style="font-size:0.75rem;"></i></a>
                     </div>
@@ -526,6 +527,24 @@ function syncGroups(btn) {
         .catch(() => {})
         .finally(() => {
             if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Sincronizar nomes dos grupos'; }
+        });
+}
+
+function syncPhotos(btn) {
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:0.75rem;height:0.75rem;"></span>'; }
+    fetch(BASE + 'whatsapp/syncPhotos', { method: 'POST', headers: {'X-Requested-With': 'XMLHttpRequest'} })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                loadContacts();
+                if (typeof showToast === 'function') showToast(`${data.updated} foto(s) atualizada(s).`);
+            } else if (typeof showToast === 'function') {
+                showToast(data.message || 'Falha ao sincronizar fotos.');
+            }
+        })
+        .catch(() => {})
+        .finally(() => {
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-images" style="font-size:0.75rem;"></i>'; }
         });
 }
 
