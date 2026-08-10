@@ -162,9 +162,10 @@
                 margin-right: 0 !important;
                 font-size: 1.1rem;
             }
-            /* Subitens indentados voltam ao centro */
-            body.sidebar-collapsed .sidebar .nav-link[style*="padding-left"] {
-                padding-left: 0 !important;
+            /* No modo ícone, esconder as subabas por completo (evita texto vazando) */
+            body.sidebar-collapsed #crm-subnav,
+            body.sidebar-collapsed #companies-subnav {
+                display: none !important;
             }
             /* Rodapé no modo recolhido: empilha avatar e logout, centralizados */
             body.sidebar-collapsed .sidebar-footer { padding: 10px 4px; }
