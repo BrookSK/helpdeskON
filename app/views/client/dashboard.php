@@ -49,9 +49,27 @@
             </div>
         </div>
         <div class="col-6 col-md-3">
+            <div class="card stat-card" style="border-left-color:#e91e63">
+                <div class="stat-label">Aguardando</div>
+                <div class="stat-value" style="color:#e91e63"><?= $counts['waiting_client'] ?? 0 ?></div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
             <div class="card stat-card" style="border-left-color:#4caf50">
                 <div class="stat-label">Concluídas</div>
                 <div class="stat-value" style="color:#4caf50"><?= $counts['completed'] ?? 0 ?></div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card stat-card" style="border-left-color:#f44336">
+                <div class="stat-label">Negadas</div>
+                <div class="stat-value" style="color:#f44336"><?= $counts['denied'] ?? 0 ?></div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card stat-card" style="border-left-color:#9e9e9e">
+                <div class="stat-label">Arquivadas</div>
+                <div class="stat-value" style="color:#9e9e9e"><?= $counts['archived'] ?? 0 ?></div>
             </div>
         </div>
         <div class="col-6 col-md-3">

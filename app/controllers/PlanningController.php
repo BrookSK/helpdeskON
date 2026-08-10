@@ -282,6 +282,25 @@ class PlanningController extends Controller
         $this->json(['success' => true]);
     }
 
+    // Excluir permanentemente o card e a demanda vinculada (apenas super_admin)
+    public function deletePermanent($id = null)
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+
+        $card = $this->cardModel->findById($id);
+        if (!$card) $this->json(['error' => 'Card não encontrado'], 404);
+
+        $ticketId = $card['ticket_id'] ?? null;
+
+        // Remove o card (e seus comentários/anexos via cascade) e a demanda vinculada
+        $this->cardModel->deletePermanent($id, $ticketId);
+
+        $this->json(['success' => true]);
+    }
+
     // Adicionar comentário
     public function comment($id = null)
     {

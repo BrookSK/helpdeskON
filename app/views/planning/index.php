@@ -334,7 +334,12 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                     </div>
                 </div>
                 <div class="modal-footer justify-content-between">
-                    <button class="btn btn-sm btn-outline-danger" onclick="deleteCard()"><i class="bi bi-trash"></i> Excluir</button>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-sm btn-outline-danger" onclick="deleteCard()"><i class="bi bi-trash"></i> Excluir</button>
+                        <?php if (($user['role'] ?? '') === 'super_admin'): ?>
+                        <button class="btn btn-sm btn-danger" onclick="deleteCardPermanent()"><i class="bi bi-trash3-fill"></i> Excluir permanentemente</button>
+                        <?php endif; ?>
+                    </div>
                     <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Fechar</button>
                 </div>
             </div>
@@ -533,6 +538,16 @@ function deleteCard() {
     fetch(BASE + 'planning/delete/' + currentCardId, { method: 'POST', body: formData, headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json()).then(data => {
             if (data.success) location.reload();
+        });
+}
+
+function deleteCardPermanent() {
+    if (!confirm('ATENÇÃO: isto irá excluir PERMANENTEMENTE este card e a demanda vinculada (mensagens, anexos e notas). Esta ação não pode ser desfeita.\n\nDeseja continuar?')) return;
+    const formData = new FormData();
+    fetch(BASE + 'planning/deletePermanent/' + currentCardId, { method: 'POST', body: formData, headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json()).then(data => {
+            if (data.success) location.reload();
+            else alert(data.error || 'Erro ao excluir permanentemente.');
         });
 }
 

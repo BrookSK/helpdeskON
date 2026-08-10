@@ -175,6 +175,27 @@ class PlanningCard
         return $this->db->delete('planning_cards', 'id = ?', [$id]);
     }
 
+    /**
+     * Exclui permanentemente o card e, se houver, a demanda (ticket) vinculada
+     * junto com suas mensagens, anexos e notas internas.
+     */
+    public function deletePermanent($id, $ticketId = null)
+    {
+        // Remover o card de planejamento (comentários/anexos saem via cascade)
+        $this->db->delete('planning_cards', 'id = ?', [$id]);
+
+        if ($ticketId) {
+            // Remover dependências do ticket antes do próprio ticket
+            $this->db->delete('ticket_messages', 'ticket_id = ?', [$ticketId]);
+            $this->db->delete('ticket_attachments', 'ticket_id = ?', [$ticketId]);
+            $this->db->query("DELETE FROM ticket_internal_notes WHERE ticket_id = ?", [$ticketId]);
+            $this->db->query("DELETE FROM notifications WHERE ticket_id = ?", [$ticketId]);
+            $this->db->delete('tickets', 'id = ?', [$ticketId]);
+        }
+
+        return true;
+    }
+
     // Criar card automaticamente a partir de um ticket
     public function createFromTicket($ticket)
     {

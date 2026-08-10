@@ -840,11 +840,19 @@ class WhatsappController extends Controller
             [$instance['id']]
         );
 
+        // Buscar todos os grupos de uma vez na Evolution API (jid => subject)
+        $groupMap = $this->fetchGroupsMap($instance);
+
+        if (empty($groupMap)) {
+            $this->json(['success' => false, 'message' => 'Não foi possível obter os grupos da API. Verifique a conexão da instância.']);
+        }
+
         $updated = 0;
         foreach ($groups as $g) {
-            $resolved = $this->resolveGroupName($instance, $g['remote_jid']);
-            if ($resolved && $resolved !== $g['contact_name']) {
-                $db->update('whatsapp_contacts', ['contact_name' => $resolved], 'id = ?', [$g['id']]);
+            $targetNum = preg_replace('/@.*/', '', $g['remote_jid']);
+            $subject = $groupMap[$targetNum] ?? null;
+            if (!empty($subject) && $subject !== $g['contact_name']) {
+                $db->update('whatsapp_contacts', ['contact_name' => $subject], 'id = ?', [$g['id']]);
                 $updated++;
             }
         }
@@ -853,34 +861,64 @@ class WhatsappController extends Controller
     }
 
     /**
-     * Tenta descobrir o nome (subject) real de um grupo pela Evolution API,
-     * usando o findChats já existente. Retorna null se não encontrar.
+     * Busca todos os grupos da instância na Evolution API e retorna um mapa
+     * [numeroDoGrupo => subject]. Usa o endpoint /group/fetchAllGroups.
+     * Chamada HTTP direta para não alterar a classe EvolutionApi.
      */
-    private function resolveGroupName($instance, $groupJid)
+    private function fetchGroupsMap($instance)
     {
+        $map = [];
         try {
-            $api = new EvolutionApi($instance['api_url'], $instance['api_key'], $instance['instance_name']);
-            $chats = $api->findChats();
-            if (!is_array($chats)) return null;
+            $url = rtrim($instance['api_url'], '/') . '/group/fetchAllGroups/' . $instance['instance_name'] . '?getParticipants=false';
+            $ch = curl_init($url);
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_HTTPHEADER => ['apikey: ' . $instance['api_key'], 'Content-Type: application/json'],
+                CURLOPT_SSL_VERIFYPEER => false,
+                CURLOPT_TIMEOUT => 30,
+            ]);
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
 
-            // Normalizar o número do grupo para comparação
-            $targetNum = preg_replace('/@.*/', '', $groupJid);
+            if ($httpCode >= 400 || empty($response)) {
+                return $map;
+            }
 
-            foreach ($chats as $chat) {
-                $jid = $chat['id'] ?? $chat['remoteJid'] ?? $chat['jid'] ?? '';
-                if (empty($jid)) continue;
-                $num = preg_replace('/@.*/', '', $jid);
-                if ($num === $targetNum) {
-                    $subject = $chat['subject'] ?? $chat['name'] ?? $chat['pushName'] ?? null;
-                    if (!empty($subject)) {
-                        return $subject;
-                    }
+            $data = json_decode($response, true);
+            if (!is_array($data)) return $map;
+
+            // A resposta pode ser uma lista direta ou vir dentro de uma chave
+            $groups = $data;
+            if (isset($data['groups']) && is_array($data['groups'])) {
+                $groups = $data['groups'];
+            }
+
+            foreach ($groups as $grp) {
+                if (!is_array($grp)) continue;
+                $jid = $grp['id'] ?? $grp['jid'] ?? $grp['remoteJid'] ?? '';
+                $subject = $grp['subject'] ?? $grp['name'] ?? null;
+                if (!empty($jid) && !empty($subject)) {
+                    $num = preg_replace('/@.*/', '', $jid);
+                    $map[$num] = $subject;
                 }
             }
         } catch (Exception $e) {
             // Silencioso
         }
-        return null;
+        return $map;
+    }
+
+    /**
+     * Descobre o nome (subject) real de um grupo pela Evolution API.
+     * Retorna null se não encontrar.
+     */
+    private function resolveGroupName($instance, $groupJid)
+    {
+        $map = $this->fetchGroupsMap($instance);
+        if (empty($map)) return null;
+        $targetNum = preg_replace('/@.*/', '', $groupJid);
+        return $map[$targetNum] ?? null;
     }
 
     /**
