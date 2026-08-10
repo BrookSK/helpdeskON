@@ -1466,16 +1466,51 @@ function applyQuickReply(id) {
     document.getElementById('quick-reply-suggest').style.display = 'none';
     quickSuggestIndex = -1;
 
-    // Se tiver anexo, envia o arquivo (armazenado no servidor) com a mensagem como legenda
+    // Se tiver anexo, deixa em prévia (staging) para o usuário clicar em enviar
     if (q.attachment_url) {
-        input.value = '';
-        input.style.height = '34px';
-        sendQuickReplyWithAttachment(q);
+        stageQuickReply(q);
         return;
     }
 
     input.value = q.message;
+    autoGrowMessageInput();
     input.focus();
+}
+
+// Coloca a resposta rápida com anexo em prévia, aguardando o clique em enviar
+function stageQuickReply(q) {
+    if (!activeContactId) return;
+    // Não permite misturar com um arquivo já anexado manualmente
+    if (stagedFile) cancelStagedMedia();
+    stagedQuickReply = q;
+
+    const staging = document.getElementById('media-staging');
+    const preview = document.getElementById('media-staging-preview');
+    document.getElementById('media-staging-name').textContent = q.attachment_name || 'anexo';
+    document.getElementById('media-staging-size').textContent = 'Resposta rápida';
+
+    const ext = (q.attachment_name || q.attachment_url).split('.').pop().toLowerCase();
+    if (['jpg','jpeg','png','gif','webp'].includes(ext)) {
+        preview.innerHTML = `<img src="${q.attachment_url}" style="width:100%;height:100%;object-fit:cover;border-radius:6px;">`;
+    } else {
+        const dm = docMeta(ext);
+        preview.innerHTML = `<i class="bi ${dm.icon}" style="font-size:1.6rem;color:${dm.color};"></i>`;
+    }
+    staging.style.display = 'flex';
+
+    const input = document.getElementById('message-input');
+    input.value = q.message || '';
+    autoGrowMessageInput();
+    input.placeholder = 'Adicione uma legenda (opcional)...';
+    setTimeout(() => input.focus(), 100);
+}
+
+// Ajusta a altura do textarea de mensagem do chat conforme o conteúdo
+function autoGrowMessageInput() {
+    const input = document.getElementById('message-input');
+    if (!input) return;
+    input.style.height = '34px';
+    input.style.height = Math.min(input.scrollHeight, 120) + 'px';
 }
 
 // Envia uma resposta rápida que possui anexo (arquivo já no servidor)
@@ -1484,9 +1519,19 @@ function sendQuickReplyWithAttachment(q) {
     isSendingMedia = true;
     isSending = true;
 
-    const caption = applySignature(q.message || '');
+    // Legenda vem do campo de texto (usuário pode ter editado a mensagem antes de enviar)
+    const input = document.getElementById('message-input');
+    const caption = applySignature((input.value || '').trim());
     const ext = (q.attachment_name || q.attachment_url).split('.').pop().toLowerCase();
     const isImg = ['jpg','jpeg','png','gif','webp'].includes(ext);
+
+    // Limpa a prévia e o campo antes do envio otimista
+    stagedQuickReply = null;
+    document.getElementById('media-staging').style.display = 'none';
+    document.getElementById('media-staging-preview').innerHTML = '';
+    input.value = '';
+    input.placeholder = 'Digite uma mensagem...';
+    autoGrowMessageInput();
 
     const tempId = 'uploading-' + Date.now();
     const area = document.getElementById('messages-area');
@@ -1712,11 +1757,14 @@ function deleteQuickReply(id) {
 }
 
 let stagedFile = null;
+let stagedQuickReply = null; // resposta rápida com anexo aguardando envio
 let isSendingMedia = false;
 
-// Botão de enviar: se houver arquivo em espera, envia a mídia (com a legenda do campo de texto)
+// Botão de enviar: prioriza resposta rápida em prévia, depois arquivo em espera, senão texto
 function handleSend() {
-    if (stagedFile) {
+    if (stagedQuickReply) {
+        sendQuickReplyWithAttachment(stagedQuickReply);
+    } else if (stagedFile) {
         sendStagedMedia();
     } else {
         sendMessage();
@@ -1750,10 +1798,14 @@ function stageMediaFile() {
 
 function cancelStagedMedia() {
     stagedFile = null;
+    stagedQuickReply = null;
     document.getElementById('media-input').value = '';
     document.getElementById('media-staging').style.display = 'none';
     document.getElementById('media-staging-preview').innerHTML = '';
-    document.getElementById('message-input').placeholder = 'Digite uma mensagem...';
+    const input = document.getElementById('message-input');
+    input.placeholder = 'Digite uma mensagem...';
+    input.value = '';
+    autoGrowMessageInput();
 }
 
 // Aplica a assinatura (nome do atendente em negrito no topo) quando o toggle "Assinar" está ativo.
