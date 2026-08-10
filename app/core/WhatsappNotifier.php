@@ -107,9 +107,16 @@ class WhatsappNotifier
 
         $db = Database::getInstance();
 
-        // Instância para envio/registro — priorizar a que está REALMENTE conectada,
-        // pois é a mesma que recebe mensagens (webhook) e cujas conversas aparecem no chat.
-        $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE connection_status IN ('open','connected') ORDER BY is_default DESC LIMIT 1");
+        // Selecionar a instância seguindo a MESMA lógica da tela de chat (getUserInstance),
+        // porém para uma instância compartilhada (sem vínculo de usuário), já que a
+        // notificação é disparada pelo sistema:
+        //  1) Instância padrão SEM vínculo de usuário (disponível para todos);
+        //  2) Qualquer instância SEM vínculo de usuário;
+        //  3) Padrão / qualquer (fallback).
+        $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE is_default = 1 AND user_id IS NULL LIMIT 1");
+        if (!$instance) {
+            $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE user_id IS NULL LIMIT 1");
+        }
         if (!$instance) {
             $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE is_default = 1 LIMIT 1");
         }
@@ -146,32 +153,21 @@ class WhatsappNotifier
         }
         $realPhone = $api->extractPhone($realJid);
 
-        // Registrar no chat (localiza ou cria o contato)
+        // Registrar no chat usando os MESMOS models do fluxo de mensagens recebidas,
+        // garantindo consistência com a lógica já existente do chat.
         if ($instance) {
             try {
-                // 1) Tenta pelo JID real; 2) pelo JID normalizado; 3) pelos últimos 8 dígitos do telefone
-                $last8 = substr(preg_replace('/\D/', '', $phoneOnly), -8);
-                $contact = $db->fetch(
-                    "SELECT * FROM whatsapp_contacts
-                     WHERE instance_id = ? AND is_group = 0
-                       AND (remote_jid = ? OR remote_jid = ? OR REPLACE(REPLACE(phone,' ',''),'-','') LIKE ?)
-                     LIMIT 1",
-                    [$instance['id'], $realJid, $jid, '%' . $last8]
-                );
+                $contactModel = new WhatsappContact();
+                $messageModel = new WhatsappMessage();
 
-                if (!$contact) {
-                    $contactId = $db->insert('whatsapp_contacts', [
-                        'instance_id' => $instance['id'],
-                        'remote_jid' => $realJid,
-                        'phone' => $realPhone,
-                        'is_group' => 0,
-                        'last_message_at' => date('Y-m-d H:i:s'),
-                    ]);
-                } else {
-                    $contactId = $contact['id'];
-                }
+                // upsert cria o contato se não existir (mesma função usada pelo webhook)
+                $contactId = $contactModel->upsert($instance['id'], $realJid, [
+                    'phone' => $realPhone,
+                    'is_group' => 0,
+                    'last_message_at' => date('Y-m-d H:i:s'),
+                ]);
 
-                $db->insert('whatsapp_messages', [
+                $messageModel->create([
                     'instance_id' => $instance['id'],
                     'contact_id' => $contactId,
                     'remote_jid' => $realJid,
@@ -183,7 +179,8 @@ class WhatsappNotifier
                     'timestamp' => date('Y-m-d H:i:s'),
                     'is_read' => 1,
                 ]);
-                $db->update('whatsapp_contacts', ['last_message_at' => date('Y-m-d H:i:s')], 'id = ?', [$contactId]);
+
+                $contactModel->updateLastMessage($contactId, date('Y-m-d H:i:s'));
             } catch (Exception $e) {
                 // Silencioso — o envio já ocorreu
             }
