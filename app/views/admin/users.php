@@ -29,11 +29,10 @@
                         <tr>
                             <th>#</th>
                             <th>Nome</th>
+                            <th>Empresa</th>
                             <th>Email</th>
-                            <th>Telefone</th>
                             <th>Papel</th>
                             <th>Status</th>
-                            <th>Criado</th>
                             <th>Ações</th>
                         </tr>
                     </thead>
@@ -42,17 +41,29 @@
                         <tr>
                             <td><?= $u['id'] ?></td>
                             <td><?= escape($u['name']) ?></td>
+                            <td style="font-size:0.85rem">
+                                <?php if (!empty($u['company_name'])): ?>
+                                    <a href="<?= baseUrl('companies/details/' . $u['company_id']) ?>" class="text-decoration-none">
+                                        <i class="bi bi-building"></i> <?= escape($u['company_name']) ?>
+                                    </a>
+                                <?php else: ?>
+                                    <span class="text-muted">-</span>
+                                <?php endif; ?>
+                            </td>
                             <td class="text-truncate" style="max-width:160px"><?= escape($u['email']) ?></td>
-                            <td><?= escape($u['phone'] ?? '-') ?></td>
                             <td><?= roleLabel($u['role']) ?></td>
                             <td>
                                 <?= $u['is_active']
                                     ? '<span class="badge bg-success" style="font-size:0.7rem">Ativo</span>'
                                     : '<span class="badge bg-secondary" style="font-size:0.7rem">Inativo</span>' ?>
                             </td>
-                            <td><?= date('d/m/Y', strtotime($u['created_at'])) ?></td>
                             <td>
                                 <div class="btn-group btn-group-sm">
+                                    <?php if ($u['is_active'] && $u['id'] != ($user['id'] ?? 0)): ?>
+                                    <a href="<?= baseUrl('login/loginAs/' . $u['id']) ?>" class="btn btn-outline-success" title="Login como usuário" onclick="return confirm('Entrar no sistema como <?= escape($u['name']) ?>?')">
+                                        <i class="bi bi-box-arrow-in-right"></i>
+                                    </a>
+                                    <?php endif; ?>
                                     <a href="<?= baseUrl('users/edit/' . $u['id']) ?>" class="btn btn-outline-primary" title="Editar">
                                         <i class="bi bi-pencil"></i>
                                     </a>
@@ -81,9 +92,13 @@
                     </div>
                     <div class="d-flex gap-2 align-items-center mt-2 flex-wrap" style="font-size:0.78rem">
                         <span class="badge bg-light text-dark"><?= roleLabel($u['role']) ?></span>
+                        <?php if (!empty($u['company_name'])): ?><span class="badge bg-light text-dark"><i class="bi bi-building"></i> <?= escape($u['company_name']) ?></span><?php endif; ?>
                         <?php if ($u['phone']): ?><span class="text-muted"><?= escape($u['phone']) ?></span><?php endif; ?>
                     </div>
-                    <div class="mt-2 d-flex gap-2">
+                    <div class="mt-2 d-flex gap-2 flex-wrap">
+                        <?php if ($u['is_active'] && $u['id'] != ($user['id'] ?? 0)): ?>
+                        <a href="<?= baseUrl('login/loginAs/' . $u['id']) ?>" class="btn btn-sm btn-outline-success" onclick="return confirm('Entrar como <?= escape($u['name']) ?>?')"><i class="bi bi-box-arrow-in-right"></i> Login</a>
+                        <?php endif; ?>
                         <a href="<?= baseUrl('users/edit/' . $u['id']) ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil"></i> Editar</a>
                         <a href="<?= baseUrl('users/toggleStatus/' . $u['id']) ?>" class="btn btn-sm btn-outline-warning">
                             <i class="bi bi-<?= $u['is_active'] ? 'pause' : 'play' ?>-fill"></i> <?= $u['is_active'] ? 'Desativar' : 'Ativar' ?>

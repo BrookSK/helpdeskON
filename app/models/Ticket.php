@@ -14,10 +14,12 @@ class Ticket
         return $this->db->fetch(
             "SELECT t.*, 
                     c.name as client_name, c.email as client_email, c.phone as client_phone,
-                    a.name as attendant_name, a.email as attendant_email
+                    a.name as attendant_name, a.email as attendant_email,
+                    tr.name as technical_name, tr.email as technical_email
              FROM tickets t
              LEFT JOIN users c ON t.client_id = c.id
              LEFT JOIN users a ON t.attendant_id = a.id
+             LEFT JOIN users tr ON t.technical_responsible_id = tr.id
              WHERE t.id = ?",
             [$id]
         );
@@ -54,18 +56,19 @@ class Ticket
             "SELECT t.*, c.name as client_name, c.email as client_email
              FROM tickets t
              LEFT JOIN users c ON t.client_id = c.id
-             WHERE t.attendant_id = ?
+             WHERE t.attendant_id = ? OR t.technical_responsible_id = ?
              ORDER BY t.updated_at DESC",
-            [$attendantId]
+            [$attendantId, $attendantId]
         );
     }
 
     public function getAll($filters = [])
     {
-        $sql = "SELECT t.*, c.name as client_name, a.name as attendant_name
+        $sql = "SELECT t.*, c.name as client_name, a.name as attendant_name, tr.name as technical_name
                 FROM tickets t
                 LEFT JOIN users c ON t.client_id = c.id
                 LEFT JOIN users a ON t.attendant_id = a.id
+                LEFT JOIN users tr ON t.technical_responsible_id = tr.id
                 WHERE 1=1";
         $params = [];
 
@@ -108,13 +111,15 @@ class Ticket
         $statuses = ['open', 'in_progress', 'em_revisao_interna', 'waiting_client', 'em_homologacao', 'aprovado_producao', 'completed', 'denied', 'archived'];
         $result = [];
         foreach ($statuses as $status) {
-            $sql = "SELECT t.*, c.name as client_name
+            $sql = "SELECT t.*, c.name as client_name, tr.name as technical_name
                     FROM tickets t
                     LEFT JOIN users c ON t.client_id = c.id
+                    LEFT JOIN users tr ON t.technical_responsible_id = tr.id
                     WHERE t.status = ?";
             $params = [$status];
             if ($attendantId) {
-                $sql .= " AND (t.attendant_id = ? OR t.attendant_id IS NULL)";
+                $sql .= " AND (t.attendant_id = ? OR t.technical_responsible_id = ? OR t.attendant_id IS NULL)";
+                $params[] = $attendantId;
                 $params[] = $attendantId;
             }
             if ($allowedCompanies !== null) {
@@ -156,6 +161,34 @@ class Ticket
         return $this->db->update('tickets', ['attendant_id' => $attendantId, 'status' => 'in_progress'], 'id = ?', [$ticketId]);
     }
 
+    public function assignTechnical($ticketId, $technicalId)
+    {
+        return $this->db->update('tickets', ['technical_responsible_id' => $technicalId ?: null], 'id = ?', [$ticketId]);
+    }
+
+    /**
+     * Tickets em que o usuário é atendente OU responsável técnico, agrupados por status.
+     * Usado no kanban para que devs/analistas/atendentes vejam suas atividades.
+     */
+    public function getGroupedByAssignee($userId)
+    {
+        $statuses = ['open', 'in_progress', 'em_revisao_interna', 'waiting_client', 'em_homologacao', 'aprovado_producao', 'completed', 'denied', 'archived'];
+        $result = [];
+        foreach ($statuses as $status) {
+            $result[$status] = $this->db->fetchAll(
+                "SELECT t.*, c.name as client_name, tr.name as technical_name, a.name as attendant_name
+                 FROM tickets t
+                 LEFT JOIN users c ON t.client_id = c.id
+                 LEFT JOIN users tr ON t.technical_responsible_id = tr.id
+                 LEFT JOIN users a ON t.attendant_id = a.id
+                 WHERE t.status = ? AND (t.attendant_id = ? OR t.technical_responsible_id = ?)
+                 ORDER BY FIELD(t.priority, 'urgent', 'high', 'medium', 'low'), t.updated_at DESC",
+                [$status, $userId, $userId]
+            );
+        }
+        return $result;
+    }
+
     public function countByStatus($userId = null, $role = null)
     {
         $sql = "SELECT status, COUNT(*) as total FROM tickets WHERE 1=1";
@@ -164,7 +197,12 @@ class Ticket
             $sql .= " AND client_id = ?";
             $params[] = $userId;
         } elseif ($userId && $role === 'attendant') {
-            $sql .= " AND (attendant_id = ? OR attendant_id IS NULL)";
+            $sql .= " AND (attendant_id = ? OR technical_responsible_id = ? OR attendant_id IS NULL)";
+            $params[] = $userId;
+            $params[] = $userId;
+        } elseif ($userId && in_array($role, ['developer', 'analyst'])) {
+            $sql .= " AND (attendant_id = ? OR technical_responsible_id = ?)";
+            $params[] = $userId;
             $params[] = $userId;
         }
         $sql .= " GROUP BY status";

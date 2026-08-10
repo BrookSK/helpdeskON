@@ -66,8 +66,16 @@ class TicketsController extends Controller
     // Kanban view para atendentes/admin
     public function kanban()
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst']);
         $user = $this->currentUser();
+
+        // Desenvolvedores e analistas veem apenas as atividades atribuídas a eles
+        if (in_array($user['role'], ['developer', 'analyst'])) {
+            $grouped = $this->ticketModel->getGroupedByAssignee($user['id']);
+            $this->view('attendant/kanban', ['user' => $user, 'grouped' => $grouped, 'myTasksOnly' => true]);
+            return;
+        }
+
         $attendantId = (in_array($user['role'], ['attendant', 'whatsapp_agent'])) ? $user['id'] : null;
 
         // Controle de acesso por empresa
@@ -79,7 +87,7 @@ class TicketsController extends Controller
         }
         $grouped = $this->ticketModel->getGroupedByStatus($attendantId, $filterCompanies);
 
-        $this->view('attendant/kanban', ['user' => $user, 'grouped' => $grouped]);
+        $this->view('attendant/kanban', ['user' => $user, 'grouped' => $grouped, 'myTasksOnly' => false]);
     }
 
     // Formulário para criar nova demanda (cliente e super_admin)
@@ -90,13 +98,16 @@ class TicketsController extends Controller
 
         $data = ['user' => $user];
 
-        // Se for super_admin, carregar lista de clientes para selecionar
+        // Se for super_admin, carregar lista de clientes + equipe para atribuição
         if ($user['role'] === 'super_admin') {
             $userModel = new User();
             $clients = Database::getInstance()->fetchAll(
                 "SELECT id, name, email FROM users WHERE role = 'client' AND is_active = 1 ORDER BY name ASC"
             );
             $data['clients'] = $clients;
+            // Atendentes (quem comunica no ticket) e responsáveis técnicos, agrupados por papel
+            $data['attendants'] = $userModel->getByRoles(['attendant', 'whatsapp_agent']);
+            $data['technicalGrouped'] = $userModel->getGroupedByRole(['developer', 'analyst', 'attendant']);
         }
 
         $this->view('client/ticket_create', $data);
@@ -124,12 +135,18 @@ class TicketsController extends Controller
 
         // Determinar o client_id: se super_admin pode selecionar um cliente
         $clientId = $user['id'];
+        $attendantId = null;
+        $technicalId = null;
         if ($user['role'] === 'super_admin') {
             $selectedClient = $_POST['client_id'] ?? '';
             if (!empty($selectedClient)) {
                 $clientId = (int)$selectedClient;
             }
             // Se não selecionou, o ticket fica vinculado ao próprio admin
+
+            // Atribuições opcionais na criação
+            $attendantId = !empty($_POST['attendant_id']) ? (int)$_POST['attendant_id'] : null;
+            $technicalId = !empty($_POST['technical_responsible_id']) ? (int)$_POST['technical_responsible_id'] : null;
         }
 
         $ticketData = [
@@ -140,6 +157,14 @@ class TicketsController extends Controller
             'priority' => $priority,
             'status' => 'open',
         ];
+
+        if ($attendantId) {
+            $ticketData['attendant_id'] = $attendantId;
+            $ticketData['status'] = 'in_progress';
+        }
+        if ($technicalId) {
+            $ticketData['technical_responsible_id'] = $technicalId;
+        }
 
         if (!empty($transcription)) {
             $ticketData['transcription'] = $transcription;
@@ -173,6 +198,14 @@ class TicketsController extends Controller
 
         // Enviar notificação
         $this->sendNewTicketNotification($ticketId);
+
+        // Notificar responsáveis atribuídos na criação (atendente e responsável técnico)
+        if ($attendantId) {
+            $this->notifyAssignment($ticketId, $attendantId, 'atendente');
+        }
+        if ($technicalId) {
+            $this->notifyAssignment($ticketId, $technicalId, 'responsável técnico');
+        }
 
         // Criar card automático no Planejamento
         $ticket = $this->ticketModel->findById($ticketId);
@@ -219,6 +252,8 @@ class TicketsController extends Controller
 
         $userModel = new User();
         $attendants = $userModel->getAttendants();
+        // Candidatos a responsável técnico, agrupados por papel (Papel > Usuários)
+        $technicalGrouped = $userModel->getGroupedByRole(['developer', 'analyst', 'attendant']);
 
         // Buscar observações internas (apenas para equipe)
         $internalNotes = [];
@@ -239,6 +274,7 @@ class TicketsController extends Controller
             'messages' => $messages,
             'attachments' => $attachments,
             'attendants' => $attendants,
+            'technicalGrouped' => $technicalGrouped,
             'internalNotes' => $internalNotes,
         ]);
     }
@@ -263,6 +299,10 @@ class TicketsController extends Controller
             $this->redirect('tickets/show/' . $id);
         }
 
+        // Capturar status anterior para detectar transições
+        $previousTicket = $this->ticketModel->findById($id);
+        $previousStatus = $previousTicket['status'] ?? null;
+
         $this->ticketModel->updateStatus($id, $status);
 
         // Sincronizar card do planejamento
@@ -272,6 +312,14 @@ class TicketsController extends Controller
         // Notificar cliente sobre mudança de status
         $ticket = $this->ticketModel->findById($id);
         $this->sendStatusChangeNotification($ticket, $status);
+
+        // Ao passar de "Em andamento" para "Em Revisão Interna", notificar o responsável técnico
+        if ($previousStatus === 'in_progress' && $status === 'em_revisao_interna' && !empty($ticket['technical_responsible_id'])) {
+            $this->notifyTechnicalReview($ticket);
+        }
+
+        // Notificações via grupo de WhatsApp (usa a conexão do chat existente)
+        $this->sendGroupStatusNotification($ticket, $status, $previousStatus);
 
         if ($this->isAjax()) {
             $this->json(['success' => true, 'status' => $status]);
@@ -337,7 +385,45 @@ class TicketsController extends Controller
         $attendantId = $_POST['attendant_id'] ?? null;
         if ($attendantId) {
             $this->ticketModel->assignAttendant($id, $attendantId);
+
+            // Sincronizar card do planejamento
+            $planningCard = new PlanningCard();
+            $card = Database::getInstance()->fetch("SELECT id FROM planning_cards WHERE ticket_id = ?", [$id]);
+            if ($card) {
+                $planningCard->update($card['id'], ['assigned_to' => $attendantId]);
+            }
+
+            // Notificar atendente atribuído
+            $this->notifyAssignment($id, (int)$attendantId, 'atendente');
+
             flash('success', 'Atendente atribuído com sucesso!');
+        }
+
+        $this->redirect('tickets/show/' . $id);
+    }
+
+    // Atribuir responsável técnico (segue hierarquia Papel > Usuários)
+    public function assignTechnical($id = null)
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
+            $this->redirect('tickets');
+        }
+
+        $technicalId = $_POST['technical_responsible_id'] ?? null;
+        $this->ticketModel->assignTechnical($id, $technicalId ? (int)$technicalId : null);
+
+        // Sincronizar card do planejamento
+        $card = Database::getInstance()->fetch("SELECT id FROM planning_cards WHERE ticket_id = ?", [$id]);
+        if ($card) {
+            (new PlanningCard())->update($card['id'], ['technical_responsible_id' => $technicalId ? (int)$technicalId : null]);
+        }
+
+        if ($technicalId) {
+            $this->notifyAssignment($id, (int)$technicalId, 'responsável técnico');
+            flash('success', 'Responsável técnico atribuído com sucesso!');
+        } else {
+            flash('success', 'Responsável técnico removido.');
         }
 
         $this->redirect('tickets/show/' . $id);
@@ -570,6 +656,33 @@ class TicketsController extends Controller
             }
         }
 
+        // 2b. Notificar o responsável técnico (se houver e não for quem fez a ação)
+        if (!empty($ticket['technical_responsible_id']) && $ticket['technical_responsible_id'] != $currentUser['id'] && !in_array($ticket['technical_responsible_id'], $notifiedIds)) {
+            $db->insert('notifications', [
+                'user_id' => $ticket['technical_responsible_id'],
+                'ticket_id' => $ticket['id'],
+                'title' => 'Status atualizado',
+                'message' => $internalMessage,
+                'type' => 'system',
+            ]);
+            $notifiedIds[] = $ticket['technical_responsible_id'];
+
+            $technical = $userModel->findById($ticket['technical_responsible_id']);
+            if ($technical && $technical['email']) {
+                $emailBody = $this->buildStatusChangeEmailBody([
+                    'recipient_name' => $technical['name'],
+                    'ticket_id' => $ticket['id'],
+                    'ticket_title' => $ticket['title'],
+                    'new_status' => $label,
+                    'status_color' => $statusColor,
+                    'changed_by' => $currentUser['name'],
+                    'ticket_url' => $ticketUrl,
+                ]);
+                $htmlBody = Mailer::template('Status da Demanda Atualizado', $emailBody);
+                Mailer::send($technical['email'], "Demanda #{$ticket['id']} - Status atualizado para: {$label}", $htmlBody);
+            }
+        }
+
         // 3. Notificar todos os super admins (que não sejam quem fez a ação)
         $admins = $db->fetchAll("SELECT id, email, name FROM users WHERE role = 'super_admin' AND id != ? AND is_active = 1", [$currentUser['id']]);
         foreach ($admins as $admin) {
@@ -752,6 +865,143 @@ class TicketsController extends Controller
     {
         $labels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'urgent' => 'Urgente'];
         return $labels[$priority] ?? $priority;
+    }
+
+    /**
+     * Notifica um usuário atribuído a uma demanda: notificação no sistema, email e WhatsApp.
+     */
+    private function notifyAssignment($ticketId, $userId, $roleLabel)
+    {
+        if (!$userId) return;
+
+        $db = Database::getInstance();
+        $ticket = $this->ticketModel->findById($ticketId);
+        $assignee = (new User())->findById($userId);
+        if (!$assignee) return;
+
+        $title = "Você foi atribuído como {$roleLabel}";
+        $message = "Demanda #{$ticket['id']} \"{$ticket['title']}\" foi atribuída a você como {$roleLabel}.";
+
+        // Notificação no sistema
+        $db->insert('notifications', [
+            'user_id' => $userId,
+            'ticket_id' => $ticketId,
+            'title' => $title,
+            'message' => $message,
+            'type' => 'system',
+        ]);
+
+        // Email
+        if (!empty($assignee['email'])) {
+            $ticketUrl = baseUrl('tickets/show/' . $ticket['id']);
+            $body = "
+                <p>Olá, <strong>" . htmlspecialchars($assignee['name']) . "</strong>!</p>
+                <p>Você foi atribuído como <strong>{$roleLabel}</strong> na demanda abaixo:</p>
+                <div style='background:#f8fafc;border-radius:8px;padding:16px 20px;margin:16px 0;border-left:4px solid #00BFA6;'>
+                    <p style='margin:4px 0;'><strong>#{$ticket['id']}</strong> — " . htmlspecialchars($ticket['title']) . "</p>
+                    <p style='margin:4px 0;color:#666;font-size:0.85rem;'>Cliente: " . htmlspecialchars($ticket['client_name'] ?? '-') . "</p>
+                </div>
+                <p style='margin-top:20px;'>
+                    <a href='{$ticketUrl}' style='display:inline-block;background:#00BFA6;color:#fff;padding:10px 24px;border-radius:6px;text-decoration:none;font-weight:600;font-size:0.9rem;'>Ver Demanda</a>
+                </p>";
+            $htmlBody = Mailer::template('Nova atribuição de demanda', $body);
+            Mailer::send($assignee['email'], "Demanda #{$ticket['id']} atribuída a você", $htmlBody);
+        }
+
+        // WhatsApp (via Evolution API, se o usuário tiver telefone)
+        $this->sendWhatsappToUser($assignee, "🔔 *{$title}*\n\n{$message}");
+    }
+
+    /**
+     * Envia notificações de mudança de status para grupos de WhatsApp:
+     * - Sempre para o grupo padrão (empresa dona do helpdesk), se habilitado nas configurações.
+     * - Quando a demanda vai para Homologação, também para o grupo da empresa do cliente.
+     * Usa a conexão de chat WhatsApp existente (WhatsappNotifier), sem alterar a Evolution API.
+     */
+    private function sendGroupStatusNotification($ticket, $status, $previousStatus = null)
+    {
+        $label = statusLabel($status);
+        $baseMsg = "🔔 *Atualização de Demanda*\n\n"
+            . "*#{$ticket['id']}* — {$ticket['title']}\n"
+            . "*Cliente:* " . ($ticket['client_name'] ?? '-') . "\n"
+            . "*Novo status:* {$label}";
+
+        // 1. Grupo padrão — todas as atualizações de status
+        WhatsappNotifier::sendToDefaultGroup($baseMsg);
+
+        // 2. Grupo da empresa do cliente — destaque quando vai para Homologação
+        $db = Database::getInstance();
+        $clientUser = $db->fetch("SELECT company_id FROM users WHERE id = ?", [$ticket['client_id']]);
+        $companyId = $clientUser['company_id'] ?? null;
+        if ($companyId) {
+            $company = $db->fetch("SELECT name, whatsapp_group_jid FROM companies WHERE id = ?", [$companyId]);
+            if ($company && !empty($company['whatsapp_group_jid'])) {
+                if ($status === 'em_homologacao') {
+                    $msg = "✅ *Demanda em Homologação*\n\n"
+                        . "*#{$ticket['id']}* — {$ticket['title']}\n\n"
+                        . "A demanda está pronta para homologação. Por favor, validem e retornem com o parecer.";
+                    WhatsappNotifier::sendToGroup($company['whatsapp_group_jid'], $msg);
+                } else {
+                    // Demais atualizações também no grupo da empresa
+                    WhatsappNotifier::sendToGroup($company['whatsapp_group_jid'], $baseMsg);
+                }
+            }
+        }
+    }
+
+    /**
+     * Notifica o responsável técnico quando a demanda entra em Revisão Interna.
+     */
+    private function notifyTechnicalReview($ticket)
+    {
+        $db = Database::getInstance();
+        $technical = (new User())->findById($ticket['technical_responsible_id']);
+        if (!$technical) return;
+
+        $title = 'Demanda em Revisão Interna';
+        $message = "A demanda #{$ticket['id']} \"{$ticket['title']}\" passou para Revisão Interna e requer sua atenção como responsável técnico.";
+
+        $db->insert('notifications', [
+            'user_id' => $technical['id'],
+            'ticket_id' => $ticket['id'],
+            'title' => $title,
+            'message' => $message,
+            'type' => 'system',
+        ]);
+
+        if (!empty($technical['email'])) {
+            $ticketUrl = baseUrl('tickets/show/' . $ticket['id']);
+            $body = "
+                <p>Olá, <strong>" . htmlspecialchars($technical['name']) . "</strong>!</p>
+                <p>A demanda abaixo entrou em <strong>Revisão Interna</strong> e precisa da sua revisão técnica:</p>
+                <div style='background:#f8fafc;border-radius:8px;padding:16px 20px;margin:16px 0;border-left:4px solid #5c6bc0;'>
+                    <p style='margin:4px 0;'><strong>#{$ticket['id']}</strong> — " . htmlspecialchars($ticket['title']) . "</p>
+                </div>
+                <p style='margin-top:20px;'>
+                    <a href='{$ticketUrl}' style='display:inline-block;background:#5c6bc0;color:#fff;padding:10px 24px;border-radius:6px;text-decoration:none;font-weight:600;font-size:0.9rem;'>Revisar Demanda</a>
+                </p>";
+            $htmlBody = Mailer::template('Demanda em Revisão Interna', $body);
+            Mailer::send($technical['email'], "Demanda #{$ticket['id']} em Revisão Interna", $htmlBody);
+        }
+
+        $this->sendWhatsappToUser($technical, "🔎 *{$title}*\n\n{$message}");
+    }
+
+    /**
+     * Envia mensagem WhatsApp para um usuário via Evolution API (se configurado e com telefone).
+     */
+    private function sendWhatsappToUser($user, $message)
+    {
+        if (empty($user['phone'])) return;
+
+        try {
+            $api = EvolutionApi::getDefault();
+            if ($api) {
+                $api->sendText($user['phone'], $message);
+            }
+        } catch (Exception $e) {
+            // Silencioso — WhatsApp é canal complementar
+        }
     }
 
     // Observações internas (apenas equipe)

@@ -6,7 +6,7 @@
     <div class="top-bar">
         <div>
             <h5 class="mb-0">Kanban</h5>
-            <small class="text-muted">Arraste os cards para alterar status</small>
+            <small class="text-muted"><?= !empty($myTasksOnly) ? 'Atividades atribuídas a você' : 'Arraste os cards para alterar status' ?></small>
         </div>
         <a href="<?= baseUrl('tickets') ?>" class="btn btn-outline-primary btn-sm"><i class="bi bi-list"></i> Lista</a>
     </div>
@@ -50,6 +50,11 @@
                                 <span><i class="bi bi-person"></i> <?= escape($ticket['client_name']) ?></span>
                                 <span><?= timeAgo($ticket['updated_at']) ?></span>
                             </div>
+                            <?php if (!empty($ticket['technical_name'])): ?>
+                            <div class="text-muted mt-1" style="font-size:0.72rem">
+                                <i class="bi bi-tools"></i> <?= escape($ticket['technical_name']) ?>
+                            </div>
+                            <?php endif; ?>
                         </div>
                         <?php endforeach; ?>
                     </div>

@@ -48,6 +48,30 @@
                         </select>
                         <small class="text-muted">Selecione em nome de qual cliente esta demanda será criada</small>
                     </div>
+                    <div class="col-sm-6">
+                        <label class="form-label fw-medium">Atendente (comunicação)</label>
+                        <select name="attendant_id" class="form-select">
+                            <option value="">Não atribuir agora</option>
+                            <?php foreach (($attendants ?? []) as $att): ?>
+                            <option value="<?= $att['id'] ?>"><?= escape($att['name']) ?> — <?= roleLabel($att['role']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <small class="text-muted">Quem vai se comunicar dentro do ticket</small>
+                    </div>
+                    <div class="col-sm-6">
+                        <label class="form-label fw-medium">Responsável Técnico</label>
+                        <select name="technical_responsible_id" class="form-select">
+                            <option value="">Não atribuir agora</option>
+                            <?php foreach (($technicalGrouped ?? []) as $roleKey => $usersInRole): ?>
+                            <optgroup label="<?= roleLabel($roleKey) ?>">
+                                <?php foreach ($usersInRole as $tu): ?>
+                                <option value="<?= $tu['id'] ?>"><?= escape($tu['name']) ?></option>
+                                <?php endforeach; ?>
+                            </optgroup>
+                            <?php endforeach; ?>
+                        </select>
+                        <small class="text-muted">Hierarquia: Papel &gt; usuários daquele papel</small>
+                    </div>
                     <?php endif; ?>
                     <div class="col-12">
                         <label class="form-label fw-medium">Título *</label>

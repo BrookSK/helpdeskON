@@ -182,6 +182,7 @@ class PlanningCard
             'description' => '<p>' . nl2br(htmlspecialchars($ticket['description'])) . '</p>',
             'company_id' => $clientUser['company_id'] ?? null,
             'assigned_to' => $ticket['attendant_id'] ?? null,
+            'technical_responsible_id' => $ticket['technical_responsible_id'] ?? null,
             'created_by' => $ticket['client_id'],
             'priority' => $ticket['priority'],
             'status' => $ticket['status'] ?? 'open',

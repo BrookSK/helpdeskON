@@ -41,4 +41,27 @@ class Company
             [$companyId]
         );
     }
+
+    public function countUsers($companyId)
+    {
+        $row = $this->db->fetch("SELECT COUNT(*) as total FROM users WHERE company_id = ?", [$companyId]);
+        return (int)($row['total'] ?? 0);
+    }
+
+    public function countTickets($companyId)
+    {
+        $row = $this->db->fetch(
+            "SELECT COUNT(*) as total FROM tickets t
+             LEFT JOIN users u ON t.client_id = u.id
+             WHERE u.company_id = ?",
+            [$companyId]
+        );
+        return (int)($row['total'] ?? 0);
+    }
+
+    public function countDocuments($companyId)
+    {
+        $row = $this->db->fetch("SELECT COUNT(*) as total FROM shared_documents WHERE company_id = ?", [$companyId]);
+        return (int)($row['total'] ?? 0);
+    }
 }

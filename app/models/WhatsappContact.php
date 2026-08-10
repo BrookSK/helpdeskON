@@ -23,6 +23,32 @@ class WhatsappContact
     }
 
     /**
+     * Retorna todos os grupos de WhatsApp conhecidos (para seleção em dropdowns).
+     * Independente da instância — usado para vincular grupos a empresas.
+     */
+    public function getAllGroups()
+    {
+        return $this->db->fetchAll(
+            "SELECT c.id, c.instance_id, c.remote_jid,
+                    COALESCE(c.contact_name, c.push_name, c.remote_jid) as name
+             FROM whatsapp_contacts c
+             WHERE c.is_group = 1
+             ORDER BY name ASC"
+        );
+    }
+
+    /**
+     * Busca um grupo pelo remote_jid (qualquer instância).
+     */
+    public function findGroupByJid($remoteJid)
+    {
+        return $this->db->fetch(
+            "SELECT * FROM whatsapp_contacts WHERE remote_jid = ? AND is_group = 1 LIMIT 1",
+            [$remoteJid]
+        );
+    }
+
+    /**
      * Retorna contatos com filtros (para lista do chat)
      * @param string $type 'contacts', 'groups' ou 'all'
      */

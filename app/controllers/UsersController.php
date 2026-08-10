@@ -40,8 +40,8 @@ class UsersController extends Controller
         $companyId = $_POST['company_id'] ?? '';
         $isOwner = isset($_POST['is_company_owner']) ? 1 : 0;
 
-        if (empty($name) || empty($email) || empty($password)) {
-            flash('error', 'Nome, email e senha são obrigatórios.');
+        if (empty($name) || empty($email)) {
+            flash('error', 'Nome e email são obrigatórios.');
             $this->redirect('users/create');
         }
 
@@ -62,11 +62,13 @@ class UsersController extends Controller
         }
 
         $db = Database::getInstance();
-        $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
+        // Se nenhuma senha for informada, gera uma aleatória e envia convite de primeiro acesso
+        $sendInvite = empty($password);
+        $rawPassword = $sendInvite ? bin2hex(random_bytes(8)) : $password;
         $userId = $db->insert('users', [
             'name' => $name,
             'email' => $email,
-            'password' => $hashedPassword,
+            'password' => password_hash($rawPassword, PASSWORD_DEFAULT),
             'phone' => $phone,
             'role' => $role,
             'company_id' => $finalCompanyId,
@@ -74,29 +76,34 @@ class UsersController extends Controller
             'is_active' => 1,
         ]);
 
-        // Enviar email com credenciais
-        $loginUrl = baseUrl('login');
-        $htmlBody = Mailer::template(
-            'Seu acesso foi criado!',
-            "<p>Olá, <strong>" . htmlspecialchars($name) . "</strong>!</p>
-            <p>Seu acesso ao sistema de Helpdesk foi criado. Use as credenciais abaixo:</p>
-            <div style='background:#f5f7fa;border-radius:8px;padding:15px;margin:15px 0;'>
-                <p style='margin:5px 0;'><strong>Email:</strong> {$email}</p>
-                <p style='margin:5px 0;'><strong>Senha:</strong> {$password}</p>
-            </div>
-            <p style='text-align:center;margin:20px 0;'>
-                <a href='{$loginUrl}' style='background:#00BFA6;color:#fff;padding:12px 30px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;'>
-                    Acessar o Sistema
-                </a>
-            </p>
-            <p style='font-size:0.82rem;color:#999;'>Recomendamos que altere sua senha no primeiro acesso.</p>"
-        );
-        Mailer::send($email, 'Seu acesso ao Helpdesk - ON Solutions', $htmlBody);
+        if ($sendInvite) {
+            // Enviar link de definição de senha (auto-login após definir)
+            $this->userModel->sendFirstAccessInvite($userId);
+            flash('success', 'Usuário criado! Um email foi enviado para definição de senha.');
+        } else {
+            // Enviar email com credenciais definidas manualmente
+            $loginUrl = baseUrl('login');
+            $htmlBody = Mailer::template(
+                'Seu acesso foi criado!',
+                "<p>Olá, <strong>" . htmlspecialchars($name) . "</strong>!</p>
+                <p>Seu acesso ao sistema de Helpdesk foi criado. Use as credenciais abaixo:</p>
+                <div style='background:#f5f7fa;border-radius:8px;padding:15px;margin:15px 0;'>
+                    <p style='margin:5px 0;'><strong>Email:</strong> {$email}</p>
+                    <p style='margin:5px 0;'><strong>Senha:</strong> {$rawPassword}</p>
+                </div>
+                <p style='text-align:center;margin:20px 0;'>
+                    <a href='{$loginUrl}' style='background:#00BFA6;color:#fff;padding:12px 30px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;'>
+                        Acessar o Sistema
+                    </a>
+                </p>
+                <p style='font-size:0.82rem;color:#999;'>Recomendamos que altere sua senha no primeiro acesso.</p>"
+            );
+            Mailer::send($email, 'Seu acesso ao Helpdesk - ON Solutions', $htmlBody);
+            flash('success', 'Usuário criado com sucesso! Email enviado com as credenciais.');
+        }
 
-        flash('success', 'Usuário criado com sucesso! Email enviado com as credenciais.');
-
-        // Salvar acesso a empresas (para atendentes e agentes whatsapp)
-        if (in_array($role, ['attendant', 'whatsapp_agent']) && isset($_POST['company_access'])) {
+        // Salvar acesso a empresas (para equipe interna)
+        if (in_array($role, ['attendant', 'whatsapp_agent', 'developer', 'analyst']) && isset($_POST['company_access'])) {
             PlanningCard::setUserCompanyAccess($userId, $_POST['company_access']);
         }
 
@@ -172,9 +179,9 @@ class UsersController extends Controller
         $db = Database::getInstance();
         $db->update('users', $data, 'id = ?', [$id]);
 
-        // Salvar acesso a empresas (para atendentes)
+        // Salvar acesso a empresas (para equipe interna)
         $role = $data['role'] ?? $_POST['role'] ?? '';
-        if (in_array($role, ['attendant', 'whatsapp_agent'])) {
+        if (in_array($role, ['attendant', 'whatsapp_agent', 'developer', 'analyst'])) {
             $companyAccess = $_POST['company_access'] ?? [];
             PlanningCard::setUserCompanyAccess($id, $companyAccess);
         }

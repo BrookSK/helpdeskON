@@ -104,6 +104,24 @@ function roleLabel($role)
         'attendant' => 'Atendente',
         'client' => 'Cliente',
         'whatsapp_agent' => 'Agente WhatsApp',
+        'developer' => 'Desenvolvedor',
+        'analyst' => 'Analista',
     ];
     return $labels[$role] ?? $role;
+}
+
+/**
+ * Papéis internos da equipe (não clientes)
+ */
+function teamRoles()
+{
+    return ['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst'];
+}
+
+/**
+ * Papéis que podem ser responsável técnico de uma demanda
+ */
+function technicalRoles()
+{
+    return ['developer', 'analyst', 'attendant'];
 }

@@ -61,7 +61,7 @@
             <?php endif; ?>
             <?php endif; ?>
 
-            <?php if (in_array($user['role'] ?? '', ['super_admin', 'attendant', 'whatsapp_agent'])): ?>
+            <?php if (in_array($user['role'] ?? '', ['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst'])): ?>
             <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'tickets' ? 'active' : '' ?>" href="<?= baseUrl('tickets') ?>">
                     <i class="bi bi-list-task"></i> Demandas
@@ -69,7 +69,7 @@
             </li>
             <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'kanban' ? 'active' : '' ?>" href="<?= baseUrl('tickets/kanban') ?>">
-                    <i class="bi bi-kanban"></i> Kanban
+                    <i class="bi bi-kanban"></i> <?= in_array($user['role'] ?? '', ['developer', 'analyst']) ? 'Minhas Atividades' : 'Kanban' ?>
                 </a>
             </li>
             <?php if (($user['role'] ?? '') === 'super_admin'): ?>
@@ -89,6 +89,7 @@
                     <i class="bi bi-calendar2-check"></i> Planejamento
                 </a>
             </li>
+            <?php if (in_array($user['role'] ?? '', ['super_admin', 'attendant', 'whatsapp_agent'])): ?>
             <li class="nav-item mt-3">
                 <small class="text-uppercase px-3" style="font-size:0.65rem;color:rgba(255,255,255,0.35);letter-spacing:0.5px;">WhatsApp & CRM</small>
             </li>
@@ -103,19 +104,20 @@
                 </a>
             </li>
             <?php endif; ?>
+            <?php endif; ?>
 
             <?php if (($user['role'] ?? '') === 'super_admin'): ?>
             <li class="nav-item mt-3">
                 <small class="text-uppercase px-3" style="font-size:0.65rem;color:rgba(255,255,255,0.35);letter-spacing:0.5px;">Administração</small>
             </li>
             <li class="nav-item">
-                <a class="nav-link <?= ($currentPage ?? '') === 'users' ? 'active' : '' ?>" href="<?= baseUrl('users') ?>">
-                    <i class="bi bi-people"></i> Usuários
+                <a class="nav-link <?= ($currentPage ?? '') === 'companies' ? 'active' : '' ?>" href="<?= baseUrl('companies') ?>">
+                    <i class="bi bi-building"></i> Empresas
                 </a>
             </li>
             <li class="nav-item">
-                <a class="nav-link <?= ($currentPage ?? '') === 'companies' ? 'active' : '' ?>" href="<?= baseUrl('companies') ?>">
-                    <i class="bi bi-building"></i> Empresas
+                <a class="nav-link <?= ($currentPage ?? '') === 'users' ? 'active' : '' ?>" href="<?= baseUrl('users') ?>" style="padding-left:2.6rem;font-size:0.85rem;">
+                    <i class="bi bi-people"></i> Todos os Usuários
                 </a>
             </li>
             <li class="nav-item">
@@ -140,6 +142,11 @@
         </ul>
     </nav>
     <div class="sidebar-footer">
+        <?php if (!empty($_SESSION['impersonator'])): ?>
+        <a href="<?= baseUrl('login/returnAdmin') ?>" class="btn btn-warning btn-sm w-100 mb-2 fw-medium" style="border-radius:8px;">
+            <i class="bi bi-arrow-return-left"></i> Voltar para <?= escape($_SESSION['impersonator']['user_name']) ?>
+        </a>
+        <?php endif; ?>
         <div class="d-flex align-items-center text-white">
             <div class="rounded-circle bg-secondary d-flex align-items-center justify-content-center flex-shrink-0" style="width:34px;height:34px;">
                 <i class="bi bi-person" style="font-size:0.9rem;"></i>

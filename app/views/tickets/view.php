@@ -52,6 +52,9 @@
                             <strong>Atendente:</strong> <?= escape($ticket['attendant_name'] ?? 'Não atribuído') ?>
                         </div>
                         <div class="col-sm-6">
+                            <strong>Responsável Técnico:</strong> <?= escape($ticket['technical_name'] ?? 'Não atribuído') ?>
+                        </div>
+                        <div class="col-sm-6">
                             <strong>Criado:</strong> <?= date('d/m/Y H:i', strtotime($ticket['created_at'])) ?>
                         </div>
                     </div>
@@ -229,6 +232,28 @@
                             <option value="<?= $att['id'] ?>" <?= $ticket['attendant_id'] == $att['id'] ? 'selected' : '' ?>>
                                 <?= escape($att['name']) ?>
                             </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <button type="submit" class="btn btn-outline-primary btn-sm w-100">Atribuir</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Atribuir Responsável Técnico (hierarquia Papel > Usuários) -->
+            <div class="card mb-3">
+                <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.88rem">Responsável Técnico</h6></div>
+                <div class="card-body">
+                    <form action="<?= baseUrl('tickets/assignTechnical/' . $ticket['id']) ?>" method="POST">
+                        <select name="technical_responsible_id" class="form-select form-select-sm mb-2">
+                            <option value="">Não atribuído</option>
+                            <?php foreach (($technicalGrouped ?? []) as $roleKey => $usersInRole): ?>
+                            <optgroup label="<?= roleLabel($roleKey) ?>">
+                                <?php foreach ($usersInRole as $tu): ?>
+                                <option value="<?= $tu['id'] ?>" <?= ($ticket['technical_responsible_id'] ?? '') == $tu['id'] ? 'selected' : '' ?>>
+                                    <?= escape($tu['name']) ?>
+                                </option>
+                                <?php endforeach; ?>
+                            </optgroup>
                             <?php endforeach; ?>
                         </select>
                         <button type="submit" class="btn btn-outline-primary btn-sm w-100">Atribuir</button>

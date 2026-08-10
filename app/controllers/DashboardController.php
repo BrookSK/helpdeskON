@@ -26,7 +26,7 @@ class DashboardController extends Controller
                 $data['tickets'] = $ticketModel->getByClient($user['id']);
             }
             $this->view('client/dashboard', $data);
-        } elseif ($user['role'] === 'attendant') {
+        } elseif (in_array($user['role'], ['attendant', 'developer', 'analyst'])) {
             $data['tickets'] = $ticketModel->getByAttendant($user['id']);
             $this->view('attendant/dashboard', $data);
         } else {

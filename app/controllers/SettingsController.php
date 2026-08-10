@@ -7,7 +7,8 @@ class SettingsController extends Controller
         $this->requireRole(['super_admin']);
         $user = $this->currentUser();
         $settings = Config::getAll();
-        $this->view('admin/settings', ['user' => $user, 'settings' => $settings]);
+        $whatsappGroups = (new WhatsappContact())->getAllGroups();
+        $this->view('admin/settings', ['user' => $user, 'settings' => $settings, 'whatsappGroups' => $whatsappGroups]);
     }
 
     public function save()
@@ -25,6 +26,7 @@ class SettingsController extends Controller
             'webhook_url', 'webhook_phones', 'webhook_names', 'webhook_enabled',
             'webhook_message_template',
             'whatsapp_number', 'whatsapp_message', 'whatsapp_enabled',
+            'whatsapp_default_group_jid', 'whatsapp_group_notify_enabled',
         ];
 
         foreach ($fields as $field) {
@@ -39,6 +41,9 @@ class SettingsController extends Controller
         }
         if (!isset($_POST['whatsapp_enabled'])) {
             Config::set('whatsapp_enabled', '0');
+        }
+        if (!isset($_POST['whatsapp_group_notify_enabled'])) {
+            Config::set('whatsapp_group_notify_enabled', '0');
         }
 
         // Upload de Logo

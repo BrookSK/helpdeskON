@@ -48,4 +48,73 @@ class LoginController extends Controller
         header('Location: ' . baseUrl('login'));
         exit;
     }
+
+    /**
+     * Login como outro usuário (impersonação). Apenas super_admin.
+     * Guarda a sessão original para permitir retornar.
+     */
+    public function loginAs($userId = null)
+    {
+        $this->requireLogin();
+
+        // Só super_admin pode impersonar (e não pode impersonar durante uma impersonação)
+        if (($_SESSION['user_role'] ?? '') !== 'super_admin' || !empty($_SESSION['impersonator'])) {
+            $this->redirect('dashboard');
+        }
+
+        if (!$userId) {
+            $this->redirect('companies');
+        }
+
+        $target = (new User())->findById($userId);
+        if (!$target || !$target['is_active']) {
+            flash('error', 'Usuário não encontrado ou inativo.');
+            $this->redirect('companies');
+        }
+
+        // Guarda dados do admin original
+        $_SESSION['impersonator'] = [
+            'user_id' => $_SESSION['user_id'],
+            'user_name' => $_SESSION['user_name'],
+            'user_email' => $_SESSION['user_email'],
+            'user_role' => $_SESSION['user_role'],
+            'user_avatar' => $_SESSION['user_avatar'] ?? null,
+            'user_company_id' => $_SESSION['user_company_id'] ?? null,
+            'user_is_company_owner' => $_SESSION['user_is_company_owner'] ?? 0,
+        ];
+
+        // Assume a identidade do usuário alvo
+        $_SESSION['user_id'] = $target['id'];
+        $_SESSION['user_name'] = $target['name'];
+        $_SESSION['user_email'] = $target['email'];
+        $_SESSION['user_role'] = $target['role'];
+        $_SESSION['user_avatar'] = $target['avatar'] ?? null;
+        $_SESSION['user_company_id'] = $target['company_id'] ?? null;
+        $_SESSION['user_is_company_owner'] = $target['is_company_owner'] ?? 0;
+
+        $this->redirect('dashboard');
+    }
+
+    /**
+     * Retorna para a conta de administrador original após uma impersonação.
+     */
+    public function returnAdmin()
+    {
+        if (empty($_SESSION['impersonator'])) {
+            $this->redirect('dashboard');
+        }
+
+        $admin = $_SESSION['impersonator'];
+        $_SESSION['user_id'] = $admin['user_id'];
+        $_SESSION['user_name'] = $admin['user_name'];
+        $_SESSION['user_email'] = $admin['user_email'];
+        $_SESSION['user_role'] = $admin['user_role'];
+        $_SESSION['user_avatar'] = $admin['user_avatar'] ?? null;
+        $_SESSION['user_company_id'] = $admin['user_company_id'] ?? null;
+        $_SESSION['user_is_company_owner'] = $admin['user_is_company_owner'] ?? 0;
+
+        unset($_SESSION['impersonator']);
+
+        $this->redirect('companies');
+    }
 }

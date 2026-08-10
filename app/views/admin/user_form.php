@@ -28,8 +28,11 @@
                         <input type="email" name="email" class="form-control" value="<?= escape($editUser['email'] ?? '') ?>" required>
                     </div>
                     <div class="col-sm-6">
-                        <label class="form-label fw-medium small">Senha <?= $editUser ? '(vazio = manter)' : '*' ?></label>
-                        <input type="password" name="password" class="form-control" <?= $editUser ? '' : 'required' ?>>
+                        <label class="form-label fw-medium small">Senha <?= $editUser ? '(vazio = manter)' : '(vazio = enviar convite)' ?></label>
+                        <input type="password" name="password" class="form-control">
+                        <?php if (!$editUser): ?>
+                        <small class="text-muted">Deixe em branco para enviar um email de definição de senha (primeiro acesso).</small>
+                        <?php endif; ?>
                     </div>
                     <div class="col-sm-6">
                         <label class="form-label fw-medium small">Telefone</label>
@@ -40,6 +43,8 @@
                         <select name="role" id="role-select" class="form-select" required onchange="toggleCompanyFields()">
                             <option value="client" <?= ($editUser['role'] ?? '') === 'client' ? 'selected' : '' ?>>Cliente</option>
                             <option value="attendant" <?= ($editUser['role'] ?? '') === 'attendant' ? 'selected' : '' ?>>Atendente</option>
+                            <option value="developer" <?= ($editUser['role'] ?? '') === 'developer' ? 'selected' : '' ?>>Desenvolvedor</option>
+                            <option value="analyst" <?= ($editUser['role'] ?? '') === 'analyst' ? 'selected' : '' ?>>Analista</option>
                             <option value="whatsapp_agent" <?= ($editUser['role'] ?? '') === 'whatsapp_agent' ? 'selected' : '' ?>>Agente WhatsApp</option>
                             <option value="super_admin" <?= ($editUser['role'] ?? '') === 'super_admin' ? 'selected' : '' ?>>Super Admin</option>
                         </select>
@@ -97,13 +102,13 @@
                     <?php if (!$editUser): ?>
                     <div class="col-12">
                         <div class="alert alert-info py-2" style="font-size:0.82rem">
-                            <i class="bi bi-envelope"></i> Um email será enviado ao usuário com as credenciais de acesso.
+                            <i class="bi bi-envelope"></i> Um email será enviado ao usuário com um link para definir a senha. Após defini-la, ele entra automaticamente no sistema.
                         </div>
                     </div>
                     <?php endif; ?>
 
-                    <!-- Acesso a Empresas (para atendentes e agentes whatsapp) -->
-                    <div id="access-fields" class="col-12" style="<?= in_array($editUser['role'] ?? '', ['attendant', 'whatsapp_agent']) ? '' : 'display:none' ?>">
+                    <!-- Acesso a Empresas (para equipe interna) -->
+                    <div id="access-fields" class="col-12" style="<?= in_array($editUser['role'] ?? '', ['attendant', 'whatsapp_agent', 'developer', 'analyst']) ? '' : 'display:none' ?>">
                         <hr class="my-2">
                         <h6 class="fw-medium mb-3" style="font-size:0.88rem"><i class="bi bi-shield-lock"></i> Acesso a Empresas</h6>
                         <p class="small text-muted mb-2">Selecione quais empresas este usuário pode visualizar nos módulos de Planejamento, Demandas e CRM. Se nenhuma for selecionada, ele só verá cards sem empresa.</p>
@@ -139,7 +144,8 @@ function toggleCompanyFields() {
     const fields = document.getElementById('company-fields');
     const accessFields = document.getElementById('access-fields');
     fields.style.display = role === 'client' ? '' : 'none';
-    accessFields.style.display = (role === 'attendant' || role === 'whatsapp_agent') ? '' : 'none';
+    const teamRoles = ['attendant', 'whatsapp_agent', 'developer', 'analyst'];
+    accessFields.style.display = teamRoles.includes(role) ? '' : 'none';
 }
 
 function toggleNewCompany() {

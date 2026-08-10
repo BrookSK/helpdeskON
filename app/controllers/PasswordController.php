@@ -145,6 +145,21 @@ class PasswordController extends Controller
         $db = Database::getInstance();
         $db->update('password_resets', ['used_at' => date('Y-m-d H:i:s')], 'id = ?', [$resetData['id']]);
 
+        // Login automático após definir a senha (fluxo de primeiro acesso e também redefinição)
+        $user = $this->userModel->findById($resetData['user_id']);
+        if ($user && $user['is_active']) {
+            $_SESSION['user_id'] = $user['id'];
+            $_SESSION['user_name'] = $user['name'];
+            $_SESSION['user_email'] = $user['email'];
+            $_SESSION['user_role'] = $user['role'];
+            $_SESSION['user_avatar'] = $user['avatar'] ?? null;
+            $_SESSION['user_company_id'] = $user['company_id'] ?? null;
+            $_SESSION['user_is_company_owner'] = $user['is_company_owner'] ?? 0;
+
+            flash('success', 'Senha definida com sucesso! Bem-vindo(a).');
+            $this->redirect('dashboard');
+        }
+
         flash('success', 'Senha redefinida com sucesso! Faça login.');
         $this->redirect('login');
     }

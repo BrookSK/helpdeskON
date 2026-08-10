@@ -35,6 +35,38 @@
                         <label class="form-label fw-medium small">Email</label>
                         <input type="email" name="email" class="form-control" value="<?= escape($editCompany['email'] ?? '') ?>">
                     </div>
+
+                    <div class="col-12">
+                        <label class="form-label fw-medium small"><i class="bi bi-whatsapp text-success"></i> Grupo de WhatsApp da empresa</label>
+                        <select name="whatsapp_group_jid" class="form-select">
+                            <option value="">Nenhum grupo vinculado</option>
+                            <?php foreach (($whatsappGroups ?? []) as $g): ?>
+                            <option value="<?= escape($g['remote_jid']) ?>" <?= ($editCompany['whatsapp_group_jid'] ?? '') === $g['remote_jid'] ? 'selected' : '' ?>>
+                                <?= escape($g['name']) ?>
+                            </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <small class="text-muted">Grupos conectados à plataforma. As notificações de homologação e atualizações da empresa serão enviadas neste grupo.</small>
+                    </div>
+
+                    <?php if (!$editCompany): ?>
+                    <div class="col-12">
+                        <hr class="my-2">
+                        <h6 class="fw-medium mb-1" style="font-size:0.88rem"><i class="bi bi-person-badge"></i> Responsável (acesso ao painel)</h6>
+                        <p class="small text-muted mb-3">Será criado um usuário responsável com acesso ao painel do cliente. Ele receberá um email para definir a senha e poderá criar usuários, abrir demandas etc.</p>
+                        <div class="row g-3">
+                            <div class="col-sm-6">
+                                <label class="form-label fw-medium small">Nome do responsável</label>
+                                <input type="text" name="owner_name" class="form-control form-control-sm" placeholder="Nome do responsável">
+                            </div>
+                            <div class="col-sm-6">
+                                <label class="form-label fw-medium small">Email do responsável</label>
+                                <input type="email" name="owner_email" class="form-control form-control-sm" placeholder="Se vazio, usa o email da empresa">
+                            </div>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+
                     <div class="col-12 mt-3">
                         <button type="submit" class="btn btn-primary px-4">
                             <i class="bi bi-check-lg"></i> <?= $editCompany ? 'Atualizar' : 'Cadastrar' ?>

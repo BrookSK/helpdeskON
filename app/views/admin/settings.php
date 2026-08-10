@@ -186,6 +186,33 @@
             </div>
         </div>
 
+        <!-- Grupo de Notificações WhatsApp -->
+        <div class="card mb-4">
+            <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-people-fill text-success"></i> Grupo Padrão de Notificações (WhatsApp)</h6></div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-12">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" name="whatsapp_group_notify_enabled" value="1" id="groupNotifyEnabled" <?= ($settings['whatsapp_group_notify_enabled'] ?? '') === '1' ? 'checked' : '' ?>>
+                            <label class="form-check-label fw-medium small" for="groupNotifyEnabled">Enviar atualizações de status para o grupo padrão</label>
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label fw-medium small">Grupo padrão (empresa dona do helpdesk)</label>
+                        <select name="whatsapp_default_group_jid" class="form-select form-select-sm">
+                            <option value="">Nenhum grupo selecionado</option>
+                            <?php foreach (($whatsappGroups ?? []) as $g): ?>
+                            <option value="<?= escape($g['remote_jid']) ?>" <?= ($settings['whatsapp_default_group_jid'] ?? '') === $g['remote_jid'] ? 'selected' : '' ?>>
+                                <?= escape($g['name']) ?>
+                            </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <small class="text-muted">Todas as atualizações de status das demandas serão enviadas neste grupo, para que todos os integrantes recebam. Usa a conexão de WhatsApp já existente no chat.</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Banco -->
         <div class="card mb-4">
             <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-database"></i> Banco de Dados</h6></div>

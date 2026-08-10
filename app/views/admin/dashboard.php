@@ -65,8 +65,11 @@
                 <div class="card-header bg-white"><h6 class="mb-0">Atalhos Rápidos</h6></div>
                 <div class="card-body">
                     <div class="d-grid gap-2">
+                        <a href="<?= baseUrl('companies') ?>" class="btn btn-outline-primary text-start">
+                            <i class="bi bi-building me-2"></i> Empresas
+                        </a>
                         <a href="<?= baseUrl('users') ?>" class="btn btn-outline-primary text-start">
-                            <i class="bi bi-people me-2"></i> Gerenciar Usuários
+                            <i class="bi bi-people me-2"></i> Todos os Usuários
                         </a>
                         <a href="<?= baseUrl('tickets/kanban') ?>" class="btn btn-outline-primary text-start">
                             <i class="bi bi-kanban me-2"></i> Kanban
