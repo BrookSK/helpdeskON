@@ -557,13 +557,6 @@ function sendMessage() {
     input.value = '';
     input.style.height = '34px';
 
-    // Optimistic UI — marcar com classe especial para evitar duplicação
-    const area = document.getElementById('messages-area');
-    const tempId = 'temp-' + Date.now();
-    const tempHtml = `<div class="wpp-msg mine" id="${tempId}">${formatWhatsApp(finalText)}<div class="wpp-msg-time">agora</div></div>`;
-    area.insertAdjacentHTML('beforeend', tempHtml);
-    scrollToBottom();
-
     const fd = new FormData();
     fd.append('contact_id', activeContactId);
     fd.append('message', finalText);
@@ -572,10 +565,14 @@ function sendMessage() {
     .then(r => r.json())
     .then(data => {
         if (data.success && data.message) {
-            // Atualizar lastMessageId para que o polling não traga esta mensagem de novo
-            lastMessageId = Math.max(lastMessageId, data.message.id || 0);
-            // Adicionar ao set de IDs já exibidos
-            renderedMessageIds.add(data.message.id);
+            // Renderizar a mensagem retornada pelo servidor (fonte única de verdade)
+            if (!renderedMessageIds.has(data.message.id)) {
+                renderedMessageIds.add(data.message.id);
+                lastMessageId = Math.max(lastMessageId, data.message.id);
+                const area = document.getElementById('messages-area');
+                area.insertAdjacentHTML('beforeend', renderSingleMessage(data.message));
+                scrollToBottom();
+            }
         }
     });
 }
