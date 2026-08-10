@@ -221,6 +221,7 @@ class WhatsappController extends Controller
             'message_text' => $text,
             'sender_name' => $this->currentUser()['name'],
             'timestamp' => date('Y-m-d H:i:s'),
+            'is_read' => 1,
         ]);
 
         // Atualizar última mensagem do contato
@@ -777,6 +778,19 @@ class WhatsappController extends Controller
         $timestamp = isset($msg['messageTimestamp'])
             ? date('Y-m-d H:i:s', intval($msg['messageTimestamp']))
             : date('Y-m-d H:i:s');
+
+        // Proteção contra duplicação: se fromMe, verificar se já existe mensagem
+        // com mesmo texto e contato nos últimos 10 segundos (enviada pelo sistema)
+        if ($fromMe && $msgType === 'text' && !empty($msgText)) {
+            $db = Database::getInstance();
+            $recent = $db->fetch(
+                "SELECT id FROM whatsapp_messages 
+                 WHERE contact_id = ? AND from_me = 1 AND message_text = ? AND timestamp >= DATE_SUB(NOW(), INTERVAL 10 SECOND)
+                 LIMIT 1",
+                [$contactId, $msgText]
+            );
+            if ($recent) return; // Já foi salva pelo sistema no envio
+        }
 
         $this->messageModel->create([
             'instance_id' => $instance['id'],

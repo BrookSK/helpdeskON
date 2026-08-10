@@ -290,6 +290,7 @@ let activeContactIsGroup = false;
 let pollInterval = null;
 let contactsPollInterval = null;
 let lastMessageId = 0;
+let renderedMessageIds = new Set(); // Para evitar duplicação de mensagens
 let currentTab = 'contacts';
 let allContacts = [];
 let allGroups = [];
@@ -493,7 +494,8 @@ function renderMessages(messages) {
         area.innerHTML = '<div class="text-center text-muted small py-4">Nenhuma mensagem ainda</div>';
         return;
     }
-    // Popular cache de menções a partir dos sender_names das mensagens
+    // Limpar set e popular com IDs carregados
+    renderedMessageIds = new Set();
     messages.forEach(m => {
         if (m.participant_jid && m.sender_name) {
             const num = m.participant_jid.replace(/@.*/, '');
@@ -502,6 +504,7 @@ function renderMessages(messages) {
     });
     area.innerHTML = messages.map(m => {
         lastMessageId = Math.max(lastMessageId, m.id);
+        renderedMessageIds.add(m.id);
         return renderSingleMessage(m);
     }).join('');
 }
@@ -553,8 +556,11 @@ function sendMessage() {
 
     input.value = '';
     input.style.height = '34px';
+
+    // Optimistic UI — marcar com classe especial para evitar duplicação
     const area = document.getElementById('messages-area');
-    const tempHtml = `<div class="wpp-msg mine">${formatWhatsApp(finalText)}<div class="wpp-msg-time">agora</div></div>`;
+    const tempId = 'temp-' + Date.now();
+    const tempHtml = `<div class="wpp-msg mine" id="${tempId}">${formatWhatsApp(finalText)}<div class="wpp-msg-time">agora</div></div>`;
     area.insertAdjacentHTML('beforeend', tempHtml);
     scrollToBottom();
 
@@ -566,7 +572,10 @@ function sendMessage() {
     .then(r => r.json())
     .then(data => {
         if (data.success && data.message) {
+            // Atualizar lastMessageId para que o polling não traga esta mensagem de novo
             lastMessageId = Math.max(lastMessageId, data.message.id || 0);
+            // Adicionar ao set de IDs já exibidos
+            renderedMessageIds.add(data.message.id);
         }
     });
 }
@@ -606,6 +615,10 @@ function startPolling() {
             if (messages && messages.length) {
                 const area = document.getElementById('messages-area');
                 messages.forEach(m => {
+                    // Ignorar mensagens já renderizadas (evita duplicação)
+                    if (renderedMessageIds.has(m.id)) return;
+                    renderedMessageIds.add(m.id);
+
                     // Popular cache de menções
                     if (m.participant_jid && m.sender_name) {
                         const num = m.participant_jid.replace(/@.*/, '');
