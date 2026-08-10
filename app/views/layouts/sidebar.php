@@ -101,6 +101,18 @@
                     <i class="bi bi-kanban"></i> CRM
                 </a>
             </li>
+            <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'crm_dashboard' ? 'active' : '' ?>" href="<?= baseUrl('crm/dashboard') ?>" style="padding-left:2.6rem;font-size:0.85rem;">
+                    <i class="bi bi-graph-up"></i> Dashboard CRM
+                </a>
+            </li>
+            <?php if (in_array($user['role'] ?? '', ['super_admin', 'comercial'])): ?>
+            <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'crm_commissions' ? 'active' : '' ?>" href="<?= baseUrl('crm/commissions') ?>" style="padding-left:2.6rem;font-size:0.85rem;">
+                    <i class="bi bi-cash-stack"></i> Comissões
+                </a>
+            </li>
+            <?php endif; ?>
             <?php endif; ?>
             <?php endif; ?>
 

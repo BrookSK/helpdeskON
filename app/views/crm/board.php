@@ -10,7 +10,6 @@
         </div>
         <div class="d-flex gap-2">
             <a href="<?= baseUrl('crm') ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> Boards</a>
-            <a href="<?= baseUrl('crm/dashboard') ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-graph-up"></i> Dashboard</a>
             <button class="btn btn-sm btn-outline-primary" onclick="openAddColumnModal()"><i class="bi bi-plus-lg"></i> Coluna</button>
             <button class="btn btn-sm btn-primary" onclick="openAddCardModal()"><i class="bi bi-plus-lg"></i> Card</button>
         </div>

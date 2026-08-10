@@ -1,4 +1,4 @@
-<?php $pageTitle = 'Comissões - CRM'; $currentPage = 'crm'; ?>
+<?php $pageTitle = 'Comissões - CRM'; $currentPage = 'crm_commissions'; ?>
 <?php require APP_PATH . '/views/layouts/header.php'; ?>
 <?php require APP_PATH . '/views/layouts/sidebar.php'; ?>
 
@@ -8,12 +8,7 @@
             <h5 class="mb-0"><i class="bi bi-cash-stack"></i> <?= !empty($isComercial) ? 'Minhas Comissões' : 'Comissões' ?></h5>
             <small class="text-muted"><?= !empty($isComercial) ? 'Suas comissões a receber por leads convertidos' : 'Comissões dos usuários comerciais por leads convertidos' ?></small>
         </div>
-        <div class="d-flex gap-2">
-            <?php if (empty($isComercial)): ?>
-            <a href="<?= baseUrl('crm/dashboard') ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-graph-up"></i> Dashboard CRM</a>
-            <?php endif; ?>
-            <a href="<?= baseUrl('crm') ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> CRM</a>
-        </div>
+        <a href="<?= baseUrl('crm') ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> CRM</a>
     </div>
 
     <!-- Filtros -->

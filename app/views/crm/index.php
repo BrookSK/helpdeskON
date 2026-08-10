@@ -9,7 +9,6 @@
             <small class="text-muted">Gerencie seus leads e contatos</small>
         </div>
         <div class="d-flex gap-2">
-            <a href="<?= baseUrl('crm/dashboard') ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-graph-up"></i> Dashboard CRM</a>
             <a href="<?= baseUrl('whatsapp/chat') ?>" class="btn btn-sm btn-outline-success"><i class="bi bi-whatsapp"></i> Chat</a>
             <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#newBoardModal">
                 <i class="bi bi-plus-lg"></i> Novo Board
