@@ -1160,6 +1160,71 @@ class WhatsappController extends Controller
     }
 
     /**
+     * (Re)registra o webhook da instância incluindo o evento de status das mensagens
+     * (MESSAGES_UPDATE), necessário para os checks de entrega/leitura.
+     * Chamada HTTP direta ao endpoint /webhook/set (não altera a classe EvolutionApi).
+     */
+    public function registerWebhookEvents($instanceId = null)
+    {
+        $this->requireRole(['super_admin']);
+        $db = Database::getInstance();
+
+        if ($instanceId) {
+            $instances = $db->fetchAll("SELECT * FROM whatsapp_instances WHERE id = ?", [$instanceId]);
+        } else {
+            $instances = $db->fetchAll("SELECT * FROM whatsapp_instances");
+        }
+
+        $webhookUrl = baseUrl('whatsapp/webhook');
+        $events = ['MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'CONNECTION_UPDATE', 'QRCODE_UPDATED'];
+        $results = [];
+
+        foreach ($instances as $inst) {
+            $ok = $this->setInstanceWebhook($inst, $webhookUrl, $events);
+            $results[$inst['instance_name']] = $ok;
+        }
+
+        $this->json(['success' => true, 'results' => $results, 'webhook' => $webhookUrl, 'events' => $events]);
+    }
+
+    /**
+     * Define o webhook + eventos de uma instância na Evolution API (tenta formatos v1 e v2).
+     */
+    private function setInstanceWebhook($instance, $webhookUrl, $events)
+    {
+        $url = rtrim($instance['api_url'], '/') . '/webhook/set/' . $instance['instance_name'];
+        // Formato Evolution v2 (webhook aninhado)
+        $payloads = [
+            ['webhook' => ['enabled' => true, 'url' => $webhookUrl, 'byEvents' => false, 'base64' => true, 'events' => $events]],
+            // Formato alternativo (v1 - campos na raiz)
+            ['url' => $webhookUrl, 'webhook_by_events' => false, 'events' => $events],
+        ];
+
+        foreach ($payloads as $payload) {
+            try {
+                $ch = curl_init($url);
+                curl_setopt_array($ch, [
+                    CURLOPT_POST => true,
+                    CURLOPT_POSTFIELDS => json_encode($payload),
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_HTTPHEADER => ['apikey: ' . $instance['api_key'], 'Content-Type: application/json'],
+                    CURLOPT_SSL_VERIFYPEER => false,
+                    CURLOPT_TIMEOUT => 15,
+                ]);
+                $response = curl_exec($ch);
+                $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                curl_close($ch);
+                if ($httpCode >= 200 && $httpCode < 300) {
+                    return true;
+                }
+            } catch (Exception $e) {
+                // tenta próximo formato
+            }
+        }
+        return false;
+    }
+
+    /**
      * Baixa o base64 de uma mídia (incl. figurinha) via Evolution API,
      * quando o webhook não envia o base64 embutido.
      */
