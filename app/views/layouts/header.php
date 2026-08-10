@@ -130,40 +130,49 @@
             body.sidebar-collapsed .main-content { margin-left: 70px; }
 
             /* Esconde textos, mantém ícones */
-            body.sidebar-collapsed .sidebar .nav-link span,
+            body.sidebar-collapsed .sidebar .nav-text,
             body.sidebar-collapsed .sidebar .nav-link .crm-caret,
             body.sidebar-collapsed .sidebar .nav-link .companies-caret,
             body.sidebar-collapsed .sidebar-nav small,
             body.sidebar-collapsed .sidebar .notification-count-sidebar,
             body.sidebar-collapsed .sidebar-footer .flex-grow-1,
-            body.sidebar-collapsed .sidebar-header .logo-text ~ *,
             body.sidebar-collapsed .sidebar-header > div,
             body.sidebar-collapsed .sidebar-header img,
+            body.sidebar-collapsed .sidebar-header .logo-text,
             body.sidebar-collapsed .sidebar-header .fw-light {
                 display: none !important;
             }
-            /* Texto direto dos nav-links (sem span) some, mas o ícone permanece */
+            /* Nav-link centralizado no modo ícone */
             body.sidebar-collapsed .sidebar .nav-link {
-                font-size: 0; /* zera texto solto */
                 text-align: center;
                 margin: 2px 8px;
                 padding: 11px 0;
+                justify-content: center !important;
+            }
+            /* Texto solto (nós sem .nav-text) fica escondido, ícone permanece */
+            body.sidebar-collapsed .sidebar .nav-link {
+                font-size: 0;
+            }
+            body.sidebar-collapsed .sidebar .nav-link .nav-link-body {
+                display: flex;
+                justify-content: center;
+                width: 100%;
             }
             body.sidebar-collapsed .sidebar .nav-link i {
-                margin-right: 0;
+                margin-right: 0 !important;
                 font-size: 1.1rem;
             }
             /* Subitens indentados voltam ao centro */
             body.sidebar-collapsed .sidebar .nav-link[style*="padding-left"] {
                 padding-left: 0 !important;
             }
-            /* Esconde subnavs recolhidos por completo no modo ícone */
-            body.sidebar-collapsed #crm-subnav,
-            body.sidebar-collapsed #companies-subnav {
-                display: none !important;
-            }
             body.sidebar-collapsed .sidebar-footer .btn { padding: 5px 8px; }
-        }
+            /* Botão recolher centralizado quando o menu está recolhido */
+            body.sidebar-collapsed .sidebar-header { padding: 14px 0; }
+            body.sidebar-collapsed .sidebar-collapse-btn {
+                position: static !important;
+                margin: 0 auto;
+            }
         /* Botão de recolher (desktop) */
         .sidebar-collapse-btn {
             display: none;

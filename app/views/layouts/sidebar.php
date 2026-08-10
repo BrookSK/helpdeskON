@@ -102,7 +102,7 @@
             <?php $crmSectionActive = in_array($currentPage ?? '', ['crm', 'crm_dashboard', 'crm_commissions']); ?>
             <li class="nav-item">
                 <a class="nav-link d-flex align-items-center justify-content-between <?= ($currentPage ?? '') === 'crm' ? 'active' : '' ?>" href="<?= baseUrl('crm') ?>">
-                    <span><i class="bi bi-kanban"></i> CRM</span>
+                    <span class="nav-link-body"><i class="bi bi-kanban"></i> <span class="nav-text">CRM</span></span>
                     <i class="bi bi-chevron-down crm-caret <?= $crmSectionActive ? '' : 'collapsed-caret' ?>" onclick="event.preventDefault();event.stopPropagation();toggleCrmSub(this);" style="font-size:0.7rem;padding:4px;cursor:pointer;transition:transform 0.2s;"></i>
                 </a>
             </li>
@@ -130,7 +130,7 @@
             <?php $companiesSectionActive = in_array($currentPage ?? '', ['companies', 'users']); ?>
             <li class="nav-item">
                 <a class="nav-link d-flex align-items-center justify-content-between <?= ($currentPage ?? '') === 'companies' ? 'active' : '' ?>" href="<?= baseUrl('companies') ?>">
-                    <span><i class="bi bi-building"></i> Empresas</span>
+                    <span class="nav-link-body"><i class="bi bi-building"></i> <span class="nav-text">Empresas</span></span>
                     <i class="bi bi-chevron-down companies-caret <?= $companiesSectionActive ? '' : 'collapsed-caret' ?>" onclick="event.preventDefault();event.stopPropagation();toggleSubnav(this, 'companies-subnav');" style="font-size:0.7rem;padding:4px;cursor:pointer;transition:transform 0.2s;"></i>
                 </a>
             </li>
