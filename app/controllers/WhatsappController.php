@@ -953,6 +953,125 @@ class WhatsappController extends Controller
     }
 
     /**
+     * API: Iniciar conversa com um novo número.
+     * Cria/localiza o contato e o retorna. Se o nome não for informado,
+     * tenta usar o nome do perfil do WhatsApp (pushName) via Evolution API.
+     */
+    public function startConversation()
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            $this->json(['error' => 'Método inválido'], 405);
+        }
+
+        $phone = preg_replace('/\D/', '', $_POST['phone'] ?? '');
+        $name = trim($_POST['name'] ?? '');
+
+        if (empty($phone)) {
+            $this->json(['error' => 'Informe o número.'], 400);
+        }
+
+        $instance = $this->getUserInstance();
+        if (!$instance) {
+            $this->json(['error' => 'Nenhuma instância de WhatsApp disponível.'], 400);
+        }
+
+        $api = new EvolutionApi($instance['api_url'], $instance['api_key'], $instance['instance_name']);
+        $jid = $api->normalizeJid($api->normalizeNumber($phone));
+        $phoneOnly = $api->extractPhone($jid);
+
+        // Verificar se o número tem WhatsApp e obter JID real
+        try {
+            $check = $api->checkIsWhatsapp([$phoneOnly]);
+            if (is_array($check)) {
+                foreach ($check as $item) {
+                    if (!empty($item['exists']) && !empty($item['jid'])) {
+                        $jid = $api->normalizeJid($item['jid']);
+                        $phoneOnly = $api->extractPhone($jid);
+                    }
+                }
+            }
+        } catch (Exception $e) {
+            // segue com o jid normalizado
+        }
+
+        // Se não informou nome, tentar pegar o nome do perfil do WhatsApp
+        if (empty($name)) {
+            try {
+                $pic = $api->fetchProfilePicture($phoneOnly);
+                if (is_array($pic) && !empty($pic['name'])) {
+                    $name = $pic['name'];
+                }
+            } catch (Exception $e) {
+                // ignora
+            }
+        }
+
+        // Criar/localizar o contato
+        $contactId = $this->contactModel->upsert($instance['id'], $jid, [
+            'phone' => $phoneOnly,
+            'is_group' => 0,
+            'last_message_at' => date('Y-m-d H:i:s'),
+        ], $name ?: null);
+
+        // Garantir visível e com nome, se informado
+        $update = ['is_archived' => 0];
+        if (!empty($name)) $update['contact_name'] = $name;
+        $db = Database::getInstance();
+        $db->update('whatsapp_contacts', $update, 'id = ?', [$contactId]);
+
+        $contact = $this->contactModel->findById($contactId);
+        $this->json(['success' => true, 'contact' => $contact]);
+    }
+
+    /**
+     * API: Obter briefing comercial de um contato
+     */
+    public function getBriefing($contactId = null)
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        if (!$contactId) $this->json(['error' => 'ID obrigatório'], 400);
+
+        $briefing = $this->contactModel->getBriefing($contactId);
+        $this->json(['briefing' => $briefing ?: null]);
+    }
+
+    /**
+     * API: Salvar briefing comercial de um contato
+     */
+    public function saveBriefing($contactId = null)
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$contactId) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+
+        $contact = $this->contactModel->findById($contactId);
+        if (!$contact) $this->json(['error' => 'Contato não encontrado'], 404);
+
+        $temp = $_POST['lead_temperature'] ?? '';
+        $data = [
+            'need' => trim($_POST['need'] ?? ''),
+            'main_pain' => trim($_POST['main_pain'] ?? ''),
+            'current_solution' => trim($_POST['current_solution'] ?? ''),
+            'expected_goal' => trim($_POST['expected_goal'] ?? ''),
+            'urgency' => trim($_POST['urgency'] ?? ''),
+            'investment_range' => trim($_POST['investment_range'] ?? ''),
+            'decision_level' => trim($_POST['decision_level'] ?? ''),
+            'lead_temperature' => in_array($temp, ['frio','morno','quente']) ? $temp : null,
+            'main_objection' => trim($_POST['main_objection'] ?? ''),
+            'next_step' => trim($_POST['next_step'] ?? ''),
+            'next_contact_date' => !empty($_POST['next_contact_date']) ? $_POST['next_contact_date'] : null,
+            'notes' => trim($_POST['notes'] ?? ''),
+        ];
+
+        $user = $this->currentUser();
+        $this->contactModel->saveBriefing($contactId, $data, $user['id']);
+
+        $this->json(['success' => true]);
+    }
+
+    /**
      * API: Adicionar contato ao CRM
      */
     public function addToCrm()
@@ -982,12 +1101,22 @@ class WhatsappController extends Controller
             $columnId = $columns[0]['id'];
         }
 
+        // Se houver briefing, usar a faixa de investimento como valor do card
+        $briefing = $this->contactModel->getBriefing($contactId);
+        $cardValue = null;
+        if ($briefing && !empty($briefing['investment_range'])) {
+            // extrai números da faixa (ex.: "R$ 5.000" -> 5000)
+            $num = preg_replace('/[^\d]/', '', $briefing['investment_range']);
+            $cardValue = $num !== '' ? floatval($num) : null;
+        }
+
         $user = $this->currentUser();
         $cardId = $crmModel->createCard([
             'column_id' => $columnId,
             'contact_id' => $contactId,
             'title' => $contact['contact_name'] ?: $contact['push_name'] ?: $contact['phone'],
             'phone' => $contact['phone'],
+            'value' => $cardValue,
             'assigned_to' => $contact['assigned_to'],
             'created_by' => $user['id'],
         ]);

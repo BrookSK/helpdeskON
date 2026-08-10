@@ -15,6 +15,9 @@
                         <a href="<?= baseUrl('crm') ?>" class="btn btn-sm btn-outline-primary py-0 px-1" title="CRM"><i class="bi bi-kanban" style="font-size:0.75rem;"></i></a>
                     </div>
                 </div>
+                <button class="btn btn-sm btn-success w-100 mb-2" onclick="openStartConversation()">
+                    <i class="bi bi-plus-circle"></i> Iniciar conversa
+                </button>
                 <input type="text" class="form-control form-control-sm" id="contact-search" placeholder="Buscar contato ou grupo...">
                 <div class="d-flex gap-1 mt-2 flex-nowrap">
                     <select class="form-select form-select-sm flex-fill" id="filter-assigned" style="font-size:0.72rem;min-width:0;width:33%;">
@@ -151,6 +154,13 @@
                     </div>
                 </div>
                 <hr>
+                <!-- Briefing Comercial -->
+                <div class="mb-3">
+                    <button class="btn btn-sm btn-primary w-100" onclick="openBriefingModal()">
+                        <i class="bi bi-clipboard-data"></i> Briefing comercial
+                    </button>
+                </div>
+                <hr>
                 <!-- Adicionar ao CRM -->
                 <div class="mb-3">
                     <label class="form-label small fw-medium">CRM</label>
@@ -190,6 +200,106 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
                 <button type="button" class="btn btn-sm btn-primary" onclick="createLabel()">Criar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Iniciar Conversa -->
+<div class="modal fade" id="startConversationModal" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title"><i class="bi bi-plus-circle text-success"></i> Iniciar conversa</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label small fw-medium">Número (com DDD) *</label>
+                    <input type="text" id="start-conv-phone" class="form-control form-control-sm" placeholder="Ex: 5511999999999">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small fw-medium">Nome</label>
+                    <input type="text" id="start-conv-name" class="form-control form-control-sm" placeholder="Opcional — se vazio, usa o nome do WhatsApp">
+                </div>
+                <div id="start-conv-error" class="text-danger small" style="display:none;"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-sm btn-success" id="start-conv-btn" onclick="startConversation()">Iniciar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Briefing Comercial -->
+<div class="modal fade" id="briefingModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title"><i class="bi bi-clipboard-data"></i> Briefing Comercial</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-12">
+                        <label class="form-label small fw-medium">Necessidade do lead</label>
+                        <textarea id="bf-need" class="form-control form-control-sm" rows="2"></textarea>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small fw-medium">Principal dor/problema</label>
+                        <textarea id="bf-main_pain" class="form-control form-control-sm" rows="2"></textarea>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small fw-medium">Solução atual utilizada</label>
+                        <textarea id="bf-current_solution" class="form-control form-control-sm" rows="2"></textarea>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small fw-medium">Objetivo esperado</label>
+                        <textarea id="bf-expected_goal" class="form-control form-control-sm" rows="2"></textarea>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small fw-medium">Urgência/prazo</label>
+                        <input type="text" id="bf-urgency" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small fw-medium">Faixa de investimento</label>
+                        <input type="text" id="bf-investment_range" class="form-control form-control-sm" placeholder="Ex: R$ 5.000 - R$ 10.000">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small fw-medium">Nível de decisão do contato</label>
+                        <input type="text" id="bf-decision_level" class="form-control form-control-sm" placeholder="Ex: Decisor, Influenciador...">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small fw-medium">Temperatura do lead</label>
+                        <select id="bf-lead_temperature" class="form-select form-select-sm">
+                            <option value="">Selecione</option>
+                            <option value="frio">Frio</option>
+                            <option value="morno">Morno</option>
+                            <option value="quente">Quente</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small fw-medium">Data do próximo contato</label>
+                        <input type="date" id="bf-next_contact_date" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small fw-medium">Principal objeção</label>
+                        <textarea id="bf-main_objection" class="form-control form-control-sm" rows="2"></textarea>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small fw-medium">Próximo passo combinado</label>
+                        <textarea id="bf-next_step" class="form-control form-control-sm" rows="2"></textarea>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small fw-medium">Observações importantes</label>
+                        <textarea id="bf-notes" class="form-control form-control-sm" rows="3"></textarea>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-sm btn-primary" onclick="saveBriefing()">Salvar Briefing</button>
             </div>
         </div>
     </div>
@@ -874,6 +984,103 @@ function createLabel() {
 // =========================================
 // CRM INTEGRATION
 // =========================================
+// === INICIAR CONVERSA ===
+function openStartConversation() {
+    document.getElementById('start-conv-phone').value = '';
+    document.getElementById('start-conv-name').value = '';
+    document.getElementById('start-conv-error').style.display = 'none';
+    new bootstrap.Modal(document.getElementById('startConversationModal')).show();
+}
+
+function startConversation() {
+    const phone = document.getElementById('start-conv-phone').value.trim();
+    const name = document.getElementById('start-conv-name').value.trim();
+    const errBox = document.getElementById('start-conv-error');
+    const btn = document.getElementById('start-conv-btn');
+
+    if (!phone) {
+        errBox.textContent = 'Informe o número.';
+        errBox.style.display = 'block';
+        return;
+    }
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    errBox.style.display = 'none';
+
+    const fd = new FormData();
+    fd.append('phone', phone);
+    fd.append('name', name);
+
+    fetch(BASE + 'whatsapp/startConversation', { method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'} })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success && data.contact) {
+            bootstrap.Modal.getInstance(document.getElementById('startConversationModal')).hide();
+            loadContacts();
+            // Abrir a conversa criada
+            setTimeout(() => openChat(data.contact.id, false), 400);
+        } else {
+            errBox.textContent = data.error || 'Erro ao iniciar conversa.';
+            errBox.style.display = 'block';
+        }
+    })
+    .catch(() => {
+        errBox.textContent = 'Erro na requisição.';
+        errBox.style.display = 'block';
+    })
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = 'Iniciar';
+    });
+}
+
+// === BRIEFING COMERCIAL ===
+function openBriefingModal() {
+    if (!activeContactId) { alert('Selecione um contato.'); return; }
+    // Limpar campos
+    ['need','main_pain','current_solution','expected_goal','urgency','investment_range','decision_level','main_objection','next_step','notes'].forEach(f => {
+        const el = document.getElementById('bf-' + f); if (el) el.value = '';
+    });
+    document.getElementById('bf-lead_temperature').value = '';
+    document.getElementById('bf-next_contact_date').value = '';
+
+    // Carregar briefing existente
+    fetch(BASE + 'whatsapp/getBriefing/' + activeContactId, { headers: {'X-Requested-With': 'XMLHttpRequest'} })
+    .then(r => r.json())
+    .then(data => {
+        const b = data.briefing;
+        if (b) {
+            for (const key in b) {
+                const el = document.getElementById('bf-' + key);
+                if (el) el.value = b[key] || '';
+            }
+        }
+        new bootstrap.Modal(document.getElementById('briefingModal')).show();
+    });
+}
+
+function saveBriefing() {
+    if (!activeContactId) return;
+    const fields = ['need','main_pain','current_solution','expected_goal','urgency','investment_range','decision_level','lead_temperature','main_objection','next_step','next_contact_date','notes'];
+    const fd = new FormData();
+    fields.forEach(f => {
+        const el = document.getElementById('bf-' + f);
+        fd.append(f, el ? el.value : '');
+    });
+
+    fetch(BASE + 'whatsapp/saveBriefing/' + activeContactId, { method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'} })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            bootstrap.Modal.getInstance(document.getElementById('briefingModal')).hide();
+            showToast('Briefing salvo!');
+        } else {
+            alert(data.error || 'Erro ao salvar briefing.');
+        }
+    });
+}
+
 function loadCrmBoards() {
     fetch(BASE + 'crm/listBoards', { headers: {'X-Requested-With': 'XMLHttpRequest'} })
     .then(r => r.json())

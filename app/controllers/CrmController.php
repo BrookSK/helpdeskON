@@ -40,6 +40,9 @@ class CrmController extends Controller
             $this->redirect('crm');
         }
 
+        // Mover para a primeira coluna os cards com retomada de contato vencida
+        $this->boardModel->processFollowUps();
+
         $columns = $this->boardModel->getColumns($boardId);
         foreach ($columns as &$col) {
             $col['cards'] = $this->boardModel->getCards($col['id']);
@@ -51,11 +54,15 @@ class CrmController extends Controller
         $admins = $db->fetchAll("SELECT id, name FROM users WHERE role = 'super_admin' AND is_active = 1");
         $teamMembers = array_merge($admins, $team);
 
+        // Etiquetas disponíveis para vincular a colunas/cards
+        $labels = $db->fetchAll("SELECT * FROM whatsapp_labels ORDER BY name ASC");
+
         $this->view('crm/board', [
             'user' => $user,
             'board' => $board,
             'columns' => $columns,
             'teamMembers' => $teamMembers,
+            'labels' => $labels,
         ]);
     }
 
@@ -137,6 +144,9 @@ class CrmController extends Controller
         $boardId = $_POST['board_id'] ?? null;
         $name = trim($_POST['name'] ?? '');
         $color = $_POST['color'] ?? '#6c757d';
+        $validStatus = ['novo','em_atendimento','aguardando','concluido','perdido'];
+        $status = in_array($_POST['status'] ?? '', $validStatus) ? $_POST['status'] : null;
+        $labelId = !empty($_POST['label_id']) ? intval($_POST['label_id']) : null;
 
         if (!$boardId || empty($name)) {
             $this->json(['error' => 'Board e nome obrigatórios'], 400);
@@ -146,6 +156,8 @@ class CrmController extends Controller
             'board_id' => $boardId,
             'name' => $name,
             'color' => $color,
+            'label_id' => $labelId,
+            'status' => $status,
         ]);
 
         $this->json(['success' => true, 'column' => ['id' => $id, 'name' => $name, 'color' => $color]]);
@@ -202,6 +214,10 @@ class CrmController extends Controller
             $this->json(['error' => 'Coluna e título obrigatórios'], 400);
         }
 
+        $validStatus = ['novo','em_atendimento','aguardando','concluido','perdido'];
+        $status = in_array($_POST['status'] ?? '', $validStatus) ? $_POST['status'] : null;
+        $labelId = !empty($_POST['label_id']) ? intval($_POST['label_id']) : null;
+
         $user = $this->currentUser();
         $cardId = $this->boardModel->createCard([
             'column_id' => $columnId,
@@ -209,13 +225,34 @@ class CrmController extends Controller
             'description' => $_POST['description'] ?? '',
             'phone' => $_POST['phone'] ?? null,
             'value' => !empty($_POST['value']) ? floatval($_POST['value']) : null,
+            'label_id' => $labelId,
+            'status' => $status,
             'contact_id' => !empty($_POST['contact_id']) ? intval($_POST['contact_id']) : null,
             'assigned_to' => !empty($_POST['assigned_to']) ? intval($_POST['assigned_to']) : null,
             'created_by' => $user['id'],
         ]);
 
+        // Sincronizar valor com o briefing comercial do contato (mesmo campo de valor)
+        $contactId = !empty($_POST['contact_id']) ? intval($_POST['contact_id']) : null;
+        if ($contactId && !empty($_POST['value'])) {
+            $this->syncValueToBriefing($contactId, $_POST['value'], $user['id']);
+        }
+
         $card = $this->boardModel->findCard($cardId);
         $this->json(['success' => true, 'card' => $card]);
+    }
+
+    /**
+     * Grava o valor informado como faixa de investimento no briefing do contato,
+     * mantendo o campo de valor do card e do briefing sincronizados.
+     */
+    private function syncValueToBriefing($contactId, $value, $userId)
+    {
+        $num = is_numeric($value) ? floatval($value) : floatval(preg_replace('/[^\d.]/', '', $value));
+        if ($num <= 0) return;
+        $formatted = 'R$ ' . number_format($num, 2, ',', '.');
+        $contactModel = new WhatsappContact();
+        $contactModel->saveBriefing($contactId, ['investment_range' => $formatted], $userId);
     }
 
     /**
@@ -238,6 +275,16 @@ class CrmController extends Controller
         if (empty($data)) $this->json(['error' => 'Nada para atualizar'], 400);
 
         $this->boardModel->updateCard($cardId, $data);
+
+        // Sincronizar valor com o briefing do contato vinculado
+        if (isset($data['value']) && $data['value']) {
+            $existingCard = $this->boardModel->findCard($cardId);
+            if ($existingCard && !empty($existingCard['contact_id'])) {
+                $user = $this->currentUser();
+                $this->syncValueToBriefing($existingCard['contact_id'], $data['value'], $user['id']);
+            }
+        }
+
         $card = $this->boardModel->findCard($cardId);
         $this->json(['success' => true, 'card' => $card]);
     }
@@ -282,6 +329,87 @@ class CrmController extends Controller
 
         $this->boardModel->deleteCard($cardId);
         $this->json(['success' => true]);
+    }
+
+    /**
+     * API: Marcar lead como convertido
+     */
+    public function convertLead($cardId = null)
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$cardId) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+        $this->boardModel->updateCard($cardId, [
+            'lead_outcome' => 'converted',
+            'outcome_at' => date('Y-m-d H:i:s'),
+        ]);
+        $user = $this->currentUser();
+        $this->boardModel->addActivity($cardId, $user['id'], 'note', '✅ Lead convertido');
+        $this->json(['success' => true]);
+    }
+
+    /**
+     * API: Marcar lead como perdido
+     */
+    public function lostLead($cardId = null)
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$cardId) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+        $this->boardModel->updateCard($cardId, [
+            'lead_outcome' => 'lost',
+            'outcome_at' => date('Y-m-d H:i:s'),
+        ]);
+        $user = $this->currentUser();
+        $this->boardModel->addActivity($cardId, $user['id'], 'note', '❌ Lead perdido');
+        $this->json(['success' => true]);
+    }
+
+    /**
+     * API: Definir retomada de contato em X dias
+     */
+    public function setFollowUp($cardId = null)
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$cardId) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+        $days = intval($_POST['days'] ?? 0);
+        if ($days <= 0) {
+            $this->json(['error' => 'Informe um número de dias válido.'], 400);
+        }
+        $date = date('Y-m-d', strtotime("+{$days} days"));
+        $this->boardModel->updateCard($cardId, ['follow_up_at' => $date]);
+        $user = $this->currentUser();
+        $this->boardModel->addActivity($cardId, $user['id'], 'note', "⏰ Retomar contato em {$days} dia(s) — {$date}");
+        $this->json(['success' => true, 'follow_up_at' => $date]);
+    }
+
+    /**
+     * Processa retomadas de contato vencidas (mover cards para a primeira coluna).
+     * Pode ser chamado por cron ou ao abrir o board.
+     */
+    public function runFollowUps()
+    {
+        $moved = $this->boardModel->processFollowUps();
+        $this->json(['success' => true, 'moved' => $moved]);
+    }
+
+    /**
+     * Dashboard do CRM
+     */
+    public function dashboard()
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $user = $this->currentUser();
+
+        // Processa retomadas pendentes ao abrir o dashboard
+        $this->boardModel->processFollowUps();
+
+        $stats = $this->boardModel->getDashboardStats();
+        $this->view('crm/dashboard', ['user' => $user, 'stats' => $stats]);
     }
 
     /**

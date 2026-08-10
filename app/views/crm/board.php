@@ -10,6 +10,7 @@
         </div>
         <div class="d-flex gap-2">
             <a href="<?= baseUrl('crm') ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> Boards</a>
+            <a href="<?= baseUrl('crm/dashboard') ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-graph-up"></i> Dashboard</a>
             <button class="btn btn-sm btn-outline-primary" onclick="openAddColumnModal()"><i class="bi bi-plus-lg"></i> Coluna</button>
             <button class="btn btn-sm btn-primary" onclick="openAddCardModal()"><i class="bi bi-plus-lg"></i> Card</button>
         </div>
@@ -36,14 +37,42 @@
                 </div>
                 <div class="crm-cards-list" data-column-id="<?= $col['id'] ?>">
                     <?php foreach ($col['cards'] as $card): ?>
-                    <div class="crm-card" data-card-id="<?= $card['id'] ?>" onclick="openCardDetail(<?= $card['id'] ?>)">
-                        <div class="crm-card-title"><?= escape($card['title']) ?></div>
+                    <?php
+                    $displayName = $card['contact_name'] ?: $card['title'];
+                    $tempColors = ['frio' => '#3b82f6', 'morno' => '#f59e0b', 'quente' => '#ef4444'];
+                    $tempColor = $tempColors[$card['lead_temperature'] ?? ''] ?? null;
+                    $outcome = $card['lead_outcome'] ?? 'open';
+                    ?>
+                    <div class="crm-card outcome-<?= $outcome ?>" data-card-id="<?= $card['id'] ?>" onclick="openCardDetail(<?= $card['id'] ?>)">
+                        <div class="crm-card-title">
+                            <?php if ($tempColor): ?>
+                            <span class="d-inline-block rounded-circle me-1" style="width:8px;height:8px;background:<?= $tempColor ?>;" title="Lead <?= escape($card['lead_temperature']) ?>"></span>
+                            <?php endif; ?>
+                            <?= escape($displayName) ?>
+                        </div>
+                        <div class="d-flex gap-1 flex-wrap mb-1">
+                            <?php if (!empty($card['label_name'])): ?>
+                            <span class="badge" style="background:<?= escape($card['label_color'] ?? '#6c757d') ?>;font-size:0.62rem;"><?= escape($card['label_name']) ?></span>
+                            <?php endif; ?>
+                            <?php if ($outcome === 'converted'): ?>
+                            <span class="badge bg-success" style="font-size:0.62rem;"><i class="bi bi-check-circle"></i> Convertido</span>
+                            <?php elseif ($outcome === 'lost'): ?>
+                            <span class="badge bg-danger" style="font-size:0.62rem;"><i class="bi bi-x-circle"></i> Perdido</span>
+                            <?php endif; ?>
+                            <?php if (!empty($card['follow_up_at'])): ?>
+                            <span class="badge bg-warning text-dark" style="font-size:0.62rem;"><i class="bi bi-clock"></i> Retomar <?= date('d/m', strtotime($card['follow_up_at'])) ?></span>
+                            <?php endif; ?>
+                        </div>
                         <?php if ($card['phone']): ?>
                         <div class="crm-card-phone"><i class="bi bi-telephone"></i> <?= escape($card['phone']) ?></div>
                         <?php endif; ?>
                         <div class="crm-card-footer">
-                            <?php if ($card['value']): ?>
+                            <?php if (!empty($card['investment_range'])): ?>
+                            <span class="text-success fw-medium"><i class="bi bi-cash-coin"></i> <?= escape($card['investment_range']) ?></span>
+                            <?php elseif ($card['value']): ?>
                             <span class="text-success fw-medium">R$ <?= number_format($card['value'], 2, ',', '.') ?></span>
+                            <?php else: ?>
+                            <span class="text-muted">Sem investimento</span>
                             <?php endif; ?>
                             <?php if ($card['assigned_name']): ?>
                             <span class="text-muted"><i class="bi bi-person"></i> <?= escape($card['assigned_name']) ?></span>
@@ -79,6 +108,7 @@
                     <div class="col-sm-6 mb-3">
                         <label class="form-label small fw-medium">Valor (R$)</label>
                         <input type="number" step="0.01" id="new-card-value" class="form-control form-control-sm" placeholder="0,00">
+                        <small class="text-muted" style="font-size:0.68rem">Sincroniza com a Faixa de investimento do briefing.</small>
                     </div>
                 </div>
                 <div class="row g-2">
@@ -97,6 +127,28 @@
                             <?php foreach ($teamMembers as $m): ?>
                             <option value="<?= $m['id'] ?>"><?= escape($m['name']) ?></option>
                             <?php endforeach; ?>
+                        </select>
+                    </div>
+                </div>
+                <div class="row g-2">
+                    <div class="col-sm-6 mb-3">
+                        <label class="form-label small fw-medium">Etiqueta (opcional)</label>
+                        <select id="new-card-label" class="form-select form-select-sm">
+                            <option value="">Nenhuma</option>
+                            <?php foreach (($labels ?? []) as $l): ?>
+                            <option value="<?= $l['id'] ?>"><?= escape($l['name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="col-sm-6 mb-3">
+                        <label class="form-label small fw-medium">Status (opcional)</label>
+                        <select id="new-card-status" class="form-select form-select-sm">
+                            <option value="">Nenhum</option>
+                            <option value="novo">Novo</option>
+                            <option value="em_atendimento">Em atendimento</option>
+                            <option value="aguardando">Aguardando</option>
+                            <option value="concluido">Concluído</option>
+                            <option value="perdido">Perdido</option>
                         </select>
                     </div>
                 </div>
@@ -129,6 +181,26 @@
                 <div class="mb-3">
                     <label class="form-label small fw-medium">Cor</label>
                     <input type="color" id="new-col-color" class="form-control form-control-sm form-control-color" value="#6c757d">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small fw-medium">Etiqueta (opcional)</label>
+                    <select id="new-col-label" class="form-select form-select-sm">
+                        <option value="">Nenhuma</option>
+                        <?php foreach (($labels ?? []) as $l): ?>
+                        <option value="<?= $l['id'] ?>"><?= escape($l['name']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small fw-medium">Status (opcional)</label>
+                    <select id="new-col-status" class="form-select form-select-sm">
+                        <option value="">Nenhum</option>
+                        <option value="novo">Novo</option>
+                        <option value="em_atendimento">Em atendimento</option>
+                        <option value="aguardando">Aguardando</option>
+                        <option value="concluido">Concluído</option>
+                        <option value="perdido">Perdido</option>
+                    </select>
                 </div>
             </div>
             <div class="modal-footer">
@@ -184,6 +256,18 @@
                                 <?php endforeach; ?>
                             </select>
                         </div>
+                        <div class="mb-3">
+                            <label class="form-label small fw-medium">Retomar contato em (dias)</label>
+                            <div class="input-group input-group-sm">
+                                <input type="number" min="1" id="card-followup-days" class="form-control form-control-sm" placeholder="Ex: 7">
+                                <button class="btn btn-outline-warning" onclick="setFollowUp()" title="Agendar retomada"><i class="bi bi-clock"></i></button>
+                            </div>
+                            <small id="card-followup-info" class="text-muted" style="font-size:0.68rem;"></small>
+                        </div>
+                        <div class="d-flex gap-2 mb-2">
+                            <button class="btn btn-sm btn-success flex-fill" onclick="convertLead()"><i class="bi bi-check-circle"></i> Convertido</button>
+                            <button class="btn btn-sm btn-danger flex-fill" onclick="lostLead()"><i class="bi bi-x-circle"></i> Perdido</button>
+                        </div>
                         <?php if (isset($card['contact_phone']) && $card['contact_phone']): ?>
                         <a href="<?= baseUrl('whatsapp/chat') ?>" class="btn btn-sm btn-outline-success w-100 mb-2">
                             <i class="bi bi-whatsapp"></i> Abrir no Chat
@@ -206,6 +290,8 @@
 .crm-cards-list { padding: 8px; flex: 1; overflow-y: auto; min-height: 80px; }
 .crm-card { background: #fff; border-radius: 8px; padding: 12px; margin-bottom: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; }
 .crm-card:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+.crm-card.outcome-converted { border-left: 3px solid #2e7d32; }
+.crm-card.outcome-lost { border-left: 3px solid #c62828; opacity: 0.75; }
 .crm-card-title { font-size: 0.85rem; font-weight: 500; margin-bottom: 4px; }
 .crm-card-phone { font-size: 0.72rem; color: #666; margin-bottom: 4px; }
 .crm-card-footer { display: flex; justify-content: space-between; align-items: center; font-size: 0.7rem; margin-top: 6px; }
@@ -279,6 +365,8 @@ function createCard() {
     fd.append('phone', document.getElementById('new-card-phone').value);
     fd.append('value', document.getElementById('new-card-value').value);
     fd.append('assigned_to', document.getElementById('new-card-assigned').value);
+    fd.append('label_id', document.getElementById('new-card-label').value);
+    fd.append('status', document.getElementById('new-card-status').value);
     fd.append('description', document.getElementById('new-card-description').value);
 
     fetch(BASE + 'crm/createCard', { method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'} })
@@ -306,6 +394,9 @@ function openCardDetail(cardId) {
         document.getElementById('card-phone').value = card.phone || '';
         document.getElementById('card-value').value = card.value || '';
         document.getElementById('card-assigned').value = card.assigned_to || '';
+        document.getElementById('card-followup-days').value = '';
+        const fuInfo = document.getElementById('card-followup-info');
+        if (fuInfo) fuInfo.textContent = card.follow_up_at ? ('Retomada agendada para ' + card.follow_up_at.split('-').reverse().join('/')) : '';
 
         // Atividades
         const actDiv = document.getElementById('card-activities');
@@ -347,6 +438,36 @@ function deleteCard() {
     .then(() => location.reload());
 }
 
+function convertLead() {
+    if (!currentCardId || !confirm('Marcar este lead como CONVERTIDO?')) return;
+    fetch(BASE + 'crm/convertLead/' + currentCardId, { method: 'POST', body: new FormData(), headers: {'X-Requested-With': 'XMLHttpRequest'} })
+    .then(r => r.json())
+    .then(data => { if (data.success) location.reload(); else alert(data.error || 'Erro'); });
+}
+
+function lostLead() {
+    if (!currentCardId || !confirm('Marcar este lead como PERDIDO?')) return;
+    fetch(BASE + 'crm/lostLead/' + currentCardId, { method: 'POST', body: new FormData(), headers: {'X-Requested-With': 'XMLHttpRequest'} })
+    .then(r => r.json())
+    .then(data => { if (data.success) location.reload(); else alert(data.error || 'Erro'); });
+}
+
+function setFollowUp() {
+    if (!currentCardId) return;
+    const days = parseInt(document.getElementById('card-followup-days').value, 10);
+    if (!days || days <= 0) { alert('Informe um número de dias válido.'); return; }
+    const fd = new FormData();
+    fd.append('days', days);
+    fetch(BASE + 'crm/setFollowUp/' + currentCardId, { method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'} })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            document.getElementById('card-followup-info').textContent = 'Retomada agendada para ' + data.follow_up_at.split('-').reverse().join('/');
+            showToast && showToast('Retomada de contato agendada!');
+        } else alert(data.error || 'Erro');
+    });
+}
+
 function addCardNote() {
     if (!currentCardId) return;
     const input = document.getElementById('card-note-input');
@@ -385,6 +506,8 @@ function createColumn() {
     fd.append('board_id', BOARD_ID);
     fd.append('name', document.getElementById('new-col-name').value);
     fd.append('color', document.getElementById('new-col-color').value);
+    fd.append('label_id', document.getElementById('new-col-label').value);
+    fd.append('status', document.getElementById('new-col-status').value);
 
     fetch(BASE + 'crm/createColumn', { method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'} })
     .then(r => r.json())

@@ -100,10 +100,14 @@ class CrmBoard
     public function getCards($columnId)
     {
         return $this->db->fetchAll(
-            "SELECT c.*, u.name as assigned_name, wc.contact_name, wc.phone as contact_phone
+            "SELECT c.*, u.name as assigned_name, wc.contact_name, wc.phone as contact_phone,
+                    cb.investment_range, cb.lead_temperature,
+                    l.name as label_name, l.color as label_color
              FROM crm_cards c
              LEFT JOIN users u ON c.assigned_to = u.id
              LEFT JOIN whatsapp_contacts wc ON c.contact_id = wc.id
+             LEFT JOIN commercial_briefings cb ON cb.contact_id = c.contact_id
+             LEFT JOIN whatsapp_labels l ON c.label_id = l.id
              WHERE c.column_id = ?
              ORDER BY c.position ASC",
             [$columnId]
@@ -130,11 +134,12 @@ class CrmBoard
         return $this->db->fetch(
             "SELECT c.*, col.name as column_name, col.board_id,
                     u.name as assigned_name, wc.contact_name, wc.phone as contact_phone,
-                    wc.remote_jid
+                    wc.remote_jid, cb.investment_range
              FROM crm_cards c
              JOIN crm_columns col ON c.column_id = col.id
              LEFT JOIN users u ON c.assigned_to = u.id
              LEFT JOIN whatsapp_contacts wc ON c.contact_id = wc.id
+             LEFT JOIN commercial_briefings cb ON cb.contact_id = c.contact_id
              WHERE c.id = ?",
             [$id]
         );
@@ -178,6 +183,69 @@ class CrmBoard
     public function deleteCard($id)
     {
         return $this->db->delete('crm_cards', 'id = ?', [$id]);
+    }
+
+    /**
+     * Primeira coluna (menor position) de um board.
+     */
+    public function getFirstColumn($boardId)
+    {
+        return $this->db->fetch(
+            "SELECT * FROM crm_columns WHERE board_id = ? ORDER BY position ASC LIMIT 1",
+            [$boardId]
+        );
+    }
+
+    /**
+     * Move para a primeira coluna os cards cuja data de retomada já chegou.
+     * Retorna a quantidade movida.
+     */
+    public function processFollowUps()
+    {
+        $cards = $this->db->fetchAll(
+            "SELECT c.id, col.board_id
+             FROM crm_cards c
+             JOIN crm_columns col ON c.column_id = col.id
+             WHERE c.follow_up_at IS NOT NULL
+               AND c.follow_up_at <= CURDATE()
+               AND c.lead_outcome = 'open'"
+        );
+        $moved = 0;
+        foreach ($cards as $c) {
+            $first = $this->getFirstColumn($c['board_id']);
+            if ($first) {
+                $this->db->update('crm_cards', [
+                    'column_id' => $first['id'],
+                    'position' => 0,
+                    'follow_up_at' => null,
+                ], 'id = ?', [$c['id']]);
+                $this->addActivity($c['id'], null, 'move', 'Retomada de contato — movido para a primeira coluna');
+                $moved++;
+            }
+        }
+        return $moved;
+    }
+
+    /**
+     * Estatísticas do CRM para o dashboard.
+     */
+    public function getDashboardStats()
+    {
+        $total = $this->db->fetch("SELECT COUNT(*) as t FROM crm_cards")['t'] ?? 0;
+        $withLabel = $this->db->fetch("SELECT COUNT(*) as t FROM crm_cards WHERE label_id IS NOT NULL")['t'] ?? 0;
+        $converted = $this->db->fetch("SELECT COUNT(*) as t FROM crm_cards WHERE lead_outcome = 'converted'")['t'] ?? 0;
+        $lost = $this->db->fetch("SELECT COUNT(*) as t FROM crm_cards WHERE lead_outcome = 'lost'")['t'] ?? 0;
+        $totalValue = $this->db->fetch("SELECT COALESCE(SUM(value),0) as v FROM crm_cards WHERE lead_outcome = 'converted'")['v'] ?? 0;
+        $open = $this->db->fetch("SELECT COUNT(*) as t FROM crm_cards WHERE lead_outcome = 'open'")['t'] ?? 0;
+
+        return [
+            'total' => (int)$total,
+            'with_label' => (int)$withLabel,
+            'converted' => (int)$converted,
+            'lost' => (int)$lost,
+            'open' => (int)$open,
+            'total_converted_value' => (float)$totalValue,
+        ];
     }
 
     // =========================================

@@ -22,6 +22,27 @@ class WhatsappContact
         );
     }
 
+    // =========================================
+    // BRIEFING COMERCIAL
+    // =========================================
+
+    public function getBriefing($contactId)
+    {
+        return $this->db->fetch("SELECT * FROM commercial_briefings WHERE contact_id = ?", [$contactId]);
+    }
+
+    public function saveBriefing($contactId, $data, $userId = null)
+    {
+        $existing = $this->getBriefing($contactId);
+        if ($existing) {
+            $this->db->update('commercial_briefings', $data, 'contact_id = ?', [$contactId]);
+            return $existing['id'];
+        }
+        $data['contact_id'] = $contactId;
+        $data['created_by'] = $userId;
+        return $this->db->insert('commercial_briefings', $data);
+    }
+
     /**
      * Retorna todos os grupos de WhatsApp conhecidos (para seleção em dropdowns).
      * Independente da instância — usado para vincular grupos a empresas.
