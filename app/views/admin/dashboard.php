@@ -62,25 +62,39 @@
     <div class="row g-4">
         <div class="col-lg-5">
             <div class="card h-100">
-                <div class="card-header bg-white"><h6 class="mb-0">Atalhos Rápidos</h6></div>
-                <div class="card-body">
-                    <div class="d-grid gap-2">
-                        <a href="<?= baseUrl('companies') ?>" class="btn btn-outline-primary text-start">
-                            <i class="bi bi-building me-2"></i> Empresas
+                <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0"><i class="bi bi-exclamation-triangle text-danger me-1"></i> Demandas em Atraso</h6>
+                    <?php if (!empty($overdueCards)): ?>
+                    <span class="badge bg-danger"><?= count($overdueCards) ?></span>
+                    <?php endif; ?>
+                </div>
+                <div class="card-body p-0">
+                    <?php if (!empty($overdueCards)): ?>
+                    <div class="list-group list-group-flush">
+                        <?php foreach ($overdueCards as $card): ?>
+                        <?php $link = !empty($card['ticket_ref']) ? baseUrl('tickets/show/' . $card['ticket_ref']) : baseUrl('planning'); ?>
+                        <a href="<?= $link ?>" class="list-group-item list-group-item-action px-3 py-2" style="border-left:3px solid #dc3545;">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div class="text-truncate me-2">
+                                    <span class="fw-medium text-dark"><?= escape($card['title']) ?></span>
+                                    <?php if (!empty($card['company_name'])): ?>
+                                    <div class="text-muted" style="font-size:0.72rem"><i class="bi bi-building"></i> <?= escape($card['company_name']) ?></div>
+                                    <?php endif; ?>
+                                </div>
+                                <span class="badge bg-danger-subtle text-danger flex-shrink-0" style="font-size:0.7rem">
+                                    <i class="bi bi-clock"></i> <?= date('d/m H:i', strtotime($card['due_date'])) ?>
+                                </span>
+                            </div>
+                            <small class="text-muted"><i class="bi bi-person"></i> <?= escape($card['assigned_name'] ?? 'Não atribuído') ?></small>
                         </a>
-                        <a href="<?= baseUrl('users') ?>" class="btn btn-outline-primary text-start">
-                            <i class="bi bi-people me-2"></i> Todos os Usuários
-                        </a>
-                        <a href="<?= baseUrl('tickets/kanban') ?>" class="btn btn-outline-primary text-start">
-                            <i class="bi bi-kanban me-2"></i> Kanban
-                        </a>
-                        <a href="<?= baseUrl('tickets') ?>" class="btn btn-outline-primary text-start">
-                            <i class="bi bi-list-task me-2"></i> Todas Demandas
-                        </a>
-                        <a href="<?= baseUrl('settings') ?>" class="btn btn-outline-primary text-start">
-                            <i class="bi bi-gear me-2"></i> Configurações
-                        </a>
+                        <?php endforeach; ?>
                     </div>
+                    <?php else: ?>
+                    <div class="text-center text-muted py-5">
+                        <i class="bi bi-check2-circle fs-2 text-success"></i>
+                        <p class="mt-2 mb-0">Nenhuma demanda em atraso</p>
+                    </div>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>

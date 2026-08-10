@@ -48,6 +48,7 @@ class DashboardController extends Controller
             $userModel = new User();
             $data['totalClients'] = count($userModel->getClients());
             $data['totalAttendants'] = count($userModel->getAttendants());
+            $data['overdueCards'] = (new PlanningCard())->getOverdue(10);
             $this->view('admin/dashboard', $data);
         }
     }

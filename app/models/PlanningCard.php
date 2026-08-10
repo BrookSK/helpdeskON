@@ -146,6 +146,25 @@ class PlanningCard
         return $this->db->fetchAll($sql, $params);
     }
 
+    /**
+     * Cards em atraso: prazo (due_date) no passado e não concluídos/arquivados.
+     */
+    public function getOverdue($limit = 10)
+    {
+        return $this->db->fetchAll(
+            "SELECT pc.*, u.name as assigned_name, co.name as company_name, t.id as ticket_ref
+             FROM planning_cards pc
+             LEFT JOIN users u ON pc.assigned_to = u.id
+             LEFT JOIN companies co ON pc.company_id = co.id
+             LEFT JOIN tickets t ON pc.ticket_id = t.id
+             WHERE pc.due_date IS NOT NULL
+               AND pc.due_date < NOW()
+               AND pc.status NOT IN ('completed', 'archived')
+             ORDER BY pc.due_date ASC
+             LIMIT " . intval($limit)
+        );
+    }
+
     public function create($data)
     {
         return $this->db->insert('planning_cards', $data);
