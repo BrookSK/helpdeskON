@@ -957,6 +957,12 @@ class WhatsappController extends Controller
             ? date('Y-m-d H:i:s', intval($msg['messageTimestamp']))
             : date('Y-m-d H:i:s');
 
+        // Para reações, o quoted_message_id aponta para a mensagem reagida
+        $quotedId = $msg['message']['extendedTextMessage']['contextInfo']['stanzaId'] ?? null;
+        if ($msgType === 'reaction' && !empty($reactionTargetId)) {
+            $quotedId = $reactionTargetId;
+        }
+
         $this->messageModel->create([
             'instance_id' => $instance['id'],
             'contact_id' => $contactId,
@@ -968,7 +974,7 @@ class WhatsappController extends Controller
             'media_url' => $mediaUrl,
             'media_mime_type' => $mediaMime,
             'media_filename' => $mediaFilename,
-            'quoted_message_id' => $msg['message']['extendedTextMessage']['contextInfo']['stanzaId'] ?? null,
+            'quoted_message_id' => $quotedId,
             'sender_name' => $senderName,
             'participant_jid' => $participantJid,
             'timestamp' => $timestamp,

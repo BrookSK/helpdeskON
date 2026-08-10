@@ -425,19 +425,20 @@ body { overflow: hidden !important; margin: 0; padding: 0; }
 .wpp-msg-time { font-size: 0.62rem; color: #888; margin-top: 3px; text-align: right; }
 .wpp-ack { color: #8a8a8a; font-size: 0.8rem; }
 .wpp-ack-read { color: #34b7f1; font-size: 0.8rem; }
-.wpp-msg-reaction { background: transparent !important; box-shadow: none !important; padding: 2px 6px !important; }
-.wpp-reaction-note {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    background: #f0f0f0;
-    border-radius: 14px;
-    padding: 2px 10px;
-    margin: 2px 0;
-    max-width: max-content;
+.wpp-msg { position: relative; }
+.wpp-reaction-badge {
+    position: absolute;
+    bottom: -10px;
+    right: 8px;
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 12px;
+    padding: 0 5px;
+    font-size: 0.85rem;
+    line-height: 1.4;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.15);
 }
-.wpp-reaction-emoji { font-size: 1rem; line-height: 1; }
-.wpp-reaction-label { font-size: 0.68rem; color: #888; }
+.wpp-msg.mine .wpp-reaction-badge { right: auto; left: 8px; }
 .wpp-transcription { margin-top: 5px; font-size: 0.78rem; color: #444; background: rgba(0,0,0,0.04); border-radius: 6px; padding: 5px 8px; font-style: italic; }
 .wpp-transcription-action { margin-top: 3px; }
 .wpp-emoji-picker {
@@ -817,11 +818,36 @@ function renderMessages(messages) {
             mentionCache[num] = m.sender_name;
         }
     });
+    // Renderiza mensagens normais; reações são anexadas às mensagens reagidas
     area.innerHTML = messages.map(m => {
         lastMessageId = Math.max(lastMessageId, m.id);
         renderedMessageIds.add(m.id);
+        if (m.message_type === 'reaction') return '';
         return renderSingleMessage(m);
     }).join('');
+
+    // Aplicar reações sobre as bolhas correspondentes
+    messages.forEach(m => {
+        if (m.message_type === 'reaction') applyReaction(m);
+    });
+}
+
+// Anexa a reação (emoji) na bolha da mensagem reagida
+function applyReaction(m) {
+    if (!m.quoted_message_id) return;
+    const bubble = document.querySelector(`.wpp-msg[data-wa-id="${cssEscape(m.quoted_message_id)}"]`);
+    if (!bubble) return;
+    let badge = bubble.querySelector('.wpp-reaction-badge');
+    if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'wpp-reaction-badge';
+        bubble.appendChild(badge);
+    }
+    badge.textContent = m.message_text || '❤️';
+}
+
+function cssEscape(s) {
+    return String(s).replace(/["\\]/g, '\\$&');
 }
 
 function renderSingleMessage(m) {
@@ -834,13 +860,8 @@ function renderSingleMessage(m) {
     }
 
     if (m.message_type === 'reaction') {
-        // Reação: anotação discreta (não é uma mensagem "voando")
-        const who = (m.from_me == 1) ? 'Você reagiu' : 'Reagiu';
-        const align = (m.from_me == 1) ? 'flex-end' : 'flex-start';
-        return `<div class="wpp-reaction-note" style="align-self:${align};" data-msg-id="${m.id}">
-            <span class="wpp-reaction-emoji">${escapeHtml(m.message_text || '❤️')}</span>
-            <span class="wpp-reaction-label">${who}</span>
-        </div>`;
+        // Reações não são renderizadas como bolha; são anexadas via applyReaction()
+        return '';
     } else if (m.message_type === 'sticker' && m.media_url) {
         content += `<div class="wpp-msg-media"><img src="${BASE + m.media_url}" style="max-width:130px;" onclick="window.open(this.src)"></div>`;
     } else if (m.message_type === 'sticker') {
@@ -870,7 +891,8 @@ function renderSingleMessage(m) {
     if (m.from_me == 1) {
         ack = ` <span class="wpp-msg-ack-holder">${renderAckIcon(m.ack_status)}</span>`;
     }
-    return `<div class="wpp-msg ${cls}" data-msg-id="${m.id}"><div class="wpp-msg-body">${content}</div><div class="wpp-msg-time">${time}${ack}</div></div>`;
+    const waId = m.message_id ? ` data-wa-id="${escapeHtml(m.message_id)}"` : '';
+    return `<div class="wpp-msg ${cls}" data-msg-id="${m.id}"${waId}><div class="wpp-msg-body">${content}</div><div class="wpp-msg-time">${time}${ack}</div></div>`;
 }
 
 // Transcrever áudio recebido
@@ -1114,6 +1136,12 @@ function startPolling() {
                         mentionCache[num] = m.sender_name;
                     }
                     lastMessageId = Math.max(lastMessageId, m.id);
+
+                    // Reações são anexadas à mensagem reagida, não inseridas como bolha
+                    if (m.message_type === 'reaction') {
+                        applyReaction(m);
+                        return;
+                    }
                     area.insertAdjacentHTML('beforeend', renderSingleMessage(m));
                 });
                 scrollToBottom();
