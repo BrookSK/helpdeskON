@@ -65,6 +65,7 @@ class UsersController extends Controller
         // Se nenhuma senha for informada, gera uma aleatória e envia convite de primeiro acesso
         $sendInvite = empty($password);
         $rawPassword = $sendInvite ? bin2hex(random_bytes(8)) : $password;
+        $seeAll = isset($_POST['see_all_companies']) ? 1 : 0;
         $userId = $db->insert('users', [
             'name' => $name,
             'email' => $email,
@@ -73,6 +74,7 @@ class UsersController extends Controller
             'role' => $role,
             'company_id' => $finalCompanyId,
             'is_company_owner' => ($role === 'client' && $isOwner) ? 1 : 0,
+            'see_all_companies' => (in_array($role, ['attendant', 'whatsapp_agent', 'developer', 'analyst']) && $seeAll) ? 1 : 0,
             'is_active' => 1,
         ]);
 
@@ -163,6 +165,7 @@ class UsersController extends Controller
             }
         }
 
+        $seeAll = isset($_POST['see_all_companies']) ? 1 : 0;
         $data = [
             'name' => $name,
             'email' => $email,
@@ -170,6 +173,7 @@ class UsersController extends Controller
             'role' => $role,
             'company_id' => $finalCompanyId,
             'is_company_owner' => ($role === 'client') ? $isOwner : 0,
+            'see_all_companies' => (in_array($role, ['attendant', 'whatsapp_agent', 'developer', 'analyst']) && $seeAll) ? 1 : 0,
         ];
 
         if (!empty($password)) {

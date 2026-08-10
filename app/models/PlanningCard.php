@@ -283,6 +283,13 @@ class PlanningCard
         }
 
         $db = Database::getInstance();
+
+        // Usuário marcado para "sempre ver todas as empresas" — sem restrição
+        $u = $db->fetch("SELECT see_all_companies FROM users WHERE id = ?", [$userId]);
+        if (!empty($u['see_all_companies'])) {
+            return null;
+        }
+
         $rows = $db->fetchAll("SELECT company_id FROM user_company_access WHERE user_id = ?", [$userId]);
 
         if (empty($rows)) {

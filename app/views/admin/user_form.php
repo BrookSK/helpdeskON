@@ -112,14 +112,22 @@
                         <hr class="my-2">
                         <h6 class="fw-medium mb-3" style="font-size:0.88rem"><i class="bi bi-shield-lock"></i> Acesso a Empresas</h6>
                         <p class="small text-muted mb-2">Selecione quais empresas este usuário pode visualizar nos módulos de Planejamento, Demandas e CRM. Se nenhuma for selecionada, ele só verá cards sem empresa.</p>
-                        <div class="row g-2">
+
+                        <div class="form-check mb-3 p-2 rounded" style="background:#e0f7f4;">
+                            <input class="form-check-input" type="checkbox" name="see_all_companies" value="1" id="seeAllCompanies" <?= !empty($editUser['see_all_companies']) ? 'checked' : '' ?> onchange="toggleSeeAll()">
+                            <label class="form-check-label small fw-medium" for="seeAllCompanies">
+                                <i class="bi bi-eye"></i> Sempre ver todas as empresas (inclusive as futuras)
+                            </label>
+                        </div>
+
+                        <div class="row g-2" id="company-access-list">
                             <?php
                             $allCompaniesAccess = (new Company())->getAll();
                             $userAccessIds = $editUser ? PlanningCard::getUserCompanyAccessIds($editUser['id']) : [];
                             foreach ($allCompaniesAccess as $c): ?>
                             <div class="col-sm-6 col-md-4">
                                 <div class="form-check">
-                                    <input class="form-check-input" type="checkbox" name="company_access[]" value="<?= $c['id'] ?>" id="access_<?= $c['id'] ?>" <?= in_array($c['id'], $userAccessIds) ? 'checked' : '' ?>>
+                                    <input class="form-check-input company-access-check" type="checkbox" name="company_access[]" value="<?= $c['id'] ?>" id="access_<?= $c['id'] ?>" <?= in_array($c['id'], $userAccessIds) ? 'checked' : '' ?>>
                                     <label class="form-check-label small" for="access_<?= $c['id'] ?>"><?= escape($c['name']) ?></label>
                                 </div>
                             </div>
@@ -155,6 +163,18 @@ function toggleNewCompany() {
         field.style.display = select.value ? 'none' : '';
     }
 }
+
+function toggleSeeAll() {
+    const seeAll = document.getElementById('seeAllCompanies');
+    const list = document.getElementById('company-access-list');
+    if (!seeAll || !list) return;
+    const checks = list.querySelectorAll('.company-access-check');
+    checks.forEach(function(chk) { chk.disabled = seeAll.checked; });
+    list.style.opacity = seeAll.checked ? '0.5' : '1';
+}
+
+// Estado inicial
+document.addEventListener('DOMContentLoaded', toggleSeeAll);
 </script>
 
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>
