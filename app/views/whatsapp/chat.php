@@ -1484,7 +1484,7 @@ function sendQuickReplyWithAttachment(q) {
     isSendingMedia = true;
     isSending = true;
 
-    const caption = q.message || '';
+    const caption = applySignature(q.message || '');
     const ext = (q.attachment_name || q.attachment_url).split('.').pop().toLowerCase();
     const isImg = ['jpg','jpeg','png','gif','webp'].includes(ext);
 
@@ -1506,7 +1506,7 @@ function sendQuickReplyWithAttachment(q) {
             <div class="text-muted" style="font-size:0.72rem;"><span class="spinner-border spinner-border-sm"></span> Enviando...</div>
         </div>`;
     }
-    if (caption) inner += `<div>${escapeHtml(caption)}</div>`;
+    if (caption) inner += `<div>${formatWhatsApp(caption)}</div>`;
     area.insertAdjacentHTML('beforeend', `<div class="wpp-msg mine" id="${tempId}"><div class="wpp-msg-body">${inner}</div><div class="wpp-msg-time"><i class="bi bi-clock wpp-ack"></i></div></div>`);
     scrollToBottom();
 
@@ -1756,6 +1756,17 @@ function cancelStagedMedia() {
     document.getElementById('message-input').placeholder = 'Digite uma mensagem...';
 }
 
+// Aplica a assinatura (nome do atendente em negrito no topo) quando o toggle "Assinar" está ativo.
+// Usado tanto em texto quanto em legendas de mídia/anexos.
+function applySignature(text) {
+    const toggle = document.getElementById('toggle-signature');
+    const signatureEnabled = toggle ? toggle.checked : false;
+    if (signatureEnabled && CURRENT_USER_NAME) {
+        return text ? ('*' + CURRENT_USER_NAME + '*\n' + text) : ('*' + CURRENT_USER_NAME + '*');
+    }
+    return text;
+}
+
 // Reflete na UI a atribuição automática do contato ao usuário atual (quando estava sem dono)
 function reflectAutoAssign() {
     if (activeContactAssignedTo || !CURRENT_USER_ID) return;
@@ -1769,13 +1780,8 @@ function sendMessage() {
     const text = input.value.trim();
     if (!text || !activeContactId) return;
 
-    // Verificar se deve assinar a mensagem
-    const signatureEnabled = document.getElementById('toggle-signature').checked;
-    const userName = '<?= escape($user['name'] ?? '') ?>';
-    let finalText = text;
-    if (signatureEnabled && userName) {
-        finalText = '*' + userName + '*\n' + text;
-    }
+    // Aplica a assinatura (nome do atendente) no topo, se ativada
+    const finalText = applySignature(text);
 
     input.value = '';
     input.style.height = '34px';
@@ -1811,7 +1817,7 @@ function sendStagedMedia() {
     isSending = true;
 
     const input = document.getElementById('message-input');
-    const caption = input.value.trim();
+    const caption = applySignature(input.value.trim());
     const fileObj = stagedFile;
     const ext = (fileObj.name.split('.').pop() || '').toLowerCase();
     const isImg = ['jpg','jpeg','png','gif','webp'].includes(ext);
@@ -1836,7 +1842,7 @@ function sendStagedMedia() {
             <div class="text-muted" style="font-size:0.72rem;"><span class="spinner-border spinner-border-sm"></span> Enviando...</div>
         </div>`;
     }
-    if (caption) inner += `<div>${escapeHtml(caption)}</div>`;
+    if (caption) inner += `<div>${formatWhatsApp(caption)}</div>`;
     area.insertAdjacentHTML('beforeend', `<div class="wpp-msg mine" id="${tempId}"><div class="wpp-msg-body">${inner}</div><div class="wpp-msg-time"><i class="bi bi-clock wpp-ack"></i></div></div>`);
     scrollToBottom();
 
