@@ -166,7 +166,20 @@
             body.sidebar-collapsed .sidebar .nav-link[style*="padding-left"] {
                 padding-left: 0 !important;
             }
-            body.sidebar-collapsed .sidebar-footer .btn { padding: 5px 8px; }
+            /* Rodapé no modo recolhido: empilha avatar e logout, centralizados */
+            body.sidebar-collapsed .sidebar-footer { padding: 10px 4px; }
+            body.sidebar-collapsed .sidebar-footer > div {
+                flex-direction: column;
+                gap: 8px;
+            }
+            body.sidebar-collapsed .sidebar-footer .rounded-circle { margin: 0 auto; }
+            body.sidebar-collapsed .sidebar-footer > div .btn {
+                padding: 5px 8px;
+                margin: 0 auto !important;
+                width: 36px;
+            }
+            /* Botão "Voltar" (impersonação) permanece full-width */
+            body.sidebar-collapsed .sidebar-footer > a.btn { width: auto; }
             /* Botão recolher centralizado quando o menu está recolhido */
             body.sidebar-collapsed .sidebar-header { padding: 14px 0; }
             body.sidebar-collapsed .sidebar-collapse-btn {
