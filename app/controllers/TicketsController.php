@@ -320,8 +320,8 @@ class TicketsController extends Controller
         $ticket = $this->ticketModel->findById($id);
         $this->sendStatusChangeNotification($ticket, $status);
 
-        // Ao passar de "Em andamento" para "Em Revisão Interna", notificar o responsável técnico
-        if ($previousStatus === 'in_progress' && $status === 'em_revisao_interna' && !empty($ticket['technical_responsible_id'])) {
+        // Ao entrar em "Em Revisão Interna" (vindo de outro status), notificar o responsável técnico via WhatsApp/email
+        if ($status === 'em_revisao_interna' && $previousStatus !== 'em_revisao_interna' && !empty($ticket['technical_responsible_id'])) {
             $this->notifyTechnicalReview($ticket);
         }
 
