@@ -11,6 +11,7 @@
                 <div class="d-flex align-items-center justify-content-between mb-2">
                     <span class="fw-medium" style="font-size:0.9rem;"><i class="bi bi-whatsapp text-success"></i> Chat</span>
                     <div class="d-flex gap-1">
+                        <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1" title="Sincronizar nomes dos grupos" onclick="syncGroups(this)"><i class="bi bi-arrow-repeat" style="font-size:0.75rem;"></i></button>
                         <a href="<?= baseUrl('whatsapp') ?>" class="btn btn-sm btn-outline-secondary py-0 px-1" title="Conexões"><i class="bi bi-gear" style="font-size:0.75rem;"></i></a>
                         <a href="<?= baseUrl('crm') ?>" class="btn btn-sm btn-outline-primary py-0 px-1" title="CRM"><i class="bi bi-kanban" style="font-size:0.75rem;"></i></a>
                     </div>
@@ -87,19 +88,27 @@
                     </button>
                 </div>
             </div>
-            <!-- Área de mensagens -->
-            <div class="wpp-messages" id="messages-area" style="display:none;"></div>
-            <!-- Prévia do arquivo selecionado (antes de enviar) -->
-            <div id="media-staging" style="display:none;padding:8px 12px;border-top:1px solid #eee;background:#fafafa;">
-                <div class="d-flex align-items-center gap-2">
-                    <div id="media-staging-preview" class="flex-shrink-0"></div>
-                    <div class="flex-grow-1 overflow-hidden">
-                        <div id="media-staging-name" class="fw-medium text-truncate" style="font-size:0.82rem;"></div>
-                        <div id="media-staging-size" class="text-muted" style="font-size:0.72rem;"></div>
+            <!-- Área de mensagens (com overlay de envio de mídia) -->
+            <div class="wpp-messages-wrap" style="flex:1;position:relative;min-height:0;display:flex;flex-direction:column;">
+                <div class="wpp-messages" id="messages-area" style="display:none;"></div>
+
+                <!-- Overlay de prévia do arquivo (dentro da janela do chat, estilo WhatsApp) -->
+                <div id="media-staging" class="wpp-media-overlay" style="display:none;">
+                    <div class="wpp-media-overlay-top">
+                        <button class="btn btn-sm btn-light" onclick="cancelStagedMedia()" title="Cancelar"><i class="bi bi-x-lg"></i></button>
+                        <span class="text-white" id="media-staging-name" style="font-size:0.9rem;"></span>
                     </div>
-                    <button class="btn btn-sm btn-outline-danger" onclick="cancelStagedMedia()" title="Cancelar"><i class="bi bi-x-lg"></i></button>
+                    <div class="wpp-media-overlay-center">
+                        <div id="media-staging-preview"></div>
+                        <div id="media-staging-size" class="text-white-50 mt-2" style="font-size:0.8rem;"></div>
+                    </div>
+                    <div class="wpp-media-overlay-bottom">
+                        <input type="text" id="media-caption" class="form-control form-control-sm" placeholder="Adicione uma legenda (opcional)...">
+                        <button class="btn btn-success" id="btn-send-media" onclick="sendStagedMedia()"><i class="bi bi-send"></i></button>
+                    </div>
                 </div>
             </div>
+
             <!-- Input de mensagem (textarea para Shift+Enter) -->
             <div class="wpp-input-area" id="input-area" style="display:none;position:relative;">
                 <!-- Galeria de emojis -->
@@ -451,6 +460,47 @@ body { overflow: hidden !important; margin: 0; padding: 0; }
     box-shadow: 0 1px 3px rgba(0,0,0,0.15);
 }
 .wpp-msg.mine .wpp-reaction-badge { right: auto; left: 8px; }
+/* Overlay de envio de mídia (dentro da janela do chat, estilo WhatsApp) */
+.wpp-media-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(20,20,20,0.92);
+    z-index: 40;
+    display: flex;
+    flex-direction: column;
+}
+.wpp-media-overlay-top {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    flex-shrink: 0;
+}
+.wpp-media-overlay-center {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    overflow: auto;
+}
+.wpp-media-preview-img {
+    max-width: 80%;
+    max-height: 60vh;
+    border-radius: 8px;
+    object-fit: contain;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+}
+.wpp-media-overlay-bottom {
+    display: flex;
+    gap: 8px;
+    padding: 12px 16px;
+    background: rgba(0,0,0,0.2);
+    flex-shrink: 0;
+}
+.wpp-media-overlay-bottom .form-control { border-radius: 20px; }
+.wpp-media-overlay-bottom .btn { border-radius: 50%; width: 40px; height: 38px; flex-shrink: 0; }
 .wpp-doc { min-width: 220px; }
 .wpp-doc-info { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; margin-bottom: 6px; }
 .wpp-doc-info i { font-size: 1.3rem; color: #d32f2f; }
@@ -631,7 +681,7 @@ function loadContacts(silent = false) {
 }
 
 function syncGroups(btn) {
-    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Sincronizando...'; }
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:0.75rem;height:0.75rem;"></span>'; }
     fetch(BASE + 'whatsapp/syncGroups', { method: 'POST', headers: {'X-Requested-With': 'XMLHttpRequest'} })
         .then(r => r.json())
         .then(data => {
@@ -644,7 +694,7 @@ function syncGroups(btn) {
         })
         .catch(() => {})
         .finally(() => {
-            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Sincronizar nomes dos grupos'; }
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-arrow-repeat" style="font-size:0.75rem;"></i>'; }
         });
 }
 
@@ -658,13 +708,6 @@ function renderContactsList() {
     }
 
     let html = '';
-    if (currentTab === 'groups') {
-        html += `<div class="px-3 py-2 border-bottom">
-            <button class="btn btn-sm btn-outline-secondary w-100" onclick="syncGroups(this)">
-                <i class="bi bi-arrow-repeat"></i> Sincronizar nomes dos grupos
-            </button>
-        </div>`;
-    }
     if (currentTab === 'contacts') {
         const emAtendimento = items.filter(c => c.service_status === 'em_atendimento');
         const aguardando = items.filter(c => c.service_status === 'aguardando');
@@ -1071,16 +1114,12 @@ document.addEventListener('click', function(e) {
 let stagedFile = null;
 let isSendingMedia = false;
 
-// Botão de enviar: decide entre mídia (se houver arquivo em espera) ou texto
+// Botão de enviar da caixa de texto: só envia texto (mídia tem botão próprio no overlay)
 function handleSend() {
-    if (stagedFile) {
-        sendStagedMedia();
-    } else {
-        sendMessage();
-    }
+    sendMessage();
 }
 
-// Seleciona o arquivo e mostra a prévia (NÃO envia ainda)
+// Seleciona o arquivo e mostra a prévia como overlay dentro da janela do chat
 function stageMediaFile() {
     const fileInput = document.getElementById('media-input');
     if (!fileInput.files[0] || !activeContactId) return;
@@ -1094,12 +1133,14 @@ function stageMediaFile() {
     const ext = (stagedFile.name.split('.').pop() || '').toLowerCase();
     if (['jpg','jpeg','png','gif','webp'].includes(ext)) {
         const url = URL.createObjectURL(stagedFile);
-        preview.innerHTML = `<img src="${url}" style="width:48px;height:48px;object-fit:cover;border-radius:6px;">`;
+        preview.innerHTML = `<img src="${url}" class="wpp-media-preview-img">`;
     } else {
-        preview.innerHTML = '<i class="bi bi-file-earmark" style="font-size:1.8rem;color:#00997D;"></i>';
+        const icon = ['pdf'].includes(ext) ? 'bi-file-earmark-pdf' : 'bi-file-earmark-text';
+        preview.innerHTML = `<i class="bi ${icon}" style="font-size:5rem;color:#fff;"></i>`;
     }
-    staging.style.display = 'block';
-    document.getElementById('message-input').placeholder = 'Adicione uma legenda (opcional)...';
+    staging.style.display = 'flex';
+    document.getElementById('media-caption').value = '';
+    setTimeout(() => document.getElementById('media-caption').focus(), 100);
 }
 
 function cancelStagedMedia() {
@@ -1107,7 +1148,8 @@ function cancelStagedMedia() {
     document.getElementById('media-input').value = '';
     document.getElementById('media-staging').style.display = 'none';
     document.getElementById('media-staging-preview').innerHTML = '';
-    document.getElementById('message-input').placeholder = 'Digite uma mensagem...';
+    const cap = document.getElementById('media-caption');
+    if (cap) cap.value = '';
 }
 
 function sendMessage() {
@@ -1155,12 +1197,12 @@ function sendStagedMedia() {
     isSendingMedia = true;
     isSending = true;
 
-    const btn = document.getElementById('btn-send');
+    const btn = document.getElementById('btn-send-media');
     const original = btn.innerHTML;
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
 
-    const caption = document.getElementById('message-input').value.trim();
+    const caption = document.getElementById('media-caption').value.trim();
     const fd = new FormData();
     fd.append('contact_id', activeContactId);
     fd.append('file', stagedFile);
@@ -1175,14 +1217,13 @@ function sendStagedMedia() {
             const area = document.getElementById('messages-area');
             area.insertAdjacentHTML('beforeend', renderSingleMessage(data.message));
             scrollToBottom();
-            document.getElementById('message-input').value = '';
+            cancelStagedMedia();
         } else {
             alert(data.error || 'Erro ao enviar arquivo.');
         }
     })
     .catch(() => alert('Erro ao enviar arquivo.'))
     .finally(() => {
-        cancelStagedMedia();
         btn.disabled = false;
         btn.innerHTML = original;
         isSendingMedia = false;
