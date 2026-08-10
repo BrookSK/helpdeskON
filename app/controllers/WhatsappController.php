@@ -984,6 +984,41 @@ class WhatsappController extends Controller
     }
 
     /**
+     * Tenta descobrir o nome do perfil do WhatsApp de um número.
+     * Usa o endpoint de verificação de números (whatsappNumbers) que retorna o nome quando disponível.
+     */
+    private function fetchProfileName($instance, $number)
+    {
+        try {
+            $num = preg_replace('/@.*/', '', $number);
+            $url = rtrim($instance['api_url'], '/') . '/chat/whatsappNumbers/' . $instance['instance_name'];
+            $ch = curl_init($url);
+            curl_setopt_array($ch, [
+                CURLOPT_POST => true,
+                CURLOPT_POSTFIELDS => json_encode(['numbers' => [$num]]),
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_HTTPHEADER => ['apikey: ' . $instance['api_key'], 'Content-Type: application/json'],
+                CURLOPT_SSL_VERIFYPEER => false,
+                CURLOPT_TIMEOUT => 15,
+            ]);
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            if ($httpCode >= 400 || empty($response)) return '';
+            $data = json_decode($response, true);
+            if (!is_array($data)) return '';
+            foreach ($data as $item) {
+                if (is_array($item) && (!empty($item['name']) || !empty($item['pushName']))) {
+                    return $item['name'] ?? $item['pushName'];
+                }
+            }
+        } catch (Exception $e) {
+            // ignora
+        }
+        return '';
+    }
+
+    /**
      * Busca a URL da foto de perfil via Evolution API (endpoint POST v2).
      * Chamada HTTP direta para não alterar a classe EvolutionApi.
      */
@@ -1087,17 +1122,13 @@ class WhatsappController extends Controller
             // segue com o jid normalizado
         }
 
-        // Se não informou nome, tentar pegar o nome do perfil do WhatsApp
+        // Se não informou nome, tentar descobrir o nome do perfil do WhatsApp
         if (empty($name)) {
-            try {
-                $pic = $api->fetchProfilePicture($phoneOnly);
-                if (is_array($pic) && !empty($pic['name'])) {
-                    $name = $pic['name'];
-                }
-            } catch (Exception $e) {
-                // ignora
-            }
+            $name = $this->fetchProfileName($instance, $phoneOnly);
         }
+
+        // Buscar a foto de perfil
+        $picUrl = $this->fetchProfilePicUrl($instance, $phoneOnly);
 
         // Criar/localizar o contato
         $contactId = $this->contactModel->upsert($instance['id'], $jid, [
@@ -1106,9 +1137,10 @@ class WhatsappController extends Controller
             'last_message_at' => date('Y-m-d H:i:s'),
         ], $name ?: null);
 
-        // Garantir visível e com nome, se informado
+        // Garantir visível, com nome e foto (quando disponíveis)
         $update = ['is_archived' => 0];
         if (!empty($name)) $update['contact_name'] = $name;
+        if (!empty($picUrl)) $update['profile_picture_url'] = $picUrl;
         $db = Database::getInstance();
         $db->update('whatsapp_contacts', $update, 'id = ?', [$contactId]);
 
