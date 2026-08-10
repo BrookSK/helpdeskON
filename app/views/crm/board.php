@@ -220,6 +220,12 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
+                <ul class="nav nav-tabs mb-3" role="tablist">
+                    <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-card-details" type="button"><i class="bi bi-card-text"></i> Detalhes</button></li>
+                    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-card-briefing" type="button"><i class="bi bi-clipboard-data"></i> Briefing Comercial</button></li>
+                </ul>
+                <div class="tab-content">
+                <div class="tab-pane fade show active" id="tab-card-details">
                 <div class="row g-3">
                     <div class="col-md-8">
                         <div class="mb-3">
@@ -244,7 +250,8 @@
                             <input type="text" id="card-phone" class="form-control form-control-sm">
                         </div>
                         <div class="mb-3">
-                            <label class="form-label small fw-medium">Valor (R$) <span class="text-muted" style="font-weight:400;font-size:0.68rem">— Faixa de investimento do briefing</span></label>
+                            <label class="form-label small fw-medium mb-0">Valor (R$)</label>
+                            <span class="text-muted d-block" style="font-weight:400;font-size:0.68rem">Faixa de investimento do briefing</span>
                             <input type="text" id="card-value" class="form-control form-control-sm" placeholder="R$ 0,00" oninput="formatCardCurrency(this)">
                         </div>
                         <div class="mb-3">
@@ -287,6 +294,14 @@
                         <button class="btn btn-sm btn-outline-danger w-100" onclick="deleteCard()"><i class="bi bi-trash"></i> Excluir</button>
                     </div>
                 </div>
+                </div><!-- /tab-card-details -->
+
+                <div class="tab-pane fade" id="tab-card-briefing">
+                    <div id="card-briefing-content">
+                        <div class="text-muted small text-center py-4">Carregando briefing...</div>
+                    </div>
+                </div>
+                </div><!-- /tab-content -->
             </div>
         </div>
     </div>
@@ -294,6 +309,10 @@
 
 <style>
 .crm-kanban-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 10px; }
+.briefing-view-item { padding: 8px 0; border-bottom: 1px solid #f0f0f0; }
+.briefing-view-item:last-child { border-bottom: none; }
+.briefing-view-label { font-size: 0.72rem; color: #888; text-transform: uppercase; letter-spacing: 0.3px; }
+.briefing-view-value { font-size: 0.88rem; color: #333; margin-top: 2px; white-space: pre-wrap; }
 .crm-column { background: #f8f9fa; border-radius: 12px; padding: 0; display: flex; flex-direction: column; max-height: calc(100vh - 180px); }
 .crm-column-header { padding: 12px 14px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; flex-shrink: 0; }
 .crm-col-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
@@ -398,8 +417,10 @@ function openCardDetail(cardId) {
     .then(r => r.json())
     .then(data => {
         const card = data.card;
-        document.getElementById('card-detail-title').textContent = card.title;
-        document.getElementById('card-title').value = card.title || '';
+        // Título do lead = nome atual do contato do WhatsApp (se vinculado), senão o título do card
+        const displayTitle = card.contact_name || card.title || '';
+        document.getElementById('card-detail-title').textContent = displayTitle;
+        document.getElementById('card-title').value = displayTitle;
         document.getElementById('card-description').value = card.description || '';
         document.getElementById('card-phone').value = card.phone || '';
         // Valor: prioriza a faixa de investimento do briefing; senão usa o value numérico
@@ -447,8 +468,55 @@ function openCardDetail(cardId) {
             actDiv.innerHTML = '<div class="text-muted small">Nenhuma atividade</div>';
         }
 
+        renderBriefing(data.briefing);
+
         new bootstrap.Modal(document.getElementById('cardDetailModal')).show();
     });
+}
+
+function renderBriefing(b) {
+    const container = document.getElementById('card-briefing-content');
+    if (!container) return;
+    if (!b) {
+        container.innerHTML = '<div class="text-center text-muted py-4"><i class="bi bi-clipboard-x fs-3"></i><p class="mt-2 mb-0 small">Nenhum briefing comercial cadastrado para este contato.</p><p class="small text-muted">Preencha o briefing no chat do WhatsApp (Detalhes do contato).</p></div>';
+        return;
+    }
+    const tempLabels = { frio: '🔵 Frio', morno: '🟠 Morno', quente: '🔴 Quente' };
+    const fields = [
+        ['need', 'Necessidade do lead'],
+        ['main_pain', 'Principal dor/problema'],
+        ['current_solution', 'Solução atual utilizada'],
+        ['expected_goal', 'Objetivo esperado'],
+        ['urgency', 'Urgência/prazo'],
+        ['investment_range', 'Faixa de investimento'],
+        ['decision_level', 'Nível de decisão do contato'],
+        ['lead_temperature', 'Temperatura do lead'],
+        ['main_objection', 'Principal objeção'],
+        ['next_step', 'Próximo passo combinado'],
+        ['next_contact_date', 'Data do próximo contato'],
+        ['notes', 'Observações importantes'],
+    ];
+    let html = '';
+    fields.forEach(([key, label]) => {
+        let val = b[key];
+        if (!val) return;
+        if (key === 'lead_temperature') val = tempLabels[val] || val;
+        if (key === 'next_contact_date') val = String(val).split('-').reverse().join('/');
+        html += `<div class="briefing-view-item">
+            <div class="briefing-view-label">${label}</div>
+            <div class="briefing-view-value">${escapeHtmlSafe(val)}</div>
+        </div>`;
+    });
+    if (!html) {
+        html = '<div class="text-center text-muted py-4">Briefing sem informações preenchidas.</div>';
+    }
+    container.innerHTML = html;
+}
+
+function escapeHtmlSafe(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
 }
 
 function saveCardDetail() {

@@ -442,7 +442,13 @@ class CrmController extends Controller
 
         $activities = $this->boardModel->getActivities($cardId);
 
-        $this->json(['card' => $card, 'activities' => $activities]);
+        // Briefing comercial do contato vinculado (se houver)
+        $briefing = null;
+        if (!empty($card['contact_id'])) {
+            $briefing = (new WhatsappContact())->getBriefing($card['contact_id']);
+        }
+
+        $this->json(['card' => $card, 'activities' => $activities, 'briefing' => $briefing ?: null]);
     }
 
     /**

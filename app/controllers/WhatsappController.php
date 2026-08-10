@@ -367,6 +367,11 @@ class WhatsappController extends Controller
         if (!empty($data)) {
             $db = Database::getInstance();
             $db->update('whatsapp_contacts', $data, 'id = ?', [$contactId]);
+
+            // Se o nome do contato mudou, atualizar o título dos cards do CRM vinculados
+            if (isset($data['contact_name']) && $data['contact_name'] !== '') {
+                $db->update('crm_cards', ['title' => $data['contact_name']], 'contact_id = ?', [$contactId]);
+            }
         }
 
         $this->json(['success' => true]);
