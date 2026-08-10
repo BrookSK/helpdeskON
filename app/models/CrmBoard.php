@@ -229,8 +229,9 @@ class CrmBoard
                     'position' => 0,
                     'follow_up_at' => null,
                     'follow_up_column_id' => null,
+                    'in_recovery' => 1,
                 ], 'id = ?', [$c['id']]);
-                $this->addActivity($c['id'], null, 'move', "Retomada de contato — movido para \"{$targetName}\"");
+                $this->addActivity($c['id'], null, 'move', "Retomada de contato — movido para \"{$targetName}\" (Em recuperação)");
                 $moved++;
             }
         }

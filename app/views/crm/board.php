@@ -62,6 +62,9 @@
                             <?php if (!empty($card['follow_up_at'])): ?>
                             <span class="badge bg-warning text-dark" style="font-size:0.62rem;"><i class="bi bi-clock"></i> Retomar <?= date('d/m', strtotime($card['follow_up_at'])) ?></span>
                             <?php endif; ?>
+                            <?php if (!empty($card['in_recovery'])): ?>
+                            <span class="badge" style="font-size:0.62rem;background:#7e57c2;color:#fff;"><i class="bi bi-arrow-repeat"></i> Em recuperação</span>
+                            <?php endif; ?>
                         </div>
                         <?php if ($card['phone']): ?>
                         <div class="crm-card-phone"><i class="bi bi-telephone"></i> <?= escape($card['phone']) ?></div>
@@ -419,7 +422,11 @@ function openCardDetail(cardId) {
         const card = data.card;
         // Título do lead = nome atual do contato do WhatsApp (se vinculado), senão o título do card
         const displayTitle = card.contact_name || card.title || '';
-        document.getElementById('card-detail-title').textContent = displayTitle;
+        const titleEl = document.getElementById('card-detail-title');
+        titleEl.textContent = displayTitle;
+        if (card.in_recovery == 1) {
+            titleEl.insertAdjacentHTML('beforeend', ' <span class="badge align-middle" style="font-size:0.6rem;background:#7e57c2;color:#fff;"><i class="bi bi-arrow-repeat"></i> Em recuperação</span>');
+        }
         document.getElementById('card-title').value = displayTitle;
         document.getElementById('card-description').value = card.description || '';
         document.getElementById('card-phone').value = card.phone || '';
