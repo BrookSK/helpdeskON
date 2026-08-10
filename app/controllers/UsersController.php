@@ -66,6 +66,7 @@ class UsersController extends Controller
         $sendInvite = empty($password);
         $rawPassword = $sendInvite ? bin2hex(random_bytes(8)) : $password;
         $seeAll = isset($_POST['see_all_companies']) ? 1 : 0;
+        $commission = ($role === 'comercial') ? floatval($_POST['commission_percent'] ?? 0) : 0;
         $userId = $db->insert('users', [
             'name' => $name,
             'email' => $email,
@@ -74,7 +75,8 @@ class UsersController extends Controller
             'role' => $role,
             'company_id' => $finalCompanyId,
             'is_company_owner' => ($role === 'client' && $isOwner) ? 1 : 0,
-            'see_all_companies' => (in_array($role, ['attendant', 'whatsapp_agent', 'developer', 'analyst']) && $seeAll) ? 1 : 0,
+            'see_all_companies' => (in_array($role, ['attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']) && $seeAll) ? 1 : 0,
+            'commission_percent' => $commission,
             'is_active' => 1,
         ]);
 
@@ -105,7 +107,7 @@ class UsersController extends Controller
         }
 
         // Salvar acesso a empresas (para equipe interna)
-        if (in_array($role, ['attendant', 'whatsapp_agent', 'developer', 'analyst']) && isset($_POST['company_access'])) {
+        if (in_array($role, ['attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']) && isset($_POST['company_access'])) {
             PlanningCard::setUserCompanyAccess($userId, $_POST['company_access']);
         }
 
@@ -173,7 +175,8 @@ class UsersController extends Controller
             'role' => $role,
             'company_id' => $finalCompanyId,
             'is_company_owner' => ($role === 'client') ? $isOwner : 0,
-            'see_all_companies' => (in_array($role, ['attendant', 'whatsapp_agent', 'developer', 'analyst']) && $seeAll) ? 1 : 0,
+            'see_all_companies' => (in_array($role, ['attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']) && $seeAll) ? 1 : 0,
+            'commission_percent' => ($role === 'comercial') ? floatval($_POST['commission_percent'] ?? 0) : 0,
         ];
 
         if (!empty($password)) {
@@ -185,7 +188,7 @@ class UsersController extends Controller
 
         // Salvar acesso a empresas (para equipe interna)
         $role = $data['role'] ?? $_POST['role'] ?? '';
-        if (in_array($role, ['attendant', 'whatsapp_agent', 'developer', 'analyst'])) {
+        if (in_array($role, ['attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial'])) {
             $companyAccess = $_POST['company_access'] ?? [];
             PlanningCard::setUserCompanyAccess($id, $companyAccess);
         }

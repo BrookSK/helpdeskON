@@ -40,8 +40,10 @@ class DashboardController extends Controller
             'unreadMessages' => $unreadMessages,
         ];
 
-        if (in_array($user['role'], ['attendant', 'developer', 'analyst'])) {
-            $data['tickets'] = $ticketModel->getByAttendant($user['id']);
+        if (in_array($user['role'], ['attendant', 'developer', 'analyst', 'comercial'])) {
+            $data['tickets'] = ($user['role'] === 'comercial')
+                ? $ticketModel->getByAttendantOrCreator($user['id'])
+                : $ticketModel->getByAttendant($user['id']);
             $this->view('attendant/dashboard', $data);
         } else {
             $data['tickets'] = $ticketModel->getAll();

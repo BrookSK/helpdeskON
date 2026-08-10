@@ -61,7 +61,7 @@
             <?php endif; ?>
             <?php endif; ?>
 
-            <?php if (in_array($user['role'] ?? '', ['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst'])): ?>
+            <?php if (in_array($user['role'] ?? '', ['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial'])): ?>
             <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'tickets' ? 'active' : '' ?>" href="<?= baseUrl('tickets') ?>">
                     <i class="bi bi-list-task"></i> Demandas
@@ -75,17 +75,19 @@
                 </a>
             </li>
             <?php endif; ?>
+            <?php if (($user['role'] ?? '') !== 'comercial'): ?>
             <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'documents' ? 'active' : '' ?>" href="<?= baseUrl('documents') ?>">
                     <i class="bi bi-folder"></i> Documentos
                 </a>
             </li>
+            <?php endif; ?>
             <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'planning' ? 'active' : '' ?>" href="<?= baseUrl('planning') ?>">
                     <i class="bi bi-calendar2-check"></i> Planejamento
                 </a>
             </li>
-            <?php if (in_array($user['role'] ?? '', ['super_admin', 'attendant', 'whatsapp_agent'])): ?>
+            <?php if (in_array($user['role'] ?? '', ['super_admin', 'attendant', 'whatsapp_agent', 'comercial'])): ?>
             <li class="nav-item mt-3">
                 <small class="text-uppercase px-3" style="font-size:0.65rem;color:rgba(255,255,255,0.35);letter-spacing:0.5px;">WhatsApp & CRM</small>
             </li>

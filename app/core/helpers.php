@@ -106,6 +106,7 @@ function roleLabel($role)
         'whatsapp_agent' => 'Agente WhatsApp',
         'developer' => 'Desenvolvedor',
         'analyst' => 'Analista',
+        'comercial' => 'Comercial',
     ];
     return $labels[$role] ?? $role;
 }

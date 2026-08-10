@@ -239,6 +239,56 @@ class CrmBoard
     }
 
     /**
+     * Comissões dos usuários comerciais em um período.
+     * Baseado nos leads convertidos por cada comercial e no valor cadastrado no lead.
+     * $month no formato 'YYYY-MM' (opcional). $userId opcional.
+     */
+    public function getCommissions($month = null, $userId = null)
+    {
+        $sql = "SELECT u.id as user_id, u.name as user_name, u.commission_percent,
+                       COUNT(c.id) as converted_count,
+                       COALESCE(SUM(c.value), 0) as total_value,
+                       COALESCE(SUM(c.value) * u.commission_percent / 100, 0) as commission_value
+                FROM users u
+                LEFT JOIN crm_cards c
+                    ON c.converted_by = u.id
+                    AND c.lead_outcome = 'converted'";
+        $params = [];
+        if ($month) {
+            $sql .= " AND DATE_FORMAT(c.outcome_at, '%Y-%m') = ?";
+            $params[] = $month;
+        }
+        $sql .= " WHERE u.role = 'comercial'";
+        if ($userId) {
+            $sql .= " AND u.id = ?";
+            $params[] = $userId;
+        }
+        $sql .= " GROUP BY u.id, u.name, u.commission_percent ORDER BY commission_value DESC, u.name";
+        return $this->db->fetchAll($sql, $params);
+    }
+
+    /**
+     * Leads convertidos por um comercial em um período (lista resumida).
+     */
+    public function getConvertedLeadsByUser($userId, $month = null)
+    {
+        $sql = "SELECT c.id, c.title, c.value, c.outcome_at,
+                       wc.contact_name, wc.phone as contact_phone,
+                       col.name as column_name
+                FROM crm_cards c
+                LEFT JOIN whatsapp_contacts wc ON c.contact_id = wc.id
+                LEFT JOIN crm_columns col ON c.column_id = col.id
+                WHERE c.converted_by = ? AND c.lead_outcome = 'converted'";
+        $params = [$userId];
+        if ($month) {
+            $sql .= " AND DATE_FORMAT(c.outcome_at, '%Y-%m') = ?";
+            $params[] = $month;
+        }
+        $sql .= " ORDER BY c.outcome_at DESC";
+        return $this->db->fetchAll($sql, $params);
+    }
+
+    /**
      * Estatísticas do CRM para o dashboard.
      */
     public function getDashboardStats()

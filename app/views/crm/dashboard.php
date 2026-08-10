@@ -8,7 +8,12 @@
             <h5 class="mb-0"><i class="bi bi-graph-up"></i> Dashboard CRM</h5>
             <small class="text-muted">Visão geral dos leads</small>
         </div>
-        <a href="<?= baseUrl('crm') ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> Boards</a>
+        <div class="d-flex gap-2">
+            <?php if (($user['role'] ?? '') === 'super_admin'): ?>
+            <a href="<?= baseUrl('crm/commissions') ?>" class="btn btn-sm btn-outline-success"><i class="bi bi-cash-stack"></i> Comissões</a>
+            <?php endif; ?>
+            <a href="<?= baseUrl('crm') ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> Boards</a>
+        </div>
     </div>
 
     <div class="row g-3 mb-4">

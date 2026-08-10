@@ -12,7 +12,7 @@ class PlanningController extends Controller
     // Página principal — Kanban + Calendário
     public function index()
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']);
         $user = $this->currentUser();
 
         $filters = [];
@@ -20,7 +20,7 @@ class PlanningController extends Controller
         if (!empty($_GET['assigned_to'])) $filters['assigned_to'] = $_GET['assigned_to'];
 
         // whatsapp_agent, developer e analyst só veem cards atribuídos a eles (forçar filtro)
-        if (in_array($user['role'], ['whatsapp_agent', 'developer', 'analyst'])) {
+        if (in_array($user['role'], ['whatsapp_agent', 'developer', 'analyst', 'comercial'])) {
             $filters['assigned_to'] = $user['id'];
         }
 
@@ -45,7 +45,7 @@ class PlanningController extends Controller
         $team = $userModel->getAttendants();
 
         // whatsapp_agent/developer/analyst só veem a si mesmos na lista de responsáveis
-        if (in_array($user['role'], ['whatsapp_agent', 'developer', 'analyst'])) {
+        if (in_array($user['role'], ['whatsapp_agent', 'developer', 'analyst', 'comercial'])) {
             $teamMembers = [['id' => $user['id'], 'name' => $user['name']]];
         } else {
             $db = Database::getInstance();
@@ -73,7 +73,7 @@ class PlanningController extends Controller
     // API: Retornar cards para o calendário (JSON)
     public function calendar()
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']);
         $user = $this->currentUser();
 
         $start = $_GET['start'] ?? date('Y-m-01');
@@ -113,7 +113,7 @@ class PlanningController extends Controller
     // Criar card
     public function create()
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             $this->redirect('planning');
         }
@@ -169,7 +169,7 @@ class PlanningController extends Controller
     // Obter card (JSON)
     public function get($id = null)
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']);
         if (!$id) $this->json(['error' => 'ID não informado'], 400);
 
         $card = $this->cardModel->findById($id);
@@ -188,7 +188,7 @@ class PlanningController extends Controller
     // Atualizar card
     public function update($id = null)
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
             $this->json(['error' => 'Requisição inválida'], 400);
         }
@@ -240,7 +240,7 @@ class PlanningController extends Controller
     // Atualizar status via drag-and-drop (Kanban)
     public function updateStatus($id = null)
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
             $this->json(['error' => 'Requisição inválida'], 400);
         }
@@ -270,7 +270,7 @@ class PlanningController extends Controller
     // Deletar card
     public function delete($id = null)
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
             $this->json(['error' => 'Requisição inválida'], 400);
         }
@@ -304,7 +304,7 @@ class PlanningController extends Controller
     // Adicionar comentário
     public function comment($id = null)
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
             $this->json(['error' => 'Requisição inválida'], 400);
         }
@@ -357,7 +357,7 @@ class PlanningController extends Controller
     // Upload de anexo no card
     public function upload($id = null)
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
             $this->json(['error' => 'Requisição inválida'], 400);
         }
@@ -411,7 +411,7 @@ class PlanningController extends Controller
     // Deletar anexo
     public function deleteAttachment($id = null)
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
             $this->json(['error' => 'Requisição inválida'], 400);
         }
@@ -432,7 +432,7 @@ class PlanningController extends Controller
     // Upload de imagem colada no editor (Quill)
     public function uploadImage($id = null)
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             $this->json(['error' => 'Requisição inválida'], 400);
         }
@@ -618,4 +618,5 @@ class PlanningController extends Controller
         }
     }
 }
+
 

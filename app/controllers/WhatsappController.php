@@ -16,7 +16,7 @@ class WhatsappController extends Controller
      */
     public function index()
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
         $user = $this->currentUser();
 
         $db = Database::getInstance();
@@ -41,7 +41,7 @@ class WhatsappController extends Controller
      */
     public function chat($contactId = null)
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
         $user = $this->currentUser();
 
         $db = Database::getInstance();
@@ -104,7 +104,7 @@ class WhatsappController extends Controller
      */
     public function contacts()
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
 
         $instance = $this->getUserInstance();
         if (!$instance) {
@@ -135,7 +135,7 @@ class WhatsappController extends Controller
      */
     public function updateServiceStatus($contactId = null)
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$contactId) {
             $this->json(['error' => 'Requisição inválida'], 400);
         }
@@ -155,7 +155,7 @@ class WhatsappController extends Controller
      */
     public function messages($contactId = null)
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
         if (!$contactId) $this->json(['error' => 'ID obrigatório'], 400);
 
         $beforeId = $_GET['before_id'] ?? null;
@@ -173,7 +173,7 @@ class WhatsappController extends Controller
      */
     public function poll($contactId = null)
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
         if (!$contactId) $this->json(['error' => 'ID obrigatório'], 400);
 
         $afterId = $_GET['after_id'] ?? 0;
@@ -187,7 +187,7 @@ class WhatsappController extends Controller
      */
     public function send()
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             $this->json(['error' => 'Método inválido'], 405);
         }
@@ -246,7 +246,7 @@ class WhatsappController extends Controller
      */
     public function sendMedia()
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             $this->json(['error' => 'Método inválido'], 405);
         }
@@ -333,7 +333,7 @@ class WhatsappController extends Controller
      */
     public function contactDetail($contactId = null)
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
         if (!$contactId) $this->json(['error' => 'ID obrigatório'], 400);
 
         $contact = $this->contactModel->findById($contactId);
@@ -350,7 +350,7 @@ class WhatsappController extends Controller
      */
     public function updateContact($contactId = null)
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$contactId) {
             $this->json(['error' => 'Requisição inválida'], 400);
         }
@@ -382,7 +382,7 @@ class WhatsappController extends Controller
      */
     public function toggleLabel()
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             $this->json(['error' => 'Método inválido'], 405);
         }
@@ -409,7 +409,7 @@ class WhatsappController extends Controller
      */
     public function createLabel()
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             $this->json(['error' => 'Método inválido'], 405);
         }
@@ -479,7 +479,7 @@ class WhatsappController extends Controller
      */
     public function connect($instanceId = null)
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
         if (!$instanceId) $this->json(['error' => 'ID obrigatório'], 400);
 
         $db = Database::getInstance();
@@ -500,7 +500,7 @@ class WhatsappController extends Controller
      */
     public function status($instanceId = null)
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
         if (!$instanceId) $this->json(['error' => 'ID obrigatório'], 400);
 
         $db = Database::getInstance();
@@ -832,7 +832,7 @@ class WhatsappController extends Controller
      */
     public function syncGroups()
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
 
         $instance = $this->getUserInstance();
         if (!$instance) {
@@ -964,7 +964,7 @@ class WhatsappController extends Controller
      */
     public function startConversation()
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             $this->json(['error' => 'Método inválido'], 405);
         }
@@ -1034,7 +1034,7 @@ class WhatsappController extends Controller
      */
     public function getBriefing($contactId = null)
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
         if (!$contactId) $this->json(['error' => 'ID obrigatório'], 400);
 
         $briefing = $this->contactModel->getBriefing($contactId);
@@ -1046,7 +1046,7 @@ class WhatsappController extends Controller
      */
     public function saveBriefing($contactId = null)
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$contactId) {
             $this->json(['error' => 'Requisição inválida'], 400);
         }
@@ -1081,7 +1081,7 @@ class WhatsappController extends Controller
      */
     public function addToCrm()
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             $this->json(['error' => 'Método inválido'], 405);
         }
@@ -1129,3 +1129,4 @@ class WhatsappController extends Controller
         $this->json(['success' => true, 'card_id' => $cardId]);
     }
 }
+

@@ -29,6 +29,10 @@ class TicketsController extends Controller
                 $tickets = $this->ticketModel->getByClient($user['id']);
                 $this->view('client/tickets', ['user' => $user, 'tickets' => $tickets, 'isOwner' => false]);
             }
+        } elseif ($user['role'] === 'comercial') {
+            // Comercial vê apenas os tickets atribuídos a ele ou criados por ele
+            $tickets = $this->ticketModel->getByAttendantOrCreator($user['id']);
+            $this->view('attendant/tickets', ['user' => $user, 'tickets' => $tickets, 'companies' => []]);
         } else {
             $filters = [];
             if (!empty($_GET['status'])) $filters['status'] = $_GET['status'];

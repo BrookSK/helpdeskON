@@ -14,7 +14,7 @@ class CrmController extends Controller
      */
     public function index()
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
         $user = $this->currentUser();
 
         $boards = $this->boardModel->getAll();
@@ -30,7 +30,7 @@ class CrmController extends Controller
      */
     public function board($boardId = null)
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
         if (!$boardId) $this->redirect('crm');
 
         $user = $this->currentUser();
@@ -71,7 +71,7 @@ class CrmController extends Controller
      */
     public function createBoard()
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             $this->redirect('crm');
         }
@@ -136,7 +136,7 @@ class CrmController extends Controller
      */
     public function createColumn()
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             $this->json(['error' => 'Método inválido'], 405);
         }
@@ -168,7 +168,7 @@ class CrmController extends Controller
      */
     public function updateColumn($columnId = null)
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$columnId) {
             $this->json(['error' => 'Requisição inválida'], 400);
         }
@@ -202,7 +202,7 @@ class CrmController extends Controller
      */
     public function createCard()
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             $this->json(['error' => 'Método inválido'], 405);
         }
@@ -260,7 +260,7 @@ class CrmController extends Controller
      */
     public function updateCard($cardId = null)
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$cardId) {
             $this->json(['error' => 'Requisição inválida'], 400);
         }
@@ -294,7 +294,7 @@ class CrmController extends Controller
      */
     public function moveCard()
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             $this->json(['error' => 'Método inválido'], 405);
         }
@@ -322,7 +322,7 @@ class CrmController extends Controller
      */
     public function deleteCard($cardId = null)
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$cardId) {
             $this->json(['error' => 'Requisição inválida'], 400);
         }
@@ -336,15 +336,16 @@ class CrmController extends Controller
      */
     public function convertLead($cardId = null)
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$cardId) {
             $this->json(['error' => 'Requisição inválida'], 400);
         }
+        $user = $this->currentUser();
         $this->boardModel->updateCard($cardId, [
             'lead_outcome' => 'converted',
             'outcome_at' => date('Y-m-d H:i:s'),
+            'converted_by' => $user['id'],
         ]);
-        $user = $this->currentUser();
         $this->boardModel->addActivity($cardId, $user['id'], 'note', '✅ Lead convertido');
         $this->json(['success' => true]);
     }
@@ -354,7 +355,7 @@ class CrmController extends Controller
      */
     public function lostLead($cardId = null)
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$cardId) {
             $this->json(['error' => 'Requisição inválida'], 400);
         }
@@ -372,7 +373,7 @@ class CrmController extends Controller
      */
     public function setFollowUp($cardId = null)
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$cardId) {
             $this->json(['error' => 'Requisição inválida'], 400);
         }
@@ -419,7 +420,7 @@ class CrmController extends Controller
      */
     public function dashboard()
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
         $user = $this->currentUser();
 
         // Processa retomadas pendentes ao abrir o dashboard
@@ -430,11 +431,49 @@ class CrmController extends Controller
     }
 
     /**
+     * Aba de Comissões (apenas super_admin)
+     */
+    public function commissions()
+    {
+        $this->requireRole(['super_admin']);
+        $user = $this->currentUser();
+
+        $month = $_GET['month'] ?? date('Y-m');
+        $filterUserId = !empty($_GET['user_id']) ? intval($_GET['user_id']) : null;
+
+        $commissions = $this->boardModel->getCommissions($month, $filterUserId);
+
+        // Lista de comerciais para o filtro
+        $comerciais = (new User())->getByRoles(['comercial']);
+
+        $this->view('crm/commissions', [
+            'user' => $user,
+            'commissions' => $commissions,
+            'comerciais' => $comerciais,
+            'month' => $month,
+            'filterUserId' => $filterUserId,
+        ]);
+    }
+
+    /**
+     * API: Leads convertidos por um comercial em um período (para o dropdown)
+     */
+    public function commissionLeads($userId = null)
+    {
+        $this->requireRole(['super_admin']);
+        if (!$userId) $this->json(['error' => 'ID obrigatório'], 400);
+
+        $month = $_GET['month'] ?? null;
+        $leads = $this->boardModel->getConvertedLeadsByUser($userId, $month);
+        $this->json(['leads' => $leads]);
+    }
+
+    /**
      * API: Detalhes do card + atividades
      */
     public function cardDetail($cardId = null)
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
         if (!$cardId) $this->json(['error' => 'ID obrigatório'], 400);
 
         $card = $this->boardModel->findCard($cardId);
@@ -456,7 +495,7 @@ class CrmController extends Controller
      */
     public function addNote($cardId = null)
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$cardId) {
             $this->json(['error' => 'Requisição inválida'], 400);
         }
@@ -484,7 +523,7 @@ class CrmController extends Controller
      */
     public function listBoards()
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
         $boards = $this->boardModel->getAll();
 
         // Incluir colunas de cada board
@@ -495,3 +534,4 @@ class CrmController extends Controller
         $this->json($boards);
     }
 }
+

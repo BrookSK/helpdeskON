@@ -45,9 +45,20 @@
                             <option value="attendant" <?= ($editUser['role'] ?? '') === 'attendant' ? 'selected' : '' ?>>Atendente</option>
                             <option value="developer" <?= ($editUser['role'] ?? '') === 'developer' ? 'selected' : '' ?>>Desenvolvedor</option>
                             <option value="analyst" <?= ($editUser['role'] ?? '') === 'analyst' ? 'selected' : '' ?>>Analista</option>
+                            <option value="comercial" <?= ($editUser['role'] ?? '') === 'comercial' ? 'selected' : '' ?>>Comercial</option>
                             <option value="whatsapp_agent" <?= ($editUser['role'] ?? '') === 'whatsapp_agent' ? 'selected' : '' ?>>Agente WhatsApp</option>
                             <option value="super_admin" <?= ($editUser['role'] ?? '') === 'super_admin' ? 'selected' : '' ?>>Super Admin</option>
                         </select>
+                    </div>
+
+                    <!-- % de comissão (só para papel Comercial) -->
+                    <div id="commission-field" class="col-sm-6" style="<?= ($editUser['role'] ?? '') === 'comercial' ? '' : 'display:none' ?>">
+                        <label class="form-label fw-medium small">% de Comissão</label>
+                        <div class="input-group input-group-sm">
+                            <input type="number" step="0.01" min="0" max="100" name="commission_percent" class="form-control" value="<?= escape($editUser['commission_percent'] ?? '0') ?>" placeholder="Ex: 10">
+                            <span class="input-group-text">%</span>
+                        </div>
+                        <small class="text-muted">Percentual sobre o valor dos leads convertidos por este usuário.</small>
                     </div>
 
                     <!-- Campos de empresa (só para clientes) -->
@@ -108,7 +119,7 @@
                     <?php endif; ?>
 
                     <!-- Acesso a Empresas (para equipe interna) -->
-                    <div id="access-fields" class="col-12" style="<?= in_array($editUser['role'] ?? '', ['attendant', 'whatsapp_agent', 'developer', 'analyst']) ? '' : 'display:none' ?>">
+                    <div id="access-fields" class="col-12" style="<?= in_array($editUser['role'] ?? '', ['attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']) ? '' : 'display:none' ?>">
                         <hr class="my-2">
                         <h6 class="fw-medium mb-3" style="font-size:0.88rem"><i class="bi bi-shield-lock"></i> Acesso a Empresas</h6>
                         <p class="small text-muted mb-2">Selecione quais empresas este usuário pode visualizar nos módulos de Planejamento, Demandas e CRM. Se nenhuma for selecionada, ele só verá cards sem empresa.</p>
@@ -152,8 +163,11 @@ function toggleCompanyFields() {
     const fields = document.getElementById('company-fields');
     const accessFields = document.getElementById('access-fields');
     fields.style.display = role === 'client' ? '' : 'none';
-    const teamRoles = ['attendant', 'whatsapp_agent', 'developer', 'analyst'];
+    const teamRoles = ['attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial'];
     accessFields.style.display = teamRoles.includes(role) ? '' : 'none';
+
+    const commissionField = document.getElementById('commission-field');
+    if (commissionField) commissionField.style.display = role === 'comercial' ? '' : 'none';
 }
 
 function toggleNewCompany() {

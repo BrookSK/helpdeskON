@@ -62,6 +62,21 @@ class Ticket
         );
     }
 
+    /**
+     * Tickets atribuídos ao usuário OU criados por ele (usado pelo papel Comercial).
+     */
+    public function getByAttendantOrCreator($userId)
+    {
+        return $this->db->fetchAll(
+            "SELECT t.*, c.name as client_name, c.email as client_email
+             FROM tickets t
+             LEFT JOIN users c ON t.client_id = c.id
+             WHERE t.attendant_id = ? OR t.technical_responsible_id = ? OR t.client_id = ?
+             ORDER BY t.updated_at DESC",
+            [$userId, $userId, $userId]
+        );
+    }
+
     public function getAll($filters = [])
     {
         $sql = "SELECT t.*, c.name as client_name, a.name as attendant_name, tr.name as technical_name
