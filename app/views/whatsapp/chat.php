@@ -69,6 +69,10 @@
                     </div>
                 </div>
                 <div class="d-flex gap-2 align-items-center">
+                    <div class="form-check form-switch mb-0" title="Assinar mensagens com seu nome">
+                        <input class="form-check-input" type="checkbox" id="toggle-signature" checked>
+                        <label class="form-check-label" for="toggle-signature" style="font-size:0.68rem;color:#666;">Assinar</label>
+                    </div>
                     <select class="form-select form-select-sm" id="chat-service-status" style="font-size:0.7rem;max-width:130px;" onchange="changeServiceStatus()">
                         <option value="novo">Novo</option>
                         <option value="em_atendimento">Em atendimento</option>
@@ -539,16 +543,24 @@ function sendMessage() {
     const text = input.value.trim();
     if (!text || !activeContactId) return;
 
+    // Verificar se deve assinar a mensagem
+    const signatureEnabled = document.getElementById('toggle-signature').checked;
+    const userName = '<?= escape($user['name'] ?? '') ?>';
+    let finalText = text;
+    if (signatureEnabled && userName) {
+        finalText = '*' + userName + '*\n' + text;
+    }
+
     input.value = '';
     input.style.height = '34px';
     const area = document.getElementById('messages-area');
-    const tempHtml = `<div class="wpp-msg mine">${formatWhatsApp(text)}<div class="wpp-msg-time">agora</div></div>`;
+    const tempHtml = `<div class="wpp-msg mine">${formatWhatsApp(finalText)}<div class="wpp-msg-time">agora</div></div>`;
     area.insertAdjacentHTML('beforeend', tempHtml);
     scrollToBottom();
 
     const fd = new FormData();
     fd.append('contact_id', activeContactId);
-    fd.append('message', text);
+    fd.append('message', finalText);
 
     fetch(BASE + 'whatsapp/send', { method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'} })
     .then(r => r.json())
