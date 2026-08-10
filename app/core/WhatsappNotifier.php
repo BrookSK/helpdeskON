@@ -107,10 +107,11 @@ class WhatsappNotifier
 
         $db = Database::getInstance();
 
-        // Instância padrão para envio/registro
-        $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE is_default = 1 LIMIT 1");
+        // Instância para envio/registro — priorizar a que está REALMENTE conectada,
+        // pois é a mesma que recebe mensagens (webhook) e cujas conversas aparecem no chat.
+        $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE connection_status IN ('open','connected') ORDER BY is_default DESC LIMIT 1");
         if (!$instance) {
-            $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE user_id IS NULL LIMIT 1");
+            $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE is_default = 1 LIMIT 1");
         }
         if (!$instance) {
             $instance = $db->fetch("SELECT * FROM whatsapp_instances LIMIT 1");
