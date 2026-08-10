@@ -213,17 +213,19 @@ class WhatsappController extends Controller
         }
 
         // Salvar no banco
+        $sentMsgId = $result['key']['id'] ?? uniqid('sent_');
         $messageId = $this->messageModel->create([
             'instance_id' => $contact['instance_id'],
             'contact_id' => $contactId,
             'remote_jid' => $contact['remote_jid'],
-            'message_id' => $result['key']['id'] ?? uniqid('sent_'),
+            'message_id' => $sentMsgId,
             'from_me' => 1,
             'message_type' => 'text',
             'message_text' => $text,
             'sender_name' => $this->currentUser()['name'],
             'timestamp' => date('Y-m-d H:i:s'),
             'is_read' => 1,
+            'ack_status' => 'sent',
         ]);
 
         // Atualizar última mensagem do contato
@@ -237,6 +239,7 @@ class WhatsappController extends Controller
                 'message_type' => 'text',
                 'message_text' => $text,
                 'timestamp' => date('Y-m-d H:i:s'),
+                'ack_status' => 'sent',
             ],
         ]);
     }
@@ -296,12 +299,18 @@ class WhatsappController extends Controller
         }
 
         // Salvar no banco
+        // Se a Evolution retornou erro, não salva (evita registro fantasma)
+        if (isset($result['error']) && $result['error']) {
+            $this->json(['error' => $result['message'] ?? 'Erro ao enviar arquivo'], 500);
+        }
+
         $msgType = $mediaType === 'image' ? 'image' : ($mediaType === 'video' ? 'video' : ($mediaType === 'audio' ? 'audio' : 'document'));
+        $sentMsgId = $result['key']['id'] ?? uniqid('sent_');
         $messageId = $this->messageModel->create([
             'instance_id' => $contact['instance_id'],
             'contact_id' => $contactId,
             'remote_jid' => $contact['remote_jid'],
-            'message_id' => $result['key']['id'] ?? uniqid('sent_'),
+            'message_id' => $sentMsgId,
             'from_me' => 1,
             'message_type' => $msgType,
             'message_text' => $caption,
@@ -310,6 +319,8 @@ class WhatsappController extends Controller
             'media_filename' => $file['name'],
             'sender_name' => $this->currentUser()['name'],
             'timestamp' => date('Y-m-d H:i:s'),
+            'is_read' => 1,
+            'ack_status' => 'sent',
         ]);
 
         $this->contactModel->updateLastMessage($contactId, date('Y-m-d H:i:s'));
@@ -324,6 +335,7 @@ class WhatsappController extends Controller
                 'media_url' => $filePath,
                 'media_filename' => $file['name'],
                 'timestamp' => date('Y-m-d H:i:s'),
+                'ack_status' => 'sent',
             ],
         ]);
     }
@@ -647,6 +659,9 @@ class WhatsappController extends Controller
         switch ($event) {
             case 'messages.upsert':
                 $this->handleMessageUpsert($payload);
+                break;
+            case 'messages.update':
+                $this->handleMessageUpdate($payload);
                 break;
             case 'connection.update':
                 $this->handleConnectionUpdate($payload);

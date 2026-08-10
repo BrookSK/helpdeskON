@@ -89,14 +89,25 @@
             </div>
             <!-- Área de mensagens -->
             <div class="wpp-messages" id="messages-area" style="display:none;"></div>
+            <!-- Prévia do arquivo selecionado (antes de enviar) -->
+            <div id="media-staging" style="display:none;padding:8px 12px;border-top:1px solid #eee;background:#fafafa;">
+                <div class="d-flex align-items-center gap-2">
+                    <div id="media-staging-preview" class="flex-shrink-0"></div>
+                    <div class="flex-grow-1 overflow-hidden">
+                        <div id="media-staging-name" class="fw-medium text-truncate" style="font-size:0.82rem;"></div>
+                        <div id="media-staging-size" class="text-muted" style="font-size:0.72rem;"></div>
+                    </div>
+                    <button class="btn btn-sm btn-outline-danger" onclick="cancelStagedMedia()" title="Cancelar"><i class="bi bi-x-lg"></i></button>
+                </div>
+            </div>
             <!-- Input de mensagem (textarea para Shift+Enter) -->
             <div class="wpp-input-area" id="input-area" style="display:none;">
-                <button class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('media-input').click()" title="Enviar arquivo">
+                <button class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('media-input').click()" title="Anexar arquivo">
                     <i class="bi bi-paperclip"></i>
                 </button>
-                <input type="file" id="media-input" style="display:none;" onchange="sendMediaFile()">
+                <input type="file" id="media-input" style="display:none;" onchange="stageMediaFile()">
                 <textarea class="form-control form-control-sm" id="message-input" placeholder="Digite uma mensagem..." rows="1"></textarea>
-                <button class="btn btn-sm btn-success" onclick="sendMessage()"><i class="bi bi-send"></i></button>
+                <button class="btn btn-sm btn-success" id="btn-send" onclick="handleSend()"><i class="bi bi-send"></i></button>
             </div>
         </div>
 
@@ -407,6 +418,8 @@ body { overflow: hidden !important; margin: 0; padding: 0; }
 .wpp-msg.other { align-self: flex-start; background: #fff; border-bottom-left-radius: 2px; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
 .wpp-msg-sender { font-size: 0.7rem; font-weight: 600; color: #075e54; margin-bottom: 2px; }
 .wpp-msg-time { font-size: 0.62rem; color: #888; margin-top: 3px; text-align: right; }
+.wpp-ack { color: #8a8a8a; font-size: 0.8rem; }
+.wpp-ack-read { color: #34b7f1; font-size: 0.8rem; }
 .wpp-msg-media img { max-width: 220px; border-radius: 6px; cursor: pointer; }
 .wpp-mention { color: #075e54; font-weight: 600; background: rgba(7,94,84,0.08); padding: 1px 4px; border-radius: 4px; cursor: default; }
 .wpp-label-badge { font-size: 0.65rem; padding: 2px 8px; border-radius: 10px; color: #fff; display: inline-block; cursor: default; }
@@ -785,7 +798,29 @@ function renderSingleMessage(m) {
 
     // Horário com formato HH:MM
     const time = m.timestamp ? formatFullTime(m.timestamp) : '';
-    return `<div class="wpp-msg ${cls}">${content}<div class="wpp-msg-time">${time}</div></div>`;
+    // Checkzinho de status (apenas mensagens enviadas por nós)
+    let ack = '';
+    if (m.from_me == 1) {
+        ack = ' ' + renderAckIcon(m.ack_status);
+    }
+    return `<div class="wpp-msg ${cls}" data-msg-id="${m.id}"><div class="wpp-msg-body">${content}</div><div class="wpp-msg-time">${time}${ack}</div></div>`;
+}
+
+// Ícone de confirmação estilo WhatsApp
+function renderAckIcon(status) {
+    switch (status) {
+        case 'read':
+            return '<i class="bi bi-check2-all wpp-ack-read" title="Lida"></i>';
+        case 'delivered':
+            return '<i class="bi bi-check2-all wpp-ack" title="Entregue"></i>';
+        case 'sent':
+            return '<i class="bi bi-check2 wpp-ack" title="Enviada"></i>';
+        case 'failed':
+            return '<i class="bi bi-exclamation-circle text-danger" title="Falha no envio"></i>';
+        case 'pending':
+        default:
+            return '<i class="bi bi-clock wpp-ack" title="Enviando"></i>';
+    }
 }
 </script>
 
@@ -793,6 +828,48 @@ function renderSingleMessage(m) {
 // =========================================
 // ENVIO — Shift+Enter = nova linha, Enter = enviar
 // =========================================
+let stagedFile = null;
+let isSendingMedia = false;
+
+// Botão de enviar: decide entre mídia (se houver arquivo em espera) ou texto
+function handleSend() {
+    if (stagedFile) {
+        sendStagedMedia();
+    } else {
+        sendMessage();
+    }
+}
+
+// Seleciona o arquivo e mostra a prévia (NÃO envia ainda)
+function stageMediaFile() {
+    const fileInput = document.getElementById('media-input');
+    if (!fileInput.files[0] || !activeContactId) return;
+    stagedFile = fileInput.files[0];
+
+    const staging = document.getElementById('media-staging');
+    const preview = document.getElementById('media-staging-preview');
+    document.getElementById('media-staging-name').textContent = stagedFile.name;
+    document.getElementById('media-staging-size').textContent = (stagedFile.size / 1024).toFixed(0) + ' KB';
+
+    const ext = (stagedFile.name.split('.').pop() || '').toLowerCase();
+    if (['jpg','jpeg','png','gif','webp'].includes(ext)) {
+        const url = URL.createObjectURL(stagedFile);
+        preview.innerHTML = `<img src="${url}" style="width:48px;height:48px;object-fit:cover;border-radius:6px;">`;
+    } else {
+        preview.innerHTML = '<i class="bi bi-file-earmark" style="font-size:1.8rem;color:#00997D;"></i>';
+    }
+    staging.style.display = 'block';
+    document.getElementById('message-input').placeholder = 'Adicione uma legenda (opcional)...';
+}
+
+function cancelStagedMedia() {
+    stagedFile = null;
+    document.getElementById('media-input').value = '';
+    document.getElementById('media-staging').style.display = 'none';
+    document.getElementById('media-staging-preview').innerHTML = '';
+    document.getElementById('message-input').placeholder = 'Digite uma mensagem...';
+}
+
 function sendMessage() {
     const input = document.getElementById('message-input');
     const text = input.value.trim();
@@ -828,31 +905,49 @@ function sendMessage() {
         }
     })
     .finally(() => {
-        // Liberar polling após 2s (garante que webhook não vai reinserir)
         setTimeout(() => { isSending = false; }, 2000);
     });
 }
 
-function sendMediaFile() {
-    const fileInput = document.getElementById('media-input');
-    if (!fileInput.files[0] || !activeContactId) return;
+// Envia o arquivo em espera com a legenda digitada (ação do usuário)
+function sendStagedMedia() {
+    if (!stagedFile || !activeContactId || isSendingMedia) return;
+    isSendingMedia = true;
+    isSending = true;
 
+    const btn = document.getElementById('btn-send');
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+
+    const caption = document.getElementById('message-input').value.trim();
     const fd = new FormData();
     fd.append('contact_id', activeContactId);
-    fd.append('file', fileInput.files[0]);
-    fd.append('caption', '');
+    fd.append('file', stagedFile);
+    fd.append('caption', caption);
 
     fetch(BASE + 'whatsapp/sendMedia', { method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'} })
     .then(r => r.json())
     .then(data => {
         if (data.success && data.message) {
+            renderedMessageIds.add(data.message.id);
+            lastMessageId = Math.max(lastMessageId, data.message.id || 0);
             const area = document.getElementById('messages-area');
             area.insertAdjacentHTML('beforeend', renderSingleMessage(data.message));
             scrollToBottom();
-            lastMessageId = Math.max(lastMessageId, data.message.id || 0);
+            document.getElementById('message-input').value = '';
+        } else {
+            alert(data.error || 'Erro ao enviar arquivo.');
         }
+    })
+    .catch(() => alert('Erro ao enviar arquivo.'))
+    .finally(() => {
+        cancelStagedMedia();
+        btn.disabled = false;
+        btn.innerHTML = original;
+        isSendingMedia = false;
+        setTimeout(() => { isSending = false; }, 2000);
     });
-    fileInput.value = '';
 }
 
 // =========================================
