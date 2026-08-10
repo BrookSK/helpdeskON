@@ -36,6 +36,12 @@ class TicketsController extends Controller
             if (!empty($_GET['company'])) $filters['company_id'] = $_GET['company'];
             if (!empty($_GET['hide_completed'])) $filters['hide_completed'] = true;
 
+            // "Ocultar arquivados" vem marcado por padrão. Só desativa se o form foi
+            // enviado (filtered=1) e o checkbox veio desmarcado.
+            $isSubmitted = isset($_GET['filtered']);
+            $hideArchived = $isSubmitted ? !empty($_GET['hide_archived']) : true;
+            if ($hideArchived) $filters['hide_archived'] = true;
+
             // Controle de acesso por empresa para atendentes
             $allowedCompanies = PlanningCard::getUserAllowedCompanies($user['id'], $user['role']);
             if ($allowedCompanies !== null) {

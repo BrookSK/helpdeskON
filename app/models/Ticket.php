@@ -91,6 +91,9 @@ class Ticket
         if (!empty($filters['hide_completed'])) {
             $sql .= " AND t.status NOT IN ('completed', 'archived')";
         }
+        if (!empty($filters['hide_archived'])) {
+            $sql .= " AND t.status <> 'archived'";
+        }
         if (!empty($filters['allowed_companies'])) {
             $ids = $filters['allowed_companies'];
             if (count($ids) === 1 && $ids[0] == 0) {
