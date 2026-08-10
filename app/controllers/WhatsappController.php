@@ -285,31 +285,39 @@ class WhatsappController extends Controller
         $filePath = 'uploads/whatsapp_media/' . date('Y-m') . '/' . $fileName;
         move_uploaded_file($file['tmp_name'], PUBLIC_PATH . '/' . $filePath);
 
-        // Converter para base64 e enviar
+        // Enviar usando a URL pública do arquivo (mais confiável que base64 para documentos)
         $caption = $_POST['caption'] ?? '';
+        $publicUrl = baseUrl($filePath);
         try {
             $api = EvolutionApi::fromInstance($contact['instance_id']);
             if (!$api) {
                 $this->json(['error' => 'Instância não encontrada'], 400);
             }
 
-            $base64 = base64_encode(file_get_contents(PUBLIC_PATH . '/' . $filePath));
-            $dataUri = "data:{$mime};base64,{$base64}";
-
             if ($mediaType === 'audio') {
-                $result = $api->sendAudio($contact['remote_jid'], $dataUri);
+                // Áudio via base64 (PTT costuma exigir data URI)
+                $base64 = base64_encode(file_get_contents(PUBLIC_PATH . '/' . $filePath));
+                $result = $api->sendAudio($contact['remote_jid'], "data:{$mime};base64,{$base64}");
             } else {
-                $result = $api->sendMedia($contact['remote_jid'], $mediaType, $dataUri, $caption, $file['name']);
+                // Imagem/vídeo/documento via URL pública
+                $result = $api->sendMedia($contact['remote_jid'], $mediaType, $publicUrl, $caption, $file['name']);
+
+                // Fallback: se a API falhar com URL, tenta base64
+                if (is_array($result) && isset($result['error']) && $result['error']) {
+                    @file_put_contents(PUBLIC_PATH . '/uploads/sendmedia_error.log', '[' . date('Y-m-d H:i:s') . '] URL FAIL, tentando base64: ' . json_encode($result) . "\n", FILE_APPEND);
+                    $base64 = base64_encode(file_get_contents(PUBLIC_PATH . '/' . $filePath));
+                    $result = $api->sendMedia($contact['remote_jid'], $mediaType, "data:{$mime};base64,{$base64}", $caption, $file['name']);
+                }
             }
         } catch (\Throwable $e) {
             @file_put_contents(PUBLIC_PATH . '/uploads/sendmedia_error.log', '[' . date('Y-m-d H:i:s') . '] EXCEPTION: ' . $e->getMessage() . "\n", FILE_APPEND);
             $this->json(['error' => 'Erro ao enviar: ' . $e->getMessage()], 500);
         }
 
-        // A mídia pode ter sido entregue mesmo com resposta não-padrão.
-        // Só tratamos como falha real se a Evolution indicar erro explícito.
+        // Se a Evolution indicou erro explícito, NÃO salva como enviada (evita check falso)
         if (is_array($result) && isset($result['error']) && $result['error']) {
             @file_put_contents(PUBLIC_PATH . '/uploads/sendmedia_error.log', '[' . date('Y-m-d H:i:s') . '] API ERROR: ' . json_encode($result) . "\n", FILE_APPEND);
+            $this->json(['error' => 'A mídia não pôde ser entregue: ' . ($result['message'] ?? 'erro na API')], 500);
         }
 
         $msgType = $mediaType === 'image' ? 'image' : ($mediaType === 'video' ? 'video' : ($mediaType === 'audio' ? 'audio' : 'document'));
