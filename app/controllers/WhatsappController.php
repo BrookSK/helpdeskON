@@ -803,6 +803,12 @@ class WhatsappController extends Controller
         // Incrementar não lidas (se não for de mim)
         if (!$fromMe) {
             $this->contactModel->incrementUnread($contactId);
+
+            // Se contato está "concluido" e recebeu nova mensagem, voltar para "novo"
+            $contact = $this->contactModel->findById($contactId);
+            if ($contact && $contact['service_status'] === 'concluido') {
+                $this->contactModel->updateServiceStatus($contactId, 'novo');
+            }
         }
     }
 
