@@ -291,6 +291,7 @@ let pollInterval = null;
 let contactsPollInterval = null;
 let lastMessageId = 0;
 let renderedMessageIds = new Set(); // Para evitar duplicação de mensagens
+let isSending = false; // Flag para bloquear polling durante envio
 let currentTab = 'contacts';
 let allContacts = [];
 let allGroups = [];
@@ -557,6 +558,9 @@ function sendMessage() {
     input.value = '';
     input.style.height = '34px';
 
+    // Bloquear polling durante envio
+    isSending = true;
+
     const fd = new FormData();
     fd.append('contact_id', activeContactId);
     fd.append('message', finalText);
@@ -565,15 +569,16 @@ function sendMessage() {
     .then(r => r.json())
     .then(data => {
         if (data.success && data.message) {
-            // Renderizar a mensagem retornada pelo servidor (fonte única de verdade)
-            if (!renderedMessageIds.has(data.message.id)) {
-                renderedMessageIds.add(data.message.id);
-                lastMessageId = Math.max(lastMessageId, data.message.id);
-                const area = document.getElementById('messages-area');
-                area.insertAdjacentHTML('beforeend', renderSingleMessage(data.message));
-                scrollToBottom();
-            }
+            renderedMessageIds.add(data.message.id);
+            lastMessageId = Math.max(lastMessageId, data.message.id);
+            const area = document.getElementById('messages-area');
+            area.insertAdjacentHTML('beforeend', renderSingleMessage(data.message));
+            scrollToBottom();
         }
+    })
+    .finally(() => {
+        // Liberar polling após 2s (garante que webhook não vai reinserir)
+        setTimeout(() => { isSending = false; }, 2000);
     });
 }
 
@@ -605,7 +610,7 @@ function sendMediaFile() {
 function startPolling() {
     if (pollInterval) clearInterval(pollInterval);
     pollInterval = setInterval(() => {
-        if (!activeContactId) return;
+        if (!activeContactId || isSending) return;
         fetch(BASE + 'whatsapp/poll/' + activeContactId + '?after_id=' + lastMessageId, { headers: {'X-Requested-With': 'XMLHttpRequest'} })
         .then(r => r.json())
         .then(messages => {
