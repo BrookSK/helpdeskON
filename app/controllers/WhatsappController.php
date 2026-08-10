@@ -681,6 +681,10 @@ class WhatsappController extends Controller
         // Ignorar mensagens de status/broadcast
         if (strpos($remoteJid, 'status@') !== false || strpos($remoteJid, 'broadcast') !== false) return;
 
+        // Ignorar mensagens enviadas por mim (fromMe) — o sistema já salva na hora do envio
+        // Isso evita duplicação de mensagens enviadas pelo painel
+        if ($fromMe) return;
+
         // Detectar tipo e texto da mensagem
         $message = $msg['message'] ?? [];
         $msgType = 'text';
@@ -778,19 +782,6 @@ class WhatsappController extends Controller
         $timestamp = isset($msg['messageTimestamp'])
             ? date('Y-m-d H:i:s', intval($msg['messageTimestamp']))
             : date('Y-m-d H:i:s');
-
-        // Proteção contra duplicação: se fromMe, verificar se já existe mensagem
-        // com mesmo texto e contato nos últimos 10 segundos (enviada pelo sistema)
-        if ($fromMe && $msgType === 'text' && !empty($msgText)) {
-            $db = Database::getInstance();
-            $recent = $db->fetch(
-                "SELECT id FROM whatsapp_messages 
-                 WHERE contact_id = ? AND from_me = 1 AND message_text = ? AND timestamp >= DATE_SUB(NOW(), INTERVAL 10 SECOND)
-                 LIMIT 1",
-                [$contactId, $msgText]
-            );
-            if ($recent) return; // Já foi salva pelo sistema no envio
-        }
 
         $this->messageModel->create([
             'instance_id' => $instance['id'],
