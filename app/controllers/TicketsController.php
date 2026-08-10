@@ -206,12 +206,10 @@ class TicketsController extends Controller
         // Enviar notificação
         $this->sendNewTicketNotification($ticketId);
 
-        // Notificar responsáveis atribuídos na criação (atendente e responsável técnico)
+        // Na criação, notificar apenas o atendente atribuído.
+        // O responsável técnico só é notificado quando a demanda entra em Revisão Interna.
         if ($attendantId) {
             $this->notifyAssignment($ticketId, $attendantId, 'atendente');
-        }
-        if ($technicalId) {
-            $this->notifyAssignment($ticketId, $technicalId, 'responsável técnico');
         }
 
         // Criar card automático no Planejamento
@@ -320,9 +318,14 @@ class TicketsController extends Controller
         $ticket = $this->ticketModel->findById($id);
         $this->sendStatusChangeNotification($ticket, $status);
 
-        // Ao entrar em "Em Revisão Interna" (vindo de outro status), notificar o responsável técnico via WhatsApp/email
-        if ($status === 'em_revisao_interna' && $previousStatus !== 'em_revisao_interna' && !empty($ticket['technical_responsible_id'])) {
-            $this->notifyTechnicalReview($ticket);
+        // Ao entrar em "Em Revisão Interna" (vindo de outro status), notificar o responsável técnico e o atendente via WhatsApp/email
+        if ($status === 'em_revisao_interna' && $previousStatus !== 'em_revisao_interna') {
+            if (!empty($ticket['technical_responsible_id'])) {
+                $this->notifyTechnicalReview($ticket);
+            }
+            if (!empty($ticket['attendant_id']) && $ticket['attendant_id'] != ($ticket['technical_responsible_id'] ?? null)) {
+                $this->notifyReviewToUser($ticket, $ticket['attendant_id'], 'atendente');
+            }
         }
 
         // Notificações via grupo de WhatsApp (usa a conexão do chat existente)
@@ -961,37 +964,48 @@ class TicketsController extends Controller
      */
     private function notifyTechnicalReview($ticket)
     {
+        $this->notifyReviewToUser($ticket, $ticket['technical_responsible_id'], 'responsável técnico');
+    }
+
+    /**
+     * Notifica um usuário (responsável técnico ou atendente) quando a demanda entra em Revisão Interna.
+     * Envia notificação no sistema, email e WhatsApp.
+     */
+    private function notifyReviewToUser($ticket, $userId, $roleLabel)
+    {
+        if (empty($userId)) return;
+
         $db = Database::getInstance();
-        $technical = (new User())->findById($ticket['technical_responsible_id']);
-        if (!$technical) return;
+        $recipient = (new User())->findById($userId);
+        if (!$recipient) return;
 
         $title = 'Demanda em Revisão Interna';
-        $message = "A demanda #{$ticket['id']} \"{$ticket['title']}\" passou para Revisão Interna e requer sua atenção como responsável técnico.";
+        $message = "A demanda #{$ticket['id']} \"{$ticket['title']}\" passou para Revisão Interna e requer sua atenção como {$roleLabel}.";
 
         $db->insert('notifications', [
-            'user_id' => $technical['id'],
+            'user_id' => $recipient['id'],
             'ticket_id' => $ticket['id'],
             'title' => $title,
             'message' => $message,
             'type' => 'system',
         ]);
 
-        if (!empty($technical['email'])) {
+        if (!empty($recipient['email'])) {
             $ticketUrl = baseUrl('tickets/show/' . $ticket['id']);
             $body = "
-                <p>Olá, <strong>" . htmlspecialchars($technical['name']) . "</strong>!</p>
-                <p>A demanda abaixo entrou em <strong>Revisão Interna</strong> e precisa da sua revisão técnica:</p>
+                <p>Olá, <strong>" . htmlspecialchars($recipient['name']) . "</strong>!</p>
+                <p>A demanda abaixo entrou em <strong>Revisão Interna</strong> e precisa da sua atenção como {$roleLabel}:</p>
                 <div style='background:#f8fafc;border-radius:8px;padding:16px 20px;margin:16px 0;border-left:4px solid #5c6bc0;'>
                     <p style='margin:4px 0;'><strong>#{$ticket['id']}</strong> — " . htmlspecialchars($ticket['title']) . "</p>
                 </div>
                 <p style='margin-top:20px;'>
-                    <a href='{$ticketUrl}' style='display:inline-block;background:#5c6bc0;color:#fff;padding:10px 24px;border-radius:6px;text-decoration:none;font-weight:600;font-size:0.9rem;'>Revisar Demanda</a>
+                    <a href='{$ticketUrl}' style='display:inline-block;background:#5c6bc0;color:#fff;padding:10px 24px;border-radius:6px;text-decoration:none;font-weight:600;font-size:0.9rem;'>Ver Demanda</a>
                 </p>";
             $htmlBody = Mailer::template('Demanda em Revisão Interna', $body);
-            Mailer::send($technical['email'], "Demanda #{$ticket['id']} em Revisão Interna", $htmlBody);
+            Mailer::send($recipient['email'], "Demanda #{$ticket['id']} em Revisão Interna", $htmlBody);
         }
 
-        $this->sendWhatsappToUser($technical, "🔎 *{$title}*\n\n{$message}");
+        $this->sendWhatsappToUser($recipient, "🔎 *{$title}*\n\n{$message}");
     }
 
     /**
