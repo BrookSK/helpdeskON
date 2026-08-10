@@ -14,11 +14,15 @@ class PlanningCard
         return $this->db->fetch(
             "SELECT pc.*, 
                     u.name as assigned_name,
+                    tr.name as technical_name,
+                    an.name as analyst_name,
                     cb.name as created_by_name,
                     co.name as company_name,
                     t.title as ticket_title
              FROM planning_cards pc
              LEFT JOIN users u ON pc.assigned_to = u.id
+             LEFT JOIN users tr ON pc.technical_responsible_id = tr.id
+             LEFT JOIN users an ON pc.analyst_id = an.id
              LEFT JOIN users cb ON pc.created_by = cb.id
              LEFT JOIN companies co ON pc.company_id = co.id
              LEFT JOIN tickets t ON pc.ticket_id = t.id

@@ -3,14 +3,38 @@
 <?php require APP_PATH . '/views/layouts/sidebar.php'; ?>
 
 <div class="main-content">
+    <?php $isCompaniesMode = (($viewMode ?? 'documents') === 'companies'); ?>
+
+    <?php if (($viewMode ?? 'documents') === 'documents' && in_array($user['role'], ['super_admin', 'attendant'])): ?>
+    <nav aria-label="breadcrumb" class="mb-2">
+        <ol class="breadcrumb mb-0" style="font-size:0.85rem">
+            <li class="breadcrumb-item"><a href="<?= baseUrl('documents') ?>" class="text-decoration-none">Documentos</a></li>
+            <li class="breadcrumb-item active" aria-current="page"><?= escape($currentCompany['name'] ?? 'Documentos') ?></li>
+        </ol>
+    </nav>
+    <?php endif; ?>
+
     <div class="top-bar">
         <div>
-            <h5 class="mb-0">Documentos</h5>
-            <small class="text-muted">Documentos compartilhados</small>
+            <h5 class="mb-0"><?= $isCompaniesMode ? 'Documentos por Empresa' : 'Documentos' ?></h5>
+            <small class="text-muted">
+                <?php if ($isCompaniesMode): ?>
+                    Selecione uma empresa para ver os documentos
+                <?php elseif (!empty($currentCompany)): ?>
+                    <?= escape($currentCompany['name']) ?>
+                <?php else: ?>
+                    Documentos compartilhados
+                <?php endif; ?>
+            </small>
         </div>
-        <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#uploadModal">
-            <i class="bi bi-upload"></i> Enviar Documento
-        </button>
+        <div class="d-flex gap-2">
+            <?php if (($viewMode ?? 'documents') === 'documents' && in_array($user['role'], ['super_admin', 'attendant'])): ?>
+            <a href="<?= baseUrl('documents') ?>" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left"></i> Empresas</a>
+            <?php endif; ?>
+            <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#uploadModal">
+                <i class="bi bi-upload"></i> Enviar Documento
+            </button>
+        </div>
     </div>
 
     <?php if ($msg = flash('success')): ?>
@@ -19,6 +43,46 @@
     <?php if ($msg = flash('error')): ?>
         <div class="alert alert-danger alert-dismissible fade show"><?= escape($msg) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
     <?php endif; ?>
+
+    <?php if ($isCompaniesMode): ?>
+    <!-- Listagem de empresas -->
+    <div class="card">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0 align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Empresa</th>
+                            <th>Documentos</th>
+                            <th>Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach (($companies ?? []) as $c): ?>
+                        <tr style="cursor:pointer" onclick="window.location='<?= baseUrl('documents?company=' . $c['id']) ?>'">
+                            <td class="fw-medium"><i class="bi bi-building text-primary me-1"></i> <?= escape($c['name']) ?></td>
+                            <td><span class="badge bg-info text-dark"><?= $c['documents_count'] ?? 0 ?></span></td>
+                            <td onclick="event.stopPropagation()">
+                                <a href="<?= baseUrl('documents?company=' . $c['id']) ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-eye"></i> Ver</a>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                        <tr style="cursor:pointer" onclick="window.location='<?= baseUrl('documents?company=0') ?>'">
+                            <td class="fw-medium"><i class="bi bi-folder text-muted me-1"></i> Geral (sem empresa)</td>
+                            <td><span class="badge bg-secondary"><?= $generalCount ?? 0 ?></span></td>
+                            <td onclick="event.stopPropagation()">
+                                <a href="<?= baseUrl('documents?company=0') ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-eye"></i> Ver</a>
+                            </td>
+                        </tr>
+                        <?php if (empty($companies)): ?>
+                        <tr><td colspan="3" class="text-center text-muted py-4">Nenhuma empresa cadastrada.</td></tr>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <?php else: ?>
 
     <div class="card">
         <div class="card-body p-0">
@@ -100,6 +164,7 @@
             <?php endif; ?>
         </div>
     </div>
+    <?php endif; // fim viewMode ?>
 </div>
 
 <!-- Modal Upload -->
@@ -126,14 +191,15 @@
                         <small class="text-muted">Máx. 20MB. PDF, DOC, XLS, imagens, etc.</small>
                     </div>
                     <?php if (in_array($user['role'], ['super_admin', 'attendant'])): ?>
+                    <?php $preselectCompany = (!empty($currentCompany) && !empty($currentCompany['id'])) ? (int)$currentCompany['id'] : null; ?>
                     <div class="mb-3">
                         <label class="form-label fw-medium small">Empresa destino</label>
                         <select name="company_id" class="form-select form-select-sm">
                             <option value="">Geral (todas)</option>
                             <?php
-                            $companies = (new Company())->getAll();
-                            foreach ($companies as $c): ?>
-                            <option value="<?= $c['id'] ?>"><?= escape($c['name']) ?></option>
+                            $companiesForModal = (new Company())->getAll();
+                            foreach ($companiesForModal as $c): ?>
+                            <option value="<?= $c['id'] ?>" <?= $preselectCompany === (int)$c['id'] ? 'selected' : '' ?>><?= escape($c['name']) ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>

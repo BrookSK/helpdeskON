@@ -739,19 +739,18 @@ class WhatsappController extends Controller
         $normalizedJid = $api->normalizeJid($remoteJid);
         $phone = $api->extractPhone($normalizedJid);
 
-        // Nome do grupo — tentar pegar do campo correto
-        $contactName = $pushName ?: null;
+        // Nome do grupo — SOMENTE o nome real do grupo (nunca o remetente/pushName)
+        $contactName = null;
         if ($isGroup) {
-            // Em grupos, o pushName é do remetente, não do grupo
-            // O nome do grupo vem em campos específicos
-            $groupSubject = $msg['groupMetadata']['subject'] 
-                ?? $msg['groupSubject'] 
-                ?? $msg['verifiedBizName'] 
+            // O nome do grupo vem em campos específicos do metadata (nunca do pushName)
+            $contactName = $msg['groupMetadata']['subject']
+                ?? $msg['groupSubject']
                 ?? null;
-            $contactName = $groupSubject;
+        } else {
+            $contactName = $pushName ?: null;
         }
 
-        // Upsert contato/grupo
+        // Upsert contato/grupo (não passa pushName como nome de grupo)
         $contactId = $this->contactModel->upsert($instance['id'], $normalizedJid, [
             'phone' => $phone,
             'push_name' => $isGroup ? null : ($pushName ?: null),
@@ -759,12 +758,20 @@ class WhatsappController extends Controller
             'last_message_at' => date('Y-m-d H:i:s'),
         ], $contactName);
 
-        // Se é grupo e temos o nome, garantir que está salvo
-        if ($isGroup && $contactName) {
+        // Para grupos: se temos o subject real, garantir que está salvo;
+        // se ainda não temos um nome de grupo válido, buscar via API (lazy, uma vez).
+        if ($isGroup) {
+            $db = Database::getInstance();
             $existingContact = $this->contactModel->findById($contactId);
-            if ($existingContact && empty($existingContact['contact_name'])) {
-                $db = Database::getInstance();
+            if ($contactName) {
+                // Atualiza sempre com o nome real do grupo
                 $db->update('whatsapp_contacts', ['contact_name' => $contactName], 'id = ?', [$contactId]);
+            } elseif ($existingContact && empty($existingContact['contact_name'])) {
+                // Sem nome salvo — tentar buscar o subject do grupo na Evolution API
+                $resolved = $this->resolveGroupName($instance, $normalizedJid);
+                if ($resolved) {
+                    $db->update('whatsapp_contacts', ['contact_name' => $resolved], 'id = ?', [$contactId]);
+                }
             }
         }
 
@@ -812,6 +819,68 @@ class WhatsappController extends Controller
                 $this->contactModel->updateServiceStatus($contactId, 'novo');
             }
         }
+    }
+
+    /**
+     * Re-sincroniza os nomes reais dos grupos a partir da Evolution API (findChats).
+     * Corrige grupos cujo nome foi salvo incorretamente (ex.: nome do remetente).
+     */
+    public function syncGroups()
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+
+        $instance = $this->getUserInstance();
+        if (!$instance) {
+            $this->json(['success' => false, 'message' => 'Nenhuma instância disponível.']);
+        }
+
+        $db = Database::getInstance();
+        $groups = $db->fetchAll(
+            "SELECT id, remote_jid, contact_name FROM whatsapp_contacts WHERE instance_id = ? AND is_group = 1",
+            [$instance['id']]
+        );
+
+        $updated = 0;
+        foreach ($groups as $g) {
+            $resolved = $this->resolveGroupName($instance, $g['remote_jid']);
+            if ($resolved && $resolved !== $g['contact_name']) {
+                $db->update('whatsapp_contacts', ['contact_name' => $resolved], 'id = ?', [$g['id']]);
+                $updated++;
+            }
+        }
+
+        $this->json(['success' => true, 'updated' => $updated, 'total' => count($groups)]);
+    }
+
+    /**
+     * Tenta descobrir o nome (subject) real de um grupo pela Evolution API,
+     * usando o findChats já existente. Retorna null se não encontrar.
+     */
+    private function resolveGroupName($instance, $groupJid)
+    {
+        try {
+            $api = new EvolutionApi($instance['api_url'], $instance['api_key'], $instance['instance_name']);
+            $chats = $api->findChats();
+            if (!is_array($chats)) return null;
+
+            // Normalizar o número do grupo para comparação
+            $targetNum = preg_replace('/@.*/', '', $groupJid);
+
+            foreach ($chats as $chat) {
+                $jid = $chat['id'] ?? $chat['remoteJid'] ?? $chat['jid'] ?? '';
+                if (empty($jid)) continue;
+                $num = preg_replace('/@.*/', '', $jid);
+                if ($num === $targetNum) {
+                    $subject = $chat['subject'] ?? $chat['name'] ?? $chat['pushName'] ?? null;
+                    if (!empty($subject)) {
+                        return $subject;
+                    }
+                }
+            }
+        } catch (Exception $e) {
+            // Silencioso
+        }
+        return null;
     }
 
     /**

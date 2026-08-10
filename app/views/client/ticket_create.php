@@ -38,16 +38,42 @@
             <form action="<?= baseUrl('tickets/store') ?>" method="POST" enctype="multipart/form-data">
                 <div class="row g-3">
                     <?php if (($user['role'] ?? '') === 'super_admin' && !empty($clients)): ?>
-                    <div class="col-12">
-                        <label class="form-label fw-medium">Cliente (solicitante) *</label>
-                        <select name="client_id" class="form-select" required>
-                            <option value="">Selecione o cliente</option>
-                            <?php foreach ($clients as $client): ?>
-                            <option value="<?= $client['id'] ?>"><?= escape($client['name']) ?> (<?= escape($client['email']) ?>)</option>
+                    <div class="col-sm-6">
+                        <label class="form-label fw-medium">Empresa *</label>
+                        <select id="company-select" class="form-select" required>
+                            <option value="">Selecione a empresa</option>
+                            <?php foreach (($companies ?? []) as $company): ?>
+                            <option value="<?= $company['id'] ?>"><?= escape($company['name']) ?></option>
                             <?php endforeach; ?>
+                            <?php
+                            // Verifica se há clientes sem empresa vinculada
+                            $hasNoCompanyClients = false;
+                            foreach ($clients as $c) { if (empty($c['company_id'])) { $hasNoCompanyClients = true; break; } }
+                            ?>
+                            <?php if ($hasNoCompanyClients): ?>
+                            <option value="0">Sem empresa</option>
+                            <?php endif; ?>
                         </select>
-                        <small class="text-muted">Selecione em nome de qual cliente esta demanda será criada</small>
+                        <small class="text-muted">Primeiro selecione a empresa</small>
                     </div>
+                    <div class="col-sm-6">
+                        <label class="form-label fw-medium">Cliente (solicitante) *</label>
+                        <select name="client_id" id="client-select" class="form-select" required disabled>
+                            <option value="">Selecione a empresa primeiro</option>
+                        </select>
+                        <small class="text-muted">Usuários cadastrados na empresa</small>
+                    </div>
+                    <script>
+                        // Clientes agrupados por empresa (Empresa > Usuários)
+                        window.clientsByCompany = <?= json_encode(array_map(function ($c) {
+                            return [
+                                'id' => (int)$c['id'],
+                                'name' => $c['name'],
+                                'email' => $c['email'],
+                                'company_id' => $c['company_id'] ? (int)$c['company_id'] : 0,
+                            ];
+                        }, $clients)) ?>;
+                    </script>
                     <div class="col-sm-6">
                         <label class="form-label fw-medium">Atendente (comunicação)</label>
                         <select name="attendant_id" class="form-select">
@@ -120,6 +146,40 @@
 </div>
 
 <script>
+// Seleção hierárquica Empresa > Usuários
+(function() {
+    const companySelect = document.getElementById('company-select');
+    const clientSelect = document.getElementById('client-select');
+    if (!companySelect || !clientSelect || !window.clientsByCompany) return;
+
+    companySelect.addEventListener('change', function() {
+        const companyId = parseInt(this.value, 10);
+        clientSelect.innerHTML = '';
+
+        if (isNaN(companyId) || this.value === '') {
+            clientSelect.innerHTML = '<option value="">Selecione a empresa primeiro</option>';
+            clientSelect.disabled = true;
+            return;
+        }
+
+        const users = window.clientsByCompany.filter(c => c.company_id === companyId);
+        if (users.length === 0) {
+            clientSelect.innerHTML = '<option value="">Nenhum usuário nesta empresa</option>';
+            clientSelect.disabled = true;
+            return;
+        }
+
+        clientSelect.disabled = false;
+        clientSelect.innerHTML = '<option value="">Selecione o usuário</option>';
+        users.forEach(function(u) {
+            const opt = document.createElement('option');
+            opt.value = u.id;
+            opt.textContent = u.name + ' (' + u.email + ')';
+            clientSelect.appendChild(opt);
+        });
+    });
+})();
+
 let mediaRecorder;
 let audioChunks = [];
 let recordingTimer;

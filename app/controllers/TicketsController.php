@@ -101,10 +101,17 @@ class TicketsController extends Controller
         // Se for super_admin, carregar lista de clientes + equipe para atribuição
         if ($user['role'] === 'super_admin') {
             $userModel = new User();
+            // Clientes com a empresa vinculada, para seleção hierárquica Empresa > Usuário
             $clients = Database::getInstance()->fetchAll(
-                "SELECT id, name, email FROM users WHERE role = 'client' AND is_active = 1 ORDER BY name ASC"
+                "SELECT u.id, u.name, u.email, u.company_id, comp.name as company_name
+                 FROM users u
+                 LEFT JOIN companies comp ON u.company_id = comp.id
+                 WHERE u.role = 'client' AND u.is_active = 1
+                 ORDER BY comp.name IS NULL, comp.name, u.name ASC"
             );
             $data['clients'] = $clients;
+            // Empresas para o primeiro nível da seleção
+            $data['companies'] = (new Company())->getAll();
             // Atendentes (quem comunica no ticket) e responsáveis técnicos, agrupados por papel
             $data['attendants'] = $userModel->getByRoles(['attendant', 'whatsapp_agent']);
             $data['technicalGrouped'] = $userModel->getGroupedByRole(['developer', 'analyst', 'attendant']);

@@ -53,11 +53,19 @@ class PlanningController extends Controller
             $teamMembers = array_merge($admins, $team);
         }
 
+        // Listas específicas por papel para os seletores do card
+        $attendantsList = $userModel->getByRoles(['attendant', 'whatsapp_agent']);
+        $techniciansList = $userModel->getByRoles(['developer']);
+        $analystsList = $userModel->getByRoles(['analyst']);
+
         $this->view('planning/index', [
             'user' => $user,
             'grouped' => $grouped,
             'companies' => $companies,
             'teamMembers' => $teamMembers,
+            'attendantsList' => $attendantsList,
+            'techniciansList' => $techniciansList,
+            'analystsList' => $analystsList,
             'filters' => $filters,
         ]);
     }
@@ -126,6 +134,8 @@ class PlanningController extends Controller
             'description' => $_POST['description'] ?? '',
             'company_id' => !empty($_POST['company_id']) ? $_POST['company_id'] : null,
             'assigned_to' => !empty($_POST['assigned_to']) ? $_POST['assigned_to'] : null,
+            'technical_responsible_id' => !empty($_POST['technical_responsible_id']) ? $_POST['technical_responsible_id'] : null,
+            'analyst_id' => !empty($_POST['analyst_id']) ? $_POST['analyst_id'] : null,
             'created_by' => $user['id'],
             'priority' => $_POST['priority'] ?? 'medium',
             'status' => $_POST['status'] ?? 'open',
@@ -198,6 +208,8 @@ class PlanningController extends Controller
         }
         if (isset($_POST['company_id'])) $data['company_id'] = $_POST['company_id'] ?: null;
         if (isset($_POST['assigned_to'])) $data['assigned_to'] = $_POST['assigned_to'] ?: null;
+        if (isset($_POST['technical_responsible_id'])) $data['technical_responsible_id'] = $_POST['technical_responsible_id'] ?: null;
+        if (isset($_POST['analyst_id'])) $data['analyst_id'] = $_POST['analyst_id'] ?: null;
         if (isset($_POST['priority'])) $data['priority'] = $_POST['priority'];
         if (isset($_POST['status'])) $data['status'] = $_POST['status'];
         if (isset($_POST['due_date'])) $data['due_date'] = $_POST['due_date'] ?: null;

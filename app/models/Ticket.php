@@ -189,6 +189,26 @@ class Ticket
         return $result;
     }
 
+    /**
+     * Contagem por status de todos os tickets de uma empresa (usado no painel do responsável).
+     */
+    public function countByCompany($companyId)
+    {
+        $rows = $this->db->fetchAll(
+            "SELECT t.status, COUNT(*) as total
+             FROM tickets t
+             LEFT JOIN users c ON t.client_id = c.id
+             WHERE c.company_id = ?
+             GROUP BY t.status",
+            [$companyId]
+        );
+        $counts = [];
+        foreach ($rows as $row) {
+            $counts[$row['status']] = $row['total'];
+        }
+        return $counts;
+    }
+
     public function countByStatus($userId = null, $role = null)
     {
         $sql = "SELECT status, COUNT(*) as total FROM tickets WHERE 1=1";

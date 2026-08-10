@@ -67,11 +67,7 @@
                     <i class="bi bi-list-task"></i> Demandas
                 </a>
             </li>
-            <li class="nav-item">
-                <a class="nav-link <?= ($currentPage ?? '') === 'kanban' ? 'active' : '' ?>" href="<?= baseUrl('tickets/kanban') ?>">
-                    <i class="bi bi-kanban"></i> <?= in_array($user['role'] ?? '', ['developer', 'analyst']) ? 'Minhas Atividades' : 'Kanban' ?>
-                </a>
-            </li>
+
             <?php if (($user['role'] ?? '') === 'super_admin'): ?>
             <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'create' ? 'active' : '' ?>" href="<?= baseUrl('tickets/create') ?>">

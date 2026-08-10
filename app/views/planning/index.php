@@ -145,10 +145,30 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                                 </select>
                             </div>
                             <div class="col-sm-6 mb-3">
-                                <label class="form-label small fw-medium">Responsável</label>
+                                <label class="form-label small fw-medium">Atendente</label>
                                 <select name="assigned_to" class="form-select form-select-sm">
                                     <option value="">Não atribuído</option>
-                                    <?php foreach ($teamMembers as $m): ?>
+                                    <?php foreach (($attendantsList ?? []) as $m): ?>
+                                    <option value="<?= $m['id'] ?>"><?= escape($m['name']) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="row g-2">
+                            <div class="col-sm-6 mb-3">
+                                <label class="form-label small fw-medium">Técnico</label>
+                                <select name="technical_responsible_id" class="form-select form-select-sm">
+                                    <option value="">Não atribuído</option>
+                                    <?php foreach (($techniciansList ?? []) as $m): ?>
+                                    <option value="<?= $m['id'] ?>"><?= escape($m['name']) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="col-sm-6 mb-3">
+                                <label class="form-label small fw-medium">Analista</label>
+                                <select name="analyst_id" class="form-select form-select-sm">
+                                    <option value="">Não atribuído</option>
+                                    <?php foreach (($analystsList ?? []) as $m): ?>
                                     <option value="<?= $m['id'] ?>"><?= escape($m['name']) ?></option>
                                     <?php endforeach; ?>
                                 </select>
@@ -212,10 +232,30 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                             <input type="text" id="detail-title-input" class="form-control form-control-sm">
                         </div>
                         <div class="col-sm-6">
-                            <label class="form-label small fw-medium">Responsável</label>
+                            <label class="form-label small fw-medium">Atendente</label>
                             <select id="detail-assigned" class="form-select form-select-sm">
                                 <option value="">Não atribuído</option>
-                                <?php foreach ($teamMembers as $m): ?>
+                                <?php foreach (($attendantsList ?? []) as $m): ?>
+                                <option value="<?= $m['id'] ?>"><?= escape($m['name']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="row g-3 mb-3">
+                        <div class="col-sm-6">
+                            <label class="form-label small fw-medium">Técnico</label>
+                            <select id="detail-technical" class="form-select form-select-sm">
+                                <option value="">Não atribuído</option>
+                                <?php foreach (($techniciansList ?? []) as $m): ?>
+                                <option value="<?= $m['id'] ?>"><?= escape($m['name']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-sm-6">
+                            <label class="form-label small fw-medium">Analista</label>
+                            <select id="detail-analyst" class="form-select form-select-sm">
+                                <option value="">Não atribuído</option>
+                                <?php foreach (($analystsList ?? []) as $m): ?>
                                 <option value="<?= $m['id'] ?>"><?= escape($m['name']) ?></option>
                                 <?php endforeach; ?>
                             </select>
@@ -418,6 +458,8 @@ function openCardModal(id) {
         document.getElementById('detail-title').textContent = '#' + c.id + ' ' + c.title;
         document.getElementById('detail-title-input').value = c.title;
         document.getElementById('detail-assigned').value = c.assigned_to || '';
+        document.getElementById('detail-technical').value = c.technical_responsible_id || '';
+        document.getElementById('detail-analyst').value = c.analyst_id || '';
         document.getElementById('detail-company').value = c.company_id || '';
         document.getElementById('detail-priority').value = c.priority;
         document.getElementById('detail-status').value = c.status;
@@ -453,6 +495,8 @@ function saveCard() {
     const formData = new FormData();
     formData.append('title', document.getElementById('detail-title-input').value);
     formData.append('assigned_to', document.getElementById('detail-assigned').value);
+    formData.append('technical_responsible_id', document.getElementById('detail-technical').value);
+    formData.append('analyst_id', document.getElementById('detail-analyst').value);
     formData.append('company_id', document.getElementById('detail-company').value);
     formData.append('priority', document.getElementById('detail-priority').value);
     formData.append('status', document.getElementById('detail-status').value);

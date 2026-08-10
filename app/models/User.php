@@ -34,7 +34,7 @@ class User
             "SELECT u.*, comp.name as company_name
              FROM users u
              LEFT JOIN companies comp ON u.company_id = comp.id
-             ORDER BY comp.name IS NULL, comp.name, u.name"
+             ORDER BY u.name ASC"
         );
     }
 

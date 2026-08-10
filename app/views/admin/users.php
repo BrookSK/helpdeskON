@@ -20,6 +20,38 @@
         <div class="alert alert-danger alert-dismissible fade show"><?= escape($msg) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
     <?php endif; ?>
 
+    <?php
+    // Empresas distintas presentes na lista, para o filtro
+    $companyOptions = [];
+    foreach ($users as $u) {
+        if (!empty($u['company_id']) && !empty($u['company_name'])) {
+            $companyOptions[$u['company_id']] = $u['company_name'];
+        }
+    }
+    asort($companyOptions);
+    ?>
+    <div class="card mb-3">
+        <div class="card-body py-2 px-3">
+            <div class="row g-2 align-items-center">
+                <div class="col-12 col-md">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+                        <input type="text" id="filter-name" class="form-control" placeholder="Filtrar por nome ou email...">
+                    </div>
+                </div>
+                <div class="col-12 col-md-auto">
+                    <select id="filter-company" class="form-select form-select-sm">
+                        <option value="">Todas as empresas</option>
+                        <?php foreach ($companyOptions as $cid => $cname): ?>
+                        <option value="<?= $cid ?>"><?= escape($cname) ?></option>
+                        <?php endforeach; ?>
+                        <option value="none">Sem empresa</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="card">
         <div class="card-body p-0">
             <!-- Desktop -->
@@ -36,9 +68,9 @@
                             <th>Ações</th>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody id="users-tbody">
                         <?php foreach ($users as $u): ?>
-                        <tr>
+                        <tr class="user-row" data-name="<?= escape(mb_strtolower($u['name'] . ' ' . $u['email'])) ?>" data-company="<?= $u['company_id'] ?: 'none' ?>">
                             <td><?= $u['id'] ?></td>
                             <td><?= escape($u['name']) ?></td>
                             <td style="font-size:0.85rem">
@@ -78,9 +110,9 @@
                 </table>
             </div>
             <!-- Mobile -->
-            <div class="d-md-none p-3">
+            <div class="d-md-none p-3" id="users-mobile">
                 <?php foreach ($users as $u): ?>
-                <div class="border rounded-3 p-3 mb-2">
+                <div class="border rounded-3 p-3 mb-2 user-row" data-name="<?= escape(mb_strtolower($u['name'] . ' ' . $u['email'])) ?>" data-company="<?= $u['company_id'] ?: 'none' ?>">
                     <div class="d-flex justify-content-between align-items-start mb-1">
                         <div>
                             <div class="fw-medium"><?= escape($u['name']) ?></div>
@@ -107,8 +139,40 @@
                 </div>
                 <?php endforeach; ?>
             </div>
+            <div id="no-users-msg" class="text-center text-muted py-4" style="display:none">Nenhum usuário encontrado.</div>
         </div>
     </div>
 </div>
+
+<script>
+(function() {
+    const nameInput = document.getElementById('filter-name');
+    const companySelect = document.getElementById('filter-company');
+    const rows = document.querySelectorAll('.user-row');
+    const noMsg = document.getElementById('no-users-msg');
+
+    function applyFilters() {
+        const term = (nameInput.value || '').trim().toLowerCase();
+        const company = companySelect.value;
+        let visible = 0;
+
+        rows.forEach(function(row) {
+            const name = row.getAttribute('data-name') || '';
+            const rowCompany = row.getAttribute('data-company') || '';
+            const matchName = term === '' || name.indexOf(term) !== -1;
+            const matchCompany = company === '' || rowCompany === company;
+            const show = matchName && matchCompany;
+            row.style.display = show ? '' : 'none';
+            if (show) visible++;
+        });
+
+        // visible conta desktop + mobile; se nada visível em nenhum, mostra msg
+        if (noMsg) noMsg.style.display = visible === 0 ? 'block' : 'none';
+    }
+
+    if (nameInput) nameInput.addEventListener('input', applyFilters);
+    if (companySelect) companySelect.addEventListener('change', applyFilters);
+})();
+</script>
 
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>

@@ -21,6 +21,22 @@ class SharedDocument
         );
     }
 
+    /**
+     * Documentos vinculados exclusivamente a uma empresa (para a visão segmentada por empresa).
+     */
+    public function getByCompanyOnly($companyId)
+    {
+        return $this->db->fetchAll(
+            "SELECT d.*, u.name as uploaded_by, c.name as company_name
+             FROM shared_documents d
+             LEFT JOIN users u ON d.user_id = u.id
+             LEFT JOIN companies c ON d.company_id = c.id
+             WHERE d.company_id = ?
+             ORDER BY d.created_at DESC",
+            [$companyId]
+        );
+    }
+
     public function getForTeam()
     {
         return $this->db->fetchAll(

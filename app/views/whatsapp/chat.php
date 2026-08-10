@@ -380,6 +380,24 @@ function loadContacts(silent = false) {
     .catch(() => {});
 }
 
+function syncGroups(btn) {
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Sincronizando...'; }
+    fetch(BASE + 'whatsapp/syncGroups', { method: 'POST', headers: {'X-Requested-With': 'XMLHttpRequest'} })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                loadContacts();
+                if (typeof showToast === 'function') showToast(`${data.updated} grupo(s) atualizado(s).`);
+            } else if (typeof showToast === 'function') {
+                showToast(data.message || 'Falha ao sincronizar.');
+            }
+        })
+        .catch(() => {})
+        .finally(() => {
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Sincronizar nomes dos grupos'; }
+        });
+}
+
 function renderContactsList() {
     const list = document.getElementById('contacts-list');
     const items = currentTab === 'contacts' ? allContacts : allGroups;
@@ -390,6 +408,13 @@ function renderContactsList() {
     }
 
     let html = '';
+    if (currentTab === 'groups') {
+        html += `<div class="px-3 py-2 border-bottom">
+            <button class="btn btn-sm btn-outline-secondary w-100" onclick="syncGroups(this)">
+                <i class="bi bi-arrow-repeat"></i> Sincronizar nomes dos grupos
+            </button>
+        </div>`;
+    }
     if (currentTab === 'contacts') {
         const emAtendimento = items.filter(c => c.service_status === 'em_atendimento');
         const aguardando = items.filter(c => c.service_status === 'aguardando');
@@ -419,26 +444,69 @@ function renderContactsList() {
 }
 
 function renderContactItem(c, isGroup) {
-    const name = c.contact_name || c.push_name || c.phone || 'Desconhecido';
+    // Grupo usa sempre o nome real do grupo (contact_name); nunca o push_name (remetente)
+    const name = isGroup
+        ? (c.contact_name || c.phone || 'Grupo')
+        : (c.contact_name || c.push_name || c.phone || 'Desconhecido');
     const initials = name.substring(0, 2).toUpperCase();
     const time = c.last_message_at ? formatTime(c.last_message_at) : '';
     const isActive = activeContactId == c.id ? 'active' : '';
     const unread = c.unread_count > 0 ? `<span class="wpp-unread">${c.unread_count}</span>` : '';
-    const assignedBadge = c.assigned_name ? `<small style="font-size:0.6rem;color:var(--primary);">${escapeHtml(c.assigned_name)}</small>` : '';
     const avatarClass = isGroup ? 'wpp-avatar-sm group-avatar' : 'wpp-avatar-sm';
     const icon = isGroup ? '<i class="bi bi-people-fill" style="font-size:0.9rem;"></i>' : initials;
+
+    // Prévia da última mensagem (estilo WhatsApp)
+    const preview = buildLastMessagePreview(c, isGroup);
 
     return `<div class="wpp-contact-item ${isActive}" onclick="openChat(${c.id}, ${isGroup})" data-id="${c.id}">
         <div class="${avatarClass}">${icon}</div>
         <div class="wpp-contact-info">
             <div class="wpp-contact-name">${escapeHtml(name)}</div>
-            <div class="wpp-contact-last">${assignedBadge}</div>
+            <div class="wpp-contact-last">${preview}</div>
         </div>
         <div class="wpp-contact-meta">
             <div class="wpp-contact-time">${time}</div>
             ${unread}
         </div>
     </div>`;
+}
+
+// Monta a prévia resumida da última mensagem, como no WhatsApp
+function buildLastMessagePreview(c, isGroup) {
+    const typeLabels = {
+        image: '📷 Foto',
+        audio: '🎤 Áudio',
+        video: '🎥 Vídeo',
+        document: '📄 Documento',
+        sticker: '🎨 Figurinha',
+    };
+
+    let text = '';
+    if (c.last_message_type && c.last_message_type !== 'text' && typeLabels[c.last_message_type]) {
+        text = typeLabels[c.last_message_type];
+    } else if (c.last_message_text) {
+        text = c.last_message_text;
+    }
+
+    if (!text) {
+        // Sem mensagem — mostra o atendente atribuído, se houver
+        return c.assigned_name ? `<small style="color:var(--primary);">${escapeHtml(c.assigned_name)}</small>` : '';
+    }
+
+    // Prefixo do remetente
+    let prefix = '';
+    if (c.last_message_from_me == 1) {
+        prefix = 'Você: ';
+    } else if (isGroup && c.last_message_sender) {
+        // Em grupos, mostra quem enviou (primeiro nome)
+        prefix = escapeHtml(c.last_message_sender.split(' ')[0]) + ': ';
+    }
+
+    // Resumir a mensagem
+    let clean = text.replace(/\s+/g, ' ').trim();
+    if (clean.length > 38) clean = clean.substring(0, 38) + '…';
+
+    return `<span class="wpp-last-preview">${prefix}${escapeHtml(clean)}</span>`;
 }
 
 // =========================================
@@ -479,7 +547,10 @@ function openChat(contactId, isGroup = false) {
     fetch(BASE + 'whatsapp/contactDetail/' + contactId, { headers: {'X-Requested-With': 'XMLHttpRequest'} })
     .then(r => r.json())
     .then(contact => {
-        const name = contact.contact_name || contact.push_name || contact.phone || 'Desconhecido';
+        // Grupo usa o nome real do grupo (contact_name), nunca o push_name do remetente
+        const name = (contact.is_group == 1)
+            ? (contact.contact_name || contact.phone || 'Grupo')
+            : (contact.contact_name || contact.push_name || contact.phone || 'Desconhecido');
         const initials = name.substring(0, 2).toUpperCase();
         document.getElementById('chat-contact-name').textContent = name;
         document.getElementById('chat-contact-phone').textContent = contact.phone || '';

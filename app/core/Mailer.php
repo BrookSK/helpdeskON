@@ -124,21 +124,43 @@ class Mailer
      */
     public static function template($title, $bodyContent)
     {
+        // Logo configurada nas Settings (exibida acima do nome, quando disponível)
+        $logoHtml = '';
+        try {
+            $logoPath = Config::get('app_logo');
+            if (!empty($logoPath)) {
+                $logoUrl = baseUrl($logoPath);
+                $logoHtml = "<div style='margin-bottom:10px;'><img src='{$logoUrl}' alt='Logo' style='max-height:56px;max-width:200px;'></div>";
+            }
+        } catch (\Exception $e) {
+            $logoHtml = '';
+        }
+
+        $font = "'Poppins', Arial, sans-serif";
+        $year = date('Y');
+
         return "
         <html>
-        <body style='font-family:Inter,Arial,sans-serif;background:#f5f7fa;padding:20px;margin:0;'>
+        <head>
+            <meta charset='UTF-8'>
+            <link href='https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap' rel='stylesheet'>
+        </head>
+        <body style='font-family:{$font};background:#f5f7fa;padding:20px;margin:0;'>
             <div style='max-width:560px;margin:0 auto;background:#fff;border-radius:12px;padding:30px;box-shadow:0 2px 10px rgba(0,0,0,0.05);'>
                 <div style='text-align:center;margin-bottom:20px;'>
-                    <span style='color:#00BFA6;font-weight:700;font-size:1.4rem;'>ON</span>
-                    <span style='font-weight:300;font-size:1.1rem;color:#333;'> Solutions</span>
-                    <div style='font-size:0.8rem;color:#999;margin-top:4px;'>Helpdesk</div>
+                    {$logoHtml}
+                    <div>
+                        <span style='font-family:{$font};color:#00BFA6;font-weight:700;font-size:1.4rem;'>ON</span>
+                        <span style='font-family:{$font};font-weight:600;font-size:1.1rem;color:#000;'> SOLUTIONS</span>
+                    </div>
+                    <div style='font-family:{$font};font-size:0.8rem;color:#999;margin-top:4px;'>Helpdesk</div>
                 </div>
-                <h2 style='color:#333;font-size:1.2rem;margin-bottom:15px;'>{$title}</h2>
-                <div style='color:#555;line-height:1.7;font-size:0.9rem;'>
+                <h2 style='font-family:{$font};color:#333;font-size:1.2rem;margin-bottom:15px;'>{$title}</h2>
+                <div style='font-family:{$font};color:#555;line-height:1.7;font-size:0.9rem;'>
                     {$bodyContent}
                 </div>
                 <hr style='border:none;border-top:1px solid #eee;margin:25px 0 15px;'>
-                <p style='color:#aaa;font-size:0.75rem;text-align:center;margin:0;'>ON Solutions Helpdesk &copy; " . date('Y') . "</p>
+                <p style='font-family:{$font};color:#aaa;font-size:0.75rem;text-align:center;margin:0;'>ON Solutions Helpdesk &copy; {$year}</p>
             </div>
         </body>
         </html>";

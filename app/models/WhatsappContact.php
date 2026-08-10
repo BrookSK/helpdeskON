@@ -59,9 +59,22 @@ class WhatsappContact
                      FROM whatsapp_contact_labels cl 
                      JOIN whatsapp_labels l ON cl.label_id = l.id 
                      WHERE cl.contact_id = c.id) as labels,
-                    u.name as assigned_name
+                    u.name as assigned_name,
+                    lm.message_text as last_message_text,
+                    lm.message_type as last_message_type,
+                    lm.from_me as last_message_from_me,
+                    lm.sender_name as last_message_sender
                 FROM whatsapp_contacts c
                 LEFT JOIN users u ON c.assigned_to = u.id
+                LEFT JOIN (
+                    SELECT m1.contact_id, m1.message_text, m1.message_type, m1.from_me, m1.sender_name
+                    FROM whatsapp_messages m1
+                    INNER JOIN (
+                        SELECT contact_id, MAX(id) as max_id
+                        FROM whatsapp_messages
+                        GROUP BY contact_id
+                    ) m2 ON m1.contact_id = m2.contact_id AND m1.id = m2.max_id
+                ) lm ON lm.contact_id = c.id
                 WHERE c.instance_id = ?";
         $params = [$instanceId];
 

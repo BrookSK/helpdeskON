@@ -9,24 +9,38 @@ class DashboardController extends Controller
         $ticketModel = new Ticket();
         $messageModel = new TicketMessage();
 
-        $counts = $ticketModel->countByStatus($user['id'], $user['role']);
         $unreadMessages = $messageModel->getUnreadCount($user['id']);
 
+        if ($user['role'] === 'client') {
+            $fullUser = (new User())->findById($user['id']);
+            if ($fullUser['is_company_owner'] && $fullUser['company_id']) {
+                // Responsável da empresa: vê todos os tickets da empresa (inclusive concluídos)
+                $data = [
+                    'user' => $user,
+                    'counts' => $ticketModel->countByCompany($fullUser['company_id']),
+                    'unreadMessages' => $unreadMessages,
+                    'tickets' => $ticketModel->getByCompany($fullUser['company_id']),
+                ];
+            } else {
+                $data = [
+                    'user' => $user,
+                    'counts' => $ticketModel->countByStatus($user['id'], $user['role']),
+                    'unreadMessages' => $unreadMessages,
+                    'tickets' => $ticketModel->getByClient($user['id']),
+                ];
+            }
+            $this->view('client/dashboard', $data);
+            return;
+        }
+
+        $counts = $ticketModel->countByStatus($user['id'], $user['role']);
         $data = [
             'user' => $user,
             'counts' => $counts,
             'unreadMessages' => $unreadMessages,
         ];
 
-        if ($user['role'] === 'client') {
-            $fullUser = (new User())->findById($user['id']);
-            if ($fullUser['is_company_owner'] && $fullUser['company_id']) {
-                $data['tickets'] = $ticketModel->getByCompany($fullUser['company_id']);
-            } else {
-                $data['tickets'] = $ticketModel->getByClient($user['id']);
-            }
-            $this->view('client/dashboard', $data);
-        } elseif (in_array($user['role'], ['attendant', 'developer', 'analyst'])) {
+        if (in_array($user['role'], ['attendant', 'developer', 'analyst'])) {
             $data['tickets'] = $ticketModel->getByAttendant($user['id']);
             $this->view('attendant/dashboard', $data);
         } else {
