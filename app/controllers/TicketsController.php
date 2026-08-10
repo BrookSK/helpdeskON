@@ -445,6 +445,39 @@ class TicketsController extends Controller
         $this->redirect('tickets/show/' . $id);
     }
 
+    // Excluir permanentemente a demanda (apenas super_admin)
+    public function deletePermanent($id = null)
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
+            $this->redirect('tickets');
+        }
+
+        $ticket = $this->ticketModel->findById($id);
+        if (!$ticket) {
+            flash('error', 'Demanda não encontrada.');
+            $this->redirect('tickets');
+        }
+
+        $db = Database::getInstance();
+
+        // Remover card de planejamento vinculado (e seus comentários/anexos via cascade)
+        $card = $db->fetch("SELECT id FROM planning_cards WHERE ticket_id = ?", [$id]);
+        if ($card) {
+            $db->delete('planning_cards', 'id = ?', [$card['id']]);
+        }
+
+        // Remover dependências do ticket e o próprio ticket
+        $db->delete('ticket_messages', 'ticket_id = ?', [$id]);
+        $db->delete('ticket_attachments', 'ticket_id = ?', [$id]);
+        $db->query("DELETE FROM ticket_internal_notes WHERE ticket_id = ?", [$id]);
+        $db->query("DELETE FROM notifications WHERE ticket_id = ?", [$id]);
+        $db->delete('tickets', 'id = ?', [$id]);
+
+        flash('success', 'Demanda excluída permanentemente.');
+        $this->redirect('tickets');
+    }
+
     // Enviar mensagem no chat
     public function sendMessage($id = null)
     {

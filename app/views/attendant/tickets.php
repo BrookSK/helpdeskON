@@ -93,7 +93,16 @@
                             <td><span class="badge-status badge-<?= $t['status'] ?>"><?= statusLabel($t['status']) ?></span></td>
                             <td><span class="priority-<?= $t['priority'] ?>"><?= priorityLabel($t['priority']) ?></span></td>
                             <td><?= timeAgo($t['updated_at']) ?></td>
-                            <td><a href="<?= baseUrl('tickets/show/' . $t['id']) ?>" class="btn btn-sm btn-outline-primary">Ver</a></td>
+                            <td>
+                                <div class="btn-group btn-group-sm">
+                                    <a href="<?= baseUrl('tickets/show/' . $t['id']) ?>" class="btn btn-sm btn-outline-primary">Ver</a>
+                                    <?php if (($user['role'] ?? '') === 'super_admin'): ?>
+                                    <form action="<?= baseUrl('tickets/deletePermanent/' . $t['id']) ?>" method="POST" class="d-inline" onsubmit="return confirm('Excluir PERMANENTEMENTE a demanda #<?= $t['id'] ?>? Esta ação remove mensagens, anexos e o card vinculado e não pode ser desfeita.');">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger" title="Excluir permanentemente"><i class="bi bi-trash3-fill"></i></button>
+                                    </form>
+                                    <?php endif; ?>
+                                </div>
+                            </td>
                         </tr>
                         <?php endforeach; ?>
                         <?php if (empty($tickets)): ?>
@@ -105,17 +114,24 @@
             <!-- Mobile -->
             <div class="d-md-none p-3">
                 <?php foreach ($tickets as $t): ?>
-                <a href="<?= baseUrl('tickets/show/' . $t['id']) ?>" class="d-block text-decoration-none mb-2 p-3 border rounded-3">
-                    <div class="d-flex justify-content-between align-items-start mb-1">
-                        <span class="fw-medium text-dark text-truncate" style="max-width:70%">#<?= $t['id'] ?> <?= escape($t['title']) ?></span>
-                        <span class="badge-status badge-<?= $t['status'] ?>"><?= statusLabel($t['status']) ?></span>
-                    </div>
-                    <div class="d-flex gap-2 align-items-center flex-wrap" style="font-size:0.75rem">
-                        <span class="text-muted"><i class="bi bi-person"></i> <?= escape($t['client_name']) ?></span>
-                        <span class="priority-<?= $t['priority'] ?>"><?= priorityLabel($t['priority']) ?></span>
-                        <span class="text-muted"><?= timeAgo($t['updated_at']) ?></span>
-                    </div>
-                </a>
+                <div class="mb-2 p-3 border rounded-3">
+                    <a href="<?= baseUrl('tickets/show/' . $t['id']) ?>" class="d-block text-decoration-none">
+                        <div class="d-flex justify-content-between align-items-start mb-1">
+                            <span class="fw-medium text-dark text-truncate" style="max-width:70%">#<?= $t['id'] ?> <?= escape($t['title']) ?></span>
+                            <span class="badge-status badge-<?= $t['status'] ?>"><?= statusLabel($t['status']) ?></span>
+                        </div>
+                        <div class="d-flex gap-2 align-items-center flex-wrap" style="font-size:0.75rem">
+                            <span class="text-muted"><i class="bi bi-person"></i> <?= escape($t['client_name']) ?></span>
+                            <span class="priority-<?= $t['priority'] ?>"><?= priorityLabel($t['priority']) ?></span>
+                            <span class="text-muted"><?= timeAgo($t['updated_at']) ?></span>
+                        </div>
+                    </a>
+                    <?php if (($user['role'] ?? '') === 'super_admin'): ?>
+                    <form action="<?= baseUrl('tickets/deletePermanent/' . $t['id']) ?>" method="POST" class="mt-2" onsubmit="return confirm('Excluir PERMANENTEMENTE a demanda #<?= $t['id'] ?>? Esta ação não pode ser desfeita.');">
+                        <button type="submit" class="btn btn-sm btn-outline-danger w-100"><i class="bi bi-trash3-fill"></i> Excluir permanentemente</button>
+                    </form>
+                    <?php endif; ?>
+                </div>
                 <?php endforeach; ?>
                 <?php if (empty($tickets)): ?>
                 <p class="text-center text-muted py-4">Nenhuma demanda encontrada.</p>
