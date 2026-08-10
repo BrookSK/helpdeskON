@@ -371,49 +371,19 @@ class WhatsappController extends Controller
         $filePath = 'uploads/whatsapp_media/' . date('Y-m') . '/' . $fileName;
         move_uploaded_file($file['tmp_name'], PUBLIC_PATH . '/' . $filePath);
 
-        // Enviar usando a URL pública do arquivo (mais confiável que base64 para documentos)
         $caption = $_POST['caption'] ?? '';
         $publicUrl = baseUrl($filePath);
-        try {
-            $api = EvolutionApi::fromInstance($contact['instance_id']);
-            if (!$api) {
-                $this->json(['error' => 'Instância não encontrada'], 400);
-            }
-
-            if ($mediaType === 'audio') {
-                // Áudio via base64 (PTT costuma exigir data URI)
-                $base64 = base64_encode(file_get_contents(PUBLIC_PATH . '/' . $filePath));
-                $result = $api->sendAudio($contact['remote_jid'], "data:{$mime};base64,{$base64}");
-            } else {
-                // Imagem/vídeo/documento via URL pública
-                $result = $api->sendMedia($contact['remote_jid'], $mediaType, $publicUrl, $caption, $file['name']);
-
-                // Fallback: se a API falhar com URL, tenta base64
-                if (is_array($result) && isset($result['error']) && $result['error']) {
-                    @file_put_contents(PUBLIC_PATH . '/uploads/sendmedia_error.log', '[' . date('Y-m-d H:i:s') . '] URL FAIL, tentando base64: ' . json_encode($result) . "\n", FILE_APPEND);
-                    $base64 = base64_encode(file_get_contents(PUBLIC_PATH . '/' . $filePath));
-                    $result = $api->sendMedia($contact['remote_jid'], $mediaType, "data:{$mime};base64,{$base64}", $caption, $file['name']);
-                }
-            }
-        } catch (\Throwable $e) {
-            @file_put_contents(PUBLIC_PATH . '/uploads/sendmedia_error.log', '[' . date('Y-m-d H:i:s') . '] EXCEPTION: ' . $e->getMessage() . "\n", FILE_APPEND);
-            $this->json(['error' => 'Erro ao enviar: ' . $e->getMessage()], 500);
-        }
-
-        // Se a Evolution indicou erro explícito, NÃO salva como enviada (evita check falso)
-        if (is_array($result) && isset($result['error']) && $result['error']) {
-            @file_put_contents(PUBLIC_PATH . '/uploads/sendmedia_error.log', '[' . date('Y-m-d H:i:s') . '] API ERROR: ' . json_encode($result) . "\n", FILE_APPEND);
-            $this->json(['error' => 'A mídia não pôde ser entregue: ' . ($result['message'] ?? 'erro na API')], 500);
-        }
-
         $msgType = $mediaType === 'image' ? 'image' : ($mediaType === 'video' ? 'video' : ($mediaType === 'audio' ? 'audio' : 'document'));
-        $sentMsgId = (is_array($result) && !empty($result['key']['id'])) ? $result['key']['id'] : uniqid('sent_');
+
+        // 1) Persistir a mensagem IMEDIATAMENTE (status 'pending'), para que ela
+        //    permaneça na conversa mesmo se o usuário sair da tela durante o envio.
+        $tempMsgId = uniqid('sending_');
         try {
             $messageId = $this->messageModel->create([
                 'instance_id' => $contact['instance_id'],
                 'contact_id' => $contactId,
                 'remote_jid' => $contact['remote_jid'],
-                'message_id' => $sentMsgId,
+                'message_id' => $tempMsgId,
                 'from_me' => 1,
                 'message_type' => $msgType,
                 'message_text' => $caption,
@@ -428,9 +398,47 @@ class WhatsappController extends Controller
             @file_put_contents(PUBLIC_PATH . '/uploads/sendmedia_error.log', '[' . date('Y-m-d H:i:s') . '] DB ERROR: ' . $e->getMessage() . "\n", FILE_APPEND);
             $this->json(['error' => 'Erro ao salvar: ' . $e->getMessage()], 500);
         }
-        $this->setAckStatusSafe($messageId, 'sent');
-
+        $this->setAckStatusSafe($messageId, 'pending');
         $this->contactModel->updateLastMessage($contactId, date('Y-m-d H:i:s'));
+
+        // 2) Enviar via Evolution API
+        $result = null;
+        try {
+            $api = EvolutionApi::fromInstance($contact['instance_id']);
+            if (!$api) {
+                $this->json(['error' => 'Instância não encontrada'], 400);
+            }
+
+            if ($mediaType === 'audio') {
+                $base64 = base64_encode(file_get_contents(PUBLIC_PATH . '/' . $filePath));
+                $result = $api->sendAudio($contact['remote_jid'], "data:{$mime};base64,{$base64}");
+            } else {
+                $result = $api->sendMedia($contact['remote_jid'], $mediaType, $publicUrl, $caption, $file['name']);
+                if (is_array($result) && isset($result['error']) && $result['error']) {
+                    @file_put_contents(PUBLIC_PATH . '/uploads/sendmedia_error.log', '[' . date('Y-m-d H:i:s') . '] URL FAIL, tentando base64: ' . json_encode($result) . "\n", FILE_APPEND);
+                    $base64 = base64_encode(file_get_contents(PUBLIC_PATH . '/' . $filePath));
+                    $result = $api->sendMedia($contact['remote_jid'], $mediaType, "data:{$mime};base64,{$base64}", $caption, $file['name']);
+                }
+            }
+        } catch (\Throwable $e) {
+            @file_put_contents(PUBLIC_PATH . '/uploads/sendmedia_error.log', '[' . date('Y-m-d H:i:s') . '] EXCEPTION: ' . $e->getMessage() . "\n", FILE_APPEND);
+            $this->setAckStatusSafe($messageId, 'failed');
+            $this->json(['error' => 'Erro ao enviar: ' . $e->getMessage()], 500);
+        }
+
+        // 3) Atualizar o status conforme o resultado
+        if (is_array($result) && isset($result['error']) && $result['error']) {
+            @file_put_contents(PUBLIC_PATH . '/uploads/sendmedia_error.log', '[' . date('Y-m-d H:i:s') . '] API ERROR: ' . json_encode($result) . "\n", FILE_APPEND);
+            $this->setAckStatusSafe($messageId, 'failed');
+            $this->json(['error' => 'A mídia não pôde ser entregue: ' . ($result['message'] ?? 'erro na API')], 500);
+        }
+
+        // Sucesso: atualiza o message_id real e marca como enviada
+        $sentMsgId = (is_array($result) && !empty($result['key']['id'])) ? $result['key']['id'] : $tempMsgId;
+        try {
+            Database::getInstance()->update('whatsapp_messages', ['message_id' => $sentMsgId], 'id = ?', [$messageId]);
+        } catch (\Throwable $e) { /* ignora */ }
+        $this->setAckStatusSafe($messageId, 'sent');
 
         $this->json([
             'success' => true,

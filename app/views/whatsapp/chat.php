@@ -964,7 +964,8 @@ function renderSingleMessage(m) {
     // Checkzinho de status (apenas mensagens enviadas por nós)
     let ack = '';
     if (m.from_me == 1) {
-        ack = ` <span class="wpp-msg-ack-holder">${renderAckIcon(m.ack_status)}</span>`;
+        const initAck = m.ack_status || 'sent';
+        ack = ` <span class="wpp-msg-ack-holder" data-ack="${initAck}">${renderAckIcon(initAck)}</span>`;
     }
     const waId = m.message_id ? ` data-wa-id="${escapeHtml(m.message_id)}"` : '';
     return `<div class="wpp-msg ${cls}" data-msg-id="${m.id}"${waId}><div class="wpp-msg-body">${content}</div><div class="wpp-msg-time">${time}${ack}</div></div>`;
@@ -1282,6 +1283,9 @@ function startPolling() {
     }, 1500);
 }
 
+// Ranking de status para nunca "regredir" o check (evita sumir/voltar pra relógio)
+const ACK_RANK = { pending: 0, sent: 1, delivered: 2, read: 3, failed: 1 };
+
 // Atualiza os checkzinhos das mensagens enviadas sem recarregar
 function refreshAckStatuses() {
     if (!activeContactId) return;
@@ -1291,7 +1295,17 @@ function refreshAckStatuses() {
         if (!data.statuses) return;
         data.statuses.forEach(s => {
             const el = document.querySelector(`.wpp-msg[data-msg-id="${s.id}"] .wpp-msg-ack-holder`);
-            if (el) el.innerHTML = renderAckIcon(s.ack_status);
+            if (!el) return;
+
+            // Novo status vindo do servidor; se vazio, mantém como 'sent' (não volta pra relógio)
+            const incoming = s.ack_status || 'sent';
+            const current = el.getAttribute('data-ack') || 'sent';
+
+            // Só atualiza se o novo status for igual/superior ao atual (nunca regride)
+            if ((ACK_RANK[incoming] ?? 1) >= (ACK_RANK[current] ?? 1)) {
+                el.innerHTML = renderAckIcon(incoming);
+                el.setAttribute('data-ack', incoming);
+            }
         });
     })
     .catch(() => {});
