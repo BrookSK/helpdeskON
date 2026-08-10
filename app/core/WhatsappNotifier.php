@@ -99,7 +99,7 @@ class WhatsappNotifier
      *
      * @return bool sucesso
      */
-    public static function sendToPhone($phone, $message)
+    public static function sendToPhone($phone, $message, $contactName = null)
     {
         if (empty($phone) || empty($message)) {
             return false;
@@ -164,7 +164,17 @@ class WhatsappNotifier
                     'phone' => $realPhone,
                     'is_group' => 0,
                     'last_message_at' => date('Y-m-d H:i:s'),
-                ]);
+                ], $contactName);
+
+                // Garantir que o contato fique visível no chat (desarquivado) e com nome
+                $updateContact = ['is_archived' => 0];
+                if (!empty($contactName)) {
+                    $existing = $contactModel->findById($contactId);
+                    if ($existing && empty($existing['contact_name'])) {
+                        $updateContact['contact_name'] = $contactName;
+                    }
+                }
+                $db->update('whatsapp_contacts', $updateContact, 'id = ?', [$contactId]);
 
                 $messageModel->create([
                     'instance_id' => $instance['id'],

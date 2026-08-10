@@ -1017,7 +1017,7 @@ class TicketsController extends Controller
 
         try {
             // Envia e registra no histórico do chat (aparece na janela do chat)
-            WhatsappNotifier::sendToPhone($user['phone'], $message);
+            WhatsappNotifier::sendToPhone($user['phone'], $message, $user['name'] ?? null);
         } catch (Exception $e) {
             // Silencioso — WhatsApp é canal complementar
         }
