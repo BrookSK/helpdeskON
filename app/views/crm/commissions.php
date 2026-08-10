@@ -40,18 +40,28 @@
 
     <?php
     $totalCommission = 0;
-    foreach ($commissions as $c) { $totalCommission += (float)$c['commission_value']; }
+    $totalConverted = 0;
+    foreach ($commissions as $c) {
+        $totalCommission += (float)$c['commission_value'];
+        $totalConverted += (float)$c['total_value'];
+    }
     ?>
-    <div class="row g-3 mb-3">
-        <div class="col-6 col-md-4">
-            <div class="card stat-card" style="border-left-color:#00BFA6">
+    <div class="row row-cols-2 row-cols-md-3 g-3 mb-3">
+        <div class="col">
+            <div class="card stat-card h-100" style="border-left-color:#00BFA6">
                 <div class="stat-label"><?= !empty($isComercial) ? 'Total a receber (mês)' : 'Total a pagar (mês)' ?></div>
                 <div class="stat-value" style="color:#00997D;font-size:1.2rem;">R$ <?= number_format($totalCommission, 2, ',', '.') ?></div>
             </div>
         </div>
+        <div class="col">
+            <div class="card stat-card h-100" style="border-left-color:#2e7d32">
+                <div class="stat-label">Total Convertido</div>
+                <div class="stat-value" style="color:#2e7d32;font-size:1.2rem;">R$ <?= number_format($totalConverted, 2, ',', '.') ?></div>
+            </div>
+        </div>
         <?php if (empty($isComercial)): ?>
-        <div class="col-6 col-md-4">
-            <div class="card stat-card" style="border-left-color:#9c27b0">
+        <div class="col">
+            <div class="card stat-card h-100" style="border-left-color:#9c27b0">
                 <div class="stat-label">Comerciais Cadastrados</div>
                 <div class="stat-value" style="color:#9c27b0"><?= $comerciaisCount ?? 0 ?></div>
             </div>

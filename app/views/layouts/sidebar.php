@@ -124,16 +124,20 @@
             <li class="nav-item mt-3">
                 <small class="text-uppercase px-3" style="font-size:0.65rem;color:rgba(255,255,255,0.35);letter-spacing:0.5px;">Administração</small>
             </li>
+            <?php $companiesSectionActive = in_array($currentPage ?? '', ['companies', 'users']); ?>
             <li class="nav-item">
-                <a class="nav-link <?= ($currentPage ?? '') === 'companies' ? 'active' : '' ?>" href="<?= baseUrl('companies') ?>">
-                    <i class="bi bi-building"></i> Empresas
+                <a class="nav-link d-flex align-items-center justify-content-between <?= ($currentPage ?? '') === 'companies' ? 'active' : '' ?>" href="<?= baseUrl('companies') ?>">
+                    <span><i class="bi bi-building"></i> Empresas</span>
+                    <i class="bi bi-chevron-down companies-caret <?= $companiesSectionActive ? '' : 'collapsed-caret' ?>" onclick="event.preventDefault();event.stopPropagation();toggleSubnav(this, 'companies-subnav');" style="font-size:0.7rem;padding:4px;cursor:pointer;transition:transform 0.2s;"></i>
                 </a>
             </li>
-            <li class="nav-item">
-                <a class="nav-link <?= ($currentPage ?? '') === 'users' ? 'active' : '' ?>" href="<?= baseUrl('users') ?>" style="padding-left:2.6rem;font-size:0.85rem;">
-                    <i class="bi bi-people"></i> Todos os Usuários
-                </a>
-            </li>
+            <ul class="nav flex-column" id="companies-subnav" style="<?= $companiesSectionActive ? '' : 'display:none;' ?>list-style:none;padding-left:0;">
+                <li class="nav-item">
+                    <a class="nav-link <?= ($currentPage ?? '') === 'users' ? 'active' : '' ?>" href="<?= baseUrl('users') ?>" style="padding-left:2.6rem;font-size:0.85rem;">
+                        <i class="bi bi-people"></i> Todos os Usuários
+                    </a>
+                </li>
+            </ul>
             <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'settings' ? 'active' : '' ?>" href="<?= baseUrl('settings') ?>">
                     <i class="bi bi-gear"></i> Configurações
@@ -177,16 +181,21 @@
 </div>
 
 <style>
-.crm-caret.collapsed-caret { transform: rotate(-90deg); }
+.collapsed-caret { transform: rotate(-90deg); }
 </style>
 <script>
-// Recolher/expandir as subabas do CRM
-function toggleCrmSub(caret) {
-    const sub = document.getElementById('crm-subnav');
+// Recolher/expandir subabas genéricas do sidebar
+function toggleSubnav(caret, subId) {
+    const sub = document.getElementById(subId);
     if (!sub) return;
     const isHidden = sub.style.display === 'none';
     sub.style.display = isHidden ? '' : 'none';
     caret.classList.toggle('collapsed-caret', !isHidden);
+}
+
+// Compatibilidade: toggle do CRM
+function toggleCrmSub(caret) {
+    toggleSubnav(caret, 'crm-subnav');
 }
 
 (function() {

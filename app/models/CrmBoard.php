@@ -289,6 +289,35 @@ class CrmBoard
     }
 
     /**
+     * Série temporal dos últimos N meses: leads convertidos e perdidos por mês.
+     */
+    public function getMonthlyTrend($months = 6)
+    {
+        $result = [];
+        for ($i = $months - 1; $i >= 0; $i--) {
+            $ym = date('Y-m', strtotime("-{$i} months"));
+            $converted = $this->db->fetch(
+                "SELECT COUNT(*) as t, COALESCE(SUM(value),0) as v FROM crm_cards
+                 WHERE lead_outcome = 'converted' AND DATE_FORMAT(outcome_at, '%Y-%m') = ?",
+                [$ym]
+            );
+            $lost = $this->db->fetch(
+                "SELECT COUNT(*) as t FROM crm_cards
+                 WHERE lead_outcome = 'lost' AND DATE_FORMAT(outcome_at, '%Y-%m') = ?",
+                [$ym]
+            );
+            $result[] = [
+                'month' => $ym,
+                'label' => date('m/Y', strtotime($ym . '-01')),
+                'converted' => (int)($converted['t'] ?? 0),
+                'converted_value' => (float)($converted['v'] ?? 0),
+                'lost' => (int)($lost['t'] ?? 0),
+            ];
+        }
+        return $result;
+    }
+
+    /**
      * Estatísticas do CRM para o dashboard.
      */
     public function getDashboardStats()

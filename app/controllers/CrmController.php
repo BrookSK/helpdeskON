@@ -427,7 +427,8 @@ class CrmController extends Controller
         $this->boardModel->processFollowUps();
 
         $stats = $this->boardModel->getDashboardStats();
-        $this->view('crm/dashboard', ['user' => $user, 'stats' => $stats]);
+        $trend = $this->boardModel->getMonthlyTrend(6);
+        $this->view('crm/dashboard', ['user' => $user, 'stats' => $stats, 'trend' => $trend]);
     }
 
     /**
