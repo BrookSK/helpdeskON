@@ -1016,10 +1016,8 @@ class TicketsController extends Controller
         if (empty($user['phone'])) return;
 
         try {
-            $api = EvolutionApi::getDefault();
-            if ($api) {
-                $api->sendText($user['phone'], $message);
-            }
+            // Envia e registra no histórico do chat (aparece na janela do chat)
+            WhatsappNotifier::sendToPhone($user['phone'], $message);
         } catch (Exception $e) {
             // Silencioso — WhatsApp é canal complementar
         }
