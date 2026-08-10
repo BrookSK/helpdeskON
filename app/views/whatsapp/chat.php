@@ -360,6 +360,9 @@ body { overflow: hidden !important; margin: 0; padding: 0; }
 .wpp-contact-info { flex: 1; min-width: 0; }
 .wpp-contact-name { font-size: 0.83rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wpp-contact-last { font-size: 0.7rem; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wpp-contact-tags { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px; }
+.wpp-tag-badge { font-size: 0.6rem; background: #e0f7f4; color: #00997D; border: 1px solid #b2f2e8; border-radius: 10px; padding: 1px 7px; line-height: 1.4; }
+.wpp-crm-badge { font-size: 0.6rem; background: #ede7f6; color: #5e35b1; border: 1px solid #d1c4e9; border-radius: 10px; padding: 1px 7px; line-height: 1.4; }
 .wpp-contact-meta { text-align: right; flex-shrink: 0; }
 .wpp-contact-time { font-size: 0.62rem; color: #999; }
 .wpp-unread { background: var(--primary); color: #fff; font-size: 0.6rem; padding: 2px 6px; border-radius: 10px; display: inline-block; margin-top: 2px; }
@@ -581,11 +584,29 @@ function renderContactItem(c, isGroup) {
     // Prévia da última mensagem (estilo WhatsApp)
     const preview = buildLastMessagePreview(c, isGroup);
 
+    // Etiquetas do lead (quando houver)
+    let labelsHtml = '';
+    if (c.labels) {
+        const labelNames = String(c.labels).split(',').map(s => s.trim()).filter(Boolean);
+        labelsHtml = labelNames.map(l => `<span class="wpp-tag-badge">${escapeHtml(l)}</span>`).join('');
+    }
+
+    // Localização no CRM (board > coluna), quando o contato está em algum board
+    let crmHtml = '';
+    if (c.crm_board_name) {
+        crmHtml = `<span class="wpp-crm-badge"><i class="bi bi-kanban"></i> ${escapeHtml(c.crm_board_name)}${c.crm_column_name ? ' › ' + escapeHtml(c.crm_column_name) : ''}</span>`;
+    }
+
+    const metaTags = (labelsHtml || crmHtml)
+        ? `<div class="wpp-contact-tags">${labelsHtml}${crmHtml}</div>`
+        : '';
+
     return `<div class="wpp-contact-item ${isActive}" onclick="openChat(${c.id}, ${isGroup})" data-id="${c.id}">
         <div class="${avatarClass}">${icon}</div>
         <div class="wpp-contact-info">
             <div class="wpp-contact-name">${escapeHtml(name)}</div>
             <div class="wpp-contact-last">${preview}</div>
+            ${metaTags}
         </div>
         <div class="wpp-contact-meta">
             <div class="wpp-contact-time">${time}</div>

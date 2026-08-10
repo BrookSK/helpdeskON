@@ -297,8 +297,17 @@ class CrmBoard
         $withLabel = $this->db->fetch("SELECT COUNT(*) as t FROM crm_cards WHERE label_id IS NOT NULL")['t'] ?? 0;
         $converted = $this->db->fetch("SELECT COUNT(*) as t FROM crm_cards WHERE lead_outcome = 'converted'")['t'] ?? 0;
         $lost = $this->db->fetch("SELECT COUNT(*) as t FROM crm_cards WHERE lead_outcome = 'lost'")['t'] ?? 0;
-        $totalValue = $this->db->fetch("SELECT COALESCE(SUM(value),0) as v FROM crm_cards WHERE lead_outcome = 'converted'")['v'] ?? 0;
         $open = $this->db->fetch("SELECT COUNT(*) as t FROM crm_cards WHERE lead_outcome = 'open'")['t'] ?? 0;
+
+        // Valores
+        $quotedValue = $this->db->fetch("SELECT COALESCE(SUM(value),0) as v FROM crm_cards")['v'] ?? 0;
+        $convertedValue = $this->db->fetch("SELECT COALESCE(SUM(value),0) as v FROM crm_cards WHERE lead_outcome = 'converted'")['v'] ?? 0;
+        $lostValue = $this->db->fetch("SELECT COALESCE(SUM(value),0) as v FROM crm_cards WHERE lead_outcome = 'lost'")['v'] ?? 0;
+        // Em recuperação ou agendado (follow-up definido), ainda em aberto
+        $recoveryValue = $this->db->fetch(
+            "SELECT COALESCE(SUM(value),0) as v FROM crm_cards
+             WHERE lead_outcome = 'open' AND (in_recovery = 1 OR follow_up_at IS NOT NULL)"
+        )['v'] ?? 0;
 
         return [
             'total' => (int)$total,
@@ -306,7 +315,11 @@ class CrmBoard
             'converted' => (int)$converted,
             'lost' => (int)$lost,
             'open' => (int)$open,
-            'total_converted_value' => (float)$totalValue,
+            'total_converted_value' => (float)$convertedValue,
+            'quoted_value' => (float)$quotedValue,
+            'converted_value' => (float)$convertedValue,
+            'lost_value' => (float)$lostValue,
+            'recovery_value' => (float)$recoveryValue,
         ];
     }
 

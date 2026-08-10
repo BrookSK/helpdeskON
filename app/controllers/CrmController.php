@@ -447,12 +447,14 @@ class CrmController extends Controller
         $commissions = $this->boardModel->getCommissions($month, $filterUserId);
 
         // Lista de comerciais para o filtro (apenas para super_admin)
-        $comerciais = $isComercial ? [] : (new User())->getByRoles(['comercial']);
+        $allComerciais = (new User())->getByRoles(['comercial']);
+        $comerciais = $isComercial ? [] : $allComerciais;
 
         $this->view('crm/commissions', [
             'user' => $user,
             'commissions' => $commissions,
             'comerciais' => $comerciais,
+            'comerciaisCount' => count($allComerciais),
             'month' => $month,
             'filterUserId' => $filterUserId,
             'isComercial' => $isComercial,

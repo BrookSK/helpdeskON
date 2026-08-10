@@ -96,23 +96,27 @@
                     <i class="bi bi-whatsapp"></i> WhatsApp Chat
                 </a>
             </li>
+            <?php $crmSectionActive = in_array($currentPage ?? '', ['crm', 'crm_dashboard', 'crm_commissions']); ?>
             <li class="nav-item">
-                <a class="nav-link <?= ($currentPage ?? '') === 'crm' ? 'active' : '' ?>" href="<?= baseUrl('crm') ?>">
-                    <i class="bi bi-kanban"></i> CRM
+                <a class="nav-link d-flex align-items-center justify-content-between <?= ($currentPage ?? '') === 'crm' ? 'active' : '' ?>" href="<?= baseUrl('crm') ?>">
+                    <span><i class="bi bi-kanban"></i> CRM</span>
+                    <i class="bi bi-chevron-down crm-caret <?= $crmSectionActive ? '' : 'collapsed-caret' ?>" onclick="event.preventDefault();event.stopPropagation();toggleCrmSub(this);" style="font-size:0.7rem;padding:4px;cursor:pointer;transition:transform 0.2s;"></i>
                 </a>
             </li>
-            <li class="nav-item">
-                <a class="nav-link <?= ($currentPage ?? '') === 'crm_dashboard' ? 'active' : '' ?>" href="<?= baseUrl('crm/dashboard') ?>" style="padding-left:2.6rem;font-size:0.85rem;">
-                    <i class="bi bi-graph-up"></i> Dashboard CRM
-                </a>
-            </li>
-            <?php if (in_array($user['role'] ?? '', ['super_admin', 'comercial'])): ?>
-            <li class="nav-item">
-                <a class="nav-link <?= ($currentPage ?? '') === 'crm_commissions' ? 'active' : '' ?>" href="<?= baseUrl('crm/commissions') ?>" style="padding-left:2.6rem;font-size:0.85rem;">
-                    <i class="bi bi-cash-stack"></i> Comissões
-                </a>
-            </li>
-            <?php endif; ?>
+            <ul class="nav flex-column crm-subnav" id="crm-subnav" style="<?= $crmSectionActive ? '' : 'display:none;' ?>list-style:none;padding-left:0;">
+                <li class="nav-item">
+                    <a class="nav-link <?= ($currentPage ?? '') === 'crm_dashboard' ? 'active' : '' ?>" href="<?= baseUrl('crm/dashboard') ?>" style="padding-left:2.6rem;font-size:0.85rem;">
+                        <i class="bi bi-graph-up"></i> Dashboard CRM
+                    </a>
+                </li>
+                <?php if (in_array($user['role'] ?? '', ['super_admin', 'comercial'])): ?>
+                <li class="nav-item">
+                    <a class="nav-link <?= ($currentPage ?? '') === 'crm_commissions' ? 'active' : '' ?>" href="<?= baseUrl('crm/commissions') ?>" style="padding-left:2.6rem;font-size:0.85rem;">
+                        <i class="bi bi-cash-stack"></i> Comissões
+                    </a>
+                </li>
+                <?php endif; ?>
+            </ul>
             <?php endif; ?>
             <?php endif; ?>
 
@@ -172,7 +176,19 @@
     </div>
 </div>
 
+<style>
+.crm-caret.collapsed-caret { transform: rotate(-90deg); }
+</style>
 <script>
+// Recolher/expandir as subabas do CRM
+function toggleCrmSub(caret) {
+    const sub = document.getElementById('crm-subnav');
+    if (!sub) return;
+    const isHidden = sub.style.display === 'none';
+    sub.style.display = isHidden ? '' : 'none';
+    caret.classList.toggle('collapsed-caret', !isHidden);
+}
+
 (function() {
     const sidebar = document.getElementById('sidebar');
     const overlay = document.getElementById('sidebar-overlay');

@@ -42,30 +42,32 @@
                 <div class="stat-value" style="color:#c62828"><?= $stats['lost'] ?></div>
             </div>
         </div>
-        <div class="col-6 col-md-4 col-lg-2">
-            <div class="card stat-card" style="border-left-color:#00BFA6">
-                <div class="stat-label">Valor Convertido</div>
-                <div class="stat-value" style="color:#00997D;font-size:1.05rem;">R$ <?= number_format($stats['total_converted_value'], 2, ',', '.') ?></div>
-            </div>
-        </div>
     </div>
 
-    <?php
-    $totalDecided = $stats['converted'] + $stats['lost'];
-    $conversionRate = $totalDecided > 0 ? round(($stats['converted'] / $totalDecided) * 100) : 0;
-    ?>
-    <div class="card">
-        <div class="card-header bg-white"><h6 class="mb-0">Taxa de Conversão</h6></div>
-        <div class="card-body">
-            <div class="d-flex justify-content-between mb-1" style="font-size:0.82rem">
-                <span class="text-success"><?= $stats['converted'] ?> convertidos</span>
-                <span class="text-danger"><?= $stats['lost'] ?> perdidos</span>
+    <div class="row g-3">
+        <div class="col-6 col-md-3">
+            <div class="card stat-card" style="border-left-color:#455a64">
+                <div class="stat-label">Valor Cotado (tudo)</div>
+                <div class="stat-value" style="color:#455a64;font-size:1.15rem;">R$ <?= number_format($stats['quoted_value'], 2, ',', '.') ?></div>
             </div>
-            <div class="progress" style="height:22px;">
-                <div class="progress-bar bg-success" role="progressbar" style="width:<?= $conversionRate ?>%"><?= $conversionRate ?>%</div>
-                <div class="progress-bar bg-danger" role="progressbar" style="width:<?= 100 - $conversionRate ?>%"></div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card stat-card" style="border-left-color:#2e7d32">
+                <div class="stat-label">Valor Convertido</div>
+                <div class="stat-value" style="color:#2e7d32;font-size:1.15rem;">R$ <?= number_format($stats['converted_value'], 2, ',', '.') ?></div>
             </div>
-            <small class="text-muted">Com base em leads já decididos (convertidos + perdidos).</small>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card stat-card" style="border-left-color:#c62828">
+                <div class="stat-label">Valor Perdido</div>
+                <div class="stat-value" style="color:#c62828;font-size:1.15rem;">R$ <?= number_format($stats['lost_value'], 2, ',', '.') ?></div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card stat-card" style="border-left-color:#7e57c2">
+                <div class="stat-label">Valor em Recuperação/Agendado</div>
+                <div class="stat-value" style="color:#7e57c2;font-size:1.15rem;">R$ <?= number_format($stats['recovery_value'], 2, ',', '.') ?></div>
+            </div>
         </div>
     </div>
 </div>

@@ -84,9 +84,19 @@ class WhatsappContact
                     lm.message_text as last_message_text,
                     lm.message_type as last_message_type,
                     lm.from_me as last_message_from_me,
-                    lm.sender_name as last_message_sender
+                    lm.sender_name as last_message_sender,
+                    crm.board_name as crm_board_name,
+                    crm.column_name as crm_column_name
                 FROM whatsapp_contacts c
                 LEFT JOIN users u ON c.assigned_to = u.id
+                LEFT JOIN (
+                    SELECT cc.contact_id, b.name as board_name, col.name as column_name
+                    FROM crm_cards cc
+                    JOIN crm_columns col ON cc.column_id = col.id
+                    JOIN crm_boards b ON col.board_id = b.id
+                    WHERE cc.contact_id IS NOT NULL
+                    GROUP BY cc.contact_id
+                ) crm ON crm.contact_id = c.id
                 LEFT JOIN (
                     SELECT m1.contact_id, m1.message_text, m1.message_type, m1.from_me, m1.sender_name
                     FROM whatsapp_messages m1
