@@ -192,18 +192,26 @@
 </div>
 
 <style>
-/* Override do main-content padrão — zerar padding e fixar 100vh sem scroll */
+/* Override do main-content padrão — zerar padding e fixar height sem scroll */
 .wpp-main-override {
     padding: 0 !important;
     margin-left: var(--sidebar-width) !important;
     height: 100vh !important;
-    min-height: 100vh !important;
+    min-height: unset !important;
     max-height: 100vh !important;
     overflow: hidden !important;
     display: flex !important;
     flex-direction: column !important;
+    position: fixed !important;
+    top: 0 !important;
+    right: 0 !important;
+    left: var(--sidebar-width) !important;
+    bottom: 0 !important;
+    width: auto !important;
 }
-body { overflow: hidden; }
+/* Esconder a topbar mobile quando estiver na tela de chat */
+.mobile-topbar { display: none !important; }
+body { overflow: hidden !important; margin: 0; padding: 0; }
 
 .wpp-layout { display: flex; flex: 1; overflow: hidden; height: 100%; }
 .wpp-contacts-panel { width: 340px; min-width: 340px; border-right: 1px solid #e9ecef; display: flex; flex-direction: column; background: #fff; height: 100%; }
@@ -256,16 +264,18 @@ body { overflow: hidden; }
 .wpp-msg-sender { font-size: 0.7rem; font-weight: 600; color: #075e54; margin-bottom: 2px; }
 .wpp-msg-time { font-size: 0.62rem; color: #888; margin-top: 3px; text-align: right; }
 .wpp-msg-media img { max-width: 220px; border-radius: 6px; cursor: pointer; }
+.wpp-mention { color: #075e54; font-weight: 600; background: rgba(7,94,84,0.08); padding: 1px 4px; border-radius: 4px; cursor: default; }
 .wpp-label-badge { font-size: 0.65rem; padding: 2px 8px; border-radius: 10px; color: #fff; display: inline-block; cursor: default; }
 .cursor-pointer { cursor: pointer; }
 @media (max-width: 992px) {
-    .wpp-main-override { margin-left: 0 !important; }
+    .wpp-main-override { margin-left: 0 !important; left: 0 !important; }
 }
 @media (max-width: 768px) {
     .wpp-contacts-panel { width: 100%; min-width: 100%; }
     .wpp-chat-panel { display: none; }
     .wpp-chat-panel.active { display: flex; width: 100%; }
     .wpp-detail-panel { position: absolute; right: 0; top: 0; bottom: 0; z-index: 10; width: 100%; }
+    .mobile-topbar { display: flex !important; }
 }
 </style>
 
@@ -281,7 +291,7 @@ let allContacts = [];
 let allGroups = [];
 
 // =========================================
-// FORMATAÇÃO WHATSAPP — *bold* _italic_ ~strike~ ```mono```
+// FORMATAÇÃO WHATSAPP — *bold* _italic_ ~strike~ ```mono``` + @menções
 // =========================================
 function formatWhatsApp(text) {
     if (!text) return '';
@@ -294,10 +304,38 @@ function formatWhatsApp(text) {
     html = html.replace(/_((?!\s)([^\n_]+?)(?<!\s))_/g, '<em>$1</em>');
     // Strikethrough ~text~
     html = html.replace(/~((?!\s)([^\n~]+?)(?<!\s))~/g, '<del>$1</del>');
+    // Menções @número — transforma em badge azul
+    html = html.replace(/@(\d{10,15})/g, function(match, number) {
+        // Tentar resolver o nome a partir dos contatos carregados
+        const resolved = resolveMention(number);
+        return `<span class="wpp-mention">@${resolved}</span>`;
+    });
     // Newlines
     html = html.replace(/\n/g, '<br>');
     return html;
 }
+
+/**
+ * Tenta resolver um número de menção para o nome do contato
+ */
+function resolveMention(number) {
+    // Buscar nos contatos carregados
+    const allItems = [...allContacts, ...allGroups];
+    for (const c of allItems) {
+        if (c.phone && c.phone.replace(/\D/g, '').includes(number.replace(/\D/g, ''))) {
+            return c.contact_name || c.push_name || number;
+        }
+        if (c.remote_jid && c.remote_jid.includes(number)) {
+            return c.contact_name || c.push_name || number;
+        }
+    }
+    // Buscar no cache de menções (preenchido pelo poll)
+    if (mentionCache[number]) return mentionCache[number];
+    return number;
+}
+
+// Cache para menções resolvidas (preenchido ao abrir grupo)
+let mentionCache = {};
 
 // =========================================
 // TABS
@@ -451,6 +489,13 @@ function renderMessages(messages) {
         area.innerHTML = '<div class="text-center text-muted small py-4">Nenhuma mensagem ainda</div>';
         return;
     }
+    // Popular cache de menções a partir dos sender_names das mensagens
+    messages.forEach(m => {
+        if (m.participant_jid && m.sender_name) {
+            const num = m.participant_jid.replace(/@.*/, '');
+            mentionCache[num] = m.sender_name;
+        }
+    });
     area.innerHTML = messages.map(m => {
         lastMessageId = Math.max(lastMessageId, m.id);
         return renderSingleMessage(m);
@@ -549,6 +594,11 @@ function startPolling() {
             if (messages && messages.length) {
                 const area = document.getElementById('messages-area');
                 messages.forEach(m => {
+                    // Popular cache de menções
+                    if (m.participant_jid && m.sender_name) {
+                        const num = m.participant_jid.replace(/@.*/, '');
+                        mentionCache[num] = m.sender_name;
+                    }
                     lastMessageId = Math.max(lastMessageId, m.id);
                     area.insertAdjacentHTML('beforeend', renderSingleMessage(m));
                 });
