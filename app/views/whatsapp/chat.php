@@ -335,6 +335,11 @@
     left: var(--sidebar-width) !important;
     bottom: 0 !important;
     width: auto !important;
+    transition: left 0.3s ease;
+}
+/* Quando o sidebar está recolhido, o chat ocupa o espaço liberado */
+body.sidebar-collapsed .wpp-main-override {
+    left: 70px !important;
 }
 /* Esconder a topbar mobile quando estiver na tela de chat */
 .mobile-topbar { display: none !important; }
@@ -579,7 +584,11 @@ function renderContactItem(c, isGroup) {
     const isActive = activeContactId == c.id ? 'active' : '';
     const unread = c.unread_count > 0 ? `<span class="wpp-unread">${c.unread_count}</span>` : '';
     const avatarClass = isGroup ? 'wpp-avatar-sm group-avatar' : 'wpp-avatar-sm';
-    const icon = isGroup ? '<i class="bi bi-people-fill" style="font-size:0.9rem;"></i>' : initials;
+    let icon = isGroup ? '<i class="bi bi-people-fill" style="font-size:0.9rem;"></i>' : initials;
+    // Foto de perfil quando disponível
+    if (c.profile_picture_url) {
+        icon = `<img src="${escapeHtml(c.profile_picture_url)}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" onerror="this.parentNode.textContent='${isGroup ? '' : escapeHtml(initials)}'">`;
+    }
 
     // Prévia da última mensagem (estilo WhatsApp)
     const preview = buildLastMessagePreview(c, isGroup);
@@ -698,7 +707,12 @@ function openChat(contactId, isGroup = false) {
         const initials = name.substring(0, 2).toUpperCase();
         document.getElementById('chat-contact-name').textContent = name;
         document.getElementById('chat-contact-phone').textContent = contact.phone || '';
-        document.getElementById('chat-avatar').textContent = initials;
+        const chatAvatar = document.getElementById('chat-avatar');
+        if (contact.profile_picture_url) {
+            chatAvatar.innerHTML = `<img src="${escapeHtml(contact.profile_picture_url)}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" onerror="this.parentNode.textContent='${escapeHtml(initials)}'">`;
+        } else {
+            chatAvatar.textContent = initials;
+        }
         document.getElementById('chat-service-status').value = contact.service_status || 'novo';
         document.getElementById('detail-name').textContent = name;
         document.getElementById('detail-phone').textContent = contact.phone || '';

@@ -339,6 +339,25 @@ class WhatsappController extends Controller
         $contact = $this->contactModel->findById($contactId);
         if (!$contact) $this->json(['error' => 'Contato não encontrado'], 404);
 
+        // Backfill da foto de perfil, se ainda não tiver e não for grupo
+        if (empty($contact['profile_picture_url']) && empty($contact['is_group']) && !empty($contact['phone'])) {
+            try {
+                $db = Database::getInstance();
+                $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE id = ?", [$contact['instance_id']]);
+                if ($instance) {
+                    $api = new EvolutionApi($instance['api_url'], $instance['api_key'], $instance['instance_name']);
+                    $pic = $api->fetchProfilePicture($contact['phone']);
+                    $picUrl = $pic['profilePictureUrl'] ?? $pic['url'] ?? null;
+                    if (!empty($picUrl)) {
+                        $db->update('whatsapp_contacts', ['profile_picture_url' => $picUrl], 'id = ?', [$contactId]);
+                        $contact['profile_picture_url'] = $picUrl;
+                    }
+                }
+            } catch (Exception $e) {
+                // ignora
+            }
+        }
+
         $labels = $this->contactModel->getLabels($contactId);
         $contact['labels'] = $labels;
 
@@ -762,6 +781,24 @@ class WhatsappController extends Controller
             'is_group' => $isGroup ? 1 : 0,
             'last_message_at' => date('Y-m-d H:i:s'),
         ], $contactName);
+
+        // Buscar foto de perfil (lazy: só se ainda não temos)
+        if (!$isGroup) {
+            $existing = $this->contactModel->findById($contactId);
+            if ($existing && empty($existing['profile_picture_url'])) {
+                try {
+                    $api2 = new EvolutionApi($instance['api_url'], $instance['api_key'], $instance['instance_name']);
+                    $pic = $api2->fetchProfilePicture($phone);
+                    $picUrl = $pic['profilePictureUrl'] ?? $pic['url'] ?? null;
+                    if (!empty($picUrl)) {
+                        $db2 = Database::getInstance();
+                        $db2->update('whatsapp_contacts', ['profile_picture_url' => $picUrl], 'id = ?', [$contactId]);
+                    }
+                } catch (Exception $e) {
+                    // ignora
+                }
+            }
+        }
 
         // Para grupos: se temos o subject real, garantir que está salvo;
         // se ainda não temos um nome de grupo válido, buscar via API (lazy, uma vez).
