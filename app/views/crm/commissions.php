@@ -5,12 +5,14 @@
 <div class="main-content">
     <div class="top-bar">
         <div>
-            <h5 class="mb-0"><i class="bi bi-cash-stack"></i> Comissões</h5>
-            <small class="text-muted">Comissões dos usuários comerciais por leads convertidos</small>
+            <h5 class="mb-0"><i class="bi bi-cash-stack"></i> <?= !empty($isComercial) ? 'Minhas Comissões' : 'Comissões' ?></h5>
+            <small class="text-muted"><?= !empty($isComercial) ? 'Suas comissões a receber por leads convertidos' : 'Comissões dos usuários comerciais por leads convertidos' ?></small>
         </div>
         <div class="d-flex gap-2">
+            <?php if (empty($isComercial)): ?>
             <a href="<?= baseUrl('crm/dashboard') ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-graph-up"></i> Dashboard CRM</a>
-            <a href="<?= baseUrl('crm') ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> Boards</a>
+            <?php endif; ?>
+            <a href="<?= baseUrl('crm') ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> CRM</a>
         </div>
     </div>
 
@@ -22,6 +24,7 @@
                     <label class="form-label small fw-medium mb-1">Mês</label>
                     <input type="month" name="month" class="form-control form-control-sm" value="<?= escape($month) ?>">
                 </div>
+                <?php if (empty($isComercial)): ?>
                 <div class="col-6 col-md-auto">
                     <label class="form-label small fw-medium mb-1">Usuário</label>
                     <select name="user_id" class="form-select form-select-sm">
@@ -31,6 +34,7 @@
                         <?php endforeach; ?>
                     </select>
                 </div>
+                <?php endif; ?>
                 <div class="col-auto">
                     <button type="submit" class="btn btn-sm btn-primary">Filtrar</button>
                     <a href="<?= baseUrl('crm/commissions') ?>" class="btn btn-sm btn-outline-secondary">Limpar</a>
@@ -46,7 +50,7 @@
     <div class="row g-3 mb-3">
         <div class="col-md-4">
             <div class="card stat-card" style="border-left-color:#00BFA6">
-                <div class="stat-label">Total a pagar (mês)</div>
+                <div class="stat-label"><?= !empty($isComercial) ? 'Total a receber (mês)' : 'Total a pagar (mês)' ?></div>
                 <div class="stat-value" style="color:#00997D;font-size:1.2rem;">R$ <?= number_format($totalCommission, 2, ',', '.') ?></div>
             </div>
         </div>

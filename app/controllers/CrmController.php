@@ -435,16 +435,19 @@ class CrmController extends Controller
      */
     public function commissions()
     {
-        $this->requireRole(['super_admin']);
+        $this->requireRole(['super_admin', 'comercial']);
         $user = $this->currentUser();
 
         $month = $_GET['month'] ?? date('Y-m');
-        $filterUserId = !empty($_GET['user_id']) ? intval($_GET['user_id']) : null;
+        $isComercial = ($user['role'] === 'comercial');
+
+        // Comercial só vê as próprias comissões; super_admin pode filtrar por usuário
+        $filterUserId = $isComercial ? $user['id'] : (!empty($_GET['user_id']) ? intval($_GET['user_id']) : null);
 
         $commissions = $this->boardModel->getCommissions($month, $filterUserId);
 
-        // Lista de comerciais para o filtro
-        $comerciais = (new User())->getByRoles(['comercial']);
+        // Lista de comerciais para o filtro (apenas para super_admin)
+        $comerciais = $isComercial ? [] : (new User())->getByRoles(['comercial']);
 
         $this->view('crm/commissions', [
             'user' => $user,
@@ -452,6 +455,7 @@ class CrmController extends Controller
             'comerciais' => $comerciais,
             'month' => $month,
             'filterUserId' => $filterUserId,
+            'isComercial' => $isComercial,
         ]);
     }
 
@@ -460,8 +464,14 @@ class CrmController extends Controller
      */
     public function commissionLeads($userId = null)
     {
-        $this->requireRole(['super_admin']);
+        $this->requireRole(['super_admin', 'comercial']);
         if (!$userId) $this->json(['error' => 'ID obrigatório'], 400);
+
+        $current = $this->currentUser();
+        // Comercial só pode ver os próprios leads
+        if ($current['role'] === 'comercial' && (int)$userId !== (int)$current['id']) {
+            $this->json(['error' => 'Sem permissão'], 403);
+        }
 
         $month = $_GET['month'] ?? null;
         $leads = $this->boardModel->getConvertedLeadsByUser($userId, $month);

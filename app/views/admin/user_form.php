@@ -124,10 +124,10 @@
                         <h6 class="fw-medium mb-3" style="font-size:0.88rem"><i class="bi bi-shield-lock"></i> Acesso a Empresas</h6>
                         <p class="small text-muted mb-2">Selecione quais empresas este usuário pode visualizar nos módulos de Planejamento, Demandas e CRM. Se nenhuma for selecionada, ele só verá cards sem empresa.</p>
 
-                        <div class="form-check mb-3 p-2 rounded" style="background:#e0f7f4;">
-                            <input class="form-check-input" type="checkbox" name="see_all_companies" value="1" id="seeAllCompanies" <?= !empty($editUser['see_all_companies']) ? 'checked' : '' ?> onchange="toggleSeeAll()">
-                            <label class="form-check-label small fw-medium" for="seeAllCompanies">
-                                <i class="bi bi-eye"></i> Sempre ver todas as empresas (inclusive as futuras)
+                        <div class="form-check mb-3 p-2 rounded d-flex align-items-center gap-2" style="background:#e0f7f4;margin-left:0;padding-left:0.75rem !important;">
+                            <input class="form-check-input mt-0 ms-0" type="checkbox" name="see_all_companies" value="1" id="seeAllCompanies" <?= !empty($editUser['see_all_companies']) ? 'checked' : '' ?> onchange="toggleSeeAll()" style="float:none;">
+                            <label class="form-check-label small fw-medium mb-0" for="seeAllCompanies">
+                                Sempre ver todas as empresas (inclusive as futuras)
                             </label>
                         </div>
 
