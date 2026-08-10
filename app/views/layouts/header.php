@@ -124,11 +124,73 @@
             scrollbar-color: rgba(0, 191, 166, 0.4) rgba(255,255,255,0.05);
         }
 
+        /* ===== SIDEBAR RECOLHIDA (somente ícones) ===== */
+        @media (min-width: 992px) {
+            body.sidebar-collapsed .sidebar { width: 70px; }
+            body.sidebar-collapsed .main-content { margin-left: 70px; }
+
+            /* Esconde textos, mantém ícones */
+            body.sidebar-collapsed .sidebar .nav-link span,
+            body.sidebar-collapsed .sidebar .nav-link .crm-caret,
+            body.sidebar-collapsed .sidebar .nav-link .companies-caret,
+            body.sidebar-collapsed .sidebar-nav small,
+            body.sidebar-collapsed .sidebar .notification-count-sidebar,
+            body.sidebar-collapsed .sidebar-footer .flex-grow-1,
+            body.sidebar-collapsed .sidebar-header .logo-text ~ *,
+            body.sidebar-collapsed .sidebar-header > div,
+            body.sidebar-collapsed .sidebar-header img,
+            body.sidebar-collapsed .sidebar-header .fw-light {
+                display: none !important;
+            }
+            /* Texto direto dos nav-links (sem span) some, mas o ícone permanece */
+            body.sidebar-collapsed .sidebar .nav-link {
+                font-size: 0; /* zera texto solto */
+                text-align: center;
+                margin: 2px 8px;
+                padding: 11px 0;
+            }
+            body.sidebar-collapsed .sidebar .nav-link i {
+                margin-right: 0;
+                font-size: 1.1rem;
+            }
+            /* Subitens indentados voltam ao centro */
+            body.sidebar-collapsed .sidebar .nav-link[style*="padding-left"] {
+                padding-left: 0 !important;
+            }
+            /* Esconde subnavs recolhidos por completo no modo ícone */
+            body.sidebar-collapsed #crm-subnav,
+            body.sidebar-collapsed #companies-subnav {
+                display: none !important;
+            }
+            body.sidebar-collapsed .sidebar-footer .btn { padding: 5px 8px; }
+        }
+        /* Botão de recolher (desktop) */
+        .sidebar-collapse-btn {
+            display: none;
+        }
+        @media (min-width: 992px) {
+            .sidebar-collapse-btn {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                background: rgba(255,255,255,0.08);
+                color: rgba(255,255,255,0.7);
+                border: none;
+                border-radius: 8px;
+                width: 30px;
+                height: 30px;
+                cursor: pointer;
+                transition: background 0.2s;
+            }
+            .sidebar-collapse-btn:hover { background: rgba(0,191,166,0.2); color: var(--primary); }
+        }
+
         /* ===== MAIN CONTENT ===== */
         .main-content {
             margin-left: var(--sidebar-width);
             padding: 20px 25px;
             min-height: 100vh;
+            transition: margin-left 0.3s ease;
         }
         .top-bar {
             background: #fff;

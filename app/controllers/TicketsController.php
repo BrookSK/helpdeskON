@@ -122,9 +122,9 @@ class TicketsController extends Controller
             $data['clients'] = $clients;
             // Empresas para o primeiro nível da seleção
             $data['companies'] = (new Company())->getAll();
-            // Atendentes (quem comunica no ticket) e responsáveis técnicos, agrupados por papel
-            $data['attendants'] = $userModel->getByRoles(['attendant', 'whatsapp_agent']);
-            $data['technicalGrouped'] = $userModel->getGroupedByRole(['developer', 'analyst', 'attendant']);
+            // Atendentes (quem comunica no ticket) — inclui super_admin/admin
+            $data['attendants'] = $userModel->getByRoles(['super_admin', 'attendant', 'whatsapp_agent']);
+            $data['technicalGrouped'] = $userModel->getGroupedByRole(['developer', 'analyst', 'attendant', 'super_admin']);
         }
 
         $this->view('client/ticket_create', $data);
@@ -266,9 +266,10 @@ class TicketsController extends Controller
         $this->messageModel->markAsRead($id, $user['id']);
 
         $userModel = new User();
-        $attendants = $userModel->getAttendants();
+        // Atendentes incluem super_admin/admin para atribuição
+        $attendants = $userModel->getByRoles(['super_admin', 'attendant', 'whatsapp_agent']);
         // Candidatos a responsável técnico, agrupados por papel (Papel > Usuários)
-        $technicalGrouped = $userModel->getGroupedByRole(['developer', 'analyst', 'attendant']);
+        $technicalGrouped = $userModel->getGroupedByRole(['developer', 'analyst', 'attendant', 'super_admin']);
 
         // Buscar observações internas (apenas para equipe)
         $internalNotes = [];

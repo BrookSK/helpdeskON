@@ -16,7 +16,7 @@
 
 <!-- Sidebar -->
 <div class="sidebar" id="sidebar">
-    <div class="sidebar-header">
+    <div class="sidebar-header position-relative">
         <?php $logoUrl = Config::get('app_logo'); ?>
         <?php if ($logoUrl): ?>
         <img src="<?= baseUrl($logoUrl) ?>" alt="Logo" style="max-height:38px;max-width:180px;">
@@ -25,6 +25,9 @@
         <span class="text-white fw-light"> Solutions</span>
         <?php endif; ?>
         <div style="color:#00BFA6;font-size:0.78rem;font-weight:500;margin-top:3px;">Helpdesk</div>
+        <button type="button" class="sidebar-collapse-btn position-absolute" id="btn-collapse-sidebar" title="Recolher menu" style="top:12px;right:10px;">
+            <i class="bi bi-chevron-double-left" id="collapse-icon"></i>
+        </button>
     </div>
     <nav class="sidebar-nav">
         <ul class="nav flex-column">
@@ -216,6 +219,30 @@ function toggleCrmSub(caret) {
 
     if (btn) btn.addEventListener('click', openSidebar);
     if (overlay) overlay.addEventListener('click', closeSidebar);
+
+    // Recolher sidebar (desktop) — só ícones
+    const collapseBtn = document.getElementById('btn-collapse-sidebar');
+    const collapseIcon = document.getElementById('collapse-icon');
+
+    function applyCollapsedState(collapsed) {
+        document.body.classList.toggle('sidebar-collapsed', collapsed);
+        if (collapseIcon) {
+            collapseIcon.className = collapsed ? 'bi bi-chevron-double-right' : 'bi bi-chevron-double-left';
+        }
+    }
+
+    // Restaurar preferência salva
+    try {
+        if (localStorage.getItem('sidebarCollapsed') === '1') applyCollapsedState(true);
+    } catch (e) {}
+
+    if (collapseBtn) {
+        collapseBtn.addEventListener('click', function() {
+            const collapsed = !document.body.classList.contains('sidebar-collapsed');
+            applyCollapsedState(collapsed);
+            try { localStorage.setItem('sidebarCollapsed', collapsed ? '1' : '0'); } catch (e) {}
+        });
+    }
 
     // Fechar ao clicar num link (mobile)
     sidebar.querySelectorAll('.nav-link').forEach(link => {
