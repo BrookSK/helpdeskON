@@ -62,7 +62,7 @@ class PlanningController extends Controller
         }
 
         // Listas específicas por papel para os seletores do card
-        $attendantsList = $userModel->getByRoles(['attendant', 'whatsapp_agent']);
+        $attendantsList = $userModel->getByRoles(['super_admin', 'attendant', 'whatsapp_agent', 'analyst']);
         $techniciansList = $userModel->getByRoles(['developer']);
         $analystsList = $userModel->getByRoles(['analyst']);
 
