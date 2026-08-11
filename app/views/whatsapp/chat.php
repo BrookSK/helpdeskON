@@ -1995,7 +1995,23 @@ function startPolling() {
         if (!activeContactId || isSending) return;
         fetch(BASE + 'whatsapp/poll/' + activeContactId + '?after_id=' + lastMessageId, { headers: {'X-Requested-With': 'XMLHttpRequest'} })
         .then(r => r.json())
-        .then(messages => {
+        .then(data => {
+            // Formato: { messages: [...], deleted: [...] }
+            const messages = data.messages || data || [];
+            const deletedIds = data.deleted || [];
+
+            // Marcar mensagens deletadas na tela
+            if (deletedIds.length) {
+                deletedIds.forEach(id => {
+                    const el = document.querySelector(`.wpp-msg[data-msg-id="${id}"]`);
+                    if (el && !el.classList.contains('deleted')) {
+                        el.classList.add('deleted');
+                        const body = el.querySelector('.wpp-msg-body');
+                        if (body) body.innerHTML = '<div class="wpp-msg-deleted"><i class="bi bi-slash-circle"></i> <em>Mensagem apagada</em></div>';
+                    }
+                });
+            }
+
             if (messages && messages.length) {
                 const area = document.getElementById('messages-area');
                 messages.forEach(m => {

@@ -505,7 +505,17 @@ class WhatsappController extends Controller
         $afterId = $_GET['after_id'] ?? 0;
         $messages = $this->messageModel->getNewMessages($contactId, $afterId);
 
-        $this->json($messages);
+        // Verificar mensagens deletadas recentemente neste contato
+        $db = Database::getInstance();
+        $deletedIds = $db->fetchAll(
+            "SELECT id, message_id FROM whatsapp_messages WHERE contact_id = ? AND is_deleted = 1 ORDER BY id DESC LIMIT 20",
+            [$contactId]
+        );
+
+        $this->json([
+            'messages' => $messages,
+            'deleted' => array_column($deletedIds, 'id'),
+        ]);
     }
 
     /**
@@ -1042,6 +1052,9 @@ class WhatsappController extends Controller
                 break;
             case 'messages.update':
                 $this->handleMessageUpdate($payload);
+                break;
+            case 'messages.delete':
+                $this->handleMessageDelete($payload);
                 break;
             case 'connection.update':
                 $this->handleConnectionUpdate($payload);
@@ -1595,8 +1608,24 @@ class WhatsappController extends Controller
             $msgId = $item['key']['id'] ?? ($item['keyId'] ?? ($item['id'] ?? null));
             if (!$msgId) continue;
 
-            // status pode vir como número (ack) ou string
-            $raw = $item['status'] ?? $item['update']['status'] ?? ($item['ack'] ?? null);
+            // Detectar mensagem deletada/revogada
+            $messageStubType = $item['messageStubType'] ?? ($item['update']['messageStubType'] ?? null);
+            $status = $item['status'] ?? $item['update']['status'] ?? ($item['ack'] ?? null);
+
+            // messageStubType REVOKE = mensagem apagada
+            // Também: status 5 pode indicar deleção em algumas versões
+            if ($messageStubType === 'REVOKE' || $messageStubType === 1 || $status === 5) {
+                try {
+                    $db->query(
+                        "UPDATE whatsapp_messages SET is_deleted = 1 WHERE message_id = ?",
+                        [$msgId]
+                    );
+                } catch (Exception $e) {}
+                continue;
+            }
+
+            // Ack status update (checkzinhos)
+            $raw = $status;
             $ack = $this->mapAckStatus($raw);
             if (!$ack) continue;
 
@@ -1608,6 +1637,37 @@ class WhatsappController extends Controller
             } catch (Exception $e) {
                 // Coluna ainda não migrada — ignora
             }
+        }
+    }
+
+    /**
+     * Processa evento de mensagem deletada (messages.delete)
+     */
+    private function handleMessageDelete($payload)
+    {
+        $db = Database::getInstance();
+
+        // Formato 1: { data: { key: { id: "xxx", remoteJid: "..." } } }
+        // Formato 2: { data: { message: { key: { id: "xxx" } } } }
+        // Formato 3: { data: [{ key: { id: "xxx" } }] }
+        $items = [];
+        if (isset($payload['data']['key'])) {
+            $items = [$payload['data']];
+        } elseif (isset($payload['data']['message']['key'])) {
+            $items = [$payload['data']['message']];
+        } elseif (isset($payload['data'][0])) {
+            $items = $payload['data'];
+        } elseif (isset($payload['data']['id'])) {
+            $items = [['key' => ['id' => $payload['data']['id']]]];
+        }
+
+        foreach ($items as $item) {
+            $msgId = $item['key']['id'] ?? ($item['id'] ?? null);
+            if (!$msgId) continue;
+
+            try {
+                $db->query("UPDATE whatsapp_messages SET is_deleted = 1 WHERE message_id = ?", [$msgId]);
+            } catch (Exception $e) {}
         }
     }
 
