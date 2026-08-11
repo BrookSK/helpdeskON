@@ -8,6 +8,13 @@
         <!-- COLUNA ESQUERDA: Lista de contatos -->
         <div class="wpp-contacts-panel" id="contacts-panel">
             <div class="wpp-contacts-header">
+                <!-- Barra mobile com hamburger -->
+                <div class="wpp-mobile-bar">
+                    <button class="wpp-mobile-back-btn wpp-mobile-menu-btn" onclick="mobileOpenSidebar()" title="Menu">
+                        <i class="bi bi-list" style="font-size:1.1rem;"></i>
+                    </button>
+                    <span class="fw-medium" style="font-size:0.92rem;">WhatsApp</span>
+                </div>
                 <div class="d-flex align-items-center justify-content-between mb-2">
                     <span class="fw-medium" style="font-size:0.9rem;"><i class="bi bi-whatsapp text-success"></i> Chat</span>
                     <div class="d-flex gap-1">
@@ -66,11 +73,16 @@
             </div>
             <!-- Header do chat ativo -->
             <div class="wpp-chat-header" id="chat-header" style="display:none;">
-                <div class="d-flex align-items-center gap-2 cursor-pointer" onclick="toggleDetailPanel()">
-                    <div class="wpp-avatar-sm" id="chat-avatar">?</div>
-                    <div>
-                        <div class="fw-medium" style="font-size:0.88rem;" id="chat-contact-name">—</div>
-                        <small class="text-muted" id="chat-contact-phone"></small>
+                <div class="d-flex align-items-center gap-2">
+                    <button class="wpp-mobile-back-btn" onclick="mobileBackToContacts()" title="Voltar">
+                        <i class="bi bi-arrow-left"></i>
+                    </button>
+                    <div class="d-flex align-items-center gap-2 cursor-pointer" onclick="toggleDetailPanel()">
+                        <div class="wpp-avatar-sm" id="chat-avatar">?</div>
+                        <div>
+                            <div class="fw-medium" style="font-size:0.88rem;" id="chat-contact-name">—</div>
+                            <small class="text-muted" id="chat-contact-phone"></small>
+                        </div>
                     </div>
                 </div>
                 <div class="d-flex gap-2 align-items-center">
@@ -905,15 +917,85 @@ body { overflow: hidden !important; margin: 0; padding: 0; }
 .wpp-mention { color: #075e54; font-weight: 600; background: rgba(7,94,84,0.08); padding: 1px 4px; border-radius: 4px; cursor: default; }
 .wpp-label-badge { font-size: 0.65rem; padding: 2px 8px; border-radius: 10px; color: #fff; display: inline-block; cursor: default; }
 .cursor-pointer { cursor: pointer; }
+/* Elementos mobile ocultos no desktop */
+.wpp-mobile-menu-btn { display: none; }
+.wpp-mobile-bar { display: none; align-items: center; gap: 8px; margin-bottom: 8px; }
+.wpp-mobile-back-btn {
+    display: none;
+    width: 32px; height: 32px; border-radius: 8px; border: none;
+    background: #f3f4f6; color: #374151;
+    align-items: center; justify-content: center;
+    font-size: 1rem; cursor: pointer; flex-shrink: 0;
+    transition: background 0.15s;
+}
+.wpp-mobile-back-btn:hover { background: #e5e7eb; }
+@media (max-width: 768px) {
+    .wpp-mobile-back-btn { display: inline-flex !important; }
+    .wpp-mobile-bar { display: flex !important; }
+    .wpp-mobile-menu-btn { display: inline-flex !important; }
+}
 @media (max-width: 992px) {
     .wpp-main-override { margin-left: 0 !important; left: 0 !important; }
 }
 @media (max-width: 768px) {
-    .wpp-contacts-panel { width: 100%; min-width: 100%; }
-    .wpp-chat-panel { display: none; }
-    .wpp-chat-panel.active { display: flex; width: 100%; }
-    .wpp-detail-panel { position: absolute; right: 0; top: 0; bottom: 0; z-index: 10; width: 100%; }
-    .mobile-topbar { display: flex !important; }
+    /* === MOBILE: Layout full-screen com painéis alternáveis === */
+    .wpp-main-override {
+        position: fixed !important;
+        top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important;
+        width: 100% !important;
+    }
+    .wpp-layout { position: relative; }
+
+    /* Painel de contatos ocupa 100% */
+    .wpp-contacts-panel {
+        width: 100%; min-width: 100%;
+        position: absolute; top: 0; left: 0; bottom: 0;
+        z-index: 5;
+        transition: transform 0.25s ease;
+    }
+    /* Quando o chat está aberto, esconde contatos deslizando */
+    .wpp-contacts-panel.mobile-hidden {
+        transform: translateX(-100%);
+        pointer-events: none;
+    }
+
+    /* Painel de chat: começa oculto, aparece quando active */
+    .wpp-chat-panel {
+        display: none;
+        position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+        width: 100%; z-index: 6;
+    }
+    .wpp-chat-panel.active { display: flex; }
+
+    /* Painel de detalhes do contato */
+    .wpp-detail-panel {
+        position: absolute; right: 0; top: 0; bottom: 0;
+        z-index: 10; width: 100%; min-width: 100%;
+    }
+
+    /* Header do chat no mobile: dar espaço para botão voltar */
+    .wpp-chat-header { padding: 8px 10px; gap: 8px; }
+
+    /* Não esconder a topbar no mobile — mas adaptá-la para o contexto do chat */
+    .mobile-topbar { display: none !important; }
+
+    /* Botão de menu hamburger dentro do chat */
+    .wpp-mobile-menu-btn {
+        display: inline-flex !important;
+    }
+
+    /* Header de contatos: barra superior com hamburger */
+    .wpp-contacts-header { padding-top: 8px; }
+    .wpp-mobile-bar {
+        display: flex !important;
+    }
+
+    /* Mensagens - otimizar espaço */
+    .wpp-msg { max-width: 82%; }
+    .wpp-msg-media img { max-width: 180px; }
+
+    /* Input area compacta */
+    .wpp-input-area { padding: 8px 10px; gap: 6px; }
 }
 </style>
 
@@ -1167,6 +1249,12 @@ function buildLastMessagePreview(c, isGroup) {
 function openChat(contactId, isGroup = false) {
     activeContactId = contactId;
     activeContactIsGroup = isGroup;
+
+    // Mobile: alternar para painel de chat
+    if (window.innerWidth <= 768) {
+        document.getElementById('contacts-panel').classList.add('mobile-hidden');
+        document.getElementById('chat-panel').classList.add('active');
+    }
 
     document.querySelectorAll('.wpp-contact-item').forEach(el => el.classList.remove('active'));
     const active = document.querySelector(`.wpp-contact-item[data-id="${contactId}"]`);
@@ -2332,6 +2420,21 @@ function changeServiceStatus() {
 // =========================================
 function toggleDetailPanel() {
     document.getElementById('detail-panel').classList.toggle('open');
+}
+
+// Mobile: voltar da tela de chat para a lista de contatos
+function mobileBackToContacts() {
+    document.getElementById('contacts-panel').classList.remove('mobile-hidden');
+    document.getElementById('chat-panel').classList.remove('active');
+}
+
+// Mobile: abrir sidebar (hamburger)
+function mobileOpenSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('sidebar-overlay');
+    if (sidebar) sidebar.classList.add('show');
+    if (overlay) overlay.classList.add('show');
+    document.body.style.overflow = 'hidden';
 }
 
 function saveContactDetails() {
