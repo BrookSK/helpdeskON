@@ -1138,7 +1138,23 @@ class WhatsappController extends Controller
             $reactionTargetId = $message['reactionMessage']['key']['id'] ?? null;
             // Se a reação foi removida (texto vazio), ignorar
             if ($msgText === '') return;
-        } elseif (isset($message['protocolMessage']) || isset($message['senderKeyDistributionMessage'])) {
+        } elseif (isset($message['protocolMessage'])) {
+            // Detectar mensagem deletada (revoked)
+            $proto = $message['protocolMessage'];
+            $protoType = $proto['type'] ?? '';
+            if ($protoType === 'REVOKE' || $protoType === 0 || isset($proto['key'])) {
+                // Mensagem foi apagada pelo remetente
+                $revokedId = $proto['key']['id'] ?? null;
+                if ($revokedId) {
+                    $db = Database::getInstance();
+                    $db->query(
+                        "UPDATE whatsapp_messages SET is_deleted = 1 WHERE message_id = ? AND instance_id = ?",
+                        [$revokedId, $instance['id']]
+                    );
+                }
+            }
+            return;
+        } elseif (isset($message['senderKeyDistributionMessage'])) {
             return;
         }
 

@@ -493,8 +493,13 @@ body { overflow: hidden !important; margin: 0; padding: 0; }
 .wpp-msg { max-width: 65%; padding: 8px 12px; border-radius: 8px; font-size: 0.84rem; word-wrap: break-word; position: relative; }
 .wpp-msg.mine { align-self: flex-end; background: #d9fdd3; border-bottom-right-radius: 2px; }
 .wpp-msg.other { align-self: flex-start; background: #fff; border-bottom-left-radius: 2px; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+.wpp-msg.deleted { opacity: 0.7; }
+.wpp-msg-deleted { color: #999; font-size: 0.8rem; font-style: italic; }
+.wpp-msg-deleted i { font-size: 0.75rem; }
 .wpp-msg-sender { font-size: 0.7rem; font-weight: 600; color: #075e54; margin-bottom: 2px; }
 .wpp-msg-time { font-size: 0.62rem; color: #888; margin-top: 3px; text-align: right; }
+.wpp-day-separator { text-align: center; margin: 12px 0; }
+.wpp-day-separator span { background: #e1f2fb; color: #555; font-size: 0.72rem; padding: 4px 14px; border-radius: 8px; font-weight: 500; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
 .wpp-ack { color: #8a8a8a; font-size: 0.85rem; margin-left: 2px; }
 .wpp-ack-read { color: #34b7f1; }
 /* Dois checks sobrepostos (entregue/lida) */
@@ -1049,18 +1054,56 @@ function renderMessages(messages) {
             mentionCache[num] = m.sender_name;
         }
     });
-    // Renderiza mensagens normais; reações são anexadas às mensagens reagidas
-    area.innerHTML = messages.map(m => {
+    // Renderiza mensagens com separadores de dia
+    let lastDateStr = '';
+    let html = '';
+    messages.forEach(m => {
         lastMessageId = Math.max(lastMessageId, m.id);
         renderedMessageIds.add(m.id);
-        if (m.message_type === 'reaction') return '';
-        return renderSingleMessage(m);
-    }).join('');
+        if (m.message_type === 'reaction') return;
+
+        // Inserir separador de dia se mudou o dia
+        const msgDate = m.timestamp ? m.timestamp.split(' ')[0] : '';
+        if (msgDate && msgDate !== lastDateStr) {
+            lastDateStr = msgDate;
+            html += renderDaySeparator(msgDate);
+        }
+
+        html += renderSingleMessage(m);
+    });
+    area.innerHTML = html;
 
     // Aplicar reações sobre as bolhas correspondentes
     messages.forEach(m => {
         if (m.message_type === 'reaction') applyReaction(m);
     });
+}
+
+// Separador de dia no chat (estilo WhatsApp)
+function renderDaySeparator(dateStr) {
+    const label = getDayLabel(dateStr);
+    return `<div class="wpp-day-separator" data-date="${dateStr}"><span>${label}</span></div>`;
+}
+
+function getDayLabel(dateStr) {
+    const d = new Date(dateStr + 'T00:00:00');
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+    const msgDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+
+    if (msgDay.getTime() === today.getTime()) return 'Hoje';
+    if (msgDay.getTime() === yesterday.getTime()) return 'Ontem';
+
+    // Se for da mesma semana, mostrar dia da semana
+    const diffDays = Math.floor((today - msgDay) / 86400000);
+    if (diffDays < 7) {
+        const dias = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+        return dias[d.getDay()];
+    }
+
+    // Mais de uma semana, mostrar data
+    return d.getDate().toString().padStart(2, '0') + '/' + (d.getMonth() + 1).toString().padStart(2, '0') + '/' + d.getFullYear();
 }
 
 // Anexa a reação (emoji) na bolha da mensagem reagida
@@ -1084,6 +1127,14 @@ function cssEscape(s) {
 function renderSingleMessage(m) {
     const cls = m.from_me == 1 ? 'mine' : 'other';
     let content = '';
+
+    // Mensagem deletada pelo usuário
+    if (m.is_deleted == 1) {
+        content = `<div class="wpp-msg-deleted"><i class="bi bi-slash-circle"></i> <em>Mensagem apagada</em></div>`;
+        const time = m.timestamp ? formatFullTime(m.timestamp) : '';
+        const waId = m.message_id ? ` data-wa-id="${escapeHtml(m.message_id)}"` : '';
+        return `<div class="wpp-msg ${cls} deleted" data-msg-id="${m.id}"${waId}><div class="wpp-msg-body">${content}</div><div class="wpp-msg-time">${time}</div></div>`;
+    }
 
     // Mostrar nome do remetente em grupos (mensagens de outros)
     if (activeContactIsGroup && m.from_me != 1 && m.sender_name) {
@@ -1964,6 +2015,17 @@ function startPolling() {
                         applyReaction(m);
                         return;
                     }
+
+                    // Inserir separador de dia se necessário
+                    const msgDate = m.timestamp ? m.timestamp.split(' ')[0] : '';
+                    if (msgDate) {
+                        const lastSep = area.querySelector('.wpp-day-separator:last-of-type');
+                        const lastDateInArea = lastSep ? lastSep.dataset.date : '';
+                        if (msgDate !== lastDateInArea) {
+                            area.insertAdjacentHTML('beforeend', `<div class="wpp-day-separator" data-date="${msgDate}"><span>${getDayLabel(msgDate)}</span></div>`);
+                        }
+                    }
+
                     area.insertAdjacentHTML('beforeend', renderSingleMessage(m));
                 });
                 scrollToBottom();
