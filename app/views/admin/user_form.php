@@ -36,7 +36,7 @@
                     </div>
                     <div class="col-sm-6">
                         <label class="form-label fw-medium small">Telefone</label>
-                        <input type="text" name="phone" class="form-control" value="<?= escape($editUser['phone'] ?? '') ?>" placeholder="(00) 00000-0000">
+                        <input type="text" name="phone" class="form-control" value="<?= escape($editUser['phone'] ?? '') ?>" placeholder="(00) 00000-0000" inputmode="numeric" oninput="this.value=this.value.replace(/\D/g,'')" onpaste="setTimeout(()=>{this.value=this.value.replace(/\D/g,'')},0)">
                     </div>
                     <div class="col-sm-6">
                         <label class="form-label fw-medium small">Papel *</label>
