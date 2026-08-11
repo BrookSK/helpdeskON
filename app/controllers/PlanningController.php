@@ -252,6 +252,11 @@ class PlanningController extends Controller
         if (isset($_POST['due_date'])) $data['due_date'] = $_POST['due_date'] ?: null;
         if (isset($_POST['start_date'])) $data['start_date'] = $_POST['start_date'] ?: null;
         if (isset($_POST['end_date'])) $data['end_date'] = $_POST['end_date'] ?: null;
+        // Campos CX Hub
+        if (isset($_POST['cx_hub_number'])) $data['cx_hub_number'] = trim($_POST['cx_hub_number']) ?: null;
+        if (isset($_POST['cx_hub_name'])) $data['cx_hub_name'] = trim($_POST['cx_hub_name']) ?: null;
+        if (isset($_POST['branch_name'])) $data['branch_name'] = trim($_POST['branch_name']) ?: null;
+        if (isset($_POST['pr_number'])) $data['pr_number'] = trim($_POST['pr_number']) ?: null;
 
         if (empty($data)) {
             $this->json(['error' => 'Nenhum campo para atualizar'], 400);
@@ -780,6 +785,139 @@ class PlanningController extends Controller
 
         $this->cardModel->deleteTaskImage($imageId);
         $this->json(['success' => true]);
+    }
+
+    // PR Feito: salva PR, move card para em_revisao_interna e notifica analista
+    public function prDone($id = null)
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+
+        $user = $this->currentUser();
+        $card = $this->cardModel->findById($id);
+        if (!$card) $this->json(['error' => 'Card não encontrado'], 404);
+
+        $prNumber = trim($_POST['pr_number'] ?? '');
+        if (empty($prNumber)) {
+            $this->json(['error' => 'Número do PR obrigatório'], 400);
+        }
+
+        // Atualizar campos CX Hub e PR
+        $data = [
+            'pr_number' => $prNumber,
+            'status' => 'em_revisao_interna',
+        ];
+        if (!empty($_POST['cx_hub_number'])) $data['cx_hub_number'] = trim($_POST['cx_hub_number']);
+        if (!empty($_POST['cx_hub_name'])) $data['cx_hub_name'] = trim($_POST['cx_hub_name']);
+        if (!empty($_POST['branch_name'])) $data['branch_name'] = trim($_POST['branch_name']);
+
+        $previousStatus = $card['status'];
+        $this->cardModel->update($id, $data);
+
+        // Sincronizar ticket vinculado
+        if ($card['ticket_id']) {
+            $ticketModel = new Ticket();
+            $ticketModel->updateStatus($card['ticket_id'], 'em_revisao_interna');
+        }
+
+        // Recarregar card com dados atualizados
+        $card = $this->cardModel->findById($id);
+
+        // Notificar analista (se atribuído ao card)
+        $db = Database::getInstance();
+        $notifiedUsers = [];
+
+        if (!empty($card['analyst_id']) && $card['analyst_id'] != $user['id']) {
+            $this->notifyPrDone($card, $user, $card['analyst_id'], 'analista');
+            $notifiedUsers[] = $card['analyst_id'];
+        }
+
+        // Notificar também o técnico se diferente do analista e de quem fez o PR
+        if (!empty($card['technical_responsible_id'])
+            && $card['technical_responsible_id'] != $user['id']
+            && !in_array($card['technical_responsible_id'], $notifiedUsers)
+        ) {
+            $this->notifyPrDone($card, $user, $card['technical_responsible_id'], 'técnico');
+            $notifiedUsers[] = $card['technical_responsible_id'];
+        }
+
+        // Se não tem analista definido, notificar todos os analistas ativos
+        if (empty($card['analyst_id'])) {
+            $analysts = $db->fetchAll("SELECT id FROM users WHERE role = 'analyst' AND is_active = 1");
+            foreach ($analysts as $analyst) {
+                if ($analyst['id'] != $user['id'] && !in_array($analyst['id'], $notifiedUsers)) {
+                    $this->notifyPrDone($card, $user, $analyst['id'], 'analista');
+                    $notifiedUsers[] = $analyst['id'];
+                }
+            }
+        }
+
+        // Notificação WhatsApp de mudança de status (grupo)
+        if ($card['ticket_id']) {
+            $ticketModel = $ticketModel ?? new Ticket();
+            $ticket = $ticketModel->findById($card['ticket_id']);
+            if ($ticket) {
+                $this->sendPlanningStatusNotification($ticket, 'em_revisao_interna', $previousStatus);
+            }
+        }
+
+        $this->json(['success' => true]);
+    }
+
+    /**
+     * Notifica um usuário sobre PR feito: sistema + WhatsApp com dados do CX Hub.
+     */
+    private function notifyPrDone($card, $fromUser, $toUserId, $roleLabel)
+    {
+        $db = Database::getInstance();
+        $userModel = new User();
+        $recipient = $userModel->findById($toUserId);
+        if (!$recipient) return;
+
+        $prNumber = $card['pr_number'] ?? '';
+        $branchName = $card['branch_name'] ?? '';
+        $cxNumber = $card['cx_hub_number'] ?? '';
+        $cxName = $card['cx_hub_name'] ?? '';
+
+        // Notificação no sistema
+        $message = "{$fromUser['name']} finalizou o PR #{$prNumber} no card \"{$card['title']}\". Aguardando revisão.";
+        $db->insert('notifications', [
+            'user_id' => $toUserId,
+            'title' => "PR #{$prNumber} pronto para revisão",
+            'message' => $message,
+            'type' => 'system',
+        ]);
+
+        // Notificação WhatsApp
+        if (!empty($recipient['phone'])) {
+            $priorityText = priorityLabel($card['priority'] ?? 'medium');
+            $priorityEmoji = match($card['priority'] ?? 'medium') {
+                'urgent' => '🔴',
+                'high' => '🟠',
+                'medium' => '🟡',
+                'low' => '🟢',
+                default => '⚪',
+            };
+
+            $whatsMsg = "🚀 *PR Pronto para Revisão*\n\n"
+                . "*Card:* #{$card['id']} — {$card['title']}\n"
+                . "━━━━━━━━━━━━━━━━━━━\n"
+                . "{$priorityEmoji} *Prioridade:* {$priorityText}\n"
+                . "🏢 *Empresa:* " . ($card['company_name'] ?? 'N/A') . "\n"
+                . "👨‍💻 *Desenvolvedor:* {$fromUser['name']}\n"
+                . "━━━━━━━━━━━━━━━━━━━\n"
+                . "🔀 *PR:* #{$prNumber}\n"
+                . ($branchName ? "🌿 *Branch:* {$branchName}\n" : '')
+                . ($cxNumber ? "📋 *CX Hub:* #{$cxNumber}" . ($cxName ? " — {$cxName}" : '') . "\n" : '')
+                . "━━━━━━━━━━━━━━━━━━━\n"
+                . "📌 *Status:* Em Revisão Interna\n"
+                . "👤 *Para:* {$recipient['name']} ({$roleLabel})\n\n"
+                . "Por favor, revise o PR e aprove para homologação.";
+
+            WhatsappNotifier::sendToPhone($recipient['phone'], $whatsMsg, $recipient['name']);
+        }
     }
 
     /**
