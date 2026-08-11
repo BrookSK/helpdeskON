@@ -553,12 +553,64 @@ class PlanningController extends Controller
         // Notificar responsável do card sobre nova task (se diferente de quem criou)
         if ($card['assigned_to'] && $card['assigned_to'] != $user['id']) {
             $db = Database::getInstance();
+
+            // Notificação no sistema
             $db->insert('notifications', [
                 'user_id' => $card['assigned_to'],
                 'title' => 'Nova task no card',
                 'message' => "{$user['name']} criou a task \"{$title}\" no card \"{$card['title']}\"",
                 'type' => 'system',
             ]);
+
+            // Notificação via WhatsApp para o responsável
+            $userModel = new User();
+            $assignedUser = $userModel->findById($card['assigned_to']);
+            if ($assignedUser && !empty($assignedUser['phone'])) {
+                $whatsMessage = "📋 *Nova Task no Card*\n\n"
+                    . "*Card:* #{$card['id']} — {$card['title']}\n"
+                    . "*Task:* {$title}\n"
+                    . ($task['description'] ?? '' ? "*Descrição:* " . trim($_POST['description'] ?? '') . "\n" : '')
+                    . "*Criada por:* {$user['name']}\n\n"
+                    . "Acesse o planejamento para ver os detalhes.";
+
+                WhatsappNotifier::sendToPhone(
+                    $assignedUser['phone'],
+                    $whatsMessage,
+                    $assignedUser['name']
+                );
+            }
+        }
+
+        // Notificar também o técnico, se diferente do assigned_to e de quem criou
+        if (!empty($card['technical_responsible_id'])
+            && $card['technical_responsible_id'] != $user['id']
+            && $card['technical_responsible_id'] != ($card['assigned_to'] ?? null)
+        ) {
+            $db = Database::getInstance();
+
+            $db->insert('notifications', [
+                'user_id' => $card['technical_responsible_id'],
+                'title' => 'Nova task no card',
+                'message' => "{$user['name']} criou a task \"{$title}\" no card \"{$card['title']}\"",
+                'type' => 'system',
+            ]);
+
+            if (!isset($userModel)) $userModel = new User();
+            $techUser = $userModel->findById($card['technical_responsible_id']);
+            if ($techUser && !empty($techUser['phone'])) {
+                $whatsMessage = "📋 *Nova Task no Card*\n\n"
+                    . "*Card:* #{$card['id']} — {$card['title']}\n"
+                    . "*Task:* {$title}\n"
+                    . ($task['description'] ?? '' ? "*Descrição:* " . trim($_POST['description'] ?? '') . "\n" : '')
+                    . "*Criada por:* {$user['name']}\n\n"
+                    . "Acesse o planejamento para ver os detalhes.";
+
+                WhatsappNotifier::sendToPhone(
+                    $techUser['phone'],
+                    $whatsMessage,
+                    $techUser['name']
+                );
+            }
         }
 
         $task = $this->cardModel->findTask($taskId);
