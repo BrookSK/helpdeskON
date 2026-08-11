@@ -963,7 +963,36 @@ class TicketsController extends Controller
         }
 
         // WhatsApp (via Evolution API, se o usuário tiver telefone)
-        $this->sendWhatsappToUser($assignee, "🔔 *{$title}*\n\n{$message}");
+        $priorityText = priorityLabel($ticket['priority'] ?? 'medium');
+        $priorityEmoji = match($ticket['priority'] ?? 'medium') {
+            'urgent' => '🔴',
+            'high' => '🟠',
+            'medium' => '🟡',
+            'low' => '🟢',
+            default => '⚪',
+        };
+
+        // Buscar empresa do cliente
+        $clientUser = $db->fetch("SELECT company_id FROM users WHERE id = ?", [$ticket['client_id']]);
+        $companyName = '';
+        if (!empty($clientUser['company_id'])) {
+            $comp = $db->fetch("SELECT name FROM companies WHERE id = ?", [$clientUser['company_id']]);
+            $companyName = $comp['name'] ?? '';
+        }
+
+        $whatsMsg = "📋 *Nova Atribuição de Demanda*\n\n"
+            . "Você foi atribuído como *{$roleLabel}*:\n"
+            . "━━━━━━━━━━━━━━━━━━━\n"
+            . "*#{$ticket['id']}* — {$ticket['title']}\n"
+            . "{$priorityEmoji} *Prioridade:* {$priorityText}\n"
+            . "👤 *Cliente:* " . ($ticket['client_name'] ?? '-') . "\n"
+            . ($companyName ? "🏢 *Empresa:* {$companyName}\n" : '')
+            . "👨‍💻 *Atendente:* " . ($ticket['attendant_name'] ?? 'Não atribuído') . "\n"
+            . ($ticket['technical_name'] ?? '' ? "🔧 *Técnico:* {$ticket['technical_name']}\n" : '')
+            . "━━━━━━━━━━━━━━━━━━━\n"
+            . "Acesse o sistema para ver os detalhes.";
+
+        $this->sendWhatsappToUser($assignee, $whatsMsg);
     }
 
     /**
@@ -975,30 +1004,68 @@ class TicketsController extends Controller
     private function sendGroupStatusNotification($ticket, $status, $previousStatus = null)
     {
         $label = statusLabel($status);
+        $prevLabel = $previousStatus ? statusLabel($previousStatus) : null;
+        $priorityText = priorityLabel($ticket['priority'] ?? 'medium');
+        $priorityEmoji = match($ticket['priority'] ?? 'medium') {
+            'urgent' => '🔴',
+            'high' => '🟠',
+            'medium' => '🟡',
+            'low' => '🟢',
+            default => '⚪',
+        };
+
+        // Buscar dados adicionais
+        $db = Database::getInstance();
+        $clientUser = $db->fetch("SELECT company_id FROM users WHERE id = ?", [$ticket['client_id']]);
+        $companyId = $clientUser['company_id'] ?? null;
+        $companyName = '';
+        $company = null;
+        if ($companyId) {
+            $company = $db->fetch("SELECT name, whatsapp_group_jid FROM companies WHERE id = ?", [$companyId]);
+            $companyName = $company['name'] ?? '';
+        }
+
+        // Buscar prazo do card de planejamento vinculado (se houver)
+        $dueDate = '';
+        $planningCard = $db->fetch("SELECT due_date FROM planning_cards WHERE ticket_id = ?", [$ticket['id']]);
+        if ($planningCard && !empty($planningCard['due_date'])) {
+            $dueDate = date('d/m/Y H:i', strtotime($planningCard['due_date']));
+        }
+
+        // Montar mensagem completa
         $baseMsg = "🔔 *Atualização de Demanda*\n\n"
             . "*#{$ticket['id']}* — {$ticket['title']}\n"
-            . "*Cliente:* " . ($ticket['client_name'] ?? '-') . "\n"
-            . "*Novo status:* {$label}";
+            . "━━━━━━━━━━━━━━━━━━━\n"
+            . "{$priorityEmoji} *Prioridade:* {$priorityText}\n"
+            . "👤 *Cliente:* " . ($ticket['client_name'] ?? '-') . "\n"
+            . ($companyName ? "🏢 *Empresa:* {$companyName}\n" : '')
+            . "👨‍💻 *Atendente:* " . ($ticket['attendant_name'] ?? 'Não atribuído') . "\n"
+            . ($ticket['technical_name'] ?? '' ? "🔧 *Técnico:* {$ticket['technical_name']}\n" : '')
+            . "━━━━━━━━━━━━━━━━━━━\n"
+            . ($prevLabel ? "📌 *Status anterior:* {$prevLabel}\n" : '')
+            . "📌 *Novo status:* {$label}\n"
+            . ($dueDate ? "⏰ *Prazo:* {$dueDate}\n" : '');
 
         // 1. Grupo padrão — todas as atualizações de status
         WhatsappNotifier::sendToDefaultGroup($baseMsg);
 
         // 2. Grupo da empresa do cliente — destaque quando vai para Homologação
-        $db = Database::getInstance();
-        $clientUser = $db->fetch("SELECT company_id FROM users WHERE id = ?", [$ticket['client_id']]);
-        $companyId = $clientUser['company_id'] ?? null;
-        if ($companyId) {
-            $company = $db->fetch("SELECT name, whatsapp_group_jid FROM companies WHERE id = ?", [$companyId]);
-            if ($company && !empty($company['whatsapp_group_jid'])) {
-                if ($status === 'em_homologacao') {
-                    $msg = "✅ *Demanda em Homologação*\n\n"
-                        . "*#{$ticket['id']}* — {$ticket['title']}\n\n"
-                        . "A demanda está pronta para homologação. Por favor, validem e retornem com o parecer.";
-                    WhatsappNotifier::sendToGroup($company['whatsapp_group_jid'], $msg);
-                } else {
-                    // Demais atualizações também no grupo da empresa
-                    WhatsappNotifier::sendToGroup($company['whatsapp_group_jid'], $baseMsg);
-                }
+        if ($company && !empty($company['whatsapp_group_jid'])) {
+            if ($status === 'em_homologacao') {
+                $msg = "✅ *Demanda em Homologação*\n\n"
+                    . "*#{$ticket['id']}* — {$ticket['title']}\n"
+                    . "━━━━━━━━━━━━━━━━━━━\n"
+                    . "{$priorityEmoji} *Prioridade:* {$priorityText}\n"
+                    . "👤 *Cliente:* " . ($ticket['client_name'] ?? '-') . "\n"
+                    . "🏢 *Empresa:* {$companyName}\n"
+                    . "👨‍💻 *Atendente:* " . ($ticket['attendant_name'] ?? 'Não atribuído') . "\n"
+                    . "━━━━━━━━━━━━━━━━━━━\n"
+                    . "A demanda está pronta para homologação.\n"
+                    . "Por favor, validem e retornem com o parecer. 🙏";
+                WhatsappNotifier::sendToGroup($company['whatsapp_group_jid'], $msg);
+            } else {
+                // Demais atualizações também no grupo da empresa
+                WhatsappNotifier::sendToGroup($company['whatsapp_group_jid'], $baseMsg);
             }
         }
     }
@@ -1049,7 +1116,43 @@ class TicketsController extends Controller
             Mailer::send($recipient['email'], "Demanda #{$ticket['id']} em Revisão Interna", $htmlBody);
         }
 
-        $this->sendWhatsappToUser($recipient, "🔎 *{$title}*\n\n{$message}");
+        $this->sendWhatsappToUser($recipient, $this->buildReviewWhatsappMsg($ticket, $roleLabel));
+    }
+
+    /**
+     * Monta mensagem WhatsApp enriquecida para notificação de Revisão Interna.
+     */
+    private function buildReviewWhatsappMsg($ticket, $roleLabel)
+    {
+        $priorityText = priorityLabel($ticket['priority'] ?? 'medium');
+        $priorityEmoji = match($ticket['priority'] ?? 'medium') {
+            'urgent' => '🔴',
+            'high' => '🟠',
+            'medium' => '🟡',
+            'low' => '🟢',
+            default => '⚪',
+        };
+
+        $db = Database::getInstance();
+        $clientUser = $db->fetch("SELECT company_id FROM users WHERE id = ?", [$ticket['client_id']]);
+        $companyName = '';
+        if (!empty($clientUser['company_id'])) {
+            $comp = $db->fetch("SELECT name FROM companies WHERE id = ?", [$clientUser['company_id']]);
+            $companyName = $comp['name'] ?? '';
+        }
+
+        return "🔎 *Demanda em Revisão Interna*\n\n"
+            . "Requer sua atenção como *{$roleLabel}*:\n"
+            . "━━━━━━━━━━━━━━━━━━━\n"
+            . "*#{$ticket['id']}* — {$ticket['title']}\n"
+            . "{$priorityEmoji} *Prioridade:* {$priorityText}\n"
+            . "👤 *Cliente:* " . ($ticket['client_name'] ?? '-') . "\n"
+            . ($companyName ? "🏢 *Empresa:* {$companyName}\n" : '')
+            . "👨‍💻 *Atendente:* " . ($ticket['attendant_name'] ?? 'Não atribuído') . "\n"
+            . ($ticket['technical_name'] ?? '' ? "🔧 *Técnico:* {$ticket['technical_name']}\n" : '')
+            . "━━━━━━━━━━━━━━━━━━━\n"
+            . "📌 *Status:* Em Revisão Interna\n"
+            . "Acesse o sistema para revisar.";
     }
 
     /**

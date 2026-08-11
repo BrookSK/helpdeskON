@@ -295,10 +295,19 @@ class PlanningController extends Controller
 
         $this->cardModel->updatePosition($id, $position, $status);
 
-        // Sincronizar ticket vinculado
+        // Sincronizar ticket vinculado e enviar notificação de status
         if ($card['ticket_id']) {
             $ticketModel = new Ticket();
+            $previousStatus = $card['status'];
             $ticketModel->updateStatus($card['ticket_id'], $status);
+
+            // Enviar notificação WhatsApp de mudança de status (mesmo formato do TicketsController)
+            if ($previousStatus !== $status) {
+                $ticket = $ticketModel->findById($card['ticket_id']);
+                if ($ticket) {
+                    $this->sendPlanningStatusNotification($ticket, $status, $previousStatus);
+                }
+            }
         }
 
         $this->json(['success' => true]);
@@ -771,6 +780,74 @@ class PlanningController extends Controller
 
         $this->cardModel->deleteTaskImage($imageId);
         $this->json(['success' => true]);
+    }
+
+    /**
+     * Envia notificação WhatsApp de mudança de status quando card é movido no kanban do planejamento.
+     */
+    private function sendPlanningStatusNotification($ticket, $status, $previousStatus)
+    {
+        $label = statusLabel($status);
+        $prevLabel = statusLabel($previousStatus);
+        $priorityText = priorityLabel($ticket['priority'] ?? 'medium');
+        $priorityEmoji = match($ticket['priority'] ?? 'medium') {
+            'urgent' => '🔴',
+            'high' => '🟠',
+            'medium' => '🟡',
+            'low' => '🟢',
+            default => '⚪',
+        };
+
+        $db = Database::getInstance();
+        $clientUser = $db->fetch("SELECT company_id FROM users WHERE id = ?", [$ticket['client_id']]);
+        $companyName = '';
+        $company = null;
+        if (!empty($clientUser['company_id'])) {
+            $company = $db->fetch("SELECT name, whatsapp_group_jid FROM companies WHERE id = ?", [$clientUser['company_id']]);
+            $companyName = $company['name'] ?? '';
+        }
+
+        // Buscar prazo do card de planejamento vinculado
+        $dueDate = '';
+        $planningCard = $db->fetch("SELECT due_date FROM planning_cards WHERE ticket_id = ?", [$ticket['id']]);
+        if ($planningCard && !empty($planningCard['due_date'])) {
+            $dueDate = date('d/m/Y H:i', strtotime($planningCard['due_date']));
+        }
+
+        $baseMsg = "🔔 *Atualização de Demanda*\n\n"
+            . "*#{$ticket['id']}* — {$ticket['title']}\n"
+            . "━━━━━━━━━━━━━━━━━━━\n"
+            . "{$priorityEmoji} *Prioridade:* {$priorityText}\n"
+            . "👤 *Cliente:* " . ($ticket['client_name'] ?? '-') . "\n"
+            . ($companyName ? "🏢 *Empresa:* {$companyName}\n" : '')
+            . "👨‍💻 *Atendente:* " . ($ticket['attendant_name'] ?? 'Não atribuído') . "\n"
+            . ($ticket['technical_name'] ?? '' ? "🔧 *Técnico:* {$ticket['technical_name']}\n" : '')
+            . "━━━━━━━━━━━━━━━━━━━\n"
+            . "📌 *Status anterior:* {$prevLabel}\n"
+            . "📌 *Novo status:* {$label}\n"
+            . ($dueDate ? "⏰ *Prazo:* {$dueDate}\n" : '');
+
+        // Grupo padrão
+        WhatsappNotifier::sendToDefaultGroup($baseMsg);
+
+        // Grupo da empresa do cliente
+        if ($company && !empty($company['whatsapp_group_jid'])) {
+            if ($status === 'em_homologacao') {
+                $msg = "✅ *Demanda em Homologação*\n\n"
+                    . "*#{$ticket['id']}* — {$ticket['title']}\n"
+                    . "━━━━━━━━━━━━━━━━━━━\n"
+                    . "{$priorityEmoji} *Prioridade:* {$priorityText}\n"
+                    . "👤 *Cliente:* " . ($ticket['client_name'] ?? '-') . "\n"
+                    . "🏢 *Empresa:* {$companyName}\n"
+                    . "👨‍💻 *Atendente:* " . ($ticket['attendant_name'] ?? 'Não atribuído') . "\n"
+                    . "━━━━━━━━━━━━━━━━━━━\n"
+                    . "A demanda está pronta para homologação.\n"
+                    . "Por favor, validem e retornem com o parecer. 🙏";
+                WhatsappNotifier::sendToGroup($company['whatsapp_group_jid'], $msg);
+            } else {
+                WhatsappNotifier::sendToGroup($company['whatsapp_group_jid'], $baseMsg);
+            }
+        }
     }
 
     // Notificação de atribuição (sistema + email + webhook)
