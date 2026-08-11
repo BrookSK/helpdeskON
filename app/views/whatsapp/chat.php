@@ -212,57 +212,77 @@
 
 <!-- Modal Respostas Rápidas -->
 <div class="modal fade" id="quickRepliesModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h6 class="modal-title"><i class="bi bi-lightning-charge-fill text-warning"></i> Respostas Rápidas</h6>
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content qr-modal">
+            <div class="qr-modal-header">
+                <div class="qr-modal-title-wrap">
+                    <div class="qr-modal-icon"><i class="bi bi-lightning-charge-fill"></i></div>
+                    <div>
+                        <h6 class="qr-modal-title">Respostas Rápidas</h6>
+                        <p class="qr-modal-subtitle">Digite <code>/atalho</code> no chat para usar</p>
+                    </div>
+                </div>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <div class="modal-body">
-                <p class="small text-muted">Cadastre mensagens de uso frequente. No chat, digite <code>/atalho</code> para inserir rapidamente.</p>
-                <div class="row g-2 align-items-end mb-2 p-2 rounded" style="background:#f8f9fa;">
-                    <input type="hidden" id="qr-id">
-                    <div class="col-sm-3">
-                        <label class="form-label small fw-medium mb-1">Atalho</label>
-                        <div class="input-group input-group-sm">
-                            <span class="input-group-text">/</span>
-                            <input type="text" id="qr-shortcut" class="form-control" placeholder="ex: bomdia">
+            <div class="qr-modal-body">
+                <!-- Formulário de cadastro/edição -->
+                <div class="qr-form-card" id="qr-form-card">
+                    <div class="qr-form-header" onclick="toggleQrForm()">
+                        <span><i class="bi bi-plus-circle"></i> <span id="qr-form-title">Nova resposta rápida</span></span>
+                        <i class="bi bi-chevron-down qr-form-chevron" id="qr-form-chevron"></i>
+                    </div>
+                    <div class="qr-form-body" id="qr-form-body">
+                        <input type="hidden" id="qr-id">
+                        <input type="hidden" id="qr-remove-attachment" value="0">
+                        <div class="qr-form-row">
+                            <div class="qr-form-field qr-field-shortcut">
+                                <label class="qr-label">Atalho</label>
+                                <div class="qr-shortcut-input">
+                                    <span class="qr-shortcut-prefix">/</span>
+                                    <input type="text" id="qr-shortcut" class="qr-input" placeholder="bomdia">
+                                </div>
+                            </div>
+                            <div class="qr-form-field qr-field-message">
+                                <label class="qr-label">Mensagem</label>
+                                <textarea id="qr-message" class="qr-input qr-textarea" rows="2" placeholder="Texto da resposta..." oninput="autoGrowQrMessage(this)"></textarea>
+                            </div>
                         </div>
-                    </div>
-                    <div class="col-sm-5">
-                        <label class="form-label small fw-medium mb-1">Mensagem</label>
-                        <textarea id="qr-message" class="form-control form-control-sm qr-message-auto" rows="1" placeholder="Texto da resposta (opcional se houver anexo)..." oninput="autoGrowQrMessage(this)"></textarea>
-                    </div>
-                    <div class="col-sm-2">
-                        <label class="form-label small fw-medium mb-1">Anexo</label>
-                        <input type="file" id="qr-attachment" class="form-control form-control-sm" onchange="onQrAttachmentChange()">
-                    </div>
-                    <div class="col-sm-2 d-grid">
-                        <button class="btn btn-sm btn-primary" onclick="saveQuickReply()"><i class="bi bi-check-lg"></i> Salvar</button>
-                    </div>
-                    <input type="hidden" id="qr-remove-attachment" value="0">
-                    <div class="col-12" id="qr-selected-attachment" style="display:none;">
-                        <div class="d-inline-flex align-items-center gap-2 small mt-1 px-2 py-1 rounded" style="background:var(--primary-50);border:1px solid var(--primary-light);color:var(--primary-dark);">
-                            <i class="bi bi-check-circle-fill"></i>
-                            <span class="fw-medium">Arquivo anexado:</span>
-                            <span id="qr-selected-attachment-name" class="text-truncate" style="max-width:260px;"></span>
-                            <button type="button" class="btn-close btn-close-sm ms-1" style="font-size:0.6rem;" onclick="clearQrSelectedAttachment()" title="Remover"></button>
+                        <div class="qr-form-row qr-form-row-bottom">
+                            <div class="qr-form-field qr-field-attach">
+                                <label class="qr-attach-btn" for="qr-attachment">
+                                    <i class="bi bi-paperclip"></i> Anexar arquivo
+                                </label>
+                                <input type="file" id="qr-attachment" class="d-none" onchange="onQrAttachmentChange()">
+                            </div>
+                            <div class="qr-form-actions">
+                                <button class="qr-btn-cancel" onclick="resetQuickReplyForm()" id="qr-btn-cancel" style="display:none;">Cancelar</button>
+                                <button class="qr-btn-save" onclick="saveQuickReply()"><i class="bi bi-check2"></i> Salvar</button>
+                            </div>
                         </div>
-                    </div>
-                    <div class="col-12" id="qr-current-attachment" style="display:none;">
-                        <div class="d-inline-flex align-items-center gap-2 small mt-1 px-2 py-1 rounded" style="background:#f1f3f5;border:1px solid #dee2e6;">
-                            <i class="bi bi-paperclip text-muted"></i>
-                            <span class="text-muted">Anexo atual:</span>
-                            <a href="#" id="qr-current-attachment-link" target="_blank" class="text-truncate fw-medium" style="max-width:240px;"></a>
-                            <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1" onclick="removeQrAttachment()" title="Remover anexo"><i class="bi bi-x-lg"></i></button>
+                        <!-- Feedback de arquivo anexado -->
+                        <div class="qr-attachment-feedback" id="qr-selected-attachment" style="display:none;">
+                            <div class="qr-attach-badge qr-attach-badge-new">
+                                <i class="bi bi-file-earmark-check"></i>
+                                <span id="qr-selected-attachment-name" class="text-truncate"></span>
+                                <button type="button" class="qr-attach-remove" onclick="clearQrSelectedAttachment()" title="Remover"><i class="bi bi-x"></i></button>
+                            </div>
+                        </div>
+                        <div class="qr-attachment-feedback" id="qr-current-attachment" style="display:none;">
+                            <div class="qr-attach-badge qr-attach-badge-current">
+                                <i class="bi bi-paperclip"></i>
+                                <a href="#" id="qr-current-attachment-link" target="_blank" class="text-truncate fw-medium"></a>
+                                <button type="button" class="qr-attach-remove" onclick="removeQrAttachment()" title="Remover anexo"><i class="bi bi-x"></i></button>
+                            </div>
                         </div>
                     </div>
                 </div>
-                <div class="table-responsive">
-                    <table class="table table-sm table-hover align-middle mb-0">
-                        <thead class="table-light"><tr><th>Atalho</th><th>Mensagem</th><th>Anexo</th><th></th></tr></thead>
-                        <tbody id="qr-list"><tr><td colspan="4" class="text-muted small text-center py-3">Carregando...</td></tr></tbody>
-                    </table>
+
+                <!-- Lista de respostas cadastradas -->
+                <div class="qr-list-wrap" id="qr-list">
+                    <div class="qr-empty-state">
+                        <i class="bi bi-chat-square-text"></i>
+                        <span>Carregando...</span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -650,6 +670,177 @@ body { overflow: hidden !important; margin: 0; padding: 0; }
 .btn-transcribe:disabled { opacity: 0.7; cursor: default; }
 .btn-transcribe i { font-size: 1rem; }
 .qr-message-auto { resize: none; overflow-y: auto; min-height: 34px; max-height: 200px; line-height: 1.4; }
+
+/* ===== Modal Respostas Rápidas — Redesign ===== */
+.qr-modal { border: none; border-radius: 16px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.15); }
+.qr-modal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px 24px 16px;
+    border-bottom: 1px solid #f0f1f3;
+    background: linear-gradient(135deg, #fafbfc 0%, #f5f6f8 100%);
+}
+.qr-modal-title-wrap { display: flex; align-items: center; gap: 12px; }
+.qr-modal-icon {
+    width: 40px; height: 40px; border-radius: 10px;
+    background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.1rem; color: #fff;
+    box-shadow: 0 3px 10px rgba(245, 158, 11, 0.3);
+}
+.qr-modal-title { margin: 0; font-size: 1.05rem; font-weight: 700; color: #1f2937; }
+.qr-modal-subtitle { margin: 2px 0 0; font-size: 0.76rem; color: #6b7280; }
+.qr-modal-subtitle code { background: #f3f4f6; padding: 2px 6px; border-radius: 4px; font-size: 0.72rem; color: #374151; }
+.qr-modal-body { padding: 20px 24px 24px; max-height: 65vh; overflow-y: auto; }
+
+/* Form card */
+.qr-form-card {
+    background: #fff; border: 1px solid #e5e7eb; border-radius: 12px;
+    margin-bottom: 20px; overflow: hidden;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+.qr-form-card:hover, .qr-form-card.editing { border-color: #d1d5db; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+.qr-form-card.editing { border-color: var(--primary-light, #34d399); }
+.qr-form-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px; cursor: pointer;
+    background: #f9fafb; border-bottom: 1px solid transparent;
+    transition: background 0.15s;
+    font-size: 0.85rem; font-weight: 600; color: #374151;
+}
+.qr-form-header:hover { background: #f3f4f6; }
+.qr-form-header i:first-child { color: var(--primary, #00BFA6); }
+.qr-form-chevron { transition: transform 0.25s ease; font-size: 0.8rem; color: #9ca3af; }
+.qr-form-chevron.open { transform: rotate(180deg); }
+.qr-form-body {
+    display: none; padding: 16px;
+    animation: qrSlideDown 0.2s ease;
+}
+.qr-form-body.open { display: block; }
+@keyframes qrSlideDown { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+.qr-form-row { display: flex; gap: 12px; margin-bottom: 12px; }
+.qr-form-row-bottom { align-items: center; justify-content: space-between; margin-bottom: 0; }
+.qr-form-field { display: flex; flex-direction: column; gap: 4px; }
+.qr-field-shortcut { flex: 0 0 140px; }
+.qr-field-message { flex: 1; }
+.qr-field-attach { flex: 0 0 auto; }
+.qr-label { font-size: 0.72rem; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.3px; }
+.qr-shortcut-input {
+    display: flex; align-items: center;
+    border: 1px solid #e5e7eb; border-radius: 8px;
+    overflow: hidden; background: #fff;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+.qr-shortcut-input:focus-within { border-color: var(--primary, #00BFA6); box-shadow: 0 0 0 3px rgba(0, 191, 166, 0.1); }
+.qr-shortcut-prefix {
+    padding: 7px 10px; font-size: 0.85rem; font-weight: 700; color: #9ca3af;
+    background: #f9fafb; border-right: 1px solid #e5e7eb;
+    user-select: none;
+}
+.qr-input {
+    width: 100%; border: 1px solid #e5e7eb; border-radius: 8px;
+    padding: 8px 12px; font-size: 0.84rem; color: #1f2937;
+    background: #fff; outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+.qr-input:focus { border-color: var(--primary, #00BFA6); box-shadow: 0 0 0 3px rgba(0, 191, 166, 0.1); }
+.qr-shortcut-input .qr-input { border: none; border-radius: 0; box-shadow: none; }
+.qr-textarea { resize: none; min-height: 56px; max-height: 120px; line-height: 1.5; }
+.qr-attach-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 14px; border-radius: 8px;
+    font-size: 0.8rem; font-weight: 500; color: #6b7280;
+    background: #f3f4f6; border: 1px solid #e5e7eb;
+    cursor: pointer; transition: all 0.15s;
+}
+.qr-attach-btn:hover { background: #e5e7eb; color: #374151; }
+.qr-form-actions { display: flex; gap: 8px; align-items: center; }
+.qr-btn-cancel {
+    padding: 7px 14px; border-radius: 8px; border: 1px solid #e5e7eb;
+    background: #fff; font-size: 0.8rem; font-weight: 500; color: #6b7280;
+    cursor: pointer; transition: all 0.15s;
+    display: inline-flex; align-items: center;
+}
+.qr-btn-cancel:hover { background: #f9fafb; color: #374151; }
+.qr-btn-save {
+    padding: 7px 18px; border-radius: 8px; border: none;
+    background: linear-gradient(135deg, var(--primary, #00BFA6) 0%, #009688 100%);
+    font-size: 0.82rem; font-weight: 600; color: #fff;
+    cursor: pointer; transition: all 0.2s;
+    display: inline-flex; align-items: center; gap: 5px;
+    box-shadow: 0 2px 8px rgba(0, 191, 166, 0.25);
+}
+.qr-btn-save:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0, 191, 166, 0.35); }
+
+/* Attachment feedback */
+.qr-attachment-feedback { margin-top: 10px; }
+.qr-attach-badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 12px; border-radius: 8px; font-size: 0.78rem; max-width: 100%;
+}
+.qr-attach-badge-new { background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; }
+.qr-attach-badge-current { background: #f9fafb; border: 1px solid #e5e7eb; color: #374151; }
+.qr-attach-badge a { color: var(--primary-dark, #00897B); text-decoration: none; max-width: 200px; }
+.qr-attach-badge a:hover { text-decoration: underline; }
+.qr-attach-remove {
+    background: none; border: none; cursor: pointer; padding: 2px;
+    color: #9ca3af; font-size: 1rem; line-height: 1; border-radius: 4px;
+    transition: color 0.15s, background 0.15s;
+}
+.qr-attach-remove:hover { color: #ef4444; background: #fef2f2; }
+
+/* Lista de cards */
+.qr-list-wrap { display: flex; flex-direction: column; gap: 8px; }
+.qr-empty-state {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 40px 20px; color: #9ca3af;
+    font-size: 0.85rem; gap: 8px;
+}
+.qr-empty-state i { font-size: 2.2rem; opacity: 0.5; }
+.qr-card {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px; border-radius: 10px;
+    background: #fff; border: 1px solid #f0f1f3;
+    transition: all 0.15s ease;
+}
+.qr-card:hover { background: #f9fafb; border-color: #e5e7eb; box-shadow: 0 2px 6px rgba(0,0,0,0.04); }
+.qr-card-left { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.qr-card-shortcut {
+    font-size: 0.82rem; font-weight: 700;
+    color: var(--primary-dark, #00897B);
+    background: var(--primary-50, #e0f7f4);
+    display: inline-block; padding: 2px 10px; border-radius: 6px;
+    width: fit-content;
+}
+.qr-card-message {
+    font-size: 0.82rem; color: #4b5563; line-height: 1.4;
+    overflow: hidden; text-overflow: ellipsis;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+.qr-card-attach {
+    font-size: 0.74rem; color: #6b7280; text-decoration: none;
+    display: inline-flex; align-items: center; gap: 4px;
+    margin-top: 2px;
+}
+.qr-card-attach:hover { color: var(--primary, #00BFA6); }
+.qr-card-actions { display: flex; gap: 4px; flex-shrink: 0; margin-left: 12px; opacity: 0; transition: opacity 0.15s; }
+.qr-card:hover .qr-card-actions { opacity: 1; }
+.qr-action-btn {
+    width: 32px; height: 32px; border-radius: 8px; border: none;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.85rem; cursor: pointer; transition: all 0.15s;
+}
+.qr-action-edit { background: #eff6ff; color: #3b82f6; }
+.qr-action-edit:hover { background: #dbeafe; color: #2563eb; }
+.qr-action-delete { background: #fef2f2; color: #ef4444; }
+.qr-action-delete:hover { background: #fee2e2; color: #dc2626; }
+
+@media (max-width: 576px) {
+    .qr-form-row { flex-direction: column; }
+    .qr-field-shortcut { flex: 1; }
+    .qr-form-row-bottom { flex-direction: column; gap: 10px; align-items: stretch; }
+    .qr-form-actions { justify-content: flex-end; }
+    .qr-card-actions { opacity: 1; }
+}
 
 /* ===== Player de áudio customizado ===== */
 .wpp-audio { display: flex; align-items: center; gap: 10px; min-width: 230px; max-width: 290px; padding: 2px 0; }
@@ -1679,6 +1870,16 @@ function resetQuickReplyForm() {
     document.getElementById('qr-remove-attachment').value = '0';
     document.getElementById('qr-current-attachment').style.display = 'none';
     document.getElementById('qr-selected-attachment').style.display = 'none';
+    document.getElementById('qr-btn-cancel').style.display = 'none';
+    document.getElementById('qr-form-title').textContent = 'Nova resposta rápida';
+    document.getElementById('qr-form-card').classList.remove('editing');
+}
+
+function toggleQrForm() {
+    const body = document.getElementById('qr-form-body');
+    const chevron = document.getElementById('qr-form-chevron');
+    body.classList.toggle('open');
+    chevron.classList.toggle('open');
 }
 
 function openQuickRepliesModal() {
@@ -1692,21 +1893,31 @@ function renderQuickRepliesList() {
     .then(r => r.json())
     .then(data => {
         quickReplies = data.replies || [];
-        const tbody = document.getElementById('qr-list');
+        const container = document.getElementById('qr-list');
         if (!quickReplies.length) {
-            tbody.innerHTML = '<tr><td colspan="4" class="text-muted small text-center py-3">Nenhuma resposta cadastrada.</td></tr>';
+            container.innerHTML = `<div class="qr-empty-state">
+                <i class="bi bi-chat-square-text"></i>
+                <span>Nenhuma resposta cadastrada ainda</span>
+            </div>`;
             return;
         }
-        tbody.innerHTML = quickReplies.map(q => `
-            <tr>
-                <td><span class="qr-sc">/${escapeHtml(q.shortcut)}</span></td>
-                <td class="small text-truncate" style="max-width:300px;">${escapeHtml(q.message)}</td>
-                <td class="small">${q.attachment_url ? `<a href="${q.attachment_url}" target="_blank" title="${escapeHtml(q.attachment_name || '')}"><i class="bi bi-paperclip"></i></a>` : '<span class="text-muted">—</span>'}</td>
-                <td class="text-end">
-                    <button class="btn btn-sm btn-outline-primary" onclick="editQuickReply(${q.id})"><i class="bi bi-pencil"></i></button>
-                    <button class="btn btn-sm btn-outline-danger" onclick="deleteQuickReply(${q.id})"><i class="bi bi-trash"></i></button>
-                </td>
-            </tr>`).join('');
+        container.innerHTML = quickReplies.map(q => {
+            const msgPreview = q.message ? (q.message.length > 90 ? escapeHtml(q.message.substring(0, 90)) + '…' : escapeHtml(q.message)) : '<em class="text-muted">Apenas anexo</em>';
+            const attachHtml = q.attachment_url
+                ? `<a href="${q.attachment_url}" target="_blank" class="qr-card-attach" title="${escapeHtml(q.attachment_name || 'Anexo')}"><i class="bi bi-paperclip"></i> ${escapeHtml(q.attachment_name || 'Anexo')}</a>`
+                : '';
+            return `<div class="qr-card" data-id="${q.id}">
+                <div class="qr-card-left">
+                    <div class="qr-card-shortcut">/${escapeHtml(q.shortcut)}</div>
+                    <div class="qr-card-message">${msgPreview}</div>
+                    ${attachHtml}
+                </div>
+                <div class="qr-card-actions">
+                    <button class="qr-action-btn qr-action-edit" onclick="editQuickReply(${q.id})" title="Editar"><i class="bi bi-pencil-square"></i></button>
+                    <button class="qr-action-btn qr-action-delete" onclick="deleteQuickReply(${q.id})" title="Excluir"><i class="bi bi-trash3"></i></button>
+                </div>
+            </div>`;
+        }).join('');
     });
 }
 
@@ -1721,6 +1932,12 @@ function editQuickReply(id) {
     document.getElementById('qr-attachment').value = '';
     document.getElementById('qr-remove-attachment').value = '0';
     document.getElementById('qr-selected-attachment').style.display = 'none';
+    document.getElementById('qr-btn-cancel').style.display = 'inline-flex';
+    document.getElementById('qr-form-title').textContent = 'Editando: /' + q.shortcut;
+    // Expand form if collapsed
+    document.getElementById('qr-form-body').classList.add('open');
+    document.getElementById('qr-form-chevron').classList.add('open');
+    document.getElementById('qr-form-card').classList.add('editing');
     const box = document.getElementById('qr-current-attachment');
     if (q.attachment_url) {
         const link = document.getElementById('qr-current-attachment-link');
@@ -1730,6 +1947,8 @@ function editQuickReply(id) {
     } else {
         box.style.display = 'none';
     }
+    // Scroll up to form
+    document.getElementById('qr-form-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 // Quando o usuário escolhe um novo arquivo, mostra o nome anexado
