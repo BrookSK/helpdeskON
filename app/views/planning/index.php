@@ -367,9 +367,9 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                                 <!-- ABA COMENTÁRIOS -->
                                 <div class="tab-pane fade" id="pane-comentarios" role="tabpanel">
                                     <div id="detail-comments" class="mb-3" style="max-height:400px;overflow-y:auto;"></div>
-                                    <div class="d-flex gap-2 mt-2">
-                                        <input type="text" id="comment-input" class="form-control form-control-sm" placeholder="Escreva um comentário..." onkeypress="if(event.key==='Enter')addComment()">
-                                        <button class="btn btn-sm btn-primary" onclick="addComment()"><i class="bi bi-send"></i></button>
+                                    <div class="d-flex gap-2 mt-2 align-items-end">
+                                        <textarea id="comment-input" class="form-control form-control-sm" placeholder="Escreva um comentário..." rows="2" style="resize:vertical;" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();addComment();}"></textarea>
+                                        <button class="btn btn-sm btn-primary" onclick="addComment()" style="height:fit-content;"><i class="bi bi-send"></i></button>
                                     </div>
                                 </div>
                             </div>
@@ -1138,14 +1138,15 @@ function escapeHtml(text) {
 function renderComments(comments) {
     const container = document.getElementById('detail-comments');
     if (!comments.length) { container.innerHTML = '<p class="text-muted small">Nenhum comentário.</p>'; return; }
+    const escapeHtml = (str) => (str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     container.innerHTML = comments.map(c => `
         <div class="d-flex gap-2 mb-2">
             <div class="rounded-circle bg-secondary d-flex align-items-center justify-content-center flex-shrink-0" style="width:28px;height:28px;">
                 <i class="bi bi-person text-white" style="font-size:0.7rem;"></i>
             </div>
             <div class="flex-grow-1">
-                <div class="small"><strong>${c.user_name}</strong> <span class="text-muted" style="font-size:0.7rem;">${new Date(c.created_at).toLocaleString('pt-BR')}</span></div>
-                <div class="small">${c.message}</div>
+                <div class="small"><strong>${escapeHtml(c.user_name)}</strong> <span class="text-muted" style="font-size:0.7rem;">${new Date(c.created_at).toLocaleString('pt-BR')}</span></div>
+                <div class="small">${escapeHtml(c.message).replace(/\n/g, '<br>')}</div>
             </div>
         </div>
     `).join('');
@@ -1164,14 +1165,16 @@ function addComment() {
                 input.value = '';
                 const container = document.getElementById('detail-comments');
                 if (container.querySelector('.text-muted')) container.innerHTML = '';
+                const escapeHtml = (str) => (str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+                const msgHtml = escapeHtml(data.comment.message).replace(/\n/g, '<br>');
                 container.innerHTML += `
                     <div class="d-flex gap-2 mb-2">
                         <div class="rounded-circle bg-secondary d-flex align-items-center justify-content-center flex-shrink-0" style="width:28px;height:28px;">
                             <i class="bi bi-person text-white" style="font-size:0.7rem;"></i>
                         </div>
                         <div class="flex-grow-1">
-                            <div class="small"><strong>${data.comment.user_name}</strong> <span class="text-muted" style="font-size:0.7rem;">agora</span></div>
-                            <div class="small">${data.comment.message}</div>
+                            <div class="small"><strong>${escapeHtml(data.comment.user_name)}</strong> <span class="text-muted" style="font-size:0.7rem;">agora</span></div>
+                            <div class="small">${msgHtml}</div>
                         </div>
                     </div>`;
                 container.scrollTop = container.scrollHeight;
