@@ -465,6 +465,34 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                                 </div>
 
                                 <hr class="my-2">
+                                <h6 class="fw-bold small text-muted mb-2 text-uppercase"><i class="bi bi-git"></i> Referência CX Hub</h6>
+                                <div class="row g-2 mb-2">
+                                    <div class="col-5">
+                                        <label class="form-label small fw-medium text-muted">Nº Demanda CX</label>
+                                        <input type="text" id="detail-cx-hub-number" class="form-control form-control-sm" placeholder="Ex: 1234">
+                                    </div>
+                                    <div class="col-7">
+                                        <label class="form-label small fw-medium text-muted">Nome Demanda CX</label>
+                                        <input type="text" id="detail-cx-hub-name" class="form-control form-control-sm" placeholder="Título no CX Hub">
+                                    </div>
+                                </div>
+                                <div class="mb-2">
+                                    <label class="form-label small fw-medium text-muted">Branch</label>
+                                    <input type="text" id="detail-branch-name" class="form-control form-control-sm" placeholder="Ex: feature/1234-nome-da-branch">
+                                </div>
+                                <div class="row g-2 mb-2 align-items-end">
+                                    <div class="col">
+                                        <label class="form-label small fw-medium text-muted">Nº do PR</label>
+                                        <input type="text" id="detail-pr-number" class="form-control form-control-sm" placeholder="Ex: 87">
+                                    </div>
+                                    <div class="col-auto">
+                                        <button class="btn btn-sm btn-success" onclick="prDone()" title="Salvar PR e enviar para Revisão Interna">
+                                            <i class="bi bi-check2-circle"></i> PR Feito
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <hr class="my-2">
                                 <small class="text-muted d-block mb-2" id="detail-meta" style="font-size:0.72rem;line-height:1.4;"></small>
 
                                 <hr class="my-2">
@@ -666,6 +694,12 @@ function openCardModal(id) {
         document.getElementById('detail-start-date').value = c.start_date ? c.start_date.slice(0,16) : '';
         document.getElementById('detail-end-date').value = c.end_date ? c.end_date.slice(0,16) : '';
 
+        // Campos CX Hub
+        document.getElementById('detail-cx-hub-number').value = c.cx_hub_number || '';
+        document.getElementById('detail-cx-hub-name').value = c.cx_hub_name || '';
+        document.getElementById('detail-branch-name').value = c.branch_name || '';
+        document.getElementById('detail-pr-number').value = c.pr_number || '';
+
         // Meta info
         let metaHtml = '<i class="bi bi-person-fill"></i> Criado por <strong>' + (c.created_by_name || 'Desconhecido') + '</strong>';
         metaHtml += '<br><i class="bi bi-calendar3"></i> ' + new Date(c.created_at).toLocaleString('pt-BR');
@@ -846,6 +880,11 @@ function saveCard() {
     formData.append('due_date', document.getElementById('detail-due-date').value);
     formData.append('start_date', document.getElementById('detail-start-date').value);
     formData.append('end_date', document.getElementById('detail-end-date').value);
+    // Campos CX Hub
+    formData.append('cx_hub_number', document.getElementById('detail-cx-hub-number').value);
+    formData.append('cx_hub_name', document.getElementById('detail-cx-hub-name').value);
+    formData.append('branch_name', document.getElementById('detail-branch-name').value);
+    formData.append('pr_number', document.getElementById('detail-pr-number').value);
 
     // Enviar descrição como arquivo Blob para contornar limite do ModSecurity
     // (SecRequestBodyNoFilesLimit não se aplica a file parts)
@@ -887,6 +926,38 @@ function deleteCardPermanent() {
             if (data.success) location.reload();
             else alert(data.error || 'Erro ao excluir permanentemente.');
         });
+}
+
+function prDone() {
+    const prNumber = document.getElementById('detail-pr-number').value.trim();
+    if (!prNumber) {
+        alert('Informe o número do PR antes de marcar como feito.');
+        document.getElementById('detail-pr-number').focus();
+        return;
+    }
+    if (!confirm('Confirmar PR #' + prNumber + ' como feito?\n\nO card será movido para "Em Revisão Interna" e o analista será notificado.')) return;
+
+    const formData = new FormData();
+    formData.append('pr_number', prNumber);
+    formData.append('cx_hub_number', document.getElementById('detail-cx-hub-number').value);
+    formData.append('cx_hub_name', document.getElementById('detail-cx-hub-name').value);
+    formData.append('branch_name', document.getElementById('detail-branch-name').value);
+
+    fetch(BASE + 'planning/prDone/' + currentCardId, {
+        method: 'POST',
+        body: formData,
+        headers: {'X-Requested-With': 'XMLHttpRequest'}
+    }).then(r => r.json()).then(data => {
+        if (data.success) {
+            alert('PR registrado! Card movido para Revisão Interna. Analista notificado.');
+            location.reload();
+        } else {
+            alert(data.error || 'Erro ao registrar PR.');
+        }
+    }).catch(err => {
+        alert('Erro na requisição.');
+        console.error(err);
+    });
 }
 
 // === TASKS ===
