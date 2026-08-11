@@ -129,9 +129,9 @@
                         <p class="text-muted small text-center mb-0" id="no-notes">Nenhuma observação interna.</p>
                         <?php endif; ?>
                     </div>
-                    <div class="mt-3 d-flex gap-2">
-                        <input type="text" id="note-input" class="form-control form-control-sm" placeholder="Escreva uma observação interna..." onkeypress="if(event.key==='Enter')addInternalNote()">
-                        <button type="button" onclick="addInternalNote()" class="btn btn-warning btn-sm px-3" title="Adicionar observação">
+                    <div class="mt-3 d-flex gap-2 align-items-end">
+                        <textarea id="note-input" class="form-control form-control-sm" placeholder="Escreva uma observação interna..." rows="2" style="resize:vertical;" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();addInternalNote();}"></textarea>
+                        <button type="button" onclick="addInternalNote()" class="btn btn-warning btn-sm px-3" title="Adicionar observação" style="height:fit-content;">
                             <i class="bi bi-plus-lg"></i>
                         </button>
                     </div>
@@ -389,6 +389,10 @@ function addInternalNote() {
             const noNotes = document.getElementById('no-notes');
             if (noNotes) noNotes.remove();
 
+            // Escapar HTML e converter quebras de linha em <br>
+            const escapeHtml = (str) => str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+            const noteText = escapeHtml(data.note.note).replace(/\n/g, '<br>');
+
             const noteHtml = `
                 <div class="d-flex gap-2 mb-3">
                     <div class="rounded-circle bg-warning d-flex align-items-center justify-content-center flex-shrink-0" style="width:30px;height:30px;">
@@ -396,10 +400,10 @@ function addInternalNote() {
                     </div>
                     <div class="flex-grow-1">
                         <div class="d-flex justify-content-between align-items-center">
-                            <strong style="font-size:0.8rem">${data.note.user_name}</strong>
+                            <strong style="font-size:0.8rem">${escapeHtml(data.note.user_name)}</strong>
                             <small class="text-muted" style="font-size:0.7rem">${data.note.created_at}</small>
                         </div>
-                        <div class="p-2 rounded mt-1" style="font-size:0.83rem;background:#fff8e1;border:1px solid #ffe082;">${data.note.note}</div>
+                        <div class="p-2 rounded mt-1" style="font-size:0.83rem;background:#fff8e1;border:1px solid #ffe082;">${noteText}</div>
                     </div>
                 </div>`;
             container.insertAdjacentHTML('beforeend', noteHtml);

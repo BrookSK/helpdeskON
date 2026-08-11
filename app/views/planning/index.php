@@ -849,12 +849,15 @@ function renderTicketData(data) {
         noNotesEl.style.display = '';
     } else {
         noNotesEl.style.display = 'none';
-        notesList.innerHTML = internalNotes.map(n => `
+        notesList.innerHTML = internalNotes.map(n => {
+            const escapeHtml = (str) => (str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+            const noteText = escapeHtml(n.note).replace(/\n/g, '<br>');
+            return `
             <div class="internal-note-card">
-                <div class="note-meta"><i class="bi bi-person-fill"></i> <strong>${n.user_name || 'Sistema'}</strong> &middot; ${new Date(n.created_at).toLocaleString('pt-BR')}</div>
-                <div class="note-text">${n.note}</div>
+                <div class="note-meta"><i class="bi bi-person-fill"></i> <strong>${escapeHtml(n.user_name) || 'Sistema'}</strong> &middot; ${new Date(n.created_at).toLocaleString('pt-BR')}</div>
+                <div class="note-text">${noteText}</div>
             </div>
-        `).join('');
+        `}).join('');
     }
 }
 
