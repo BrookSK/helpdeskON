@@ -31,7 +31,8 @@ class MarketingItem
         $sql = "SELECT mi.*, u.name AS assigned_name
                 FROM marketing_items mi
                 LEFT JOIN users u ON mi.assigned_to = u.id
-                WHERE mi.scheduled_at BETWEEN ? AND ?";
+                WHERE mi.scheduled_at BETWEEN ? AND ?
+                  AND mi.status <> 'rejeitado'";
         $params = [$start, $end];
 
         if (!empty($filters['assigned_to'])) {

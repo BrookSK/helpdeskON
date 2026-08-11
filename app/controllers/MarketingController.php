@@ -8,7 +8,7 @@ class MarketingController extends Controller
     private $accessRoles = ['super_admin', 'marketing'];
 
     // Status válidos, em ordem de fluxo
-    public static $statuses = ['ideia', 'em_producao', 'aguardando_aprovacao', 'aprovado', 'agendado', 'publicado'];
+    public static $statuses = ['ideia', 'em_producao', 'aguardando_aprovacao', 'aprovado', 'agendado', 'publicado', 'rejeitado'];
 
     public function __construct()
     {
@@ -88,8 +88,8 @@ class MarketingController extends Controller
             // Aprovações: apenas super_admin vê a fila; itens aguardando aprovação
             $filters['status'] = 'aguardando_aprovacao';
         } else {
-            // Pendências: itens não finalizados
-            $filters['status'] = ['ideia', 'em_producao', 'aguardando_aprovacao', 'aprovado', 'agendado'];
+            // Pendências: itens não finalizados (inclui rejeitados para acompanhamento)
+            $filters['status'] = ['ideia', 'em_producao', 'aguardando_aprovacao', 'aprovado', 'agendado', 'rejeitado'];
         }
 
         // Marketing só vê os próprios itens nas listas
@@ -188,9 +188,9 @@ class MarketingController extends Controller
         // Status: marketing pode mudar entre os status de produção, mas não pode "aprovar".
         if (isset($_POST['status']) && in_array($_POST['status'], self::$statuses)) {
             $newStatus = $_POST['status'];
-            $forbiddenForMarketing = ['aprovado'];
+            $forbiddenForMarketing = ['aprovado', 'rejeitado'];
             if (!$isAdmin && in_array($newStatus, $forbiddenForMarketing)) {
-                $this->json(['error' => 'Somente o administrador pode aprovar o conteúdo.'], 403);
+                $this->json(['error' => 'Somente o administrador pode aprovar ou rejeitar o conteúdo.'], 403);
             }
             $data['status'] = $newStatus;
         }
@@ -240,6 +240,25 @@ class MarketingController extends Controller
 
         if ($item['assigned_to']) {
             $this->notify($item['assigned_to'], 'Ajustes solicitados', "O admin solicitou ajustes em \"{$item['title']}\"." . ($notes ? " Observação: {$notes}" : ''));
+        }
+        $this->json(['success' => true, 'item' => $this->itemModel->findById($id)]);
+    }
+
+    // API: rejeitar conteúdo (somente admin)
+    public function reject($id = null)
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+        $item = $this->itemModel->findById($id);
+        if (!$item) $this->json(['error' => 'Item não encontrado'], 404);
+
+        $notes = trim($_POST['review_notes'] ?? '');
+        $this->itemModel->update($id, ['status' => 'rejeitado', 'review_notes' => $notes ?: null]);
+
+        if ($item['assigned_to']) {
+            $this->notify($item['assigned_to'], 'Conteúdo rejeitado', "Sua demanda \"{$item['title']}\" foi rejeitada." . ($notes ? " Motivo: {$notes}" : ''));
         }
         $this->json(['success' => true, 'item' => $this->itemModel->findById($id)]);
     }

@@ -10,6 +10,7 @@ $statusMeta = [
     'aprovado' => ['Aprovado', '#2e7d32'],
     'agendado' => ['Agendado', '#1565c0'],
     'publicado' => ['Publicado', '#00897b'],
+    'rejeitado' => ['Rejeitado', '#d32f2f'],
 ];
 $socialNetworks = ['Instagram', 'Facebook', 'LinkedIn', 'TikTok', 'YouTube', 'X (Twitter)', 'WhatsApp', 'Blog', 'Outro'];
 ?>
@@ -60,7 +61,7 @@ $socialNetworks = ['Instagram', 'Facebook', 'LinkedIn', 'TikTok', 'YouTube', 'X 
 
     <!-- ===== PENDÊNCIAS ===== -->
     <div id="tab-pendencias" class="mkt-tab-panel" style="display:none;">
-        <div id="pendencias-list" class="mkt-cards-grid">
+        <div id="pendencias-list">
             <div class="text-muted small py-4 text-center">Carregando...</div>
         </div>
     </div>
@@ -68,7 +69,7 @@ $socialNetworks = ['Instagram', 'Facebook', 'LinkedIn', 'TikTok', 'YouTube', 'X 
     <!-- ===== APROVAÇÕES ===== -->
     <?php if ($isAdmin): ?>
     <div id="tab-aprovacoes" class="mkt-tab-panel" style="display:none;">
-        <div id="aprovacoes-list" class="mkt-cards-grid">
+        <div id="aprovacoes-list">
             <div class="text-muted small py-4 text-center">Carregando...</div>
         </div>
     </div>
@@ -81,6 +82,15 @@ $socialNetworks = ['Instagram', 'Facebook', 'LinkedIn', 'TikTok', 'YouTube', 'X 
 .mkt-tabs .nav-link { color: #555; font-size: 0.85rem; border-radius: 8px; }
 .mkt-tabs .nav-link.active { background: var(--primary); color: #fff; }
 .mkt-cards-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.mkt-status-group { margin-bottom: 22px; }
+.mkt-status-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid #eef0f2; }
+.mkt-status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.mkt-status-title { font-size: 0.82rem; font-weight: 600; color: #445; text-transform: uppercase; letter-spacing: .4px; }
+.mkt-status-count { font-size: 0.68rem; font-weight: 600; background: #eef0f2; color: #667; border-radius: 20px; padding: 1px 8px; }
+.mkt-btn-warning { background: #f5a623; border: 1px solid #f5a623; color: #fff; }
+.mkt-btn-warning:hover, .mkt-btn-warning:focus { background: #e0951a; border-color: #e0951a; color: #fff; }
+.mkt-btn-danger { background: #d32f2f; border: 1px solid #d32f2f; color: #fff; }
+.mkt-btn-danger:hover, .mkt-btn-danger:focus { background: #b71c1c; border-color: #b71c1c; color: #fff; }
 .mkt-card { background: #fff; border: 1px solid #eef0f2; border-radius: 12px; padding: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); cursor: pointer; transition: box-shadow .15s, transform .15s; }
 .mkt-card:hover { box-shadow: 0 4px 14px rgba(0,0,0,0.1); transform: translateY(-1px); }
 .mkt-card h6 { font-size: 0.9rem; margin-bottom: 6px; }
@@ -252,8 +262,32 @@ function loadItems(section) {
                 list.innerHTML = '<div class="text-muted small py-4 text-center">Nenhum item.</div>';
                 return;
             }
-            list.innerHTML = items.map(renderCardHtml).join('');
+            list.innerHTML = renderGroupedByStatus(items);
         });
+}
+
+// Agrupa os itens por status em seções separadas (evita misturar aprovado com aguardando, etc.)
+function renderGroupedByStatus(items) {
+    // Ordem de exibição dos status
+    const order = ['ideia','em_producao','aguardando_aprovacao','aprovado','agendado','publicado','rejeitado'];
+    const groups = {};
+    items.forEach(it => { (groups[it.status] = groups[it.status] || []).push(it); });
+
+    let html = '';
+    order.forEach(status => {
+        const list = groups[status];
+        if (!list || !list.length) return;
+        const meta = STATUS_META[status] || ['', '#888'];
+        html += `<div class="mkt-status-group">
+            <div class="mkt-status-head">
+                <span class="mkt-status-dot" style="background:${meta[1]}"></span>
+                <span class="mkt-status-title">${meta[0]}</span>
+                <span class="mkt-status-count">${list.length}</span>
+            </div>
+            <div class="mkt-cards-grid">${list.map(renderCardHtml).join('')}</div>
+        </div>`;
+    });
+    return html;
 }
 
 function renderCardHtml(it) {

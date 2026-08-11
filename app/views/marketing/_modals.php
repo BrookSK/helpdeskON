@@ -52,6 +52,7 @@
                             <option value="aprovado" class="opt-approve">Aprovado</option>
                             <option value="agendado">Agendado</option>
                             <option value="publicado">Publicado</option>
+                            <option value="rejeitado" class="opt-reject">Rejeitado</option>
                         </select>
                     </div>
                     <div class="col-12">
@@ -83,7 +84,8 @@
                 </div>
                 <div class="d-flex gap-2">
                     <!-- Ações de aprovação (admin) -->
-                    <button class="btn btn-sm btn-outline-warning mkt-approval-action" onclick="requestChanges()" style="display:none;"><i class="bi bi-arrow-counterclockwise"></i> Solicitar ajustes</button>
+                    <button class="btn btn-sm mkt-btn-warning mkt-approval-action" onclick="requestChanges()" style="display:none;"><i class="bi bi-arrow-counterclockwise"></i> Solicitar ajustes</button>
+                    <button class="btn btn-sm mkt-btn-danger mkt-approval-action" onclick="rejectItem()" style="display:none;"><i class="bi bi-x-lg"></i> Rejeitar</button>
                     <button class="btn btn-sm btn-success mkt-approval-action" onclick="approveItem()" style="display:none;"><i class="bi bi-check-lg"></i> Aprovar</button>
                     <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Fechar</button>
                     <button class="btn btn-sm btn-primary" id="item-save-btn" onclick="saveItem()"><i class="bi bi-check-lg"></i> Salvar</button>
@@ -92,6 +94,29 @@
         </div>
     </div>
 </div>
+
+<!-- Modal: Solicitar ajustes (admin) -->
+<?php if ($isAdmin): ?>
+<div class="modal fade" id="requestChangesModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title" id="rc-modal-title"><i class="bi bi-arrow-counterclockwise text-warning"></i> Solicitar ajustes</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="rc-item-id">
+                <label class="form-label small fw-medium" id="rc-notes-label">Descreva os ajustes necessários</label>
+                <textarea id="rc-notes" class="form-control form-control-sm" rows="4" placeholder="Ex: ajustar a chamada, revisar a arte, trocar a data..."></textarea>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button class="btn btn-sm mkt-btn-warning" id="rc-confirm-btn" onclick="confirmRequestChanges()"><i class="bi bi-send"></i> Enviar solicitação</button>
+            </div>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 
 <!-- Modal: Datas comemorativas com IA (admin) -->
 <?php if ($isAdmin): ?>
@@ -224,10 +249,12 @@ function applyRoleUiForNew() {
     toggleApproveOption();
 }
 
-// Esconde opção "Aprovado" do select para não-admin
+// Esconde opções "Aprovado" e "Rejeitado" do select para não-admin (decisão do admin)
 function toggleApproveOption() {
-    const opt = document.querySelector('#item-status .opt-approve');
-    if (opt) opt.style.display = IS_ADMIN ? '' : 'none';
+    const approve = document.querySelector('#item-status .opt-approve');
+    if (approve) approve.style.display = IS_ADMIN ? '' : 'none';
+    const reject = document.querySelector('#item-status .opt-reject');
+    if (reject) reject.style.display = IS_ADMIN ? '' : 'none';
 }
 
 function fillItemForm(it) {
@@ -349,19 +376,64 @@ function approveItem() {
         });
 }
 
+let requestChangesModalInstance = null;
+let rcMode = 'ajustes'; // 'ajustes' ou 'rejeitar'
+
 function requestChanges() {
+    openRcModal('ajustes');
+}
+
+function rejectItem() {
+    openRcModal('rejeitar');
+}
+
+function openRcModal(mode) {
     const id = document.getElementById('item-id').value;
     if (!id) return;
-    const notes = prompt('Descreva os ajustes necessários:');
-    if (notes === null) return;
+    rcMode = mode;
+    document.getElementById('rc-item-id').value = id;
+    document.getElementById('rc-notes').value = '';
+
+    const title = document.getElementById('rc-modal-title');
+    const confirmBtn = document.getElementById('rc-confirm-btn');
+    const notesLabel = document.getElementById('rc-notes-label');
+    if (mode === 'rejeitar') {
+        title.innerHTML = '<i class="bi bi-x-circle text-danger"></i> Rejeitar conteúdo';
+        confirmBtn.className = 'btn btn-sm mkt-btn-danger';
+        confirmBtn.innerHTML = '<i class="bi bi-x-lg"></i> Rejeitar';
+        notesLabel.textContent = 'Motivo da rejeição (opcional)';
+    } else {
+        title.innerHTML = '<i class="bi bi-arrow-counterclockwise text-warning"></i> Solicitar ajustes';
+        confirmBtn.className = 'btn btn-sm mkt-btn-warning';
+        confirmBtn.innerHTML = '<i class="bi bi-send"></i> Enviar solicitação';
+        notesLabel.textContent = 'Descreva os ajustes necessários';
+    }
+
+    if (!requestChangesModalInstance) requestChangesModalInstance = new bootstrap.Modal(document.getElementById('requestChangesModal'));
+    requestChangesModalInstance.show();
+}
+
+function confirmRequestChanges() {
+    const id = document.getElementById('rc-item-id').value;
+    const notes = document.getElementById('rc-notes').value.trim();
+    if (!id) return;
+    // Ajustes exige texto; rejeição o motivo é opcional
+    if (rcMode === 'ajustes' && !notes) { document.getElementById('rc-notes').focus(); return; }
+
+    const endpoint = rcMode === 'rejeitar' ? 'reject' : 'requestChanges';
+    const btn = document.getElementById('rc-confirm-btn');
+    btn.disabled = true;
     const fd = new FormData();
     fd.append('review_notes', notes);
-    fetch(`${BASE}marketing/requestChanges/${id}`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
+    fetch(`${BASE}marketing/${endpoint}/${id}`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json()).then(data => {
+            btn.disabled = false;
             if (data.error) { alert(data.error); return; }
+            if (requestChangesModalInstance) requestChangesModalInstance.hide();
             getItemModal().hide();
             afterItemChange();
-        });
+        })
+        .catch(() => { btn.disabled = false; });
 }
 
 function deleteItem() {
