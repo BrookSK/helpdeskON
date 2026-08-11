@@ -474,6 +474,9 @@ body.sidebar-collapsed .wpp-main-override {
 /* Esconder a topbar mobile quando estiver na tela de chat */
 .mobile-topbar { display: none !important; }
 body { overflow: hidden !important; margin: 0; padding: 0; }
+/* Garantir que overlay e sidebar fiquem acima do chat no mobile */
+.sidebar-overlay.show { display: block !important; z-index: 1040 !important; }
+.sidebar.show { z-index: 1050 !important; transform: translateX(0) !important; }
 
 .wpp-layout { display: flex; flex: 1; overflow: hidden; height: 100%; }
 .wpp-contacts-panel { width: 340px; min-width: 340px; border-right: 1px solid #e9ecef; display: flex; flex-direction: column; background: #fff; height: 100%; }
@@ -980,6 +983,14 @@ body { overflow: hidden !important; margin: 0; padding: 0; }
 
     /* Não esconder a topbar no mobile — mas adaptá-la para o contexto do chat */
     .mobile-topbar { display: none !important; }
+
+    /* Botão de fechar o sidebar no mobile (reusa o botão collapse) */
+    .sidebar-collapse-btn {
+        display: inline-flex !important;
+        position: absolute !important;
+        top: 12px !important;
+        right: 10px !important;
+    }
 
     /* Botão de menu hamburger dentro do chat */
     .wpp-mobile-menu-btn {
@@ -2438,6 +2449,39 @@ function mobileOpenSidebar() {
     if (overlay) overlay.classList.add('show');
     document.body.style.overflow = 'hidden';
 }
+
+// Mobile: fechar sidebar
+function mobileCloseSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('sidebar-overlay');
+    if (sidebar) sidebar.classList.remove('show');
+    if (overlay) overlay.classList.remove('show');
+}
+
+// Ao carregar, garantir que no mobile o click no overlay feche o sidebar
+(function() {
+    const overlay = document.getElementById('sidebar-overlay');
+    if (overlay) {
+        overlay.addEventListener('click', mobileCloseSidebar);
+        overlay.addEventListener('touchend', function(e) {
+            e.preventDefault();
+            mobileCloseSidebar();
+        });
+    }
+    // Fechar sidebar ao clicar no botão "recolher" no mobile também
+    const collapseBtn = document.getElementById('btn-collapse-sidebar');
+    if (collapseBtn) {
+        collapseBtn.addEventListener('click', function() {
+            if (window.innerWidth <= 992) {
+                mobileCloseSidebar();
+            }
+        });
+    }
+    // Garantir que no mobile o sidebar comece fechado
+    if (window.innerWidth <= 992) {
+        mobileCloseSidebar();
+    }
+})();
 
 function saveContactDetails() {
     if (!activeContactId) return;

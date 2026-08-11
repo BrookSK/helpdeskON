@@ -187,6 +187,7 @@
                 position: static !important;
                 margin: 0 auto;
             }
+        }
         /* Botão de recolher (desktop) */
         .sidebar-collapse-btn {
             display: none;
