@@ -342,20 +342,18 @@ class MarketingController extends Controller
         }
 
         $year = intval($_POST['year'] ?? date('Y'));
-        $month = intval($_POST['month'] ?? date('n'));
-        if ($month < 1 || $month > 12) $month = date('n');
+        if ($year < 2020 || $year > 2100) $year = intval(date('Y'));
 
         $apiKey = Config::get('openai_api_key');
         if (empty($apiKey)) {
             $this->json(['error' => 'Chave da API OpenAI não configurada em Configurações.'], 400);
         }
 
-        $monthNames = [1=>'janeiro',2=>'fevereiro',3=>'março',4=>'abril',5=>'maio',6=>'junho',7=>'julho',8=>'agosto',9=>'setembro',10=>'outubro',11=>'novembro',12=>'dezembro'];
-        $mesNome = $monthNames[$month];
-
         $prompt = "Liste as principais datas comemorativas e datas relevantes para marketing no Brasil "
-            . "no mês de {$mesNome} de {$year}. Inclua datas comerciais (ex: Black Friday, Dia do Cliente), "
-            . "datas profissionais e comemorativas conhecidas. Responda APENAS um JSON válido no formato: "
+            . "durante TODO o ano de {$year} (de janeiro a dezembro). Inclua datas comerciais (ex: Black Friday, "
+            . "Dia do Cliente, Dia das Mães, Dia dos Namorados, Natal), datas profissionais e comemorativas conhecidas. "
+            . "Retorne o maior número possível de datas relevantes para marketing, cobrindo todos os meses. "
+            . "Responda APENAS um JSON válido no formato: "
             . '{"dates":[{"title":"Dia do Cliente","date":"YYYY-MM-DD","category":"comercial"}]}. '
             . "Não invente datas sem relevância. Use a categoria: comercial, profissional ou comemorativa.";
 
@@ -374,10 +372,11 @@ class MarketingController extends Controller
                         ['role' => 'user', 'content' => $prompt],
                     ],
                     'temperature' => 0.2,
+                    'max_tokens' => 4000,
                     'response_format' => ['type' => 'json_object'],
                 ]),
                 CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_TIMEOUT => 60,
+                CURLOPT_TIMEOUT => 120,
             ]);
             $response = curl_exec($ch);
             $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -393,11 +392,14 @@ class MarketingController extends Controller
             $dates = $parsed['dates'] ?? [];
 
             $inserted = 0;
+            $skipped = 0;
             foreach ($dates as $d) {
                 $title = trim($d['title'] ?? '');
                 $date = trim($d['date'] ?? '');
                 if ($title === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) continue;
-                if ($this->itemModel->holidayExists($date, $title)) continue;
+                // Garante que a data pertence ao ano solicitado
+                if (substr($date, 0, 4) !== (string)$year) continue;
+                if ($this->itemModel->holidayExists($date, $title)) { $skipped++; continue; }
                 $this->itemModel->addHoliday([
                     'title' => $title,
                     'holiday_date' => $date,
@@ -406,7 +408,7 @@ class MarketingController extends Controller
                 $inserted++;
             }
 
-            $this->json(['success' => true, 'inserted' => $inserted]);
+            $this->json(['success' => true, 'inserted' => $inserted, 'skipped' => $skipped, 'year' => $year]);
         } catch (\Throwable $e) {
             $this->json(['error' => 'Erro: ' . $e->getMessage()], 500);
         }

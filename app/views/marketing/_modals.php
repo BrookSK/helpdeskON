@@ -63,14 +63,17 @@
                         <textarea id="item-copy" class="form-control form-control-sm" rows="4" placeholder="Texto do conteúdo..."></textarea>
                     </div>
 
-                    <!-- Anexos (apenas ao editar item existente) -->
-                    <div class="col-12" id="item-attachments-wrap" style="display:none;">
+                    <!-- Anexos -->
+                    <div class="col-12" id="item-attachments-wrap">
                         <label class="form-label small fw-medium">Anexos (artes, documentos, materiais)</label>
                         <div id="item-attachments" class="d-flex flex-wrap gap-2 mb-2"></div>
+                        <!-- Lista de arquivos selecionados antes de salvar (item novo) -->
+                        <div id="item-pending-files" class="d-flex flex-wrap gap-2 mb-2"></div>
                         <div class="d-flex gap-2">
-                            <input type="file" id="item-file" class="form-control form-control-sm">
-                            <button class="btn btn-sm btn-outline-primary" onclick="uploadItemFile()"><i class="bi bi-upload"></i></button>
+                            <input type="file" id="item-file" class="form-control form-control-sm" multiple onchange="onItemFileChange()">
+                            <button class="btn btn-sm btn-outline-primary" id="item-file-btn" onclick="uploadItemFile()" style="display:none;"><i class="bi bi-upload"></i></button>
                         </div>
+                        <small class="text-muted" id="item-file-hint">Os anexos serão enviados ao salvar a demanda.</small>
                     </div>
                 </div>
             </div>
@@ -100,24 +103,16 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <p class="small text-muted">A IA identifica datas comerciais e comemorativas relevantes e insere no calendário. Ela não cria briefing nem copy.</p>
-                <div class="mb-2">
-                    <label class="form-label small fw-medium">Mês</label>
-                    <select id="holiday-month" class="form-select form-select-sm">
-                        <?php $mn=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']; foreach($mn as $i=>$m): ?>
-                        <option value="<?= $i+1 ?>" <?= ($i+1)==date('n')?'selected':'' ?>><?= $m ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
+                <p class="small text-muted">A IA identifica as datas comerciais e comemorativas relevantes do <strong>ano inteiro</strong> e insere no calendário. Ao clicar, novas datas são adicionadas e as já existentes são mantidas. Ela não cria briefing nem copy.</p>
                 <div class="mb-2">
                     <label class="form-label small fw-medium">Ano</label>
-                    <input type="number" id="holiday-year" class="form-control form-control-sm" value="<?= date('Y') ?>">
+                    <input type="number" id="holiday-year" class="form-control form-control-sm" value="<?= date('Y') ?>" min="2020" max="2100">
                 </div>
                 <div id="holiday-result" class="small"></div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Fechar</button>
-                <button class="btn btn-sm btn-primary" id="holiday-gen-btn" onclick="generateHolidays()"><i class="bi bi-stars"></i> Buscar datas</button>
+                <button class="btn btn-sm btn-primary" id="holiday-gen-btn" onclick="generateHolidays()"><i class="bi bi-stars"></i> Gerar datas do ano</button>
             </div>
         </div>
     </div>
@@ -127,6 +122,7 @@
 <script>
 let itemModalInstance = null;
 let currentItem = null;
+let pendingFiles = []; // arquivos selecionados antes de salvar um item novo
 
 function getItemModal() {
     if (!itemModalInstance) itemModalInstance = new bootstrap.Modal(document.getElementById('itemModal'));
@@ -165,14 +161,53 @@ function openHolidayCreate(holidayId, title, dateStr) {
 
 function resetItemForm() {
     currentItem = null;
+    pendingFiles = [];
     ['item-id','item-holiday-id','item-title','item-scheduled','item-social','item-assigned','item-briefing','item-copy'].forEach(f => document.getElementById(f).value = '');
     document.getElementById('item-status').value = 'ideia';
     document.getElementById('item-review-alert').style.display = 'none';
-    document.getElementById('item-attachments-wrap').style.display = 'none';
+    document.getElementById('item-attachments-wrap').style.display = '';
     document.getElementById('item-attachments').innerHTML = '';
+    document.getElementById('item-pending-files').innerHTML = '';
     document.getElementById('item-delete-btn').style.display = 'none';
     document.querySelectorAll('.mkt-approval-action').forEach(b => b.style.display = 'none');
     document.getElementById('item-file').value = '';
+    document.getElementById('item-file').disabled = false;
+    document.getElementById('item-file-btn').style.display = 'none';
+    document.getElementById('item-file-hint').style.display = '';
+}
+
+// Seleção de arquivos: se item novo, acumula em pendingFiles; se edição, mostra botão de upload
+function onItemFileChange() {
+    const id = document.getElementById('item-id').value;
+    const input = document.getElementById('item-file');
+    if (id) {
+        // Edição: envia imediatamente
+        uploadItemFile();
+        return;
+    }
+    // Novo: acumula arquivos para enviar após salvar
+    for (const f of input.files) pendingFiles.push(f);
+    input.value = '';
+    renderPendingFiles();
+}
+
+function renderPendingFiles() {
+    const box = document.getElementById('item-pending-files');
+    if (!pendingFiles.length) { box.innerHTML = ''; return; }
+    box.innerHTML = pendingFiles.map((f, i) => {
+        const isImg = /\.(jpg|jpeg|png|gif|webp)$/i.test(f.name);
+        const icon = isImg ? 'bi-file-earmark-image' : 'bi-file-earmark-text';
+        return `<div class="d-flex align-items-center gap-2 border rounded p-1 pe-2" style="background:#f0faf8;">
+            <i class="bi ${icon}" style="font-size:1.2rem;color:#00997D;"></i>
+            <span class="small text-truncate" style="max-width:140px;">${escapeHtml(f.name)}</span>
+            <button class="btn btn-sm btn-link text-danger p-0" onclick="removePendingFile(${i})"><i class="bi bi-x-lg"></i></button>
+        </div>`;
+    }).join('');
+}
+
+function removePendingFile(i) {
+    pendingFiles.splice(i, 1);
+    renderPendingFiles();
 }
 
 // UI para novo item conforme papel
@@ -232,8 +267,12 @@ function fillItemForm(it) {
         document.querySelectorAll('.mkt-approval-action').forEach(b => b.style.display = '');
     }
 
-    // Anexos
+    // Anexos (item existente: upload direto)
     document.getElementById('item-attachments-wrap').style.display = '';
+    document.getElementById('item-pending-files').innerHTML = '';
+    document.getElementById('item-file-hint').style.display = 'none';
+    document.getElementById('item-file').disabled = !canManage;
+    document.getElementById('item-file').parentElement.style.display = canManage ? '' : 'none';
     renderAttachments(it.attachments || []);
 }
 
@@ -278,14 +317,25 @@ function saveItem() {
         .then(r => r.json())
         .then(data => {
             if (data.error) { alert(data.error); return; }
-            if (!id) {
-                // Reabrir em modo edição para permitir anexos
-                fillItemForm({ ...data.item, can_manage: true, is_admin: IS_ADMIN });
+            if (!id && pendingFiles.length) {
+                // Envia os anexos selecionados antes de salvar
+                uploadPendingFiles(data.item.id).then(() => { getItemModal().hide(); afterItemChange(); });
             } else {
                 getItemModal().hide();
+                afterItemChange();
             }
-            afterItemChange();
         });
+}
+
+// Faz upload sequencial dos arquivos para o item (usa pendingFiles se não vier lista)
+function uploadPendingFiles(itemId, files = null) {
+    if (files === null) { files = pendingFiles.slice(); pendingFiles = []; }
+    return files.reduce((chain, f) => chain.then(() => {
+        const fd = new FormData();
+        fd.append('file', f);
+        return fetch(`${BASE}marketing/upload/${itemId}`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
+            .then(r => r.json());
+    }), Promise.resolve());
 }
 
 function approveItem() {
@@ -328,16 +378,11 @@ function deleteItem() {
 function uploadItemFile() {
     const id = document.getElementById('item-id').value;
     const input = document.getElementById('item-file');
-    if (!id || !input.files[0]) return;
-    const fd = new FormData();
-    fd.append('file', input.files[0]);
-    fetch(`${BASE}marketing/upload/${id}`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
-        .then(r => r.json()).then(data => {
-            if (data.error) { alert(data.error); return; }
-            input.value = '';
-            // Recarrega anexos
-            fetch(`${BASE}marketing/get/${id}`).then(r => r.json()).then(d => { currentItem = d.item; renderAttachments(d.item.attachments || []); });
-        });
+    if (!id || !input.files.length) return;
+    uploadPendingFiles(id, Array.from(input.files)).then(() => {
+        input.value = '';
+        fetch(`${BASE}marketing/get/${id}`).then(r => r.json()).then(d => { currentItem = d.item; renderAttachments(d.item.attachments || []); });
+    });
 }
 
 function deleteAttachment(attId) {
@@ -369,19 +414,21 @@ function generateHolidays() {
     const btn = document.getElementById('holiday-gen-btn');
     const result = document.getElementById('holiday-result');
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Buscando...';
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Gerando ano inteiro...';
+    result.innerHTML = '<span class="text-muted">Consultando a IA, isso pode levar alguns segundos...</span>';
     const fd = new FormData();
-    fd.append('month', document.getElementById('holiday-month').value);
     fd.append('year', document.getElementById('holiday-year').value);
     fetch(`${BASE}marketing/generateHolidays`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json()).then(data => {
             btn.disabled = false;
-            btn.innerHTML = '<i class="bi bi-stars"></i> Buscar datas';
+            btn.innerHTML = '<i class="bi bi-stars"></i> Gerar datas do ano';
             if (data.error) { result.innerHTML = `<span class="text-danger">${data.error}</span>`; return; }
-            result.innerHTML = `<span class="text-success"><i class="bi bi-check-circle"></i> ${data.inserted} data(s) inserida(s) no calendário.</span>`;
+            const parts = [`<i class="bi bi-check-circle"></i> ${data.inserted} nova(s) data(s) adicionada(s) em ${data.year}.`];
+            if (data.skipped) parts.push(`${data.skipped} já existiam.`);
+            result.innerHTML = `<span class="text-success">${parts.join(' ')}</span>`;
             loadCalendar();
         })
-        .catch(() => { btn.disabled = false; btn.innerHTML = '<i class="bi bi-stars"></i> Buscar datas'; result.innerHTML = '<span class="text-danger">Erro na requisição.</span>'; });
+        .catch(() => { btn.disabled = false; btn.innerHTML = '<i class="bi bi-stars"></i> Gerar datas do ano'; result.innerHTML = '<span class="text-danger">Erro na requisição.</span>'; });
 }
 <?php endif; ?>
 </script>
