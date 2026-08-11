@@ -24,6 +24,14 @@ class PlanningController extends Controller
             $filters['assigned_to'] = $user['id'];
         }
 
+        // Para super_admin e attendant: pré-filtrar pelo usuário logado por padrão
+        // a menos que o usuário explicitamente escolha "Todos" (via parâmetro show_all=1)
+        if (in_array($user['role'], ['super_admin', 'attendant'])) {
+            if (empty($_GET['show_all']) && empty($_GET['assigned_to'])) {
+                $filters['assigned_to'] = $user['id'];
+            }
+        }
+
         // Controle de acesso por empresa
         $allowedCompanies = PlanningCard::getUserAllowedCompanies($user['id'], $user['role']);
         if ($allowedCompanies !== null) {
@@ -178,11 +186,39 @@ class PlanningController extends Controller
         $comments = $this->cardModel->getComments($id);
         $attachments = $this->cardModel->getAttachments($id);
 
-        $this->json([
+        $response = [
             'card' => $card,
             'comments' => $comments,
             'attachments' => $attachments,
-        ]);
+        ];
+
+        // Se o card está vinculado a uma demanda, buscar dados da demanda
+        if (!empty($card['ticket_id'])) {
+            $ticketModel = new Ticket();
+            $ticket = $ticketModel->findById($card['ticket_id']);
+            $response['ticket'] = $ticket;
+
+            // Mensagens da demanda (conversação com o cliente)
+            $ticketMessageModel = new TicketMessage();
+            $response['ticket_messages'] = $ticketMessageModel->getByTicket($card['ticket_id']);
+
+            // Anexos da demanda (arquivos que o cliente/atendente enviou)
+            $ticketAttachmentModel = new TicketAttachment();
+            $response['ticket_attachments'] = $ticketAttachmentModel->getByTicket($card['ticket_id']);
+
+            // Notas internas da demanda
+            $db = Database::getInstance();
+            $response['ticket_internal_notes'] = $db->fetchAll(
+                "SELECT n.*, u.name as user_name
+                 FROM ticket_internal_notes n
+                 LEFT JOIN users u ON n.user_id = u.id
+                 WHERE n.ticket_id = ?
+                 ORDER BY n.created_at ASC",
+                [$card['ticket_id']]
+            );
+        }
+
+        $this->json($response);
     }
 
     // Atualizar card

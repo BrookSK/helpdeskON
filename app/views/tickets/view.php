@@ -266,7 +266,7 @@
             <div class="card mb-3">
                 <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.88rem">Enviar Anexo</h6></div>
                 <div class="card-body">
-                    <input type="file" id="upload-file" class="form-control form-control-sm mb-2" accept="image/*,.pdf,.doc,.docx">
+                    <input type="file" id="upload-file" class="form-control form-control-sm mb-2" accept="image/*,video/*,.pdf,.doc,.docx">
                     <button type="button" onclick="uploadFile()" class="btn btn-outline-primary btn-sm w-100">
                         <i class="bi bi-upload"></i> Enviar
                     </button>

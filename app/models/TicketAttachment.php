@@ -41,15 +41,18 @@ class TicketAttachment
 
     public function upload($file, $ticketId, $userId)
     {
-        $allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+        $allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'video/mp4', 'video/webm', 'video/ogg', 'video/quicktime', 'video/x-msvideo'];
         
         if (!in_array($file['type'], $allowedTypes)) {
             return ['error' => 'Tipo de arquivo não permitido.'];
         }
 
-        $maxSize = 10 * 1024 * 1024; // 10MB
+        // Limite de tamanho: 50MB para vídeos, 10MB para outros
+        $isVideo = strpos($file['type'], 'video/') === 0;
+        $maxSize = $isVideo ? 50 * 1024 * 1024 : 10 * 1024 * 1024;
         if ($file['size'] > $maxSize) {
-            return ['error' => 'Arquivo muito grande. Máximo: 10MB'];
+            $maxLabel = $isVideo ? '50MB' : '10MB';
+            return ['error' => "Arquivo muito grande. Máximo: {$maxLabel}"];
         }
 
         $ext = pathinfo($file['name'], PATHINFO_EXTENSION);

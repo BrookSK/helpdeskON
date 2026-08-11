@@ -36,6 +36,7 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
     <div class="card mb-3">
         <div class="card-body py-2 px-3">
             <form method="GET" class="row g-2 align-items-center" id="filters-form">
+                <input type="hidden" name="show_all" id="show_all_input" value="0">
                 <div class="col-6 col-md-auto">
                     <select name="company_id" class="form-select form-select-sm">
                         <option value="">Todas Empresas</option>
@@ -54,7 +55,7 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                 </div>
                 <div class="col-12 col-md-auto">
                     <button type="submit" class="btn btn-sm btn-primary">Filtrar</button>
-                    <a href="<?= baseUrl('planning') ?>" class="btn btn-sm btn-outline-secondary">Limpar</a>
+                    <a href="<?= baseUrl('planning') ?>?show_all=1" class="btn btn-sm btn-outline-secondary">Limpar</a>
                 </div>
             </form>
         </div>
@@ -225,128 +226,220 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
 
     <!-- MODAL DETALHE DO CARD -->
     <div class="modal fade" id="cardDetailModal" tabindex="-1">
-        <div class="modal-dialog modal-lg modal-fullscreen-sm-down">
+        <div class="modal-dialog modal-xl modal-fullscreen-sm-down">
             <div class="modal-content">
-                <div class="modal-header">
-                    <h6 class="modal-title" id="detail-title">Card</h6>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body" style="max-height:75vh;overflow-y:auto;">
-                    <div class="row g-3 mb-3">
-                        <div class="col-sm-6">
-                            <label class="form-label small fw-medium">Título</label>
-                            <input type="text" id="detail-title-input" class="form-control form-control-sm">
-                        </div>
-                        <div class="col-sm-6">
-                            <label class="form-label small fw-medium">Atendente</label>
-                            <select id="detail-assigned" class="form-select form-select-sm">
-                                <option value="">Não atribuído</option>
-                                <?php foreach (($attendantsList ?? []) as $m): ?>
-                                <option value="<?= $m['id'] ?>"><?= escape($m['name']) ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                        </div>
+                <div class="modal-header py-2 border-bottom">
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="badge bg-secondary" id="detail-id-badge">#</span>
+                        <h6 class="modal-title mb-0 fw-bold" id="detail-title">Card</h6>
                     </div>
-                    <div class="row g-3 mb-3">
-                        <div class="col-sm-6">
-                            <label class="form-label small fw-medium">Técnico</label>
-                            <select id="detail-technical" class="form-select form-select-sm">
-                                <option value="">Não atribuído</option>
-                                <?php foreach (($techniciansList ?? []) as $m): ?>
-                                <option value="<?= $m['id'] ?>"><?= escape($m['name']) ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                        </div>
-                        <div class="col-sm-6">
-                            <label class="form-label small fw-medium">Analista</label>
-                            <select id="detail-analyst" class="form-select form-select-sm">
-                                <option value="">Não atribuído</option>
-                                <?php foreach (($analystsList ?? []) as $m): ?>
-                                <option value="<?= $m['id'] ?>"><?= escape($m['name']) ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="row g-3 mb-3">
-                        <div class="col-sm-4">
-                            <label class="form-label small fw-medium">Empresa</label>
-                            <select id="detail-company" class="form-select form-select-sm">
-                                <option value="">Nenhuma</option>
-                                <?php foreach ($companies as $c): ?>
-                                <option value="<?= $c['id'] ?>"><?= escape($c['name']) ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                        </div>
-                        <div class="col-sm-3">
-                            <label class="form-label small fw-medium">Prioridade</label>
-                            <select id="detail-priority" class="form-select form-select-sm">
-                                <option value="low">Baixa</option>
-                                <option value="medium">Média</option>
-                                <option value="high">Alta</option>
-                                <option value="urgent">Urgente</option>
-                            </select>
-                        </div>
-                        <div class="col-sm-3">
-                            <label class="form-label small fw-medium">Status</label>
-                            <select id="detail-status" class="form-select form-select-sm">
-                                <?php foreach ($statusLabels as $s => $info): ?>
-                                <option value="<?= $s ?>"><?= $info[0] ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                        </div>
-                        <div class="col-sm-2">
-                            <label class="form-label small fw-medium">Prazo Entrega</label>
-                            <input type="datetime-local" id="detail-due-date" class="form-control form-control-sm">
-                        </div>
-                    </div>
-                    <div class="row g-3 mb-3">
-                        <div class="col-sm-6">
-                            <label class="form-label small fw-medium">Início Desenvolvimento</label>
-                            <input type="datetime-local" id="detail-start-date" class="form-control form-control-sm">
-                        </div>
-                        <div class="col-sm-6">
-                            <label class="form-label small fw-medium">Fim Desenvolvimento</label>
-                            <input type="datetime-local" id="detail-end-date" class="form-control form-control-sm">
-                        </div>
-                    </div>
-                    <div class="mb-2 d-flex justify-content-between align-items-center">
-                        <small class="text-muted" id="detail-meta"></small>
-                        <button class="btn btn-sm btn-primary" onclick="saveCard()">Salvar</button>
-                    </div>
-                    <hr>
-
-                    <!-- Editor Rich Text -->
-                    <label class="form-label small fw-medium">Descrição</label>
-                    <div id="quill-editor" style="min-height:200px;background:#fff;border-radius:0 0 6px 6px;"></div>
-                    <hr>
-
-                    <!-- Anexos -->
-                    <div class="mb-3">
-                        <label class="form-label small fw-medium"><i class="bi bi-paperclip"></i> Anexos</label>
-                        <div id="detail-attachments" class="mb-2"></div>
-                        <div class="d-flex gap-2">
-                            <input type="file" id="detail-file-input" class="form-control form-control-sm" style="max-width:250px;">
-                            <button class="btn btn-sm btn-outline-primary" onclick="uploadCardFile()"><i class="bi bi-upload"></i></button>
-                        </div>
-                    </div>
-                    <hr>
-
-                    <!-- Comentários -->
-                    <label class="form-label small fw-medium"><i class="bi bi-chat-dots"></i> Comentários</label>
-                    <div id="detail-comments" class="mb-3" style="max-height:250px;overflow-y:auto;"></div>
-                    <div class="d-flex gap-2">
-                        <input type="text" id="comment-input" class="form-control form-control-sm" placeholder="Escreva um comentário..." onkeypress="if(event.key==='Enter')addComment()">
-                        <button class="btn btn-sm btn-primary" onclick="addComment()"><i class="bi bi-send"></i></button>
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="badge rounded-pill" id="detail-priority-badge"></span>
+                        <span class="badge rounded-pill" id="detail-status-badge"></span>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                     </div>
                 </div>
-                <div class="modal-footer justify-content-between">
-                    <div class="d-flex gap-2">
-                        <button class="btn btn-sm btn-outline-danger" onclick="deleteCard()"><i class="bi bi-trash"></i> Excluir</button>
-                        <?php if (($user['role'] ?? '') === 'super_admin'): ?>
-                        <button class="btn btn-sm btn-danger" onclick="deleteCardPermanent()"><i class="bi bi-trash3-fill"></i> Excluir permanentemente</button>
-                        <?php endif; ?>
+                <div class="modal-body p-0" style="max-height:80vh;overflow:hidden;">
+                    <div class="row g-0 h-100">
+                        <!-- Painel esquerdo: Info principal -->
+                        <div class="col-lg-8 border-end" style="max-height:80vh;overflow-y:auto;">
+                            <!-- Abas de navegação -->
+                            <ul class="nav nav-tabs nav-fill px-3 pt-2 border-bottom sticky-top bg-white" id="cardTabs" role="tablist" style="z-index:10;">
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link active small py-2" id="tab-descricao" data-bs-toggle="tab" data-bs-target="#pane-descricao" type="button" role="tab">
+                                        <i class="bi bi-file-text"></i> Descrição
+                                    </button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link small py-2" id="tab-demanda" data-bs-toggle="tab" data-bs-target="#pane-demanda" type="button" role="tab">
+                                        <i class="bi bi-ticket-detailed"></i> Demanda <span class="badge bg-primary ms-1" id="tab-demanda-badge" style="display:none;font-size:0.6rem;"></span>
+                                    </button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link small py-2" id="tab-anexos" data-bs-toggle="tab" data-bs-target="#pane-anexos" type="button" role="tab">
+                                        <i class="bi bi-paperclip"></i> Anexos <span class="badge bg-secondary ms-1" id="tab-anexos-badge" style="font-size:0.6rem;">0</span>
+                                    </button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link small py-2" id="tab-comentarios" data-bs-toggle="tab" data-bs-target="#pane-comentarios" type="button" role="tab">
+                                        <i class="bi bi-chat-dots"></i> Comentários <span class="badge bg-secondary ms-1" id="tab-comentarios-badge" style="font-size:0.6rem;">0</span>
+                                    </button>
+                                </li>
+                            </ul>
+
+                            <div class="tab-content p-3">
+                                <!-- ABA DESCRIÇÃO -->
+                                <div class="tab-pane fade show active" id="pane-descricao" role="tabpanel">
+                                    <div id="quill-editor" style="min-height:300px;background:#fff;border-radius:0 0 6px 6px;"></div>
+                                </div>
+
+                                <!-- ABA DEMANDA VINCULADA -->
+                                <div class="tab-pane fade" id="pane-demanda" role="tabpanel">
+                                    <div id="ticket-link-section">
+                                        <div class="alert alert-light border text-center py-4" id="no-ticket-msg">
+                                            <i class="bi bi-ticket-detailed fs-3 text-muted"></i>
+                                            <p class="mb-0 text-muted small mt-2">Este card não está vinculado a nenhuma demanda.</p>
+                                        </div>
+                                        <div id="ticket-data-section" style="display:none;">
+                                            <!-- Info da demanda -->
+                                            <div class="card mb-3">
+                                                <div class="card-header py-2 px-3 bg-light d-flex justify-content-between align-items-center">
+                                                    <span class="fw-medium small"><i class="bi bi-ticket-detailed"></i> Demanda <a href="#" id="ticket-link" target="_blank" class="text-decoration-none">#</a></span>
+                                                    <span class="badge bg-info" id="ticket-status-badge"></span>
+                                                </div>
+                                                <div class="card-body p-2">
+                                                    <p class="small mb-1"><strong>Título:</strong> <span id="ticket-title-text"></span></p>
+                                                    <p class="small mb-1"><strong>Cliente:</strong> <span id="ticket-client-name"></span></p>
+                                                    <p class="small mb-0"><strong>Criado em:</strong> <span id="ticket-created-at"></span></p>
+                                                </div>
+                                            </div>
+
+                                            <!-- Anexos da demanda (prints, vídeos, arquivos do cliente) -->
+                                            <div class="mb-3">
+                                                <h6 class="fw-bold small mb-2"><i class="bi bi-images"></i> Anexos da Demanda</h6>
+                                                <div id="ticket-attachments-grid" class="row g-2"></div>
+                                                <p class="text-muted small" id="no-ticket-attachments" style="display:none;">Nenhum anexo na demanda.</p>
+                                            </div>
+
+                                            <!-- Mensagens/Conversação da demanda -->
+                                            <div class="mb-3">
+                                                <h6 class="fw-bold small mb-2"><i class="bi bi-chat-left-text"></i> Conversação da Demanda</h6>
+                                                <div id="ticket-messages-list" style="max-height:300px;overflow-y:auto;"></div>
+                                                <p class="text-muted small" id="no-ticket-messages" style="display:none;">Nenhuma mensagem na demanda.</p>
+                                            </div>
+
+                                            <!-- Notas internas -->
+                                            <div class="mb-3">
+                                                <h6 class="fw-bold small mb-2"><i class="bi bi-journal-text"></i> Observações Internas</h6>
+                                                <div id="ticket-internal-notes-list" style="max-height:250px;overflow-y:auto;"></div>
+                                                <p class="text-muted small" id="no-ticket-notes" style="display:none;">Nenhuma observação interna.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- ABA ANEXOS DO CARD -->
+                                <div class="tab-pane fade" id="pane-anexos" role="tabpanel">
+                                    <div id="detail-attachments" class="mb-3"></div>
+                                    <div class="d-flex gap-2 align-items-center">
+                                        <input type="file" id="detail-file-input" class="form-control form-control-sm" style="max-width:300px;">
+                                        <button class="btn btn-sm btn-outline-primary" onclick="uploadCardFile()"><i class="bi bi-upload"></i> Enviar</button>
+                                    </div>
+                                </div>
+
+                                <!-- ABA COMENTÁRIOS -->
+                                <div class="tab-pane fade" id="pane-comentarios" role="tabpanel">
+                                    <div id="detail-comments" class="mb-3" style="max-height:400px;overflow-y:auto;"></div>
+                                    <div class="d-flex gap-2 mt-2">
+                                        <input type="text" id="comment-input" class="form-control form-control-sm" placeholder="Escreva um comentário..." onkeypress="if(event.key==='Enter')addComment()">
+                                        <button class="btn btn-sm btn-primary" onclick="addComment()"><i class="bi bi-send"></i></button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Painel direito: Propriedades -->
+                        <div class="col-lg-4 bg-light" style="max-height:80vh;overflow-y:auto;">
+                            <div class="p-3">
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <h6 class="fw-bold small text-muted mb-0 text-uppercase"><i class="bi bi-gear"></i> Propriedades</h6>
+                                    <button class="btn btn-sm btn-primary" onclick="saveCard()"><i class="bi bi-check-lg"></i> Salvar</button>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label small fw-medium text-muted">Título</label>
+                                    <input type="text" id="detail-title-input" class="form-control form-control-sm">
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label small fw-medium text-muted">Atendente</label>
+                                    <select id="detail-assigned" class="form-select form-select-sm">
+                                        <option value="">Não atribuído</option>
+                                        <?php foreach (($attendantsList ?? []) as $m): ?>
+                                        <option value="<?= $m['id'] ?>"><?= escape($m['name']) ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label small fw-medium text-muted">Técnico</label>
+                                    <select id="detail-technical" class="form-select form-select-sm">
+                                        <option value="">Não atribuído</option>
+                                        <?php foreach (($techniciansList ?? []) as $m): ?>
+                                        <option value="<?= $m['id'] ?>"><?= escape($m['name']) ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label small fw-medium text-muted">Analista</label>
+                                    <select id="detail-analyst" class="form-select form-select-sm">
+                                        <option value="">Não atribuído</option>
+                                        <?php foreach (($analystsList ?? []) as $m): ?>
+                                        <option value="<?= $m['id'] ?>"><?= escape($m['name']) ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label small fw-medium text-muted">Empresa</label>
+                                    <select id="detail-company" class="form-select form-select-sm">
+                                        <option value="">Nenhuma</option>
+                                        <?php foreach ($companies as $c): ?>
+                                        <option value="<?= $c['id'] ?>"><?= escape($c['name']) ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+
+                                <div class="row g-2 mb-3">
+                                    <div class="col-6">
+                                        <label class="form-label small fw-medium text-muted">Prioridade</label>
+                                        <select id="detail-priority" class="form-select form-select-sm">
+                                            <option value="low">Baixa</option>
+                                            <option value="medium">Média</option>
+                                            <option value="high">Alta</option>
+                                            <option value="urgent">Urgente</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-6">
+                                        <label class="form-label small fw-medium text-muted">Status</label>
+                                        <select id="detail-status" class="form-select form-select-sm">
+                                            <?php foreach ($statusLabels as $s => $info): ?>
+                                            <option value="<?= $s ?>"><?= $info[0] ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label small fw-medium text-muted">Prazo Entrega</label>
+                                    <input type="datetime-local" id="detail-due-date" class="form-control form-control-sm">
+                                </div>
+
+                                <div class="row g-2 mb-3">
+                                    <div class="col-6">
+                                        <label class="form-label small fw-medium text-muted">Início Dev</label>
+                                        <input type="datetime-local" id="detail-start-date" class="form-control form-control-sm">
+                                    </div>
+                                    <div class="col-6">
+                                        <label class="form-label small fw-medium text-muted">Fim Dev</label>
+                                        <input type="datetime-local" id="detail-end-date" class="form-control form-control-sm">
+                                    </div>
+                                </div>
+
+                                <hr class="my-2">
+                                <small class="text-muted d-block mb-2" id="detail-meta" style="font-size:0.72rem;line-height:1.4;"></small>
+
+                                <hr class="my-2">
+                                <div class="d-flex gap-2 flex-wrap">
+                                    <button class="btn btn-sm btn-outline-danger" onclick="deleteCard()"><i class="bi bi-trash"></i> Excluir</button>
+                                    <?php if (($user['role'] ?? '') === 'super_admin'): ?>
+                                    <button class="btn btn-sm btn-danger" onclick="deleteCardPermanent()"><i class="bi bi-trash3-fill"></i> Excluir Permanente</button>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                    <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Fechar</button>
                 </div>
             </div>
         </div>
@@ -365,6 +458,24 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
 .planning-card.overdue { border: 1.5px solid #dc3545 !important; box-shadow: 0 0 0 1px rgba(220,53,69,0.15); }
 .kanban-ghost { opacity: 0.4; background: var(--primary-50) !important; border: 2px dashed var(--primary) !important; }
 .kanban-drag { box-shadow: 0 8px 25px rgba(0,0,0,0.15) !important; transform: rotate(1deg); }
+
+/* Modal card detail styles */
+#cardDetailModal .modal-content { border-radius: 12px; overflow: hidden; }
+#cardDetailModal .modal-header { background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); }
+#cardDetailModal .nav-tabs .nav-link { font-size: 0.78rem; color: #6c757d; border: none; border-bottom: 2px solid transparent; }
+#cardDetailModal .nav-tabs .nav-link.active { color: var(--primary, #00BFA6); border-bottom-color: var(--primary, #00BFA6); background: transparent; font-weight: 600; }
+#cardDetailModal .nav-tabs .nav-link:hover:not(.active) { color: #333; border-bottom-color: #dee2e6; }
+.ticket-msg-bubble { padding: 8px 12px; border-radius: 10px; font-size: 0.8rem; max-width: 85%; word-wrap: break-word; }
+.ticket-msg-client { background: #e3f2fd; margin-right: auto; border-bottom-left-radius: 2px; }
+.ticket-msg-internal { background: #fff3e0; margin-left: auto; border-bottom-right-radius: 2px; }
+.ticket-msg-attendant { background: #e8f5e9; margin-left: auto; border-bottom-right-radius: 2px; }
+.ticket-attachment-thumb { width: 100%; aspect-ratio: 16/10; object-fit: cover; border-radius: 8px; cursor: pointer; transition: transform 0.2s; }
+.ticket-attachment-thumb:hover { transform: scale(1.03); }
+.ticket-attachment-video { width: 100%; border-radius: 8px; max-height: 200px; }
+.internal-note-card { background: #fffde7; border: 1px solid #fff9c4; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; }
+.internal-note-card .note-meta { font-size: 0.7rem; color: #666; }
+.internal-note-card .note-text { font-size: 0.8rem; margin-top: 4px; }
+
 #calendar-container table { width: 100%; border-collapse: collapse; }
 #calendar-container th, #calendar-container td { border: 1px solid #e9ecef; padding: 4px; vertical-align: top; font-size: 0.8rem; }
 #calendar-container th { background: #f8f9fa; text-align: center; font-weight: 600; }
@@ -417,6 +528,14 @@ let calMode = 'month';
 const priorityColors = {low:'#6b7280',medium:'#f59e0b',high:'#ef4444',urgent:'#dc2626'};
 const statusColors = {open:'#1565c0',in_progress:'#e65100',em_revisao_interna:'#5c6bc0',waiting_client:'#7b1fa2',em_homologacao:'#0097a7',aprovado_producao:'#8bc34a',completed:'#2e7d32',denied:'#d84315',archived:'#546e7a'};
 
+// === FILTER FORM: marcar show_all quando responsável está vazio ===
+document.getElementById('filters-form').addEventListener('submit', function() {
+    const assignedSelect = this.querySelector('[name="assigned_to"]');
+    if (!assignedSelect.value) {
+        document.getElementById('show_all_input').value = '1';
+    }
+});
+
 // === VIEW TOGGLE ===
 document.querySelectorAll('#view-toggle button').forEach(btn => {
     btn.addEventListener('click', function() {
@@ -467,7 +586,23 @@ function openCardModal(id) {
     currentCardId = id;
     fetch(BASE + 'planning/get/' + id).then(r => r.json()).then(data => {
         const c = data.card;
-        document.getElementById('detail-title').textContent = '#' + c.id + ' ' + c.title;
+        const priorityLabelsMap = {low:'Baixa',medium:'Média',high:'Alta',urgent:'Urgente'};
+        const statusLabelsMap = <?= json_encode(array_map(fn($i) => $i[0], $statusLabels)) ?>;
+        const statusColorsMap = <?= json_encode(array_map(fn($i) => $i[1], $statusLabels)) ?>;
+
+        // Header badges
+        document.getElementById('detail-id-badge').textContent = '#' + c.id;
+        document.getElementById('detail-title').textContent = c.title;
+        const prBadge = document.getElementById('detail-priority-badge');
+        prBadge.textContent = priorityLabelsMap[c.priority] || c.priority;
+        prBadge.style.background = priorityColors[c.priority] || '#666';
+        prBadge.style.color = '#fff';
+        const stBadge = document.getElementById('detail-status-badge');
+        stBadge.textContent = statusLabelsMap[c.status] || c.status;
+        stBadge.style.background = statusColorsMap[c.status] || '#666';
+        stBadge.style.color = '#fff';
+
+        // Propriedades (painel direito)
         document.getElementById('detail-title-input').value = c.title;
         document.getElementById('detail-assigned').value = c.assigned_to || '';
         document.getElementById('detail-technical').value = c.technical_responsible_id || '';
@@ -478,19 +613,160 @@ function openCardModal(id) {
         document.getElementById('detail-due-date').value = c.due_date ? c.due_date.slice(0,16) : '';
         document.getElementById('detail-start-date').value = c.start_date ? c.start_date.slice(0,16) : '';
         document.getElementById('detail-end-date').value = c.end_date ? c.end_date.slice(0,16) : '';
-        document.getElementById('detail-meta').innerHTML = 'Criado por ' + c.created_by_name + ' em ' + new Date(c.created_at).toLocaleString('pt-BR') + (c.ticket_id ? ' | Vinculado à demanda <a href="'+BASE+'tickets/show/'+c.ticket_id+'" target="_blank" class="text-decoration-none fw-medium" style="color:var(--primary);">#'+c.ticket_id+' <i class="bi bi-box-arrow-up-right" style="font-size:0.7rem;"></i></a>' : '');
 
-        // Attachments
+        // Meta info
+        let metaHtml = '<i class="bi bi-person-fill"></i> Criado por <strong>' + (c.created_by_name || 'Desconhecido') + '</strong>';
+        metaHtml += '<br><i class="bi bi-calendar3"></i> ' + new Date(c.created_at).toLocaleString('pt-BR');
+        if (c.ticket_id) {
+            metaHtml += '<br><i class="bi bi-link-45deg"></i> Vinculado à demanda <a href="'+BASE+'tickets/show/'+c.ticket_id+'" target="_blank" class="text-decoration-none fw-medium" style="color:var(--primary);">#'+c.ticket_id+' <i class="bi bi-box-arrow-up-right" style="font-size:0.65rem;"></i></a>';
+        }
+        document.getElementById('detail-meta').innerHTML = metaHtml;
+
+        // Attachments do card (aba Anexos)
         renderAttachments(data.attachments);
-        // Comments
+        document.getElementById('tab-anexos-badge').textContent = data.attachments.length;
+
+        // Comments do card (aba Comentários)
         renderComments(data.comments);
+        document.getElementById('tab-comentarios-badge').textContent = data.comments.length;
+
+        // Demanda vinculada (aba Demanda)
+        renderTicketData(data);
 
         // Guardar description para setar após o Quill estar pronto
         window._pendingDescription = c.description || '';
 
+        // Reset para aba de descrição
+        const firstTab = document.getElementById('tab-descricao');
+        if (firstTab) {
+            const tabInstance = bootstrap.Tab.getOrCreateInstance(firstTab);
+            tabInstance.show();
+        }
+
         const modal = new bootstrap.Modal(document.getElementById('cardDetailModal'));
         modal.show();
     });
+}
+
+// === RENDERIZAR DADOS DA DEMANDA VINCULADA ===
+function renderTicketData(data) {
+    const noTicketMsg = document.getElementById('no-ticket-msg');
+    const ticketSection = document.getElementById('ticket-data-section');
+    const demandaBadge = document.getElementById('tab-demanda-badge');
+
+    if (!data.ticket) {
+        noTicketMsg.style.display = '';
+        ticketSection.style.display = 'none';
+        demandaBadge.style.display = 'none';
+        return;
+    }
+
+    noTicketMsg.style.display = 'none';
+    ticketSection.style.display = '';
+    demandaBadge.style.display = '';
+    demandaBadge.textContent = '#' + data.ticket.id;
+
+    // Info do ticket
+    document.getElementById('ticket-link').href = BASE + 'tickets/show/' + data.ticket.id;
+    document.getElementById('ticket-link').textContent = '#' + data.ticket.id;
+    document.getElementById('ticket-title-text').textContent = data.ticket.title || '';
+    document.getElementById('ticket-client-name').textContent = data.ticket.client_name || 'N/A';
+    document.getElementById('ticket-created-at').textContent = data.ticket.created_at ? new Date(data.ticket.created_at).toLocaleString('pt-BR') : '';
+
+    const statusBadge = document.getElementById('ticket-status-badge');
+    const sLabels = {open:'Aberto',in_progress:'Em andamento',waiting_client:'Aguardando',completed:'Concluído',denied:'Negado'};
+    statusBadge.textContent = sLabels[data.ticket.status] || data.ticket.status;
+
+    // Anexos da demanda
+    const attachGrid = document.getElementById('ticket-attachments-grid');
+    const noAttachMsg = document.getElementById('no-ticket-attachments');
+    const ticketAttachments = data.ticket_attachments || [];
+
+    if (!ticketAttachments.length) {
+        attachGrid.innerHTML = '';
+        noAttachMsg.style.display = '';
+    } else {
+        noAttachMsg.style.display = 'none';
+        attachGrid.innerHTML = ticketAttachments.map(a => {
+            const isImage = /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(a.file_name) || (a.file_type && a.file_type.startsWith('image/'));
+            const isVideo = /\.(mp4|webm|ogg|mov|avi)$/i.test(a.file_name) || (a.file_type && a.file_type.startsWith('video/'));
+
+            if (isImage) {
+                return `<div class="col-6 col-md-4">
+                    <div class="border rounded overflow-hidden">
+                        <img src="${BASE}${a.file_path}" class="ticket-attachment-thumb" onclick="window.open('${BASE}${a.file_path}','_blank')" alt="${a.file_name}" loading="lazy">
+                        <div class="px-2 py-1 bg-light">
+                            <small class="text-truncate d-block" style="font-size:0.7rem;" title="${a.file_name}">${a.file_name}</small>
+                            <small class="text-muted" style="font-size:0.6rem;">${a.user_name || ''}</small>
+                        </div>
+                    </div>
+                </div>`;
+            } else if (isVideo) {
+                return `<div class="col-6 col-md-4">
+                    <div class="border rounded overflow-hidden">
+                        <video class="ticket-attachment-video" controls preload="metadata">
+                            <source src="${BASE}${a.file_path}" type="${a.file_type || 'video/mp4'}">
+                            Seu navegador não suporta vídeo.
+                        </video>
+                        <div class="px-2 py-1 bg-light">
+                            <small class="text-truncate d-block" style="font-size:0.7rem;" title="${a.file_name}">${a.file_name}</small>
+                            <small class="text-muted" style="font-size:0.6rem;">${a.user_name || ''}</small>
+                        </div>
+                    </div>
+                </div>`;
+            } else {
+                return `<div class="col-6 col-md-4">
+                    <div class="border rounded p-2 text-center">
+                        <i class="bi bi-file-earmark fs-4 text-muted"></i>
+                        <a href="${BASE}${a.file_path}" target="_blank" class="d-block text-truncate small text-decoration-none" title="${a.file_name}">${a.file_name}</a>
+                        <small class="text-muted" style="font-size:0.6rem;">${a.user_name || ''}</small>
+                    </div>
+                </div>`;
+            }
+        }).join('');
+    }
+
+    // Mensagens da demanda
+    const msgList = document.getElementById('ticket-messages-list');
+    const noMsgEl = document.getElementById('no-ticket-messages');
+    const ticketMessages = data.ticket_messages || [];
+
+    if (!ticketMessages.length) {
+        msgList.innerHTML = '';
+        noMsgEl.style.display = '';
+    } else {
+        noMsgEl.style.display = 'none';
+        msgList.innerHTML = ticketMessages.map(m => {
+            const isClient = m.user_role === 'client' || m.user_role === 'sub_client';
+            const bubbleClass = isClient ? 'ticket-msg-client' : 'ticket-msg-attendant';
+            const align = isClient ? 'align-items-start' : 'align-items-end';
+            return `<div class="d-flex flex-column ${align} mb-2">
+                <div class="ticket-msg-bubble ${bubbleClass}">
+                    <div style="font-size:0.7rem;color:#555;margin-bottom:2px;"><strong>${m.user_name}</strong> &middot; ${new Date(m.created_at).toLocaleString('pt-BR')}</div>
+                    <div>${m.message}</div>
+                </div>
+            </div>`;
+        }).join('');
+        msgList.scrollTop = msgList.scrollHeight;
+    }
+
+    // Notas internas
+    const notesList = document.getElementById('ticket-internal-notes-list');
+    const noNotesEl = document.getElementById('no-ticket-notes');
+    const internalNotes = data.ticket_internal_notes || [];
+
+    if (!internalNotes.length) {
+        notesList.innerHTML = '';
+        noNotesEl.style.display = '';
+    } else {
+        noNotesEl.style.display = 'none';
+        notesList.innerHTML = internalNotes.map(n => `
+            <div class="internal-note-card">
+                <div class="note-meta"><i class="bi bi-person-fill"></i> <strong>${n.user_name || 'Sistema'}</strong> &middot; ${new Date(n.created_at).toLocaleString('pt-BR')}</div>
+                <div class="note-text">${n.note}</div>
+            </div>
+        `).join('');
+    }
 }
 
 function saveCard() {

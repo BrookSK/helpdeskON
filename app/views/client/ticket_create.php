@@ -130,8 +130,8 @@
                     <input type="hidden" name="transcription" id="field-transcription" value="">
                     <div class="col-12">
                         <label class="form-label fw-medium">Anexos</label>
-                        <input type="file" name="attachments[]" class="form-control" multiple accept="image/*,.pdf,.doc,.docx">
-                        <small class="text-muted">Máx. 10MB/arquivo. JPG, PNG, GIF, PDF, DOC</small>
+                        <input type="file" name="attachments[]" class="form-control" multiple accept="image/*,video/*,.pdf,.doc,.docx">
+                        <small class="text-muted">Máx. 10MB/arquivo (50MB para vídeos). JPG, PNG, GIF, PDF, DOC, MP4, WebM</small>
                     </div>
                     <div class="col-12 d-flex gap-2 flex-wrap">
                         <button type="submit" class="btn btn-primary px-4">
