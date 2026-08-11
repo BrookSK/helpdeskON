@@ -6,6 +6,12 @@ class DashboardController extends Controller
     {
         $this->requireLogin();
         $user = $this->currentUser();
+
+        // Usuários de marketing têm o módulo Marketing como página principal
+        if ($user['role'] === 'marketing') {
+            $this->redirect('marketing');
+        }
+
         $ticketModel = new Ticket();
         $messageModel = new TicketMessage();
 

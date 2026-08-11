@@ -107,6 +107,7 @@ function roleLabel($role)
         'developer' => 'Desenvolvedor',
         'analyst' => 'Analista',
         'comercial' => 'Comercial',
+        'marketing' => 'Marketing',
     ];
     return $labels[$role] ?? $role;
 }

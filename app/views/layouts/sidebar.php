@@ -37,6 +37,14 @@
                 </a>
             </li>
 
+            <?php if (($user['role'] ?? '') === 'marketing'): ?>
+            <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'marketing' ? 'active' : '' ?>" href="<?= baseUrl('marketing') ?>">
+                    <i class="bi bi-megaphone"></i> Marketing
+                </a>
+            </li>
+            <?php endif; ?>
+
             <?php if (($user['role'] ?? '') === 'client'): ?>
             <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'tickets' ? 'active' : '' ?>" href="<?= baseUrl('tickets') ?>">
@@ -90,6 +98,13 @@
                     <i class="bi bi-calendar2-check"></i> Planejamento
                 </a>
             </li>
+            <?php if (($user['role'] ?? '') === 'super_admin'): ?>
+            <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'marketing' ? 'active' : '' ?>" href="<?= baseUrl('marketing') ?>">
+                    <i class="bi bi-megaphone"></i> Marketing
+                </a>
+            </li>
+            <?php endif; ?>
             <?php if (in_array($user['role'] ?? '', ['super_admin', 'attendant', 'whatsapp_agent', 'comercial'])): ?>
             <li class="nav-item mt-3">
                 <small class="text-uppercase px-3" style="font-size:0.65rem;color:rgba(255,255,255,0.35);letter-spacing:0.5px;">WhatsApp & CRM</small>

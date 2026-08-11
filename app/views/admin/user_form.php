@@ -46,6 +46,7 @@
                             <option value="developer" <?= ($editUser['role'] ?? '') === 'developer' ? 'selected' : '' ?>>Desenvolvedor</option>
                             <option value="analyst" <?= ($editUser['role'] ?? '') === 'analyst' ? 'selected' : '' ?>>Analista</option>
                             <option value="comercial" <?= ($editUser['role'] ?? '') === 'comercial' ? 'selected' : '' ?>>Comercial</option>
+                            <option value="marketing" <?= ($editUser['role'] ?? '') === 'marketing' ? 'selected' : '' ?>>Marketing</option>
                             <option value="whatsapp_agent" <?= ($editUser['role'] ?? '') === 'whatsapp_agent' ? 'selected' : '' ?>>Agente WhatsApp</option>
                             <option value="super_admin" <?= ($editUser['role'] ?? '') === 'super_admin' ? 'selected' : '' ?>>Super Admin</option>
                         </select>
