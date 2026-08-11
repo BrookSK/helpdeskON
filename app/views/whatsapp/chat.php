@@ -465,6 +465,7 @@
     bottom: 0 !important;
     width: auto !important;
     transition: left 0.3s ease;
+    z-index: 1;
 }
 /* Quando o sidebar está recolhido, o chat ocupa o espaço liberado */
 body.sidebar-collapsed .wpp-main-override {
@@ -943,6 +944,7 @@ body { overflow: hidden !important; margin: 0; padding: 0; }
         position: fixed !important;
         top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important;
         width: 100% !important;
+        z-index: 1; /* Ficar abaixo do overlay (1040) e sidebar (1050) */
     }
     .wpp-layout { position: relative; }
 
