@@ -1864,5 +1864,62 @@ class WhatsappController extends Controller
 
         $this->json(['success' => true, 'card_id' => $cardId]);
     }
+
+    /**
+     * API: Notificações de novas mensagens (para polling global em outras telas)
+     * Retorna mensagens não lidas de contatos atribuídos ao usuário ou em_atendimento
+     */
+    public function notifications()
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $user = $this->currentUser();
+
+        $db = Database::getInstance();
+        $instance = $this->getUserInstance();
+        if (!$instance) {
+            $this->json([]);
+            return;
+        }
+
+        // Buscar contatos com mensagens não lidas atribuídos a mim (ou em_atendimento sem atribuição)
+        $contacts = $db->fetchAll(
+            "SELECT c.id, c.contact_name, c.push_name, c.phone, c.unread_count
+             FROM whatsapp_contacts c
+             WHERE c.instance_id = ? AND c.unread_count > 0 
+             AND (c.assigned_to = ? OR (c.assigned_to IS NULL AND c.service_status = 'em_atendimento'))
+             ORDER BY c.last_message_at DESC
+             LIMIT 5",
+            [$instance['id'], $user['id']]
+        );
+
+        $notifications = [];
+        foreach ($contacts as $contact) {
+            // Pegar última mensagem não lida
+            $lastMsg = $db->fetch(
+                "SELECT message_text, message_type, sender_name, timestamp 
+                 FROM whatsapp_messages 
+                 WHERE contact_id = ? AND from_me = 0 AND is_read = 0
+                 ORDER BY id DESC LIMIT 1",
+                [$contact['id']]
+            );
+
+            if ($lastMsg) {
+                $name = $contact['contact_name'] ?: $contact['push_name'] ?: $contact['phone'] ?: 'Desconhecido';
+                $preview = $lastMsg['message_text'] ?: ('[' . $lastMsg['message_type'] . ']');
+                if (mb_strlen($preview) > 60) $preview = mb_substr($preview, 0, 60) . '...';
+
+                $notifications[] = [
+                    'contact_id' => $contact['id'],
+                    'contact_name' => $name,
+                    'message' => $preview,
+                    'sender_name' => $lastMsg['sender_name'],
+                    'timestamp' => $lastMsg['timestamp'],
+                    'unread_count' => $contact['unread_count'],
+                ];
+            }
+        }
+
+        $this->json($notifications);
+    }
 }
 

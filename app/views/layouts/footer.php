@@ -83,5 +83,160 @@
         setInterval(checkNotifications, 30000);
         checkNotifications();
     </script>
+
+    <?php
+    // Notificações push de WhatsApp — só para roles com acesso ao chat e fora da tela de chat
+    $wppNotifRoles = ['super_admin', 'attendant', 'whatsapp_agent'];
+    $isOnChatPage = (($currentPage ?? '') === 'whatsapp_chat');
+    if (in_array($currentUserRole, $wppNotifRoles) && !$isOnChatPage):
+    ?>
+    <script>
+    (function() {
+        const WPP_BASE = '<?= baseUrl("") ?>';
+        let wppLastNotifIds = new Set();
+        let wppNotifAudio = null;
+
+        function checkWhatsappNotifications() {
+            fetch(WPP_BASE + 'whatsapp/notifications', { headers: {'X-Requested-With': 'XMLHttpRequest'} })
+            .then(r => { if (r.ok) return r.json(); throw new Error(); })
+            .then(notifications => {
+                if (!notifications || !notifications.length) return;
+                notifications.forEach(n => {
+                    const key = n.contact_id + '-' + n.timestamp;
+                    if (wppLastNotifIds.has(key)) return;
+                    wppLastNotifIds.add(key);
+                    showWhatsappToast(n);
+                });
+                // Limpar cache antigo (manter últimos 50)
+                if (wppLastNotifIds.size > 50) {
+                    const arr = Array.from(wppLastNotifIds);
+                    wppLastNotifIds = new Set(arr.slice(-30));
+                }
+            })
+            .catch(() => {});
+        }
+
+        function showWhatsappToast(n) {
+            const container = getToastContainer();
+            const toast = document.createElement('div');
+            toast.className = 'wpp-push-toast';
+            toast.innerHTML = `
+                <div class="wpp-push-header">
+                    <i class="bi bi-whatsapp text-success"></i>
+                    <strong>${escapeH(n.contact_name)}</strong>
+                    <button onclick="this.parentElement.parentElement.remove()" class="btn-close btn-close-sm ms-auto"></button>
+                </div>
+                <div class="wpp-push-body" onclick="window.location='${WPP_BASE}whatsapp/chat/${n.contact_id}'">
+                    <span class="wpp-push-msg">${escapeH(n.message)}</span>
+                    <small class="wpp-push-time">${n.unread_count} não lida${n.unread_count > 1 ? 's' : ''}</small>
+                </div>
+            `;
+            container.appendChild(toast);
+
+            // Tocar som suave
+            playNotifSound();
+
+            // Remover após 8 segundos
+            setTimeout(() => { if (toast.parentElement) toast.remove(); }, 8000);
+        }
+
+        function getToastContainer() {
+            let container = document.getElementById('wpp-toast-container');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'wpp-toast-container';
+                document.body.appendChild(container);
+            }
+            return container;
+        }
+
+        function playNotifSound() {
+            try {
+                if (!wppNotifAudio) {
+                    // Gerar um beep curto via Web Audio API
+                    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                    const osc = ctx.createOscillator();
+                    const gain = ctx.createGain();
+                    osc.connect(gain);
+                    gain.connect(ctx.destination);
+                    osc.frequency.value = 800;
+                    gain.gain.value = 0.1;
+                    osc.start();
+                    setTimeout(() => { osc.stop(); ctx.close(); }, 150);
+                }
+            } catch(e) {}
+        }
+
+        function escapeH(str) {
+            if (!str) return '';
+            const d = document.createElement('div');
+            d.textContent = str;
+            return d.innerHTML;
+        }
+
+        // Polling a cada 5 segundos
+        setInterval(checkWhatsappNotifications, 5000);
+        setTimeout(checkWhatsappNotifications, 2000);
+    })();
+    </script>
+    <style>
+    #wpp-toast-container {
+        position: fixed;
+        top: 16px;
+        right: 16px;
+        z-index: 99999;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        max-width: 340px;
+    }
+    .wpp-push-toast {
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+        overflow: hidden;
+        animation: wppSlideIn 0.3s ease;
+        border-left: 4px solid #25D366;
+    }
+    .wpp-push-header {
+        padding: 8px 12px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.82rem;
+        background: #f8f9fa;
+        border-bottom: 1px solid #eee;
+    }
+    .wpp-push-header .btn-close-sm {
+        width: 12px;
+        height: 12px;
+        font-size: 0.6rem;
+    }
+    .wpp-push-body {
+        padding: 10px 12px;
+        cursor: pointer;
+        transition: background 0.15s;
+    }
+    .wpp-push-body:hover {
+        background: #f0faf8;
+    }
+    .wpp-push-msg {
+        font-size: 0.8rem;
+        color: #333;
+        display: block;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .wpp-push-time {
+        font-size: 0.68rem;
+        color: #999;
+    }
+    @keyframes wppSlideIn {
+        from { transform: translateX(100%); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+    }
+    </style>
+    <?php endif; ?>
 </body>
 </html>
