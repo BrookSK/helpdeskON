@@ -190,6 +190,7 @@ class PlanningController extends Controller
             'card' => $card,
             'comments' => $comments,
             'attachments' => $attachments,
+            'tasks' => $this->cardModel->getTasks($id),
         ];
 
         // Se o card está vinculado a uma demanda, buscar dados da demanda
@@ -507,9 +508,221 @@ class PlanningController extends Controller
         ]);
     }
 
-    // Notificação de atribuição (sistema + email + webhook)
-    private function notifyAssignment($cardId, $assignedTo, $currentUser, $cardTitle)
+    // ========================
+    // TASKS INTERNAS DO CARD
+    // ========================
+
+    // Listar tasks de um card (JSON)
+    public function tasks($cardId = null)
     {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']);
+        if (!$cardId) $this->json(['error' => 'ID do card não informado'], 400);
+
+        $card = $this->cardModel->findById($cardId);
+        if (!$card) $this->json(['error' => 'Card não encontrado'], 404);
+
+        $tasks = $this->cardModel->getTasks($cardId);
+        $this->json(['success' => true, 'tasks' => $tasks]);
+    }
+
+    // Criar task no card
+    public function createTask($cardId = null)
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$cardId) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+
+        $user = $this->currentUser();
+        $card = $this->cardModel->findById($cardId);
+        if (!$card) $this->json(['error' => 'Card não encontrado'], 404);
+
+        $title = trim($_POST['title'] ?? '');
+        if (empty($title)) {
+            $this->json(['error' => 'Título da task obrigatório'], 400);
+        }
+
+        $taskId = $this->cardModel->createTask([
+            'card_id' => $cardId,
+            'title' => $title,
+            'description' => trim($_POST['description'] ?? '') ?: null,
+            'created_by' => $user['id'],
+            'position' => intval($_POST['position'] ?? 0),
+        ]);
+
+        // Notificar responsável do card sobre nova task (se diferente de quem criou)
+        if ($card['assigned_to'] && $card['assigned_to'] != $user['id']) {
+            $db = Database::getInstance();
+            $db->insert('notifications', [
+                'user_id' => $card['assigned_to'],
+                'title' => 'Nova task no card',
+                'message' => "{$user['name']} criou a task \"{$title}\" no card \"{$card['title']}\"",
+                'type' => 'system',
+            ]);
+        }
+
+        $task = $this->cardModel->findTask($taskId);
+        $task['images'] = [];
+        $task['created_by_name'] = $user['name'];
+
+        $this->json(['success' => true, 'task' => $task]);
+    }
+
+    // Atualizar task (título/descrição)
+    public function updateTask($taskId = null)
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$taskId) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+
+        $task = $this->cardModel->findTask($taskId);
+        if (!$task) $this->json(['error' => 'Task não encontrada'], 404);
+
+        $data = [];
+        if (isset($_POST['title'])) $data['title'] = trim($_POST['title']);
+        if (isset($_POST['description'])) $data['description'] = trim($_POST['description']) ?: null;
+        if (isset($_POST['position'])) $data['position'] = intval($_POST['position']);
+
+        if (!empty($data)) {
+            $this->cardModel->updateTask($taskId, $data);
+        }
+
+        $this->json(['success' => true]);
+    }
+
+    // Toggle completar/descompletar task
+    public function toggleTask($taskId = null)
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$taskId) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+
+        $user = $this->currentUser();
+        $task = $this->cardModel->findTask($taskId);
+        if (!$task) $this->json(['error' => 'Task não encontrada'], 404);
+
+        $this->cardModel->toggleTaskComplete($taskId, $user['id']);
+
+        // Recarregar task atualizada
+        $updatedTask = $this->cardModel->findTask($taskId);
+
+        $this->json([
+            'success' => true,
+            'is_completed' => (bool)$updatedTask['is_completed'],
+            'completed_by' => $user['name'],
+        ]);
+    }
+
+    // Deletar task
+    public function deleteTask($taskId = null)
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$taskId) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+
+        $task = $this->cardModel->findTask($taskId);
+        if (!$task) $this->json(['error' => 'Task não encontrada'], 404);
+
+        // Deletar imagens físicas da task
+        $images = $this->cardModel->getTaskImages($taskId);
+        foreach ($images as $img) {
+            $fullPath = PUBLIC_PATH . '/' . $img['file_path'];
+            if (file_exists($fullPath)) {
+                unlink($fullPath);
+            }
+        }
+
+        $this->cardModel->deleteTask($taskId);
+        $this->json(['success' => true]);
+    }
+
+    // Upload de imagem na task
+    public function uploadTaskImage($taskId = null)
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$taskId) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+
+        $user = $this->currentUser();
+        $task = $this->cardModel->findTask($taskId);
+        if (!$task) $this->json(['error' => 'Task não encontrada'], 404);
+
+        if (empty($_FILES['image']['name']) || $_FILES['image']['error'] !== UPLOAD_ERR_OK) {
+            $this->json(['error' => 'Nenhuma imagem enviada'], 400);
+        }
+
+        $file = $_FILES['image'];
+        $maxSize = 10 * 1024 * 1024; // 10MB
+        if ($file['size'] > $maxSize) {
+            $this->json(['error' => 'Imagem muito grande (máx 10MB)'], 400);
+        }
+
+        // Validar tipo (imagens)
+        $allowedTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml'];
+        if (!in_array($file['type'], $allowedTypes)) {
+            $this->json(['error' => 'Tipo de arquivo não permitido. Apenas imagens.'], 400);
+        }
+
+        $ext = pathinfo($file['name'], PATHINFO_EXTENSION) ?: 'png';
+        $fileName = 'task_' . uniqid() . '_' . time() . '.' . $ext;
+        $uploadDir = PUBLIC_PATH . '/uploads/planning/tasks';
+        if (!is_dir($uploadDir)) {
+            mkdir($uploadDir, 0755, true);
+        }
+
+        $filePath = 'uploads/planning/tasks/' . $fileName;
+        if (!move_uploaded_file($file['tmp_name'], PUBLIC_PATH . '/' . $filePath)) {
+            $this->json(['error' => 'Erro ao salvar imagem'], 500);
+        }
+
+        $imageId = $this->cardModel->addTaskImage([
+            'task_id' => $taskId,
+            'file_name' => $file['name'],
+            'file_path' => $filePath,
+            'file_type' => $file['type'],
+            'file_size' => $file['size'],
+            'user_id' => $user['id'],
+        ]);
+
+        $this->json([
+            'success' => true,
+            'image' => [
+                'id' => $imageId,
+                'file_name' => $file['name'],
+                'file_path' => $filePath,
+                'file_type' => $file['type'],
+                'user_name' => $user['name'],
+            ],
+        ]);
+    }
+
+    // Deletar imagem de task
+    public function deleteTaskImage($imageId = null)
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$imageId) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+
+        $image = $this->cardModel->findTaskImage($imageId);
+        if (!$image) $this->json(['error' => 'Imagem não encontrada'], 404);
+
+        // Deletar arquivo físico
+        $fullPath = PUBLIC_PATH . '/' . $image['file_path'];
+        if (file_exists($fullPath)) {
+            unlink($fullPath);
+        }
+
+        $this->cardModel->deleteTaskImage($imageId);
+        $this->json(['success' => true]);
+    }
+
+    // Notificação de atribuição (sistema + email + webhook)
+    private function notifyAssignment($cardId, $assignedTo, $currentUser, $cardTitle)    {
         $db = Database::getInstance();
         $card = $this->cardModel->findById($cardId);
 

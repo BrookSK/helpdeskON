@@ -261,6 +261,11 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                                     </button>
                                 </li>
                                 <li class="nav-item" role="presentation">
+                                    <button class="nav-link small py-2" id="tab-tasks" data-bs-toggle="tab" data-bs-target="#pane-tasks" type="button" role="tab">
+                                        <i class="bi bi-check2-square"></i> Tasks <span class="badge bg-secondary ms-1" id="tab-tasks-badge" style="font-size:0.6rem;">0</span>
+                                    </button>
+                                </li>
+                                <li class="nav-item" role="presentation">
                                     <button class="nav-link small py-2" id="tab-comentarios" data-bs-toggle="tab" data-bs-target="#pane-comentarios" type="button" role="tab">
                                         <i class="bi bi-chat-dots"></i> Comentários <span class="badge bg-secondary ms-1" id="tab-comentarios-badge" style="font-size:0.6rem;">0</span>
                                     </button>
@@ -325,6 +330,38 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                                         <input type="file" id="detail-file-input" class="form-control form-control-sm" style="max-width:300px;">
                                         <button class="btn btn-sm btn-outline-primary" onclick="uploadCardFile()"><i class="bi bi-upload"></i> Enviar</button>
                                     </div>
+                                </div>
+
+                                <!-- ABA TASKS -->
+                                <div class="tab-pane fade" id="pane-tasks" role="tabpanel">
+                                    <!-- Formulário criar task -->
+                                    <div class="card mb-3 border-0 shadow-sm">
+                                        <div class="card-body p-3">
+                                            <div class="d-flex gap-2 align-items-start">
+                                                <div class="flex-grow-1">
+                                                    <input type="text" id="new-task-title" class="form-control form-control-sm mb-2" placeholder="Título da task...">
+                                                    <textarea id="new-task-description" class="form-control form-control-sm" rows="2" placeholder="Descrição (opcional)..."></textarea>
+                                                </div>
+                                                <button class="btn btn-sm btn-primary" onclick="createTask()" style="white-space:nowrap;">
+                                                    <i class="bi bi-plus-lg"></i> Criar
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Progress bar -->
+                                    <div class="mb-3" id="tasks-progress-container" style="display:none;">
+                                        <div class="d-flex justify-content-between align-items-center mb-1">
+                                            <small class="text-muted fw-medium">Progresso</small>
+                                            <small class="text-muted" id="tasks-progress-text">0/0</small>
+                                        </div>
+                                        <div class="progress" style="height:6px;">
+                                            <div class="progress-bar bg-success" id="tasks-progress-bar" style="width:0%"></div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Lista de tasks -->
+                                    <div id="tasks-list"></div>
                                 </div>
 
                                 <!-- ABA COMENTÁRIOS -->
@@ -475,6 +512,21 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
 .internal-note-card { background: #fffde7; border: 1px solid #fff9c4; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; }
 .internal-note-card .note-meta { font-size: 0.7rem; color: #666; }
 .internal-note-card .note-text { font-size: 0.8rem; margin-top: 4px; }
+
+/* Tasks styles */
+.task-item { background: #fff; border: 1px solid #e9ecef; border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; transition: all 0.2s; }
+.task-item:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-color: #dee2e6; }
+.task-item.task-completed { background: #f8fdf8; border-color: #c8e6c9; }
+.task-item.task-completed .task-title { text-decoration: line-through; color: #888; }
+.task-title { font-size: 0.85rem; font-weight: 600; margin: 0; }
+.task-description { font-size: 0.78rem; color: #555; margin-top: 4px; white-space: pre-wrap; }
+.task-meta { font-size: 0.68rem; color: #999; margin-top: 6px; }
+.task-images-grid { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.task-image-thumb { width: 80px; height: 60px; object-fit: cover; border-radius: 6px; cursor: pointer; border: 1px solid #e9ecef; transition: transform 0.2s; }
+.task-image-thumb:hover { transform: scale(1.08); box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+.task-checkbox { width: 18px; height: 18px; cursor: pointer; accent-color: #2e7d32; }
+.task-upload-zone { border: 2px dashed #dee2e6; border-radius: 8px; padding: 8px; text-align: center; cursor: pointer; transition: all 0.2s; }
+.task-upload-zone:hover { border-color: var(--primary, #00BFA6); background: #f0fdf4; }
 
 #calendar-container table { width: 100%; border-collapse: collapse; }
 #calendar-container th, #calendar-container td { border: 1px solid #e9ecef; padding: 4px; vertical-align: top; font-size: 0.8rem; }
@@ -632,6 +684,9 @@ function openCardModal(id) {
 
         // Demanda vinculada (aba Demanda)
         renderTicketData(data);
+
+        // Tasks internas (aba Tasks)
+        renderTasks(data.tasks || []);
 
         // Guardar description para setar após o Quill estar pronto
         window._pendingDescription = c.description || '';
@@ -832,6 +887,177 @@ function deleteCardPermanent() {
             if (data.success) location.reload();
             else alert(data.error || 'Erro ao excluir permanentemente.');
         });
+}
+
+// === TASKS ===
+function renderTasks(tasks) {
+    const container = document.getElementById('tasks-list');
+    const badge = document.getElementById('tab-tasks-badge');
+    const progressContainer = document.getElementById('tasks-progress-container');
+
+    if (!tasks || !tasks.length) {
+        container.innerHTML = '<p class="text-muted small text-center py-3"><i class="bi bi-check2-square"></i> Nenhuma task criada ainda.</p>';
+        badge.textContent = '0';
+        progressContainer.style.display = 'none';
+        return;
+    }
+
+    const total = tasks.length;
+    const completed = tasks.filter(t => t.is_completed == 1).length;
+    badge.textContent = completed + '/' + total;
+    progressContainer.style.display = '';
+    document.getElementById('tasks-progress-text').textContent = completed + '/' + total + ' concluídas';
+    document.getElementById('tasks-progress-bar').style.width = (total > 0 ? (completed / total * 100) : 0) + '%';
+
+    container.innerHTML = tasks.map(task => {
+        const isCompleted = task.is_completed == 1;
+        const images = task.images || [];
+        return `
+            <div class="task-item ${isCompleted ? 'task-completed' : ''}" data-task-id="${task.id}">
+                <div class="d-flex align-items-start gap-2">
+                    <input type="checkbox" class="task-checkbox mt-1" ${isCompleted ? 'checked' : ''} onchange="toggleTaskComplete(${task.id})">
+                    <div class="flex-grow-1">
+                        <p class="task-title">${escapeHtml(task.title)}</p>
+                        ${task.description ? '<div class="task-description">' + escapeHtml(task.description) + '</div>' : ''}
+                        ${images.length ? renderTaskImages(images) : ''}
+                        <div class="task-meta">
+                            <i class="bi bi-person"></i> ${task.created_by_name || 'Sistema'}
+                            &middot; ${new Date(task.created_at).toLocaleString('pt-BR')}
+                            ${isCompleted ? ' &middot; <span class="text-success"><i class="bi bi-check-circle-fill"></i> ' + (task.completed_by_name || '') + '</span>' : ''}
+                        </div>
+                        <!-- Upload de imagens na task -->
+                        <div class="mt-2">
+                            <div class="d-flex gap-2 align-items-center">
+                                <input type="file" class="form-control form-control-sm task-image-input" data-task-id="${task.id}" accept="image/*" multiple style="max-width:200px;font-size:0.72rem;">
+                                <button class="btn btn-outline-secondary btn-sm" onclick="uploadTaskImages(${task.id})" style="font-size:0.7rem;padding:2px 8px;">
+                                    <i class="bi bi-image"></i> Enviar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <button class="btn btn-sm btn-outline-danger p-0 px-1 flex-shrink-0" onclick="deleteTask(${task.id})" title="Excluir task">
+                        <i class="bi bi-trash" style="font-size:0.75rem;"></i>
+                    </button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function renderTaskImages(images) {
+    return `<div class="task-images-grid">${images.map(img => `
+        <div class="position-relative d-inline-block">
+            <img src="${BASE}${img.file_path}" class="task-image-thumb" onclick="window.open('${BASE}${img.file_path}','_blank')" alt="${img.file_name}" title="${img.file_name}" loading="lazy">
+            <button class="btn btn-danger position-absolute top-0 end-0 p-0" style="width:16px;height:16px;font-size:0.55rem;line-height:1;border-radius:50%;" onclick="event.stopPropagation();deleteTaskImage(${img.id})" title="Remover">
+                <i class="bi bi-x"></i>
+            </button>
+        </div>
+    `).join('')}</div>`;
+}
+
+function createTask() {
+    const titleInput = document.getElementById('new-task-title');
+    const descInput = document.getElementById('new-task-description');
+    const title = titleInput.value.trim();
+    if (!title) { titleInput.focus(); return; }
+
+    const formData = new FormData();
+    formData.append('title', title);
+    formData.append('description', descInput.value.trim());
+
+    fetch(BASE + 'planning/createTask/' + currentCardId, {
+        method: 'POST',
+        body: formData,
+        headers: {'X-Requested-With': 'XMLHttpRequest'}
+    }).then(r => r.json()).then(data => {
+        if (data.success) {
+            titleInput.value = '';
+            descInput.value = '';
+            // Recarregar tasks
+            reloadTasks();
+        } else {
+            alert(data.error || 'Erro ao criar task');
+        }
+    });
+}
+
+function toggleTaskComplete(taskId) {
+    fetch(BASE + 'planning/toggleTask/' + taskId, {
+        method: 'POST',
+        headers: {'X-Requested-With': 'XMLHttpRequest'}
+    }).then(r => r.json()).then(data => {
+        if (data.success) {
+            reloadTasks();
+        }
+    });
+}
+
+function deleteTask(taskId) {
+    if (!confirm('Excluir esta task?')) return;
+    fetch(BASE + 'planning/deleteTask/' + taskId, {
+        method: 'POST',
+        headers: {'X-Requested-With': 'XMLHttpRequest'}
+    }).then(r => r.json()).then(data => {
+        if (data.success) {
+            reloadTasks();
+        }
+    });
+}
+
+function uploadTaskImages(taskId) {
+    const input = document.querySelector(`.task-image-input[data-task-id="${taskId}"]`);
+    if (!input || !input.files.length) return;
+
+    const files = input.files;
+    let uploads = [];
+    for (let i = 0; i < files.length; i++) {
+        const formData = new FormData();
+        formData.append('image', files[i]);
+        uploads.push(
+            fetch(BASE + 'planning/uploadTaskImage/' + taskId, {
+                method: 'POST',
+                body: formData,
+                headers: {'X-Requested-With': 'XMLHttpRequest'}
+            }).then(r => r.json())
+        );
+    }
+
+    Promise.all(uploads).then(results => {
+        const errors = results.filter(r => !r.success);
+        if (errors.length) {
+            alert('Alguns uploads falharam: ' + errors.map(e => e.error).join(', '));
+        }
+        reloadTasks();
+    });
+}
+
+function deleteTaskImage(imageId) {
+    if (!confirm('Remover esta imagem?')) return;
+    fetch(BASE + 'planning/deleteTaskImage/' + imageId, {
+        method: 'POST',
+        headers: {'X-Requested-With': 'XMLHttpRequest'}
+    }).then(r => r.json()).then(data => {
+        if (data.success) {
+            reloadTasks();
+        }
+    });
+}
+
+function reloadTasks() {
+    fetch(BASE + 'planning/tasks/' + currentCardId)
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                renderTasks(data.tasks);
+            }
+        });
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
 // === COMMENTS ===

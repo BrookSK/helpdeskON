@@ -343,4 +343,110 @@ class PlanningCard
         $rows = $db->fetchAll("SELECT company_id FROM user_company_access WHERE user_id = ?", [$userId]);
         return array_column($rows, 'company_id');
     }
+
+    // ========================
+    // TASKS INTERNAS DO CARD
+    // ========================
+
+    public function getTasks($cardId)
+    {
+        $tasks = $this->db->fetchAll(
+            "SELECT pt.*, u.name as created_by_name, cu.name as completed_by_name
+             FROM planning_tasks pt
+             LEFT JOIN users u ON pt.created_by = u.id
+             LEFT JOIN users cu ON pt.completed_by = cu.id
+             WHERE pt.card_id = ?
+             ORDER BY pt.position ASC, pt.created_at ASC",
+            [$cardId]
+        );
+
+        // Carregar imagens de cada task
+        foreach ($tasks as &$task) {
+            $task['images'] = $this->getTaskImages($task['id']);
+        }
+
+        return $tasks;
+    }
+
+    public function findTask($taskId)
+    {
+        return $this->db->fetch("SELECT * FROM planning_tasks WHERE id = ?", [$taskId]);
+    }
+
+    public function createTask($data)
+    {
+        return $this->db->insert('planning_tasks', $data);
+    }
+
+    public function updateTask($taskId, $data)
+    {
+        return $this->db->update('planning_tasks', $data, 'id = ?', [$taskId]);
+    }
+
+    public function toggleTaskComplete($taskId, $userId)
+    {
+        $task = $this->findTask($taskId);
+        if (!$task) return false;
+
+        if ($task['is_completed']) {
+            // Desmarcar
+            return $this->db->update('planning_tasks', [
+                'is_completed' => 0,
+                'completed_by' => null,
+                'completed_at' => null,
+            ], 'id = ?', [$taskId]);
+        } else {
+            // Marcar como concluída
+            return $this->db->update('planning_tasks', [
+                'is_completed' => 1,
+                'completed_by' => $userId,
+                'completed_at' => date('Y-m-d H:i:s'),
+            ], 'id = ?', [$taskId]);
+        }
+    }
+
+    public function deleteTask($taskId)
+    {
+        return $this->db->delete('planning_tasks', 'id = ?', [$taskId]);
+    }
+
+    // Imagens das tasks
+    public function getTaskImages($taskId)
+    {
+        return $this->db->fetchAll(
+            "SELECT pti.*, u.name as user_name
+             FROM planning_task_images pti
+             LEFT JOIN users u ON pti.user_id = u.id
+             WHERE pti.task_id = ?
+             ORDER BY pti.created_at ASC",
+            [$taskId]
+        );
+    }
+
+    public function addTaskImage($data)
+    {
+        return $this->db->insert('planning_task_images', $data);
+    }
+
+    public function findTaskImage($imageId)
+    {
+        return $this->db->fetch("SELECT * FROM planning_task_images WHERE id = ?", [$imageId]);
+    }
+
+    public function deleteTaskImage($imageId)
+    {
+        return $this->db->delete('planning_task_images', 'id = ?', [$imageId]);
+    }
+
+    public function getTaskCountForCard($cardId)
+    {
+        $result = $this->db->fetch(
+            "SELECT COUNT(*) as total, SUM(is_completed) as completed FROM planning_tasks WHERE card_id = ?",
+            [$cardId]
+        );
+        return [
+            'total' => (int)($result['total'] ?? 0),
+            'completed' => (int)($result['completed'] ?? 0),
+        ];
+    }
 }
