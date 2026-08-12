@@ -40,23 +40,14 @@
         <h5 class="mb-0 fw-semibold"><i class="bi bi-graph-up-arrow"></i> Métricas Sociais</h5>
         <small class="text-muted">Desempenho das publicações via Buffer</small>
     </div>
-    <!-- Barra de ações (botões alinhados) -->
-    <div class="d-flex flex-wrap gap-2 align-items-end mb-2">
-        <div>
-            <label class="form-label small mb-0" style="font-size:0.68rem;">De</label>
-            <input type="date" id="period-start" class="form-control form-control-sm" style="width:150px;" value="<?= escape($periodStart) ?>">
-        </div>
-        <div>
-            <label class="form-label small mb-0" style="font-size:0.68rem;">Até</label>
-            <input type="date" id="period-end" class="form-control form-control-sm" style="width:150px;" value="<?= escape($periodEnd) ?>">
-        </div>
-        <button class="btn btn-outline-primary btn-sm" onclick="applyPeriod()"><i class="bi bi-funnel"></i> Aplicar período</button>
+    <!-- Barra de ações (sincronizações) -->
+    <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
         <button class="btn btn-outline-secondary btn-sm" onclick="syncChannels(this)"><i class="bi bi-arrow-repeat"></i> Sincronizar canais</button>
         <button class="btn btn-primary btn-sm" onclick="syncMetrics(this)"><i class="bi bi-cloud-download"></i> Atualizar métricas</button>
         <span class="vr d-none d-lg-inline mx-1"></span>
         <button class="btn btn-outline-secondary btn-sm" onclick="importMeta(this)"><i class="bi bi-download"></i> Importar da Meta</button>
         <button class="btn btn-outline-secondary btn-sm" onclick="openLinkedinModal()"><i class="bi bi-linkedin"></i> Add LinkedIn</button>
-        <button class="btn btn-outline-primary btn-sm" onclick="syncSocial(this)"><i class="bi bi-arrow-repeat"></i> Atualizar redes</button>
+        <button class="btn btn-outline-secondary btn-sm" onclick="syncSocial(this)"><i class="bi bi-arrow-repeat"></i> Atualizar redes</button>
     </div>
 
     <?php if (!$hasKey): ?>
@@ -86,18 +77,31 @@
         'googlebusiness' => ['bi-google', '#4285F4'],
     ];
     ?>
-    <!-- Filtro combinado por rede social / conta -->
-    <div class="d-flex flex-wrap align-items-center gap-2 mb-3 p-2 rounded" style="background:#f6f8fa;">
-        <span class="small fw-medium text-muted"><i class="bi bi-funnel"></i> Filtrar:</span>
-        <select id="filter-network" class="form-select form-select-sm" style="width:180px;" onchange="onNetworkChange()">
-            <option value="">Todas as redes</option>
-        </select>
-        <select id="filter-account" class="form-select form-select-sm" style="width:220px;" onchange="onAccountChange()">
-            <option value="">Todas as contas</option>
-        </select>
-        <button class="btn btn-sm btn-outline-primary" onclick="applySocialFilter()"><i class="bi bi-check2"></i> Aplicar filtro</button>
+    <!-- Filtro único: período + rede + conta -->
+    <div class="d-flex flex-wrap align-items-end gap-2 mb-3 p-2 rounded" style="background:#f6f8fa;">
+        <div>
+            <label class="form-label small mb-0 text-muted" style="font-size:0.66rem;">De</label>
+            <input type="date" id="period-start" class="form-control form-control-sm" style="width:145px;" value="<?= escape($periodStart) ?>">
+        </div>
+        <div>
+            <label class="form-label small mb-0 text-muted" style="font-size:0.66rem;">Até</label>
+            <input type="date" id="period-end" class="form-control form-control-sm" style="width:145px;" value="<?= escape($periodEnd) ?>">
+        </div>
+        <div>
+            <label class="form-label small mb-0 text-muted" style="font-size:0.66rem;">Rede</label>
+            <select id="filter-network" class="form-select form-select-sm" style="width:170px;" onchange="onNetworkChange()">
+                <option value="">Todas as redes</option>
+            </select>
+        </div>
+        <div>
+            <label class="form-label small mb-0 text-muted" style="font-size:0.66rem;">Conta</label>
+            <select id="filter-account" class="form-select form-select-sm" style="width:210px;" onchange="onAccountChange()">
+                <option value="">Todas as contas</option>
+            </select>
+        </div>
+        <button class="btn btn-sm btn-primary" onclick="applySocialFilter()"><i class="bi bi-funnel"></i> Aplicar</button>
         <button class="btn btn-sm btn-outline-secondary" onclick="clearSocialFilter()"><i class="bi bi-x-lg"></i> Limpar</button>
-        <span class="text-muted small ms-auto" id="filter-result-count"></span>
+        <span class="text-muted small ms-auto align-self-center" id="filter-result-count"></span>
     </div>
 
     <div class="d-flex align-items-center justify-content-between mb-2">
@@ -425,18 +429,6 @@ function syncMetrics(btn) {
 }
 
 function escapeHtml(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
-
-// Recarrega o dashboard aplicando o período escolhido (sem chamar a API)
-function applyPeriod() {
-    const start = document.getElementById('period-start').value;
-    const end = document.getElementById('period-end').value;
-    const params = new URLSearchParams();
-    if (start) params.set('start', start);
-    if (end) params.set('end', end);
-    if (ACTIVE_NETWORK) params.set('network', ACTIVE_NETWORK);
-    if (ACTIVE_ACCOUNT) params.set('account', ACTIVE_ACCOUNT);
-    window.location = `${BASE}buffer/dashboard?${params.toString()}`;
-}
 
 // ===== Filtro combinado por rede social / conta =====
 const NET_LABELS = {
