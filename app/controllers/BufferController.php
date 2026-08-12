@@ -28,17 +28,20 @@ class BufferController extends Controller
         $channels = $this->data->getChannels();
         $posts = $this->data->getPosts(200);
 
-        // Métricas agregadas (30 dias) por canal, para exibir no card
-        $channelMetrics = [];
-        foreach ($channels as $c) {
-            $channelMetrics[$c['channel_id']] = $this->data->getChannelMetrics($c['channel_id']);
-        }
+        // Período do filtro (padrão: últimos 365 dias, para não zerar)
+        $periodStart = !empty($_GET['start']) ? substr($_GET['start'], 0, 10) : date('Y-m-d', strtotime('-365 days'));
+        $periodEnd = !empty($_GET['end']) ? substr($_GET['end'], 0, 10) : date('Y-m-d');
+
+        // Métricas por canal agregadas localmente a partir dos posts já sincronizados
+        $channelMetrics = $this->data->aggregateChannelMetricsFromPosts($periodStart, $periodEnd);
 
         $this->view('buffer/dashboard', [
             'user' => $user,
             'totals' => $totals,
             'channels' => $channels,
             'channelMetrics' => $channelMetrics,
+            'periodStart' => $periodStart,
+            'periodEnd' => $periodEnd,
             'posts' => $posts,
             'hasKey' => (new BufferApi())->hasKey(),
         ]);

@@ -20,6 +20,19 @@
 .cm-lbl { font-size: 0.6rem; color: #8a929b; margin-top: 2px; }
 .top-post-cover { width: 46px; height: 46px; border-radius: 8px; object-fit: cover; flex-shrink: 0; }
 .top-post-cover-empty { display: flex; align-items: center; justify-content: center; background: #eef1f4; color: #b0b8c0; font-size: 1.1rem; }
+/* Lista de posts: sem rolagem lateral, com quebra de linha */
+#top-posts { overflow-x: hidden; }
+.top-post-item { overflow: hidden; }
+.top-post-info { flex: 1 1 auto; min-width: 0; }
+.top-post-text {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
 </style>
 
 <div class="main-content">
@@ -31,12 +44,13 @@
         <div class="d-flex flex-wrap gap-2 align-items-end">
             <div>
                 <label class="form-label small mb-0" style="font-size:0.68rem;">De</label>
-                <input type="date" id="period-start" class="form-control form-control-sm" style="max-width:150px;">
+                <input type="date" id="period-start" class="form-control form-control-sm" style="max-width:150px;" value="<?= escape($periodStart) ?>">
             </div>
             <div>
                 <label class="form-label small mb-0" style="font-size:0.68rem;">Até</label>
-                <input type="date" id="period-end" class="form-control form-control-sm" style="max-width:150px;">
+                <input type="date" id="period-end" class="form-control form-control-sm" style="max-width:150px;" value="<?= escape($periodEnd) ?>">
             </div>
+            <button class="btn btn-outline-primary btn-sm" onclick="applyPeriod()"><i class="bi bi-funnel"></i> Aplicar período</button>
             <button class="btn btn-outline-secondary btn-sm" onclick="syncChannels(this)"><i class="bi bi-arrow-repeat"></i> Sincronizar canais</button>
             <button class="btn btn-primary btn-sm" onclick="syncMetrics(this)"><i class="bi bi-cloud-download"></i> Atualizar métricas</button>
         </div>
@@ -124,13 +138,7 @@
                     $getM = function($t) use ($cm) { return isset($cm[$t]) ? $cm[$t]['metric_value'] : null; };
                     $posts30 = $getM('postCount');
                     ?>
-                    <?php
-                    $periodLabel = 'Período';
-                    $anyMetric = reset($cm);
-                    if (!empty($anyMetric['period_start']) && !empty($anyMetric['period_end'])) {
-                        $periodLabel = date('d/m/Y', strtotime($anyMetric['period_start'])) . ' – ' . date('d/m/Y', strtotime($anyMetric['period_end']));
-                    }
-                    ?>
+                    <?php $periodLabel = date('d/m/Y', strtotime($periodStart)) . ' – ' . date('d/m/Y', strtotime($periodEnd)); ?>
                     <?php if (!empty($cm)): ?>
                     <div class="channel-metrics">
                         <div class="channel-metrics-title"><i class="bi bi-graph-up"></i> <?= escape($periodLabel) ?></div>
@@ -233,7 +241,9 @@
             <div class="card h-100">
                 <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.9rem;">Variação ao longo do tempo</h6></div>
                 <div class="card-body">
-                    <canvas id="lineChart" style="max-height:300px;"></canvas>
+                    <div style="position:relative;height:300px;">
+                        <canvas id="lineChart"></canvas>
+                    </div>
                 </div>
             </div>
         </div>
@@ -281,7 +291,14 @@ function renderLine(timeline, metric) {
     });
     const values = timeline.map(t => parseFloat(t.total));
     if (lineChart) lineChart.destroy();
-    lineChart = new Chart(document.getElementById('lineChart'), {
+    const canvas = document.getElementById('lineChart');
+    const ctx = canvas.getContext('2d');
+    // Gradiente suave sob a curva
+    const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height || 300);
+    gradient.addColorStop(0, 'rgba(0,191,166,0.25)');
+    gradient.addColorStop(1, 'rgba(0,191,166,0.01)');
+
+    lineChart = new Chart(canvas, {
         type: 'line',
         data: {
             labels,
@@ -289,13 +306,44 @@ function renderLine(timeline, metric) {
                 label: METRIC_LABELS[metric] || metric,
                 data: values,
                 borderColor: '#00BFA6',
-                backgroundColor: 'rgba(0,191,166,0.12)',
+                borderWidth: 3,
+                backgroundColor: gradient,
                 fill: true,
-                tension: 0.3,
-                pointRadius: 3,
+                cubicInterpolationMode: 'monotone',
+                tension: 0.45,
+                pointRadius: 0,
+                pointHoverRadius: 5,
+                pointHoverBackgroundColor: '#00BFA6',
+                pointHoverBorderColor: '#fff',
+                pointHoverBorderWidth: 2,
             }]
         },
-        options: { responsive: true, plugins: { legend: { display: true } }, scales: { y: { beginAtZero: true } } }
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: '#1f2937',
+                    padding: 10,
+                    displayColors: false,
+                    titleFont: { size: 12 },
+                    bodyFont: { size: 13, weight: '600' },
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    grid: { color: 'rgba(0,0,0,0.05)' },
+                    ticks: { color: '#9aa4ae', font: { size: 11 } },
+                },
+                x: {
+                    grid: { display: false },
+                    ticks: { color: '#9aa4ae', font: { size: 11 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 8 },
+                }
+            }
+        }
     });
 }
 
@@ -311,13 +359,13 @@ function renderTop(top, metric, postFilter) {
         const cover = p.thumbnail
             ? `<img src="${p.thumbnail}" class="top-post-cover" alt="" onerror="this.style.display='none'">`
             : `<div class="top-post-cover top-post-cover-empty"><i class="bi bi-image"></i></div>`;
-        return `<a ${link} class="list-group-item list-group-item-action d-flex align-items-center gap-2" style="text-decoration:none;">
+        return `<a ${link} class="list-group-item list-group-item-action d-flex align-items-center gap-2 top-post-item" style="text-decoration:none;">
             ${cover}
-            <div class="min-w-0 flex-grow-1">
-                <div class="small fw-medium text-truncate">${i + 1}. ${escapeHtml(txt)}</div>
+            <div class="top-post-info">
+                <div class="small fw-medium top-post-text">${i + 1}. ${escapeHtml(txt)}</div>
                 <div class="text-muted" style="font-size:0.7rem;">${p.service || ''}</div>
             </div>
-            <span class="badge bg-primary rounded-pill">${val}</span>
+            <span class="badge bg-primary rounded-pill flex-shrink-0">${val}</span>
         </a>`;
     }).join('');
 }
@@ -347,28 +395,27 @@ function syncMetrics(btn) {
         .then(r => r.json()).then(data => {
             btn.disabled = false; btn.innerHTML = original;
             if (data.error) { alert(data.error); return; }
-            location.reload();
+            // Recarrega preservando o período para ver os números agregados
+            const params = new URLSearchParams();
+            if (start) params.set('start', start);
+            if (end) params.set('end', end);
+            window.location = `${BASE}buffer/dashboard?${params.toString()}`;
         }).catch(() => { btn.disabled = false; btn.innerHTML = original; });
 }
 
 function escapeHtml(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
 
-// Preenche o filtro de período com um padrão amplo (últimos 365 dias) para não zerar
-function initPeriodDefaults() {
-    const end = new Date();
-    const start = new Date();
-    start.setDate(start.getDate() - 365);
-    const fmt = d => d.toISOString().slice(0, 10);
-    const s = document.getElementById('period-start');
-    const e = document.getElementById('period-end');
-    if (s && !s.value) s.value = fmt(start);
-    if (e && !e.value) e.value = fmt(end);
+// Recarrega o dashboard aplicando o período escolhido (sem chamar a API)
+function applyPeriod() {
+    const start = document.getElementById('period-start').value;
+    const end = document.getElementById('period-end').value;
+    const params = new URLSearchParams();
+    if (start) params.set('start', start);
+    if (end) params.set('end', end);
+    window.location = `${BASE}buffer/dashboard?${params.toString()}`;
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-    initPeriodDefaults();
-    loadMetric();
-});
+document.addEventListener('DOMContentLoaded', loadMetric);
 </script>
 
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>

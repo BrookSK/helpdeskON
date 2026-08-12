@@ -123,6 +123,51 @@ class BufferData
         return $out;
     }
 
+    /**
+     * Agrega métricas por canal a partir dos posts já sincronizados, no período dado.
+     * Soma métricas de contagem e faz média das de porcentagem (ex: engagementRate).
+     * Retorna: [channel_id => [metric_type => ['metric_value'=>..,'metric_unit'=>..]]]
+     */
+    public function aggregateChannelMetricsFromPosts($startDate, $endDate)
+    {
+        $rows = $this->db->fetchAll(
+            "SELECT p.channel_id,
+                    m.metric_type,
+                    m.metric_unit,
+                    SUM(m.metric_value) AS sum_value,
+                    AVG(m.metric_value) AS avg_value,
+                    COUNT(DISTINCT p.buffer_post_id) AS post_count
+             FROM buffer_posts p
+             JOIN buffer_post_metrics m ON m.buffer_post_id = p.buffer_post_id
+             WHERE (
+                    DATE(COALESCE(p.sent_at, p.due_at)) BETWEEN ? AND ?
+                    OR COALESCE(p.sent_at, p.due_at) IS NULL
+                 )
+             GROUP BY p.channel_id, m.metric_type, m.metric_unit",
+            [$startDate, $endDate]
+        );
+
+        $out = [];
+        $postCounts = [];
+        foreach ($rows as $r) {
+            $cid = $r['channel_id'];
+            if (!isset($out[$cid])) $out[$cid] = [];
+            $isPct = ($r['metric_unit'] === 'percentage');
+            $out[$cid][$r['metric_type']] = [
+                'metric_type' => $r['metric_type'],
+                'metric_value' => $isPct ? floatval($r['avg_value']) : floatval($r['sum_value']),
+                'metric_unit' => $r['metric_unit'],
+            ];
+            // Guarda a maior contagem de posts vista para o canal
+            $postCounts[$cid] = max($postCounts[$cid] ?? 0, intval($r['post_count']));
+        }
+        // Adiciona postCount sintético
+        foreach ($postCounts as $cid => $pc) {
+            $out[$cid]['postCount'] = ['metric_type' => 'postCount', 'metric_value' => $pc, 'metric_unit' => 'count'];
+        }
+        return $out;
+    }
+
     // ===== Métricas por post =====
     public function saveMetric($bufferPostId, $metric, $updatedAt = null)
     {
