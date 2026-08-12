@@ -18,11 +18,27 @@ class BufferData
         return $this->db->fetchAll($sql);
     }
 
-    /** Substitui o cache de canais pelo conjunto informado. */
-    public function syncChannels($channels, $organizationId)
+    /** Canais de uma conta Buffer específica. */
+    public function getChannelsByAccount($bufferAccountId, $onlyActive = true)
     {
-        // Marca todos como inativos e reativa os retornados
-        $this->db->query("UPDATE buffer_channels SET is_active = 0");
+        $sql = "SELECT * FROM buffer_channels WHERE buffer_account_id = ?";
+        if ($onlyActive) $sql .= " AND is_active = 1";
+        $sql .= " ORDER BY name ASC";
+        return $this->db->fetchAll($sql, [$bufferAccountId]);
+    }
+
+    /**
+     * Substitui o cache de canais pelo conjunto informado.
+     * Quando $bufferAccountId é informado, só afeta os canais daquela conta Buffer.
+     */
+    public function syncChannels($channels, $organizationId, $bufferAccountId = null)
+    {
+        // Marca como inativos apenas os canais da conta em questão (ou todos, no modo legado)
+        if ($bufferAccountId !== null) {
+            $this->db->query("UPDATE buffer_channels SET is_active = 0 WHERE buffer_account_id = ?", [$bufferAccountId]);
+        } else {
+            $this->db->query("UPDATE buffer_channels SET is_active = 0");
+        }
         foreach ($channels as $c) {
             $existing = $this->db->fetch("SELECT id FROM buffer_channels WHERE channel_id = ?", [$c['id']]);
             // Deriva o username do externalLink quando possível (ex: instagram.com/usuario)
@@ -43,6 +59,7 @@ class BufferData
                 'is_queue_paused' => !empty($c['isQueuePaused']) ? 1 : 0,
                 'is_active' => 1,
             ];
+            if ($bufferAccountId !== null) $data['buffer_account_id'] = $bufferAccountId;
             if ($existing) {
                 $this->db->update('buffer_channels', $data, 'channel_id = ?', [$c['id']]);
             } else {

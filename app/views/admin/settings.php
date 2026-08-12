@@ -143,15 +143,95 @@
             </div>
         </div>
 
-        <!-- Buffer (agendamento social) -->
+        <!-- Buffer (agendamento social) — múltiplas contas -->
         <div class="card mb-4">
-            <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-share"></i> Buffer (Redes Sociais)</h6></div>
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                <h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-share"></i> Buffer (Redes Sociais)</h6>
+                <button type="button" class="btn btn-sm btn-outline-primary" onclick="openBufferKeyModal()"><i class="bi bi-plus-lg"></i> Adicionar conta</button>
+            </div>
             <div class="card-body">
-                <label class="form-label fw-medium small">API Key</label>
-                <input type="password" name="buffer_api_key" class="form-control form-control-sm" value="<?= escape($settings['buffer_api_key'] ?? '') ?>" placeholder="buf_...">
-                <small class="text-muted d-block">Gere em <a href="https://publish.buffer.com/settings/api" target="_blank" rel="noopener">publish.buffer.com/settings/api</a>. Usada para agendar posts e ler métricas.</small>
+                <p class="small text-muted mb-2">Conecte uma ou mais contas do Buffer (cada API key). Todos os canais de todas as contas aparecem em Métricas Sociais. Gere a key em <a href="https://publish.buffer.com/settings/api" target="_blank" rel="noopener">publish.buffer.com/settings/api</a>.</p>
+                <div id="buffer-accounts-list" class="d-flex flex-column gap-2">
+                    <div class="text-muted small">Carregando contas...</div>
+                </div>
             </div>
         </div>
+
+        <!-- Modal adicionar conta Buffer -->
+        <div class="modal fade" id="bufferKeyModal" tabindex="-1">
+            <div class="modal-dialog modal-sm">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h6 class="modal-title"><i class="bi bi-share"></i> Adicionar conta Buffer</h6>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-2">
+                            <label class="form-label small fw-medium">Nome (opcional)</label>
+                            <input type="text" id="bk-label" class="form-control form-control-sm" placeholder="Ex: Conta ON Solutions">
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label small fw-medium">API Key *</label>
+                            <input type="text" id="bk-key" class="form-control form-control-sm" placeholder="buf_...">
+                        </div>
+                        <div id="bk-error" class="text-danger small" style="display:none;"></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="button" class="btn btn-sm btn-primary" id="bk-save" onclick="saveBufferKey()">Conectar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+        (function(){
+            const B = '<?= baseUrl("") ?>';
+            let bkModal = null;
+            function loadBufferAccounts() {
+                fetch(B + 'buffer/accounts', { headers:{'X-Requested-With':'XMLHttpRequest'} })
+                    .then(r=>r.json()).then(d=>{
+                        const box = document.getElementById('buffer-accounts-list');
+                        const list = d.accounts || [];
+                        if (!list.length) { box.innerHTML = '<div class="text-muted small">Nenhuma conta conectada. Clique em "Adicionar conta".</div>'; return; }
+                        box.innerHTML = list.map(a => `
+                            <div class="d-flex align-items-center justify-content-between border rounded p-2">
+                                <div class="min-w-0">
+                                    <div class="fw-medium small text-truncate">${escBk(a.label || 'Conta Buffer')}</div>
+                                    <div class="text-muted" style="font-size:0.72rem;">${escBk(a.api_key_masked || '')}</div>
+                                </div>
+                                <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteBufferKey(${a.id})"><i class="bi bi-trash3"></i></button>
+                            </div>`).join('');
+                    }).catch(()=>{});
+            }
+            function escBk(s){ const d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
+            window.openBufferKeyModal = function(){
+                document.getElementById('bk-label').value=''; document.getElementById('bk-key').value='';
+                document.getElementById('bk-error').style.display='none';
+                if(!bkModal) bkModal = new bootstrap.Modal(document.getElementById('bufferKeyModal'));
+                bkModal.show();
+            };
+            window.saveBufferKey = function(){
+                const key = document.getElementById('bk-key').value.trim();
+                const err = document.getElementById('bk-error');
+                if(!key){ err.textContent='Informe a API key.'; err.style.display='block'; return; }
+                const btn = document.getElementById('bk-save'); btn.disabled=true; btn.textContent='Conectando...';
+                const fd = new FormData(); fd.append('api_key', key); fd.append('label', document.getElementById('bk-label').value.trim());
+                fetch(B + 'buffer/addAccount', { method:'POST', body:fd, headers:{'X-Requested-With':'XMLHttpRequest'} })
+                    .then(r=>r.json()).then(d=>{
+                        btn.disabled=false; btn.textContent='Conectar';
+                        if(d.error){ err.textContent=d.error; err.style.display='block'; return; }
+                        bkModal.hide(); loadBufferAccounts();
+                    }).catch(()=>{ btn.disabled=false; btn.textContent='Conectar'; });
+            };
+            window.deleteBufferKey = function(id){
+                if(!confirm('Remover esta conta Buffer e seus canais?')) return;
+                fetch(B + 'buffer/deleteAccount/' + id, { method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'} })
+                    .then(r=>r.json()).then(()=> loadBufferAccounts());
+            };
+            document.addEventListener('DOMContentLoaded', loadBufferAccounts);
+        })();
+        </script>
 
         <!-- Meta (Facebook / Instagram) -->
         <div class="card mb-4">

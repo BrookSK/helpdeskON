@@ -4,10 +4,14 @@ class BufferController extends Controller
 {
     private $accessRoles = ['super_admin', 'marketing'];
     private $data;
+    private $accountsModel;
 
     public function __construct()
     {
         $this->data = new BufferData();
+        $this->accountsModel = new BufferAccount();
+        // Garante que a chave legada (setting) seja importada como conta
+        $this->accountsModel->ensureLegacyKeyImported();
     }
 
     // ===== Dashboard de métricas =====
@@ -35,55 +39,52 @@ class BufferController extends Controller
         // 1) Agregação local (posts já sincronizados) — fonte rápida
         $channelMetrics = $this->data->aggregateChannelMetricsFromPosts($periodStart, $periodEnd);
 
-        // 2) Agregação server-side do Buffer por canal (traz LinkedIn/TikTok/etc. mesmo sem posts locais)
-        $api = new BufferApi();
-        if ($api->hasKey()) {
-            $orgId = $api->getFirstOrganizationId();
-            if ($orgId) {
-                $startIso = gmdate('Y-m-d\T00:00:00\Z', strtotime($periodStart));
-                $endIso = gmdate('Y-m-d\T23:59:59\Z', strtotime($periodEnd));
-                foreach ($channels as $c) {
-                    $cid = $c['channel_id'];
-                    // Se já temos métricas locais com dados relevantes, mantém; senão busca no Buffer
-                    $hasLocal = !empty($channelMetrics[$cid]) && (
-                        ($channelMetrics[$cid]['postCount']['metric_value'] ?? 0) > 0
-                    );
-                    if ($hasLocal) continue;
+        // 2) Agregação server-side por canal, usando a API key da conta Buffer de cada canal.
+        $startIso = gmdate('Y-m-d\T00:00:00\Z', strtotime($periodStart));
+        $endIso = gmdate('Y-m-d\T23:59:59\Z', strtotime($periodEnd));
+        $accountsById = [];
+        foreach ($this->accountsModel->all(true) as $ba) $accountsById[$ba['id']] = $ba;
 
-                    // Tenta primeiro o cache de agregação do mesmo período (evita chamada repetida)
-                    $cached = $this->data->getChannelMetrics($cid);
-                    $cachedMatchesPeriod = !empty($cached)
-                        && (($cached['postCount']['period_start'] ?? null) === $periodStart)
-                        && (($cached['postCount']['period_end'] ?? null) === $periodEnd)
-                        && (($cached['postCount']['metric_value'] ?? 0) > 0);
-                    if ($cachedMatchesPeriod) {
-                        $channelMetrics[$cid] = $cached;
-                        continue;
-                    }
+        foreach ($channels as $c) {
+            $cid = $c['channel_id'];
+            // Se já temos métricas locais relevantes, mantém
+            $hasLocal = !empty($channelMetrics[$cid]) && (($channelMetrics[$cid]['postCount']['metric_value'] ?? 0) > 0);
+            if ($hasLocal) continue;
 
-                    $res = $api->getAggregatedMetrics($orgId, $startIso, $endIso, [$cid]);
-                    if (!empty($res['errors'])) continue;
-                    $agg = $res['data']['aggregatedPostMetrics'] ?? null;
-                    if (!$agg || empty($agg['metrics'])) continue;
+            // Cache do mesmo período evita chamada repetida
+            $cached = $this->data->getChannelMetrics($cid);
+            $cachedMatchesPeriod = !empty($cached)
+                && (($cached['postCount']['period_start'] ?? null) === $periodStart)
+                && (($cached['postCount']['period_end'] ?? null) === $periodEnd)
+                && (($cached['postCount']['metric_value'] ?? 0) > 0);
+            if ($cachedMatchesPeriod) { $channelMetrics[$cid] = $cached; continue; }
 
-                    $map = [];
-                    foreach ($agg['metrics'] as $metric) {
-                        $map[$metric['type']] = [
-                            'metric_type' => $metric['type'],
-                            'metric_value' => floatval($metric['value'] ?? 0),
-                            'metric_unit' => $metric['unit'] ?? 'count',
-                        ];
-                    }
-                    // Só substitui se realmente houver publicações no período
-                    if (($map['postCount']['metric_value'] ?? 0) > 0) {
-                        $channelMetrics[$cid] = $map;
-                        // Cacheia o snapshot para leituras futuras
-                        $updatedAt = !empty($agg['metricsUpdatedAt']) ? date('Y-m-d H:i:s', strtotime($agg['metricsUpdatedAt'])) : null;
-                        $this->data->clearChannelMetrics($cid);
-                        foreach ($agg['metrics'] as $metric) {
-                            $this->data->saveChannelMetric($cid, $metric, $periodStart, $periodEnd, $updatedAt);
-                        }
-                    }
+            // Descobre a conta Buffer do canal
+            $ba = $accountsById[$c['buffer_account_id'] ?? null] ?? null;
+            if (!$ba) continue;
+            $api = new BufferApi($ba['api_key']);
+            $orgId = $ba['organization_id'] ?: $api->getFirstOrganizationId();
+            if (!$orgId) continue;
+
+            $res = $api->getAggregatedMetrics($orgId, $startIso, $endIso, [$cid]);
+            if (!empty($res['errors'])) continue;
+            $agg = $res['data']['aggregatedPostMetrics'] ?? null;
+            if (!$agg || empty($agg['metrics'])) continue;
+
+            $map = [];
+            foreach ($agg['metrics'] as $metric) {
+                $map[$metric['type']] = [
+                    'metric_type' => $metric['type'],
+                    'metric_value' => floatval($metric['value'] ?? 0),
+                    'metric_unit' => $metric['unit'] ?? 'count',
+                ];
+            }
+            if (($map['postCount']['metric_value'] ?? 0) > 0) {
+                $channelMetrics[$cid] = $map;
+                $updatedAt = !empty($agg['metricsUpdatedAt']) ? date('Y-m-d H:i:s', strtotime($agg['metricsUpdatedAt'])) : null;
+                $this->data->clearChannelMetrics($cid);
+                foreach ($agg['metrics'] as $metric) {
+                    $this->data->saveChannelMetric($cid, $metric, $periodStart, $periodEnd, $updatedAt);
                 }
             }
         }
@@ -104,7 +105,7 @@ class BufferController extends Controller
             'periodStart' => $periodStart,
             'periodEnd' => $periodEnd,
             'posts' => $posts,
-            'hasKey' => (new BufferApi())->hasKey(),
+            'hasKey' => !empty($this->accountsModel->all(true)),
             // Dados sociais diretos
             'socialAccounts' => $socialAccounts,
             'socialPostsByAccount' => $socialPostsByAccount,
@@ -132,26 +133,88 @@ class BufferController extends Controller
         ]);
     }
 
-    // API: sincronizar canais conectados no Buffer
+    // API: sincronizar canais de TODAS as contas Buffer conectadas
     public function syncChannels()
     {
         $this->requireRole($this->accessRoles);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
 
-        $api = new BufferApi();
-        if (!$api->hasKey()) $this->json(['error' => 'Configure a chave da API Buffer em Configurações.'], 400);
+        $accounts = $this->accountsModel->all(true);
+        if (empty($accounts)) $this->json(['error' => 'Nenhuma chave da API Buffer configurada.'], 400);
 
-        $orgId = $api->getFirstOrganizationId();
-        if (!$orgId) $this->json(['error' => 'Não foi possível obter a organização do Buffer. Verifique a chave.'], 400);
-
-        $res = $api->getChannels($orgId);
-        if (!empty($res['errors'])) {
-            $this->json(['error' => $res['errors'][0]['message'] ?? 'Erro ao buscar canais'], 400);
+        $total = 0;
+        $errors = [];
+        foreach ($accounts as $acc) {
+            $api = new BufferApi($acc['api_key']);
+            $orgId = $api->getFirstOrganizationId();
+            if (!$orgId) { $errors[] = ($acc['label'] ?: 'Conta') . ': organização não encontrada'; continue; }
+            // Salva a organização na conta para reuso
+            if ($acc['organization_id'] !== $orgId) {
+                $this->accountsModel->update($acc['id'], ['organization_id' => $orgId]);
+            }
+            $res = $api->getChannels($orgId);
+            if (!empty($res['errors'])) { $errors[] = ($acc['label'] ?: 'Conta') . ': ' . ($res['errors'][0]['message'] ?? 'erro'); continue; }
+            $channels = $res['data']['channels'] ?? [];
+            $this->data->syncChannels($channels, $orgId, $acc['id']);
+            $total += count($channels);
         }
-        $channels = $res['data']['channels'] ?? [];
-        $this->data->syncChannels($channels, $orgId);
 
-        $this->json(['success' => true, 'count' => count($channels), 'channels' => $this->data->getChannels()]);
+        $this->json(['success' => true, 'count' => $total, 'errors' => $errors, 'channels' => $this->data->getChannels()]);
+    }
+
+    // ===== Gestão de contas Buffer (múltiplas API keys) =====
+    public function addAccount()
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+
+        $key = trim($_POST['api_key'] ?? '');
+        $label = trim($_POST['label'] ?? '');
+        if ($key === '') $this->json(['error' => 'Informe a API key.'], 400);
+        if ($this->accountsModel->findByKey($key)) $this->json(['error' => 'Esta API key já está cadastrada.'], 400);
+
+        // Valida a chave e já pega a organização
+        $api = new BufferApi($key);
+        $orgId = $api->getFirstOrganizationId();
+        if (!$orgId) $this->json(['error' => 'API key inválida ou sem organização no Buffer.'], 400);
+
+        $id = $this->accountsModel->create([
+            'label' => $label ?: 'Conta Buffer',
+            'api_key' => $key,
+            'organization_id' => $orgId,
+        ]);
+
+        // Já sincroniza os canais dessa conta
+        $res = $api->getChannels($orgId);
+        $channels = $res['data']['channels'] ?? [];
+        $this->data->syncChannels($channels, $orgId, $id);
+
+        $this->json(['success' => true, 'id' => $id, 'channels' => count($channels)]);
+    }
+
+    public function deleteAccount($id = null)
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+        // Remove canais dessa conta
+        Database::getInstance()->delete('buffer_channels', 'buffer_account_id = ?', [$id]);
+        $this->accountsModel->delete($id);
+        $this->json(['success' => true]);
+    }
+
+    // Lista contas Buffer (JSON) — para a tela de Configurações
+    public function accounts()
+    {
+        $this->requireRole($this->accessRoles);
+        $rows = $this->accountsModel->all(false);
+        // Mascara a key
+        foreach ($rows as &$r) {
+            $k = $r['api_key'];
+            $r['api_key_masked'] = strlen($k) > 8 ? substr($k, 0, 4) . '••••' . substr($k, -4) : '••••';
+            unset($r['api_key']);
+        }
+        unset($r);
+        $this->json(['accounts' => $rows]);
     }
 
     // API: listar canais cacheados
@@ -233,50 +296,10 @@ class BufferController extends Controller
         $this->requireRole($this->accessRoles);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
 
-        $api = new BufferApi();
-        if (!$api->hasKey()) $this->json(['error' => 'Configure a chave da API Buffer em Configurações.'], 400);
+        $accounts = $this->accountsModel->all(true);
+        if (empty($accounts)) $this->json(['error' => 'Nenhuma chave da API Buffer configurada.'], 400);
 
-        $orgId = $api->getFirstOrganizationId();
-        if (!$orgId) $this->json(['error' => 'Não foi possível obter a organização do Buffer.'], 400);
-
-        $after = null;
-        $pages = 0;
-        $postCount = 0;
-        do {
-            $res = $api->getSentPostsWithMetrics($orgId, [], 50, $after);
-            if (!empty($res['errors'])) {
-                $this->json(['error' => $res['errors'][0]['message'] ?? 'Erro ao buscar métricas'], 400);
-            }
-            $conn = $res['data']['posts'] ?? ['edges' => [], 'pageInfo' => []];
-            foreach ($conn['edges'] as $edge) {
-                $node = $edge['node'];
-                $updatedAt = !empty($node['metricsUpdatedAt']) ? date('Y-m-d H:i:s', strtotime($node['metricsUpdatedAt'])) : null;
-                // Capa/thumbnail: primeiro asset com thumbnail (ou source)
-                $thumb = null;
-                foreach (($node['assets'] ?? []) as $asset) {
-                    if (!empty($asset['thumbnail'])) { $thumb = $asset['thumbnail']; break; }
-                    if (!empty($asset['source'])) { $thumb = $asset['source']; break; }
-                }
-                $this->data->savePost([
-                    'buffer_post_id' => $node['id'],
-                    'channel_id' => $node['channelId'],
-                    'service' => $node['channelService'] ?? null,
-                    'text' => $node['text'] ?? '',
-                    'status' => 'sent',
-                    'due_at' => !empty($node['dueAt']) ? date('Y-m-d H:i:s', strtotime($node['dueAt'])) : null,
-                    'sent_at' => !empty($node['sentAt']) ? date('Y-m-d H:i:s', strtotime($node['sentAt'])) : null,
-                    'external_link' => $node['externalLink'] ?? null,
-                    'thumbnail' => $thumb,
-                ]);
-                foreach (($node['metrics'] ?? []) as $metric) {
-                    $this->data->saveMetric($node['id'], $metric, $updatedAt);
-                }
-                $postCount++;
-            }
-            $after = $conn['pageInfo']['endCursor'] ?? null;
-            $hasNext = !empty($conn['pageInfo']['hasNextPage']);
-            $pages++;
-        } while ($hasNext && $pages < 20);
+        @set_time_limit(300);
 
         // Período agregado: aceita start/end do filtro; padrão = últimos 365 dias (máximo da API)
         $startParam = $_POST['start'] ?? null;
@@ -285,28 +308,70 @@ class BufferController extends Controller
         $endTs = $endParam ? strtotime($endParam) : time();
         if (!$startTs) $startTs = strtotime('-365 days');
         if (!$endTs) $endTs = time();
-        // A API limita a 365 dias
         if ($endTs - $startTs > 365 * 86400) $startTs = $endTs - 365 * 86400;
 
         $startIso = gmdate('Y-m-d\T00:00:00\Z', $startTs);
         $endIso = gmdate('Y-m-d\T23:59:59\Z', $endTs);
         $periodStart = date('Y-m-d', $startTs);
         $periodEnd = date('Y-m-d', $endTs);
-        $periodDays = max(1, (int) round(($endTs - $startTs) / 86400));
 
+        $postCount = 0;
         $aggChannels = 0;
-        foreach ($this->data->getChannels(false) as $ch) {
-            $res = $api->getAggregatedMetrics($orgId, $startIso, $endIso, [$ch['channel_id']]);
-            if (!empty($res['errors'])) continue;
-            $agg = $res['data']['aggregatedPostMetrics'] ?? null;
-            if (!$agg) continue;
-            $updatedAt = !empty($agg['metricsUpdatedAt']) ? date('Y-m-d H:i:s', strtotime($agg['metricsUpdatedAt'])) : null;
-            // Limpa o snapshot anterior deste canal para refletir exatamente o período consultado
-            $this->data->clearChannelMetrics($ch['channel_id']);
-            foreach (($agg['metrics'] ?? []) as $metric) {
-                $this->data->saveChannelMetric($ch['channel_id'], $metric, $periodStart, $periodEnd, $updatedAt);
+        $errors = [];
+
+        foreach ($accounts as $acc) {
+            $api = new BufferApi($acc['api_key']);
+            $orgId = $acc['organization_id'] ?: $api->getFirstOrganizationId();
+            if (!$orgId) { $errors[] = ($acc['label'] ?: 'Conta') . ': organização não encontrada'; continue; }
+
+            // 1) Posts enviados com métricas
+            $after = null; $pages = 0;
+            do {
+                $res = $api->getSentPostsWithMetrics($orgId, [], 50, $after);
+                if (!empty($res['errors'])) { $errors[] = ($acc['label'] ?: 'Conta') . ': ' . ($res['errors'][0]['message'] ?? 'erro'); break; }
+                $conn = $res['data']['posts'] ?? ['edges' => [], 'pageInfo' => []];
+                foreach ($conn['edges'] as $edge) {
+                    $node = $edge['node'];
+                    $updatedAt = !empty($node['metricsUpdatedAt']) ? date('Y-m-d H:i:s', strtotime($node['metricsUpdatedAt'])) : null;
+                    $thumb = null;
+                    foreach (($node['assets'] ?? []) as $asset) {
+                        if (!empty($asset['thumbnail'])) { $thumb = $asset['thumbnail']; break; }
+                        if (!empty($asset['source'])) { $thumb = $asset['source']; break; }
+                    }
+                    $this->data->savePost([
+                        'buffer_post_id' => $node['id'],
+                        'channel_id' => $node['channelId'],
+                        'service' => $node['channelService'] ?? null,
+                        'text' => $node['text'] ?? '',
+                        'status' => 'sent',
+                        'due_at' => !empty($node['dueAt']) ? date('Y-m-d H:i:s', strtotime($node['dueAt'])) : null,
+                        'sent_at' => !empty($node['sentAt']) ? date('Y-m-d H:i:s', strtotime($node['sentAt'])) : null,
+                        'external_link' => $node['externalLink'] ?? null,
+                        'thumbnail' => $thumb,
+                    ]);
+                    foreach (($node['metrics'] ?? []) as $metric) {
+                        $this->data->saveMetric($node['id'], $metric, $updatedAt);
+                    }
+                    $postCount++;
+                }
+                $after = $conn['pageInfo']['endCursor'] ?? null;
+                $hasNext = !empty($conn['pageInfo']['hasNextPage']);
+                $pages++;
+            } while ($hasNext && $pages < 20);
+
+            // 2) Agregação por canal (só os canais desta conta)
+            foreach ($this->data->getChannelsByAccount($acc['id'], false) as $ch) {
+                $res = $api->getAggregatedMetrics($orgId, $startIso, $endIso, [$ch['channel_id']]);
+                if (!empty($res['errors'])) continue;
+                $agg = $res['data']['aggregatedPostMetrics'] ?? null;
+                if (!$agg) continue;
+                $updatedAt = !empty($agg['metricsUpdatedAt']) ? date('Y-m-d H:i:s', strtotime($agg['metricsUpdatedAt'])) : null;
+                $this->data->clearChannelMetrics($ch['channel_id']);
+                foreach (($agg['metrics'] ?? []) as $metric) {
+                    $this->data->saveChannelMetric($ch['channel_id'], $metric, $periodStart, $periodEnd, $updatedAt);
+                }
+                $aggChannels++;
             }
-            $aggChannels++;
         }
 
         $this->json([
@@ -315,6 +380,7 @@ class BufferController extends Controller
             'channels_aggregated' => $aggChannels,
             'period_start' => $periodStart,
             'period_end' => $periodEnd,
+            'errors' => $errors,
         ]);
     }
 }
