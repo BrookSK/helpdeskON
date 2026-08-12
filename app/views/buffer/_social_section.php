@@ -30,7 +30,11 @@ $sfmt = fn($v) => ($v !== null && $v !== '') ? number_format((float)$v, 0, ',', 
 <?php foreach ($socialAccounts as $acc):
     $pm = $sproviderMeta[$acc['provider']] ?? ['Rede', 'bi-globe', '#607d8b'];
     $posts = $socialPostsByAccount[$acc['id']] ?? [];
+    // Rede normalizada para casar com o filtro (instagram/facebook/linkedin)
+    $netMap = ['meta_instagram' => 'instagram', 'facebook_page' => 'facebook', 'linkedin_org' => 'linkedin'];
+    $netKey = $netMap[$acc['provider']] ?? $acc['provider'];
 ?>
+<div class="social-filter-item" data-network="<?= escape($netKey) ?>" data-account="<?= escape($acc['display_name'] ?: $acc['external_id']) ?>">
 <div class="card mb-3 social-account-card">
     <div class="card-body">
         <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
@@ -124,6 +128,7 @@ $sfmt = fn($v) => ($v !== null && $v !== '') ? number_format((float)$v, 0, ',', 
         <?php endif; ?>
     </div>
 </div>
+</div><!-- /.social-filter-item -->
 <?php endforeach; ?>
 <?php endif; ?>
 

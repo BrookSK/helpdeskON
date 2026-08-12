@@ -87,6 +87,19 @@
         'googlebusiness' => ['bi-google', '#4285F4'],
     ];
     ?>
+    <!-- Filtro por rede social / conta -->
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-3 p-2 rounded" style="background:#f6f8fa;">
+        <span class="small fw-medium text-muted"><i class="bi bi-funnel"></i> Filtrar:</span>
+        <select id="filter-network" class="form-select form-select-sm" style="max-width:180px;" onchange="applySocialFilter()">
+            <option value="">Todas as redes</option>
+        </select>
+        <select id="filter-account" class="form-select form-select-sm" style="max-width:220px;" onchange="applySocialFilter()">
+            <option value="">Todas as contas</option>
+        </select>
+        <button class="btn btn-sm btn-outline-secondary" onclick="clearSocialFilter()"><i class="bi bi-x-lg"></i> Limpar</button>
+        <span class="text-muted small ms-auto" id="filter-result-count"></span>
+    </div>
+
     <div class="d-flex align-items-center justify-content-between mb-2">
         <h6 class="fw-semibold mb-0" style="font-size:0.9rem;"><i class="bi bi-share"></i> Contas conectadas</h6>
         <span class="text-muted small" id="channels-count"><?= count($channels) ?> conta(s)</span>
@@ -106,7 +119,7 @@
             $initials = strtoupper(mb_substr($ch['name'] ?? '?', 0, 1));
             $svcLabel = ucfirst($svc ?: 'Canal');
         ?>
-        <div class="col-6 col-md-4 col-xl-3">
+        <div class="col-6 col-md-4 col-xl-3 social-filter-item" data-network="<?= escape($svc) ?>" data-account="<?= escape($ch['name'] ?? '') ?>">
             <div class="card h-100 channel-card">
                 <div class="card-body">
                     <div class="d-flex align-items-center gap-2 mb-2">
@@ -419,7 +432,66 @@ function applyPeriod() {
     window.location = `${BASE}buffer/dashboard?${params.toString()}`;
 }
 
-document.addEventListener('DOMContentLoaded', loadMetric);
+// ===== Filtro por rede social / conta =====
+function buildSocialFilters() {
+    const items = document.querySelectorAll('.social-filter-item');
+    const networks = new Set();
+    const accounts = new Set();
+    items.forEach(el => {
+        if (el.dataset.network) networks.add(el.dataset.network);
+        if (el.dataset.account) accounts.add(el.dataset.account);
+    });
+
+    const netLabels = {
+        instagram: 'Instagram', facebook: 'Facebook', linkedin: 'LinkedIn',
+        twitter: 'Twitter/X', x: 'Twitter/X', tiktok: 'TikTok', youtube: 'YouTube',
+        pinterest: 'Pinterest', threads: 'Threads', mastodon: 'Mastodon', googlebusiness: 'Google Business'
+    };
+    const netSel = document.getElementById('filter-network');
+    const accSel = document.getElementById('filter-account');
+    if (!netSel || !accSel) return;
+
+    [...networks].sort().forEach(n => {
+        const o = document.createElement('option');
+        o.value = n; o.textContent = netLabels[n] || (n.charAt(0).toUpperCase() + n.slice(1));
+        netSel.appendChild(o);
+    });
+    [...accounts].sort().forEach(a => {
+        const o = document.createElement('option');
+        o.value = a; o.textContent = a;
+        accSel.appendChild(o);
+    });
+    updateFilterCount();
+}
+
+function applySocialFilter() {
+    const net = document.getElementById('filter-network').value;
+    const acc = document.getElementById('filter-account').value;
+    document.querySelectorAll('.social-filter-item').forEach(el => {
+        const okNet = !net || el.dataset.network === net;
+        const okAcc = !acc || el.dataset.account === acc;
+        el.style.display = (okNet && okAcc) ? '' : 'none';
+    });
+    updateFilterCount();
+}
+
+function clearSocialFilter() {
+    document.getElementById('filter-network').value = '';
+    document.getElementById('filter-account').value = '';
+    applySocialFilter();
+}
+
+function updateFilterCount() {
+    const all = document.querySelectorAll('.social-filter-item');
+    const visible = [...all].filter(el => el.style.display !== 'none').length;
+    const box = document.getElementById('filter-result-count');
+    if (box) box.textContent = visible + ' de ' + all.length + ' exibida(s)';
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadMetric();
+    buildSocialFilters();
+});
 </script>
 
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>
