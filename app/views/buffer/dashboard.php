@@ -148,10 +148,15 @@
                                 ['postCount', 'Posts', 'bi-collection'],
                                 ['impressions', 'Impressões', 'bi-eye'],
                                 ['reach', 'Alcance', 'bi-broadcast'],
+                                ['views', 'Views', 'bi-play-circle'],
                                 ['reactions', 'Reações', 'bi-heart'],
                                 ['comments', 'Coment.', 'bi-chat'],
+                                ['shares', 'Compart.', 'bi-share'],
+                                ['reposts', 'Reposts', 'bi-arrow-repeat'],
                                 ['saves', 'Saves', 'bi-bookmark'],
+                                ['clicks', 'Cliques', 'bi-cursor'],
                                 ['follows', 'Seguidores', 'bi-person-plus'],
+                                ['viewers', 'Espectadores', 'bi-people'],
                             ];
                             foreach ($metricList as $m):
                                 $val = $getM($m[0]);

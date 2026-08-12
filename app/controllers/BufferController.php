@@ -32,8 +32,61 @@ class BufferController extends Controller
         $periodStart = !empty($_GET['start']) ? substr($_GET['start'], 0, 10) : date('Y-m-d', strtotime('-365 days'));
         $periodEnd = !empty($_GET['end']) ? substr($_GET['end'], 0, 10) : date('Y-m-d');
 
-        // Métricas por canal agregadas localmente a partir dos posts já sincronizados
+        // 1) Agregação local (posts já sincronizados) — fonte rápida
         $channelMetrics = $this->data->aggregateChannelMetricsFromPosts($periodStart, $periodEnd);
+
+        // 2) Agregação server-side do Buffer por canal (traz LinkedIn/TikTok/etc. mesmo sem posts locais)
+        $api = new BufferApi();
+        if ($api->hasKey()) {
+            $orgId = $api->getFirstOrganizationId();
+            if ($orgId) {
+                $startIso = gmdate('Y-m-d\T00:00:00\Z', strtotime($periodStart));
+                $endIso = gmdate('Y-m-d\T23:59:59\Z', strtotime($periodEnd));
+                foreach ($channels as $c) {
+                    $cid = $c['channel_id'];
+                    // Se já temos métricas locais com dados relevantes, mantém; senão busca no Buffer
+                    $hasLocal = !empty($channelMetrics[$cid]) && (
+                        ($channelMetrics[$cid]['postCount']['metric_value'] ?? 0) > 0
+                    );
+                    if ($hasLocal) continue;
+
+                    // Tenta primeiro o cache de agregação do mesmo período (evita chamada repetida)
+                    $cached = $this->data->getChannelMetrics($cid);
+                    $cachedMatchesPeriod = !empty($cached)
+                        && (($cached['postCount']['period_start'] ?? null) === $periodStart)
+                        && (($cached['postCount']['period_end'] ?? null) === $periodEnd)
+                        && (($cached['postCount']['metric_value'] ?? 0) > 0);
+                    if ($cachedMatchesPeriod) {
+                        $channelMetrics[$cid] = $cached;
+                        continue;
+                    }
+
+                    $res = $api->getAggregatedMetrics($orgId, $startIso, $endIso, [$cid]);
+                    if (!empty($res['errors'])) continue;
+                    $agg = $res['data']['aggregatedPostMetrics'] ?? null;
+                    if (!$agg || empty($agg['metrics'])) continue;
+
+                    $map = [];
+                    foreach ($agg['metrics'] as $metric) {
+                        $map[$metric['type']] = [
+                            'metric_type' => $metric['type'],
+                            'metric_value' => floatval($metric['value'] ?? 0),
+                            'metric_unit' => $metric['unit'] ?? 'count',
+                        ];
+                    }
+                    // Só substitui se realmente houver publicações no período
+                    if (($map['postCount']['metric_value'] ?? 0) > 0) {
+                        $channelMetrics[$cid] = $map;
+                        // Cacheia o snapshot para leituras futuras
+                        $updatedAt = !empty($agg['metricsUpdatedAt']) ? date('Y-m-d H:i:s', strtotime($agg['metricsUpdatedAt'])) : null;
+                        $this->data->clearChannelMetrics($cid);
+                        foreach ($agg['metrics'] as $metric) {
+                            $this->data->saveChannelMetric($cid, $metric, $periodStart, $periodEnd, $updatedAt);
+                        }
+                    }
+                }
+            }
+        }
 
         $this->view('buffer/dashboard', [
             'user' => $user,
