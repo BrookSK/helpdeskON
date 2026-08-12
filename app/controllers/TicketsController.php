@@ -177,7 +177,6 @@ class TicketsController extends Controller
 
         if ($attendantId) {
             $ticketData['attendant_id'] = $attendantId;
-            $ticketData['status'] = 'in_progress';
         }
         if ($technicalId) {
             $ticketData['technical_responsible_id'] = $technicalId;
