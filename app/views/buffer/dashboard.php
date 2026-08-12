@@ -191,6 +191,8 @@
         <?php endif; ?>
     </div>
 
+    <?php require APP_PATH . '/views/buffer/_social_section.php'; ?>
+
     <!-- Cards de métricas -->
     <div class="row g-3 mb-4">
         <?php

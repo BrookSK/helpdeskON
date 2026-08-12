@@ -88,6 +88,14 @@ class BufferController extends Controller
             }
         }
 
+        // ===== Contas sociais diretas (Meta/LinkedIn) — exibidas na mesma página =====
+        $socialModel = new SocialAccount();
+        $socialAccounts = $socialModel->all(false);
+        $socialPostsByAccount = [];
+        foreach ($socialAccounts as $sa) {
+            $socialPostsByAccount[$sa['id']] = $socialModel->getPosts($sa['id'], 12);
+        }
+
         $this->view('buffer/dashboard', [
             'user' => $user,
             'totals' => $totals,
@@ -97,6 +105,12 @@ class BufferController extends Controller
             'periodEnd' => $periodEnd,
             'posts' => $posts,
             'hasKey' => (new BufferApi())->hasKey(),
+            // Dados sociais diretos
+            'socialAccounts' => $socialAccounts,
+            'socialPostsByAccount' => $socialPostsByAccount,
+            'metaConfigured' => (new MetaApi())->hasToken(),
+            'linkedinConfigured' => (new LinkedInApi())->hasToken(),
+            'isAdmin' => ($user['role'] ?? '') === 'super_admin',
         ]);
     }
 

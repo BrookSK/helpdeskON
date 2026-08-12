@@ -10,26 +10,11 @@ class SocialController extends Controller
         $this->accounts = new SocialAccount();
     }
 
-    // Página de gestão
+    // A gestão das redes agora fica dentro da página de Métricas Sociais (buffer/dashboard).
     public function index()
     {
         $this->requireRole($this->accessRoles);
-        $user = $this->currentUser();
-
-        $accounts = $this->accounts->all(false);
-        $postsByAccount = [];
-        foreach ($accounts as $a) {
-            $postsByAccount[$a['id']] = $this->accounts->getPosts($a['id'], 12);
-        }
-
-        $this->view('social/index', [
-            'user' => $user,
-            'accounts' => $accounts,
-            'postsByAccount' => $postsByAccount,
-            'metaConfigured' => (new MetaApi())->hasToken(),
-            'linkedinConfigured' => (new LinkedInApi())->hasToken(),
-            'isAdmin' => ($user['role'] ?? '') === 'super_admin',
-        ]);
+        $this->redirect('buffer/dashboard');
     }
 
     // Importar páginas do Facebook + contas Instagram do token Meta
