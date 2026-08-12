@@ -43,6 +43,11 @@
                     <i class="bi bi-megaphone"></i> Marketing
                 </a>
             </li>
+            <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'buffer_dashboard' ? 'active' : '' ?>" href="<?= baseUrl('buffer/dashboard') ?>">
+                    <i class="bi bi-graph-up-arrow"></i> Métricas Sociais
+                </a>
+            </li>
             <?php endif; ?>
 
             <?php if (($user['role'] ?? '') === 'client'): ?>
@@ -102,6 +107,11 @@
             <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'marketing' ? 'active' : '' ?>" href="<?= baseUrl('marketing') ?>">
                     <i class="bi bi-megaphone"></i> Marketing
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'buffer_dashboard' ? 'active' : '' ?>" href="<?= baseUrl('buffer/dashboard') ?>">
+                    <i class="bi bi-graph-up-arrow"></i> Métricas Sociais
                 </a>
             </li>
             <?php endif; ?>

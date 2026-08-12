@@ -64,6 +64,20 @@
                         <textarea id="item-copy" class="form-control form-control-sm" rows="4" placeholder="Texto do conteúdo..."></textarea>
                     </div>
 
+                    <!-- Agendar nas redes sociais (Buffer) — item aprovado -->
+                    <div class="col-12" id="item-buffer-wrap" style="display:none;">
+                        <hr>
+                        <label class="form-label small fw-medium"><i class="bi bi-share"></i> Publicar nas redes sociais (Buffer)</label>
+                        <div id="item-buffer-channels" class="d-flex flex-wrap gap-2 mb-2"></div>
+                        <div class="input-group input-group-sm mb-2">
+                            <span class="input-group-text">URL da imagem (opcional)</span>
+                            <input type="url" id="item-buffer-image" class="form-control" placeholder="https://... (arte pública)">
+                        </div>
+                        <button class="btn btn-sm btn-primary" onclick="scheduleToBuffer()"><i class="bi bi-calendar-check"></i> Agendar no Buffer</button>
+                        <small class="text-muted d-block mt-1">Usa a data/horário do item. Selecione os canais acima.</small>
+                        <div id="item-buffer-result" class="small mt-1"></div>
+                    </div>
+
                     <!-- Anexos -->
                     <div class="col-12" id="item-attachments-wrap">
                         <label class="form-label small fw-medium">Anexos (artes, documentos, materiais)</label>
@@ -193,6 +207,8 @@ function resetItemForm() {
     document.getElementById('item-attachments-wrap').style.display = '';
     document.getElementById('item-attachments').innerHTML = '';
     document.getElementById('item-pending-files').innerHTML = '';
+    const bw = document.getElementById('item-buffer-wrap');
+    if (bw) bw.style.display = 'none';
     document.getElementById('item-delete-btn').style.display = 'none';
     document.querySelectorAll('.mkt-approval-action').forEach(b => b.style.display = 'none');
     document.getElementById('item-file').value = '';
@@ -292,6 +308,16 @@ function fillItemForm(it) {
     // Ações de aprovação (admin, item aguardando aprovação)
     if (IS_ADMIN && it.status === 'aguardando_aprovacao') {
         document.querySelectorAll('.mkt-approval-action').forEach(b => b.style.display = '');
+    }
+
+    // Agendamento no Buffer: disponível quando aprovado/agendado
+    const bufferWrap = document.getElementById('item-buffer-wrap');
+    if (['aprovado', 'agendado', 'publicado'].includes(it.status)) {
+        bufferWrap.style.display = '';
+        loadBufferChannels();
+        document.getElementById('item-buffer-result').innerHTML = '';
+    } else {
+        bufferWrap.style.display = 'none';
     }
 
     // Anexos (item existente: upload direto)
@@ -465,6 +491,65 @@ function deleteAttachment(attId) {
             const id = document.getElementById('item-id').value;
             fetch(`${BASE}marketing/get/${id}`).then(r => r.json()).then(d => { currentItem = d.item; renderAttachments(d.item.attachments || []); });
         });
+}
+
+// ===== Integração Buffer (agendamento social) =====
+let bufferChannelsCache = null;
+
+function loadBufferChannels() {
+    const box = document.getElementById('item-buffer-channels');
+    const render = (channels) => {
+        if (!channels.length) {
+            box.innerHTML = '<span class="text-muted small">Nenhum canal. Sincronize em Métricas Sociais.</span>';
+            return;
+        }
+        box.innerHTML = channels.map(c => `
+            <label class="d-inline-flex align-items-center gap-1 border rounded px-2 py-1" style="cursor:pointer;font-size:0.78rem;">
+                <input type="checkbox" class="buffer-channel-cb" value="${c.channel_id}">
+                <i class="bi bi-${bufferIcon(c.service)}"></i> ${escapeHtml(c.name || c.service)}
+            </label>`).join('');
+    };
+    if (bufferChannelsCache) { render(bufferChannelsCache); return; }
+    fetch(`${BASE}buffer/channels`).then(r => r.json()).then(data => {
+        bufferChannelsCache = data.channels || [];
+        render(bufferChannelsCache);
+    });
+}
+
+function bufferIcon(service) {
+    const map = { instagram:'instagram', facebook:'facebook', linkedin:'linkedin', twitter:'twitter-x', youtube:'youtube', tiktok:'tiktok', pinterest:'pinterest' };
+    return map[service] || 'share';
+}
+
+function scheduleToBuffer() {
+    const id = document.getElementById('item-id').value;
+    const channels = Array.from(document.querySelectorAll('.buffer-channel-cb:checked')).map(cb => cb.value);
+    const result = document.getElementById('item-buffer-result');
+    if (!channels.length) { result.innerHTML = '<span class="text-danger">Selecione ao menos um canal.</span>'; return; }
+
+    const text = document.getElementById('item-copy').value.trim() || document.getElementById('item-title').value.trim();
+    const dueAt = document.getElementById('item-scheduled').value;
+    const imageUrl = document.getElementById('item-buffer-image').value.trim();
+
+    const fd = new FormData();
+    fd.append('marketing_item_id', id);
+    fd.append('text', text);
+    fd.append('channel_ids', channels.join(','));
+    if (dueAt) fd.append('due_at', dueAt.replace('T', ' '));
+    if (imageUrl) fd.append('image_url', imageUrl);
+
+    result.innerHTML = '<span class="text-muted">Agendando...</span>';
+    fetch(`${BASE}buffer/schedule`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json()).then(data => {
+            if (data.error) { result.innerHTML = `<span class="text-danger">${data.error}</span>`; return; }
+            result.innerHTML = `<span class="text-success"><i class="bi bi-check-circle"></i> ${data.created} publicação(ões) agendada(s) no Buffer.</span>`;
+            // Marca o item como agendado
+            const fd2 = new FormData();
+            fd2.append('status', 'agendado');
+            fetch(`${BASE}marketing/update/${id}`, { method: 'POST', body: fd2, headers: {'X-Requested-With':'XMLHttpRequest'} })
+                .then(() => afterItemChange());
+        })
+        .catch(() => { result.innerHTML = '<span class="text-danger">Erro na requisição.</span>'; });
 }
 
 // Recarrega a aba ativa após mudanças

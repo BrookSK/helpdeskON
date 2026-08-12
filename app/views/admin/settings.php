@@ -139,7 +139,17 @@
             <div class="card-body">
                 <label class="form-label fw-medium small">API Key</label>
                 <input type="password" name="openai_api_key" class="form-control form-control-sm" value="<?= escape($settings['openai_api_key'] ?? '') ?>" placeholder="sk-...">
-                <small class="text-muted">Necessário para transcrição por voz.</small>
+                <small class="text-muted">Necessário para transcrição por voz e datas de marketing.</small>
+            </div>
+        </div>
+
+        <!-- Buffer (agendamento social) -->
+        <div class="card mb-4">
+            <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-share"></i> Buffer (Redes Sociais)</h6></div>
+            <div class="card-body">
+                <label class="form-label fw-medium small">API Key</label>
+                <input type="password" name="buffer_api_key" class="form-control form-control-sm" value="<?= escape($settings['buffer_api_key'] ?? '') ?>" placeholder="buf_...">
+                <small class="text-muted d-block">Gere em <a href="https://publish.buffer.com/settings/api" target="_blank" rel="noopener">publish.buffer.com/settings/api</a>. Usada para agendar posts e ler métricas.</small>
             </div>
         </div>
 
