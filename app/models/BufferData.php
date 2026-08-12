@@ -25,11 +25,22 @@ class BufferData
         $this->db->query("UPDATE buffer_channels SET is_active = 0");
         foreach ($channels as $c) {
             $existing = $this->db->fetch("SELECT id FROM buffer_channels WHERE channel_id = ?", [$c['id']]);
+            // Deriva o username do externalLink quando possível (ex: instagram.com/usuario)
+            $username = null;
+            if (!empty($c['externalLink'])) {
+                $path = trim(parse_url($c['externalLink'], PHP_URL_PATH) ?? '', '/');
+                if ($path !== '') $username = ltrim(explode('/', $path)[0], '@');
+            }
             $data = [
                 'organization_id' => $organizationId,
-                'name' => $c['displayName'] ?: $c['name'] ?? '',
+                'name' => (!empty($c['displayName']) ? $c['displayName'] : ($c['name'] ?? '')),
+                'username' => $username,
                 'service' => $c['service'] ?? null,
                 'avatar' => $c['avatar'] ?? null,
+                'external_link' => $c['externalLink'] ?? null,
+                'channel_type' => $c['type'] ?? null,
+                'is_disconnected' => !empty($c['isDisconnected']) ? 1 : 0,
+                'is_queue_paused' => !empty($c['isQueuePaused']) ? 1 : 0,
                 'is_active' => 1,
             ];
             if ($existing) {

@@ -2,6 +2,18 @@
 <?php require APP_PATH . '/views/layouts/header.php'; ?>
 <?php require APP_PATH . '/views/layouts/sidebar.php'; ?>
 
+<style>
+.channel-card { border: 1px solid #eef0f2; border-radius: 12px; transition: box-shadow .15s, transform .15s; }
+.channel-card:hover { box-shadow: 0 4px 14px rgba(0,0,0,0.08); transform: translateY(-1px); }
+.channel-avatar { position: relative; width: 46px; height: 46px; border-radius: 50%; background: #e0e0e0; color: #555; font-weight: 600; display: flex; align-items: center; justify-content: center; flex-shrink: 0; overflow: visible; }
+.channel-avatar img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+.channel-service { position: absolute; right: -3px; bottom: -3px; width: 20px; height: 20px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 0.62rem; border: 2px solid #fff; }
+.channel-status { font-size: 0.62rem; font-weight: 600; padding: 3px 8px; }
+.channel-status.connected { background: #e6f7f0; color: #1b7a54; }
+.channel-status.disconnected { background: #fdecea; color: #c0392b; }
+.channel-service-badge { font-size: 0.62rem; font-weight: 600; padding: 3px 8px; }
+</style>
+
 <div class="main-content">
     <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
         <div>
@@ -22,6 +34,84 @@
         <?php endif; ?>
     </div>
     <?php endif; ?>
+
+    <!-- Contas conectadas -->
+    <?php
+    // Ícone e cor por rede social
+    $serviceMeta = [
+        'instagram' => ['bi-instagram', '#E1306C'],
+        'facebook' => ['bi-facebook', '#1877F2'],
+        'facebookpage' => ['bi-facebook', '#1877F2'],
+        'twitter' => ['bi-twitter-x', '#000000'],
+        'x' => ['bi-twitter-x', '#000000'],
+        'linkedin' => ['bi-linkedin', '#0A66C2'],
+        'tiktok' => ['bi-tiktok', '#000000'],
+        'youtube' => ['bi-youtube', '#FF0000'],
+        'pinterest' => ['bi-pinterest', '#E60023'],
+        'threads' => ['bi-threads', '#000000'],
+        'mastodon' => ['bi-mastodon', '#6364FF'],
+        'googlebusiness' => ['bi-google', '#4285F4'],
+    ];
+    ?>
+    <div class="d-flex align-items-center justify-content-between mb-2">
+        <h6 class="fw-semibold mb-0" style="font-size:0.9rem;"><i class="bi bi-share"></i> Contas conectadas</h6>
+        <span class="text-muted small" id="channels-count"><?= count($channels) ?> conta(s)</span>
+    </div>
+    <div class="row g-3 mb-4" id="channels-cards">
+        <?php if (empty($channels)): ?>
+        <div class="col-12">
+            <div class="alert alert-light border small mb-0">
+                Nenhuma conta conectada. Clique em <strong>Sincronizar canais</strong> para buscar os perfis do Buffer.
+            </div>
+        </div>
+        <?php else: ?>
+        <?php foreach ($channels as $ch):
+            $svc = strtolower($ch['service'] ?? '');
+            $meta = $serviceMeta[$svc] ?? ['bi-globe', '#607d8b'];
+            $connected = empty($ch['is_disconnected']);
+            $initials = strtoupper(mb_substr($ch['name'] ?? '?', 0, 1));
+            $svcLabel = ucfirst($svc ?: 'Canal');
+        ?>
+        <div class="col-6 col-md-4 col-xl-3">
+            <div class="card h-100 channel-card">
+                <div class="card-body">
+                    <div class="d-flex align-items-center gap-2 mb-2">
+                        <div class="channel-avatar">
+                            <?php if (!empty($ch['avatar'])): ?>
+                            <img src="<?= escape($ch['avatar']) ?>" alt="" onerror="this.parentNode.textContent='<?= escape($initials) ?>'">
+                            <?php else: ?><?= escape($initials) ?><?php endif; ?>
+                            <span class="channel-service" style="background:<?= $meta[1] ?>;">
+                                <i class="bi <?= $meta[0] ?>"></i>
+                            </span>
+                        </div>
+                        <div class="min-w-0 flex-grow-1">
+                            <div class="fw-semibold text-truncate" style="font-size:0.85rem;" title="<?= escape($ch['name']) ?>"><?= escape($ch['name']) ?></div>
+                            <div class="text-muted text-truncate" style="font-size:0.72rem;">
+                                <?php if (!empty($ch['username'])): ?>@<?= escape($ch['username']) ?><?php else: ?><?= escape($svcLabel) ?><?php endif; ?>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="d-flex align-items-center justify-content-between">
+                        <span class="badge rounded-pill channel-service-badge" style="background:<?= $meta[1] ?>1a;color:<?= $meta[1] ?>;">
+                            <i class="bi <?= $meta[0] ?>"></i> <?= escape($svcLabel) ?>
+                        </span>
+                        <?php if ($connected): ?>
+                        <span class="badge rounded-pill channel-status connected"><i class="bi bi-check-circle-fill"></i> Conectado</span>
+                        <?php else: ?>
+                        <span class="badge rounded-pill channel-status disconnected"><i class="bi bi-exclamation-circle-fill"></i> Reconectar</span>
+                        <?php endif; ?>
+                    </div>
+                    <?php if (!empty($ch['external_link'])): ?>
+                    <a href="<?= escape($ch['external_link']) ?>" target="_blank" rel="noopener" class="d-block text-truncate mt-2" style="font-size:0.7rem;">
+                        <i class="bi bi-box-arrow-up-right"></i> Ver perfil
+                    </a>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+        <?php endforeach; ?>
+        <?php endif; ?>
+    </div>
 
     <!-- Cards de métricas -->
     <div class="row g-3 mb-4">
@@ -164,13 +254,15 @@ function renderTop(top, metric, postFilter) {
 }
 
 function syncChannels(btn) {
+    const original = btn.innerHTML;
     btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Sincronizando...';
     fetch(`${BASE}buffer/syncChannels`, { method: 'POST', headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json()).then(data => {
-            btn.disabled = false;
+            btn.disabled = false; btn.innerHTML = original;
             if (data.error) { alert(data.error); return; }
-            alert(data.count + ' canal(is) sincronizado(s).');
-        }).catch(() => { btn.disabled = false; });
+            location.reload();
+        }).catch(() => { btn.disabled = false; btn.innerHTML = original; });
 }
 
 function syncMetrics(btn) {

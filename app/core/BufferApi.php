@@ -73,11 +73,24 @@ class BufferApi
         return $res['data']['account']['organizations'][0]['id'] ?? null;
     }
 
-    /** Lista canais (perfis sociais) de uma organização. */
+    /** Lista canais (perfis sociais) de uma organização.
+     * Observação: a API do Buffer NÃO expõe contagem de seguidores nem username. */
     public function getChannels($organizationId)
     {
         $q = 'query GetChannels($input: ChannelsInput!) {
-            channels(input: $input) { id name displayName service avatar isQueuePaused }
+            channels(input: $input) {
+                id
+                name
+                displayName
+                service
+                serviceId
+                avatar
+                type
+                descriptor
+                externalLink
+                isDisconnected
+                isQueuePaused
+            }
         }';
         return $this->query($q, ['input' => ['organizationId' => $organizationId]]);
     }
