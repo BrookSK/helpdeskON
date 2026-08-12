@@ -36,28 +36,27 @@
 </style>
 
 <div class="main-content">
-    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div class="mb-2">
+        <h5 class="mb-0 fw-semibold"><i class="bi bi-graph-up-arrow"></i> Métricas Sociais</h5>
+        <small class="text-muted">Desempenho das publicações via Buffer</small>
+    </div>
+    <!-- Barra de ações (botões alinhados) -->
+    <div class="d-flex flex-wrap gap-2 align-items-end mb-2">
         <div>
-            <h5 class="mb-0 fw-semibold"><i class="bi bi-graph-up-arrow"></i> Métricas Sociais</h5>
-            <small class="text-muted">Desempenho das publicações via Buffer</small>
+            <label class="form-label small mb-0" style="font-size:0.68rem;">De</label>
+            <input type="date" id="period-start" class="form-control form-control-sm" style="width:150px;" value="<?= escape($periodStart) ?>">
         </div>
-        <div class="d-flex flex-wrap gap-2 align-items-end">
-            <div>
-                <label class="form-label small mb-0" style="font-size:0.68rem;">De</label>
-                <input type="date" id="period-start" class="form-control form-control-sm" style="max-width:150px;" value="<?= escape($periodStart) ?>">
-            </div>
-            <div>
-                <label class="form-label small mb-0" style="font-size:0.68rem;">Até</label>
-                <input type="date" id="period-end" class="form-control form-control-sm" style="max-width:150px;" value="<?= escape($periodEnd) ?>">
-            </div>
-            <button class="btn btn-outline-primary btn-sm" onclick="applyPeriod()"><i class="bi bi-funnel"></i> Aplicar período</button>
-            <button class="btn btn-outline-secondary btn-sm" onclick="syncChannels(this)"><i class="bi bi-arrow-repeat"></i> Sincronizar canais</button>
-            <button class="btn btn-primary btn-sm" onclick="syncMetrics(this)"><i class="bi bi-cloud-download"></i> Atualizar métricas</button>
-            <span class="vr d-none d-lg-inline"></span>
-            <button class="btn btn-outline-secondary btn-sm" onclick="importMeta(this)"><i class="bi bi-download"></i> Importar da Meta</button>
-            <button class="btn btn-outline-secondary btn-sm" onclick="openLinkedinModal()"><i class="bi bi-linkedin"></i> Add LinkedIn</button>
-            <button class="btn btn-outline-primary btn-sm" onclick="syncSocial(this)"><i class="bi bi-arrow-repeat"></i> Atualizar redes</button>
+        <div>
+            <label class="form-label small mb-0" style="font-size:0.68rem;">Até</label>
+            <input type="date" id="period-end" class="form-control form-control-sm" style="width:150px;" value="<?= escape($periodEnd) ?>">
         </div>
+        <button class="btn btn-outline-primary btn-sm" onclick="applyPeriod()"><i class="bi bi-funnel"></i> Aplicar período</button>
+        <button class="btn btn-outline-secondary btn-sm" onclick="syncChannels(this)"><i class="bi bi-arrow-repeat"></i> Sincronizar canais</button>
+        <button class="btn btn-primary btn-sm" onclick="syncMetrics(this)"><i class="bi bi-cloud-download"></i> Atualizar métricas</button>
+        <span class="vr d-none d-lg-inline mx-1"></span>
+        <button class="btn btn-outline-secondary btn-sm" onclick="importMeta(this)"><i class="bi bi-download"></i> Importar da Meta</button>
+        <button class="btn btn-outline-secondary btn-sm" onclick="openLinkedinModal()"><i class="bi bi-linkedin"></i> Add LinkedIn</button>
+        <button class="btn btn-outline-primary btn-sm" onclick="syncSocial(this)"><i class="bi bi-arrow-repeat"></i> Atualizar redes</button>
     </div>
 
     <?php if (!$hasKey): ?>
@@ -87,15 +86,16 @@
         'googlebusiness' => ['bi-google', '#4285F4'],
     ];
     ?>
-    <!-- Filtro por rede social / conta -->
+    <!-- Filtro combinado por rede social / conta -->
     <div class="d-flex flex-wrap align-items-center gap-2 mb-3 p-2 rounded" style="background:#f6f8fa;">
         <span class="small fw-medium text-muted"><i class="bi bi-funnel"></i> Filtrar:</span>
-        <select id="filter-network" class="form-select form-select-sm" style="max-width:180px;" onchange="applySocialFilter()">
+        <select id="filter-network" class="form-select form-select-sm" style="width:180px;" onchange="onNetworkChange()">
             <option value="">Todas as redes</option>
         </select>
-        <select id="filter-account" class="form-select form-select-sm" style="max-width:220px;" onchange="applySocialFilter()">
+        <select id="filter-account" class="form-select form-select-sm" style="width:220px;" onchange="onAccountChange()">
             <option value="">Todas as contas</option>
         </select>
+        <button class="btn btn-sm btn-outline-primary" onclick="applySocialFilter()"><i class="bi bi-check2"></i> Aplicar filtro</button>
         <button class="btn btn-sm btn-outline-secondary" onclick="clearSocialFilter()"><i class="bi bi-x-lg"></i> Limpar</button>
         <span class="text-muted small ms-auto" id="filter-result-count"></span>
     </div>
@@ -438,39 +438,68 @@ function applyPeriod() {
     window.location = `${BASE}buffer/dashboard?${params.toString()}`;
 }
 
-// ===== Filtro por rede social / conta =====
+// ===== Filtro combinado por rede social / conta =====
+const NET_LABELS = {
+    instagram: 'Instagram', facebook: 'Facebook', linkedin: 'LinkedIn',
+    twitter: 'Twitter/X', x: 'Twitter/X', tiktok: 'TikTok', youtube: 'YouTube',
+    pinterest: 'Pinterest', threads: 'Threads', mastodon: 'Mastodon', googlebusiness: 'Google Business'
+};
+// Pares [rede, conta] detectados na tela
+let FILTER_PAIRS = [];
+
+function netLabel(n) { return NET_LABELS[n] || (n.charAt(0).toUpperCase() + n.slice(1)); }
+
 function buildSocialFilters() {
     const items = document.querySelectorAll('.social-filter-item');
-    const networks = new Set();
-    const accounts = new Set();
+    FILTER_PAIRS = [];
     items.forEach(el => {
-        if (el.dataset.network) networks.add(el.dataset.network);
-        if (el.dataset.account) accounts.add(el.dataset.account);
+        FILTER_PAIRS.push({ network: el.dataset.network || '', account: el.dataset.account || '' });
     });
+    // Preenche os selects respeitando a seleção ativa (combinatória)
+    populateNetworkOptions(ACTIVE_NETWORK || '');
+    populateAccountOptions(ACTIVE_NETWORK || '', ACTIVE_ACCOUNT || '');
+    document.getElementById('filter-network').value = ACTIVE_NETWORK || '';
+    document.getElementById('filter-account').value = ACTIVE_ACCOUNT || '';
+    hideNonMatchingCards();
+}
 
-    const netLabels = {
-        instagram: 'Instagram', facebook: 'Facebook', linkedin: 'LinkedIn',
-        twitter: 'Twitter/X', x: 'Twitter/X', tiktok: 'TikTok', youtube: 'YouTube',
-        pinterest: 'Pinterest', threads: 'Threads', mastodon: 'Mastodon', googlebusiness: 'Google Business'
-    };
-    const netSel = document.getElementById('filter-network');
-    const accSel = document.getElementById('filter-account');
-    if (!netSel || !accSel) return;
+function populateNetworkOptions(selected) {
+    const sel = document.getElementById('filter-network');
+    const nets = [...new Set(FILTER_PAIRS.map(p => p.network).filter(Boolean))].sort();
+    sel.innerHTML = '<option value="">Todas as redes</option>' +
+        nets.map(n => `<option value="${n}" ${n === selected ? 'selected' : ''}>${netLabel(n)}</option>`).join('');
+}
 
-    [...networks].sort().forEach(n => {
-        const o = document.createElement('option');
-        o.value = n; o.textContent = netLabels[n] || (n.charAt(0).toUpperCase() + n.slice(1));
-        netSel.appendChild(o);
-    });
-    [...accounts].sort().forEach(a => {
-        const o = document.createElement('option');
-        o.value = a; o.textContent = a;
-        accSel.appendChild(o);
-    });
+// Contas dependem da rede escolhida (se houver)
+function populateAccountOptions(network, selected) {
+    const sel = document.getElementById('filter-account');
+    let pairs = FILTER_PAIRS;
+    if (network) pairs = pairs.filter(p => p.network === network);
+    const accounts = [...new Set(pairs.map(p => p.account).filter(Boolean))].sort();
+    sel.innerHTML = '<option value="">Todas as contas</option>' +
+        accounts.map(a => `<option value="${escAttr(a)}" ${a === selected ? 'selected' : ''}>${escHtml(a)}</option>`).join('');
+}
 
-    // Pré-seleciona o filtro atual (vindo do servidor) e oculta os cards que não batem
-    netSel.value = ACTIVE_NETWORK || '';
-    accSel.value = ACTIVE_ACCOUNT || '';
+function escHtml(s){ const d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
+function escAttr(s){ return (s||'').replace(/"/g,'&quot;'); }
+
+// Ao trocar a rede: repovoa as contas daquela rede
+function onNetworkChange() {
+    const net = document.getElementById('filter-network').value;
+    populateAccountOptions(net, '');
+    hideNonMatchingCards();
+}
+
+// Ao trocar a conta: ajusta a rede correspondente (torna o filtro combinatório)
+function onAccountChange() {
+    const acc = document.getElementById('filter-account').value;
+    if (acc) {
+        const pair = FILTER_PAIRS.find(p => p.account === acc);
+        if (pair && pair.network) {
+            populateNetworkOptions(pair.network);
+            document.getElementById('filter-network').value = pair.network;
+        }
+    }
     hideNonMatchingCards();
 }
 
