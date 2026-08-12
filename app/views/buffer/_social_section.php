@@ -54,8 +54,25 @@ $sfmt = fn($v) => ($v !== null && $v !== '') ? number_format((float)$v, 0, ',', 
             <?php endif; ?>
         </div>
 
-        <div class="social-metrics-grid mb-3">
-            <?php
+        <?php
+        // Métricas por provedor — sempre exibidas (0 quando não há dado no período)
+        $svAcc = fn($k) => ($acc[$k] !== null && $acc[$k] !== '') ? (float)$acc[$k] : 0;
+        if ($acc['provider'] === 'linkedin_org') {
+            $accMetrics = [
+                ['followers', 'Seguidores', 'bi-people'],
+                ['impressions', 'Impressões', 'bi-eye'],
+                ['total_likes', 'Curtidas', 'bi-heart'],
+                ['total_comments', 'Comentários', 'bi-chat'],
+                ['total_shares', 'Compart.', 'bi-share'],
+            ];
+        } elseif ($acc['provider'] === 'facebook_page') {
+            $accMetrics = [
+                ['followers', 'Seguidores', 'bi-people'],
+                ['total_likes', 'Curtidas', 'bi-heart'],
+                ['total_comments', 'Comentários', 'bi-chat'],
+                ['total_shares', 'Compart.', 'bi-share'],
+            ];
+        } else { // instagram
             $accMetrics = [
                 ['followers', 'Seguidores', 'bi-people'],
                 ['follows', 'Seguindo', 'bi-person-check'],
@@ -67,20 +84,19 @@ $sfmt = fn($v) => ($v !== null && $v !== '') ? number_format((float)$v, 0, ',', 
                 ['total_comments', 'Comentários', 'bi-chat'],
                 ['total_shares', 'Compart.', 'bi-share'],
             ];
-            foreach ($accMetrics as $m):
-                if ($acc[$m[0]] === null) continue;
-            ?>
+        }
+        ?>
+        <div class="social-metrics-grid mb-3">
+            <?php foreach ($accMetrics as $m): ?>
             <div class="social-metric">
-                <div class="sm-val"><?= $sfmt($acc[$m[0]]) ?></div>
+                <div class="sm-val"><?= $sfmt($svAcc($m[0])) ?></div>
                 <div class="sm-lbl"><i class="bi <?= $m[2] ?>"></i> <?= $m[1] ?></div>
             </div>
             <?php endforeach; ?>
-            <?php if ($acc['engagement_rate'] !== null): ?>
             <div class="social-metric">
-                <div class="sm-val"><?= number_format((float)$acc['engagement_rate'], 1, ',', '.') ?>%</div>
+                <div class="sm-val"><?= number_format((float)$svAcc('engagement_rate'), 1, ',', '.') ?>%</div>
                 <div class="sm-lbl"><i class="bi bi-activity"></i> Engaj.</div>
             </div>
-            <?php endif; ?>
         </div>
 
         <?php if (!empty($posts)): ?>

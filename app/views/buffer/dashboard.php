@@ -139,49 +139,36 @@
                     <?php
                     $cm = $channelMetrics[$ch['channel_id']] ?? [];
                     $fmt = function($v) { return number_format((float)$v, 0, ',', '.'); };
-                    $getM = function($t) use ($cm) { return isset($cm[$t]) ? $cm[$t]['metric_value'] : null; };
-                    $posts30 = $getM('postCount');
+                    // Sempre retorna um número (0 quando não há valor no período)
+                    $getM = function($t) use ($cm) { return isset($cm[$t]) ? (float)$cm[$t]['metric_value'] : 0; };
                     ?>
                     <?php $periodLabel = date('d/m/Y', strtotime($periodStart)) . ' – ' . date('d/m/Y', strtotime($periodEnd)); ?>
-                    <?php if (!empty($cm)): ?>
                     <div class="channel-metrics">
                         <div class="channel-metrics-title"><i class="bi bi-graph-up"></i> <?= escape($periodLabel) ?></div>
                         <div class="channel-metrics-grid">
                             <?php
+                            // Métricas fixas exibidas sempre (mostram 0 quando não há dados no período)
                             $metricList = [
                                 ['postCount', 'Posts', 'bi-collection'],
                                 ['impressions', 'Impressões', 'bi-eye'],
                                 ['reach', 'Alcance', 'bi-broadcast'],
-                                ['views', 'Views', 'bi-play-circle'],
                                 ['reactions', 'Reações', 'bi-heart'],
                                 ['comments', 'Coment.', 'bi-chat'],
                                 ['shares', 'Compart.', 'bi-share'],
-                                ['reposts', 'Reposts', 'bi-arrow-repeat'],
-                                ['saves', 'Saves', 'bi-bookmark'],
-                                ['clicks', 'Cliques', 'bi-cursor'],
-                                ['follows', 'Seguidores', 'bi-person-plus'],
-                                ['viewers', 'Espectadores', 'bi-people'],
                             ];
                             foreach ($metricList as $m):
-                                $val = $getM($m[0]);
-                                if ($val === null) continue;
                             ?>
                             <div class="channel-metric">
-                                <div class="cm-val"><?= $fmt($val) ?></div>
+                                <div class="cm-val"><?= $fmt($getM($m[0])) ?></div>
                                 <div class="cm-lbl"><i class="bi <?= $m[2] ?>"></i> <?= $m[1] ?></div>
                             </div>
                             <?php endforeach; ?>
-                            <?php $eng = $getM('engagementRate'); if ($eng !== null): ?>
                             <div class="channel-metric">
-                                <div class="cm-val"><?= number_format((float)$eng, 1, ',', '.') ?>%</div>
+                                <div class="cm-val"><?= number_format((float)$getM('engagementRate'), 1, ',', '.') ?>%</div>
                                 <div class="cm-lbl"><i class="bi bi-activity"></i> Engaj.</div>
                             </div>
-                            <?php endif; ?>
                         </div>
                     </div>
-                    <?php else: ?>
-                    <div class="text-muted small mt-1" style="font-size:0.7rem;">Sem métricas ainda. Clique em "Atualizar métricas".</div>
-                    <?php endif; ?>
 
                     <?php if (!empty($ch['external_link'])): ?>
                     <a href="<?= escape($ch['external_link']) ?>" target="_blank" rel="noopener" class="d-block text-truncate mt-2" style="font-size:0.7rem;">
