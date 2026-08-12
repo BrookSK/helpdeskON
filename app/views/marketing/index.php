@@ -30,12 +30,16 @@ $socialNetworks = ['Instagram', 'Facebook', 'LinkedIn', 'TikTok', 'YouTube', 'X 
     </div>
 
     <!-- Abas principais -->
-    <ul class="nav nav-pills mkt-tabs mb-3" id="mkt-tabs">
+    <ul class="nav nav-pills mkt-tabs mb-3 flex-wrap" id="mkt-tabs">
         <li class="nav-item"><button class="nav-link active" data-tab="calendario" onclick="switchMktTab('calendario')"><i class="bi bi-calendar3"></i> Calendário</button></li>
         <li class="nav-item"><button class="nav-link" data-tab="pendencias" onclick="switchMktTab('pendencias')"><i class="bi bi-list-check"></i> Pendências</button></li>
         <?php if ($isAdmin): ?>
         <li class="nav-item"><button class="nav-link" data-tab="aprovacoes" onclick="switchMktTab('aprovacoes')"><i class="bi bi-check2-circle"></i> Aprovações <span class="badge bg-danger ms-1" id="approval-count" style="display:none;">0</span></button></li>
         <?php endif; ?>
+        <li class="nav-item"><button class="nav-link" data-tab="aprovado" onclick="switchMktTab('aprovado')"><i class="bi bi-patch-check"></i> Aprovado</button></li>
+        <li class="nav-item"><button class="nav-link" data-tab="agendado" onclick="switchMktTab('agendado')"><i class="bi bi-calendar-check"></i> Agendado</button></li>
+        <li class="nav-item"><button class="nav-link" data-tab="publicado" onclick="switchMktTab('publicado')"><i class="bi bi-send-check"></i> Publicado</button></li>
+        <li class="nav-item"><button class="nav-link" data-tab="rejeitado" onclick="switchMktTab('rejeitado')"><i class="bi bi-x-circle"></i> Rejeitado</button></li>
     </ul>
 
     <!-- ===== CALENDÁRIO ===== -->
@@ -59,21 +63,12 @@ $socialNetworks = ['Instagram', 'Facebook', 'LinkedIn', 'TikTok', 'YouTube', 'X 
         </div>
     </div>
 
-    <!-- ===== PENDÊNCIAS ===== -->
-    <div id="tab-pendencias" class="mkt-tab-panel" style="display:none;">
-        <div id="pendencias-list">
+    <!-- ===== LISTA (Pendências / Aprovações / Status específicos) ===== -->
+    <div id="tab-lista" class="mkt-tab-panel" style="display:none;">
+        <div id="lista-list">
             <div class="text-muted small py-4 text-center">Carregando...</div>
         </div>
     </div>
-
-    <!-- ===== APROVAÇÕES ===== -->
-    <?php if ($isAdmin): ?>
-    <div id="tab-aprovacoes" class="mkt-tab-panel" style="display:none;">
-        <div id="aprovacoes-list">
-            <div class="text-muted small py-4 text-center">Carregando...</div>
-        </div>
-    </div>
-    <?php endif; ?>
 </div>
 
 <?php require APP_PATH . '/views/marketing/_modals.php'; ?>
@@ -122,13 +117,20 @@ let calMode = 'month';
 let calData = { events: [], holidays: [] };
 
 // ===== Tabs =====
+// Abas que representam um status específico
+const STATUS_TABS = ['aprovado','agendado','publicado','rejeitado'];
+
 function switchMktTab(tab) {
     document.querySelectorAll('#mkt-tabs .nav-link').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
     document.querySelectorAll('.mkt-tab-panel').forEach(p => p.style.display = 'none');
-    document.getElementById('tab-' + tab).style.display = '';
-    if (tab === 'calendario') loadCalendar();
-    else if (tab === 'pendencias') loadItems('pendencias');
-    else if (tab === 'aprovacoes') loadItems('aprovacoes');
+
+    if (tab === 'calendario') {
+        document.getElementById('tab-calendario').style.display = '';
+        loadCalendar();
+    } else {
+        document.getElementById('tab-lista').style.display = '';
+        loadItems(tab);
+    }
 }
 
 // ===== Calendário =====
@@ -249,12 +251,16 @@ function renderDayContent(dayStr) {
     return out;
 }
 
-// ===== Listas (Pendências / Aprovações) =====
+// ===== Listas (Pendências / Aprovações / Status específicos) =====
 function loadItems(section) {
-    const listId = section === 'aprovacoes' ? 'aprovacoes-list' : 'pendencias-list';
-    const list = document.getElementById(listId);
+    const list = document.getElementById('lista-list');
     list.innerHTML = '<div class="text-muted small py-4 text-center">Carregando...</div>';
-    fetch(`${BASE}marketing/items?section=${section}`)
+
+    // Monta a query: aba de status específico envia ?status=...
+    let url = `${BASE}marketing/items?section=${section}`;
+    if (STATUS_TABS.includes(section)) url += `&status=${section}`;
+
+    fetch(url)
         .then(r => r.json())
         .then(data => {
             const items = data.items || [];
@@ -262,7 +268,12 @@ function loadItems(section) {
                 list.innerHTML = '<div class="text-muted small py-4 text-center">Nenhum item.</div>';
                 return;
             }
-            list.innerHTML = renderGroupedByStatus(items);
+            // Pendências agrupa seus status; abas de status único mostram grade simples
+            if (section === 'pendencias') {
+                list.innerHTML = renderGroupedByStatus(items);
+            } else {
+                list.innerHTML = `<div class="mkt-cards-grid">${items.map(renderCardHtml).join('')}</div>`;
+            }
         });
 }
 

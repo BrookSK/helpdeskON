@@ -84,12 +84,15 @@ class MarketingController extends Controller
         $section = $_GET['section'] ?? 'pendencias';
 
         $filters = [];
-        if ($section === 'aprovacoes') {
+        if (!empty($_GET['status']) && in_array($_GET['status'], self::$statuses)) {
+            // Aba de um status específico
+            $filters['status'] = $_GET['status'];
+        } elseif ($section === 'aprovacoes') {
             // Aprovações: apenas super_admin vê a fila; itens aguardando aprovação
             $filters['status'] = 'aguardando_aprovacao';
         } else {
-            // Pendências: itens não finalizados (inclui rejeitados para acompanhamento)
-            $filters['status'] = ['ideia', 'em_producao', 'aguardando_aprovacao', 'aprovado', 'agendado', 'rejeitado'];
+            // Pendências: itens ainda em andamento (não finalizados nem rejeitados)
+            $filters['status'] = ['ideia', 'em_producao', 'aguardando_aprovacao'];
         }
 
         // Marketing só vê os próprios itens nas listas
