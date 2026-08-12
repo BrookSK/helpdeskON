@@ -33,6 +33,7 @@ $socialNetworks = ['Instagram', 'Facebook', 'LinkedIn', 'TikTok', 'YouTube', 'X 
     <ul class="nav nav-pills mkt-tabs mb-3 flex-wrap" id="mkt-tabs">
         <li class="nav-item"><button class="nav-link active" data-tab="calendario" onclick="switchMktTab('calendario')"><i class="bi bi-calendar3"></i> Calendário</button></li>
         <li class="nav-item"><button class="nav-link" data-tab="pendencias" onclick="switchMktTab('pendencias')"><i class="bi bi-list-check"></i> Pendências</button></li>
+        <li class="nav-item"><button class="nav-link" data-tab="em_producao" onclick="switchMktTab('em_producao')"><i class="bi bi-pencil-square"></i> Em produção</button></li>
         <?php if ($isAdmin): ?>
         <li class="nav-item"><button class="nav-link" data-tab="aprovacoes" onclick="switchMktTab('aprovacoes')"><i class="bi bi-check2-circle"></i> Aprovações <span class="badge bg-danger ms-1" id="approval-count" style="display:none;">0</span></button></li>
         <?php endif; ?>
@@ -118,7 +119,7 @@ let calData = { events: [], holidays: [] };
 
 // ===== Tabs =====
 // Abas que representam um status específico
-const STATUS_TABS = ['aprovado','agendado','publicado','rejeitado'];
+const STATUS_TABS = ['em_producao','aprovado','agendado','publicado','rejeitado'];
 
 function switchMktTab(tab) {
     document.querySelectorAll('#mkt-tabs .nav-link').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
@@ -263,42 +264,78 @@ function loadItems(section) {
     fetch(url)
         .then(r => r.json())
         .then(data => {
-            const items = data.items || [];
-            if (!items.length) {
-                list.innerHTML = '<div class="text-muted small py-4 text-center">Nenhum item.</div>';
-                return;
-            }
-            // Pendências agrupa seus status; abas de status único mostram grade simples
             if (section === 'pendencias') {
-                list.innerHTML = renderGroupedByStatus(items);
+                list.innerHTML = renderPendencias(data);
             } else {
+                const items = data.items || [];
+                if (!items.length) {
+                    list.innerHTML = '<div class="text-muted small py-4 text-center">Nenhum item.</div>';
+                    return;
+                }
                 list.innerHTML = `<div class="mkt-cards-grid">${items.map(renderCardHtml).join('')}</div>`;
             }
         });
 }
 
-// Agrupa os itens por status em seções separadas (evita misturar aprovado com aguardando, etc.)
-function renderGroupedByStatus(items) {
-    // Ordem de exibição dos status
-    const order = ['ideia','em_producao','aguardando_aprovacao','aprovado','agendado','publicado','rejeitado'];
-    const groups = {};
-    items.forEach(it => { (groups[it.status] = groups[it.status] || []).push(it); });
+// Pendências: datas comemorativas do mês + ideias + ajustes solicitados
+function renderPendencias(data) {
+    const holidays = data.holidays || [];
+    const items = data.items || [];
+    const ideias = items.filter(i => i.status === 'ideia');
+    const ajustes = items.filter(i => i.status !== 'ideia'); // em produção com ajuste solicitado
 
     let html = '';
-    order.forEach(status => {
-        const list = groups[status];
-        if (!list || !list.length) return;
-        const meta = STATUS_META[status] || ['', '#888'];
-        html += `<div class="mkt-status-group">
-            <div class="mkt-status-head">
-                <span class="mkt-status-dot" style="background:${meta[1]}"></span>
-                <span class="mkt-status-title">${meta[0]}</span>
-                <span class="mkt-status-count">${list.length}</span>
-            </div>
-            <div class="mkt-cards-grid">${list.map(renderCardHtml).join('')}</div>
+
+    // Datas comemorativas do mês
+    html += `<div class="mkt-status-group">
+        <div class="mkt-status-head">
+            <span class="mkt-status-dot" style="background:#e65100"></span>
+            <span class="mkt-status-title">Datas comemorativas do mês</span>
+            <span class="mkt-status-count">${holidays.length}</span>
         </div>`;
-    });
+    if (holidays.length) {
+        html += `<div class="mkt-cards-grid">${holidays.map(renderHolidayCard).join('')}</div>`;
+    } else {
+        html += `<div class="text-muted small mb-2">Nenhuma data comemorativa neste mês. ${IS_ADMIN ? 'Use "Datas com IA" para gerar.' : ''}</div>`;
+    }
+    html += `</div>`;
+
+    // Ideias
+    html += renderGroupSection('ideia', 'Ideias', ideias);
+    // Ajustes solicitados
+    html += renderGroupSection('ajustes', 'Ajustes solicitados', ajustes, '#f5a623');
+
     return html;
+}
+
+function renderGroupSection(key, label, list, color) {
+    const c = color || ((STATUS_META[key] || ['', '#888'])[1]);
+    let html = `<div class="mkt-status-group">
+        <div class="mkt-status-head">
+            <span class="mkt-status-dot" style="background:${c}"></span>
+            <span class="mkt-status-title">${label}</span>
+            <span class="mkt-status-count">${list.length}</span>
+        </div>`;
+    html += list.length
+        ? `<div class="mkt-cards-grid">${list.map(renderCardHtml).join('')}</div>`
+        : `<div class="text-muted small mb-2">Nenhum item.</div>`;
+    html += `</div>`;
+    return html;
+}
+
+function renderHolidayCard(h) {
+    const d = new Date(h.holiday_date.replace(' ', 'T') + 'T00:00:00');
+    const when = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+    return `<div class="mkt-card" style="border-left:3px solid #e65100;" onclick="openHolidayCreate(${h.id}, '${escapeAttr(h.title)}', '${h.holiday_date.slice(0,10)}')">
+        <div class="d-flex justify-content-between align-items-start gap-2">
+            <h6 class="fw-semibold mb-0"><i class="bi bi-star-fill text-warning"></i> ${escapeHtml(h.title)}</h6>
+            <span class="mkt-badge" style="background:#e65100">${when}</span>
+        </div>
+        <div class="mkt-meta">
+            ${h.category ? `<span><i class="bi bi-tag"></i> ${escapeHtml(h.category)}</span>` : ''}
+            <span class="text-primary"><i class="bi bi-plus-circle"></i> Criar conteúdo</span>
+        </div>
+    </div>`;
 }
 
 function renderCardHtml(it) {

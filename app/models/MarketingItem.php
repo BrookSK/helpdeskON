@@ -74,6 +74,28 @@ class MarketingItem
         return $this->db->fetchAll($sql, $params);
     }
 
+    /**
+     * Itens de "Pendências": em fase de ideia OU com ajustes solicitados
+     * (em produção com observação de revisão preenchida).
+     * $filters: assigned_to.
+     */
+    public function getPendencias($filters = [])
+    {
+        $sql = "SELECT mi.*, u.name AS assigned_name, c.name AS created_by_name
+                FROM marketing_items mi
+                LEFT JOIN users u ON mi.assigned_to = u.id
+                LEFT JOIN users c ON mi.created_by = c.id
+                WHERE (mi.status = 'ideia'
+                       OR (mi.status = 'em_producao' AND mi.review_notes IS NOT NULL AND mi.review_notes <> ''))";
+        $params = [];
+        if (!empty($filters['assigned_to'])) {
+            $sql .= " AND mi.assigned_to = ?";
+            $params[] = $filters['assigned_to'];
+        }
+        $sql .= " ORDER BY mi.scheduled_at IS NULL, mi.scheduled_at ASC, mi.created_at DESC";
+        return $this->db->fetchAll($sql, $params);
+    }
+
     public function create($data)
     {
         return $this->db->insert('marketing_items', $data);

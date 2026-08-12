@@ -84,20 +84,27 @@ class MarketingController extends Controller
         $section = $_GET['section'] ?? 'pendencias';
 
         $filters = [];
+        // Marketing só vê os próprios itens nas listas
+        if ($user['role'] === 'marketing') {
+            $filters['assigned_to'] = $user['id'];
+        }
+
+        // Pendências: datas comemorativas do mês + itens em ideia + ajustes solicitados
+        if ($section === 'pendencias') {
+            $ref = !empty($_GET['ref']) ? $_GET['ref'] : date('Y-m');
+            $monthStart = $ref . '-01';
+            $monthEnd = date('Y-m-t', strtotime($monthStart));
+            $holidays = $this->itemModel->getHolidays($monthStart, $monthEnd);
+            $items = $this->itemModel->getPendencias($filters);
+            $this->json(['items' => $items, 'holidays' => $holidays, 'ref' => $ref]);
+        }
+
         if (!empty($_GET['status']) && in_array($_GET['status'], self::$statuses)) {
             // Aba de um status específico
             $filters['status'] = $_GET['status'];
         } elseif ($section === 'aprovacoes') {
             // Aprovações: apenas super_admin vê a fila; itens aguardando aprovação
             $filters['status'] = 'aguardando_aprovacao';
-        } else {
-            // Pendências: itens ainda em andamento (não finalizados nem rejeitados)
-            $filters['status'] = ['ideia', 'em_producao', 'aguardando_aprovacao'];
-        }
-
-        // Marketing só vê os próprios itens nas listas
-        if ($user['role'] === 'marketing') {
-            $filters['assigned_to'] = $user['id'];
         }
 
         $items = $this->itemModel->getList($filters);
