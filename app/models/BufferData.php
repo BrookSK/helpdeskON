@@ -222,17 +222,25 @@ class BufferData
         );
     }
 
-    /** Série temporal: soma de uma métrica por dia (sent_at). */
-    public function metricTimeline($type)
+    /**
+     * Série temporal de uma métrica por publicação, ordenada no tempo.
+     * Cada ponto é um post (dia/hora do envio), gerando a variação da curva.
+     * Filtra opcionalmente por período (datas Y-m-d).
+     */
+    public function metricTimeline($type, $startDate = null, $endDate = null)
     {
-        return $this->db->fetchAll(
-            "SELECT DATE(p.sent_at) AS day, SUM(m.metric_value) AS total
-             FROM buffer_post_metrics m
-             JOIN buffer_posts p ON p.buffer_post_id = m.buffer_post_id
-             WHERE m.metric_type = ? AND p.sent_at IS NOT NULL
-             GROUP BY DATE(p.sent_at)
-             ORDER BY day ASC",
-            [$type]
-        );
+        $sql = "SELECT COALESCE(p.sent_at, p.due_at) AS moment, m.metric_value AS total, p.text
+                FROM buffer_post_metrics m
+                JOIN buffer_posts p ON p.buffer_post_id = m.buffer_post_id
+                WHERE m.metric_type = ?
+                  AND COALESCE(p.sent_at, p.due_at) IS NOT NULL";
+        $params = [$type];
+        if ($startDate && $endDate) {
+            $sql .= " AND DATE(COALESCE(p.sent_at, p.due_at)) BETWEEN ? AND ?";
+            $params[] = $startDate;
+            $params[] = $endDate;
+        }
+        $sql .= " ORDER BY moment ASC";
+        return $this->db->fetchAll($sql, $params);
     }
 }

@@ -55,8 +55,11 @@ class BufferController extends Controller
         $allowed = ['reactions', 'comments', 'impressions', 'reach', 'views', 'engagementRate', 'shares', 'saves'];
         if (!in_array($metric, $allowed)) $metric = 'reactions';
 
+        $start = !empty($_GET['start']) ? substr($_GET['start'], 0, 10) : null;
+        $end = !empty($_GET['end']) ? substr($_GET['end'], 0, 10) : null;
+
         $this->json([
-            'timeline' => $this->data->metricTimeline($metric),
+            'timeline' => $this->data->metricTimeline($metric, $start, $end),
             'top' => $this->data->topPostsByMetric($metric, 10),
             'metric' => $metric,
         ]);

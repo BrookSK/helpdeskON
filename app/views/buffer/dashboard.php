@@ -276,7 +276,12 @@ const METRIC_LABELS = {
 function loadMetric() {
     const metric = document.getElementById('metric-filter').value;
     const postId = document.getElementById('post-filter').value;
-    fetch(`${BASE}buffer/metrics?metric=${metric}`)
+    const start = document.getElementById('period-start').value;
+    const end = document.getElementById('period-end').value;
+    const params = new URLSearchParams({ metric });
+    if (start) params.set('start', start);
+    if (end) params.set('end', end);
+    fetch(`${BASE}buffer/metrics?${params.toString()}`)
         .then(r => r.json())
         .then(data => {
             renderLine(data.timeline || [], metric);
@@ -286,8 +291,9 @@ function loadMetric() {
 
 function renderLine(timeline, metric) {
     const labels = timeline.map(t => {
-        const d = new Date(t.day);
-        return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+        const raw = t.moment || t.day;
+        const d = new Date((raw || '').replace(' ', 'T'));
+        return isNaN(d) ? (raw || '') : d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
     });
     const values = timeline.map(t => parseFloat(t.total));
     if (lineChart) lineChart.destroy();
