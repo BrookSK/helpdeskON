@@ -53,6 +53,10 @@
             <button class="btn btn-outline-primary btn-sm" onclick="applyPeriod()"><i class="bi bi-funnel"></i> Aplicar período</button>
             <button class="btn btn-outline-secondary btn-sm" onclick="syncChannels(this)"><i class="bi bi-arrow-repeat"></i> Sincronizar canais</button>
             <button class="btn btn-primary btn-sm" onclick="syncMetrics(this)"><i class="bi bi-cloud-download"></i> Atualizar métricas</button>
+            <span class="vr d-none d-lg-inline"></span>
+            <button class="btn btn-outline-secondary btn-sm" onclick="importMeta(this)"><i class="bi bi-download"></i> Importar da Meta</button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="openLinkedinModal()"><i class="bi bi-linkedin"></i> Add LinkedIn</button>
+            <button class="btn btn-outline-primary btn-sm" onclick="syncSocial(this)"><i class="bi bi-arrow-repeat"></i> Atualizar redes</button>
         </div>
     </div>
 

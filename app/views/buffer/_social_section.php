@@ -9,16 +9,9 @@ $sproviderMeta = [
 $sfmt = fn($v) => ($v !== null && $v !== '') ? number_format((float)$v, 0, ',', '.') : '—';
 ?>
 
-<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2 mt-2">
-    <div>
-        <h6 class="fw-semibold mb-0" style="font-size:0.9rem;"><i class="bi bi-people"></i> Redes conectadas diretamente (Meta / LinkedIn)</h6>
-        <small class="text-muted">Seguidores, interações e publicações direto das APIs</small>
-    </div>
-    <div class="d-flex gap-2">
-        <button class="btn btn-outline-secondary btn-sm" onclick="importMeta(this)"><i class="bi bi-download"></i> Importar da Meta</button>
-        <button class="btn btn-outline-secondary btn-sm" onclick="openLinkedinModal()"><i class="bi bi-linkedin"></i> Add LinkedIn</button>
-        <button class="btn btn-outline-primary btn-sm" onclick="syncSocial(this)"><i class="bi bi-arrow-repeat"></i> Atualizar redes</button>
-    </div>
+<div class="mb-2 mt-2">
+    <h6 class="fw-semibold mb-0" style="font-size:0.9rem;"><i class="bi bi-people"></i> Redes conectadas diretamente (Meta / LinkedIn)</h6>
+    <small class="text-muted">Seguidores, interações e publicações direto das APIs</small>
 </div>
 
 <?php if (!$metaConfigured && !$linkedinConfigured): ?>
