@@ -87,6 +87,15 @@ $socialNetworks = ['Instagram', 'Facebook', 'LinkedIn', 'TikTok', 'YouTube', 'X 
 .mkt-btn-warning:hover, .mkt-btn-warning:focus { background: #e0951a; border-color: #e0951a; color: #fff; }
 .mkt-btn-danger { background: #d32f2f; border: 1px solid #d32f2f; color: #fff; }
 .mkt-btn-danger:hover, .mkt-btn-danger:focus { background: #b71c1c; border-color: #b71c1c; color: #fff; }
+
+/* Kanban */
+.mkt-kanban { display: flex; gap: 14px; align-items: flex-start; overflow-x: auto; padding-bottom: 8px; }
+.mkt-kanban-col { flex: 1 1 0; min-width: 280px; background: #f4f6f8; border-radius: 12px; display: flex; flex-direction: column; max-height: calc(100vh - 230px); }
+.mkt-kanban-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; background: #fff; border-radius: 12px 12px 0 0; }
+.mkt-kanban-head .mkt-status-title { font-size: 0.76rem; }
+.mkt-kanban-body { padding: 10px; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; flex: 1; }
+.mkt-kanban-body .mkt-card { margin: 0; }
+.mkt-kanban-empty { font-size: 0.78rem; color: #9aa4ae; text-align: center; padding: 16px 8px; }
 .mkt-card { background: #fff; border: 1px solid #eef0f2; border-radius: 12px; padding: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); cursor: pointer; transition: box-shadow .15s, transform .15s; }
 .mkt-card:hover { box-shadow: 0 4px 14px rgba(0,0,0,0.1); transform: translateY(-1px); }
 .mkt-card h6 { font-size: 0.9rem; margin-bottom: 6px; }
@@ -277,50 +286,37 @@ function loadItems(section) {
         });
 }
 
-// Pendências: datas comemorativas do mês + ideias + ajustes solicitados
+// Pendências em formato Kanban: colunas lado a lado
 function renderPendencias(data) {
     const holidays = data.holidays || [];
     const items = data.items || [];
     const ideias = items.filter(i => i.status === 'ideia');
     const ajustes = items.filter(i => i.status !== 'ideia'); // em produção com ajuste solicitado
 
-    let html = '';
+    const holidayCards = holidays.map(renderHolidayCard).join('');
+    const emptyHoliday = `<div class="mkt-kanban-empty">Nenhuma data comemorativa neste mês.${IS_ADMIN ? ' Use "Datas com IA" para gerar.' : ''}</div>`;
 
-    // Datas comemorativas do mês
-    html += `<div class="mkt-status-group">
-        <div class="mkt-status-head">
-            <span class="mkt-status-dot" style="background:#e65100"></span>
-            <span class="mkt-status-title">Datas comemorativas do mês</span>
-            <span class="mkt-status-count">${holidays.length}</span>
-        </div>`;
-    if (holidays.length) {
-        html += `<div class="mkt-cards-grid">${holidays.map(renderHolidayCard).join('')}</div>`;
-    } else {
-        html += `<div class="text-muted small mb-2">Nenhuma data comemorativa neste mês. ${IS_ADMIN ? 'Use "Datas com IA" para gerar.' : ''}</div>`;
-    }
-    html += `</div>`;
+    const columns = [
+        { title: 'Datas comemorativas do mês', color: '#e65100', count: holidays.length, body: holidays.length ? holidayCards : emptyHoliday },
+        { title: 'Ideias', color: (STATUS_META.ideia || ['','#888'])[1], count: ideias.length, body: kanbanBody(ideias) },
+        { title: 'Ajustes solicitados', color: '#f5a623', count: ajustes.length, body: kanbanBody(ajustes) },
+    ];
 
-    // Ideias
-    html += renderGroupSection('ideia', 'Ideias', ideias);
-    // Ajustes solicitados
-    html += renderGroupSection('ajustes', 'Ajustes solicitados', ajustes, '#f5a623');
-
-    return html;
+    return `<div class="mkt-kanban">${columns.map(renderKanbanColumn).join('')}</div>`;
 }
 
-function renderGroupSection(key, label, list, color) {
-    const c = color || ((STATUS_META[key] || ['', '#888'])[1]);
-    let html = `<div class="mkt-status-group">
-        <div class="mkt-status-head">
-            <span class="mkt-status-dot" style="background:${c}"></span>
-            <span class="mkt-status-title">${label}</span>
-            <span class="mkt-status-count">${list.length}</span>
-        </div>`;
-    html += list.length
-        ? `<div class="mkt-cards-grid">${list.map(renderCardHtml).join('')}</div>`
-        : `<div class="text-muted small mb-2">Nenhum item.</div>`;
-    html += `</div>`;
-    return html;
+function renderKanbanColumn(col) {
+    return `<div class="mkt-kanban-col">
+        <div class="mkt-kanban-head" style="border-top:3px solid ${col.color}">
+            <span class="mkt-status-title">${col.title}</span>
+            <span class="mkt-status-count">${col.count}</span>
+        </div>
+        <div class="mkt-kanban-body">${col.body}</div>
+    </div>`;
+}
+
+function kanbanBody(list) {
+    return list.length ? list.map(renderCardHtml).join('') : `<div class="mkt-kanban-empty">Nenhum item.</div>`;
 }
 
 function renderHolidayCard(h) {
