@@ -153,6 +153,26 @@
             </div>
         </div>
 
+        <!-- Meta (Facebook / Instagram) -->
+        <div class="card mb-4">
+            <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-meta"></i> Meta (Facebook / Instagram)</h6></div>
+            <div class="card-body">
+                <label class="form-label fw-medium small">Access Token</label>
+                <input type="password" name="meta_access_token" class="form-control form-control-sm" value="<?= escape($settings['meta_access_token'] ?? '') ?>" placeholder="EAAB...">
+                <small class="text-muted d-block">Token de usuário/sistema de longa duração com <code>instagram_business_basic</code>, <code>instagram_business_manage_insights</code> e <code>pages_read_engagement</code>. Usado para total de seguidores e insights de conta (alcance, impressões, visitas ao perfil).</small>
+            </div>
+        </div>
+
+        <!-- LinkedIn (Páginas de organização) -->
+        <div class="card mb-4">
+            <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-linkedin"></i> LinkedIn (Organização)</h6></div>
+            <div class="card-body">
+                <label class="form-label fw-medium small">Access Token</label>
+                <input type="password" name="linkedin_access_token" class="form-control form-control-sm" value="<?= escape($settings['linkedin_access_token'] ?? '') ?>" placeholder="AQV...">
+                <small class="text-muted d-block">Token OAuth com escopos <code>r_organization_social</code>, <code>r_organization_followers</code> e <code>rw_organization_admin</code>. Traz total de seguidores e estatísticas de página. Analytics de perfil pessoal não são expostos pela API.</small>
+            </div>
+        </div>
+
         <!-- Webhook WhatsApp -->
         <div class="card mb-4">
             <div class="card-header bg-white d-flex justify-content-between align-items-center">

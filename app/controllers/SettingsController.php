@@ -24,6 +24,7 @@ class SettingsController extends Controller
             'smtp_encryption', 'smtp_from_name', 'smtp_from_email',
             'openai_api_key',
             'buffer_api_key',
+            'meta_access_token', 'linkedin_access_token',
             'webhook_url', 'webhook_phones', 'webhook_names', 'webhook_enabled',
             'webhook_message_template',
             'whatsapp_number', 'whatsapp_message', 'whatsapp_enabled',

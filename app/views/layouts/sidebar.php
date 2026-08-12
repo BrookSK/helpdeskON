@@ -48,6 +48,11 @@
                     <i class="bi bi-graph-up-arrow"></i> Métricas Sociais
                 </a>
             </li>
+            <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'social_accounts' ? 'active' : '' ?>" href="<?= baseUrl('social') ?>">
+                    <i class="bi bi-people"></i> Redes Sociais
+                </a>
+            </li>
             <?php endif; ?>
 
             <?php if (($user['role'] ?? '') === 'client'): ?>
@@ -112,6 +117,11 @@
             <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'buffer_dashboard' ? 'active' : '' ?>" href="<?= baseUrl('buffer/dashboard') ?>">
                     <i class="bi bi-graph-up-arrow"></i> Métricas Sociais
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'social_accounts' ? 'active' : '' ?>" href="<?= baseUrl('social') ?>">
+                    <i class="bi bi-people"></i> Redes Sociais
                 </a>
             </li>
             <?php endif; ?>
