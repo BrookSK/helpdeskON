@@ -20,21 +20,25 @@ class BufferController extends Controller
         $this->requireRole($this->accessRoles);
         $user = $this->currentUser();
 
-        // Métricas principais (totais)
+        // Período do filtro (padrão: últimos 365 dias, para não zerar)
+        $periodStart = !empty($_GET['start']) ? substr($_GET['start'], 0, 10) : date('Y-m-d', strtotime('-365 days'));
+        $periodEnd = !empty($_GET['end']) ? substr($_GET['end'], 0, 10) : date('Y-m-d');
+
+        // Filtro por rede social e conta (aplica na tela inteira)
+        $fNetwork = !empty($_GET['network']) ? trim($_GET['network']) : null;
+        $fAccount = !empty($_GET['account']) ? trim($_GET['account']) : null;
+
+        // Métricas principais (totais) — respeitam período + filtro de rede/conta
         $totals = [
-            'reactions' => $this->data->sumMetric('reactions'),
-            'comments' => $this->data->sumMetric('comments'),
-            'impressions' => $this->data->sumMetric('impressions'),
-            'reach' => $this->data->sumMetric('reach'),
-            'views' => $this->data->sumMetric('views'),
+            'reactions' => $this->data->sumMetric('reactions', $periodStart, $periodEnd, $fNetwork, $fAccount),
+            'comments' => $this->data->sumMetric('comments', $periodStart, $periodEnd, $fNetwork, $fAccount),
+            'impressions' => $this->data->sumMetric('impressions', $periodStart, $periodEnd, $fNetwork, $fAccount),
+            'reach' => $this->data->sumMetric('reach', $periodStart, $periodEnd, $fNetwork, $fAccount),
+            'views' => $this->data->sumMetric('views', $periodStart, $periodEnd, $fNetwork, $fAccount),
         ];
 
         $channels = $this->data->getChannels();
         $posts = $this->data->getPosts(200);
-
-        // Período do filtro (padrão: últimos 365 dias, para não zerar)
-        $periodStart = !empty($_GET['start']) ? substr($_GET['start'], 0, 10) : date('Y-m-d', strtotime('-365 days'));
-        $periodEnd = !empty($_GET['end']) ? substr($_GET['end'], 0, 10) : date('Y-m-d');
 
         // 1) Agregação local (posts já sincronizados) — fonte rápida
         $channelMetrics = $this->data->aggregateChannelMetricsFromPosts($periodStart, $periodEnd);
@@ -104,6 +108,8 @@ class BufferController extends Controller
             'channelMetrics' => $channelMetrics,
             'periodStart' => $periodStart,
             'periodEnd' => $periodEnd,
+            'filterNetwork' => $fNetwork,
+            'filterAccount' => $fAccount,
             'posts' => $posts,
             'hasKey' => !empty($this->accountsModel->all(true)),
             // Dados sociais diretos
@@ -125,10 +131,12 @@ class BufferController extends Controller
 
         $start = !empty($_GET['start']) ? substr($_GET['start'], 0, 10) : null;
         $end = !empty($_GET['end']) ? substr($_GET['end'], 0, 10) : null;
+        $network = !empty($_GET['network']) ? trim($_GET['network']) : null;
+        $account = !empty($_GET['account']) ? trim($_GET['account']) : null;
 
         $this->json([
-            'timeline' => $this->data->metricTimeline($metric, $start, $end),
-            'top' => $this->data->topPostsByMetric($metric, 10),
+            'timeline' => $this->data->metricTimeline($metric, $start, $end, $network, $account),
+            'top' => $this->data->topPostsByMetric($metric, 10, $start, $end, $network, $account),
             'metric' => $metric,
         ]);
     }

@@ -215,36 +215,69 @@ class BufferData
         );
     }
 
-    /** Totais agregados de uma métrica em todos os posts. */
-    public function sumMetric($type)
+    /**
+     * Monta a cláusula de filtro por rede (service) e conta (nome do canal).
+     * Retorna [sqlFragment, params], usando o alias do post como $pAlias.
+     */
+    private function socialFilterClause($network, $account, $pAlias = 'p')
     {
-        $row = $this->db->fetch(
-            "SELECT SUM(metric_value) AS total FROM buffer_post_metrics WHERE metric_type = ?",
-            [$type]
-        );
+        $sql = '';
+        $params = [];
+        if (!empty($network)) {
+            $sql .= " AND LOWER($pAlias.service) = ?";
+            $params[] = strtolower($network);
+        }
+        if (!empty($account)) {
+            // Casa pelo nome do canal (buffer_channels.name) do canal do post
+            $sql .= " AND EXISTS (SELECT 1 FROM buffer_channels bc WHERE bc.channel_id = $pAlias.channel_id AND bc.name = ?)";
+            $params[] = $account;
+        }
+        return [$sql, $params];
+    }
+
+    /** Totais agregados de uma métrica (com filtro opcional de período/rede/conta). */
+    public function sumMetric($type, $startDate = null, $endDate = null, $network = null, $account = null)
+    {
+        $sql = "SELECT SUM(m.metric_value) AS total
+                FROM buffer_post_metrics m
+                JOIN buffer_posts p ON p.buffer_post_id = m.buffer_post_id
+                WHERE m.metric_type = ?";
+        $params = [$type];
+        if ($startDate && $endDate) {
+            $sql .= " AND DATE(COALESCE(p.sent_at, p.due_at)) BETWEEN ? AND ?";
+            $params[] = $startDate; $params[] = $endDate;
+        }
+        [$fSql, $fParams] = $this->socialFilterClause($network, $account);
+        $sql .= $fSql; $params = array_merge($params, $fParams);
+
+        $row = $this->db->fetch($sql, $params);
         return floatval($row['total'] ?? 0);
     }
 
-    /** Posts com o valor de uma métrica, ordenados (para "maior taxa"). */
-    public function topPostsByMetric($type, $limit = 10)
+    /** Posts com o valor de uma métrica, ordenados (com filtro opcional). */
+    public function topPostsByMetric($type, $limit = 10, $startDate = null, $endDate = null, $network = null, $account = null)
     {
-        return $this->db->fetchAll(
-            "SELECT p.buffer_post_id, p.text, p.service, p.sent_at, p.external_link, p.thumbnail, m.metric_value, m.metric_unit
-             FROM buffer_post_metrics m
-             JOIN buffer_posts p ON p.buffer_post_id = m.buffer_post_id
-             WHERE m.metric_type = ?
-             ORDER BY m.metric_value DESC
-             LIMIT " . intval($limit),
-            [$type]
-        );
+        $sql = "SELECT p.buffer_post_id, p.text, p.service, p.sent_at, p.external_link, p.thumbnail, m.metric_value, m.metric_unit
+                FROM buffer_post_metrics m
+                JOIN buffer_posts p ON p.buffer_post_id = m.buffer_post_id
+                WHERE m.metric_type = ?";
+        $params = [$type];
+        if ($startDate && $endDate) {
+            $sql .= " AND DATE(COALESCE(p.sent_at, p.due_at)) BETWEEN ? AND ?";
+            $params[] = $startDate; $params[] = $endDate;
+        }
+        [$fSql, $fParams] = $this->socialFilterClause($network, $account);
+        $sql .= $fSql; $params = array_merge($params, $fParams);
+        $sql .= " ORDER BY m.metric_value DESC LIMIT " . intval($limit);
+
+        return $this->db->fetchAll($sql, $params);
     }
 
     /**
      * Série temporal de uma métrica por publicação, ordenada no tempo.
-     * Cada ponto é um post (dia/hora do envio), gerando a variação da curva.
-     * Filtra opcionalmente por período (datas Y-m-d).
+     * Filtra opcionalmente por período (datas Y-m-d), rede e conta.
      */
-    public function metricTimeline($type, $startDate = null, $endDate = null)
+    public function metricTimeline($type, $startDate = null, $endDate = null, $network = null, $account = null)
     {
         $sql = "SELECT COALESCE(p.sent_at, p.due_at) AS moment, m.metric_value AS total, p.text
                 FROM buffer_post_metrics m
@@ -257,6 +290,8 @@ class BufferData
             $params[] = $startDate;
             $params[] = $endDate;
         }
+        [$fSql, $fParams] = $this->socialFilterClause($network, $account);
+        $sql .= $fSql; $params = array_merge($params, $fParams);
         $sql .= " ORDER BY moment ASC";
         return $this->db->fetchAll($sql, $params);
     }

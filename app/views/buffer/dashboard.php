@@ -275,6 +275,8 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script>
 const BASE = '<?= baseUrl("") ?>';
+const ACTIVE_NETWORK = '<?= escape($filterNetwork ?? '') ?>';
+const ACTIVE_ACCOUNT = '<?= escape($filterAccount ?? '') ?>';
 let lineChart = null;
 let allTimeline = {}; // cache por métrica: {metric: timeline}
 
@@ -292,6 +294,8 @@ function loadMetric() {
     const params = new URLSearchParams({ metric });
     if (start) params.set('start', start);
     if (end) params.set('end', end);
+    if (ACTIVE_NETWORK) params.set('network', ACTIVE_NETWORK);
+    if (ACTIVE_ACCOUNT) params.set('account', ACTIVE_ACCOUNT);
     fetch(`${BASE}buffer/metrics?${params.toString()}`)
         .then(r => r.json())
         .then(data => {
@@ -429,6 +433,8 @@ function applyPeriod() {
     const params = new URLSearchParams();
     if (start) params.set('start', start);
     if (end) params.set('end', end);
+    if (ACTIVE_NETWORK) params.set('network', ACTIVE_NETWORK);
+    if (ACTIVE_ACCOUNT) params.set('account', ACTIVE_ACCOUNT);
     window.location = `${BASE}buffer/dashboard?${params.toString()}`;
 }
 
@@ -461,10 +467,38 @@ function buildSocialFilters() {
         o.value = a; o.textContent = a;
         accSel.appendChild(o);
     });
-    updateFilterCount();
+
+    // Pré-seleciona o filtro atual (vindo do servidor) e oculta os cards que não batem
+    netSel.value = ACTIVE_NETWORK || '';
+    accSel.value = ACTIVE_ACCOUNT || '';
+    hideNonMatchingCards();
 }
 
+// Aplica o filtro na tela inteira recarregando com os parâmetros (totais/gráfico/posts no servidor)
 function applySocialFilter() {
+    const net = document.getElementById('filter-network').value;
+    const acc = document.getElementById('filter-account').value;
+    const start = document.getElementById('period-start').value;
+    const end = document.getElementById('period-end').value;
+    const params = new URLSearchParams();
+    if (start) params.set('start', start);
+    if (end) params.set('end', end);
+    if (net) params.set('network', net);
+    if (acc) params.set('account', acc);
+    window.location = `${BASE}buffer/dashboard?${params.toString()}`;
+}
+
+function clearSocialFilter() {
+    const start = document.getElementById('period-start').value;
+    const end = document.getElementById('period-end').value;
+    const params = new URLSearchParams();
+    if (start) params.set('start', start);
+    if (end) params.set('end', end);
+    window.location = `${BASE}buffer/dashboard?${params.toString()}`;
+}
+
+// Oculta os cards que não batem com o filtro atual (visual, complementa o filtro do servidor)
+function hideNonMatchingCards() {
     const net = document.getElementById('filter-network').value;
     const acc = document.getElementById('filter-account').value;
     document.querySelectorAll('.social-filter-item').forEach(el => {
@@ -473,12 +507,6 @@ function applySocialFilter() {
         el.style.display = (okNet && okAcc) ? '' : 'none';
     });
     updateFilterCount();
-}
-
-function clearSocialFilter() {
-    document.getElementById('filter-network').value = '';
-    document.getElementById('filter-account').value = '';
-    applySocialFilter();
 }
 
 function updateFilterCount() {
