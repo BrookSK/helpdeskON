@@ -31,7 +31,7 @@ class BufferController extends Controller
         // Métricas agregadas (30 dias) por canal, para exibir no card
         $channelMetrics = [];
         foreach ($channels as $c) {
-            $channelMetrics[$c['channel_id']] = $this->data->getChannelMetrics($c['channel_id'], 30);
+            $channelMetrics[$c['channel_id']] = $this->data->getChannelMetrics($c['channel_id']);
         }
 
         $this->view('buffer/dashboard', [
@@ -178,6 +178,12 @@ class BufferController extends Controller
             foreach ($conn['edges'] as $edge) {
                 $node = $edge['node'];
                 $updatedAt = !empty($node['metricsUpdatedAt']) ? date('Y-m-d H:i:s', strtotime($node['metricsUpdatedAt'])) : null;
+                // Capa/thumbnail: primeiro asset com thumbnail (ou source)
+                $thumb = null;
+                foreach (($node['assets'] ?? []) as $asset) {
+                    if (!empty($asset['thumbnail'])) { $thumb = $asset['thumbnail']; break; }
+                    if (!empty($asset['source'])) { $thumb = $asset['source']; break; }
+                }
                 $this->data->savePost([
                     'buffer_post_id' => $node['id'],
                     'channel_id' => $node['channelId'],
@@ -187,6 +193,7 @@ class BufferController extends Controller
                     'due_at' => !empty($node['dueAt']) ? date('Y-m-d H:i:s', strtotime($node['dueAt'])) : null,
                     'sent_at' => !empty($node['sentAt']) ? date('Y-m-d H:i:s', strtotime($node['sentAt'])) : null,
                     'external_link' => $node['externalLink'] ?? null,
+                    'thumbnail' => $thumb,
                 ]);
                 foreach (($node['metrics'] ?? []) as $metric) {
                     $this->data->saveMetric($node['id'], $metric, $updatedAt);
@@ -198,10 +205,22 @@ class BufferController extends Controller
             $pages++;
         } while ($hasNext && $pages < 20);
 
-        // Agrega métricas por canal (últimos 30 dias) usando aggregatedPostMetrics
-        $periodDays = 30;
-        $startIso = gmdate('Y-m-d\T00:00:00\Z', strtotime('-' . $periodDays . ' days'));
-        $endIso = gmdate('Y-m-d\T23:59:59\Z');
+        // Período agregado: aceita start/end do filtro; padrão = últimos 365 dias (máximo da API)
+        $startParam = $_POST['start'] ?? null;
+        $endParam = $_POST['end'] ?? null;
+        $startTs = $startParam ? strtotime($startParam) : strtotime('-365 days');
+        $endTs = $endParam ? strtotime($endParam) : time();
+        if (!$startTs) $startTs = strtotime('-365 days');
+        if (!$endTs) $endTs = time();
+        // A API limita a 365 dias
+        if ($endTs - $startTs > 365 * 86400) $startTs = $endTs - 365 * 86400;
+
+        $startIso = gmdate('Y-m-d\T00:00:00\Z', $startTs);
+        $endIso = gmdate('Y-m-d\T23:59:59\Z', $endTs);
+        $periodStart = date('Y-m-d', $startTs);
+        $periodEnd = date('Y-m-d', $endTs);
+        $periodDays = max(1, (int) round(($endTs - $startTs) / 86400));
+
         $aggChannels = 0;
         foreach ($this->data->getChannels(false) as $ch) {
             $res = $api->getAggregatedMetrics($orgId, $startIso, $endIso, [$ch['channel_id']]);
@@ -209,12 +228,20 @@ class BufferController extends Controller
             $agg = $res['data']['aggregatedPostMetrics'] ?? null;
             if (!$agg) continue;
             $updatedAt = !empty($agg['metricsUpdatedAt']) ? date('Y-m-d H:i:s', strtotime($agg['metricsUpdatedAt'])) : null;
+            // Limpa o snapshot anterior deste canal para refletir exatamente o período consultado
+            $this->data->clearChannelMetrics($ch['channel_id']);
             foreach (($agg['metrics'] ?? []) as $metric) {
-                $this->data->saveChannelMetric($ch['channel_id'], $metric, $periodDays, $updatedAt);
+                $this->data->saveChannelMetric($ch['channel_id'], $metric, $periodStart, $periodEnd, $updatedAt);
             }
             $aggChannels++;
         }
 
-        $this->json(['success' => true, 'posts' => $postCount, 'channels_aggregated' => $aggChannels]);
+        $this->json([
+            'success' => true,
+            'posts' => $postCount,
+            'channels_aggregated' => $aggChannels,
+            'period_start' => $periodStart,
+            'period_end' => $periodEnd,
+        ]);
     }
 }

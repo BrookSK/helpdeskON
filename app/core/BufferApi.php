@@ -151,6 +151,7 @@ class BufferApi
             posts(first: $first, after: $after, input: $input) {
                 edges { node {
                     id text dueAt sentAt channelId channelService externalLink
+                    assets { thumbnail source mimeType }
                     metrics { type name value unit }
                     metricsUpdatedAt
                 } }

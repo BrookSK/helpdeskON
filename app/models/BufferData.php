@@ -76,35 +76,47 @@ class BufferData
     }
 
     // ===== Métricas agregadas por canal =====
-    public function saveChannelMetric($channelId, $metric, $periodDays, $updatedAt = null)
+    /** Remove o snapshot agregado anterior de um canal. */
+    public function clearChannelMetrics($channelId)
     {
+        $this->db->delete('buffer_channel_metrics', 'channel_id = ?', [$channelId]);
+    }
+
+    public function saveChannelMetric($channelId, $metric, $periodStart, $periodEnd, $updatedAt = null)
+    {
+        $days = 30;
+        if ($periodStart && $periodEnd) {
+            $days = max(1, (int) round((strtotime($periodEnd) - strtotime($periodStart)) / 86400));
+        }
         $data = [
             'metric_name' => $metric['name'] ?? null,
             'metric_value' => floatval($metric['value'] ?? 0),
             'metric_unit' => $metric['unit'] ?? null,
+            'period_days' => $days,
+            'period_start' => $periodStart,
+            'period_end' => $periodEnd,
             'metrics_updated_at' => $updatedAt,
         ];
         $existing = $this->db->fetch(
             "SELECT id FROM buffer_channel_metrics WHERE channel_id = ? AND metric_type = ? AND period_days = ?",
-            [$channelId, $metric['type'], $periodDays]
+            [$channelId, $metric['type'], $days]
         );
         if ($existing) {
             $this->db->update('buffer_channel_metrics', $data, 'id = ?', [$existing['id']]);
         } else {
             $data['channel_id'] = $channelId;
             $data['metric_type'] = $metric['type'];
-            $data['period_days'] = $periodDays;
             $this->db->insert('buffer_channel_metrics', $data);
         }
     }
 
-    /** Métricas agregadas de um canal, indexadas por tipo. */
-    public function getChannelMetrics($channelId, $periodDays = 30)
+    /** Métricas agregadas mais recentes de um canal, indexadas por tipo. */
+    public function getChannelMetrics($channelId)
     {
         $rows = $this->db->fetchAll(
-            "SELECT metric_type, metric_name, metric_value, metric_unit
-             FROM buffer_channel_metrics WHERE channel_id = ? AND period_days = ?",
-            [$channelId, $periodDays]
+            "SELECT metric_type, metric_name, metric_value, metric_unit, period_start, period_end
+             FROM buffer_channel_metrics WHERE channel_id = ?",
+            [$channelId]
         );
         $out = [];
         foreach ($rows as $r) $out[$r['metric_type']] = $r;
@@ -155,7 +167,7 @@ class BufferData
     public function topPostsByMetric($type, $limit = 10)
     {
         return $this->db->fetchAll(
-            "SELECT p.buffer_post_id, p.text, p.service, p.sent_at, p.external_link, m.metric_value, m.metric_unit
+            "SELECT p.buffer_post_id, p.text, p.service, p.sent_at, p.external_link, p.thumbnail, m.metric_value, m.metric_unit
              FROM buffer_post_metrics m
              JOIN buffer_posts p ON p.buffer_post_id = m.buffer_post_id
              WHERE m.metric_type = ?

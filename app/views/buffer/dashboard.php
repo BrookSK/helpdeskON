@@ -18,6 +18,8 @@
 .channel-metric { background: #f7f9fa; border-radius: 8px; padding: 6px 4px; text-align: center; }
 .cm-val { font-size: 0.9rem; font-weight: 700; color: #2b3440; line-height: 1.1; }
 .cm-lbl { font-size: 0.6rem; color: #8a929b; margin-top: 2px; }
+.top-post-cover { width: 46px; height: 46px; border-radius: 8px; object-fit: cover; flex-shrink: 0; }
+.top-post-cover-empty { display: flex; align-items: center; justify-content: center; background: #eef1f4; color: #b0b8c0; font-size: 1.1rem; }
 </style>
 
 <div class="main-content">
@@ -26,7 +28,15 @@
             <h5 class="mb-0 fw-semibold"><i class="bi bi-graph-up-arrow"></i> Métricas Sociais</h5>
             <small class="text-muted">Desempenho das publicações via Buffer</small>
         </div>
-        <div class="d-flex gap-2">
+        <div class="d-flex flex-wrap gap-2 align-items-end">
+            <div>
+                <label class="form-label small mb-0" style="font-size:0.68rem;">De</label>
+                <input type="date" id="period-start" class="form-control form-control-sm" style="max-width:150px;">
+            </div>
+            <div>
+                <label class="form-label small mb-0" style="font-size:0.68rem;">Até</label>
+                <input type="date" id="period-end" class="form-control form-control-sm" style="max-width:150px;">
+            </div>
             <button class="btn btn-outline-secondary btn-sm" onclick="syncChannels(this)"><i class="bi bi-arrow-repeat"></i> Sincronizar canais</button>
             <button class="btn btn-primary btn-sm" onclick="syncMetrics(this)"><i class="bi bi-cloud-download"></i> Atualizar métricas</button>
         </div>
@@ -114,9 +124,16 @@
                     $getM = function($t) use ($cm) { return isset($cm[$t]) ? $cm[$t]['metric_value'] : null; };
                     $posts30 = $getM('postCount');
                     ?>
+                    <?php
+                    $periodLabel = 'Período';
+                    $anyMetric = reset($cm);
+                    if (!empty($anyMetric['period_start']) && !empty($anyMetric['period_end'])) {
+                        $periodLabel = date('d/m/Y', strtotime($anyMetric['period_start'])) . ' – ' . date('d/m/Y', strtotime($anyMetric['period_end']));
+                    }
+                    ?>
                     <?php if (!empty($cm)): ?>
                     <div class="channel-metrics">
-                        <div class="channel-metrics-title"><i class="bi bi-graph-up"></i> Últimos 30 dias</div>
+                        <div class="channel-metrics-title"><i class="bi bi-graph-up"></i> <?= escape($periodLabel) ?></div>
                         <div class="channel-metrics-grid">
                             <?php
                             $metricList = [
@@ -291,8 +308,12 @@ function renderTop(top, metric, postFilter) {
         const val = p.metric_unit === 'percentage' ? (parseFloat(p.metric_value).toFixed(1) + '%') : Math.round(p.metric_value).toLocaleString('pt-BR');
         const txt = (p.text || '(sem texto)').slice(0, 80);
         const link = p.external_link ? `href="${p.external_link}" target="_blank"` : '';
-        return `<a ${link} class="list-group-item list-group-item-action d-flex justify-content-between align-items-start gap-2" style="text-decoration:none;">
-            <div class="min-w-0">
+        const cover = p.thumbnail
+            ? `<img src="${p.thumbnail}" class="top-post-cover" alt="" onerror="this.style.display='none'">`
+            : `<div class="top-post-cover top-post-cover-empty"><i class="bi bi-image"></i></div>`;
+        return `<a ${link} class="list-group-item list-group-item-action d-flex align-items-center gap-2" style="text-decoration:none;">
+            ${cover}
+            <div class="min-w-0 flex-grow-1">
                 <div class="small fw-medium text-truncate">${i + 1}. ${escapeHtml(txt)}</div>
                 <div class="text-muted" style="font-size:0.7rem;">${p.service || ''}</div>
             </div>
@@ -317,7 +338,12 @@ function syncMetrics(btn) {
     const original = btn.innerHTML;
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Atualizando...';
-    fetch(`${BASE}buffer/syncMetrics`, { method: 'POST', headers: {'X-Requested-With':'XMLHttpRequest'} })
+    const fd = new FormData();
+    const start = document.getElementById('period-start').value;
+    const end = document.getElementById('period-end').value;
+    if (start) fd.append('start', start);
+    if (end) fd.append('end', end);
+    fetch(`${BASE}buffer/syncMetrics`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json()).then(data => {
             btn.disabled = false; btn.innerHTML = original;
             if (data.error) { alert(data.error); return; }
@@ -327,7 +353,22 @@ function syncMetrics(btn) {
 
 function escapeHtml(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
 
-document.addEventListener('DOMContentLoaded', loadMetric);
+// Preenche o filtro de período com um padrão amplo (últimos 365 dias) para não zerar
+function initPeriodDefaults() {
+    const end = new Date();
+    const start = new Date();
+    start.setDate(start.getDate() - 365);
+    const fmt = d => d.toISOString().slice(0, 10);
+    const s = document.getElementById('period-start');
+    const e = document.getElementById('period-end');
+    if (s && !s.value) s.value = fmt(start);
+    if (e && !e.value) e.value = fmt(end);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    initPeriodDefaults();
+    loadMetric();
+});
 </script>
 
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>
