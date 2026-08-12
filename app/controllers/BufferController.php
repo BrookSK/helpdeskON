@@ -28,10 +28,17 @@ class BufferController extends Controller
         $channels = $this->data->getChannels();
         $posts = $this->data->getPosts(200);
 
+        // Métricas agregadas (30 dias) por canal, para exibir no card
+        $channelMetrics = [];
+        foreach ($channels as $c) {
+            $channelMetrics[$c['channel_id']] = $this->data->getChannelMetrics($c['channel_id'], 30);
+        }
+
         $this->view('buffer/dashboard', [
             'user' => $user,
             'totals' => $totals,
             'channels' => $channels,
+            'channelMetrics' => $channelMetrics,
             'posts' => $posts,
             'hasKey' => (new BufferApi())->hasKey(),
         ]);
@@ -191,6 +198,23 @@ class BufferController extends Controller
             $pages++;
         } while ($hasNext && $pages < 20);
 
-        $this->json(['success' => true, 'posts' => $postCount]);
+        // Agrega métricas por canal (últimos 30 dias) usando aggregatedPostMetrics
+        $periodDays = 30;
+        $startIso = gmdate('Y-m-d\T00:00:00\Z', strtotime('-' . $periodDays . ' days'));
+        $endIso = gmdate('Y-m-d\T23:59:59\Z');
+        $aggChannels = 0;
+        foreach ($this->data->getChannels(false) as $ch) {
+            $res = $api->getAggregatedMetrics($orgId, $startIso, $endIso, [$ch['channel_id']]);
+            if (!empty($res['errors'])) continue;
+            $agg = $res['data']['aggregatedPostMetrics'] ?? null;
+            if (!$agg) continue;
+            $updatedAt = !empty($agg['metricsUpdatedAt']) ? date('Y-m-d H:i:s', strtotime($agg['metricsUpdatedAt'])) : null;
+            foreach (($agg['metrics'] ?? []) as $metric) {
+                $this->data->saveChannelMetric($ch['channel_id'], $metric, $periodDays, $updatedAt);
+            }
+            $aggChannels++;
+        }
+
+        $this->json(['success' => true, 'posts' => $postCount, 'channels_aggregated' => $aggChannels]);
     }
 }

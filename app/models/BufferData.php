@@ -75,7 +75,43 @@ class BufferData
         return $this->db->fetch("SELECT * FROM buffer_posts WHERE buffer_post_id = ?", [$bufferPostId]);
     }
 
-    // ===== Métricas =====
+    // ===== Métricas agregadas por canal =====
+    public function saveChannelMetric($channelId, $metric, $periodDays, $updatedAt = null)
+    {
+        $data = [
+            'metric_name' => $metric['name'] ?? null,
+            'metric_value' => floatval($metric['value'] ?? 0),
+            'metric_unit' => $metric['unit'] ?? null,
+            'metrics_updated_at' => $updatedAt,
+        ];
+        $existing = $this->db->fetch(
+            "SELECT id FROM buffer_channel_metrics WHERE channel_id = ? AND metric_type = ? AND period_days = ?",
+            [$channelId, $metric['type'], $periodDays]
+        );
+        if ($existing) {
+            $this->db->update('buffer_channel_metrics', $data, 'id = ?', [$existing['id']]);
+        } else {
+            $data['channel_id'] = $channelId;
+            $data['metric_type'] = $metric['type'];
+            $data['period_days'] = $periodDays;
+            $this->db->insert('buffer_channel_metrics', $data);
+        }
+    }
+
+    /** Métricas agregadas de um canal, indexadas por tipo. */
+    public function getChannelMetrics($channelId, $periodDays = 30)
+    {
+        $rows = $this->db->fetchAll(
+            "SELECT metric_type, metric_name, metric_value, metric_unit
+             FROM buffer_channel_metrics WHERE channel_id = ? AND period_days = ?",
+            [$channelId, $periodDays]
+        );
+        $out = [];
+        foreach ($rows as $r) $out[$r['metric_type']] = $r;
+        return $out;
+    }
+
+    // ===== Métricas por post =====
     public function saveMetric($bufferPostId, $metric, $updatedAt = null)
     {
         $data = [

@@ -12,6 +12,12 @@
 .channel-status.connected { background: #e6f7f0; color: #1b7a54; }
 .channel-status.disconnected { background: #fdecea; color: #c0392b; }
 .channel-service-badge { font-size: 0.62rem; font-weight: 600; padding: 3px 8px; }
+.channel-metrics { border-top: 1px solid #f0f2f4; padding-top: 8px; margin-top: 2px; }
+.channel-metrics-title { font-size: 0.64rem; font-weight: 600; color: #99a2ab; text-transform: uppercase; letter-spacing: .4px; margin-bottom: 6px; }
+.channel-metrics-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.channel-metric { background: #f7f9fa; border-radius: 8px; padding: 6px 4px; text-align: center; }
+.cm-val { font-size: 0.9rem; font-weight: 700; color: #2b3440; line-height: 1.1; }
+.cm-lbl { font-size: 0.6rem; color: #8a929b; margin-top: 2px; }
 </style>
 
 <div class="main-content">
@@ -91,7 +97,7 @@
                             </div>
                         </div>
                     </div>
-                    <div class="d-flex align-items-center justify-content-between">
+                    <div class="d-flex align-items-center justify-content-between mb-2">
                         <span class="badge rounded-pill channel-service-badge" style="background:<?= $meta[1] ?>1a;color:<?= $meta[1] ?>;">
                             <i class="bi <?= $meta[0] ?>"></i> <?= escape($svcLabel) ?>
                         </span>
@@ -101,6 +107,48 @@
                         <span class="badge rounded-pill channel-status disconnected"><i class="bi bi-exclamation-circle-fill"></i> Reconectar</span>
                         <?php endif; ?>
                     </div>
+
+                    <?php
+                    $cm = $channelMetrics[$ch['channel_id']] ?? [];
+                    $fmt = function($v) { return number_format((float)$v, 0, ',', '.'); };
+                    $getM = function($t) use ($cm) { return isset($cm[$t]) ? $cm[$t]['metric_value'] : null; };
+                    $posts30 = $getM('postCount');
+                    ?>
+                    <?php if (!empty($cm)): ?>
+                    <div class="channel-metrics">
+                        <div class="channel-metrics-title"><i class="bi bi-graph-up"></i> Últimos 30 dias</div>
+                        <div class="channel-metrics-grid">
+                            <?php
+                            $metricList = [
+                                ['postCount', 'Posts', 'bi-collection'],
+                                ['impressions', 'Impressões', 'bi-eye'],
+                                ['reach', 'Alcance', 'bi-broadcast'],
+                                ['reactions', 'Reações', 'bi-heart'],
+                                ['comments', 'Coment.', 'bi-chat'],
+                                ['saves', 'Saves', 'bi-bookmark'],
+                                ['follows', 'Seguidores', 'bi-person-plus'],
+                            ];
+                            foreach ($metricList as $m):
+                                $val = $getM($m[0]);
+                                if ($val === null) continue;
+                            ?>
+                            <div class="channel-metric">
+                                <div class="cm-val"><?= $fmt($val) ?></div>
+                                <div class="cm-lbl"><i class="bi <?= $m[2] ?>"></i> <?= $m[1] ?></div>
+                            </div>
+                            <?php endforeach; ?>
+                            <?php $eng = $getM('engagementRate'); if ($eng !== null): ?>
+                            <div class="channel-metric">
+                                <div class="cm-val"><?= number_format((float)$eng, 1, ',', '.') ?>%</div>
+                                <div class="cm-lbl"><i class="bi bi-activity"></i> Engaj.</div>
+                            </div>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                    <?php else: ?>
+                    <div class="text-muted small mt-1" style="font-size:0.7rem;">Sem métricas ainda. Clique em "Atualizar métricas".</div>
+                    <?php endif; ?>
+
                     <?php if (!empty($ch['external_link'])): ?>
                     <a href="<?= escape($ch['external_link']) ?>" target="_blank" rel="noopener" class="d-block text-truncate mt-2" style="font-size:0.7rem;">
                         <i class="bi bi-box-arrow-up-right"></i> Ver perfil
