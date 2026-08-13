@@ -11,7 +11,8 @@
                 <input type="hidden" id="mt-contact-id">
                 <input type="hidden" id="mt-google-event-id">
                 <input type="hidden" id="mt-meet-link">
-                <!-- Temperatura da reunião: espelha a do briefing (campo único) -->
+                <!-- Urgência e temperatura da reunião: espelham os campos do briefing (campos únicos) -->
+                <input type="hidden" id="mt-urgency">
                 <input type="hidden" id="mt-temperature">
 
                 <div class="row g-3">
@@ -66,16 +67,7 @@
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    <div class="col-md-4">
-                        <label class="form-label small fw-medium">Urgência</label>
-                        <select id="mt-urgency" class="form-select form-select-sm">
-                            <option value="baixa">Baixa</option>
-                            <option value="media" selected>Média</option>
-                            <option value="alta">Alta</option>
-                            <option value="urgente">Urgente</option>
-                        </select>
-                    </div>
-                    <div class="col-md-4">
+                    <div class="col-md-8">
                         <label class="form-label small fw-medium">Status</label>
                         <select id="mt-status" class="form-select form-select-sm">
                             <option value="a_agendar">A agendar</option>
@@ -122,7 +114,7 @@
                     </div>
                     <div class="col-md-4">
                         <label class="form-label small mb-1">Urgência</label>
-                        <select id="bf-urgency" class="form-select form-select-sm">
+                        <select id="bf-urgency" class="form-select form-select-sm" onchange="document.getElementById('mt-urgency').value = this.value;">
                             <option value="">—</option>
                             <option value="baixa">Baixa</option>
                             <option value="media">Média</option>
@@ -201,6 +193,7 @@ function resetMeetingForm() {
     document.getElementById('mt-temperature').value = '';
     document.getElementById('mt-status').value = 'a_agendar';
     const bfTemp = document.getElementById('bf-lead_temperature'); if (bfTemp) bfTemp.value = '';
+    const bfUrg = document.getElementById('bf-urgency'); if (bfUrg) bfUrg.value = 'media';
     document.querySelectorAll('.mt-new-client').forEach(el => el.style.display = 'none');
     document.getElementById('mt-delete-btn').style.display = 'none';
     clearBriefing();
@@ -213,12 +206,17 @@ function fillBriefing(bf) {
     if (!bf) return;
     BF_FIELDS.forEach(k => { const el = document.getElementById('bf-' + k); if (el && bf[k] != null) el.value = bf[k]; });
 }
-// Temperatura é um campo único (dropdown do briefing) que também alimenta a reunião.
-function syncTemperature(meetingTemp) {
+// Urgência e temperatura são campos únicos (dropdowns do briefing) que também alimentam a reunião.
+function syncInherited(meetingUrgency, meetingTemp) {
     const bfTemp = document.getElementById('bf-lead_temperature');
-    const value = (bfTemp && bfTemp.value) ? bfTemp.value : (meetingTemp || '');
-    if (bfTemp) bfTemp.value = value;
-    document.getElementById('mt-temperature').value = value;
+    const temp = (bfTemp && bfTemp.value) ? bfTemp.value : (meetingTemp || '');
+    if (bfTemp) bfTemp.value = temp;
+    document.getElementById('mt-temperature').value = temp;
+
+    const bfUrg = document.getElementById('bf-urgency');
+    const urg = (bfUrg && bfUrg.value) ? bfUrg.value : (meetingUrgency || 'media');
+    if (bfUrg) bfUrg.value = urg;
+    document.getElementById('mt-urgency').value = urg;
 }
 
 let GOOGLE_READY = null;
@@ -265,15 +263,14 @@ function fillMeeting(m) {
     document.getElementById('mt-meeting-at').value = m.meeting_at ? m.meeting_at.replace(' ', 'T').slice(0,16) : '';
     document.getElementById('mt-client').value = m.contact_id || '';
     document.getElementById('mt-assigned').value = m.assigned_to || '';
-    document.getElementById('mt-urgency').value = m.urgency || 'media';
     document.getElementById('mt-status').value = m.status || 'a_agendar';
     document.getElementById('mt-notes').value = m.notes || '';
     document.getElementById('mt-client-email').value = m.client_email || '';
     document.getElementById('mt-google-event-id').value = m.google_event_id || '';
     document.getElementById('mt-meet-link').value = m.meet_link || '';
     fillBriefing(m.briefing);
-    // Temperatura é campo único (briefing). Usa a do briefing; se vazia, cai na da reunião.
-    syncTemperature(m.temperature || '');
+    // Urgência e temperatura são campos únicos (briefing). Usa os do briefing; se vazios, cai nos da reunião.
+    syncInherited(m.urgency || 'media', m.temperature || '');
     if (m.meet_link) showMeetLink(m.meet_link);
     document.getElementById('mt-delete-btn').style.display = '';
 }
@@ -291,10 +288,10 @@ function onClientChange() {
     newFields.forEach(el => el.style.display = 'none');
     document.getElementById('mt-contact-id').value = val || '';
     if (val) {
-        fetch(`${BASE}agenda/briefing/${val}`).then(r => r.json()).then(d => { fillBriefing(d.briefing); syncTemperature(''); });
+        fetch(`${BASE}agenda/briefing/${val}`).then(r => r.json()).then(d => { fillBriefing(d.briefing); syncInherited('media', ''); });
     } else {
         clearBriefing();
-        syncTemperature('');
+        syncInherited('media', '');
     }
 }
 
@@ -303,8 +300,12 @@ function collectPayload() {
     fd.append('title', document.getElementById('mt-title').value.trim());
     fd.append('meeting_at', document.getElementById('mt-meeting-at').value);
     fd.append('assigned_to', document.getElementById('mt-assigned').value);
-    fd.append('urgency', document.getElementById('mt-urgency').value);
-    // Temperatura única: sempre a do dropdown do briefing
+    // Urgência e temperatura únicas: sempre vindas dos dropdowns do briefing
+    const bfUrg = document.getElementById('bf-urgency');
+    const urgVal = (bfUrg && bfUrg.value) ? bfUrg.value : 'media';
+    document.getElementById('mt-urgency').value = urgVal;
+    fd.append('urgency', urgVal);
+
     const bfTemp = document.getElementById('bf-lead_temperature');
     const tempVal = bfTemp ? bfTemp.value : document.getElementById('mt-temperature').value;
     document.getElementById('mt-temperature').value = tempVal;
