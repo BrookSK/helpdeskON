@@ -150,6 +150,78 @@ class BufferController extends Controller
         ]);
     }
 
+    /**
+     * GET /buffer/comparison?start=YYYY-MM-DD&end=YYYY-MM-DD
+     * Retorna totais do período selecionado VS período anterior equivalente.
+     * Ex: se o período é 30 dias, compara com os 30 dias anteriores.
+     * Usado para exibir variação (crescimento/queda) no dashboard.
+     */
+    public function comparison()
+    {
+        $this->requireRole($this->accessRoles);
+
+        $start = !empty($_GET['start']) ? substr($_GET['start'], 0, 10) : date('Y-m-d', strtotime('-30 days'));
+        $end = !empty($_GET['end']) ? substr($_GET['end'], 0, 10) : date('Y-m-d');
+        $network = !empty($_GET['network']) ? trim($_GET['network']) : null;
+        $account = !empty($_GET['account']) ? trim($_GET['account']) : null;
+
+        // Calcula período anterior com a mesma duração
+        $days = (strtotime($end) - strtotime($start)) / 86400;
+        $prevEnd = date('Y-m-d', strtotime($start . ' -1 day'));
+        $prevStart = date('Y-m-d', strtotime($prevEnd . ' -' . intval($days) . ' days'));
+
+        $metrics = ['reactions', 'comments', 'impressions', 'reach', 'views'];
+        $current = [];
+        $previous = [];
+
+        foreach ($metrics as $m) {
+            $current[$m] = $this->data->sumMetric($m, $start, $end, $network, $account);
+            $previous[$m] = $this->data->sumMetric($m, $prevStart, $prevEnd, $network, $account);
+        }
+
+        // Calcula variação
+        $comparison = [];
+        foreach ($metrics as $m) {
+            $cur = (float)$current[$m];
+            $prev = (float)$previous[$m];
+            $diff = $cur - $prev;
+            $pct = $prev > 0 ? round($diff / $prev * 100, 1) : ($cur > 0 ? 100 : 0);
+            $comparison[$m] = [
+                'current' => $cur,
+                'previous' => $prev,
+                'diff' => $diff,
+                'pct' => $pct,
+            ];
+        }
+
+        // Seguidores consolidados (soma de todas as contas diretas)
+        $socialModel = new SocialAccount();
+        $accounts = $socialModel->all(true);
+        $totalFollowers = 0;
+        $totalFollowersPrev = 0;
+        foreach ($accounts as $acc) {
+            $totalFollowers += (int)($acc['followers'] ?? 0);
+            $closest = $socialModel->getFollowersClosest($acc['id'], $prevEnd);
+            $totalFollowersPrev += $closest ? (int)$closest['followers'] : 0;
+        }
+        $followersDiff = $totalFollowers - $totalFollowersPrev;
+        $followersPct = $totalFollowersPrev > 0 ? round($followersDiff / $totalFollowersPrev * 100, 1) : ($totalFollowers > 0 ? 100 : 0);
+
+        $comparison['followers'] = [
+            'current' => $totalFollowers,
+            'previous' => $totalFollowersPrev,
+            'diff' => $followersDiff,
+            'pct' => $followersPct,
+        ];
+
+        $this->json([
+            'success' => true,
+            'period' => ['start' => $start, 'end' => $end, 'days' => $days],
+            'previous_period' => ['start' => $prevStart, 'end' => $prevEnd],
+            'comparison' => $comparison,
+        ]);
+    }
+
     // API: sincronizar canais de TODAS as contas Buffer conectadas
     public function syncChannels()
     {
