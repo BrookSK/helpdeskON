@@ -329,6 +329,25 @@
             </div>
             <div class="card-body">
                 <small class="text-muted d-block mb-3">Token OAuth com escopos <code>r_organization_social</code>, <code>r_organization_followers</code> e <code>rw_organization_admin</code>. Cada token representa uma organização/cliente diferente.</small>
+
+                <!-- Credenciais do App LinkedIn (para OAuth automático) -->
+                <div class="row g-2 mb-3">
+                    <div class="col-md-5">
+                        <label class="form-label small fw-medium">Client ID</label>
+                        <input type="text" name="linkedin_client_id" class="form-control form-control-sm" value="<?= escape($settings['linkedin_client_id'] ?? '') ?>" placeholder="77qae2ikx3r2b7">
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label small fw-medium">Client Secret</label>
+                        <input type="password" name="linkedin_client_secret" class="form-control form-control-sm" value="<?= escape($settings['linkedin_client_secret'] ?? '') ?>" placeholder="WPL_AP1.xxxxx">
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end">
+                        <a href="https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=<?= escape($settings['linkedin_client_id'] ?? '') ?>&redirect_uri=<?= urlencode(rtrim(baseUrl('callback'), '/')) ?>&scope=r_organization_social%20r_organization_followers%20rw_organization_admin&state=linkedin" class="btn btn-sm btn-success w-100 <?= empty($settings['linkedin_client_id']) ? 'disabled' : '' ?>" <?= empty($settings['linkedin_client_id']) ? 'aria-disabled="true"' : '' ?>><i class="bi bi-key"></i> Autorizar</a>
+                    </div>
+                </div>
+                <small class="text-muted d-block mb-3"><i class="bi bi-info-circle"></i> Preencha Client ID e Secret, salve, depois clique em <strong>Autorizar</strong>. O token será gerado e salvo automaticamente.</small>
+
+                <hr class="my-3">
+                <label class="form-label small fw-medium">Tokens salvos</label>
                 <div id="linkedin-tokens-list">
                     <?php
                     $linkedinTokens = [];

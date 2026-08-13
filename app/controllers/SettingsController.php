@@ -30,6 +30,7 @@ class SettingsController extends Controller
             'whatsapp_number', 'whatsapp_message', 'whatsapp_enabled',
             'whatsapp_default_group_jid', 'whatsapp_group_notify_enabled',
             'cron_token',
+            'linkedin_client_id', 'linkedin_client_secret',
         ];
 
         foreach ($fields as $field) {
