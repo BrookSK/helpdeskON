@@ -114,12 +114,12 @@
                     </div>
                     <div class="col-md-4">
                         <label class="form-label small mb-1">Urgência</label>
-                        <select id="bf-urgency" class="form-select form-select-sm" onchange="document.getElementById('mt-urgency').value = this.value;">
-                            <option value="">—</option>
-                            <option value="baixa">Baixa</option>
-                            <option value="media">Média</option>
-                            <option value="alta">Alta</option>
-                            <option value="urgente">Urgente</option>
+                        <select id="bf-urgency" class="form-select form-select-sm">
+                            <option value="">Selecione</option>
+                            <option value="Baixa">Baixa</option>
+                            <option value="Média">Média</option>
+                            <option value="Alta">Alta</option>
+                            <option value="Urgente">Urgente</option>
                         </select>
                     </div>
                     <div class="col-md-4">
@@ -193,7 +193,7 @@ function resetMeetingForm() {
     document.getElementById('mt-temperature').value = '';
     document.getElementById('mt-status').value = 'a_agendar';
     const bfTemp = document.getElementById('bf-lead_temperature'); if (bfTemp) bfTemp.value = '';
-    const bfUrg = document.getElementById('bf-urgency'); if (bfUrg) bfUrg.value = 'media';
+    const bfUrg = document.getElementById('bf-urgency'); if (bfUrg) bfUrg.value = '';
     document.querySelectorAll('.mt-new-client').forEach(el => el.style.display = 'none');
     document.getElementById('mt-delete-btn').style.display = 'none';
     clearBriefing();
@@ -206,7 +206,14 @@ function fillBriefing(bf) {
     if (!bf) return;
     BF_FIELDS.forEach(k => { const el = document.getElementById('bf-' + k); if (el && bf[k] != null) el.value = bf[k]; });
 }
+// Converte a urgência textual do briefing (ex: "Baixa") para o enum da reunião ("baixa").
+const URGENCY_TO_ENUM = { 'baixa':'baixa', 'média':'media', 'media':'media', 'alta':'alta', 'urgente':'urgente' };
+const URGENCY_TO_LABEL = { 'baixa':'Baixa', 'media':'Média', 'alta':'Alta', 'urgente':'Urgente' };
+function urgencyEnum(v) { return URGENCY_TO_ENUM[(v || '').toString().trim().toLowerCase()] || 'media'; }
+function urgencyLabel(v) { return URGENCY_TO_LABEL[urgencyEnum(v)] || 'Média'; }
+
 // Urgência e temperatura são campos únicos (dropdowns do briefing) que também alimentam a reunião.
+// meetingUrgency vem no enum (baixa/media/...); o dropdown do briefing usa o rótulo (Baixa/Média/...).
 function syncInherited(meetingUrgency, meetingTemp) {
     const bfTemp = document.getElementById('bf-lead_temperature');
     const temp = (bfTemp && bfTemp.value) ? bfTemp.value : (meetingTemp || '');
@@ -214,9 +221,10 @@ function syncInherited(meetingUrgency, meetingTemp) {
     document.getElementById('mt-temperature').value = temp;
 
     const bfUrg = document.getElementById('bf-urgency');
-    const urg = (bfUrg && bfUrg.value) ? bfUrg.value : (meetingUrgency || 'media');
-    if (bfUrg) bfUrg.value = urg;
-    document.getElementById('mt-urgency').value = urg;
+    // Prioriza o valor já preenchido no briefing; senão usa o da reunião.
+    const label = (bfUrg && bfUrg.value) ? bfUrg.value : urgencyLabel(meetingUrgency);
+    if (bfUrg) bfUrg.value = label;
+    document.getElementById('mt-urgency').value = urgencyEnum(label);
 }
 
 let GOOGLE_READY = null;
@@ -302,7 +310,7 @@ function collectPayload() {
     fd.append('assigned_to', document.getElementById('mt-assigned').value);
     // Urgência e temperatura únicas: sempre vindas dos dropdowns do briefing
     const bfUrg = document.getElementById('bf-urgency');
-    const urgVal = (bfUrg && bfUrg.value) ? bfUrg.value : 'media';
+    const urgVal = urgencyEnum(bfUrg ? bfUrg.value : 'media');
     document.getElementById('mt-urgency').value = urgVal;
     fd.append('urgency', urgVal);
 
