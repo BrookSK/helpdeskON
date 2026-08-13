@@ -23,18 +23,22 @@ class SocialController extends Controller
         $this->requireRole($this->accessRoles);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
 
-        $api = new MetaApi();
-        if (!$api->hasToken()) $this->json(['error' => 'Configure o token da Meta em Configurações.'], 400);
+        // Aceita token opcional no POST (para importar contas de outro Business Manager)
+        $customToken = trim($_POST['access_token'] ?? '');
+        $api = $customToken ? new MetaApi($customToken) : new MetaApi();
+        if (!$api->hasToken()) $this->json(['error' => 'Configure o token da Meta em Configurações ou informe um token no campo.'], 400);
 
         $res = $api->getPages();
         if (!empty($res['error'])) $this->json(['error' => $res['error']['message'] ?? 'Erro ao consultar a Meta'], 400);
 
         $imported = 0;
         foreach (($res['data'] ?? []) as $page) {
+            // Cada página recebe seu próprio page token (retornado pela API)
+            $pageToken = $page['access_token'] ?? ($customToken ?: null);
             $this->accounts->upsert('facebook_page', $page['id'], [
                 'display_name' => $page['name'] ?? null,
                 'avatar' => $page['picture']['data']['url'] ?? null,
-                'access_token' => $page['access_token'] ?? null,
+                'access_token' => $pageToken,
                 'followers' => $page['followers_count'] ?? ($page['fan_count'] ?? null),
             ]);
             $imported++;
@@ -45,7 +49,7 @@ class SocialController extends Controller
                     'display_name' => $ig['username'] ?? ($ig['name'] ?? null),
                     'username' => $ig['username'] ?? null,
                     'avatar' => $ig['profile_picture_url'] ?? null,
-                    'access_token' => $page['access_token'] ?? null,
+                    'access_token' => $pageToken,
                     'followers' => $ig['followers_count'] ?? null,
                     'follows' => $ig['follows_count'] ?? null,
                     'media_count' => $ig['media_count'] ?? null,
@@ -65,17 +69,21 @@ class SocialController extends Controller
         $orgId = trim($_POST['org_id'] ?? '');
         if ($orgId === '') $this->json(['error' => 'Informe o ID/URN da organização do LinkedIn.'], 400);
 
+        // Token individual (opcional) — se informado, é salvo na conta
+        $customToken = trim($_POST['access_token'] ?? '');
+
         $name = trim($_POST['display_name'] ?? '');
         // Tenta buscar o nome real via API
-        $api = new LinkedInApi();
+        $api = $customToken ? new LinkedInApi($customToken) : new LinkedInApi();
         if ($api->hasToken()) {
             $org = $api->getOrganization($orgId);
             if (!empty($org['localizedName'])) $name = $org['localizedName'];
         }
 
-        $id = $this->accounts->upsert('linkedin_org', preg_replace('/\D/', '', $orgId), [
-            'display_name' => $name ?: ('LinkedIn ' . $orgId),
-        ]);
+        $data = ['display_name' => $name ?: ('LinkedIn ' . $orgId)];
+        if ($customToken) $data['access_token'] = $customToken;
+
+        $id = $this->accounts->upsert('linkedin_org', preg_replace('/\D/', '', $orgId), $data);
         $this->json(['success' => true, 'id' => $id]);
     }
 
