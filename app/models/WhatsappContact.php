@@ -22,6 +22,46 @@ class WhatsappContact
         );
     }
 
+    /**
+     * Lista contatos individuais (leads) para seleção na Agenda/CRM.
+     * Exclui grupos.
+     */
+    public function getLeadsForSelect()
+    {
+        return $this->db->fetchAll(
+            "SELECT id, contact_name, phone
+             FROM whatsapp_contacts
+             WHERE COALESCE(is_group, 0) = 0
+             ORDER BY contact_name IS NULL, contact_name ASC"
+        );
+    }
+
+    /**
+     * Cria um contato/lead manual (usado quando se cadastra um cliente novo pela Agenda).
+     * Usa a instância padrão disponível; gera um remote_jid sintético a partir do telefone.
+     */
+    public function createManualLead($name, $phone, $assignedTo = null)
+    {
+        $instance = $this->db->fetch("SELECT id FROM whatsapp_instances WHERE is_default = 1 LIMIT 1")
+            ?: $this->db->fetch("SELECT id FROM whatsapp_instances LIMIT 1");
+        if (!$instance) return null; // sem instância não é possível criar contato
+
+        $digits = preg_replace('/\D/', '', (string) $phone);
+        $jid = ($digits !== '' ? $digits : 'manual_' . uniqid()) . '@s.whatsapp.net';
+
+        // Evita duplicar contato existente com o mesmo jid
+        $existing = $this->findByJid($instance['id'], $jid);
+        if ($existing) return $existing['id'];
+
+        return $this->db->insert('whatsapp_contacts', [
+            'instance_id' => $instance['id'],
+            'remote_jid' => $jid,
+            'phone' => $digits ?: null,
+            'contact_name' => $name ?: 'Cliente',
+            'assigned_to' => $assignedTo,
+        ]);
+    }
+
     // =========================================
     // BRIEFING COMERCIAL
     // =========================================
