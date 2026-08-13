@@ -24,7 +24,6 @@ class SettingsController extends Controller
             'smtp_encryption', 'smtp_from_name', 'smtp_from_email',
             'openai_api_key',
             'buffer_api_key',
-            'meta_access_token', 'linkedin_access_token',
             'webhook_url', 'webhook_phones', 'webhook_names', 'webhook_enabled',
             'webhook_message_template',
             'whatsapp_number', 'whatsapp_message', 'whatsapp_enabled',
@@ -38,12 +37,34 @@ class SettingsController extends Controller
             }
         }
 
-        // Limpar cache de validação de token quando tokens são atualizados
-        if (isset($_POST['meta_access_token'])) {
+        // === Tokens dinâmicos: Meta (array meta_tokens[]) ===
+        if (isset($_POST['meta_tokens']) && is_array($_POST['meta_tokens'])) {
+            // Limpa todos os tokens Meta antigos (até 20)
+            Config::set('meta_access_token', '');
+            for ($i = 2; $i <= 20; $i++) {
+                Config::set('meta_access_token_' . $i, '');
+            }
+            // Salva os novos (filtra vazios)
+            $metaTokens = array_values(array_filter(array_map('trim', $_POST['meta_tokens'])));
+            foreach ($metaTokens as $idx => $token) {
+                $key = $idx === 0 ? 'meta_access_token' : 'meta_access_token_' . ($idx + 1);
+                Config::set($key, $token);
+            }
             Config::set('meta_token_status', '');
             Config::set('meta_token_checked_at', '');
         }
-        if (isset($_POST['linkedin_access_token'])) {
+
+        // === Tokens dinâmicos: LinkedIn (array linkedin_tokens[]) ===
+        if (isset($_POST['linkedin_tokens']) && is_array($_POST['linkedin_tokens'])) {
+            Config::set('linkedin_access_token', '');
+            for ($i = 2; $i <= 20; $i++) {
+                Config::set('linkedin_access_token_' . $i, '');
+            }
+            $linkedinTokens = array_values(array_filter(array_map('trim', $_POST['linkedin_tokens'])));
+            foreach ($linkedinTokens as $idx => $token) {
+                $key = $idx === 0 ? 'linkedin_access_token' : 'linkedin_access_token_' . ($idx + 1);
+                Config::set($key, $token);
+            }
             Config::set('linkedin_token_status', '');
             Config::set('linkedin_token_checked_at', '');
         }

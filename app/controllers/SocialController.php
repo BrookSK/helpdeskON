@@ -25,39 +25,68 @@ class SocialController extends Controller
 
         // Aceita token opcional no POST (para importar contas de outro Business Manager)
         $customToken = trim($_POST['access_token'] ?? '');
-        $api = $customToken ? new MetaApi($customToken) : new MetaApi();
-        if (!$api->hasToken()) $this->json(['error' => 'Configure o token da Meta em Configurações ou informe um token no campo.'], 400);
 
-        $res = $api->getPages();
-        if (!empty($res['error'])) $this->json(['error' => $res['error']['message'] ?? 'Erro ao consultar a Meta'], 400);
-
-        $imported = 0;
-        foreach (($res['data'] ?? []) as $page) {
-            // Cada página recebe seu próprio page token (retornado pela API)
-            $pageToken = $page['access_token'] ?? ($customToken ?: null);
-            $this->accounts->upsert('facebook_page', $page['id'], [
-                'display_name' => $page['name'] ?? null,
-                'avatar' => $page['picture']['data']['url'] ?? null,
-                'access_token' => $pageToken,
-                'followers' => $page['followers_count'] ?? ($page['fan_count'] ?? null),
-            ]);
-            $imported++;
-
-            $ig = $page['instagram_business_account'] ?? null;
-            if ($ig && !empty($ig['id'])) {
-                $this->accounts->upsert('meta_instagram', $ig['id'], [
-                    'display_name' => $ig['username'] ?? ($ig['name'] ?? null),
-                    'username' => $ig['username'] ?? null,
-                    'avatar' => $ig['profile_picture_url'] ?? null,
-                    'access_token' => $pageToken,
-                    'followers' => $ig['followers_count'] ?? null,
-                    'follows' => $ig['follows_count'] ?? null,
-                    'media_count' => $ig['media_count'] ?? null,
-                ]);
-                $imported++;
+        // Se token customizado, importa apenas dele
+        if ($customToken) {
+            $tokens = [$customToken];
+        } else {
+            // Coleta todos os tokens configurados em Configurações (dinâmico, até 20)
+            $tokens = [];
+            $first = Config::get('meta_access_token');
+            if ($first) $tokens[] = $first;
+            for ($i = 2; $i <= 20; $i++) {
+                $t = Config::get('meta_access_token_' . $i);
+                if ($t) $tokens[] = $t;
             }
         }
-        $this->json(['success' => true, 'imported' => $imported]);
+
+        if (empty($tokens)) {
+            $this->json(['error' => 'Configure ao menos um token da Meta em Configurações ou informe um token no campo.'], 400);
+        }
+
+        $imported = 0;
+        $errors = [];
+
+        foreach ($tokens as $token) {
+            $api = new MetaApi($token);
+            if (!$api->hasToken()) continue;
+
+            $res = $api->getPages();
+            if (!empty($res['error'])) {
+                $errors[] = $res['error']['message'] ?? 'Erro ao consultar a Meta';
+                continue;
+            }
+
+            foreach (($res['data'] ?? []) as $page) {
+                // Cada página recebe seu próprio page token (retornado pela API)
+                $pageToken = $page['access_token'] ?? $token;
+                $this->accounts->upsert('facebook_page', $page['id'], [
+                    'display_name' => $page['name'] ?? null,
+                    'avatar' => $page['picture']['data']['url'] ?? null,
+                    'access_token' => $pageToken,
+                    'followers' => $page['followers_count'] ?? ($page['fan_count'] ?? null),
+                ]);
+                $imported++;
+
+                $ig = $page['instagram_business_account'] ?? null;
+                if ($ig && !empty($ig['id'])) {
+                    $this->accounts->upsert('meta_instagram', $ig['id'], [
+                        'display_name' => $ig['username'] ?? ($ig['name'] ?? null),
+                        'username' => $ig['username'] ?? null,
+                        'avatar' => $ig['profile_picture_url'] ?? null,
+                        'access_token' => $pageToken,
+                        'followers' => $ig['followers_count'] ?? null,
+                        'follows' => $ig['follows_count'] ?? null,
+                        'media_count' => $ig['media_count'] ?? null,
+                    ]);
+                    $imported++;
+                }
+            }
+        }
+
+        $result = ['success' => true, 'imported' => $imported];
+        if (!empty($errors)) $result['errors'] = $errors;
+        $this->json($result);
     }
 
     // Adicionar organização do LinkedIn manualmente (ID/URN)

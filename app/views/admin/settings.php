@@ -235,23 +235,90 @@
 
         <!-- Meta (Facebook / Instagram) -->
         <div class="card mb-4">
-            <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-meta"></i> Meta (Facebook / Instagram)</h6></div>
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                <h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-meta"></i> Meta (Facebook / Instagram)</h6>
+                <button type="button" class="btn btn-outline-primary btn-sm" onclick="addMetaToken()"><i class="bi bi-plus-lg"></i> Adicionar token</button>
+            </div>
             <div class="card-body">
-                <label class="form-label fw-medium small">Access Token</label>
-                <input type="password" name="meta_access_token" class="form-control form-control-sm" value="<?= escape($settings['meta_access_token'] ?? '') ?>" placeholder="EAAB...">
-                <small class="text-muted d-block">Token de usuário/sistema de longa duração com <code>instagram_business_basic</code>, <code>instagram_business_manage_insights</code> e <code>pages_read_engagement</code>. Usado para total de seguidores e insights de conta (alcance, impressões, visitas ao perfil).</small>
+                <small class="text-muted d-block mb-3">Token de usuário/sistema de longa duração com <code>instagram_business_basic</code>, <code>instagram_business_manage_insights</code> e <code>pages_read_engagement</code>. Cada token representa uma conta/cliente diferente.</small>
+                <div id="meta-tokens-list">
+                    <?php
+                    // Carrega todos os tokens Meta existentes (meta_access_token, meta_access_token_2, ...)
+                    $metaTokens = [];
+                    if (!empty($settings['meta_access_token'])) $metaTokens[] = $settings['meta_access_token'];
+                    for ($i = 2; $i <= 20; $i++) {
+                        $k = 'meta_access_token_' . $i;
+                        if (!empty($settings[$k])) $metaTokens[] = $settings[$k];
+                    }
+                    if (empty($metaTokens)) $metaTokens[] = ''; // pelo menos 1 campo vazio
+                    foreach ($metaTokens as $idx => $tkn):
+                        $fieldName = $idx === 0 ? 'meta_tokens[]' : 'meta_tokens[]';
+                    ?>
+                    <div class="input-group input-group-sm mb-2 meta-token-row">
+                        <span class="input-group-text"><?= $idx + 1 ?></span>
+                        <input type="password" name="meta_tokens[]" class="form-control" value="<?= escape($tkn) ?>" placeholder="EAAB...">
+                        <?php if ($idx > 0): ?>
+                        <button type="button" class="btn btn-outline-danger" onclick="this.closest('.meta-token-row').remove()" title="Remover"><i class="bi bi-trash3"></i></button>
+                        <?php endif; ?>
+                    </div>
+                    <?php endforeach; ?>
+                </div>
             </div>
         </div>
 
         <!-- LinkedIn (Páginas de organização) -->
         <div class="card mb-4">
-            <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-linkedin"></i> LinkedIn (Organização)</h6></div>
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                <h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-linkedin"></i> LinkedIn (Organização)</h6>
+                <button type="button" class="btn btn-outline-primary btn-sm" onclick="addLinkedinToken()"><i class="bi bi-plus-lg"></i> Adicionar token</button>
+            </div>
             <div class="card-body">
-                <label class="form-label fw-medium small">Access Token</label>
-                <input type="password" name="linkedin_access_token" class="form-control form-control-sm" value="<?= escape($settings['linkedin_access_token'] ?? '') ?>" placeholder="AQV...">
-                <small class="text-muted d-block">Token OAuth com escopos <code>r_organization_social</code>, <code>r_organization_followers</code> e <code>rw_organization_admin</code>. Traz total de seguidores e estatísticas de página. Analytics de perfil pessoal não são expostos pela API.</small>
+                <small class="text-muted d-block mb-3">Token OAuth com escopos <code>r_organization_social</code>, <code>r_organization_followers</code> e <code>rw_organization_admin</code>. Cada token representa uma organização/cliente diferente.</small>
+                <div id="linkedin-tokens-list">
+                    <?php
+                    $linkedinTokens = [];
+                    if (!empty($settings['linkedin_access_token'])) $linkedinTokens[] = $settings['linkedin_access_token'];
+                    for ($i = 2; $i <= 20; $i++) {
+                        $k = 'linkedin_access_token_' . $i;
+                        if (!empty($settings[$k])) $linkedinTokens[] = $settings[$k];
+                    }
+                    if (empty($linkedinTokens)) $linkedinTokens[] = '';
+                    foreach ($linkedinTokens as $idx => $tkn):
+                    ?>
+                    <div class="input-group input-group-sm mb-2 linkedin-token-row">
+                        <span class="input-group-text"><?= $idx + 1 ?></span>
+                        <input type="password" name="linkedin_tokens[]" class="form-control" value="<?= escape($tkn) ?>" placeholder="AQV...">
+                        <?php if ($idx > 0): ?>
+                        <button type="button" class="btn btn-outline-danger" onclick="this.closest('.linkedin-token-row').remove()" title="Remover"><i class="bi bi-trash3"></i></button>
+                        <?php endif; ?>
+                    </div>
+                    <?php endforeach; ?>
+                </div>
             </div>
         </div>
+
+        <script>
+        function addMetaToken() {
+            const list = document.getElementById('meta-tokens-list');
+            const count = list.querySelectorAll('.meta-token-row').length + 1;
+            const row = document.createElement('div');
+            row.className = 'input-group input-group-sm mb-2 meta-token-row';
+            row.innerHTML = '<span class="input-group-text">' + count + '</span>'
+                + '<input type="password" name="meta_tokens[]" class="form-control" placeholder="EAAB...">'
+                + '<button type="button" class="btn btn-outline-danger" onclick="this.closest(\'.meta-token-row\').remove()" title="Remover"><i class="bi bi-trash3"></i></button>';
+            list.appendChild(row);
+        }
+        function addLinkedinToken() {
+            const list = document.getElementById('linkedin-tokens-list');
+            const count = list.querySelectorAll('.linkedin-token-row').length + 1;
+            const row = document.createElement('div');
+            row.className = 'input-group input-group-sm mb-2 linkedin-token-row';
+            row.innerHTML = '<span class="input-group-text">' + count + '</span>'
+                + '<input type="password" name="linkedin_tokens[]" class="form-control" placeholder="AQV...">'
+                + '<button type="button" class="btn btn-outline-danger" onclick="this.closest(\'.linkedin-token-row\').remove()" title="Remover"><i class="bi bi-trash3"></i></button>';
+            list.appendChild(row);
+        }
+        </script>
 
         <!-- Webhook WhatsApp -->
         <div class="card mb-4">
