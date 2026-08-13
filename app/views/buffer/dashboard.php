@@ -84,33 +84,34 @@ $socialProviderMeta = [
 .accounts-section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
 .accounts-section-head h6 { font-size: 0.95rem; font-weight: 700; color: #1a1a2e; margin: 0; }
 .accounts-table { background: #fff; border-radius: 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); overflow: hidden; }
-.account-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid #f3f4f6; transition: background .1s; }
+.account-row { display: flex; align-items: center; gap: 16px; padding: 16px 20px; border-bottom: 1px solid #f0f2f4; transition: background .1s; }
 .account-row:last-child { border-bottom: none; }
 .account-row:hover { background: #f9fafb; }
-.ar-identity { display: flex; align-items: center; gap: 10px; min-width: 180px; flex-shrink: 0; }
-.ar-avatar { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1rem; flex-shrink: 0; overflow: hidden; position: relative; }
-.ar-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 10px; }
-.ar-badge { position: absolute; bottom: -2px; right: -2px; width: 16px; height: 16px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 0.5rem; border: 2px solid #fff; }
+.ar-identity { display: flex; align-items: center; gap: 12px; min-width: 200px; flex-shrink: 0; }
+.ar-avatar { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0; overflow: hidden; position: relative; }
+.ar-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 12px; }
+.ar-badge { position: absolute; bottom: -2px; right: -2px; width: 18px; height: 18px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 0.55rem; border: 2px solid #fff; }
 .ar-info { min-width: 0; }
-.ar-name { font-size: 0.78rem; font-weight: 600; color: #2b3440; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
-.ar-sub { font-size: 0.65rem; color: #8a929b; }
-.ar-metrics { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; }
-.ar-metric { text-align: center; padding: 4px 8px; background: #f7f9fa; border-radius: 8px; min-width: 60px; }
-.ar-mval { display: block; font-size: 0.82rem; font-weight: 700; color: #2b3440; line-height: 1.2; }
-.ar-mlbl { display: block; font-size: 0.55rem; color: #8a929b; }
+.ar-name { font-size: 0.88rem; font-weight: 600; color: #2b3440; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
+.ar-sub { font-size: 0.72rem; color: #8a929b; }
+.ar-metrics { display: flex; gap: 8px; flex-wrap: wrap; flex: 1; }
+.ar-metric { text-align: center; padding: 8px 12px; background: #f7f9fa; border-radius: 10px; min-width: 72px; }
+.ar-mval { display: block; font-size: 1rem; font-weight: 700; color: #2b3440; line-height: 1.2; }
+.ar-mlbl { display: block; font-size: 0.62rem; color: #8a929b; margin-top: 2px; }
 .ar-source { flex-shrink: 0; }
-.badge-source { font-size: 0.6rem; font-weight: 600; padding: 3px 8px; border-radius: 10px; }
+.badge-source { font-size: 0.65rem; font-weight: 600; padding: 4px 10px; border-radius: 12px; }
 .badge-source.buffer { background: #f3f4f6; color: #666; }
 .badge-source.direct { background: #e8f5e9; color: #16a34a; }
 
 /* Posts inline (row abaixo da conta) */
-.account-posts-row { display: flex; gap: 8px; padding: 8px 16px 12px 62px; border-bottom: 1px solid #f3f4f6; overflow-x: auto; }
-.sp-mini { display: block; width: 64px; height: 64px; border-radius: 8px; overflow: hidden; position: relative; flex-shrink: 0; background: #eef1f4; text-decoration: none; }
+.account-posts-row { display: flex; gap: 10px; padding: 10px 20px 16px 76px; border-bottom: 1px solid #f0f2f4; overflow-x: auto; }
+.sp-mini { display: block; width: 80px; height: 80px; border-radius: 10px; overflow: hidden; position: relative; flex-shrink: 0; background: #eef1f4; text-decoration: none; transition: transform .15s; }
+.sp-mini:hover { transform: scale(1.05); }
 .sp-mini img { width: 100%; height: 100%; object-fit: cover; }
-.sp-mini i { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #bbb; font-size: 1.2rem; }
-.sp-mini-stats { position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,0.6); display: flex; gap: 6px; justify-content: center; padding: 2px 0; font-size: 0.55rem; color: #fff; opacity: 0; transition: opacity .15s; }
+.sp-mini i { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #bbb; font-size: 1.4rem; }
+.sp-mini-stats { position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,0.65); display: flex; gap: 6px; justify-content: center; padding: 3px 0; font-size: 0.6rem; color: #fff; opacity: 0; transition: opacity .15s; }
 .sp-mini:hover .sp-mini-stats { opacity: 1; }
-.sp-mini-stats i { color: #fff; font-size: 0.5rem; }
+.sp-mini-stats i { color: #fff; font-size: 0.55rem; }
 
 /* Followers Growth Consolidated */
 .followers-consolidated { background: #fff; border-radius: 14px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); margin-bottom: 24px; }
