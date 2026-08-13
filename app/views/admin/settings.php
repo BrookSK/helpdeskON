@@ -328,25 +328,51 @@
                 </div>
             </div>
             <div class="card-body">
-                <small class="text-muted d-block mb-3">Token OAuth com escopos <code>r_organization_social</code>, <code>r_organization_followers</code> e <code>rw_organization_admin</code>. Cada token representa uma organização/cliente diferente.</small>
+                <small class="text-muted d-block mb-3">Token OAuth para acessar dados da organização. Cada token representa uma organização/cliente diferente.</small>
 
                 <!-- Credenciais do App LinkedIn (para OAuth automático) -->
                 <div class="row g-2 mb-3">
-                    <div class="col-md-5">
+                    <div class="col-md-4">
                         <label class="form-label small fw-medium">Client ID</label>
                         <input type="text" name="linkedin_client_id" class="form-control form-control-sm" value="<?= escape($settings['linkedin_client_id'] ?? '') ?>" placeholder="77qae2ikx3r2b7">
                     </div>
-                    <div class="col-md-5">
+                    <div class="col-md-4">
                         <label class="form-label small fw-medium">Client Secret</label>
                         <input type="password" name="linkedin_client_secret" class="form-control form-control-sm" value="<?= escape($settings['linkedin_client_secret'] ?? '') ?>" placeholder="WPL_AP1.xxxxx">
                     </div>
-                    <div class="col-md-2 d-flex align-items-end">
-                        <a href="https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=<?= escape($settings['linkedin_client_id'] ?? '') ?>&redirect_uri=<?= urlencode(rtrim(baseUrl('callback'), '/')) ?>&scope=r_organization_social%20r_organization_followers%20rw_organization_admin&state=linkedin" class="btn btn-sm btn-success w-100 <?= empty($settings['linkedin_client_id']) ? 'disabled' : '' ?>" <?= empty($settings['linkedin_client_id']) ? 'aria-disabled="true"' : '' ?>><i class="bi bi-key"></i> Autorizar</a>
+                    <div class="col-md-4">
+                        <label class="form-label small fw-medium">Escopos (separados por espaço)</label>
+                        <input type="text" name="linkedin_scopes" class="form-control form-control-sm" id="linkedin-scopes" value="<?= escape($settings['linkedin_scopes'] ?? 'r_organization_social r_organization_followers w_organization_social') ?>" placeholder="r_organization_social r_organization_followers">
                     </div>
                 </div>
-                <small class="text-muted d-block mb-3"><i class="bi bi-info-circle"></i> Preencha Client ID e Secret, salve, depois clique em <strong>Autorizar</strong>. O token será gerado e salvo automaticamente.</small>
+                <div class="d-flex align-items-center gap-2 mb-3">
+                    <button type="button" class="btn btn-sm btn-success <?= empty($settings['linkedin_client_id']) ? 'disabled' : '' ?>" onclick="authorizeLinkedin()"><i class="bi bi-key"></i> Autorizar LinkedIn</button>
+                    <small class="text-muted"><i class="bi bi-info-circle"></i> Salve primeiro, depois clique em Autorizar. O token será gerado e salvo automaticamente.</small>
+                </div>
+                <div class="alert alert-light border small py-2 px-3 mb-3">
+                    <strong>Escopos disponíveis (depende do Product adicionado no app):</strong><br>
+                    <code>r_organization_social</code> — ler posts da organização<br>
+                    <code>r_organization_followers</code> — ler seguidores (requer Community Management API)<br>
+                    <code>w_organization_social</code> — postar como organização<br>
+                    <code>r_basicprofile</code> ou <code>openid profile</code> — dados básicos do perfil<br>
+                    <small class="text-muted mt-1 d-block">Se aparecer erro "scope is not valid", vá em <a href="https://www.linkedin.com/developers/apps" target="_blank">LinkedIn Developers</a> → seu app → Products e adicione <strong>Community Management API</strong>.</small>
+                </div>
 
                 <hr class="my-3">
+                <script>
+                function authorizeLinkedin() {
+                    const clientId = document.querySelector('[name="linkedin_client_id"]').value.trim();
+                    const scopes = document.getElementById('linkedin-scopes').value.trim();
+                    if (!clientId) { alert('Preencha o Client ID primeiro.'); return; }
+                    const redirectUri = '<?= rtrim(baseUrl("callback"), "/") ?>';
+                    const url = 'https://www.linkedin.com/oauth/v2/authorization?response_type=code'
+                        + '&client_id=' + encodeURIComponent(clientId)
+                        + '&redirect_uri=' + encodeURIComponent(redirectUri)
+                        + '&scope=' + encodeURIComponent(scopes)
+                        + '&state=linkedin';
+                    window.location.href = url;
+                }
+                </script>
                 <label class="form-label small fw-medium">Tokens salvos</label>
                 <div id="linkedin-tokens-list">
                     <?php
