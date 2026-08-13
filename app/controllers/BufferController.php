@@ -97,8 +97,10 @@ class BufferController extends Controller
         $socialModel = new SocialAccount();
         $socialAccounts = $socialModel->all(false);
         $socialPostsByAccount = [];
+        $socialFollowersGrowth = [];
         foreach ($socialAccounts as $sa) {
             $socialPostsByAccount[$sa['id']] = $socialModel->getPosts($sa['id'], 12);
+            $socialFollowersGrowth[$sa['id']] = $socialModel->getFollowersGrowth($sa['id']);
         }
 
         $this->view('buffer/dashboard', [
@@ -115,8 +117,11 @@ class BufferController extends Controller
             // Dados sociais diretos
             'socialAccounts' => $socialAccounts,
             'socialPostsByAccount' => $socialPostsByAccount,
+            'socialFollowersGrowth' => $socialFollowersGrowth,
             'metaConfigured' => (new MetaApi())->hasToken(),
             'linkedinConfigured' => (new LinkedInApi())->hasToken(),
+            'metaTokenExpired' => $this->isTokenExpired('meta'),
+            'linkedinTokenExpired' => $this->isTokenExpired('linkedin'),
             'isAdmin' => ($user['role'] ?? '') === 'super_admin',
         ]);
     }
@@ -390,5 +395,36 @@ class BufferController extends Controller
             'period_end' => $periodEnd,
             'errors' => $errors,
         ]);
+    }
+
+    /**
+     * Verifica se um token (meta/linkedin) está expirado, usando cache de 1h para não
+     * chamar APIs externas a cada page load. Retorna true se expirado.
+     */
+    private function isTokenExpired($provider)
+    {
+        if ($provider === 'meta') {
+            $api = new MetaApi();
+        } else {
+            $api = new LinkedInApi();
+        }
+        if (!$api->hasToken()) return false;
+
+        // Cache: verifica se já validamos nas últimas 1h
+        $cacheKey = $provider . '_token_status';
+        $cacheTimeKey = $provider . '_token_checked_at';
+        $cachedStatus = Config::get($cacheKey);
+        $cachedAt = Config::get($cacheTimeKey);
+
+        if ($cachedAt && (time() - strtotime($cachedAt)) < 3600) {
+            return $cachedStatus === 'expired';
+        }
+
+        // Validar o token via API
+        $valid = $api->isTokenValid();
+        Config::set($cacheKey, $valid ? 'valid' : 'expired');
+        Config::set($cacheTimeKey, date('Y-m-d H:i:s'));
+
+        return !$valid;
     }
 }

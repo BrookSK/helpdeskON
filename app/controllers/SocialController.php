@@ -246,4 +246,106 @@ class SocialController extends Controller
         ]);
         return 1;
     }
+
+    // ===== Snapshot diário de seguidores =====
+
+    /**
+     * POST social/snapshotFollowers
+     * Sincroniza métricas de todas as contas (atualiza seguidores via API)
+     * e depois grava o snapshot do dia na tabela de histórico.
+     * Pode ser chamado manualmente ou via cron.
+     */
+    public function snapshotFollowers()
+    {
+        // Aceita POST (manual via dashboard) ou GET (via cron)
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            $this->requireRole($this->accessRoles);
+        } else {
+            // Via cron: validação por token simples (opcional)
+            $cronToken = $_GET['token'] ?? '';
+            $expectedToken = Config::get('cron_token');
+            if ($expectedToken && $cronToken !== $expectedToken) {
+                $this->json(['error' => 'Token inválido'], 403);
+            }
+        }
+
+        @set_time_limit(180);
+
+        // 1) Atualiza métricas de todas as contas (busca seguidores frescos das APIs)
+        $meta = new MetaApi();
+        $linkedin = new LinkedInApi();
+        $errors = [];
+        $since = strtotime('-30 days');
+        $until = time();
+
+        foreach ($this->accounts->all(true) as $acc) {
+            try {
+                if ($acc['provider'] === 'meta_instagram') {
+                    $this->syncInstagram($acc, $since, $until, $errors);
+                } elseif ($acc['provider'] === 'facebook_page') {
+                    $this->syncFacebook($acc, $errors);
+                } elseif ($acc['provider'] === 'linkedin_org') {
+                    $this->syncLinkedin($acc, $errors);
+                }
+            } catch (\Throwable $e) {
+                $errors[] = $acc['display_name'] . ': ' . $e->getMessage();
+            }
+        }
+
+        // 2) Grava snapshot do dia com os valores atualizados
+        $saved = $this->accounts->snapshotAllFollowers();
+
+        $this->json([
+            'success' => true,
+            'snapshots_saved' => $saved,
+            'errors' => $errors,
+        ]);
+    }
+
+    // ===== Comparação de crescimento de seguidores =====
+
+    /**
+     * GET social/followersGrowth
+     * Retorna dados de crescimento de seguidores de todas as contas ativas.
+     * Compara hoje vs 7d, 30d, 90d.
+     */
+    public function followersGrowth()
+    {
+        $this->requireRole($this->accessRoles);
+
+        $accounts = $this->accounts->all(true);
+        $result = [];
+
+        foreach ($accounts as $acc) {
+            $growth = $this->accounts->getFollowersGrowth($acc['id']);
+            $result[] = [
+                'id' => $acc['id'],
+                'provider' => $acc['provider'],
+                'display_name' => $acc['display_name'] ?: $acc['external_id'],
+                'avatar' => $acc['avatar'],
+                'growth' => $growth,
+            ];
+        }
+
+        $this->json(['success' => true, 'accounts' => $result]);
+    }
+
+    /**
+     * GET social/followersHistory?account_id=X&start=YYYY-MM-DD&end=YYYY-MM-DD
+     * Retorna histórico diário de seguidores de uma conta para gráfico.
+     */
+    public function followersHistory()
+    {
+        $this->requireRole($this->accessRoles);
+
+        $accountId = intval($_GET['account_id'] ?? 0);
+        if (!$accountId) $this->json(['error' => 'account_id obrigatório'], 400);
+
+        $start = !empty($_GET['start']) ? substr($_GET['start'], 0, 10) : date('Y-m-d', strtotime('-90 days'));
+        $end = !empty($_GET['end']) ? substr($_GET['end'], 0, 10) : date('Y-m-d');
+
+        $history = $this->accounts->getFollowersHistory($accountId, $start, $end);
+
+        $this->json(['success' => true, 'history' => $history]);
+    }
 }

@@ -25,6 +25,21 @@ class LinkedInApi
         return !empty($this->token);
     }
 
+    /**
+     * Verifica se o token ainda é válido fazendo uma chamada leve à API.
+     * Retorna true se válido, false se expirado/inválido.
+     */
+    public function isTokenValid()
+    {
+        if (!$this->hasToken()) return false;
+        $res = $this->get('rest/me');
+        // HTTP 401 = token expirado ou inválido
+        if (($res['http'] ?? 0) === 401) return false;
+        if (($res['http'] ?? 0) === 403) return false;
+        if (!empty($res['serviceErrorCode'])) return false;
+        return ($res['http'] ?? 0) >= 200 && ($res['http'] ?? 0) < 300;
+    }
+
     private function get($path, $params = [])
     {
         $url = $this->base . '/' . ltrim($path, '/');

@@ -29,12 +29,23 @@ class SettingsController extends Controller
             'webhook_message_template',
             'whatsapp_number', 'whatsapp_message', 'whatsapp_enabled',
             'whatsapp_default_group_jid', 'whatsapp_group_notify_enabled',
+            'cron_token',
         ];
 
         foreach ($fields as $field) {
             if (isset($_POST[$field])) {
                 Config::set($field, trim($_POST[$field]));
             }
+        }
+
+        // Limpar cache de validação de token quando tokens são atualizados
+        if (isset($_POST['meta_access_token'])) {
+            Config::set('meta_token_status', '');
+            Config::set('meta_token_checked_at', '');
+        }
+        if (isset($_POST['linkedin_access_token'])) {
+            Config::set('linkedin_token_status', '');
+            Config::set('linkedin_token_checked_at', '');
         }
 
         // Checkboxes
