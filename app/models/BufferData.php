@@ -45,7 +45,16 @@ class BufferData
             $username = null;
             if (!empty($c['externalLink'])) {
                 $path = trim(parse_url($c['externalLink'], PHP_URL_PATH) ?? '', '/');
-                if ($path !== '') $username = ltrim(explode('/', $path)[0], '@');
+                if ($path !== '') {
+                    $segs = array_values(array_filter(explode('/', $path)));
+                    // LinkedIn usa prefixos de rota antes do handle real (ex: /company/slug, /in/nome).
+                    $prefixes = ['company', 'in', 'school', 'pub', 'showcase', 'organization'];
+                    $seg = $segs[0] ?? '';
+                    if (in_array(strtolower($seg), $prefixes, true) && !empty($segs[1])) {
+                        $seg = $segs[1];
+                    }
+                    $username = ltrim($seg, '@');
+                }
             }
             $data = [
                 'organization_id' => $organizationId,
