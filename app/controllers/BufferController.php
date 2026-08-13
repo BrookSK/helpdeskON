@@ -24,17 +24,18 @@ class BufferController extends Controller
         $periodStart = !empty($_GET['start']) ? substr($_GET['start'], 0, 10) : date('Y-m-d', strtotime('-365 days'));
         $periodEnd = !empty($_GET['end']) ? substr($_GET['end'], 0, 10) : date('Y-m-d');
 
-        // Filtro por rede social e conta (aplica na tela inteira)
+        // Filtro por rede social, perfil e conta Buffer (aplica na tela inteira)
         $fNetwork = !empty($_GET['network']) ? trim($_GET['network']) : null;
         $fAccount = !empty($_GET['account']) ? trim($_GET['account']) : null;
+        $fBufferAccount = !empty($_GET['buffer_account']) ? trim($_GET['buffer_account']) : null;
 
-        // Métricas principais (totais) — respeitam período + filtro de rede/conta
+        // Métricas principais (totais) — respeitam período + filtro de rede/perfil/conta Buffer
         $totals = [
-            'reactions' => $this->data->sumMetric('reactions', $periodStart, $periodEnd, $fNetwork, $fAccount),
-            'comments' => $this->data->sumMetric('comments', $periodStart, $periodEnd, $fNetwork, $fAccount),
-            'impressions' => $this->data->sumMetric('impressions', $periodStart, $periodEnd, $fNetwork, $fAccount),
-            'reach' => $this->data->sumMetric('reach', $periodStart, $periodEnd, $fNetwork, $fAccount),
-            'views' => $this->data->sumMetric('views', $periodStart, $periodEnd, $fNetwork, $fAccount),
+            'reactions' => $this->data->sumMetric('reactions', $periodStart, $periodEnd, $fNetwork, $fAccount, $fBufferAccount),
+            'comments' => $this->data->sumMetric('comments', $periodStart, $periodEnd, $fNetwork, $fAccount, $fBufferAccount),
+            'impressions' => $this->data->sumMetric('impressions', $periodStart, $periodEnd, $fNetwork, $fAccount, $fBufferAccount),
+            'reach' => $this->data->sumMetric('reach', $periodStart, $periodEnd, $fNetwork, $fAccount, $fBufferAccount),
+            'views' => $this->data->sumMetric('views', $periodStart, $periodEnd, $fNetwork, $fAccount, $fBufferAccount),
         ];
 
         $channels = $this->data->getChannels();
@@ -110,6 +111,8 @@ class BufferController extends Controller
             'periodEnd' => $periodEnd,
             'filterNetwork' => $fNetwork,
             'filterAccount' => $fAccount,
+            'filterBufferAccount' => (!empty($_GET['buffer_account']) ? trim($_GET['buffer_account']) : null),
+            'bufferAccounts' => $this->accountsModel->all(false),
             'posts' => $posts,
             'hasKey' => !empty($this->accountsModel->all(true)),
             // Dados sociais diretos
@@ -133,10 +136,11 @@ class BufferController extends Controller
         $end = !empty($_GET['end']) ? substr($_GET['end'], 0, 10) : null;
         $network = !empty($_GET['network']) ? trim($_GET['network']) : null;
         $account = !empty($_GET['account']) ? trim($_GET['account']) : null;
+        $bufferAccount = !empty($_GET['buffer_account']) ? trim($_GET['buffer_account']) : null;
 
         $this->json([
-            'timeline' => $this->data->metricTimeline($metric, $start, $end, $network, $account),
-            'top' => $this->data->topPostsByMetric($metric, 10, $start, $end, $network, $account),
+            'timeline' => $this->data->metricTimeline($metric, $start, $end, $network, $account, $bufferAccount),
+            'top' => $this->data->topPostsByMetric($metric, 10, $start, $end, $network, $account, $bufferAccount),
             'metric' => $metric,
         ]);
     }
@@ -368,6 +372,7 @@ class BufferController extends Controller
             } while ($hasNext && $pages < 20);
 
             // 2) Agregação por canal (só os canais desta conta)
+            $snapshotModel = new SocialSnapshot();
             foreach ($this->data->getChannelsByAccount($acc['id'], false) as $ch) {
                 $res = $api->getAggregatedMetrics($orgId, $startIso, $endIso, [$ch['channel_id']]);
                 if (!empty($res['errors'])) continue;
@@ -375,9 +380,24 @@ class BufferController extends Controller
                 if (!$agg) continue;
                 $updatedAt = !empty($agg['metricsUpdatedAt']) ? date('Y-m-d H:i:s', strtotime($agg['metricsUpdatedAt'])) : null;
                 $this->data->clearChannelMetrics($ch['channel_id']);
+                $byType = [];
                 foreach (($agg['metrics'] ?? []) as $metric) {
                     $this->data->saveChannelMetric($ch['channel_id'], $metric, $periodStart, $periodEnd, $updatedAt);
+                    $byType[$metric['type']] = (float)($metric['value'] ?? 0);
                 }
+                // Snapshot histórico (todos os dados) para comparação
+                $snapshotModel->save('buffer', strtolower($ch['service'] ?? ''), $ch['channel_id'], $ch['name'] ?? null, [
+                    'reach' => $byType['reach'] ?? null,
+                    'impressions' => $byType['impressions'] ?? null,
+                    'views' => $byType['views'] ?? null,
+                    'likes' => $byType['reactions'] ?? null,
+                    'comments' => $byType['comments'] ?? null,
+                    'shares' => $byType['shares'] ?? null,
+                    'saves' => $byType['saves'] ?? null,
+                    'posts_count' => isset($byType['postCount']) ? (int)$byType['postCount'] : null,
+                    'engagement_rate' => $byType['engagementRate'] ?? null,
+                    'extra_json' => json_encode($byType),
+                ]);
                 $aggChannels++;
             }
         }

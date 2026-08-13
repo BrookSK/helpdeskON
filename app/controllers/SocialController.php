@@ -176,7 +176,26 @@ class SocialController extends Controller
             'total_shares' => $totShares,
             'engagement_rate' => $engRate,
         ]);
+        $this->saveAccountSnapshot($acc, 'instagram', [
+            'followers' => $followers,
+            'reach' => $ins['reach'] ?? null,
+            'impressions' => $ins['impressions'] ?? null,
+            'views' => null,
+            'likes' => $totLikes,
+            'comments' => $totComments,
+            'shares' => $totShares,
+            'posts_count' => $info['media_count'] ?? null,
+            'engagement_rate' => $engRate,
+        ]);
         return 1;
+    }
+
+    /** Salva um snapshot histórico (todos os dados) da conta direta. */
+    private function saveAccountSnapshot($acc, $provider, $data)
+    {
+        try {
+            (new SocialSnapshot())->save('direct', $provider, $acc['external_id'], $acc['display_name'] ?? null, $data);
+        } catch (\Throwable $e) { /* ignora */ }
     }
 
     private function syncFacebook($acc, &$errors)
@@ -209,13 +228,20 @@ class SocialController extends Controller
             ]);
         }
 
+        $fbFollowers = $info['followers_count'] ?? ($info['fan_count'] ?? $acc['followers']);
         $this->accounts->saveMetrics($acc['id'], [
             'display_name' => $info['name'] ?? $acc['display_name'],
             'avatar' => $info['picture']['data']['url'] ?? $acc['avatar'],
-            'followers' => $info['followers_count'] ?? ($info['fan_count'] ?? $acc['followers']),
+            'followers' => $fbFollowers,
             'total_likes' => $totLikes,
             'total_comments' => $totComments,
             'total_shares' => $totShares,
+        ]);
+        $this->saveAccountSnapshot($acc, 'facebook', [
+            'followers' => $fbFollowers,
+            'likes' => $totLikes,
+            'comments' => $totComments,
+            'shares' => $totShares,
         ]);
         return 1;
     }
@@ -241,6 +267,15 @@ class SocialController extends Controller
             'total_likes' => $likeCount,
             'total_comments' => $commentCount,
             'total_shares' => $shareCount,
+            'engagement_rate' => $engRate,
+            'extra_json' => json_encode($totals),
+        ]);
+        $this->saveAccountSnapshot($acc, 'linkedin', [
+            'followers' => $followers,
+            'impressions' => $impressions,
+            'likes' => $likeCount,
+            'comments' => $commentCount,
+            'shares' => $shareCount,
             'engagement_rate' => $engRate,
             'extra_json' => json_encode($totals),
         ]);

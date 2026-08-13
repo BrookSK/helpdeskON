@@ -12,6 +12,12 @@
 .channel-status.connected { background: #e6f7f0; color: #1b7a54; }
 .channel-status.disconnected { background: #fdecea; color: #c0392b; }
 .channel-service-badge { font-size: 0.62rem; font-weight: 600; padding: 3px 8px; }
+/* Agrupamento por rede social */
+.network-group { margin-bottom: 20px; }
+.network-group-head { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; margin-bottom: 10px; border-bottom: 2px solid #eef0f2; }
+.network-group-icon { width: 30px; height: 30px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1rem; flex-shrink: 0; }
+.network-group-title { font-size: 0.9rem; font-weight: 700; color: #2b3440; }
+.network-group-count { font-size: 0.66rem; font-weight: 600; background: #eef0f2; color: #667; border-radius: 20px; padding: 2px 10px; }
 .channel-metrics { border-top: 1px solid #f0f2f4; padding-top: 8px; margin-top: 2px; }
 .channel-metrics-title { font-size: 0.64rem; font-weight: 600; color: #99a2ab; text-transform: uppercase; letter-spacing: .4px; margin-bottom: 6px; }
 .channel-metrics-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
@@ -94,9 +100,18 @@
             </select>
         </div>
         <div>
-            <label class="form-label small mb-0 text-muted" style="font-size:0.66rem;">Conta</label>
-            <select id="filter-account" class="form-select form-select-sm" style="width:210px;" onchange="onAccountChange()">
-                <option value="">Todas as contas</option>
+            <label class="form-label small mb-0 text-muted" style="font-size:0.66rem;">Conta Buffer</label>
+            <select id="filter-buffer-account" class="form-select form-select-sm" style="width:180px;" onchange="hideNonMatchingCards()">
+                <option value="">Todas as contas Buffer</option>
+                <?php foreach (($bufferAccounts ?? []) as $ba): ?>
+                <option value="<?= escape($ba['label'] ?: ('Conta ' . $ba['id'])) ?>" <?= (($filterBufferAccount ?? '') === ($ba['label'] ?: ('Conta ' . $ba['id']))) ? 'selected' : '' ?>><?= escape($ba['label'] ?: ('Conta ' . $ba['id'])) ?></option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+        <div>
+            <label class="form-label small mb-0 text-muted" style="font-size:0.66rem;">Perfil</label>
+            <select id="filter-account" class="form-select form-select-sm" style="width:200px;" onchange="onAccountChange()">
+                <option value="">Todos os perfis</option>
             </select>
         </div>
         <button class="btn btn-sm btn-primary" onclick="applySocialFilter()"><i class="bi bi-funnel"></i> Aplicar</button>
@@ -108,22 +123,49 @@
         <h6 class="fw-semibold mb-0" style="font-size:0.9rem;"><i class="bi bi-share"></i> Contas conectadas</h6>
         <span class="text-muted small" id="channels-count"><?= count($channels) ?> conta(s)</span>
     </div>
-    <div class="row g-3 mb-4" id="channels-cards">
+    <div id="channels-cards" class="mb-4">
         <?php if (empty($channels)): ?>
-        <div class="col-12">
-            <div class="alert alert-light border small mb-0">
-                Nenhuma conta conectada. Clique em <strong>Sincronizar canais</strong> para buscar os perfis do Buffer.
-            </div>
+        <div class="alert alert-light border small mb-0">
+            Nenhuma conta conectada. Clique em <strong>Sincronizar canais</strong> para buscar os perfis do Buffer.
         </div>
         <?php else: ?>
-        <?php foreach ($channels as $ch):
+        <?php
+        // Mapa id da conta Buffer -> label
+        $bufferAccountLabels = [];
+        foreach (($bufferAccounts ?? []) as $ba) {
+            $bufferAccountLabels[$ba['id']] = $ba['label'] ?: ('Conta ' . $ba['id']);
+        }
+        // Agrupa os canais por rede social
+        $channelsByNetwork = [];
+        foreach ($channels as $ch) {
+            $svcKey = strtolower($ch['service'] ?? 'outros') ?: 'outros';
+            $channelsByNetwork[$svcKey][] = $ch;
+        }
+        $netNames = [
+            'instagram' => 'Instagram', 'facebook' => 'Facebook', 'facebookpage' => 'Facebook',
+            'twitter' => 'Twitter/X', 'x' => 'Twitter/X', 'linkedin' => 'LinkedIn', 'tiktok' => 'TikTok',
+            'youtube' => 'YouTube', 'pinterest' => 'Pinterest', 'threads' => 'Threads',
+            'mastodon' => 'Mastodon', 'googlebusiness' => 'Google Business', 'outros' => 'Outros',
+        ];
+        foreach ($channelsByNetwork as $netKey => $netChannels):
+            $netMeta = $serviceMeta[$netKey] ?? ['bi-globe', '#607d8b'];
+            $netTitle = $netNames[$netKey] ?? ucfirst($netKey);
+        ?>
+        <div class="network-group social-filter-group" data-network="<?= escape($netKey) ?>">
+            <div class="network-group-head">
+                <span class="network-group-icon" style="background:<?= $netMeta[1] ?>1a;color:<?= $netMeta[1] ?>;"><i class="bi <?= $netMeta[0] ?>"></i></span>
+                <span class="network-group-title"><?= escape($netTitle) ?></span>
+                <span class="network-group-count"><?= count($netChannels) ?> perfil(is)</span>
+            </div>
+            <div class="row g-3">
+        <?php foreach ($netChannels as $ch):
             $svc = strtolower($ch['service'] ?? '');
             $meta = $serviceMeta[$svc] ?? ['bi-globe', '#607d8b'];
             $connected = empty($ch['is_disconnected']);
             $initials = strtoupper(mb_substr($ch['name'] ?? '?', 0, 1));
             $svcLabel = ucfirst($svc ?: 'Canal');
         ?>
-        <div class="col-6 col-md-4 col-xl-3 social-filter-item" data-network="<?= escape($svc) ?>" data-account="<?= escape($ch['name'] ?? '') ?>">
+        <div class="col-6 col-md-4 col-xl-3 social-filter-item" data-network="<?= escape($svc) ?>" data-account="<?= escape($ch['name'] ?? '') ?>" data-bufferaccount="<?= escape($bufferAccountLabels[$ch['buffer_account_id'] ?? ''] ?? '') ?>">
             <div class="card h-100 channel-card">
                 <div class="card-body">
                     <div class="d-flex align-items-center gap-2 mb-2">
@@ -195,6 +237,9 @@
                 </div>
             </div>
         </div>
+        <?php endforeach; ?>
+            </div><!-- /.row -->
+        </div><!-- /.network-group -->
         <?php endforeach; ?>
         <?php endif; ?>
     </div>
@@ -281,6 +326,7 @@
 const BASE = '<?= baseUrl("") ?>';
 const ACTIVE_NETWORK = '<?= escape($filterNetwork ?? '') ?>';
 const ACTIVE_ACCOUNT = '<?= escape($filterAccount ?? '') ?>';
+const ACTIVE_BUFFER_ACCOUNT = '<?= escape($filterBufferAccount ?? '') ?>';
 let lineChart = null;
 let allTimeline = {}; // cache por métrica: {metric: timeline}
 
@@ -300,6 +346,7 @@ function loadMetric() {
     if (end) params.set('end', end);
     if (ACTIVE_NETWORK) params.set('network', ACTIVE_NETWORK);
     if (ACTIVE_ACCOUNT) params.set('account', ACTIVE_ACCOUNT);
+    if (ACTIVE_BUFFER_ACCOUNT) params.set('buffer_account', ACTIVE_BUFFER_ACCOUNT);
     fetch(`${BASE}buffer/metrics?${params.toString()}`)
         .then(r => r.json())
         .then(data => {
@@ -499,6 +546,8 @@ function onAccountChange() {
 function applySocialFilter() {
     const net = document.getElementById('filter-network').value;
     const acc = document.getElementById('filter-account').value;
+    const bufAccEl = document.getElementById('filter-buffer-account');
+    const bufAcc = bufAccEl ? bufAccEl.value : '';
     const start = document.getElementById('period-start').value;
     const end = document.getElementById('period-end').value;
     const params = new URLSearchParams();
@@ -506,6 +555,7 @@ function applySocialFilter() {
     if (end) params.set('end', end);
     if (net) params.set('network', net);
     if (acc) params.set('account', acc);
+    if (bufAcc) params.set('buffer_account', bufAcc);
     window.location = `${BASE}buffer/dashboard?${params.toString()}`;
 }
 
@@ -522,10 +572,18 @@ function clearSocialFilter() {
 function hideNonMatchingCards() {
     const net = document.getElementById('filter-network').value;
     const acc = document.getElementById('filter-account').value;
+    const bufAccEl = document.getElementById('filter-buffer-account');
+    const bufAcc = bufAccEl ? bufAccEl.value : '';
     document.querySelectorAll('.social-filter-item').forEach(el => {
         const okNet = !net || el.dataset.network === net;
         const okAcc = !acc || el.dataset.account === acc;
-        el.style.display = (okNet && okAcc) ? '' : 'none';
+        const okBuf = !bufAcc || (el.dataset.bufferaccount || '') === bufAcc;
+        el.style.display = (okNet && okAcc && okBuf) ? '' : 'none';
+    });
+    // Oculta o grupo inteiro da rede quando nenhum card dele está visível
+    document.querySelectorAll('.social-filter-group').forEach(grp => {
+        const anyVisible = [...grp.querySelectorAll('.social-filter-item')].some(el => el.style.display !== 'none');
+        grp.style.display = anyVisible ? '' : 'none';
     });
     updateFilterCount();
 }
