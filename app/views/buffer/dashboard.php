@@ -79,21 +79,38 @@ $socialProviderMeta = [
 .chart-card .card-header, .top-card .card-header { background: transparent; border-bottom: 1px solid #f0f2f4; padding: 14px 18px; }
 .chart-card .card-header h6, .top-card .card-header h6 { font-size: 0.85rem; font-weight: 700; margin: 0; color: #2b3440; }
 
-/* Contas conectadas unificadas */
+/* Contas conectadas - layout de linhas */
 .accounts-section { margin-bottom: 24px; }
 .accounts-section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
 .accounts-section-head h6 { font-size: 0.95rem; font-weight: 700; color: #1a1a2e; margin: 0; }
-.accounts-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
-.account-card { background: #fff; border-radius: 14px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); border: 1px solid #eef0f2; transition: box-shadow .15s, transform .15s; }
-.account-card:hover { box-shadow: 0 6px 20px rgba(0,0,0,0.08); transform: translateY(-2px); }
-.account-avatar { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0; overflow: hidden; position: relative; }
-.account-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 12px; }
-.account-badge { position: absolute; bottom: -2px; right: -2px; width: 18px; height: 18px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 0.55rem; border: 2px solid #fff; }
-.account-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 12px; }
-.account-metric { text-align: center; padding: 6px 2px; background: #f7f9fa; border-radius: 8px; }
-.am-val { font-size: 0.9rem; font-weight: 700; color: #2b3440; }
-.am-lbl { font-size: 0.58rem; color: #8a929b; }
-.account-source { font-size: 0.58rem; font-weight: 600; padding: 2px 8px; border-radius: 10px; }
+.accounts-table { background: #fff; border-radius: 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); overflow: hidden; }
+.account-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid #f3f4f6; transition: background .1s; }
+.account-row:last-child { border-bottom: none; }
+.account-row:hover { background: #f9fafb; }
+.ar-identity { display: flex; align-items: center; gap: 10px; min-width: 180px; flex-shrink: 0; }
+.ar-avatar { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1rem; flex-shrink: 0; overflow: hidden; position: relative; }
+.ar-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 10px; }
+.ar-badge { position: absolute; bottom: -2px; right: -2px; width: 16px; height: 16px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 0.5rem; border: 2px solid #fff; }
+.ar-info { min-width: 0; }
+.ar-name { font-size: 0.78rem; font-weight: 600; color: #2b3440; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
+.ar-sub { font-size: 0.65rem; color: #8a929b; }
+.ar-metrics { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; }
+.ar-metric { text-align: center; padding: 4px 8px; background: #f7f9fa; border-radius: 8px; min-width: 60px; }
+.ar-mval { display: block; font-size: 0.82rem; font-weight: 700; color: #2b3440; line-height: 1.2; }
+.ar-mlbl { display: block; font-size: 0.55rem; color: #8a929b; }
+.ar-source { flex-shrink: 0; }
+.badge-source { font-size: 0.6rem; font-weight: 600; padding: 3px 8px; border-radius: 10px; }
+.badge-source.buffer { background: #f3f4f6; color: #666; }
+.badge-source.direct { background: #e8f5e9; color: #16a34a; }
+
+/* Posts inline (row abaixo da conta) */
+.account-posts-row { display: flex; gap: 8px; padding: 8px 16px 12px 62px; border-bottom: 1px solid #f3f4f6; overflow-x: auto; }
+.sp-mini { display: block; width: 64px; height: 64px; border-radius: 8px; overflow: hidden; position: relative; flex-shrink: 0; background: #eef1f4; text-decoration: none; }
+.sp-mini img { width: 100%; height: 100%; object-fit: cover; }
+.sp-mini i { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #bbb; font-size: 1.2rem; }
+.sp-mini-stats { position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,0.6); display: flex; gap: 6px; justify-content: center; padding: 2px 0; font-size: 0.55rem; color: #fff; opacity: 0; transition: opacity .15s; }
+.sp-mini:hover .sp-mini-stats { opacity: 1; }
+.sp-mini-stats i { color: #fff; font-size: 0.5rem; }
 
 /* Followers Growth Consolidated */
 .followers-consolidated { background: #fff; border-radius: 14px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); margin-bottom: 24px; }
@@ -116,16 +133,7 @@ $socialProviderMeta = [
 .top-post-text { font-size: 0.78rem; font-weight: 500; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: #333; }
 .top-post-meta { font-size: 0.65rem; color: #8a929b; margin-top: 2px; }
 
-/* Social posts grid (direct accounts) */
-.social-posts-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; margin-top: 10px; }
-.sp-card { border: 1px solid #eef0f2; border-radius: 10px; overflow: hidden; text-decoration: none; color: inherit; transition: box-shadow .15s; display: block; }
-.sp-card:hover { box-shadow: 0 4px 14px rgba(0,0,0,0.08); }
-.sp-cover { height: 100px; background: #eef1f4; display: flex; align-items: center; justify-content: center; color: #b0b8c0; font-size: 1.3rem; }
-.sp-cover img { width: 100%; height: 100%; object-fit: cover; }
-.sp-body { padding: 6px 8px; }
-.sp-caption { font-size: 0.68rem; color: #444; min-height: 28px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.sp-stats { display: flex; gap: 8px; font-size: 0.62rem; color: #6b7280; padding: 4px 8px 6px; }
-.sp-stats i { color: var(--primary); }
+/* Social posts grid - removido, usando sp-mini agora */
 
 /* Token alert */
 .token-alert-bar { background: #fffbeb; border: 1px solid #fde68a; border-radius: 12px; padding: 10px 16px; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; }
@@ -134,8 +142,11 @@ $socialProviderMeta = [
 /* Responsive */
 @media (max-width: 768px) {
     .summary-grid { grid-template-columns: repeat(2, 1fr); }
-    .accounts-grid { grid-template-columns: 1fr; }
     .fc-grid { grid-template-columns: repeat(2, 1fr); }
+    .account-row { flex-direction: column; align-items: flex-start; gap: 8px; }
+    .ar-identity { min-width: auto; }
+    .ar-metrics { width: 100%; }
+    .account-posts-row { padding-left: 16px; }
 }
 </style>
 
@@ -322,7 +333,7 @@ $socialProviderMeta = [
             <h6><i class="bi bi-share"></i> Todas as contas conectadas</h6>
             <span class="text-muted small"><?= count($channels) + count($socialAccounts) ?> conta(s)</span>
         </div>
-        <div class="accounts-grid">
+        <div class="accounts-table">
             <?php
             // === Buffer channels ===
             foreach ($channels as $ch):
@@ -331,31 +342,30 @@ $socialProviderMeta = [
                 $connected = empty($ch['is_disconnected']);
                 $cm = $channelMetrics[$ch['channel_id']] ?? [];
                 $getM = function($t) use ($cm) { return isset($cm[$t]) ? (float)$cm[$t]['metric_value'] : 0; };
+                $hasMetrics = $getM('postCount') > 0 || $getM('reactions') > 0 || $getM('impressions') > 0;
             ?>
-            <div class="account-card" data-network="<?= escape($svc) ?>" data-source="buffer">
-                <div class="d-flex align-items-center gap-2 mb-1">
-                    <div class="account-avatar" style="background: <?= $meta[2] ?>1a; color: <?= $meta[2] ?>;">
+            <div class="account-row" data-network="<?= escape($svc) ?>" data-source="buffer">
+                <div class="ar-identity">
+                    <div class="ar-avatar" style="background: <?= $meta[2] ?>1a; color: <?= $meta[2] ?>;">
                         <?php if (!empty($ch['avatar'])): ?>
                         <img src="<?= escape($ch['avatar']) ?>" alt="">
                         <?php else: ?><i class="bi <?= $meta[1] ?>"></i><?php endif; ?>
-                        <span class="account-badge" style="background: <?= $meta[2] ?>;"><i class="bi <?= $meta[1] ?>"></i></span>
+                        <span class="ar-badge" style="background: <?= $meta[2] ?>;"><i class="bi <?= $meta[1] ?>"></i></span>
                     </div>
-                    <div class="flex-grow-1 min-w-0">
-                        <div class="fw-semibold text-truncate" style="font-size:0.82rem;"><?= escape($ch['name']) ?></div>
-                        <div class="text-muted" style="font-size:0.68rem;">
-                            <?php if (!empty($ch['username'])): ?>@<?= escape($ch['username']) ?><?php else: ?><?= $meta[0] ?><?php endif; ?>
-                        </div>
+                    <div class="ar-info">
+                        <div class="ar-name"><?= escape($ch['name']) ?></div>
+                        <div class="ar-sub"><?php if (!empty($ch['username'])): ?>@<?= escape($ch['username']) ?><?php else: ?><?= $meta[0] ?><?php endif; ?></div>
                     </div>
-                    <span class="account-source" style="background: #e8f5e91a; color: #666; border: 1px solid #eee;">Buffer</span>
                 </div>
-                <div class="account-metrics">
-                    <div class="account-metric"><div class="am-val"><?= $fmt($getM('postCount')) ?></div><div class="am-lbl">Posts</div></div>
-                    <div class="account-metric"><div class="am-val"><?= $fmt($getM('reactions')) ?></div><div class="am-lbl">Curtidas</div></div>
-                    <div class="account-metric"><div class="am-val"><?= $fmt($getM('comments')) ?></div><div class="am-lbl">Coment.</div></div>
-                    <div class="account-metric"><div class="am-val"><?= $fmt($getM('impressions')) ?></div><div class="am-lbl">Impress.</div></div>
-                    <div class="account-metric"><div class="am-val"><?= $fmt($getM('reach')) ?></div><div class="am-lbl">Alcance</div></div>
-                    <div class="account-metric"><div class="am-val"><?= number_format($getM('engagementRate'), 1, ',', '.') ?>%</div><div class="am-lbl">Engaj.</div></div>
+                <div class="ar-metrics">
+                    <div class="ar-metric"><span class="ar-mval"><?= $fmt($getM('postCount')) ?></span><span class="ar-mlbl">Posts</span></div>
+                    <div class="ar-metric"><span class="ar-mval"><?= $fmt($getM('reactions')) ?></span><span class="ar-mlbl">Curtidas</span></div>
+                    <div class="ar-metric"><span class="ar-mval"><?= $fmt($getM('comments')) ?></span><span class="ar-mlbl">Coment.</span></div>
+                    <div class="ar-metric"><span class="ar-mval"><?= $fmt($getM('impressions')) ?></span><span class="ar-mlbl">Impressões</span></div>
+                    <div class="ar-metric"><span class="ar-mval"><?= $fmt($getM('reach')) ?></span><span class="ar-mlbl">Alcance</span></div>
+                    <div class="ar-metric"><span class="ar-mval"><?= number_format($getM('engagementRate'), 1, ',', '.') ?>%</span><span class="ar-mlbl">Engaj.</span></div>
                 </div>
+                <div class="ar-source"><span class="badge-source buffer">Buffer</span></div>
             </div>
             <?php endforeach; ?>
 
@@ -365,54 +375,53 @@ $socialProviderMeta = [
                 $pm = $socialProviderMeta[$acc['provider']] ?? ['Rede', 'bi-globe', '#607d8b'];
                 $netKey = ['meta_instagram' => 'instagram', 'facebook_page' => 'facebook', 'linkedin_org' => 'linkedin'][$acc['provider']] ?? $acc['provider'];
                 $svAcc = fn($k) => ($acc[$k] !== null && $acc[$k] !== '') ? (float)$acc[$k] : 0;
+                $accPosts = $socialPostsByAccount[$acc['id']] ?? [];
             ?>
-            <div class="account-card" data-network="<?= escape($netKey) ?>" data-source="direct">
-                <div class="d-flex align-items-center gap-2 mb-1">
-                    <div class="account-avatar" style="background: <?= $pm[2] ?>1a; color: <?= $pm[2] ?>;">
+            <div class="account-row" data-network="<?= escape($netKey) ?>" data-source="direct">
+                <div class="ar-identity">
+                    <div class="ar-avatar" style="background: <?= $pm[2] ?>1a; color: <?= $pm[2] ?>;">
                         <?php if (!empty($acc['avatar'])): ?>
                         <img src="<?= escape($acc['avatar']) ?>" alt="">
                         <?php else: ?><i class="bi <?= $pm[1] ?>"></i><?php endif; ?>
-                        <span class="account-badge" style="background: <?= $pm[2] ?>;"><i class="bi <?= $pm[1] ?>"></i></span>
+                        <span class="ar-badge" style="background: <?= $pm[2] ?>;"><i class="bi <?= $pm[1] ?>"></i></span>
                     </div>
-                    <div class="flex-grow-1 min-w-0">
-                        <div class="fw-semibold text-truncate" style="font-size:0.82rem;"><?= escape($acc['display_name'] ?: $acc['external_id']) ?></div>
-                        <div class="text-muted" style="font-size:0.68rem;">
-                            <?php if (!empty($acc['username'])): ?>@<?= escape($acc['username']) ?><?php else: ?><?= $pm[0] ?><?php endif; ?>
-                        </div>
+                    <div class="ar-info">
+                        <div class="ar-name"><?= escape($acc['display_name'] ?: $acc['external_id']) ?></div>
+                        <div class="ar-sub"><?php if (!empty($acc['username'])): ?>@<?= escape($acc['username']) ?><?php else: ?><?= $pm[0] ?><?php endif; ?></div>
                     </div>
-                    <span class="account-source" style="background: <?= $pm[2] ?>1a; color: <?= $pm[2] ?>;">API direta</span>
                 </div>
-                <div class="account-metrics">
-                    <div class="account-metric"><div class="am-val"><?= $fmt($svAcc('followers')) ?></div><div class="am-lbl">Seguidores</div></div>
+                <div class="ar-metrics">
+                    <div class="ar-metric"><span class="ar-mval"><?= $fmt($svAcc('followers')) ?></span><span class="ar-mlbl">Seguidores</span></div>
+                    <div class="ar-metric"><span class="ar-mval"><?= $fmt($svAcc('total_likes')) ?></span><span class="ar-mlbl">Curtidas</span></div>
+                    <div class="ar-metric"><span class="ar-mval"><?= $fmt($svAcc('total_comments')) ?></span><span class="ar-mlbl">Coment.</span></div>
                     <?php if ($acc['provider'] === 'meta_instagram'): ?>
-                    <div class="account-metric"><div class="am-val"><?= $fmt($svAcc('media_count')) ?></div><div class="am-lbl">Publicações</div></div>
-                    <div class="account-metric"><div class="am-val"><?= $fmt($svAcc('reach')) ?></div><div class="am-lbl">Alcance</div></div>
+                    <div class="ar-metric"><span class="ar-mval"><?= $fmt($svAcc('reach')) ?></span><span class="ar-mlbl">Alcance</span></div>
+                    <div class="ar-metric"><span class="ar-mval"><?= $fmt($svAcc('impressions')) ?></span><span class="ar-mlbl">Impressões</span></div>
+                    <?php else: ?>
+                    <div class="ar-metric"><span class="ar-mval"><?= $fmt($svAcc('impressions')) ?></span><span class="ar-mlbl">Impressões</span></div>
+                    <div class="ar-metric"><span class="ar-mval"><?= $fmt($svAcc('total_shares')) ?></span><span class="ar-mlbl">Compart.</span></div>
                     <?php endif; ?>
-                    <div class="account-metric"><div class="am-val"><?= $fmt($svAcc('total_likes')) ?></div><div class="am-lbl">Curtidas</div></div>
-                    <div class="account-metric"><div class="am-val"><?= $fmt($svAcc('total_comments')) ?></div><div class="am-lbl">Coment.</div></div>
-                    <div class="account-metric"><div class="am-val"><?= number_format($svAcc('engagement_rate'), 1, ',', '.') ?>%</div><div class="am-lbl">Engaj.</div></div>
+                    <div class="ar-metric"><span class="ar-mval"><?= number_format($svAcc('engagement_rate'), 1, ',', '.') ?>%</span><span class="ar-mlbl">Engaj.</span></div>
                 </div>
-
-                <?php
-                // Publicações recentes inline
-                $accPosts = $socialPostsByAccount[$acc['id']] ?? [];
-                if (!empty($accPosts)): ?>
-                <div class="social-posts-grid">
-                    <?php foreach (array_slice($accPosts, 0, 6) as $p): ?>
-                    <a class="sp-card" <?= $p['permalink'] ? 'href="' . escape($p['permalink']) . '" target="_blank" rel="noopener"' : '' ?>>
-                        <div class="sp-cover">
-                            <?php if (!empty($p['thumbnail'])): ?><img src="<?= escape($p['thumbnail']) ?>" alt="" onerror="this.style.display='none'"><?php else: ?><i class="bi bi-image"></i><?php endif; ?>
-                        </div>
-                        <div class="sp-stats">
-                            <span><i class="bi bi-heart-fill"></i> <?= $fmt($p['likes'] ?? 0) ?></span>
-                            <span><i class="bi bi-chat-fill"></i> <?= $fmt($p['comments'] ?? 0) ?></span>
-                            <?php if ($p['shares'] !== null): ?><span><i class="bi bi-share-fill"></i> <?= $fmt($p['shares']) ?></span><?php endif; ?>
-                        </div>
-                    </a>
-                    <?php endforeach; ?>
-                </div>
-                <?php endif; ?>
+                <div class="ar-source"><span class="badge-source direct" style="color: <?= $pm[2] ?>; background: <?= $pm[2] ?>1a;">API</span></div>
             </div>
+            <?php if (!empty($accPosts)): ?>
+            <div class="account-posts-row">
+                <?php foreach (array_slice($accPosts, 0, 8) as $p): ?>
+                <a class="sp-mini" <?= $p['permalink'] ? 'href="' . escape($p['permalink']) . '" target="_blank" rel="noopener"' : '' ?>>
+                    <?php if (!empty($p['thumbnail'])): ?>
+                    <img src="<?= escape($p['thumbnail']) ?>" alt="" onerror="this.parentNode.style.display='none'">
+                    <?php else: ?>
+                    <i class="bi bi-image"></i>
+                    <?php endif; ?>
+                    <div class="sp-mini-stats">
+                        <span><i class="bi bi-heart-fill"></i> <?= $fmt($p['likes'] ?? 0) ?></span>
+                        <span><i class="bi bi-chat-fill"></i> <?= $fmt($p['comments'] ?? 0) ?></span>
+                    </div>
+                </a>
+                <?php endforeach; ?>
+            </div>
+            <?php endif; ?>
             <?php endforeach; ?>
         </div>
     </div>
