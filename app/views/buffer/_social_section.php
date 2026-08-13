@@ -1,18 +1,43 @@
 <?php
 // Seção de contas diretas Meta/LinkedIn dentro da página de Métricas Sociais.
-// Variáveis vindas do BufferController: $socialAccounts, $socialPostsByAccount, $metaConfigured, $linkedinConfigured, $isAdmin
+// Variáveis vindas do BufferController: $socialAccounts, $socialPostsByAccount, $socialFollowersGrowth, $metaConfigured, $linkedinConfigured, $isAdmin
 $sproviderMeta = [
     'meta_instagram' => ['Instagram', 'bi-instagram', '#E1306C'],
     'facebook_page'  => ['Facebook',  'bi-facebook',  '#1877F2'],
     'linkedin_org'   => ['LinkedIn',  'bi-linkedin',  '#0A66C2'],
 ];
 $sfmt = fn($v) => ($v !== null && $v !== '') ? number_format((float)$v, 0, ',', '.') : '—';
+$socialFollowersGrowth = $socialFollowersGrowth ?? [];
 ?>
 
 <div class="mb-2 mt-2">
     <h6 class="fw-semibold mb-0" style="font-size:0.9rem;"><i class="bi bi-people"></i> Redes conectadas diretamente (Meta / LinkedIn)</h6>
     <small class="text-muted">Seguidores, interações e publicações direto das APIs</small>
 </div>
+
+<?php
+// Alertas de token expirado
+$metaTokenExpired = $metaTokenExpired ?? false;
+$linkedinTokenExpired = $linkedinTokenExpired ?? false;
+?>
+<?php if ($metaTokenExpired || $linkedinTokenExpired): ?>
+<div class="token-alert d-flex align-items-center gap-2 mb-3 small">
+    <i class="bi bi-exclamation-triangle-fill fs-5"></i>
+    <div class="flex-grow-1">
+        <strong>Token expirado:</strong>
+        <?php if ($metaTokenExpired && $linkedinTokenExpired): ?>
+            Os tokens da <strong>Meta</strong> e do <strong>LinkedIn</strong> expiraram. Os dados de seguidores não estão sendo atualizados.
+        <?php elseif ($metaTokenExpired): ?>
+            O token da <strong>Meta</strong> expirou. Seguidores do Instagram/Facebook não estão sendo atualizados.
+        <?php else: ?>
+            O token do <strong>LinkedIn</strong> expirou. Seguidores do LinkedIn não estão sendo atualizados.
+        <?php endif; ?>
+    </div>
+    <?php if ($isAdmin): ?>
+    <a href="<?= baseUrl('settings') ?>" class="btn btn-sm btn-warning"><i class="bi bi-arrow-repeat"></i> Reconectar</a>
+    <?php endif; ?>
+</div>
+<?php endif; ?>
 
 <?php if (!$metaConfigured && !$linkedinConfigured): ?>
 <div class="alert alert-light border py-2 px-3 small">
@@ -103,6 +128,43 @@ $sfmt = fn($v) => ($v !== null && $v !== '') ? number_format((float)$v, 0, ',', 
             </div>
         </div>
 
+        <?php
+        // === Crescimento de seguidores ===
+        $accGrowth = $socialFollowersGrowth[$acc['id']] ?? null;
+        if ($accGrowth && $accGrowth['current'] !== null):
+            $growthPeriods = [
+                '7d'  => '7 dias',
+                '30d' => '30 dias',
+                '90d' => '90 dias',
+            ];
+        ?>
+        <div class="followers-growth-section mb-3">
+            <div class="fg-title"><i class="bi bi-graph-up-arrow"></i> Crescimento de Seguidores</div>
+            <div class="fg-grid">
+                <div class="fg-card fg-current">
+                    <div class="fg-val"><?= $sfmt($accGrowth['current']) ?></div>
+                    <div class="fg-lbl">Atual</div>
+                </div>
+                <?php foreach ($growthPeriods as $pKey => $pLabel):
+                    $pd = $accGrowth[$pKey] ?? null;
+                    if (!$pd || $pd['diff'] === null) continue;
+                    $isPositive = $pd['diff'] >= 0;
+                    $arrow = $isPositive ? 'bi-arrow-up-short' : 'bi-arrow-down-short';
+                    $colorClass = $isPositive ? 'fg-positive' : 'fg-negative';
+                ?>
+                <div class="fg-card <?= $colorClass ?>">
+                    <div class="fg-val">
+                        <i class="bi <?= $arrow ?>"></i>
+                        <?= ($isPositive ? '+' : '') . $sfmt($pd['diff']) ?>
+                    </div>
+                    <div class="fg-pct"><?= ($isPositive ? '+' : '') . number_format((float)$pd['pct'], 1, ',', '.') ?>%</div>
+                    <div class="fg-lbl"><?= $pLabel ?></div>
+                </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+        <?php endif; ?>
+
         <?php if (!empty($posts)): ?>
         <div class="social-posts-title"><i class="bi bi-grid-3x3-gap"></i> Publicações recentes</div>
         <div class="social-posts">
@@ -150,10 +212,39 @@ $sfmt = fn($v) => ($v !== null && $v !== '') ? number_format((float)$v, 0, ',', 
                     <label class="form-label small fw-medium">Nome (opcional)</label>
                     <input type="text" id="li-name" class="form-control form-control-sm" placeholder="Ex: ON Solutions Brasil">
                 </div>
+                <div class="mb-2">
+                    <label class="form-label small fw-medium">Access Token (opcional)</label>
+                    <input type="text" id="li-token" class="form-control form-control-sm" placeholder="Se diferente do global em Configurações">
+                    <small class="text-muted">Use para contas de outros clientes/organizações com token próprio.</small>
+                </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
                 <button class="btn btn-sm btn-primary" onclick="addLinkedin(this)">Adicionar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Importar Meta -->
+<div class="modal fade" id="metaImportModal" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title"><i class="bi bi-meta text-primary"></i> Importar contas da Meta</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="small text-muted mb-2">Importa todas as páginas do Facebook e contas do Instagram Business vinculadas ao token informado.</p>
+                <div class="mb-2">
+                    <label class="form-label small fw-medium">Access Token (opcional)</label>
+                    <input type="text" id="meta-token" class="form-control form-control-sm" placeholder="Se diferente do global em Configurações">
+                    <small class="text-muted">Use para importar contas de outro Business Manager/cliente. Se vazio, usa o token global.</small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button class="btn btn-sm btn-primary" onclick="doImportMeta(this)">Importar</button>
             </div>
         </div>
     </div>
@@ -176,36 +267,93 @@ $sfmt = fn($v) => ($v !== null && $v !== '') ? number_format((float)$v, 0, ',', 
 .social-post-caption { font-size: 0.72rem; color: #444; padding: 6px 8px 2px; min-height: 34px; }
 .social-post-stats { display: flex; flex-wrap: wrap; gap: 8px; padding: 4px 8px 8px; font-size: 0.68rem; color: #6b7280; }
 .social-post-stats i { color: #00997D; }
+/* Crescimento de seguidores */
+.followers-growth-section { border: 1px solid #e8f5e9; border-radius: 12px; padding: 12px 14px; background: #fafffe; }
+.fg-title { font-size: 0.72rem; font-weight: 600; color: #2b7a5e; text-transform: uppercase; letter-spacing: .3px; margin-bottom: 10px; }
+.fg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 8px; }
+.fg-card { text-align: center; padding: 8px 4px; border-radius: 10px; background: #f0faf6; }
+.fg-card.fg-current { background: #e8f5e9; }
+.fg-card.fg-positive { background: #e8f5e9; }
+.fg-card.fg-negative { background: #fef2f2; }
+.fg-val { font-size: 1rem; font-weight: 700; color: #2b3440; line-height: 1.2; }
+.fg-positive .fg-val { color: #15803d; }
+.fg-negative .fg-val { color: #dc2626; }
+.fg-pct { font-size: 0.68rem; font-weight: 600; color: inherit; }
+.fg-positive .fg-pct { color: #16a34a; }
+.fg-negative .fg-pct { color: #ef4444; }
+.fg-lbl { font-size: 0.6rem; color: #8a929b; margin-top: 2px; }
+/* Alerta de token expirado */
+.token-alert { border: 1px solid #fde68a; background: #fffbeb; border-radius: 10px; padding: 10px 14px; }
+.token-alert i { color: #d97706; }
 </style>
 
 <script>
 (function(){
     const B = '<?= baseUrl("") ?>';
+
+    // Importar Meta — agora abre modal para permitir token customizado
+    let metaModal = null;
     window.importMeta = function(btn) {
+        document.getElementById('meta-token').value = '';
+        if(!metaModal) metaModal = new bootstrap.Modal(document.getElementById('metaImportModal'));
+        metaModal.show();
+    };
+    window.doImportMeta = function(btn) {
         const o = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
-        fetch(B + 'social/importMeta', { method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'} })
-            .then(r=>r.json()).then(d=>{ btn.disabled=false; btn.innerHTML=o; if(d.error){alert(d.error);return;} alert((d.imported||0)+' conta(s) importada(s).'); location.reload(); })
+        const fd = new FormData();
+        const customToken = document.getElementById('meta-token').value.trim();
+        if (customToken) fd.append('access_token', customToken);
+        fetch(B + 'social/importMeta', { method:'POST', body: fd, headers:{'X-Requested-With':'XMLHttpRequest'} })
+            .then(r=>r.json()).then(d=>{
+                btn.disabled=false; btn.innerHTML=o;
+                if(d.error){alert(d.error);return;}
+                alert((d.imported||0)+' conta(s) importada(s).');
+                location.reload();
+            })
             .catch(()=>{ btn.disabled=false; btn.innerHTML=o; });
     };
+
     window.syncSocial = function(btn) {
         const o = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Atualizando...';
         fetch(B + 'social/syncMetrics', { method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'} })
             .then(r=>r.json()).then(d=>{ btn.disabled=false; btn.innerHTML=o; if(d.error){alert(d.error);return;} if(d.errors&&d.errors.length)console.warn('Avisos:',d.errors); location.reload(); })
             .catch(()=>{ btn.disabled=false; btn.innerHTML=o; });
     };
+    window.snapshotFollowers = function(btn) {
+        const o = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Salvando...';
+        fetch(B + 'social/snapshotFollowers', { method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'} })
+            .then(r=>r.json()).then(d=>{
+                btn.disabled=false; btn.innerHTML=o;
+                if(d.error){alert(d.error);return;}
+                const msg = (d.snapshots_saved||0) + ' conta(s) salva(s) no histórico.';
+                if(d.errors&&d.errors.length) alert(msg + '\nAvisos: ' + d.errors.join(', '));
+                else alert(msg);
+                location.reload();
+            })
+            .catch(()=>{ btn.disabled=false; btn.innerHTML=o; });
+    };
+
+    // LinkedIn — modal com token opcional
     let liModal = null;
     window.openLinkedinModal = function() {
-        document.getElementById('li-org-id').value=''; document.getElementById('li-name').value='';
+        document.getElementById('li-org-id').value='';
+        document.getElementById('li-name').value='';
+        document.getElementById('li-token').value='';
         if(!liModal) liModal = new bootstrap.Modal(document.getElementById('linkedinModal'));
         liModal.show();
     };
     window.addLinkedin = function(btn) {
         const orgId = document.getElementById('li-org-id').value.trim();
         if(!orgId){ alert('Informe o ID/URN da organização.'); return; }
-        const fd = new FormData(); fd.append('org_id', orgId); fd.append('display_name', document.getElementById('li-name').value.trim());
+        const fd = new FormData();
+        fd.append('org_id', orgId);
+        fd.append('display_name', document.getElementById('li-name').value.trim());
+        const liToken = document.getElementById('li-token').value.trim();
+        if (liToken) fd.append('access_token', liToken);
         fetch(B + 'social/addLinkedin', { method:'POST', body:fd, headers:{'X-Requested-With':'XMLHttpRequest'} })
             .then(r=>r.json()).then(d=>{ if(d.error){alert(d.error);return;} location.reload(); });
     };
+
     window.deleteSocialAccount = function(id) {
         if(!confirm('Remover esta conta?')) return;
         fetch(B + 'social/delete/' + id, { method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'} })

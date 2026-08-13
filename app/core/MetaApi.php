@@ -24,6 +24,21 @@ class MetaApi
         return !empty($this->token);
     }
 
+    /**
+     * Verifica se o token ainda é válido fazendo uma chamada leve à API.
+     * Retorna true se válido, false se expirado/inválido.
+     */
+    public function isTokenValid()
+    {
+        if (!$this->hasToken()) return false;
+        $res = $this->get('me', ['fields' => 'id']);
+        // HTTP 401 ou erro OAuthException indicam token expirado
+        if (($res['http'] ?? 0) === 401) return false;
+        if (!empty($res['error']['type']) && $res['error']['type'] === 'OAuthException') return false;
+        if (!empty($res['error']['code']) && in_array($res['error']['code'], [190, 102])) return false;
+        return !empty($res['id']);
+    }
+
     private function get($path, $params = [])
     {
         $params['access_token'] = $this->token;

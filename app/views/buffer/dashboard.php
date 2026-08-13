@@ -54,6 +54,7 @@
         <button class="btn btn-outline-secondary btn-sm" onclick="importMeta(this)"><i class="bi bi-download"></i> Importar da Meta</button>
         <button class="btn btn-outline-secondary btn-sm" onclick="openLinkedinModal()"><i class="bi bi-linkedin"></i> Add LinkedIn</button>
         <button class="btn btn-outline-secondary btn-sm" onclick="syncSocial(this)"><i class="bi bi-arrow-repeat"></i> Atualizar redes</button>
+        <button class="btn btn-outline-success btn-sm" onclick="snapshotFollowers(this)" title="Salvar contagem de seguidores de hoje no histórico"><i class="bi bi-camera"></i> Snapshot seguidores</button>
     </div>
 
     <?php if (!$hasKey): ?>

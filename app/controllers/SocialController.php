@@ -23,18 +23,22 @@ class SocialController extends Controller
         $this->requireRole($this->accessRoles);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
 
-        $api = new MetaApi();
-        if (!$api->hasToken()) $this->json(['error' => 'Configure o token da Meta em Configurações.'], 400);
+        // Aceita token opcional no POST (para importar contas de outro Business Manager)
+        $customToken = trim($_POST['access_token'] ?? '');
+        $api = $customToken ? new MetaApi($customToken) : new MetaApi();
+        if (!$api->hasToken()) $this->json(['error' => 'Configure o token da Meta em Configurações ou informe um token no campo.'], 400);
 
         $res = $api->getPages();
         if (!empty($res['error'])) $this->json(['error' => $res['error']['message'] ?? 'Erro ao consultar a Meta'], 400);
 
         $imported = 0;
         foreach (($res['data'] ?? []) as $page) {
+            // Cada página recebe seu próprio page token (retornado pela API)
+            $pageToken = $page['access_token'] ?? ($customToken ?: null);
             $this->accounts->upsert('facebook_page', $page['id'], [
                 'display_name' => $page['name'] ?? null,
                 'avatar' => $page['picture']['data']['url'] ?? null,
-                'access_token' => $page['access_token'] ?? null,
+                'access_token' => $pageToken,
                 'followers' => $page['followers_count'] ?? ($page['fan_count'] ?? null),
             ]);
             $imported++;
@@ -45,7 +49,7 @@ class SocialController extends Controller
                     'display_name' => $ig['username'] ?? ($ig['name'] ?? null),
                     'username' => $ig['username'] ?? null,
                     'avatar' => $ig['profile_picture_url'] ?? null,
-                    'access_token' => $page['access_token'] ?? null,
+                    'access_token' => $pageToken,
                     'followers' => $ig['followers_count'] ?? null,
                     'follows' => $ig['follows_count'] ?? null,
                     'media_count' => $ig['media_count'] ?? null,
@@ -65,17 +69,21 @@ class SocialController extends Controller
         $orgId = trim($_POST['org_id'] ?? '');
         if ($orgId === '') $this->json(['error' => 'Informe o ID/URN da organização do LinkedIn.'], 400);
 
+        // Token individual (opcional) — se informado, é salvo na conta
+        $customToken = trim($_POST['access_token'] ?? '');
+
         $name = trim($_POST['display_name'] ?? '');
         // Tenta buscar o nome real via API
-        $api = new LinkedInApi();
+        $api = $customToken ? new LinkedInApi($customToken) : new LinkedInApi();
         if ($api->hasToken()) {
             $org = $api->getOrganization($orgId);
             if (!empty($org['localizedName'])) $name = $org['localizedName'];
         }
 
-        $id = $this->accounts->upsert('linkedin_org', preg_replace('/\D/', '', $orgId), [
-            'display_name' => $name ?: ('LinkedIn ' . $orgId),
-        ]);
+        $data = ['display_name' => $name ?: ('LinkedIn ' . $orgId)];
+        if ($customToken) $data['access_token'] = $customToken;
+
+        $id = $this->accounts->upsert('linkedin_org', preg_replace('/\D/', '', $orgId), $data);
         $this->json(['success' => true, 'id' => $id]);
     }
 
@@ -280,5 +288,107 @@ class SocialController extends Controller
             'extra_json' => json_encode($totals),
         ]);
         return 1;
+    }
+
+    // ===== Snapshot diário de seguidores =====
+
+    /**
+     * POST social/snapshotFollowers
+     * Sincroniza métricas de todas as contas (atualiza seguidores via API)
+     * e depois grava o snapshot do dia na tabela de histórico.
+     * Pode ser chamado manualmente ou via cron.
+     */
+    public function snapshotFollowers()
+    {
+        // Aceita POST (manual via dashboard) ou GET (via cron)
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            $this->requireRole($this->accessRoles);
+        } else {
+            // Via cron: validação por token simples (opcional)
+            $cronToken = $_GET['token'] ?? '';
+            $expectedToken = Config::get('cron_token');
+            if ($expectedToken && $cronToken !== $expectedToken) {
+                $this->json(['error' => 'Token inválido'], 403);
+            }
+        }
+
+        @set_time_limit(180);
+
+        // 1) Atualiza métricas de todas as contas (busca seguidores frescos das APIs)
+        $meta = new MetaApi();
+        $linkedin = new LinkedInApi();
+        $errors = [];
+        $since = strtotime('-30 days');
+        $until = time();
+
+        foreach ($this->accounts->all(true) as $acc) {
+            try {
+                if ($acc['provider'] === 'meta_instagram') {
+                    $this->syncInstagram($acc, $since, $until, $errors);
+                } elseif ($acc['provider'] === 'facebook_page') {
+                    $this->syncFacebook($acc, $errors);
+                } elseif ($acc['provider'] === 'linkedin_org') {
+                    $this->syncLinkedin($acc, $errors);
+                }
+            } catch (\Throwable $e) {
+                $errors[] = $acc['display_name'] . ': ' . $e->getMessage();
+            }
+        }
+
+        // 2) Grava snapshot do dia com os valores atualizados
+        $saved = $this->accounts->snapshotAllFollowers();
+
+        $this->json([
+            'success' => true,
+            'snapshots_saved' => $saved,
+            'errors' => $errors,
+        ]);
+    }
+
+    // ===== Comparação de crescimento de seguidores =====
+
+    /**
+     * GET social/followersGrowth
+     * Retorna dados de crescimento de seguidores de todas as contas ativas.
+     * Compara hoje vs 7d, 30d, 90d.
+     */
+    public function followersGrowth()
+    {
+        $this->requireRole($this->accessRoles);
+
+        $accounts = $this->accounts->all(true);
+        $result = [];
+
+        foreach ($accounts as $acc) {
+            $growth = $this->accounts->getFollowersGrowth($acc['id']);
+            $result[] = [
+                'id' => $acc['id'],
+                'provider' => $acc['provider'],
+                'display_name' => $acc['display_name'] ?: $acc['external_id'],
+                'avatar' => $acc['avatar'],
+                'growth' => $growth,
+            ];
+        }
+
+        $this->json(['success' => true, 'accounts' => $result]);
+    }
+
+    /**
+     * GET social/followersHistory?account_id=X&start=YYYY-MM-DD&end=YYYY-MM-DD
+     * Retorna histórico diário de seguidores de uma conta para gráfico.
+     */
+    public function followersHistory()
+    {
+        $this->requireRole($this->accessRoles);
+
+        $accountId = intval($_GET['account_id'] ?? 0);
+        if (!$accountId) $this->json(['error' => 'account_id obrigatório'], 400);
+
+        $start = !empty($_GET['start']) ? substr($_GET['start'], 0, 10) : date('Y-m-d', strtotime('-90 days'));
+        $end = !empty($_GET['end']) ? substr($_GET['end'], 0, 10) : date('Y-m-d');
+
+        $history = $this->accounts->getFollowersHistory($accountId, $start, $end);
+
+        $this->json(['success' => true, 'history' => $history]);
     }
 }
