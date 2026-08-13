@@ -362,8 +362,11 @@ $socialProviderMeta = [
                     <div class="ar-metric"><span class="ar-mval"><?= $fmt($getM('postCount')) ?></span><span class="ar-mlbl">Posts</span></div>
                     <div class="ar-metric"><span class="ar-mval"><?= $fmt($getM('reactions')) ?></span><span class="ar-mlbl">Curtidas</span></div>
                     <div class="ar-metric"><span class="ar-mval"><?= $fmt($getM('comments')) ?></span><span class="ar-mlbl">Coment.</span></div>
+                    <div class="ar-metric"><span class="ar-mval"><?= $fmt($getM('shares')) ?></span><span class="ar-mlbl">Compart.</span></div>
                     <div class="ar-metric"><span class="ar-mval"><?= $fmt($getM('impressions')) ?></span><span class="ar-mlbl">Impressões</span></div>
                     <div class="ar-metric"><span class="ar-mval"><?= $fmt($getM('reach')) ?></span><span class="ar-mlbl">Alcance</span></div>
+                    <div class="ar-metric"><span class="ar-mval"><?= $fmt($getM('views')) ?></span><span class="ar-mlbl">Visualiz.</span></div>
+                    <div class="ar-metric"><span class="ar-mval"><?= $fmt($getM('saves')) ?></span><span class="ar-mlbl">Salvos</span></div>
                     <div class="ar-metric"><span class="ar-mval"><?= number_format($getM('engagementRate'), 1, ',', '.') ?>%</span><span class="ar-mlbl">Engaj.</span></div>
                 </div>
                 <div class="ar-source"><span class="badge-source buffer">Buffer</span></div>
@@ -393,14 +396,19 @@ $socialProviderMeta = [
                 </div>
                 <div class="ar-metrics">
                     <div class="ar-metric"><span class="ar-mval"><?= $fmt($svAcc('followers')) ?></span><span class="ar-mlbl">Seguidores</span></div>
+                    <?php if ($acc['provider'] === 'meta_instagram'): ?>
+                    <div class="ar-metric"><span class="ar-mval"><?= $fmt($svAcc('follows')) ?></span><span class="ar-mlbl">Seguindo</span></div>
+                    <div class="ar-metric"><span class="ar-mval"><?= $fmt($svAcc('media_count')) ?></span><span class="ar-mlbl">Publicações</span></div>
+                    <?php endif; ?>
                     <div class="ar-metric"><span class="ar-mval"><?= $fmt($svAcc('total_likes')) ?></span><span class="ar-mlbl">Curtidas</span></div>
                     <div class="ar-metric"><span class="ar-mval"><?= $fmt($svAcc('total_comments')) ?></span><span class="ar-mlbl">Coment.</span></div>
+                    <div class="ar-metric"><span class="ar-mval"><?= $fmt($svAcc('total_shares')) ?></span><span class="ar-mlbl">Compart.</span></div>
                     <?php if ($acc['provider'] === 'meta_instagram'): ?>
                     <div class="ar-metric"><span class="ar-mval"><?= $fmt($svAcc('reach')) ?></span><span class="ar-mlbl">Alcance</span></div>
                     <div class="ar-metric"><span class="ar-mval"><?= $fmt($svAcc('impressions')) ?></span><span class="ar-mlbl">Impressões</span></div>
+                    <div class="ar-metric"><span class="ar-mval"><?= $fmt($svAcc('profile_views')) ?></span><span class="ar-mlbl">Visitas perfil</span></div>
                     <?php else: ?>
                     <div class="ar-metric"><span class="ar-mval"><?= $fmt($svAcc('impressions')) ?></span><span class="ar-mlbl">Impressões</span></div>
-                    <div class="ar-metric"><span class="ar-mval"><?= $fmt($svAcc('total_shares')) ?></span><span class="ar-mlbl">Compart.</span></div>
                     <?php endif; ?>
                     <div class="ar-metric"><span class="ar-mval"><?= number_format($svAcc('engagement_rate'), 1, ',', '.') ?>%</span><span class="ar-mlbl">Engaj.</span></div>
                 </div>
