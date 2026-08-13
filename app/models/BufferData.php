@@ -219,7 +219,7 @@ class BufferData
      * Monta a cláusula de filtro por rede (service) e conta (nome do canal).
      * Retorna [sqlFragment, params], usando o alias do post como $pAlias.
      */
-    private function socialFilterClause($network, $account, $pAlias = 'p')
+    private function socialFilterClause($network, $account, $pAlias = 'p', $bufferAccountLabel = null)
     {
         $sql = '';
         $params = [];
@@ -232,11 +232,20 @@ class BufferData
             $sql .= " AND EXISTS (SELECT 1 FROM buffer_channels bc WHERE bc.channel_id = $pAlias.channel_id AND bc.name = ?)";
             $params[] = $account;
         }
+        if (!empty($bufferAccountLabel)) {
+            // Filtra pelos canais que pertencem à conta Buffer (por label)
+            $sql .= " AND EXISTS (
+                        SELECT 1 FROM buffer_channels bc2
+                        JOIN buffer_accounts ba ON ba.id = bc2.buffer_account_id
+                        WHERE bc2.channel_id = $pAlias.channel_id AND ba.label = ?
+                     )";
+            $params[] = $bufferAccountLabel;
+        }
         return [$sql, $params];
     }
 
-    /** Totais agregados de uma métrica (com filtro opcional de período/rede/conta). */
-    public function sumMetric($type, $startDate = null, $endDate = null, $network = null, $account = null)
+    /** Totais agregados de uma métrica (com filtro opcional de período/rede/conta/conta Buffer). */
+    public function sumMetric($type, $startDate = null, $endDate = null, $network = null, $account = null, $bufferAccount = null)
     {
         $sql = "SELECT SUM(m.metric_value) AS total
                 FROM buffer_post_metrics m
@@ -247,7 +256,7 @@ class BufferData
             $sql .= " AND DATE(COALESCE(p.sent_at, p.due_at)) BETWEEN ? AND ?";
             $params[] = $startDate; $params[] = $endDate;
         }
-        [$fSql, $fParams] = $this->socialFilterClause($network, $account);
+        [$fSql, $fParams] = $this->socialFilterClause($network, $account, 'p', $bufferAccount);
         $sql .= $fSql; $params = array_merge($params, $fParams);
 
         $row = $this->db->fetch($sql, $params);
@@ -255,7 +264,7 @@ class BufferData
     }
 
     /** Posts com o valor de uma métrica, ordenados (com filtro opcional). */
-    public function topPostsByMetric($type, $limit = 10, $startDate = null, $endDate = null, $network = null, $account = null)
+    public function topPostsByMetric($type, $limit = 10, $startDate = null, $endDate = null, $network = null, $account = null, $bufferAccount = null)
     {
         $sql = "SELECT p.buffer_post_id, p.text, p.service, p.sent_at, p.external_link, p.thumbnail, m.metric_value, m.metric_unit
                 FROM buffer_post_metrics m
@@ -266,7 +275,7 @@ class BufferData
             $sql .= " AND DATE(COALESCE(p.sent_at, p.due_at)) BETWEEN ? AND ?";
             $params[] = $startDate; $params[] = $endDate;
         }
-        [$fSql, $fParams] = $this->socialFilterClause($network, $account);
+        [$fSql, $fParams] = $this->socialFilterClause($network, $account, 'p', $bufferAccount);
         $sql .= $fSql; $params = array_merge($params, $fParams);
         $sql .= " ORDER BY m.metric_value DESC LIMIT " . intval($limit);
 
@@ -275,9 +284,9 @@ class BufferData
 
     /**
      * Série temporal de uma métrica por publicação, ordenada no tempo.
-     * Filtra opcionalmente por período (datas Y-m-d), rede e conta.
+     * Filtra opcionalmente por período (datas Y-m-d), rede, conta e conta Buffer.
      */
-    public function metricTimeline($type, $startDate = null, $endDate = null, $network = null, $account = null)
+    public function metricTimeline($type, $startDate = null, $endDate = null, $network = null, $account = null, $bufferAccount = null)
     {
         $sql = "SELECT COALESCE(p.sent_at, p.due_at) AS moment, m.metric_value AS total, p.text
                 FROM buffer_post_metrics m
@@ -290,7 +299,7 @@ class BufferData
             $params[] = $startDate;
             $params[] = $endDate;
         }
-        [$fSql, $fParams] = $this->socialFilterClause($network, $account);
+        [$fSql, $fParams] = $this->socialFilterClause($network, $account, 'p', $bufferAccount);
         $sql .= $fSql; $params = array_merge($params, $fParams);
         $sql .= " ORDER BY moment ASC";
         return $this->db->fetchAll($sql, $params);
