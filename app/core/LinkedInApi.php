@@ -83,17 +83,46 @@ class LinkedInApi
         $orgId = $this->normalizeOrgId($orgId);
         // Pede o logo embutido (logoV2 -> original~:playableStreams) para extrair a URL da imagem
         $res = $this->get('rest/organizations/' . $orgId, [
-            'projection' => '(id,localizedName,vanityName,logoV2(original~:playableStreams))',
+            'projection' => '(id,localizedName,vanityName,logoV2(original~:playableStreams,cropped~:playableStreams))',
         ]);
-        // Extrai a melhor URL de logo disponível
-        $logo = null;
-        $elements = $res['logoV2']['original~']['elements'] ?? [];
-        foreach ($elements as $el) {
-            $ident = $el['identifiers'][0]['identifier'] ?? null;
-            if ($ident) { $logo = $ident; break; }
+
+        // Extrai a melhor URL de logo disponível (escaneia recursivamente a estrutura logoV2,
+        // pois a chave decorada pode ser "original~" ou "cropped~" dependendo do ativo).
+        $logo = $this->extractImageUrl($res['logoV2'] ?? []);
+
+        // Fallback: se a projeção não trouxe o logo, tenta buscar o ativo diretamente.
+        if (!$logo) {
+            $plain = $this->get('rest/organizations/' . $orgId);
+            $logo = $this->extractImageUrl($plain['logoV2'] ?? []);
+            // completa nome/vanity caso a projeção tenha falhado
+            if (empty($res['localizedName']) && !empty($plain['localizedName'])) $res['localizedName'] = $plain['localizedName'];
+            if (empty($res['vanityName']) && !empty($plain['vanityName'])) $res['vanityName'] = $plain['vanityName'];
         }
+
         $res['logo_url'] = $logo;
         return $res;
+    }
+
+    /** Procura recursivamente a primeira URL http(s) de imagem em uma estrutura de resposta do LinkedIn. */
+    private function extractImageUrl($node)
+    {
+        if (is_string($node)) {
+            return (strpos($node, 'http') === 0 && preg_match('/media\.licdn\.com|licdn|http/', $node)) ? $node : null;
+        }
+        if (!is_array($node)) return null;
+
+        // caso típico: elements[].identifiers[].identifier
+        if (isset($node['elements']) && is_array($node['elements'])) {
+            foreach ($node['elements'] as $el) {
+                $ident = $el['identifiers'][0]['identifier'] ?? null;
+                if ($ident && strpos($ident, 'http') === 0) return $ident;
+            }
+        }
+        foreach ($node as $v) {
+            $found = $this->extractImageUrl($v);
+            if ($found) return $found;
+        }
+        return null;
     }
 
     /** Total de seguidores da organização. */

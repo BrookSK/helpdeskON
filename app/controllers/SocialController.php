@@ -156,6 +156,10 @@ class SocialController extends Controller
             }
         }
 
+        // Snapshot automático do dia (histórico de seguidores/métricas para comparação).
+        // Não depende de botão — sempre grava ao atualizar as métricas.
+        try { $this->accounts->snapshotAllFollowers(); } catch (\Throwable $e) { /* ignora */ }
+
         $this->json(['success' => true, 'updated' => $updated, 'errors' => $errors]);
     }
 

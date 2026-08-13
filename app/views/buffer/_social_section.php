@@ -319,20 +319,6 @@ $linkedinTokenExpired = $linkedinTokenExpired ?? false;
             .then(r=>r.json()).then(d=>{ btn.disabled=false; btn.innerHTML=o; if(d.error){alert(d.error);return;} if(d.errors&&d.errors.length)console.warn('Avisos:',d.errors); location.reload(); })
             .catch(()=>{ btn.disabled=false; btn.innerHTML=o; });
     };
-    window.snapshotFollowers = function(btn) {
-        const o = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Salvando...';
-        fetch(B + 'social/snapshotFollowers', { method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'} })
-            .then(r=>r.json()).then(d=>{
-                btn.disabled=false; btn.innerHTML=o;
-                if(d.error){alert(d.error);return;}
-                const msg = (d.snapshots_saved||0) + ' conta(s) salva(s) no histórico.';
-                if(d.errors&&d.errors.length) alert(msg + '\nAvisos: ' + d.errors.join(', '));
-                else alert(msg);
-                location.reload();
-            })
-            .catch(()=>{ btn.disabled=false; btn.innerHTML=o; });
-    };
-
     // LinkedIn — modal com token opcional
     let liModal = null;
     window.openLinkedinModal = function() {
