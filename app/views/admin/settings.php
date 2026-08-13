@@ -237,7 +237,34 @@
         <div class="card mb-4">
             <div class="card-header bg-white d-flex justify-content-between align-items-center">
                 <h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-meta"></i> Meta (Facebook / Instagram)</h6>
-                <button type="button" class="btn btn-outline-primary btn-sm" onclick="addMetaToken()"><i class="bi bi-plus-lg"></i> Adicionar token</button>
+                <div class="d-flex gap-2">
+                    <a href="#metaTutorial" class="btn btn-outline-info btn-sm" data-bs-toggle="collapse" role="button"><i class="bi bi-question-circle"></i> Como gerar o token</a>
+                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="addMetaToken()"><i class="bi bi-plus-lg"></i> Adicionar token</button>
+                </div>
+            </div>
+            <div class="collapse" id="metaTutorial">
+                <div class="card-body border-bottom bg-light" style="font-size:0.78rem;">
+                    <strong><i class="bi bi-book"></i> Tutorial: Como gerar o Access Token da Meta</strong>
+                    <ol class="mt-2 mb-2 ps-3">
+                        <li>Acesse <a href="https://developers.facebook.com/apps/" target="_blank" rel="noopener">developers.facebook.com/apps</a> e crie um App (tipo <strong>Business</strong>) se ainda não tiver.</li>
+                        <li>Vá em <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noopener"><strong>Graph API Explorer</strong></a>.</li>
+                        <li>Selecione seu App no topo da página.</li>
+                        <li>Em <strong>Permissions</strong>, marque:
+                            <code>pages_show_list</code>, <code>pages_read_engagement</code>, <code>instagram_basic</code>, <code>instagram_manage_insights</code>
+                        </li>
+                        <li>Clique em <strong>"Generate Access Token"</strong> — autorize com o Facebook que administra as páginas/Instagram.</li>
+                        <li>Copie o token gerado. <em>Esse token é de curta duração (~1h).</em></li>
+                        <li><strong>Converter para longa duração (~60 dias):</strong> Acesse no navegador:<br>
+                            <code style="word-break:break-all;">https://graph.facebook.com/v21.0/oauth/access_token?grant_type=fb_exchange_token&client_id=<strong>SEU_APP_ID</strong>&client_secret=<strong>SEU_APP_SECRET</strong>&fb_exchange_token=<strong>TOKEN_CURTO</strong></code><br>
+                            O <code>access_token</code> retornado é o de longa duração — cole aqui.
+                        </li>
+                        <li>Para <strong>outra conta/cliente</strong>: repita o processo logado com a outra conta Facebook e clique em "Adicionar token".</li>
+                    </ol>
+                    <div class="d-flex gap-2">
+                        <a href="https://developers.facebook.com/tools/explorer/" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-box-arrow-up-right"></i> Graph API Explorer</a>
+                        <a href="https://developers.facebook.com/docs/facebook-login/guides/access-tokens/get-long-lived/" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-box-arrow-up-right"></i> Docs: Token de longa duração</a>
+                    </div>
+                </div>
             </div>
             <div class="card-body">
                 <small class="text-muted d-block mb-3">Token de usuário/sistema de longa duração com <code>instagram_business_basic</code>, <code>instagram_business_manage_insights</code> e <code>pages_read_engagement</code>. Cada token representa uma conta/cliente diferente.</small>
@@ -270,7 +297,35 @@
         <div class="card mb-4">
             <div class="card-header bg-white d-flex justify-content-between align-items-center">
                 <h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-linkedin"></i> LinkedIn (Organização)</h6>
-                <button type="button" class="btn btn-outline-primary btn-sm" onclick="addLinkedinToken()"><i class="bi bi-plus-lg"></i> Adicionar token</button>
+                <div class="d-flex gap-2">
+                    <a href="#linkedinTutorial" class="btn btn-outline-info btn-sm" data-bs-toggle="collapse" role="button"><i class="bi bi-question-circle"></i> Como gerar o token</a>
+                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="addLinkedinToken()"><i class="bi bi-plus-lg"></i> Adicionar token</button>
+                </div>
+            </div>
+            <div class="collapse" id="linkedinTutorial">
+                <div class="card-body border-bottom bg-light" style="font-size:0.78rem;">
+                    <strong><i class="bi bi-book"></i> Tutorial: Como gerar o Access Token do LinkedIn</strong>
+                    <ol class="mt-2 mb-2 ps-3">
+                        <li>Acesse <a href="https://www.linkedin.com/developers/apps" target="_blank" rel="noopener">linkedin.com/developers/apps</a> e crie um App (ou use um existente).</li>
+                        <li>No app, vá na aba <strong>"Products"</strong> e solicite acesso a <strong>"Community Management API"</strong>.</li>
+                        <li>Na aba <strong>"Auth"</strong>, copie o <code>Client ID</code> e o <code>Client Secret</code>.</li>
+                        <li>Na mesma aba, adicione uma <strong>Redirect URL</strong> (ex: <code>https://helpdesk.onsolutionsbrasil.com.br/callback</code>).</li>
+                        <li>Acesse no navegador para autorizar:<br>
+                            <code style="word-break:break-all;">https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=<strong>SEU_CLIENT_ID</strong>&redirect_uri=<strong>SUA_REDIRECT_URL</strong>&scope=r_organization_social%20r_organization_followers%20rw_organization_admin</code>
+                        </li>
+                        <li>Após autorizar, você será redirecionado com <code>?code=XXXXX</code> na URL. Copie esse código.</li>
+                        <li>Troque o code pelo token via POST (use o Postman, Insomnia ou terminal):<br>
+                            <code style="word-break:break-all;">POST https://www.linkedin.com/oauth/v2/accessToken<br>
+                            grant_type=authorization_code&code=<strong>CODIGO</strong>&redirect_uri=<strong>SUA_REDIRECT_URL</strong>&client_id=<strong>CLIENT_ID</strong>&client_secret=<strong>CLIENT_SECRET</strong></code>
+                        </li>
+                        <li>O <code>access_token</code> retornado dura <strong>60 dias</strong>. Cole aqui.</li>
+                        <li>Para outra organização com admin diferente: repita logado com a outra conta e clique em "Adicionar token".</li>
+                    </ol>
+                    <div class="d-flex gap-2">
+                        <a href="https://www.linkedin.com/developers/apps" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-box-arrow-up-right"></i> LinkedIn Developer Apps</a>
+                        <a href="https://learn.microsoft.com/en-us/linkedin/shared/authentication/authorization-code-flow" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-box-arrow-up-right"></i> Docs: OAuth 2.0 Flow</a>
+                    </div>
+                </div>
             </div>
             <div class="card-body">
                 <small class="text-muted d-block mb-3">Token OAuth com escopos <code>r_organization_social</code>, <code>r_organization_followers</code> e <code>rw_organization_admin</code>. Cada token representa uma organização/cliente diferente.</small>
