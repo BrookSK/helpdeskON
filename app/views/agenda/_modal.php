@@ -31,6 +31,13 @@
                         <label class="form-label small fw-medium">Data e horário da reunião</label>
                         <input type="datetime-local" id="mt-meeting-at" class="form-control form-control-sm">
                     </div>
+                    <div class="col-12" id="mt-meet-hint" style="font-size:0.75rem;color:#0a66c2;"></div>
+
+                    <!-- Email do cliente (para envio do convite) -->
+                    <div class="col-md-6">
+                        <label class="form-label small fw-medium">E-mail do cliente</label>
+                        <input type="email" id="mt-client-email" class="form-control form-control-sm" placeholder="cliente@email.com">
+                    </div>
 
                     <!-- Campos de novo cliente (aparecem ao escolher "Cadastrar novo") -->
                     <div class="col-md-6 mt-new-client" style="display:none;">
@@ -130,6 +137,18 @@
                             <option value="quente">Quente</option>
                         </select>
                     </div>
+                    <div class="col-md-4">
+                        <label class="form-label small mb-1">Fonte do lead</label>
+                        <select id="bf-lead_source" class="form-select form-select-sm">
+                            <option value="">—</option>
+                            <option value="telefonema">Telefonema</option>
+                            <option value="email">E-mail</option>
+                            <option value="whatsapp">WhatsApp</option>
+                            <option value="linkedin">LinkedIn</option>
+                            <option value="instagram">Instagram</option>
+                            <option value="facebook">Facebook</option>
+                        </select>
+                    </div>
                     <div class="col-md-6">
                         <label class="form-label small mb-1">Principal objeção</label>
                         <textarea id="bf-main_objection" class="form-control form-control-sm" rows="2"></textarea>
@@ -162,12 +181,12 @@ function getMeetingModal() {
     return meetingModalInstance;
 }
 
-const BF_FIELDS = ['need','main_pain','current_solution','expected_goal','urgency','investment_range','decision_level','lead_temperature','main_objection','next_step','notes'];
+const BF_FIELDS = ['need','main_pain','current_solution','expected_goal','urgency','investment_range','decision_level','lead_temperature','lead_source','main_objection','next_step','notes'];
 
 function resetMeetingForm() {
     document.getElementById('mt-id').value = '';
     document.getElementById('mt-contact-id').value = '';
-    ['mt-title','mt-meeting-at','mt-new-name','mt-new-phone','mt-notes'].forEach(f => document.getElementById(f).value = '');
+    ['mt-title','mt-meeting-at','mt-new-name','mt-new-phone','mt-notes','mt-client-email'].forEach(f => document.getElementById(f).value = '');
     document.getElementById('mt-client').value = '';
     document.getElementById('mt-urgency').value = 'media';
     document.getElementById('mt-temperature').value = '';
@@ -212,7 +231,13 @@ function fillMeeting(m) {
     document.getElementById('mt-temperature').value = m.temperature || '';
     document.getElementById('mt-status').value = m.status || 'a_agendar';
     document.getElementById('mt-notes').value = m.notes || '';
+    document.getElementById('mt-client-email').value = m.client_email || '';
     fillBriefing(m.briefing);
+    if (m.meet_link) {
+        // Mostra o link do Meet, se já gerado
+        let hint = document.getElementById('mt-meet-hint');
+        if (hint) hint.innerHTML = '<i class="bi bi-camera-video"></i> <a href="' + m.meet_link + '" target="_blank">Link da reunião (Google Meet)</a>';
+    }
     document.getElementById('mt-delete-btn').style.display = '';
 }
 
@@ -244,6 +269,7 @@ function collectPayload() {
     fd.append('temperature', document.getElementById('mt-temperature').value);
     fd.append('status', document.getElementById('mt-status').value);
     fd.append('notes', document.getElementById('mt-notes').value);
+    fd.append('client_email', document.getElementById('mt-client-email').value.trim());
 
     const clientVal = document.getElementById('mt-client').value;
     if (clientVal === '__new__') {

@@ -81,9 +81,19 @@ class LinkedInApi
     public function getOrganization($orgId)
     {
         $orgId = $this->normalizeOrgId($orgId);
-        return $this->get('rest/organizations/' . $orgId, [
-            'fields' => 'id,localizedName,vanityName',
+        // Pede o logo embutido (logoV2 -> original~:playableStreams) para extrair a URL da imagem
+        $res = $this->get('rest/organizations/' . $orgId, [
+            'projection' => '(id,localizedName,vanityName,logoV2(original~:playableStreams))',
         ]);
+        // Extrai a melhor URL de logo disponível
+        $logo = null;
+        $elements = $res['logoV2']['original~']['elements'] ?? [];
+        foreach ($elements as $el) {
+            $ident = $el['identifiers'][0]['identifier'] ?? null;
+            if ($ident) { $logo = $ident; break; }
+        }
+        $res['logo_url'] = $logo;
+        return $res;
     }
 
     /** Total de seguidores da organização. */

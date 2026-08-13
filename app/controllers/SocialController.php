@@ -102,14 +102,17 @@ class SocialController extends Controller
         $customToken = trim($_POST['access_token'] ?? '');
 
         $name = trim($_POST['display_name'] ?? '');
-        // Tenta buscar o nome real via API
+        $username = null; $avatar = null;
+        // Tenta buscar o nome/vanity/logo reais via API
         $api = $customToken ? new LinkedInApi($customToken) : new LinkedInApi();
         if ($api->hasToken()) {
             $org = $api->getOrganization($orgId);
             if (!empty($org['localizedName'])) $name = $org['localizedName'];
+            if (!empty($org['vanityName'])) $username = $org['vanityName'];
+            if (!empty($org['logo_url'])) $avatar = $org['logo_url'];
         }
 
-        $data = ['display_name' => $name ?: ('LinkedIn ' . $orgId)];
+        $data = ['display_name' => $name ?: ('LinkedIn ' . $orgId), 'username' => $username, 'avatar' => $avatar];
         if ($customToken) $data['access_token'] = $customToken;
 
         $id = $this->accounts->upsert('linkedin_org', preg_replace('/\D/', '', $orgId), $data);
@@ -292,6 +295,12 @@ class SocialController extends Controller
         $stats = $api->getOrganizationShareStats($acc['external_id']);
         $totals = LinkedInApi::shareTotals($stats);
 
+        // Atualiza nome/username/logo da organização
+        $org = $api->getOrganization($acc['external_id']);
+        $orgName = $org['localizedName'] ?? $acc['display_name'];
+        $orgVanity = $org['vanityName'] ?? $acc['username'];
+        $orgLogo = $org['logo_url'] ?? $acc['avatar'];
+
         $likeCount = $totals['likeCount'] ?? null;
         $commentCount = $totals['commentCount'] ?? null;
         $shareCount = $totals['shareCount'] ?? null;
@@ -299,6 +308,9 @@ class SocialController extends Controller
         $engRate = isset($totals['engagement']) ? round($totals['engagement'] * 100, 2) : null;
 
         $this->accounts->saveMetrics($acc['id'], [
+            'display_name' => $orgName,
+            'username' => $orgVanity,
+            'avatar' => $orgLogo,
             'followers' => $followers,
             'impressions' => $impressions,
             'total_likes' => $likeCount,

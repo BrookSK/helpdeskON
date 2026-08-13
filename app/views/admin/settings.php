@@ -297,6 +297,32 @@
             </div>
         </div>
 
+        <!-- Google Agenda / Meet -->
+        <div class="card mb-4">
+            <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-google"></i> Google Agenda / Meet</h6></div>
+            <div class="card-body">
+                <small class="text-muted d-block mb-3">Integração para criar eventos no Google Agenda com link do Google Meet ao agendar reuniões. Crie credenciais OAuth (tipo Web) no Google Cloud com o escopo <code>https://www.googleapis.com/auth/calendar</code> e gere um <strong>refresh token</strong> offline.</small>
+                <div class="row g-2">
+                    <div class="col-md-6">
+                        <label class="form-label fw-medium small">Client ID</label>
+                        <input type="text" name="google_client_id" class="form-control form-control-sm" value="<?= escape($settings['google_client_id'] ?? '') ?>" placeholder="xxxxx.apps.googleusercontent.com">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-medium small">Client Secret</label>
+                        <input type="password" name="google_client_secret" class="form-control form-control-sm" value="<?= escape($settings['google_client_secret'] ?? '') ?>" placeholder="GOCSPX-...">
+                    </div>
+                    <div class="col-md-8">
+                        <label class="form-label fw-medium small">Refresh Token</label>
+                        <input type="password" name="google_refresh_token" class="form-control form-control-sm" value="<?= escape($settings['google_refresh_token'] ?? '') ?>" placeholder="1//0g...">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-medium small">Calendar ID</label>
+                        <input type="text" name="google_calendar_id" class="form-control form-control-sm" value="<?= escape($settings['google_calendar_id'] ?? '') ?>" placeholder="primary">
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <script>
         function addMetaToken() {
             const list = document.getElementById('meta-tokens-list');

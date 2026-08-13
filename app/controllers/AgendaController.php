@@ -132,6 +132,8 @@ class AgendaController extends Controller
             'notes' => trim($_POST['notes'] ?? '') ?: null,
         ];
 
+        $data['client_email'] = trim($_POST['client_email'] ?? '') ?: null;
+
         $id = $this->model->create($data);
 
         // Salva/atualiza o briefing do cliente (se houver contato vinculado)
@@ -144,7 +146,86 @@ class AgendaController extends Controller
             $this->notify($data['assigned_to'], 'Nova reunião na agenda', "{$user['name']} agendou \"{$title}\" com você.");
         }
 
+        // Integração Google Agenda/Meet + convites (email + WhatsApp)
+        if (!empty($data['meeting_at'])) {
+            $this->createGoogleEventAndInvites($id);
+        }
+
         $this->json(['success' => true, 'meeting' => $this->model->findById($id)]);
+    }
+
+    /**
+     * Cria o evento no Google Agenda (com Meet), salva o link e envia os convites
+     * por e-mail (super admin + cliente) e WhatsApp (cliente).
+     */
+    private function createGoogleEventAndInvites($meetingId)
+    {
+        $meeting = $this->model->findById($meetingId);
+        if (!$meeting) return;
+
+        $clientName = $meeting['crm_contact_name'] ?? $meeting['client_name'] ?? 'Cliente';
+        $clientEmail = $meeting['client_email'] ?? null;
+        $clientPhone = $meeting['crm_contact_phone'] ?? $meeting['client_phone'] ?? null;
+        $meetingAt = $meeting['meeting_at'];
+
+        // E-mail do super admin (primeiro super_admin ativo)
+        $db = Database::getInstance();
+        $admin = $db->fetch("SELECT name, email FROM users WHERE role = 'super_admin' AND is_active = 1 AND email <> '' ORDER BY id ASC LIMIT 1");
+        $adminEmail = $admin['email'] ?? null;
+
+        $meetLink = null;
+
+        // 1) Cria o evento no Google (se configurado)
+        $google = new GoogleCalendarApi();
+        if ($google->isConfigured()) {
+            $attendees = array_filter([$adminEmail, $clientEmail]);
+            $res = $google->createEvent([
+                'title' => 'Reunião: ' . $meeting['title'],
+                'description' => "Reunião comercial com {$clientName}." . ($meeting['notes'] ? "\n\n" . $meeting['notes'] : ''),
+                'start' => $meetingAt,
+                'durationMin' => 60,
+                'timezone' => 'America/Sao_Paulo',
+                'attendees' => $attendees,
+            ]);
+            if (!empty($res['success'])) {
+                $meetLink = $res['meet_link'];
+                $this->model->update($meetingId, [
+                    'google_event_id' => $res['event_id'],
+                    'meet_link' => $meetLink,
+                ]);
+            }
+        }
+
+        $whenFmt = date('d/m/Y \à\s H:i', strtotime($meetingAt));
+
+        // 2) E-mail personalizado (super admin + cliente)
+        $emailBody = Mailer::template(
+            'Convite de Reunião',
+            "<p>Olá!</p>
+             <p>Uma reunião foi agendada:</p>
+             <p style='margin:6px 0;'><strong>Assunto:</strong> " . htmlspecialchars($meeting['title']) . "</p>
+             <p style='margin:6px 0;'><strong>Cliente:</strong> " . htmlspecialchars($clientName) . "</p>
+             <p style='margin:6px 0;'><strong>Data:</strong> {$whenFmt}</p>"
+             . ($meetLink ? "<p style='text-align:center;margin:24px 0;'>
+                    <a href='{$meetLink}' style='background:#00BFA6;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;'>
+                        Entrar na reunião (Google Meet)
+                    </a></p>
+                    <p style='font-size:0.8rem;color:#888;word-break:break-all;'>Link: {$meetLink}</p>" : "")
+             . "<p>Nos vemos lá!</p>"
+        );
+        foreach (array_filter([$adminEmail, $clientEmail]) as $to) {
+            try { Mailer::send($to, 'Convite de Reunião — ' . $meeting['title'], $emailBody); } catch (\Throwable $e) {}
+        }
+
+        // 3) WhatsApp para o cliente
+        if (!empty($clientPhone)) {
+            $waMsg = "📅 *Reunião agendada*\n\n"
+                . "*Assunto:* {$meeting['title']}\n"
+                . "*Data:* {$whenFmt}\n"
+                . ($meetLink ? "*Link da call:* {$meetLink}\n" : "")
+                . "\nAté breve!";
+            try { WhatsappNotifier::sendToPhone($clientPhone, $waMsg, $clientName); } catch (\Throwable $e) {}
+        }
     }
 
     // API: atualizar reunião
@@ -165,12 +246,25 @@ class AgendaController extends Controller
         if (isset($_POST['status']) && in_array($_POST['status'], AgendaMeeting::$statuses)) $data['status'] = $_POST['status'];
         if (isset($_POST['meeting_at'])) $data['meeting_at'] = $_POST['meeting_at'] ? str_replace('T', ' ', $_POST['meeting_at']) : null;
         if (isset($_POST['notes'])) $data['notes'] = trim($_POST['notes']) ?: null;
+        if (isset($_POST['client_email'])) $data['client_email'] = trim($_POST['client_email']) ?: null;
 
         if (!empty($data)) $this->model->update($id, $data);
 
         // Atualiza o briefing do cliente vinculado
         if (!empty($meeting['contact_id'])) {
             $this->saveBriefingFromPost($meeting['contact_id'], $user['id']);
+        }
+
+        // Se mudou a data e já existe evento no Google, atualiza o horário
+        if (isset($data['meeting_at']) && !empty($meeting['google_event_id'])) {
+            try {
+                $g = new GoogleCalendarApi();
+                if ($g->isConfigured()) $g->updateEventTime($meeting['google_event_id'], $data['meeting_at'], 60);
+            } catch (\Throwable $e) { /* ignora */ }
+        }
+        // Se não havia evento e agora tem data, cria (e envia convites)
+        if (empty($meeting['google_event_id']) && !empty($data['meeting_at'])) {
+            $this->createGoogleEventAndInvites($id);
         }
 
         $this->json(['success' => true, 'meeting' => $this->model->findById($id)]);
@@ -204,7 +298,7 @@ class AgendaController extends Controller
     {
         // Só grava se algum campo de briefing foi enviado
         $keys = ['need', 'main_pain', 'current_solution', 'expected_goal', 'urgency', 'investment_range',
-                 'decision_level', 'lead_temperature', 'main_objection', 'next_step', 'notes'];
+                 'decision_level', 'lead_temperature', 'lead_source', 'main_objection', 'next_step', 'notes'];
         $data = [];
         foreach ($keys as $k) {
             if (isset($_POST['bf_' . $k])) $data[$k] = trim($_POST['bf_' . $k]) ?: null;
