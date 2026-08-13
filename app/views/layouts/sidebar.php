@@ -44,6 +44,11 @@
                 </a>
             </li>
             <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'agenda' ? 'active' : '' ?>" href="<?= baseUrl('agenda') ?>">
+                    <i class="bi bi-calendar2-week"></i> Agenda
+                </a>
+            </li>
+            <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'buffer_dashboard' ? 'active' : '' ?>" href="<?= baseUrl('buffer/dashboard') ?>">
                     <i class="bi bi-graph-up-arrow"></i> Métricas Sociais
                 </a>
@@ -103,6 +108,13 @@
                     <i class="bi bi-calendar2-check"></i> Planejamento
                 </a>
             </li>
+            <?php if (in_array($user['role'] ?? '', ['super_admin', 'comercial'])): ?>
+            <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'agenda' ? 'active' : '' ?>" href="<?= baseUrl('agenda') ?>">
+                    <i class="bi bi-calendar2-week"></i> Agenda
+                </a>
+            </li>
+            <?php endif; ?>
             <?php if (($user['role'] ?? '') === 'super_admin'): ?>
             <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'marketing' ? 'active' : '' ?>" href="<?= baseUrl('marketing') ?>">
