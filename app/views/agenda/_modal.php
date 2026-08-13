@@ -9,6 +9,8 @@
             <div class="modal-body">
                 <input type="hidden" id="mt-id">
                 <input type="hidden" id="mt-contact-id">
+                <input type="hidden" id="mt-google-event-id">
+                <input type="hidden" id="mt-meet-link">
 
                 <div class="row g-3">
                     <div class="col-12">
@@ -31,7 +33,12 @@
                         <label class="form-label small fw-medium">Data e horário da reunião</label>
                         <input type="datetime-local" id="mt-meeting-at" class="form-control form-control-sm">
                     </div>
-                    <div class="col-12" id="mt-meet-hint" style="font-size:0.75rem;color:#0a66c2;"></div>
+                    <div class="col-12 d-flex flex-wrap align-items-center gap-2">
+                        <button type="button" class="btn btn-sm btn-outline-primary" id="mt-gen-meet" onclick="generateMeet(this)">
+                            <i class="bi bi-camera-video"></i> Gerar link do Meet
+                        </button>
+                        <span id="mt-meet-hint" style="font-size:0.78rem;"></span>
+                    </div>
 
                     <!-- Email do cliente (para envio do convite) -->
                     <div class="col-md-6">
@@ -186,6 +193,9 @@ const BF_FIELDS = ['need','main_pain','current_solution','expected_goal','urgenc
 function resetMeetingForm() {
     document.getElementById('mt-id').value = '';
     document.getElementById('mt-contact-id').value = '';
+    document.getElementById('mt-google-event-id').value = '';
+    document.getElementById('mt-meet-link').value = '';
+    document.getElementById('mt-meet-hint').innerHTML = '';
     ['mt-title','mt-meeting-at','mt-new-name','mt-new-phone','mt-notes','mt-client-email'].forEach(f => document.getElementById(f).value = '');
     document.getElementById('mt-client').value = '';
     document.getElementById('mt-urgency').value = 'media';
@@ -204,8 +214,29 @@ function fillBriefing(bf) {
     BF_FIELDS.forEach(k => { const el = document.getElementById('bf-' + k); if (el && bf[k] != null) el.value = bf[k]; });
 }
 
+let GOOGLE_READY = null;
+function checkGoogleReady() {
+    if (GOOGLE_READY !== null) { applyGoogleReady(); return; }
+    fetch(`${BASE}agenda/googleStatus`).then(r => r.json()).then(d => {
+        GOOGLE_READY = !!d.configured;
+        applyGoogleReady();
+    }).catch(() => { GOOGLE_READY = false; applyGoogleReady(); });
+}
+function applyGoogleReady() {
+    const btn = document.getElementById('mt-gen-meet');
+    if (!btn) return;
+    if (GOOGLE_READY) {
+        btn.disabled = false; btn.title = '';
+    } else {
+        btn.disabled = true;
+        btn.title = 'Configure a integração Google em Configurações';
+        document.getElementById('mt-meet-hint').innerHTML = '<span class="text-muted"><i class="bi bi-info-circle"></i> Google não configurado</span>';
+    }
+}
+
 function openMeetingModal(id = null, dateStr = null) {
     resetMeetingForm();
+    checkGoogleReady();
     if (dateStr) document.getElementById('mt-meeting-at').value = dateStr + 'T09:00';
     if (id) {
         fetch(`${BASE}agenda/get/${id}`).then(r => r.json()).then(d => {
@@ -232,12 +263,10 @@ function fillMeeting(m) {
     document.getElementById('mt-status').value = m.status || 'a_agendar';
     document.getElementById('mt-notes').value = m.notes || '';
     document.getElementById('mt-client-email').value = m.client_email || '';
+    document.getElementById('mt-google-event-id').value = m.google_event_id || '';
+    document.getElementById('mt-meet-link').value = m.meet_link || '';
     fillBriefing(m.briefing);
-    if (m.meet_link) {
-        // Mostra o link do Meet, se já gerado
-        let hint = document.getElementById('mt-meet-hint');
-        if (hint) hint.innerHTML = '<i class="bi bi-camera-video"></i> <a href="' + m.meet_link + '" target="_blank">Link da reunião (Google Meet)</a>';
-    }
+    if (m.meet_link) showMeetLink(m.meet_link);
     document.getElementById('mt-delete-btn').style.display = '';
 }
 
@@ -278,9 +307,49 @@ function collectPayload() {
     } else if (clientVal) {
         fd.append('contact_id', clientVal);
     }
+    // Link do Meet já gerado (evita criar evento duplicado)
+    fd.append('google_event_id', document.getElementById('mt-google-event-id').value);
+    fd.append('meet_link', document.getElementById('mt-meet-link').value);
     // Briefing
     BF_FIELDS.forEach(k => fd.append('bf_' + k, document.getElementById('bf-' + k).value));
     return fd;
+}
+
+function showMeetLink(link) {
+    const hint = document.getElementById('mt-meet-hint');
+    if (link) {
+        hint.innerHTML = '<span class="text-success"><i class="bi bi-check-circle-fill"></i> Link gerado:</span> '
+            + '<a href="' + link + '" target="_blank">' + link + '</a>';
+    } else {
+        hint.innerHTML = '';
+    }
+}
+
+// Gera o link do Meet no Google antes de salvar
+function generateMeet(btn) {
+    const meetingAt = document.getElementById('mt-meeting-at').value;
+    if (!meetingAt) { alert('Informe a data e o horário da reunião primeiro.'); return; }
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Gerando...';
+
+    const fd = new FormData();
+    fd.append('title', document.getElementById('mt-title').value.trim() || 'Reunião');
+    fd.append('meeting_at', meetingAt);
+    fd.append('client_email', document.getElementById('mt-client-email').value.trim());
+    fd.append('notes', document.getElementById('mt-notes').value);
+    const mid = document.getElementById('mt-id').value;
+    if (mid) fd.append('meeting_id', mid);
+
+    fetch(`${BASE}agenda/generateMeet`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json()).then(d => {
+            btn.disabled = false; btn.innerHTML = original;
+            if (d.error) { alert(d.error); return; }
+            document.getElementById('mt-google-event-id').value = d.event_id || '';
+            document.getElementById('mt-meet-link').value = d.meet_link || '';
+            showMeetLink(d.meet_link);
+        })
+        .catch(() => { btn.disabled = false; btn.innerHTML = original; alert('Erro ao gerar o link.'); });
 }
 
 function saveMeeting() {

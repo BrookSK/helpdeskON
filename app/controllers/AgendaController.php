@@ -133,6 +133,11 @@ class AgendaController extends Controller
         ];
 
         $data['client_email'] = trim($_POST['client_email'] ?? '') ?: null;
+        // Se o link do Meet já foi gerado no modal, reaproveita (evita criar evento duplicado)
+        $preEventId = trim($_POST['google_event_id'] ?? '') ?: null;
+        $preMeetLink = trim($_POST['meet_link'] ?? '') ?: null;
+        if ($preEventId) $data['google_event_id'] = $preEventId;
+        if ($preMeetLink) $data['meet_link'] = $preMeetLink;
 
         $id = $this->model->create($data);
 
@@ -148,7 +153,8 @@ class AgendaController extends Controller
 
         // Integração Google Agenda/Meet + convites (email + WhatsApp)
         if (!empty($data['meeting_at'])) {
-            $this->createGoogleEventAndInvites($id);
+            // Se o evento já foi criado no modal (link gerado), só envia os convites; senão cria agora
+            $this->createGoogleEventAndInvites($id, !$preEventId);
         }
 
         $this->json(['success' => true, 'meeting' => $this->model->findById($id)]);
@@ -158,7 +164,7 @@ class AgendaController extends Controller
      * Cria o evento no Google Agenda (com Meet), salva o link e envia os convites
      * por e-mail (super admin + cliente) e WhatsApp (cliente).
      */
-    private function createGoogleEventAndInvites($meetingId)
+    private function createGoogleEventAndInvites($meetingId, $createEvent = true)
     {
         $meeting = $this->model->findById($meetingId);
         if (!$meeting) return;
@@ -173,11 +179,12 @@ class AgendaController extends Controller
         $admin = $db->fetch("SELECT name, email FROM users WHERE role = 'super_admin' AND is_active = 1 AND email <> '' ORDER BY id ASC LIMIT 1");
         $adminEmail = $admin['email'] ?? null;
 
-        $meetLink = null;
+        // Reaproveita o link já gerado (no modal), se houver
+        $meetLink = $meeting['meet_link'] ?? null;
 
-        // 1) Cria o evento no Google (se configurado)
+        // 1) Cria o evento no Google (se configurado e ainda não criado)
         $google = new GoogleCalendarApi();
-        if ($google->isConfigured()) {
+        if ($createEvent && empty($meeting['google_event_id']) && $google->isConfigured()) {
             $attendees = array_filter([$adminEmail, $clientEmail]);
             $res = $google->createEvent([
                 'title' => 'Reunião: ' . $meeting['title'],
@@ -268,6 +275,61 @@ class AgendaController extends Controller
         }
 
         $this->json(['success' => true, 'meeting' => $this->model->findById($id)]);
+    }
+
+    // API: verifica se a integração Google está configurada/funcionando
+    public function googleStatus()
+    {
+        $this->requireRole($this->accessRoles);
+        $google = new GoogleCalendarApi();
+        $this->json(['configured' => $google->isConfigured()]);
+    }
+
+    // API: gerar o link do Google Meet ANTES de salvar (garante o link)
+    public function generateMeet()
+    {
+        $this->requireRole($this->accessRoles);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+
+        $google = new GoogleCalendarApi();
+        if (!$google->isConfigured()) {
+            $this->json(['error' => 'Google Agenda não configurado. Adicione as credenciais em Configurações.'], 400);
+        }
+
+        $title = trim($_POST['title'] ?? '') ?: 'Reunião';
+        $meetingAt = !empty($_POST['meeting_at']) ? str_replace('T', ' ', $_POST['meeting_at']) : null;
+        if (!$meetingAt) $this->json(['error' => 'Informe a data e o horário da reunião.'], 400);
+
+        $user = $this->currentUser();
+        $db = Database::getInstance();
+        $admin = $db->fetch("SELECT email FROM users WHERE role = 'super_admin' AND is_active = 1 AND email <> '' ORDER BY id ASC LIMIT 1");
+        $attendees = array_filter([$admin['email'] ?? null, trim($_POST['client_email'] ?? '')]);
+
+        $res = $google->createEvent([
+            'title' => 'Reunião: ' . $title,
+            'description' => trim($_POST['notes'] ?? ''),
+            'start' => $meetingAt,
+            'durationMin' => 60,
+            'timezone' => 'America/Sao_Paulo',
+            'attendees' => $attendees,
+        ]);
+
+        if (empty($res['success'])) {
+            $this->json(['error' => $res['error'] ?? 'Falha ao gerar o link do Meet.'], 400);
+        }
+
+        // Se estiver editando uma reunião existente, já vincula o evento
+        $meetingId = !empty($_POST['meeting_id']) ? intval($_POST['meeting_id']) : null;
+        if ($meetingId && $this->model->findById($meetingId)) {
+            $this->model->update($meetingId, ['google_event_id' => $res['event_id'], 'meet_link' => $res['meet_link']]);
+        }
+
+        $this->json([
+            'success' => true,
+            'event_id' => $res['event_id'],
+            'meet_link' => $res['meet_link'],
+            'html_link' => $res['html_link'] ?? null,
+        ]);
     }
 
     // API: mudar status (drag-and-drop no Kanban)
