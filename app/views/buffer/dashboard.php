@@ -38,13 +38,14 @@ $networkInfo = [
 
 /* HERO HEADER */
 .ms-hero {
-    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    background: linear-gradient(135deg, #e0f7f4 0%, #f0faf8 100%);
     border-radius: 20px;
     padding: 32px 36px;
     margin-bottom: 28px;
-    color: #fff;
+    color: #1a1a2e;
     position: relative;
     overflow: hidden;
+    border: 1px solid #c8ede6;
 }
 .ms-hero::after {
     content: '';
@@ -53,11 +54,11 @@ $networkInfo = [
     right: -10%;
     width: 300px;
     height: 300px;
-    background: radial-gradient(circle, rgba(0,191,166,0.15) 0%, transparent 70%);
+    background: radial-gradient(circle, rgba(0,191,166,0.1) 0%, transparent 70%);
     border-radius: 50%;
 }
-.ms-hero h2 { font-size: 1.6rem; font-weight: 800; margin: 0 0 6px; }
-.ms-hero p { font-size: 0.9rem; color: rgba(255,255,255,0.7); margin: 0; }
+.ms-hero h2 { font-size: 1.6rem; font-weight: 800; margin: 0 0 6px; color: #1a1a2e; }
+.ms-hero p { font-size: 0.9rem; color: #5a6b7b; margin: 0; }
 
 /* ACTION BUTTONS */
 .ms-actions {
@@ -194,15 +195,15 @@ $networkInfo = [
 .ms-box-header h5 { font-size: 1rem; font-weight: 700; color: #2b3440; margin: 0; }
 .ms-box-body { padding: 20px 22px; }
 
-.ms-top-list { max-height: 380px; overflow-y: auto; }
-.ms-top-item { display: flex; align-items: center; gap: 12px; padding: 12px 18px; border-bottom: 1px solid #f8f8f8; text-decoration: none; color: inherit; transition: background .1s; }
+.ms-top-list { max-height: 420px; overflow-y: auto; }
+.ms-top-item { display: flex; align-items: center; gap: 14px; padding: 14px 20px; border-bottom: 1px solid #f5f5f5; text-decoration: none; color: inherit; transition: background .1s; }
 .ms-top-item:hover { background: #fafbfc; }
-.ms-top-thumb { width: 50px; height: 50px; border-radius: 10px; overflow: hidden; background: #eef1f4; flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: #ccc; }
+.ms-top-thumb { width: 60px; height: 60px; border-radius: 10px; overflow: hidden; background: #eef1f4; flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: #ccc; }
 .ms-top-thumb img { width: 100%; height: 100%; object-fit: cover; }
 .ms-top-info { flex: 1; min-width: 0; }
-.ms-top-text { font-size: 0.85rem; font-weight: 500; color: #333; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.ms-top-meta { font-size: 0.72rem; color: #8a929b; margin-top: 3px; }
-.ms-top-val { font-size: 0.9rem; font-weight: 700; color: var(--primary); flex-shrink: 0; }
+.ms-top-text { font-size: 0.92rem; font-weight: 500; color: #333; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.4; }
+.ms-top-meta { font-size: 0.78rem; color: #8a929b; margin-top: 4px; }
+.ms-top-val { font-size: 1rem; font-weight: 700; color: var(--primary); flex-shrink: 0; }
 
 /* ACCOUNTS / NOSSAS REDES */
 .ms-networks-grid {
@@ -236,8 +237,6 @@ $networkInfo = [
 .ms-net-post img { width: 100%; height: 100%; object-fit: cover; }
 
 /* Delete button */
-.ms-net-delete { position: absolute; top: 12px; right: 12px; }
-
 /* Alert bar */
 .ms-alert-bar { background: #fffbeb; border: 1px solid #fde68a; border-radius: 12px; padding: 14px 20px; margin-bottom: 20px; display: flex; align-items: center; gap: 12px; font-size: 0.85rem; }
 .ms-alert-bar i { color: #d97706; font-size: 1.3rem; }
@@ -403,10 +402,7 @@ $networkInfo = [
                 $svAcc = fn($k) => ($acc[$k] !== null && $acc[$k] !== '') ? (float)$acc[$k] : 0;
                 $accPosts = $socialPostsByAccount[$acc['id']] ?? [];
             ?>
-            <div class="ms-net-card" style="position:relative;">
-                <?php if ($isAdmin): ?>
-                <button class="btn btn-sm btn-outline-danger ms-net-delete" onclick="deleteSocialAccount(<?= $acc['id'] ?>)" title="Remover conta"><i class="bi bi-x-lg"></i></button>
-                <?php endif; ?>
+            <div class="ms-net-card">
                 <div class="ms-net-head">
                     <div class="ms-net-avatar" style="background: <?= $pi[2] ?>12; color: <?= $pi[2] ?>;">
                         <?php if (!empty($acc['avatar'])): ?><img src="<?= escape($acc['avatar']) ?>" alt=""><?php else: ?><i class="bi <?= $pi[1] ?>"></i><?php endif; ?>
