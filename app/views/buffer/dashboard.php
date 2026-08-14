@@ -159,22 +159,26 @@ $networkInfo = [
 .ms-growth-card {
     background: #fff;
     border-radius: 14px;
-    padding: 18px 22px;
+    padding: 28px 22px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.04);
     text-align: center;
     min-width: 110px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
 }
 .ms-growth-card.main {
     background: linear-gradient(135deg, var(--primary), #00897b);
     color: #fff;
 }
-.ms-gc-val { font-size: 1.5rem; font-weight: 800; line-height: 1.1; }
-.ms-gc-diff { font-size: 0.85rem; font-weight: 700; margin-top: 4px; }
+.ms-gc-val { font-size: 2.2rem; font-weight: 800; line-height: 1.1; }
+.ms-gc-diff { font-size: 1.8rem; font-weight: 800; margin-top: 4px; }
 .ms-gc-diff.pos { color: #059669; }
 .ms-gc-diff.neg { color: #dc2626; }
 .ms-growth-card.main .ms-gc-diff { color: rgba(255,255,255,0.85); }
-.ms-gc-label { font-size: 0.72rem; color: #8a929b; margin-top: 6px; }
-.ms-growth-card.main .ms-gc-label { color: rgba(255,255,255,0.7); }
+.ms-gc-label { font-size: 0.92rem; color: #6b7280; margin-top: 8px; font-weight: 500; }
+.ms-growth-card.main .ms-gc-label { color: rgba(255,255,255,0.8); }
 
 /* CHART & TOP POSTS */
 .ms-chart-row { margin-bottom: 32px; }
@@ -408,8 +412,8 @@ $networkInfo = [
                             <option value="shares">Compartilhamentos</option>
                         </select>
                     </div>
-                    <div class="ms-box-body">
-                        <div style="position:relative;height:280px;">
+                    <div class="ms-box-body" style="flex:1;display:flex;align-items:stretch;">
+                        <div style="position:relative;width:100%;min-height:280px;">
                             <canvas id="lineChart"></canvas>
                         </div>
                     </div>
