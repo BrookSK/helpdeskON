@@ -104,10 +104,39 @@ class BufferController extends Controller
             $socialFollowersGrowth[$sa['id']] = $socialModel->getFollowersGrowth($sa['id']);
         }
 
+        // ===== Mescla contas (prioridade API > Buffer, sem duplicatas) =====
+        // Mapeia redes das contas diretas para identificar duplicatas
+        $directNetworks = []; // ['instagram' => ['username1', 'username2'], ...]
+        foreach ($socialAccounts as $sa) {
+            $netMap = ['meta_instagram' => 'instagram', 'facebook_page' => 'facebook', 'linkedin_org' => 'linkedin'];
+            $net = $netMap[$sa['provider']] ?? $sa['provider'];
+            $uname = strtolower($sa['username'] ?? ($sa['display_name'] ?? ''));
+            $directNetworks[$net][] = $uname;
+        }
+
+        // Filtra canais Buffer: remove os que já existem como conta direta (mesma rede + mesmo username)
+        $filteredChannels = [];
+        foreach ($channels as $ch) {
+            $svc = strtolower($ch['service'] ?? '');
+            $chUser = strtolower($ch['username'] ?? ($ch['name'] ?? ''));
+            $isDuplicate = false;
+            if (isset($directNetworks[$svc])) {
+                foreach ($directNetworks[$svc] as $directUser) {
+                    if ($directUser && $chUser && (strpos($directUser, $chUser) !== false || strpos($chUser, $directUser) !== false)) {
+                        $isDuplicate = true;
+                        break;
+                    }
+                }
+            }
+            if (!$isDuplicate) {
+                $filteredChannels[] = $ch;
+            }
+        }
+
         $this->view('buffer/dashboard', [
             'user' => $user,
             'totals' => $totals,
-            'channels' => $channels,
+            'channels' => $filteredChannels,
             'channelMetrics' => $channelMetrics,
             'periodStart' => $periodStart,
             'periodEnd' => $periodEnd,

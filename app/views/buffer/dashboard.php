@@ -1,17 +1,16 @@
-<?php $pageTitle = 'Métricas Sociais - ON Solutions Helpdesk'; $currentPage = 'buffer_dashboard'; ?>
+<?php $pageTitle = 'Métricas Sociais'; $currentPage = 'buffer_dashboard'; ?>
 <?php require APP_PATH . '/views/layouts/header.php'; ?>
 <?php require APP_PATH . '/views/layouts/sidebar.php'; ?>
 
 <?php
-// Helpers locais
+// Helpers
 $fmt = fn($v) => number_format((float)$v, 0, ',', '.');
-$fmtPct = fn($v) => ($v >= 0 ? '+' : '') . number_format((float)$v, 1, ',', '.') . '%';
 
-// Soma seguidores de contas diretas
+// Seguidores consolidados
 $totalFollowers = 0;
 foreach ($socialAccounts as $sa) $totalFollowers += (int)($sa['followers'] ?? 0);
 
-// Soma seguidores do crescimento (7d, 30d, 90d)
+// Crescimento consolidado
 $followerGrowthAgg = ['7d' => 0, '30d' => 0, '90d' => 0];
 foreach ($socialFollowersGrowth as $g) {
     foreach (['7d', '30d', '90d'] as $p) {
@@ -19,22 +18,20 @@ foreach ($socialFollowersGrowth as $g) {
     }
 }
 
-// Contas Buffer com metadados
-$serviceMeta = [
+// Metadados de redes
+$networkInfo = [
     'instagram' => ['Instagram', 'bi-instagram', '#E1306C'],
     'facebook' => ['Facebook', 'bi-facebook', '#1877F2'],
     'facebookpage' => ['Facebook', 'bi-facebook', '#1877F2'],
-    'twitter' => ['Twitter/X', 'bi-twitter-x', '#000000'],
-    'x' => ['Twitter/X', 'bi-twitter-x', '#000000'],
     'linkedin' => ['LinkedIn', 'bi-linkedin', '#0A66C2'],
-    'tiktok' => ['TikTok', 'bi-tiktok', '#000000'],
+    'tiktok' => ['TikTok', 'bi-tiktok', '#000'],
+    'twitter' => ['Twitter/X', 'bi-twitter-x', '#000'],
+    'x' => ['Twitter/X', 'bi-twitter-x', '#000'],
     'youtube' => ['YouTube', 'bi-youtube', '#FF0000'],
     'pinterest' => ['Pinterest', 'bi-pinterest', '#E60023'],
-    'threads' => ['Threads', 'bi-threads', '#000000'],
-    'mastodon' => ['Mastodon', 'bi-mastodon', '#6364FF'],
-    'googlebusiness' => ['Google', 'bi-google', '#4285F4'],
+    'threads' => ['Threads', 'bi-threads', '#000'],
 ];
-$socialProviderMeta = [
+$providerInfo = [
     'meta_instagram' => ['Instagram', 'bi-instagram', '#E1306C'],
     'facebook_page'  => ['Facebook', 'bi-facebook', '#1877F2'],
     'linkedin_org'   => ['LinkedIn', 'bi-linkedin', '#0A66C2'],
@@ -42,285 +39,249 @@ $socialProviderMeta = [
 ?>
 
 <style>
-/* ===== Dashboard Métricas v2 ===== */
-.metrics-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
-.metrics-title h5 { font-size: 1.15rem; font-weight: 700; margin: 0; color: #1a1a2e; }
-.metrics-title small { font-size: 0.75rem; color: #8a929b; }
-.metrics-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+/* ===== Métricas Sociais v3 — Clean & Intuitive ===== */
+.ms-page { padding: 0; }
+.ms-header { margin-bottom: 20px; }
+.ms-header h4 { font-size: 1.2rem; font-weight: 700; color: #1a1a2e; margin: 0; }
+.ms-header p { font-size: 0.8rem; color: #8a929b; margin: 4px 0 0; }
 
-/* Filtro de período */
-.period-bar { background: #fff; border-radius: 14px; padding: 14px 18px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-.period-presets { display: flex; gap: 4px; }
-.period-presets .btn { font-size: 0.72rem; padding: 4px 12px; border-radius: 20px; }
-.period-presets .btn.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+/* Admin actions - discrete */
+.ms-admin-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+.ms-admin-bar .btn { font-size: 0.7rem; }
 
-/* Cards de resumo */
-.summary-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 14px; margin-bottom: 24px; }
-.summary-card { background: #fff; border-radius: 14px; padding: 18px 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); position: relative; overflow: hidden; }
-.summary-card::before { content: ''; position: absolute; top: 0; left: 0; width: 4px; height: 100%; border-radius: 4px 0 0 4px; }
-.summary-card.sc-followers::before { background: #0A66C2; }
-.summary-card.sc-reactions::before { background: #E1306C; }
-.summary-card.sc-comments::before { background: #3f51b5; }
-.summary-card.sc-views::before { background: #00897b; }
-.summary-card.sc-impressions::before { background: #ff9800; }
-.summary-card.sc-reach::before { background: #9c27b0; }
-.sc-icon { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; margin-bottom: 10px; }
-.sc-value { font-size: 1.5rem; font-weight: 800; color: #1a1a2e; line-height: 1.1; }
-.sc-label { font-size: 0.7rem; color: #8a929b; margin-top: 2px; font-weight: 500; }
-.sc-change { display: inline-flex; align-items: center; gap: 2px; font-size: 0.68rem; font-weight: 700; padding: 2px 8px; border-radius: 12px; margin-top: 8px; }
-.sc-change.positive { background: #e8f5e9; color: #15803d; }
-.sc-change.negative { background: #fef2f2; color: #dc2626; }
-.sc-change.neutral { background: #f3f4f6; color: #6b7280; }
-.sc-prev { font-size: 0.62rem; color: #aab; margin-top: 4px; }
+/* Period selector */
+.ms-period { background: #fff; border-radius: 12px; padding: 14px 18px; margin-bottom: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.04); display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.ms-period-label { font-size: 0.75rem; font-weight: 600; color: #555; }
+.ms-presets { display: flex; gap: 4px; }
+.ms-presets .btn { font-size: 0.72rem; padding: 5px 14px; border-radius: 20px; font-weight: 500; }
+.ms-presets .btn.active { background: var(--primary); border-color: var(--primary); color: #fff; }
 
-/* Gráfico e Top Posts */
-.chart-section { margin-bottom: 24px; }
-.chart-card, .top-card { background: #fff; border-radius: 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); overflow: hidden; }
-.chart-card .card-header, .top-card .card-header { background: transparent; border-bottom: 1px solid #f0f2f4; padding: 14px 18px; }
-.chart-card .card-header h6, .top-card .card-header h6 { font-size: 0.85rem; font-weight: 700; margin: 0; color: #2b3440; }
+/* Summary cards */
+.ms-summary { display: grid; grid-template-columns: repeat(auto-fill, minmax(155px, 1fr)); gap: 12px; margin-bottom: 24px; }
+.ms-card { background: #fff; border-radius: 12px; padding: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.04); border-left: 4px solid transparent; }
+.ms-card-icon { width: 34px; height: 34px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1rem; margin-bottom: 8px; }
+.ms-card-value { font-size: 1.6rem; font-weight: 800; color: #1a1a2e; line-height: 1; }
+.ms-card-label { font-size: 0.72rem; color: #8a929b; margin-top: 4px; }
+.ms-card-change { display: inline-flex; align-items: center; gap: 2px; font-size: 0.68rem; font-weight: 600; margin-top: 6px; padding: 2px 8px; border-radius: 10px; }
+.ms-card-change.up { background: #ecfdf5; color: #059669; }
+.ms-card-change.down { background: #fef2f2; color: #dc2626; }
+.ms-card-change.neutral { background: #f3f4f6; color: #6b7280; }
+.ms-card-prev { font-size: 0.6rem; color: #aab; margin-top: 3px; }
 
-/* Contas conectadas - layout de linhas */
-.accounts-section { margin-bottom: 24px; }
-.accounts-section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-.accounts-section-head h6 { font-size: 0.95rem; font-weight: 700; color: #1a1a2e; margin: 0; }
-.accounts-table { background: #fff; border-radius: 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); overflow: hidden; }
-.account-row { display: flex; align-items: center; gap: 16px; padding: 16px 20px; border-bottom: 1px solid #f0f2f4; transition: background .1s; }
-.account-row:last-child { border-bottom: none; }
-.account-row:hover { background: #f9fafb; }
-.ar-identity { display: flex; align-items: center; gap: 12px; min-width: 200px; flex-shrink: 0; }
-.ar-avatar { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0; overflow: hidden; position: relative; }
-.ar-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 12px; }
-.ar-badge { position: absolute; bottom: -2px; right: -2px; width: 18px; height: 18px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 0.55rem; border: 2px solid #fff; }
-.ar-info { min-width: 0; }
-.ar-name { font-size: 0.88rem; font-weight: 600; color: #2b3440; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
-.ar-sub { font-size: 0.72rem; color: #8a929b; }
-.ar-metrics { display: flex; gap: 8px; flex-wrap: wrap; flex: 1; }
-.ar-metric { text-align: center; padding: 8px 12px; background: #f7f9fa; border-radius: 10px; min-width: 72px; }
-.ar-mval { display: block; font-size: 1rem; font-weight: 700; color: #2b3440; line-height: 1.2; }
-.ar-mlbl { display: block; font-size: 0.62rem; color: #8a929b; margin-top: 2px; }
-.ar-source { flex-shrink: 0; }
-.badge-source { font-size: 0.65rem; font-weight: 600; padding: 4px 10px; border-radius: 12px; }
-.badge-source.buffer { background: #f3f4f6; color: #666; }
-.badge-source.direct { background: #e8f5e9; color: #16a34a; }
+/* Growth section */
+.ms-growth { background: #fff; border-radius: 12px; padding: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.04); margin-bottom: 24px; }
+.ms-growth-title { font-size: 0.88rem; font-weight: 700; color: #1a1a2e; margin-bottom: 14px; }
+.ms-growth-title i { color: var(--primary); }
+.ms-growth-grid { display: flex; flex-wrap: wrap; gap: 12px; }
+.ms-growth-item { text-align: center; padding: 12px 16px; border-radius: 10px; background: #f8faf9; min-width: 90px; }
+.ms-growth-item.highlight { background: linear-gradient(135deg, #e0f7f4, #b2f2e8); }
+.ms-gi-val { font-size: 1.2rem; font-weight: 800; color: #1a1a2e; }
+.ms-gi-diff { font-size: 0.72rem; font-weight: 700; }
+.ms-gi-diff.pos { color: #059669; }
+.ms-gi-diff.neg { color: #dc2626; }
+.ms-gi-label { font-size: 0.62rem; color: #8a929b; margin-top: 3px; }
 
-/* Posts inline (row abaixo da conta) */
-.account-posts-row { display: flex; gap: 10px; padding: 10px 20px 16px 76px; border-bottom: 1px solid #f0f2f4; overflow-x: auto; }
-.sp-mini { display: block; width: 80px; height: 80px; border-radius: 10px; overflow: hidden; position: relative; flex-shrink: 0; background: #eef1f4; text-decoration: none; transition: transform .15s; }
-.sp-mini:hover { transform: scale(1.05); }
-.sp-mini img { width: 100%; height: 100%; object-fit: cover; }
-.sp-mini i { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #bbb; font-size: 1.4rem; }
-.sp-mini-stats { position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,0.65); display: flex; gap: 6px; justify-content: center; padding: 3px 0; font-size: 0.6rem; color: #fff; opacity: 0; transition: opacity .15s; }
-.sp-mini:hover .sp-mini-stats { opacity: 1; }
-.sp-mini-stats i { color: #fff; font-size: 0.55rem; }
+/* Chart section */
+.ms-chart-section { margin-bottom: 24px; }
+.ms-chart-box { background: #fff; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.04); overflow: hidden; }
+.ms-chart-header { padding: 14px 18px; border-bottom: 1px solid #f3f4f6; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.ms-chart-header h6 { font-size: 0.85rem; font-weight: 700; color: #2b3440; margin: 0; }
+.ms-chart-body { padding: 16px; }
 
-/* Followers Growth Consolidated */
-.followers-consolidated { background: #fff; border-radius: 14px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); margin-bottom: 24px; }
-.fc-header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
-.fc-header h6 { font-size: 0.9rem; font-weight: 700; margin: 0; }
-.fc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px; }
-.fc-item { text-align: center; padding: 14px 8px; border-radius: 12px; background: #f7f9fa; }
-.fc-item.current { background: linear-gradient(135deg, #e0f7f4, #b2f2e8); }
-.fc-val { font-size: 1.3rem; font-weight: 800; color: #1a1a2e; }
-.fc-diff { font-size: 0.72rem; font-weight: 700; }
-.fc-diff.pos { color: #16a34a; }
-.fc-diff.neg { color: #dc2626; }
-.fc-lbl { font-size: 0.65rem; color: #8a929b; margin-top: 4px; }
+/* Top posts */
+.ms-top-box { background: #fff; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.04); overflow: hidden; }
+.ms-top-header { padding: 14px 18px; border-bottom: 1px solid #f3f4f6; }
+.ms-top-header h6 { font-size: 0.85rem; font-weight: 700; color: #2b3440; margin: 0; }
+.ms-top-list { max-height: 360px; overflow-y: auto; }
+.ms-top-item { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid #f8f8f8; text-decoration: none; color: inherit; transition: background .1s; }
+.ms-top-item:hover { background: #fafbfc; }
+.ms-top-thumb { width: 46px; height: 46px; border-radius: 8px; object-fit: cover; background: #eef1f4; flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: #ccc; overflow: hidden; }
+.ms-top-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.ms-top-info { flex: 1; min-width: 0; }
+.ms-top-text { font-size: 0.78rem; font-weight: 500; color: #333; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ms-top-meta { font-size: 0.65rem; color: #8a929b; margin-top: 2px; }
+.ms-top-badge { font-size: 0.72rem; font-weight: 700; color: var(--primary); flex-shrink: 0; }
 
-/* Top posts list */
-.top-post-item { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid #f5f5f5; text-decoration: none; color: inherit; transition: background .1s; }
-.top-post-item:hover { background: #f9fafb; }
-.top-post-cover { width: 44px; height: 44px; border-radius: 8px; object-fit: cover; flex-shrink: 0; background: #eef1f4; }
-.top-post-info { flex: 1; min-width: 0; }
-.top-post-text { font-size: 0.78rem; font-weight: 500; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: #333; }
-.top-post-meta { font-size: 0.65rem; color: #8a929b; margin-top: 2px; }
+/* Accounts section */
+.ms-accounts { margin-bottom: 24px; }
+.ms-accounts-title { font-size: 0.92rem; font-weight: 700; color: #1a1a2e; margin-bottom: 14px; }
+.ms-accounts-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+.ms-acc-card { background: #fff; border-radius: 12px; padding: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.04); border: 1px solid #f0f2f4; }
+.ms-acc-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.ms-acc-avatar { width: 42px; height: 42px; border-radius: 10px; overflow: hidden; position: relative; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0; }
+.ms-acc-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 10px; }
+.ms-acc-network { position: absolute; bottom: -2px; right: -2px; width: 18px; height: 18px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 0.5rem; border: 2px solid #fff; }
+.ms-acc-name { font-size: 0.85rem; font-weight: 600; color: #2b3440; }
+.ms-acc-handle { font-size: 0.7rem; color: #8a929b; }
+.ms-acc-metrics { display: grid; grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); gap: 6px; }
+.ms-acc-metric { text-align: center; padding: 8px 4px; background: #f8faf9; border-radius: 8px; }
+.ms-am-val { font-size: 0.95rem; font-weight: 700; color: #2b3440; }
+.ms-am-lbl { font-size: 0.58rem; color: #8a929b; margin-top: 1px; }
 
-/* Social posts grid - removido, usando sp-mini agora */
+/* Posts thumbnails */
+.ms-acc-posts { display: flex; gap: 6px; margin-top: 10px; overflow-x: auto; padding-bottom: 4px; }
+.ms-acc-post-thumb { width: 56px; height: 56px; border-radius: 8px; overflow: hidden; flex-shrink: 0; background: #eef1f4; position: relative; }
+.ms-acc-post-thumb img { width: 100%; height: 100%; object-fit: cover; }
 
 /* Token alert */
-.token-alert-bar { background: #fffbeb; border: 1px solid #fde68a; border-radius: 12px; padding: 10px 16px; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; }
-.token-alert-bar i { color: #d97706; font-size: 1.2rem; }
+.ms-alert { background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 10px 16px; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; font-size: 0.78rem; }
+.ms-alert i { color: #d97706; font-size: 1.1rem; flex-shrink: 0; }
 
 /* Responsive */
 @media (max-width: 768px) {
-    .summary-grid { grid-template-columns: repeat(2, 1fr); }
-    .fc-grid { grid-template-columns: repeat(2, 1fr); }
-    .account-row { flex-direction: column; align-items: flex-start; gap: 8px; }
-    .ar-identity { min-width: auto; }
-    .ar-metrics { width: 100%; }
-    .account-posts-row { padding-left: 16px; }
+    .ms-summary { grid-template-columns: repeat(2, 1fr); }
+    .ms-accounts-grid { grid-template-columns: 1fr; }
+    .ms-growth-grid { flex-direction: column; }
 }
 </style>
 
-<div class="main-content">
+<div class="main-content ms-page">
     <!-- Header -->
-    <div class="metrics-header">
-        <div class="metrics-title">
-            <h5><i class="bi bi-graph-up-arrow"></i> Métricas Sociais</h5>
-            <small>Desempenho consolidado de todas as redes (Buffer + Meta + LinkedIn)</small>
-        </div>
-        <div class="metrics-actions">
-            <button class="btn btn-outline-secondary btn-sm" onclick="syncChannels(this)"><i class="bi bi-arrow-repeat"></i> Sincronizar</button>
-            <button class="btn btn-primary btn-sm" onclick="syncMetrics(this)"><i class="bi bi-cloud-download"></i> Atualizar métricas</button>
-            <button class="btn btn-outline-secondary btn-sm" onclick="importMeta(this)"><i class="bi bi-download"></i> Importar Meta</button>
-            <button class="btn btn-outline-secondary btn-sm" onclick="openLinkedinModal()"><i class="bi bi-linkedin"></i> Add LinkedIn</button>
-            <button class="btn btn-outline-secondary btn-sm" onclick="syncSocial(this)"><i class="bi bi-arrow-repeat"></i> Atualizar redes</button>
-            <button class="btn btn-outline-success btn-sm" onclick="snapshotFollowers(this)" title="Salvar snapshot diário"><i class="bi bi-camera"></i> Snapshot</button>
-        </div>
+    <div class="ms-header">
+        <h4><i class="bi bi-bar-chart-line"></i> Métricas Sociais</h4>
+        <p>Acompanhe o desempenho de todas as redes sociais em um só lugar</p>
     </div>
 
-    <?php if (!$hasKey && empty($socialAccounts)): ?>
-    <div class="alert alert-warning py-2 px-3 small mb-3">
-        <i class="bi bi-exclamation-triangle"></i> Nenhuma integração configurada.
-        <?php if ($isAdmin): ?>Adicione chaves do Buffer ou tokens da Meta/LinkedIn em <a href="<?= baseUrl('settings') ?>">Configurações</a>.<?php endif; ?>
+    <!-- Admin actions (só pra admin, discreto) -->
+    <?php if ($isAdmin): ?>
+    <div class="ms-admin-bar">
+        <button class="btn btn-outline-secondary btn-sm" onclick="syncChannels(this)"><i class="bi bi-arrow-repeat"></i> Sincronizar</button>
+        <button class="btn btn-primary btn-sm" onclick="syncMetrics(this)"><i class="bi bi-cloud-download"></i> Atualizar métricas</button>
+        <button class="btn btn-outline-secondary btn-sm" onclick="importMeta(this)"><i class="bi bi-download"></i> Importar Meta</button>
+        <button class="btn btn-outline-secondary btn-sm" onclick="openLinkedinModal()"><i class="bi bi-linkedin"></i> Add LinkedIn</button>
+        <button class="btn btn-outline-secondary btn-sm" onclick="syncSocial(this)"><i class="bi bi-arrow-repeat"></i> Atualizar redes</button>
+        <button class="btn btn-outline-secondary btn-sm" onclick="snapshotFollowers(this)"><i class="bi bi-camera"></i> Snapshot</button>
     </div>
     <?php endif; ?>
 
-    <!-- Token expiry alert -->
+    <!-- Token alert -->
     <?php $metaTokenExpired = $metaTokenExpired ?? false; $linkedinTokenExpired = $linkedinTokenExpired ?? false; ?>
     <?php if ($metaTokenExpired || $linkedinTokenExpired): ?>
-    <div class="token-alert-bar small">
+    <div class="ms-alert">
         <i class="bi bi-exclamation-triangle-fill"></i>
         <span>
-            <strong>Token expirado:</strong>
-            <?php if ($metaTokenExpired && $linkedinTokenExpired): ?>Meta e LinkedIn.
-            <?php elseif ($metaTokenExpired): ?>Meta (Instagram/Facebook).
-            <?php else: ?>LinkedIn.<?php endif; ?>
-            Dados de seguidores não estão sendo atualizados.
+            <?php if ($metaTokenExpired && $linkedinTokenExpired): ?>Os tokens da Meta e LinkedIn expiraram.
+            <?php elseif ($metaTokenExpired): ?>O token da Meta expirou — seguidores do Instagram/Facebook não atualizam.
+            <?php else: ?>O token do LinkedIn expirou — seguidores do LinkedIn não atualizam.<?php endif; ?>
         </span>
         <?php if ($isAdmin): ?><a href="<?= baseUrl('settings') ?>" class="btn btn-sm btn-warning ms-auto"><i class="bi bi-key"></i> Reconectar</a><?php endif; ?>
     </div>
     <?php endif; ?>
 
-    <!-- Período + Presets -->
-    <div class="period-bar">
-        <div class="period-presets">
-            <button class="btn btn-outline-secondary btn-sm" onclick="setPeriod(7)">7d</button>
-            <button class="btn btn-outline-secondary btn-sm" onclick="setPeriod(30)">30d</button>
-            <button class="btn btn-outline-secondary btn-sm" onclick="setPeriod(90)">90d</button>
+    <!-- Período -->
+    <div class="ms-period">
+        <span class="ms-period-label">Período:</span>
+        <div class="ms-presets">
+            <button class="btn btn-outline-secondary btn-sm" onclick="setPeriod(7)">7 dias</button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="setPeriod(30)">30 dias</button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="setPeriod(90)">3 meses</button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="setPeriod(180)">6 meses</button>
             <button class="btn btn-outline-secondary btn-sm" onclick="setPeriod(365)">1 ano</button>
         </div>
         <div class="d-flex align-items-center gap-2">
-            <input type="date" id="period-start" class="form-control form-control-sm" style="width:140px;" value="<?= escape($periodStart) ?>">
-            <span class="text-muted small">até</span>
-            <input type="date" id="period-end" class="form-control form-control-sm" style="width:140px;" value="<?= escape($periodEnd) ?>">
+            <input type="date" id="period-start" class="form-control form-control-sm" style="width:135px;" value="<?= escape($periodStart) ?>">
+            <span class="text-muted">—</span>
+            <input type="date" id="period-end" class="form-control form-control-sm" style="width:135px;" value="<?= escape($periodEnd) ?>">
         </div>
-        <select id="filter-network" class="form-select form-select-sm" style="width:155px;">
-            <option value="">Todas as redes</option>
-        </select>
-        <select id="filter-account" class="form-select form-select-sm" style="width:180px;">
-            <option value="">Todos os perfis</option>
-        </select>
-        <button class="btn btn-sm btn-primary" onclick="applyFilter()"><i class="bi bi-funnel"></i> Aplicar</button>
-        <button class="btn btn-sm btn-outline-secondary" onclick="clearFilter()"><i class="bi bi-x-lg"></i></button>
+        <button class="btn btn-sm btn-primary" onclick="applyFilter()"><i class="bi bi-check-lg"></i> Aplicar</button>
     </div>
 
-    <!-- Cards de resumo com comparação -->
-    <div class="summary-grid" id="summary-grid">
+    <!-- ==================== RESUMO GERAL ==================== -->
+    <div class="ms-summary" id="summary-cards">
         <?php
-        $summaryCards = [
-            ['sc-followers', 'Seguidores', $totalFollowers, 'bi-people-fill', '#0A66C2'],
-            ['sc-reactions', 'Curtidas', $totals['reactions'], 'bi-heart-fill', '#E1306C'],
-            ['sc-comments', 'Comentários', $totals['comments'], 'bi-chat-dots-fill', '#3f51b5'],
-            ['sc-views', 'Visualizações', $totals['views'], 'bi-eye-fill', '#00897b'],
-            ['sc-impressions', 'Impressões', $totals['impressions'], 'bi-bar-chart-fill', '#ff9800'],
-            ['sc-reach', 'Alcance', $totals['reach'], 'bi-broadcast', '#9c27b0'],
+        $cards = [
+            ['followers', 'Seguidores', $totalFollowers, 'bi-people-fill', '#0A66C2', '#0A66C2'],
+            ['reactions', 'Curtidas', $totals['reactions'], 'bi-heart-fill', '#E1306C', '#E1306C'],
+            ['comments', 'Comentários', $totals['comments'], 'bi-chat-dots-fill', '#3f51b5', '#3f51b5'],
+            ['views', 'Visualizações', $totals['views'], 'bi-play-circle-fill', '#00897b', '#00897b'],
+            ['impressions', 'Impressões', $totals['impressions'], 'bi-eye-fill', '#ff9800', '#ff9800'],
+            ['reach', 'Alcance', $totals['reach'], 'bi-megaphone-fill', '#9c27b0', '#9c27b0'],
         ];
-        foreach ($summaryCards as $sc):
+        foreach ($cards as $c):
         ?>
-        <div class="summary-card <?= $sc[0] ?>">
-            <div class="sc-icon" style="background: <?= $sc[4] ?>1a; color: <?= $sc[4] ?>;">
-                <i class="bi <?= $sc[3] ?>"></i>
+        <div class="ms-card" style="border-left-color: <?= $c[5] ?>;">
+            <div class="ms-card-icon" style="background: <?= $c[4] ?>15; color: <?= $c[4] ?>;">
+                <i class="bi <?= $c[3] ?>"></i>
             </div>
-            <div class="sc-value"><?= $fmt($sc[2]) ?></div>
-            <div class="sc-label"><?= $sc[1] ?></div>
-            <div class="sc-change neutral" data-metric="<?= str_replace('sc-', '', $sc[0]) ?>">
-                <i class="bi bi-dash"></i> —
-            </div>
-            <div class="sc-prev" data-metric-prev="<?= str_replace('sc-', '', $sc[0]) ?>"></div>
+            <div class="ms-card-value"><?= $fmt($c[2]) ?></div>
+            <div class="ms-card-label"><?= $c[1] ?></div>
+            <div class="ms-card-change neutral" data-metric="<?= $c[0] ?>"><i class="bi bi-dash"></i> —</div>
+            <div class="ms-card-prev" data-metric-prev="<?= $c[0] ?>">vs período anterior</div>
         </div>
         <?php endforeach; ?>
     </div>
 
-    <!-- Seguidores: crescimento consolidado -->
+    <!-- ==================== CRESCIMENTO DE SEGUIDORES ==================== -->
     <?php if ($totalFollowers > 0): ?>
-    <div class="followers-consolidated">
-        <div class="fc-header">
-            <i class="bi bi-graph-up-arrow" style="color: var(--primary); font-size: 1.2rem;"></i>
-            <h6>Crescimento de Seguidores (todas as contas)</h6>
-        </div>
-        <div class="fc-grid">
-            <div class="fc-item current">
-                <div class="fc-val"><?= $fmt($totalFollowers) ?></div>
-                <div class="fc-lbl">Total atual</div>
+    <div class="ms-growth">
+        <div class="ms-growth-title"><i class="bi bi-trending-up"></i> Como estamos crescendo</div>
+        <div class="ms-growth-grid">
+            <div class="ms-growth-item highlight">
+                <div class="ms-gi-val"><?= $fmt($totalFollowers) ?></div>
+                <div class="ms-gi-label">Seguidores hoje</div>
             </div>
             <?php
-            $growthLabels = ['7d' => '7 dias', '30d' => '30 dias', '90d' => '90 dias'];
-            foreach ($growthLabels as $gKey => $gLabel):
-                $diff = $followerGrowthAgg[$gKey];
-                $cls = $diff > 0 ? 'pos' : ($diff < 0 ? 'neg' : '');
-                $arrow = $diff > 0 ? '+' : '';
+            $glabels = ['7d' => 'Últimos 7 dias', '30d' => 'Últimos 30 dias', '90d' => 'Últimos 3 meses'];
+            foreach ($glabels as $gk => $gl):
+                $gv = $followerGrowthAgg[$gk];
+                $cls = $gv > 0 ? 'pos' : ($gv < 0 ? 'neg' : '');
+                $sign = $gv > 0 ? '+' : '';
             ?>
-            <div class="fc-item">
-                <div class="fc-diff <?= $cls ?>"><?= $arrow . $fmt($diff) ?></div>
-                <div class="fc-lbl"><?= $gLabel ?></div>
+            <div class="ms-growth-item">
+                <div class="ms-gi-diff <?= $cls ?>"><?= $sign . $fmt($gv) ?></div>
+                <div class="ms-gi-label"><?= $gl ?></div>
             </div>
             <?php endforeach; ?>
-            <?php
-            // Por conta individual
+
+            <?php // Breakdown por conta
             foreach ($socialAccounts as $sa):
-                $pm = $socialProviderMeta[$sa['provider']] ?? ['Rede', 'bi-globe', '#607d8b'];
-                $gData = $socialFollowersGrowth[$sa['id']] ?? null;
-                if (!$gData || $gData['current'] === null) continue;
+                $pi = $providerInfo[$sa['provider']] ?? ['Rede', 'bi-globe', '#607d8b'];
+                $gd = $socialFollowersGrowth[$sa['id']] ?? null;
+                if (!$gd || $gd['current'] === null) continue;
+                $d30 = $gd['30d']['diff'] ?? null;
             ?>
-            <div class="fc-item">
-                <div class="fc-val" style="font-size:1rem;"><?= $fmt($gData['current']) ?></div>
-                <?php if (isset($gData['30d']['diff']) && $gData['30d']['diff'] !== null):
-                    $d30 = $gData['30d']['diff'];
-                ?>
-                <div class="fc-diff <?= $d30 >= 0 ? 'pos' : 'neg' ?>"><?= ($d30 >= 0 ? '+' : '') . $fmt($d30) ?></div>
+            <div class="ms-growth-item">
+                <div class="ms-gi-val" style="font-size:1rem;"><?= $fmt($gd['current']) ?></div>
+                <?php if ($d30 !== null): ?>
+                <div class="ms-gi-diff <?= $d30 >= 0 ? 'pos' : 'neg' ?>"><?= ($d30 >= 0 ? '+' : '') . $fmt($d30) ?></div>
                 <?php endif; ?>
-                <div class="fc-lbl"><i class="bi <?= $pm[1] ?>" style="color:<?= $pm[2] ?>;"></i> <?= escape($sa['display_name'] ?: $sa['external_id']) ?></div>
+                <div class="ms-gi-label"><i class="bi <?= $pi[1] ?>" style="color:<?= $pi[2] ?>;"></i> <?= escape($sa['display_name'] ?: '') ?></div>
             </div>
             <?php endforeach; ?>
         </div>
     </div>
     <?php endif; ?>
 
-    <!-- Gráfico + Top Posts -->
-    <div class="chart-section">
-        <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
-            <select id="metric-filter" class="form-select form-select-sm" style="max-width:200px;" onchange="loadMetric()">
-                <option value="reactions">Curtidas / Reações</option>
-                <option value="comments">Comentários</option>
-                <option value="views">Visualizações</option>
-                <option value="impressions">Impressões</option>
-                <option value="reach">Alcance</option>
-                <option value="engagementRate">Taxa de engajamento</option>
-                <option value="shares">Compartilhamentos</option>
-                <option value="saves">Salvamentos</option>
-            </select>
-            <select id="post-filter" class="form-select form-select-sm" style="max-width:300px;" onchange="loadMetric()">
-                <option value="">Todas as publicações</option>
-                <?php foreach ($posts as $p): ?>
-                <option value="<?= escape($p['buffer_post_id']) ?>"><?= escape(mb_strimwidth($p['text'] ?: '(sem texto)', 0, 55, '...')) ?></option>
-                <?php endforeach; ?>
-            </select>
-        </div>
+    <!-- ==================== DESEMPENHO DOS POSTS ==================== -->
+    <div class="ms-chart-section">
         <div class="row g-3">
             <div class="col-lg-7">
-                <div class="chart-card">
-                    <div class="card-header"><h6><i class="bi bi-activity"></i> Variação ao longo do tempo</h6></div>
-                    <div class="card-body" style="padding:16px;">
-                        <div style="position:relative;height:280px;">
+                <div class="ms-chart-box">
+                    <div class="ms-chart-header">
+                        <h6><i class="bi bi-activity"></i> Desempenho ao longo do tempo</h6>
+                        <select id="metric-filter" class="form-select form-select-sm" style="width:180px;" onchange="loadMetric()">
+                            <option value="reactions">Curtidas</option>
+                            <option value="comments">Comentários</option>
+                            <option value="views">Visualizações</option>
+                            <option value="impressions">Impressões</option>
+                            <option value="reach">Alcance</option>
+                            <option value="engagementRate">Engajamento %</option>
+                            <option value="shares">Compartilhamentos</option>
+                        </select>
+                    </div>
+                    <div class="ms-chart-body">
+                        <div style="position:relative;height:260px;">
                             <canvas id="lineChart"></canvas>
                         </div>
                     </div>
                 </div>
             </div>
             <div class="col-lg-5">
-                <div class="top-card">
-                    <div class="card-header"><h6><i class="bi bi-trophy"></i> Top posts por desempenho</h6></div>
-                    <div id="top-posts" style="max-height:320px;overflow-y:auto;">
+                <div class="ms-top-box">
+                    <div class="ms-top-header">
+                        <h6><i class="bi bi-trophy"></i> Melhores publicações</h6>
+                    </div>
+                    <div class="ms-top-list" id="top-posts">
                         <div class="text-muted small text-center py-4">Carregando...</div>
                     </div>
                 </div>
@@ -328,116 +289,102 @@ $socialProviderMeta = [
         </div>
     </div>
 
-    <!-- Contas conectadas (Buffer + Diretas unificado) -->
-    <div class="accounts-section">
-        <div class="accounts-section-head">
-            <h6><i class="bi bi-share"></i> Todas as contas conectadas</h6>
-            <span class="text-muted small"><?= count($channels) + count($socialAccounts) ?> conta(s)</span>
-        </div>
-        <div class="accounts-table">
+    <!-- ==================== NOSSAS REDES ==================== -->
+    <div class="ms-accounts">
+        <div class="ms-accounts-title"><i class="bi bi-globe2"></i> Nossas redes</div>
+        <div class="ms-accounts-grid">
             <?php
-            // === Buffer channels ===
-            foreach ($channels as $ch):
-                $svc = strtolower($ch['service'] ?? '');
-                $meta = $serviceMeta[$svc] ?? ['Outro', 'bi-globe', '#607d8b'];
-                $connected = empty($ch['is_disconnected']);
-                $cm = $channelMetrics[$ch['channel_id']] ?? [];
-                $getM = function($t) use ($cm) { return isset($cm[$t]) ? (float)$cm[$t]['metric_value'] : 0; };
-                $hasMetrics = $getM('postCount') > 0 || $getM('reactions') > 0 || $getM('impressions') > 0;
+            // ===== Contas diretas PRIMEIRO (prioridade API) =====
+            foreach ($socialAccounts as $acc):
+                $pi = $providerInfo[$acc['provider']] ?? ['Rede', 'bi-globe', '#607d8b'];
+                $svAcc = fn($k) => ($acc[$k] !== null && $acc[$k] !== '') ? (float)$acc[$k] : 0;
+                $accPosts = $socialPostsByAccount[$acc['id']] ?? [];
             ?>
-            <div class="account-row" data-network="<?= escape($svc) ?>" data-source="buffer">
-                <div class="ar-identity">
-                    <div class="ar-avatar" style="background: <?= $meta[2] ?>1a; color: <?= $meta[2] ?>;">
-                        <?php if (!empty($ch['avatar'])): ?>
-                        <img src="<?= escape($ch['avatar']) ?>" alt="">
-                        <?php else: ?><i class="bi <?= $meta[1] ?>"></i><?php endif; ?>
-                        <span class="ar-badge" style="background: <?= $meta[2] ?>;"><i class="bi <?= $meta[1] ?>"></i></span>
+            <div class="ms-acc-card">
+                <div class="ms-acc-header">
+                    <div class="ms-acc-avatar" style="background: <?= $pi[2] ?>15; color: <?= $pi[2] ?>;">
+                        <?php if (!empty($acc['avatar'])): ?>
+                        <img src="<?= escape($acc['avatar']) ?>" alt="">
+                        <?php else: ?><i class="bi <?= $pi[1] ?>"></i><?php endif; ?>
+                        <span class="ms-acc-network" style="background: <?= $pi[2] ?>;"><i class="bi <?= $pi[1] ?>"></i></span>
                     </div>
-                    <div class="ar-info">
-                        <div class="ar-name"><?= escape($ch['name']) ?></div>
-                        <div class="ar-sub"><?php if (!empty($ch['username'])): ?>@<?= escape($ch['username']) ?><?php else: ?><?= $meta[0] ?><?php endif; ?></div>
+                    <div>
+                        <div class="ms-acc-name"><?= escape($acc['display_name'] ?: $acc['external_id']) ?></div>
+                        <div class="ms-acc-handle">
+                            <i class="bi <?= $pi[1] ?>" style="color:<?= $pi[2] ?>;"></i>
+                            <?php if (!empty($acc['username'])): ?>@<?= escape($acc['username']) ?><?php else: ?><?= $pi[0] ?><?php endif; ?>
+                        </div>
                     </div>
                 </div>
-                <div class="ar-metrics">
-                    <div class="ar-metric"><span class="ar-mval"><?= $fmt($getM('postCount')) ?></span><span class="ar-mlbl">Posts</span></div>
-                    <div class="ar-metric"><span class="ar-mval"><?= $fmt($getM('reactions')) ?></span><span class="ar-mlbl">Curtidas</span></div>
-                    <div class="ar-metric"><span class="ar-mval"><?= $fmt($getM('comments')) ?></span><span class="ar-mlbl">Coment.</span></div>
-                    <div class="ar-metric"><span class="ar-mval"><?= $fmt($getM('shares')) ?></span><span class="ar-mlbl">Compart.</span></div>
-                    <div class="ar-metric"><span class="ar-mval"><?= $fmt($getM('impressions')) ?></span><span class="ar-mlbl">Impressões</span></div>
-                    <div class="ar-metric"><span class="ar-mval"><?= $fmt($getM('reach')) ?></span><span class="ar-mlbl">Alcance</span></div>
-                    <div class="ar-metric"><span class="ar-mval"><?= $fmt($getM('views')) ?></span><span class="ar-mlbl">Visualiz.</span></div>
-                    <div class="ar-metric"><span class="ar-mval"><?= $fmt($getM('saves')) ?></span><span class="ar-mlbl">Salvos</span></div>
-                    <div class="ar-metric"><span class="ar-mval"><?= number_format($getM('engagementRate'), 1, ',', '.') ?>%</span><span class="ar-mlbl">Engaj.</span></div>
+                <div class="ms-acc-metrics">
+                    <div class="ms-acc-metric"><div class="ms-am-val"><?= $fmt($svAcc('followers')) ?></div><div class="ms-am-lbl">Seguidores</div></div>
+                    <?php if ($acc['provider'] === 'meta_instagram'): ?>
+                    <div class="ms-acc-metric"><div class="ms-am-val"><?= $fmt($svAcc('follows')) ?></div><div class="ms-am-lbl">Seguindo</div></div>
+                    <div class="ms-acc-metric"><div class="ms-am-val"><?= $fmt($svAcc('media_count')) ?></div><div class="ms-am-lbl">Posts</div></div>
+                    <div class="ms-acc-metric"><div class="ms-am-val"><?= $fmt($svAcc('reach')) ?></div><div class="ms-am-lbl">Alcance</div></div>
+                    <div class="ms-acc-metric"><div class="ms-am-val"><?= $fmt($svAcc('impressions')) ?></div><div class="ms-am-lbl">Impressões</div></div>
+                    <div class="ms-acc-metric"><div class="ms-am-val"><?= $fmt($svAcc('profile_views')) ?></div><div class="ms-am-lbl">Visitas</div></div>
+                    <?php endif; ?>
+                    <div class="ms-acc-metric"><div class="ms-am-val"><?= $fmt($svAcc('total_likes')) ?></div><div class="ms-am-lbl">Curtidas</div></div>
+                    <div class="ms-acc-metric"><div class="ms-am-val"><?= $fmt($svAcc('total_comments')) ?></div><div class="ms-am-lbl">Comentários</div></div>
+                    <div class="ms-acc-metric"><div class="ms-am-val"><?= $fmt($svAcc('total_shares')) ?></div><div class="ms-am-lbl">Compart.</div></div>
+                    <div class="ms-acc-metric"><div class="ms-am-val"><?= number_format($svAcc('engagement_rate'), 1, ',', '.') ?>%</div><div class="ms-am-lbl">Engaj.</div></div>
                 </div>
-                <div class="ar-source"><span class="badge-source buffer">Buffer</span></div>
+                <?php if (!empty($accPosts)): ?>
+                <div class="ms-acc-posts">
+                    <?php foreach (array_slice($accPosts, 0, 8) as $p): ?>
+                    <a class="ms-acc-post-thumb" <?= !empty($p['permalink']) ? 'href="' . escape($p['permalink']) . '" target="_blank"' : '' ?>>
+                        <?php if (!empty($p['thumbnail'])): ?><img src="<?= escape($p['thumbnail']) ?>" alt=""><?php endif; ?>
+                    </a>
+                    <?php endforeach; ?>
+                </div>
+                <?php endif; ?>
             </div>
             <?php endforeach; ?>
 
             <?php
-            // === Contas diretas (Meta / LinkedIn) ===
-            foreach ($socialAccounts as $acc):
-                $pm = $socialProviderMeta[$acc['provider']] ?? ['Rede', 'bi-globe', '#607d8b'];
-                $netKey = ['meta_instagram' => 'instagram', 'facebook_page' => 'facebook', 'linkedin_org' => 'linkedin'][$acc['provider']] ?? $acc['provider'];
-                $svAcc = fn($k) => ($acc[$k] !== null && $acc[$k] !== '') ? (float)$acc[$k] : 0;
-                $accPosts = $socialPostsByAccount[$acc['id']] ?? [];
+            // ===== Canais Buffer (só os que não são duplicados) =====
+            foreach ($channels as $ch):
+                $svc = strtolower($ch['service'] ?? '');
+                $ni = $networkInfo[$svc] ?? ['Outro', 'bi-globe', '#607d8b'];
+                $cm = $channelMetrics[$ch['channel_id']] ?? [];
+                $getM = function($t) use ($cm) { return isset($cm[$t]) ? (float)$cm[$t]['metric_value'] : 0; };
             ?>
-            <div class="account-row" data-network="<?= escape($netKey) ?>" data-source="direct">
-                <div class="ar-identity">
-                    <div class="ar-avatar" style="background: <?= $pm[2] ?>1a; color: <?= $pm[2] ?>;">
-                        <?php if (!empty($acc['avatar'])): ?>
-                        <img src="<?= escape($acc['avatar']) ?>" alt="">
-                        <?php else: ?><i class="bi <?= $pm[1] ?>"></i><?php endif; ?>
-                        <span class="ar-badge" style="background: <?= $pm[2] ?>;"><i class="bi <?= $pm[1] ?>"></i></span>
+            <div class="ms-acc-card">
+                <div class="ms-acc-header">
+                    <div class="ms-acc-avatar" style="background: <?= $ni[2] ?>15; color: <?= $ni[2] ?>;">
+                        <?php if (!empty($ch['avatar'])): ?>
+                        <img src="<?= escape($ch['avatar']) ?>" alt="">
+                        <?php else: ?><i class="bi <?= $ni[1] ?>"></i><?php endif; ?>
+                        <span class="ms-acc-network" style="background: <?= $ni[2] ?>;"><i class="bi <?= $ni[1] ?>"></i></span>
                     </div>
-                    <div class="ar-info">
-                        <div class="ar-name"><?= escape($acc['display_name'] ?: $acc['external_id']) ?></div>
-                        <div class="ar-sub"><?php if (!empty($acc['username'])): ?>@<?= escape($acc['username']) ?><?php else: ?><?= $pm[0] ?><?php endif; ?></div>
+                    <div>
+                        <div class="ms-acc-name"><?= escape($ch['name']) ?></div>
+                        <div class="ms-acc-handle">
+                            <i class="bi <?= $ni[1] ?>" style="color:<?= $ni[2] ?>;"></i>
+                            <?php if (!empty($ch['username'])): ?>@<?= escape($ch['username']) ?><?php else: ?><?= $ni[0] ?><?php endif; ?>
+                        </div>
                     </div>
                 </div>
-                <div class="ar-metrics">
-                    <div class="ar-metric"><span class="ar-mval"><?= $fmt($svAcc('followers')) ?></span><span class="ar-mlbl">Seguidores</span></div>
-                    <?php if ($acc['provider'] === 'meta_instagram'): ?>
-                    <div class="ar-metric"><span class="ar-mval"><?= $fmt($svAcc('follows')) ?></span><span class="ar-mlbl">Seguindo</span></div>
-                    <div class="ar-metric"><span class="ar-mval"><?= $fmt($svAcc('media_count')) ?></span><span class="ar-mlbl">Publicações</span></div>
-                    <?php endif; ?>
-                    <div class="ar-metric"><span class="ar-mval"><?= $fmt($svAcc('total_likes')) ?></span><span class="ar-mlbl">Curtidas</span></div>
-                    <div class="ar-metric"><span class="ar-mval"><?= $fmt($svAcc('total_comments')) ?></span><span class="ar-mlbl">Coment.</span></div>
-                    <div class="ar-metric"><span class="ar-mval"><?= $fmt($svAcc('total_shares')) ?></span><span class="ar-mlbl">Compart.</span></div>
-                    <?php if ($acc['provider'] === 'meta_instagram'): ?>
-                    <div class="ar-metric"><span class="ar-mval"><?= $fmt($svAcc('reach')) ?></span><span class="ar-mlbl">Alcance</span></div>
-                    <div class="ar-metric"><span class="ar-mval"><?= $fmt($svAcc('impressions')) ?></span><span class="ar-mlbl">Impressões</span></div>
-                    <div class="ar-metric"><span class="ar-mval"><?= $fmt($svAcc('profile_views')) ?></span><span class="ar-mlbl">Visitas perfil</span></div>
-                    <?php else: ?>
-                    <div class="ar-metric"><span class="ar-mval"><?= $fmt($svAcc('impressions')) ?></span><span class="ar-mlbl">Impressões</span></div>
-                    <?php endif; ?>
-                    <div class="ar-metric"><span class="ar-mval"><?= number_format($svAcc('engagement_rate'), 1, ',', '.') ?>%</span><span class="ar-mlbl">Engaj.</span></div>
+                <div class="ms-acc-metrics">
+                    <div class="ms-acc-metric"><div class="ms-am-val"><?= $fmt($getM('postCount')) ?></div><div class="ms-am-lbl">Posts</div></div>
+                    <div class="ms-acc-metric"><div class="ms-am-val"><?= $fmt($getM('reactions')) ?></div><div class="ms-am-lbl">Curtidas</div></div>
+                    <div class="ms-acc-metric"><div class="ms-am-val"><?= $fmt($getM('comments')) ?></div><div class="ms-am-lbl">Comentários</div></div>
+                    <div class="ms-acc-metric"><div class="ms-am-val"><?= $fmt($getM('shares')) ?></div><div class="ms-am-lbl">Compart.</div></div>
+                    <div class="ms-acc-metric"><div class="ms-am-val"><?= $fmt($getM('impressions')) ?></div><div class="ms-am-lbl">Impressões</div></div>
+                    <div class="ms-acc-metric"><div class="ms-am-val"><?= $fmt($getM('reach')) ?></div><div class="ms-am-lbl">Alcance</div></div>
+                    <div class="ms-acc-metric"><div class="ms-am-val"><?= $fmt($getM('views')) ?></div><div class="ms-am-lbl">Visualiz.</div></div>
+                    <div class="ms-acc-metric"><div class="ms-am-val"><?= number_format($getM('engagementRate'), 1, ',', '.') ?>%</div><div class="ms-am-lbl">Engaj.</div></div>
                 </div>
-                <div class="ar-source"><span class="badge-source direct" style="color: <?= $pm[2] ?>; background: <?= $pm[2] ?>1a;">API</span></div>
             </div>
-            <?php if (!empty($accPosts)): ?>
-            <div class="account-posts-row">
-                <?php foreach (array_slice($accPosts, 0, 8) as $p): ?>
-                <a class="sp-mini" <?= $p['permalink'] ? 'href="' . escape($p['permalink']) . '" target="_blank" rel="noopener"' : '' ?>>
-                    <?php if (!empty($p['thumbnail'])): ?>
-                    <img src="<?= escape($p['thumbnail']) ?>" alt="" onerror="this.parentNode.style.display='none'">
-                    <?php else: ?>
-                    <i class="bi bi-image"></i>
-                    <?php endif; ?>
-                    <div class="sp-mini-stats">
-                        <span><i class="bi bi-heart-fill"></i> <?= $fmt($p['likes'] ?? 0) ?></span>
-                        <span><i class="bi bi-chat-fill"></i> <?= $fmt($p['comments'] ?? 0) ?></span>
-                    </div>
-                </a>
-                <?php endforeach; ?>
-            </div>
-            <?php endif; ?>
             <?php endforeach; ?>
         </div>
     </div>
 
     <?php if (empty($channels) && empty($socialAccounts)): ?>
-    <div class="alert alert-light border small text-center">
-        Nenhuma conta conectada. Use os botões acima para conectar Buffer, Meta ou LinkedIn.
+    <div class="alert alert-light border small text-center py-4">
+        <i class="bi bi-plug"></i> Nenhuma rede social conectada ainda.
+        <?php if ($isAdmin): ?>Acesse <a href="<?= baseUrl('settings') ?>">Configurações</a> para conectar suas redes.<?php endif; ?>
     </div>
     <?php endif; ?>
 </div>
@@ -448,71 +395,46 @@ $socialProviderMeta = [
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script>
 const BASE = '<?= baseUrl("") ?>';
-const ACTIVE_NETWORK = '<?= escape($filterNetwork ?? '') ?>';
-const ACTIVE_ACCOUNT = '<?= escape($filterAccount ?? '') ?>';
 let lineChart = null;
 
-const METRIC_LABELS = {
-    reactions: 'Curtidas / Reações', comments: 'Comentários', views: 'Visualizações',
-    impressions: 'Impressões', reach: 'Alcance', engagementRate: 'Taxa de engajamento (%)',
-    shares: 'Compartilhamentos', saves: 'Salvamentos'
-};
-
-// ===== Período presets =====
+// ===== Período =====
 function setPeriod(days) {
     const end = new Date();
     const start = new Date();
     start.setDate(end.getDate() - days);
-    document.getElementById('period-start').value = start.toISOString().slice(0, 10);
-    document.getElementById('period-end').value = end.toISOString().slice(0, 10);
+    document.getElementById('period-start').value = start.toISOString().slice(0,10);
+    document.getElementById('period-end').value = end.toISOString().slice(0,10);
     applyFilter();
 }
 
-// ===== Filtros =====
 function applyFilter() {
-    const params = new URLSearchParams();
-    const start = document.getElementById('period-start').value;
-    const end = document.getElementById('period-end').value;
-    const net = document.getElementById('filter-network').value;
-    const acc = document.getElementById('filter-account').value;
-    if (start) params.set('start', start);
-    if (end) params.set('end', end);
-    if (net) params.set('network', net);
-    if (acc) params.set('account', acc);
-    window.location = BASE + 'buffer/dashboard?' + params.toString();
+    const p = new URLSearchParams();
+    const s = document.getElementById('period-start').value;
+    const e = document.getElementById('period-end').value;
+    if (s) p.set('start', s);
+    if (e) p.set('end', e);
+    window.location = BASE + 'buffer/dashboard?' + p.toString();
 }
 
-function clearFilter() {
-    window.location = BASE + 'buffer/dashboard';
-}
-
-// ===== Comparação (carrega via AJAX) =====
+// ===== Comparação =====
 function loadComparison() {
-    const start = document.getElementById('period-start').value;
-    const end = document.getElementById('period-end').value;
-    const params = new URLSearchParams({ start, end });
-    if (ACTIVE_NETWORK) params.set('network', ACTIVE_NETWORK);
-    if (ACTIVE_ACCOUNT) params.set('account', ACTIVE_ACCOUNT);
-
-    fetch(BASE + 'buffer/comparison?' + params.toString())
+    const s = document.getElementById('period-start').value;
+    const e = document.getElementById('period-end').value;
+    fetch(BASE + 'buffer/comparison?start=' + s + '&end=' + e)
         .then(r => r.json())
         .then(data => {
             if (!data.comparison) return;
-            const c = data.comparison;
-            Object.keys(c).forEach(metric => {
-                const el = document.querySelector(`[data-metric="${metric}"]`);
-                const prevEl = document.querySelector(`[data-metric-prev="${metric}"]`);
+            Object.keys(data.comparison).forEach(m => {
+                const el = document.querySelector('[data-metric="' + m + '"]');
+                const prevEl = document.querySelector('[data-metric-prev="' + m + '"]');
                 if (!el) return;
-                const d = c[metric];
-                const isPos = d.pct >= 0;
-                const cls = d.pct > 0 ? 'positive' : (d.pct < 0 ? 'negative' : 'neutral');
+                const d = data.comparison[m];
+                const cls = d.pct > 0 ? 'up' : (d.pct < 0 ? 'down' : 'neutral');
                 const arrow = d.pct > 0 ? 'bi-arrow-up-short' : (d.pct < 0 ? 'bi-arrow-down-short' : 'bi-dash');
                 const sign = d.pct >= 0 ? '+' : '';
-                el.className = 'sc-change ' + cls;
-                el.innerHTML = `<i class="bi ${arrow}"></i> ${sign}${d.pct.toFixed(1)}%`;
-                if (prevEl) {
-                    prevEl.textContent = `Anterior: ${Math.round(d.previous).toLocaleString('pt-BR')}`;
-                }
+                el.className = 'ms-card-change ' + cls;
+                el.innerHTML = '<i class="bi ' + arrow + '"></i> ' + sign + d.pct.toFixed(1) + '%';
+                if (prevEl) prevEl.textContent = 'Antes: ' + Math.round(d.previous).toLocaleString('pt-BR');
             });
         }).catch(() => {});
 }
@@ -520,133 +442,68 @@ function loadComparison() {
 // ===== Gráfico =====
 function loadMetric() {
     const metric = document.getElementById('metric-filter').value;
-    const start = document.getElementById('period-start').value;
-    const end = document.getElementById('period-end').value;
-    const params = new URLSearchParams({ metric });
-    if (start) params.set('start', start);
-    if (end) params.set('end', end);
-    if (ACTIVE_NETWORK) params.set('network', ACTIVE_NETWORK);
-    if (ACTIVE_ACCOUNT) params.set('account', ACTIVE_ACCOUNT);
-    fetch(BASE + 'buffer/metrics?' + params.toString())
+    const s = document.getElementById('period-start').value;
+    const e = document.getElementById('period-end').value;
+    fetch(BASE + 'buffer/metrics?metric=' + metric + '&start=' + s + '&end=' + e)
         .then(r => r.json())
         .then(data => {
-            renderLine(data.timeline || [], metric);
-            renderTop(data.top || [], metric);
+            renderChart(data.timeline || [], metric);
+            renderTop(data.top || []);
         });
 }
 
-function renderLine(timeline, metric) {
+function renderChart(timeline, metric) {
     const labels = timeline.map(t => {
-        const raw = t.moment || t.day;
-        const d = new Date((raw || '').replace(' ', 'T'));
-        return isNaN(d) ? (raw || '') : d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+        const d = new Date(((t.moment||t.day)||'').replace(' ','T'));
+        return isNaN(d) ? '' : d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
     });
     const values = timeline.map(t => parseFloat(t.total));
     if (lineChart) lineChart.destroy();
-    const canvas = document.getElementById('lineChart');
-    const ctx = canvas.getContext('2d');
-    const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height || 280);
-    gradient.addColorStop(0, 'rgba(0,191,166,0.22)');
-    gradient.addColorStop(1, 'rgba(0,191,166,0.01)');
+    const ctx = document.getElementById('lineChart').getContext('2d');
+    const grad = ctx.createLinearGradient(0,0,0,260);
+    grad.addColorStop(0,'rgba(0,191,166,0.18)');
+    grad.addColorStop(1,'rgba(0,191,166,0)');
 
-    lineChart = new Chart(canvas, {
+    lineChart = new Chart(document.getElementById('lineChart'), {
         type: 'line',
-        data: {
-            labels,
-            datasets: [{
-                label: METRIC_LABELS[metric] || metric,
-                data: values,
-                borderColor: '#00BFA6',
-                borderWidth: 2.5,
-                backgroundColor: gradient,
-                fill: true,
-                cubicInterpolationMode: 'monotone',
-                tension: 0.4,
-                pointRadius: 0,
-                pointHoverRadius: 5,
-                pointHoverBackgroundColor: '#00BFA6',
-                pointHoverBorderColor: '#fff',
-                pointHoverBorderWidth: 2,
-            }]
-        },
+        data: { labels, datasets: [{ data: values, borderColor:'#00BFA6', borderWidth:2.5, backgroundColor:grad, fill:true, tension:0.4, pointRadius:0, pointHoverRadius:5, pointHoverBackgroundColor:'#00BFA6' }] },
         options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            interaction: { mode: 'index', intersect: false },
-            plugins: { legend: { display: false }, tooltip: { backgroundColor: '#1a1a2e', padding: 10, displayColors: false } },
-            scales: {
-                y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.04)' }, ticks: { color: '#9aa4ae', font: { size: 11 } } },
-                x: { grid: { display: false }, ticks: { color: '#9aa4ae', font: { size: 10 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 10 } }
+            responsive:true, maintainAspectRatio:false,
+            interaction:{mode:'index',intersect:false},
+            plugins:{legend:{display:false},tooltip:{backgroundColor:'#1a1a2e',padding:10,displayColors:false}},
+            scales:{
+                y:{beginAtZero:true,grid:{color:'rgba(0,0,0,0.04)'},ticks:{color:'#9aa',font:{size:11}}},
+                x:{grid:{display:false},ticks:{color:'#9aa',font:{size:10},maxRotation:0,autoSkip:true,maxTicksLimit:10}}
             }
         }
     });
 }
 
-function renderTop(top, metric) {
+function renderTop(top) {
     const box = document.getElementById('top-posts');
-    if (!top.length) { box.innerHTML = '<div class="text-muted small text-center py-4">Sem dados no período.</div>'; return; }
-    box.innerHTML = top.slice(0, 10).map((p, i) => {
-        const val = p.metric_unit === 'percentage' ? (parseFloat(p.metric_value).toFixed(1) + '%') : Math.round(p.metric_value).toLocaleString('pt-BR');
-        const txt = (p.text || '(sem texto)').slice(0, 70);
-        const link = p.external_link ? `href="${p.external_link}" target="_blank"` : '';
-        const cover = p.thumbnail
-            ? `<img src="${p.thumbnail}" class="top-post-cover" alt="" onerror="this.parentNode.innerHTML='<div class=\\'top-post-cover\\' style=\\'display:flex;align-items:center;justify-content:center;color:#bbb;\\'><i class=\\'bi bi-image\\'></i></div>'">`
-            : `<div class="top-post-cover" style="display:flex;align-items:center;justify-content:center;color:#bbb;"><i class="bi bi-image"></i></div>`;
-        return `<a ${link} class="top-post-item">
-            ${cover}
-            <div class="top-post-info">
-                <div class="top-post-text">${i + 1}. ${escHtml(txt)}</div>
-                <div class="top-post-meta">${p.service || ''} &middot; ${val}</div>
-            </div>
-            <span class="badge bg-primary rounded-pill" style="font-size:0.72rem;">${val}</span>
-        </a>`;
+    if (!top.length) { box.innerHTML = '<div class="text-muted small text-center py-4">Sem dados nesse período.</div>'; return; }
+    box.innerHTML = top.slice(0,10).map((p,i) => {
+        const val = p.metric_unit==='percentage' ? parseFloat(p.metric_value).toFixed(1)+'%' : Math.round(p.metric_value).toLocaleString('pt-BR');
+        const txt = (p.text||'(sem texto)').slice(0,65);
+        const link = p.external_link ? 'href="'+p.external_link+'" target="_blank"' : '';
+        const thumb = p.thumbnail ? '<img src="'+p.thumbnail+'" alt="">' : '<i class="bi bi-image"></i>';
+        return '<a '+link+' class="ms-top-item"><div class="ms-top-thumb">'+thumb+'</div><div class="ms-top-info"><div class="ms-top-text">'+(i+1)+'. '+esc(txt)+'</div><div class="ms-top-meta">'+(p.service||'')+'</div></div><span class="ms-top-badge">'+val+'</span></a>';
     }).join('');
 }
 
-// ===== Ações =====
-function syncChannels(btn) {
-    const o = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
-    fetch(BASE + 'buffer/syncChannels', { method: 'POST', headers: {'X-Requested-With':'XMLHttpRequest'} })
-        .then(r => r.json()).then(d => { btn.disabled = false; btn.innerHTML = o; if (d.error) { alert(d.error); return; } location.reload(); })
-        .catch(() => { btn.disabled = false; btn.innerHTML = o; });
-}
+function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
 
-function syncMetrics(btn) {
-    const o = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Atualizando...';
-    const fd = new FormData();
-    fd.append('start', document.getElementById('period-start').value);
-    fd.append('end', document.getElementById('period-end').value);
-    fetch(BASE + 'buffer/syncMetrics', { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
-        .then(r => r.json()).then(d => { btn.disabled = false; btn.innerHTML = o; if (d.error) { alert(d.error); return; } location.reload(); })
-        .catch(() => { btn.disabled = false; btn.innerHTML = o; });
+// ===== Ações admin =====
+function syncChannels(b){act(b,'buffer/syncChannels');}
+function syncMetrics(b){
+    const fd=new FormData();fd.append('start',document.getElementById('period-start').value);fd.append('end',document.getElementById('period-end').value);
+    const o=b.innerHTML;b.disabled=true;b.innerHTML='<span class="spinner-border spinner-border-sm"></span>';
+    fetch(BASE+'buffer/syncMetrics',{method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest'}}).then(r=>r.json()).then(()=>{b.disabled=false;b.innerHTML=o;location.reload();}).catch(()=>{b.disabled=false;b.innerHTML=o;});
 }
-
-function escHtml(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
-
-// ===== Filtros de rede (client-side) =====
-function buildFilters() {
-    const cards = document.querySelectorAll('.account-card');
-    const nets = new Set();
-    const accs = new Set();
-    cards.forEach(el => {
-        if (el.dataset.network) nets.add(el.dataset.network);
-    });
-    const netSel = document.getElementById('filter-network');
-    nets.forEach(n => {
-        const opt = document.createElement('option');
-        opt.value = n;
-        opt.textContent = n.charAt(0).toUpperCase() + n.slice(1);
-        if (n === ACTIVE_NETWORK) opt.selected = true;
-        netSel.appendChild(opt);
-    });
-}
+function act(b,url){const o=b.innerHTML;b.disabled=true;b.innerHTML='<span class="spinner-border spinner-border-sm"></span>';fetch(BASE+url,{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}}).then(r=>r.json()).then(()=>{b.disabled=false;b.innerHTML=o;location.reload();}).catch(()=>{b.disabled=false;b.innerHTML=o;});}
 
 // ===== Init =====
-document.addEventListener('DOMContentLoaded', () => {
-    loadMetric();
-    loadComparison();
-    buildFilters();
-});
+document.addEventListener('DOMContentLoaded', () => { loadMetric(); loadComparison(); });
 </script>
 
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>
