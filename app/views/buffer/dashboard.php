@@ -272,6 +272,18 @@ $networkInfo = [
 .ms-net-post img { width: 100%; height: 100%; object-fit: cover; }
 
 /* Delete button */
+.ms-net-delete {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    padding: 4px 8px;
+    font-size: 0.72rem;
+    border-radius: 8px;
+    opacity: 0.5;
+    transition: opacity .2s;
+}
+.ms-net-delete:hover { opacity: 1; }
+
 /* Alert bar */
 .ms-alert-bar { background: #fffbeb; border: 1px solid #fde68a; border-radius: 12px; padding: 14px 20px; margin-bottom: 20px; display: flex; align-items: center; gap: 12px; font-size: 0.85rem; }
 .ms-alert-bar i { color: #d97706; font-size: 1.3rem; }
@@ -443,7 +455,10 @@ $networkInfo = [
                 $svAcc = fn($k) => ($acc[$k] !== null && $acc[$k] !== '') ? (float)$acc[$k] : 0;
                 $accPosts = $socialPostsByAccount[$acc['id']] ?? [];
             ?>
-            <div class="ms-net-card">
+            <div class="ms-net-card" style="position:relative;">
+                <?php if ($isAdmin): ?>
+                <button class="btn btn-sm btn-outline-danger ms-net-delete" onclick="deleteSocialAccount(<?= $acc['id'] ?>,'<?= escape($acc['display_name'] ?: $acc['external_id']) ?>')"><i class="bi bi-trash"></i></button>
+                <?php endif; ?>
                 <div class="ms-net-head">
                     <div class="ms-net-avatar" style="background: <?= $pi[2] ?>12; color: <?= $pi[2] ?>;">
                         <?php if (!empty($acc['avatar'])): ?><img src="<?= escape($acc['avatar']) ?>" alt=""><?php else: ?><i class="bi <?= $pi[1] ?>"></i><?php endif; ?>
@@ -659,9 +674,28 @@ function esc(s){const d=document.createElement('div');d.textContent=s;return d.i
 
 // Admin actions
 function syncChannels(b){act(b,'buffer/syncChannels');}
-function syncMetrics(b){const fd=new FormData();fd.append('start',document.getElementById('period-start').value);fd.append('end',document.getElementById('period-end').value);const o=b.innerHTML;b.disabled=true;b.innerHTML='<span class="spinner-border spinner-border-sm"></span> Atualizando...';fetch(BASE+'buffer/syncMetrics',{method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest'}}).then(r=>r.json()).then(()=>{location.reload();}).catch(()=>{b.disabled=false;b.innerHTML=o;});}
+function syncMetrics(b){
+    const fd=new FormData();
+    fd.append('start',document.getElementById('period-start').value);
+    fd.append('end',document.getElementById('period-end').value);
+    const o=b.innerHTML;
+    b.disabled=true;
+    b.innerHTML='<span class="spinner-border spinner-border-sm"></span> Atualizando...';
+    // Sincroniza Buffer + contas diretas (Meta/LinkedIn) em paralelo
+    Promise.all([
+        fetch(BASE+'buffer/syncMetrics',{method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest'}}).then(r=>r.json()),
+        fetch(BASE+'social/syncMetrics',{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}}).then(r=>r.json())
+    ]).then(()=>{location.reload();}).catch(()=>{b.disabled=false;b.innerHTML=o;});
+}
 function act(b,url){const o=b.innerHTML;b.disabled=true;b.innerHTML='<span class="spinner-border spinner-border-sm"></span>';fetch(BASE+url,{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}}).then(r=>r.json()).then(()=>{location.reload();}).catch(()=>{b.disabled=false;b.innerHTML=o;});}
 
+function deleteSocialAccount(id, name) {
+    if (!confirm('Remover a conta "' + name + '" da listagem? Os dados serão apagados.')) return;
+    fetch(BASE + 'social/delete/' + id, { method: 'POST', headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json())
+        .then(d => { if (d.success) location.reload(); else alert(d.error || 'Erro ao remover.'); })
+        .catch(() => alert('Erro de conexão.'));
+}
 document.addEventListener('DOMContentLoaded',()=>{loadMetric();loadComparison();});
 </script>
 
