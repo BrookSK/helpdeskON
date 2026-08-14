@@ -455,10 +455,7 @@ $networkInfo = [
                 $svAcc = fn($k) => ($acc[$k] !== null && $acc[$k] !== '') ? (float)$acc[$k] : 0;
                 $accPosts = $socialPostsByAccount[$acc['id']] ?? [];
             ?>
-            <div class="ms-net-card" style="position:relative;">
-                <?php if ($isAdmin): ?>
-                <button class="btn btn-sm btn-outline-danger ms-net-delete" onclick="deleteSocialAccount(<?= $acc['id'] ?>,'<?= escape($acc['display_name'] ?: $acc['external_id']) ?>')"><i class="bi bi-trash"></i></button>
-                <?php endif; ?>
+            <div class="ms-net-card">
                 <div class="ms-net-head">
                     <div class="ms-net-avatar" style="background: <?= $pi[2] ?>12; color: <?= $pi[2] ?>;">
                         <?php if (!empty($acc['avatar'])): ?><img src="<?= escape($acc['avatar']) ?>" alt=""><?php else: ?><i class="bi <?= $pi[1] ?>"></i><?php endif; ?>
@@ -680,12 +677,18 @@ function syncMetrics(b){
     fd.append('end',document.getElementById('period-end').value);
     const o=b.innerHTML;
     b.disabled=true;
-    b.innerHTML='<span class="spinner-border spinner-border-sm"></span> Atualizando...';
-    // Sincroniza Buffer + contas diretas (Meta/LinkedIn) em paralelo
+    b.innerHTML='<span class="spinner-border spinner-border-sm"></span> Atualizando tudo...';
+    // Sincroniza Buffer + contas diretas (Meta/LinkedIn) em paralelo, ambos com período
     Promise.all([
         fetch(BASE+'buffer/syncMetrics',{method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest'}}).then(r=>r.json()),
-        fetch(BASE+'social/syncMetrics',{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}}).then(r=>r.json())
-    ]).then(()=>{location.reload();}).catch(()=>{b.disabled=false;b.innerHTML=o;});
+        fetch(BASE+'social/syncMetrics',{method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest'}}).then(r=>r.json())
+    ]).then(([bufRes, socRes])=>{
+        let errs = [];
+        if (bufRes && bufRes.errors && bufRes.errors.length) errs = errs.concat(bufRes.errors);
+        if (socRes && socRes.errors && socRes.errors.length) errs = errs.concat(socRes.errors);
+        if (errs.length) alert('Atualização concluída com avisos:\n• ' + errs.join('\n• '));
+        location.reload();
+    }).catch(()=>{b.disabled=false;b.innerHTML=o;alert('Erro de conexão ao atualizar métricas.');});
 }
 function act(b,url){const o=b.innerHTML;b.disabled=true;b.innerHTML='<span class="spinner-border spinner-border-sm"></span>';fetch(BASE+url,{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}}).then(r=>r.json()).then(()=>{location.reload();}).catch(()=>{b.disabled=false;b.innerHTML=o;});}
 

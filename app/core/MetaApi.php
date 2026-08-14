@@ -130,6 +130,19 @@ class MetaApi
         return $this->get($pageId . '/posts', $params);
     }
 
+    /** Insights de página do Facebook (impressões e alcance) no período. */
+    public function getFacebookPageInsights($pageId, $since = null, $until = null, $pageToken = null)
+    {
+        $params = [
+            'metric' => 'page_impressions,page_post_engagements,page_fan_adds',
+            'period' => 'day',
+        ];
+        if ($since) $params['since'] = $since;
+        if ($until) $params['until'] = $until;
+        if ($pageToken) $params['access_token'] = $pageToken;
+        return $this->get($pageId . '/insights', $params);
+    }
+
     /** Soma valores de uma resposta de insights (retorna [metric => soma]). */
     public static function sumInsights($insightsResponse)
     {

@@ -252,11 +252,13 @@ class SocialController extends Controller
 
         $posts = $api->getFacebookPosts($acc['external_id'], $acc['access_token'], 25);
         $totLikes = 0; $totComments = 0; $totShares = 0;
+        $postCount = 0;
         foreach (($posts['data'] ?? []) as $p) {
             $likes = $p['reactions']['summary']['total_count'] ?? ($p['likes']['summary']['total_count'] ?? 0);
             $comments = $p['comments']['summary']['total_count'] ?? 0;
             $shares = $p['shares']['count'] ?? 0;
             $totLikes += $likes; $totComments += $comments; $totShares += $shares;
+            $postCount++;
 
             $this->accounts->upsertPost('facebook_page', $p['id'], [
                 'account_id' => $acc['id'],
@@ -272,7 +274,15 @@ class SocialController extends Controller
             ]);
         }
 
+        // Buscar impressões da página
+        $impressions = null;
+        $pageInsights = $api->getFacebookPageInsights($acc['external_id'], strtotime('-30 days'), time(), $acc['access_token']);
+        $insData = MetaApi::sumInsights($pageInsights);
+        $impressions = $insData['page_impressions'] ?? null;
+
         $fbFollowers = $info['followers_count'] ?? ($info['fan_count'] ?? $acc['followers']);
+        $engRate = ($fbFollowers && $postCount) ? round((($totLikes + $totComments + $totShares) / max(1, $postCount)) / $fbFollowers * 100, 2) : null;
+
         $this->accounts->saveMetrics($acc['id'], [
             'display_name' => $info['name'] ?? $acc['display_name'],
             'avatar' => $info['picture']['data']['url'] ?? $acc['avatar'],
@@ -280,12 +290,16 @@ class SocialController extends Controller
             'total_likes' => $totLikes,
             'total_comments' => $totComments,
             'total_shares' => $totShares,
+            'impressions' => $impressions,
+            'engagement_rate' => $engRate,
         ]);
         $this->saveAccountSnapshot($acc, 'facebook', [
             'followers' => $fbFollowers,
             'likes' => $totLikes,
             'comments' => $totComments,
             'shares' => $totShares,
+            'impressions' => $impressions,
+            'engagement_rate' => $engRate,
         ]);
         return 1;
     }
