@@ -319,12 +319,8 @@ $networkInfo = [
     <!-- ============ ACTIONS (admin only) ============ -->
     <?php if ($isAdmin): ?>
     <div class="ms-actions">
-        <button class="btn btn-outline-secondary" onclick="syncChannels(this)"><i class="bi bi-arrow-repeat"></i> Sincronizar contas</button>
         <button class="btn btn-primary" onclick="syncMetrics(this)"><i class="bi bi-cloud-download"></i> Atualizar métricas</button>
         <button class="btn btn-outline-secondary" onclick="importMeta(this)"><i class="bi bi-download"></i> Importar Meta</button>
-        <button class="btn btn-outline-secondary" onclick="openLinkedinModal()"><i class="bi bi-linkedin"></i> Add LinkedIn</button>
-        <button class="btn btn-outline-secondary" onclick="syncSocial(this)"><i class="bi bi-arrow-repeat"></i> Atualizar redes</button>
-        <button class="btn btn-outline-secondary" onclick="snapshotFollowers(this)"><i class="bi bi-camera"></i> Snapshot</button>
     </div>
     <?php endif; ?>
 
@@ -678,11 +674,12 @@ function syncMetrics(b){
     const o=b.innerHTML;
     b.disabled=true;
     b.innerHTML='<span class="spinner-border spinner-border-sm"></span> Atualizando tudo...';
-    // Sincroniza Buffer + contas diretas (Meta/LinkedIn) em paralelo, ambos com período
+    // 1) Sincroniza canais do Buffer + busca métricas Buffer + sync direto Meta/LinkedIn (tudo em paralelo)
     Promise.all([
+        fetch(BASE+'buffer/syncChannels',{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}}).then(r=>r.json()).catch(()=>({})),
         fetch(BASE+'buffer/syncMetrics',{method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest'}}).then(r=>r.json()),
         fetch(BASE+'social/syncMetrics',{method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest'}}).then(r=>r.json())
-    ]).then(([bufRes, socRes])=>{
+    ]).then(([chRes, bufRes, socRes])=>{
         let errs = [];
         if (bufRes && bufRes.errors && bufRes.errors.length) errs = errs.concat(bufRes.errors);
         if (socRes && socRes.errors && socRes.errors.length) errs = errs.concat(socRes.errors);
