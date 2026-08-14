@@ -346,11 +346,11 @@ $networkInfo = [
     <div class="ms-period-bar">
         <label>Período:</label>
         <div class="ms-period-presets">
-            <button class="btn" onclick="setPeriod(7)">7 dias</button>
-            <button class="btn" onclick="setPeriod(30)">30 dias</button>
-            <button class="btn" onclick="setPeriod(90)">3 meses</button>
-            <button class="btn" onclick="setPeriod(180)">6 meses</button>
-            <button class="btn" onclick="setPeriod(365)">1 ano</button>
+            <button class="btn" data-days="7" onclick="setPeriod(7)">7 dias</button>
+            <button class="btn" data-days="30" onclick="setPeriod(30)">30 dias</button>
+            <button class="btn" data-days="90" onclick="setPeriod(90)">3 meses</button>
+            <button class="btn" data-days="180" onclick="setPeriod(180)">6 meses</button>
+            <button class="btn" data-days="365" onclick="setPeriod(365)">1 ano</button>
         </div>
         <input type="date" id="period-start" value="<?= escape($periodStart) ?>">
         <span style="color:#999;">—</span>
@@ -699,7 +699,20 @@ function deleteSocialAccount(id, name) {
         .then(d => { if (d.success) location.reload(); else alert(d.error || 'Erro ao remover.'); })
         .catch(() => alert('Erro de conexão.'));
 }
-document.addEventListener('DOMContentLoaded',()=>{loadMetric();loadComparison();});
+document.addEventListener('DOMContentLoaded',()=>{
+    loadMetric();
+    loadComparison();
+    // Marcar botão de período ativo
+    const s = document.getElementById('period-start').value;
+    const e = document.getElementById('period-end').value;
+    if (s && e) {
+        const startD = new Date(s), endD = new Date(e);
+        const diffDays = Math.round((endD - startD) / 86400000);
+        document.querySelectorAll('.ms-period-presets .btn').forEach(btn => {
+            if (parseInt(btn.dataset.days) === diffDays) btn.classList.add('active');
+        });
+    }
+});
 </script>
 
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>
