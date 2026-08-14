@@ -458,33 +458,33 @@ $networkInfo = [
                 <!-- Métricas secundárias -->
                 <div class="ms-net-stats">
                     <div class="ms-net-stat">
-                        <span class="ms-ns-icon"><i class="bi bi-heart-fill" style="color:#E1306C;"></i></span>
+                        <span class="ms-ns-icon"><i class="bi bi-heart-fill"></i></span>
                         <div><div class="ms-ns-val"><?= $fmt($svAcc('total_likes')) ?></div><div class="ms-ns-lbl">Curtidas</div></div>
                     </div>
                     <div class="ms-net-stat">
-                        <span class="ms-ns-icon"><i class="bi bi-chat-fill" style="color:#3f51b5;"></i></span>
+                        <span class="ms-ns-icon"><i class="bi bi-chat-fill"></i></span>
                         <div><div class="ms-ns-val"><?= $fmt($svAcc('total_comments')) ?></div><div class="ms-ns-lbl">Comentários</div></div>
                     </div>
                     <div class="ms-net-stat">
-                        <span class="ms-ns-icon"><i class="bi bi-share-fill" style="color:#00897b;"></i></span>
+                        <span class="ms-ns-icon"><i class="bi bi-share-fill"></i></span>
                         <div><div class="ms-ns-val"><?= $fmt($svAcc('total_shares')) ?></div><div class="ms-ns-lbl">Compart.</div></div>
                     </div>
                     <div class="ms-net-stat">
-                        <span class="ms-ns-icon"><i class="bi bi-activity" style="color:#ff9800;"></i></span>
+                        <span class="ms-ns-icon"><i class="bi bi-activity"></i></span>
                         <div><div class="ms-ns-val"><?= number_format($svAcc('engagement_rate'), 1, ',', '.') ?>%</div><div class="ms-ns-lbl">Engajamento</div></div>
                     </div>
                     <?php if ($acc['provider'] === 'meta_instagram'): ?>
                     <div class="ms-net-stat">
-                        <span class="ms-ns-icon"><i class="bi bi-eye-fill" style="color:#9c27b0;"></i></span>
+                        <span class="ms-ns-icon"><i class="bi bi-eye-fill"></i></span>
                         <div><div class="ms-ns-val"><?= $fmt($svAcc('impressions')) ?></div><div class="ms-ns-lbl">Impressões</div></div>
                     </div>
                     <div class="ms-net-stat">
-                        <span class="ms-ns-icon"><i class="bi bi-megaphone-fill" style="color:#0A66C2;"></i></span>
+                        <span class="ms-ns-icon"><i class="bi bi-megaphone-fill"></i></span>
                         <div><div class="ms-ns-val"><?= $fmt($svAcc('reach')) ?></div><div class="ms-ns-lbl">Alcance</div></div>
                     </div>
                     <?php else: ?>
                     <div class="ms-net-stat">
-                        <span class="ms-ns-icon"><i class="bi bi-eye-fill" style="color:#9c27b0;"></i></span>
+                        <span class="ms-ns-icon"><i class="bi bi-eye-fill"></i></span>
                         <div><div class="ms-ns-val"><?= $fmt($svAcc('impressions')) ?></div><div class="ms-ns-lbl">Impressões</div></div>
                     </div>
                     <?php endif; ?>
@@ -537,27 +537,27 @@ $networkInfo = [
                 <!-- Métricas secundárias -->
                 <div class="ms-net-stats">
                     <div class="ms-net-stat">
-                        <span class="ms-ns-icon"><i class="bi bi-heart-fill" style="color:#E1306C;"></i></span>
+                        <span class="ms-ns-icon"><i class="bi bi-heart-fill"></i></span>
                         <div><div class="ms-ns-val"><?= $fmt($getM('reactions')) ?></div><div class="ms-ns-lbl">Curtidas</div></div>
                     </div>
                     <div class="ms-net-stat">
-                        <span class="ms-ns-icon"><i class="bi bi-chat-fill" style="color:#3f51b5;"></i></span>
+                        <span class="ms-ns-icon"><i class="bi bi-chat-fill"></i></span>
                         <div><div class="ms-ns-val"><?= $fmt($getM('comments')) ?></div><div class="ms-ns-lbl">Comentários</div></div>
                     </div>
                     <div class="ms-net-stat">
-                        <span class="ms-ns-icon"><i class="bi bi-share-fill" style="color:#00897b;"></i></span>
+                        <span class="ms-ns-icon"><i class="bi bi-share-fill"></i></span>
                         <div><div class="ms-ns-val"><?= $fmt($getM('shares')) ?></div><div class="ms-ns-lbl">Compart.</div></div>
                     </div>
                     <div class="ms-net-stat">
-                        <span class="ms-ns-icon"><i class="bi bi-eye-fill" style="color:#9c27b0;"></i></span>
+                        <span class="ms-ns-icon"><i class="bi bi-eye-fill"></i></span>
                         <div><div class="ms-ns-val"><?= $fmt($getM('impressions')) ?></div><div class="ms-ns-lbl">Impressões</div></div>
                     </div>
                     <div class="ms-net-stat">
-                        <span class="ms-ns-icon"><i class="bi bi-megaphone-fill" style="color:#0A66C2;"></i></span>
+                        <span class="ms-ns-icon"><i class="bi bi-megaphone-fill"></i></span>
                         <div><div class="ms-ns-val"><?= $fmt($getM('reach')) ?></div><div class="ms-ns-lbl">Alcance</div></div>
                     </div>
                     <div class="ms-net-stat">
-                        <span class="ms-ns-icon"><i class="bi bi-play-circle-fill" style="color:#ff9800;"></i></span>
+                        <span class="ms-ns-icon"><i class="bi bi-play-circle-fill"></i></span>
                         <div><div class="ms-ns-val"><?= $fmt($getM('views')) ?></div><div class="ms-ns-lbl">Visualizações</div></div>
                     </div>
                 </div>
