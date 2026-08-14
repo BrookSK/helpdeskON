@@ -531,6 +531,17 @@ $networkInfo = [
                 $ni = $networkInfo[$svc] ?? ['Outro', 'bi-globe', '#607d8b'];
                 $cm = $channelMetrics[$ch['channel_id']] ?? [];
                 $getM = function($t) use ($cm) { return isset($cm[$t]) ? (float)$cm[$t]['metric_value'] : 0; };
+                // Buscar seguidores da conta social correspondente pelo username
+                $chFollowers = 0;
+                $chUsername = strtolower($ch['username'] ?? '');
+                if ($chUsername) {
+                    foreach ($socialAccounts as $_sa) {
+                        if (strtolower($_sa['username'] ?? '') === $chUsername || strtolower($_sa['display_name'] ?? '') === $chUsername) {
+                            $chFollowers = (int)($_sa['followers'] ?? 0);
+                            break;
+                        }
+                    }
+                }
             ?>
             <div class="ms-net-card">
                 <div class="ms-net-head">
@@ -547,12 +558,12 @@ $networkInfo = [
                 <!-- Métrica principal -->
                 <div class="ms-net-highlight">
                     <div>
-                        <div class="ms-net-highlight-val"><?= $fmt($getM('postCount')) ?></div>
-                        <div class="ms-net-highlight-lbl">Publicações</div>
+                        <div class="ms-net-highlight-val"><?= $fmt($chFollowers) ?></div>
+                        <div class="ms-net-highlight-lbl">Seguidores</div>
                     </div>
                     <div style="margin-left:auto;text-align:center;">
-                        <div style="font-size:1.3rem;font-weight:700;color:#2b3440;"><?= number_format($getM('engagementRate'), 1, ',', '.') ?>%</div>
-                        <div style="font-size:0.72rem;color:#8a929b;">Engajamento</div>
+                        <div style="font-size:1.3rem;font-weight:700;color:#2b3440;"><?= $fmt($getM('postCount')) ?></div>
+                        <div style="font-size:0.72rem;color:#8a929b;">Publicações</div>
                     </div>
                 </div>
 
@@ -569,6 +580,10 @@ $networkInfo = [
                     <div class="ms-net-stat">
                         <span class="ms-ns-icon"><i class="bi bi-share-fill"></i></span>
                         <div><div class="ms-ns-val"><?= $fmt($getM('shares')) ?></div><div class="ms-ns-lbl">Compart.</div></div>
+                    </div>
+                    <div class="ms-net-stat">
+                        <span class="ms-ns-icon"><i class="bi bi-activity"></i></span>
+                        <div><div class="ms-ns-val"><?= number_format($getM('engagementRate'), 1, ',', '.') ?>%</div><div class="ms-ns-lbl">Engajamento</div></div>
                     </div>
                     <div class="ms-net-stat">
                         <span class="ms-ns-icon"><i class="bi bi-eye-fill"></i></span>
