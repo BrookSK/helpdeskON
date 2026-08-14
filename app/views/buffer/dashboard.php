@@ -114,7 +114,7 @@ $networkInfo = [
 /* SUMMARY CARDS - PREMIUM */
 .ms-kpi-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(175px, 1fr));
+    grid-template-columns: repeat(6, 1fr);
     gap: 16px;
     margin-bottom: 32px;
 }
@@ -152,8 +152,8 @@ $networkInfo = [
 .ms-section-title i { color: var(--primary); }
 
 .ms-growth-cards {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
     gap: 14px;
 }
 .ms-growth-card {
@@ -178,11 +178,15 @@ $networkInfo = [
 
 /* CHART & TOP POSTS */
 .ms-chart-row { margin-bottom: 32px; }
+.ms-chart-row .row { align-items: stretch; }
 .ms-box {
     background: #fff;
     border-radius: 16px;
     box-shadow: 0 2px 12px rgba(0,0,0,0.04);
     overflow: hidden;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
 }
 .ms-box-header {
     padding: 18px 22px;
@@ -193,9 +197,9 @@ $networkInfo = [
     gap: 12px;
 }
 .ms-box-header h5 { font-size: 1rem; font-weight: 700; color: #2b3440; margin: 0; }
-.ms-box-body { padding: 20px 22px; }
+.ms-box-body { padding: 20px 22px; flex: 1; }
 
-.ms-top-list { max-height: 420px; overflow-y: auto; }
+.ms-top-list { flex: 1; overflow-y: auto; }
 .ms-top-item { display: flex; align-items: center; gap: 14px; padding: 14px 20px; border-bottom: 1px solid #f5f5f5; text-decoration: none; color: inherit; transition: background .1s; }
 .ms-top-item:hover { background: #fafbfc; }
 .ms-top-thumb { width: 60px; height: 60px; border-radius: 10px; overflow: hidden; background: #eef1f4; flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: #ccc; }
@@ -208,8 +212,8 @@ $networkInfo = [
 /* ACCOUNTS / NOSSAS REDES */
 .ms-networks-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-    gap: 20px;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 18px;
 }
 .ms-net-card {
     background: #fff;
@@ -269,15 +273,21 @@ $networkInfo = [
 .ms-alert-bar i { color: #d97706; font-size: 1.3rem; }
 
 /* Responsive */
+@media (max-width: 1200px) {
+    .ms-kpi-grid { grid-template-columns: repeat(3, 1fr); }
+}
 @media (max-width: 992px) {
     .ms-main { padding: 20px 18px; }
     .ms-hero { padding: 24px 20px; }
     .ms-hero h2 { font-size: 1.3rem; }
-    .ms-kpi-grid { grid-template-columns: repeat(2, 1fr); }
-    .ms-networks-grid { grid-template-columns: 1fr; }
+    .ms-kpi-grid { grid-template-columns: repeat(3, 1fr); }
+    .ms-growth-cards { grid-template-columns: repeat(2, 1fr); }
+    .ms-networks-grid { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 576px) {
-    .ms-kpi-grid { grid-template-columns: 1fr; }
+    .ms-kpi-grid { grid-template-columns: repeat(2, 1fr); }
+    .ms-growth-cards { grid-template-columns: 1fr; }
+    .ms-networks-grid { grid-template-columns: 1fr; }
     .ms-period-presets { flex-wrap: wrap; }
 }
 </style>
