@@ -133,7 +133,7 @@ class SocialController extends Controller
         $this->requireRole($this->accessRoles);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
 
-        @set_time_limit(180);
+        @set_time_limit(300);
         $meta = new MetaApi();
         $linkedin = new LinkedInApi();
         $updated = 0;
@@ -141,6 +141,9 @@ class SocialController extends Controller
 
         $since = !empty($_POST['start']) ? strtotime($_POST['start']) : strtotime('-30 days');
         $until = !empty($_POST['end']) ? strtotime($_POST['end']) : time();
+
+        // Auto-importar: buscar contas IG/FB do token Meta que ainda não estão cadastradas
+        $this->autoImportMeta($errors);
 
         foreach ($this->accounts->all(true) as $acc) {
             try {
@@ -161,6 +164,57 @@ class SocialController extends Controller
         try { $this->accounts->snapshotAllFollowers(); } catch (\Throwable $e) { /* ignora */ }
 
         $this->json(['success' => true, 'updated' => $updated, 'errors' => $errors]);
+    }
+
+    /**
+     * Auto-importa todas as contas Instagram/Facebook acessíveis pelos tokens configurados
+     * que ainda não existem como contas diretas. Roda automaticamente a cada sync.
+     */
+    private function autoImportMeta(&$errors)
+    {
+        // Coleta todos os tokens
+        $tokens = [];
+        $first = Config::get('meta_access_token');
+        if ($first) $tokens[] = $first;
+        for ($i = 2; $i <= 20; $i++) {
+            $t = Config::get('meta_access_token_' . $i);
+            if ($t) $tokens[] = $t;
+        }
+        if (empty($tokens)) return;
+
+        foreach ($tokens as $token) {
+            $api = new MetaApi($token);
+            if (!$api->hasToken() || !$api->isTokenValid()) continue;
+
+            $res = $api->getPages();
+            if (!empty($res['error'])) continue;
+
+            foreach (($res['data'] ?? []) as $page) {
+                $pageToken = $page['access_token'] ?? $token;
+
+                // Facebook page
+                $this->accounts->upsert('facebook_page', $page['id'], [
+                    'display_name' => $page['name'] ?? null,
+                    'avatar' => $page['picture']['data']['url'] ?? null,
+                    'access_token' => $pageToken,
+                    'followers' => $page['followers_count'] ?? ($page['fan_count'] ?? null),
+                ]);
+
+                // Instagram vinculado
+                $ig = $page['instagram_business_account'] ?? null;
+                if ($ig && !empty($ig['id'])) {
+                    $this->accounts->upsert('meta_instagram', $ig['id'], [
+                        'display_name' => $ig['username'] ?? ($ig['name'] ?? null),
+                        'username' => $ig['username'] ?? null,
+                        'avatar' => $ig['profile_picture_url'] ?? null,
+                        'access_token' => $pageToken,
+                        'followers' => $ig['followers_count'] ?? null,
+                        'follows' => $ig['follows_count'] ?? null,
+                        'media_count' => $ig['media_count'] ?? null,
+                    ]);
+                }
+            }
+        }
     }
 
     // ===== Sync helpers =====

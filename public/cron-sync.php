@@ -156,9 +156,49 @@ try {
     }
 
     // ============================================================
-    // 2) SOCIAL: Meta (Instagram + Facebook) + LinkedIn
+    // 2) SOCIAL: Auto-importar + Meta (Instagram + Facebook) + LinkedIn
     // ============================================================
+
+    // Auto-importar contas Meta disponíveis nos tokens configurados
+    $tokens = [];
+    $firstToken = Config::get('meta_access_token');
+    if ($firstToken) $tokens[] = $firstToken;
+    for ($i = 2; $i <= 20; $i++) {
+        $t = Config::get('meta_access_token_' . $i);
+        if ($t) $tokens[] = $t;
+    }
     $accountsModel = new SocialAccount();
+    foreach ($tokens as $token) {
+        try {
+            $api = new MetaApi($token);
+            if (!$api->hasToken() || !$api->isTokenValid()) continue;
+            $res = $api->getPages();
+            if (!empty($res['error'])) continue;
+            foreach (($res['data'] ?? []) as $page) {
+                $pageToken = $page['access_token'] ?? $token;
+                $accountsModel->upsert('facebook_page', $page['id'], [
+                    'display_name' => $page['name'] ?? null,
+                    'avatar' => $page['picture']['data']['url'] ?? null,
+                    'access_token' => $pageToken,
+                    'followers' => $page['followers_count'] ?? ($page['fan_count'] ?? null),
+                ]);
+                $ig = $page['instagram_business_account'] ?? null;
+                if ($ig && !empty($ig['id'])) {
+                    $accountsModel->upsert('meta_instagram', $ig['id'], [
+                        'display_name' => $ig['username'] ?? ($ig['name'] ?? null),
+                        'username' => $ig['username'] ?? null,
+                        'avatar' => $ig['profile_picture_url'] ?? null,
+                        'access_token' => $pageToken,
+                        'followers' => $ig['followers_count'] ?? null,
+                        'follows' => $ig['follows_count'] ?? null,
+                        'media_count' => $ig['media_count'] ?? null,
+                    ]);
+                }
+            }
+        } catch (\Throwable $e) { /* ignora erros de auto-import */ }
+    }
+
+    // Sync de todas as contas diretas
     $socialAccounts = $accountsModel->all(true);
     $socialSince = strtotime('-30 days');
     $socialUntil = time();
