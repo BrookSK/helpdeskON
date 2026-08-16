@@ -149,7 +149,11 @@ function callLead(leadId, btn) {
         .then(d => {
             btn.disabled = false; btn.dataset.loading = '0'; btn.innerHTML = original;
             if (d.error) { alert(d.error); return; }
-            alert('Ligação iniciada.');
+            let msg = 'Ligação solicitada à Nvoip.';
+            if (d.call_id) msg += '\ncallId: ' + d.call_id;
+            if (d.status) msg += '\nSituação: ' + d.status;
+            if (!d.call_id) msg += '\n\nAtenção: a Nvoip não retornou um callId. Verifique o log para a resposta completa.';
+            alert(msg);
         })
         .catch(() => {
             btn.disabled = false; btn.dataset.loading = '0'; btn.innerHTML = original;

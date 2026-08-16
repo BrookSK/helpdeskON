@@ -553,12 +553,21 @@ class CrmController extends Controller
         // Origina a chamada (checkDDI: true, transfer: false — conforme exemplo oficial)
         $res = $api->createCall($caller, $called, true, false);
 
-        // Localiza o callId na resposta efetiva (sem inventar estrutura)
+        // Registra a resposta completa (sucesso ou não) para inspecionar a estrutura real.
+        Logger::info('Nvoip createCall resposta', [
+            'http' => $res['status'] ?? null,
+            'called' => $called,
+            'data' => $this->safeResponseJson($res['data'] ?? null),
+        ]);
+
+        // Localiza o callId na resposta efetiva (sem inventar estrutura).
+        // A Nvoip pode retornar o identificador com nomes diferentes; tentamos os mais prováveis.
         $callId = null;
         $status = null;
         if (is_array($res['data'] ?? null)) {
-            $callId = $res['data']['callId'] ?? null;
-            $status = $res['data']['status'] ?? null;
+            $d = $res['data'];
+            $callId = $d['callId'] ?? $d['call_id'] ?? $d['id'] ?? $d['uuid'] ?? null;
+            $status = $d['status'] ?? $d['situation'] ?? $d['situacao'] ?? null;
         }
 
         // Persiste o registro mínimo, mesmo em caso de falha (para auditoria), sem dados de auth
@@ -573,10 +582,33 @@ class CrmController extends Controller
         ]);
 
         if (empty($res['success'])) {
-            $this->json(['error' => 'Não foi possível iniciar a ligação (HTTP ' . ($res['status'] ?? '—') . ').'], 502);
+            // Repassa a mensagem da Nvoip quando disponível (ex.: originador/usuário SIP inválido)
+            $apiMsg = is_array($res['data'] ?? null) ? ($res['data']['message'] ?? null) : null;
+            $msg = 'Não foi possível iniciar a ligação (HTTP ' . ($res['status'] ?? '—') . ').';
+            if ($apiMsg) $msg .= ' Nvoip: ' . $apiMsg;
+            $this->json(['error' => $msg], 502);
         }
 
-        $this->json(['success' => true, 'call_id' => $callId, 'status' => $status]);
+        // Consulta a situação uma vez (se houver callId) para dar visibilidade real do andamento.
+        $situation = null;
+        if ($callId) {
+            $st = $api->getCall($callId);
+            Logger::info('Nvoip getCall (pós-criação)', [
+                'call_id' => $callId,
+                'http' => $st['status'] ?? null,
+                'data' => $this->safeResponseJson($st['data'] ?? null),
+            ]);
+            if (!empty($st['success']) && is_array($st['data'] ?? null)) {
+                $situation = $st['data']['status'] ?? $st['data']['situation'] ?? $st['data']['situacao'] ?? null;
+            }
+        }
+
+        $this->json([
+            'success' => true,
+            'call_id' => $callId,
+            'status' => $situation ?: $status,
+            'raw' => $res['data'] ?? null,
+        ]);
     }
 
     /**

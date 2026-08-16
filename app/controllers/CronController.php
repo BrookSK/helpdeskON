@@ -8,10 +8,10 @@
  *   GET /cron/syncAll?token=SEU_TOKEN
  *
  * Para configurar o cron no servidor (a cada 30 min):
- *   */30 * * * * curl -s "https://seudominio.com/cron/syncAll?token=SEU_TOKEN" > /dev/null
+ *   [asterisco]/30 * * * * curl -s "https://seudominio.com/cron/syncAll?token=SEU_TOKEN" > /dev/null
  *
  * Ou via CLI (a cada 30 min):
- *   */30 * * * * php /caminho/para/helpdeskON/cron_sync_all.php >> /var/log/helpdesk_sync.log 2>&1
+ *   [asterisco]/30 * * * * php /caminho/para/helpdeskON/cron_sync_all.php >> /var/log/helpdesk_sync.log 2>&1
  */
 class CronController extends Controller
 {

@@ -112,7 +112,7 @@ class SocialAccount
         $sql = "INSERT INTO social_followers_history (account_id, snapshot_date, followers, follows, extra_json)
                 VALUES (?, ?, ?, ?, ?)
                 ON DUPLICATE KEY UPDATE followers = VALUES(followers), follows = VALUES(follows), extra_json = VALUES(extra_json)";
-        return $this->db->execute($sql, [$accountId, $date, (int)$followers, $follows, $extraJson]);
+        return $this->db->query($sql, [$accountId, $date, (int)$followers, $follows, $extraJson]);
     }
 
     /**

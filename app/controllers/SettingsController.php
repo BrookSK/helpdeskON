@@ -246,23 +246,17 @@ class SettingsController extends Controller
             $this->json(['success' => false, 'message' => 'Preencha as credenciais da Nvoip e salve antes de testar.']);
         }
 
-        // 1) Autenticação servidor a servidor
+        // Autenticação servidor a servidor (client_credentials).
+        // Emitir o token é o critério de sucesso: confirma credenciais, URLs e escopos válidos.
+        // Não testamos /users aqui porque a credencial de telefonia (call:make/call:query)
+        // normalmente não tem escopo para listar usuários (retornaria 403 esperado).
         $auth = $api->authenticate();
         if (empty($auth['success'])) {
             // Mensagem genérica — não expõe token/segredo/headers.
             $this->json(['success' => false, 'message' => $auth['error'] ?? 'Falha na autenticação com a Nvoip.']);
         }
 
-        // 2) Confirma comunicação com a conta listando usuários (não gera chamada nem cobrança)
-        $users = $api->getUsers(0, 1);
-        if (empty($users['success'])) {
-            $this->json([
-                'success' => true,
-                'message' => 'Autenticação OK. Não foi possível confirmar a listagem de usuários (HTTP ' . ($users['status'] ?? '—') . ').',
-            ]);
-        }
-
-        $this->json(['success' => true, 'message' => 'Conexão com a Nvoip estabelecida com sucesso.']);
+        $this->json(['success' => true, 'message' => 'Conexão com a Nvoip estabelecida com sucesso (autenticação OK).']);
     }
 
     // Testar envio de email SMTP

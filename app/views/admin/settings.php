@@ -452,8 +452,8 @@
                     </div>
                     <div class="col-md-6">
                         <label class="form-label fw-medium small">Originador (caller)</label>
-                        <input type="text" name="nvoip_caller" class="form-control form-control-sm" value="<?= escape($settings['nvoip_caller'] ?? '') ?>" placeholder="ex.: 31999999999 (origem autorizada da conta)">
-                        <small class="text-muted">DDD + número, sem +55 nem símbolos (formato do painel Nvoip).</small>
+                        <input type="text" name="nvoip_caller" class="form-control form-control-sm" value="<?= escape($settings['nvoip_caller'] ?? '') ?>" placeholder="ex.: 148379001 (Usuário SIP da conta)">
+                        <small class="text-muted">Use o <strong>Usuário SIP</strong> cadastrado na Nvoip (não um número de telefone).</small>
                     </div>
                 </div>
                 <div class="mt-3 d-flex align-items-center gap-2">
