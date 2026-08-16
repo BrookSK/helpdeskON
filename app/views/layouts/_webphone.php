@@ -175,7 +175,12 @@ window.SIP = SIP;
     };
     window.nvHangup=function(){
         const s=currentSession;
-        if(!s){ closeModal(); return; }
+        if(!s){
+            // Sem sessão ativa (ex.: ramal indisponível): encerra o registro pendente e fecha.
+            if(currentRecordId){ reportEvent('ended',{duration:0,cause:'cancelled'}); currentRecordId=null; }
+            closeModal();
+            return;
+        }
         try{
             if(s.state===SIP.SessionState.Established) s.bye();
             else if(s instanceof SIP.Inviter) s.cancel();
@@ -195,13 +200,15 @@ window.SIP = SIP;
         show('nv-call-answer',false); show('nv-call-mute',false); stopTimer();
 
         if(!window.nvWebphoneReady){
-            // Ramal não registrado: informa no próprio modal e permite fechar
+            // Ramal não registrado: informa no próprio modal, encerra o registro pendente e permite fechar
             showDots(false); setStatusText('Ramal indisponível');
             const w=$('nv-call-reg-warn');
             w.style.display=''; 
             w.textContent = (window.nvRegRejectCode===401||window.nvRegRejectCode===403)
                 ? 'Senha SIP incorreta. Verifique em Configurações.'
                 : 'O ramal não está registrado. Verifique a Senha SIP em Configurações.';
+            reportEvent('ended',{duration:0,cause:'ramal_indisponivel'});
+            currentRecordId=null;
             return false;
         }
 
