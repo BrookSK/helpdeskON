@@ -416,6 +416,104 @@ class CrmController extends Controller
     }
 
     /**
+     * Meus Leads — lista de leads gerenciáveis.
+     * super_admin vê todos; comercial só vê os atribuídos a ele.
+     */
+    public function leads()
+    {
+        $this->requireRole(['super_admin', 'comercial']);
+        $user = $this->currentUser();
+
+        $isComercial = ($user['role'] === 'comercial');
+
+        $filters = [
+            'search' => trim($_GET['q'] ?? ''),
+            'temperature' => $_GET['temperature'] ?? '',
+            'source' => $_GET['source'] ?? '',
+        ];
+        // Comercial: escopo travado nos próprios leads
+        if ($isComercial) {
+            $filters['assigned_to'] = $user['id'];
+        }
+
+        $contactModel = new WhatsappContact();
+        $leads = $contactModel->getManagedLeads($filters);
+
+        $this->view('crm/leads', [
+            'user' => $user,
+            'leads' => $leads,
+            'isComercial' => $isComercial,
+            'filters' => $filters,
+        ]);
+    }
+
+    /**
+     * API: dados de um lead (para o modal de gerenciamento).
+     */
+    public function leadDetail($contactId = null)
+    {
+        $this->requireRole(['super_admin', 'comercial']);
+        if (!$contactId) $this->json(['error' => 'ID obrigatório'], 400);
+
+        $contactModel = new WhatsappContact();
+        $contact = $contactModel->findById($contactId);
+        if (!$contact) $this->json(['error' => 'Lead não encontrado'], 404);
+
+        // Comercial só acessa os próprios leads
+        $user = $this->currentUser();
+        if ($user['role'] === 'comercial' && (int)$contact['assigned_to'] !== (int)$user['id']) {
+            $this->json(['error' => 'Sem permissão'], 403);
+        }
+
+        $briefing = $contactModel->getBriefing($contactId);
+        $this->json(['contact' => $contact, 'briefing' => $briefing ?: null]);
+    }
+
+    /**
+     * API: atualizar dados de um lead (nome, telefone e briefing).
+     */
+    public function updateLead($contactId = null)
+    {
+        $this->requireRole(['super_admin', 'comercial']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$contactId) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+
+        $contactModel = new WhatsappContact();
+        $contact = $contactModel->findById($contactId);
+        if (!$contact) $this->json(['error' => 'Lead não encontrado'], 404);
+
+        $user = $this->currentUser();
+        if ($user['role'] === 'comercial' && (int)$contact['assigned_to'] !== (int)$user['id']) {
+            $this->json(['error' => 'Sem permissão'], 403);
+        }
+
+        // Dados do contato
+        $data = [];
+        if (isset($_POST['contact_name'])) $data['contact_name'] = trim($_POST['contact_name']) ?: null;
+        if (isset($_POST['phone'])) $data['phone'] = preg_replace('/\D/', '', $_POST['phone']) ?: null;
+        if (!empty($data)) {
+            Database::getInstance()->update('whatsapp_contacts', $data, 'id = ?', [$contactId]);
+        }
+
+        // Briefing
+        $bfKeys = ['need', 'main_pain', 'current_solution', 'expected_goal', 'urgency', 'investment_range',
+                   'decision_level', 'lead_temperature', 'lead_source', 'main_objection', 'next_step', 'notes'];
+        $bf = [];
+        foreach ($bfKeys as $k) {
+            if (isset($_POST['bf_' . $k])) $bf[$k] = trim($_POST['bf_' . $k]) ?: null;
+        }
+        if (isset($bf['lead_temperature']) && !in_array($bf['lead_temperature'], ['frio', 'morno', 'quente'])) {
+            $bf['lead_temperature'] = null;
+        }
+        if (!empty($bf)) {
+            $contactModel->saveBriefing($contactId, $bf, $user['id']);
+        }
+
+        $this->json(['success' => true]);
+    }
+
+    /**
      * Dashboard do CRM
      */
     public function dashboard()

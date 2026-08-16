@@ -136,7 +136,7 @@
                     <i class="bi bi-whatsapp"></i> WhatsApp Chat
                 </a>
             </li>
-            <?php $crmSectionActive = in_array($currentPage ?? '', ['crm', 'crm_dashboard', 'crm_commissions']); ?>
+            <?php $crmSectionActive = in_array($currentPage ?? '', ['crm', 'crm_dashboard', 'crm_commissions', 'crm_leads']); ?>
             <li class="nav-item">
                 <a class="nav-link d-flex align-items-center justify-content-between <?= ($currentPage ?? '') === 'crm' ? 'active' : '' ?>" href="<?= baseUrl('crm') ?>">
                     <span class="nav-link-body"><i class="bi bi-kanban"></i> <span class="nav-text">CRM</span></span>
@@ -150,6 +150,11 @@
                     </a>
                 </li>
                 <?php if (in_array($user['role'] ?? '', ['super_admin', 'comercial'])): ?>
+                <li class="nav-item">
+                    <a class="nav-link <?= ($currentPage ?? '') === 'crm_leads' ? 'active' : '' ?>" href="<?= baseUrl('crm/leads') ?>" style="padding-left:2.6rem;font-size:0.85rem;">
+                        <i class="bi bi-person-lines-fill"></i> Meus leads
+                    </a>
+                </li>
                 <li class="nav-item">
                     <a class="nav-link <?= ($currentPage ?? '') === 'crm_commissions' ? 'active' : '' ?>" href="<?= baseUrl('crm/commissions') ?>" style="padding-left:2.6rem;font-size:0.85rem;">
                         <i class="bi bi-cash-stack"></i> Comissões
