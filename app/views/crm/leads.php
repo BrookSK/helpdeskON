@@ -149,10 +149,17 @@ function callLead(leadId, btn) {
         .then(d => {
             btn.disabled = false; btn.dataset.loading = '0'; btn.innerHTML = original;
             if (d.error) { alert(d.error); return; }
-            let msg = 'Ligação solicitada à Nvoip.';
-            if (d.call_id) msg += '\ncallId: ' + d.call_id;
+            const st = (d.status || '').toLowerCase();
+            if (st === 'failed') {
+                alert('A Nvoip não completou a ligação (situação: failed).\n\n'
+                    + 'A chamada tenta tocar primeiro o seu Usuário SIP (originador). '
+                    + 'Verifique se o SIP está registrado/online em um dispositivo ou app Nvoip.\n\n'
+                    + 'callId: ' + (d.call_id || '—'));
+                return;
+            }
+            let msg = 'Ligação iniciada.';
             if (d.status) msg += '\nSituação: ' + d.status;
-            if (!d.call_id) msg += '\n\nAtenção: a Nvoip não retornou um callId. Verifique o log para a resposta completa.';
+            if (d.call_id) msg += '\ncallId: ' + d.call_id;
             alert(msg);
         })
         .catch(() => {

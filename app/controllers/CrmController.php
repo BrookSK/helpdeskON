@@ -567,7 +567,8 @@ class CrmController extends Controller
         if (is_array($res['data'] ?? null)) {
             $d = $res['data'];
             $callId = $d['callId'] ?? $d['call_id'] ?? $d['id'] ?? $d['uuid'] ?? null;
-            $status = $d['status'] ?? $d['situation'] ?? $d['situacao'] ?? null;
+            // A Nvoip usa o campo "state" para a situação da chamada.
+            $status = $d['state'] ?? $d['status'] ?? null;
         }
 
         // Persiste o registro mínimo, mesmo em caso de falha (para auditoria), sem dados de auth
@@ -599,7 +600,14 @@ class CrmController extends Controller
                 'data' => $this->safeResponseJson($st['data'] ?? null),
             ]);
             if (!empty($st['success']) && is_array($st['data'] ?? null)) {
-                $situation = $st['data']['status'] ?? $st['data']['situation'] ?? $st['data']['situacao'] ?? null;
+                $situation = $st['data']['state'] ?? $st['data']['status'] ?? null;
+                // Atualiza o status persistido com a situação real
+                if ($situation !== null) {
+                    Database::getInstance()->query(
+                        "UPDATE nvoip_calls SET status = ? WHERE call_id = ?",
+                        [$situation, $callId]
+                    );
+                }
             }
         }
 
@@ -628,8 +636,8 @@ class CrmController extends Controller
             $this->json(['error' => 'Falha ao consultar a chamada (HTTP ' . ($res['status'] ?? '—') . ').'], 502);
         }
 
-        // Atualiza o status local se a resposta trouxer um status
-        $status = is_array($res['data'] ?? null) ? ($res['data']['status'] ?? null) : null;
+        // Atualiza o status local se a resposta trouxer a situação (campo "state" na Nvoip)
+        $status = is_array($res['data'] ?? null) ? ($res['data']['state'] ?? $res['data']['status'] ?? null) : null;
         if ($status !== null) {
             Database::getInstance()->query(
                 "UPDATE nvoip_calls SET status = ? WHERE call_id = ?",
