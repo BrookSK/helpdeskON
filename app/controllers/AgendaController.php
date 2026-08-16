@@ -30,11 +30,16 @@ class AgendaController extends Controller
         $team = $userModel->getByRoles(['super_admin', 'comercial', 'marketing']);
         $leads = $this->contactModel->getLeadsForSelect();
 
+        // Todos os usuários internos (exceto clientes) para o multi-select de participantes
+        $allInternalRoles = ['super_admin', 'attendant', 'developer', 'analyst', 'comercial', 'marketing', 'whatsapp_agent'];
+        $participants = $userModel->getGroupedByRole($allInternalRoles);
+
         $this->view('agenda/index', [
             'user' => $user,
             'grouped' => $grouped,
             'team' => $team,
             'leads' => $leads,
+            'participants' => $participants,
             'isAdmin' => $user['role'] === 'super_admin',
         ]);
     }
@@ -84,6 +89,7 @@ class AgendaController extends Controller
             $briefing = $this->contactModel->getBriefing($meeting['contact_id']);
         }
         $meeting['briefing'] = $briefing;
+        $meeting['participants'] = $this->model->getParticipants($id);
         $this->json(['meeting' => $meeting]);
     }
 
@@ -141,6 +147,12 @@ class AgendaController extends Controller
 
         $id = $this->model->create($data);
 
+        // Salva participantes da equipe
+        $participantIds = array_filter(array_map('intval', $_POST['participants'] ?? []));
+        if (!empty($participantIds)) {
+            $this->model->setParticipants($id, $participantIds);
+        }
+
         // Salva/atualiza o briefing do cliente (se houver contato vinculado)
         if ($contactId) {
             $this->saveBriefingFromPost($contactId, $user['id']);
@@ -182,10 +194,15 @@ class AgendaController extends Controller
         // Reaproveita o link já gerado (no modal), se houver
         $meetLink = $meeting['meet_link'] ?? null;
 
+        // Emails dos participantes internos da reunião
+        $participantEmails = $this->model->getParticipantEmails($meetingId);
+
         // 1) Cria o evento no Google (se configurado e ainda não criado)
         $google = new GoogleCalendarApi();
         if ($createEvent && empty($meeting['google_event_id']) && $google->isConfigured()) {
-            $attendees = array_filter([$adminEmail, $clientEmail]);
+            $attendees = array_values(array_unique(array_filter(
+                array_merge([$adminEmail, $clientEmail], $participantEmails)
+            )));
             $res = $google->createEvent([
                 'title' => 'Reunião: ' . $meeting['title'],
                 'description' => "Reunião comercial com {$clientName}." . ($meeting['notes'] ? "\n\n" . $meeting['notes'] : ''),
@@ -257,6 +274,12 @@ class AgendaController extends Controller
 
         if (!empty($data)) $this->model->update($id, $data);
 
+        // Atualiza participantes da equipe
+        if (isset($_POST['participants'])) {
+            $participantIds = array_filter(array_map('intval', $_POST['participants']));
+            $this->model->setParticipants($id, $participantIds);
+        }
+
         // Atualiza o briefing do cliente vinculado
         if (!empty($meeting['contact_id'])) {
             $this->saveBriefingFromPost($meeting['contact_id'], $user['id']);
@@ -304,6 +327,17 @@ class AgendaController extends Controller
         $db = Database::getInstance();
         $admin = $db->fetch("SELECT email FROM users WHERE role = 'super_admin' AND is_active = 1 AND email <> '' ORDER BY id ASC LIMIT 1");
         $attendees = array_filter([$admin['email'] ?? null, trim($_POST['client_email'] ?? '')]);
+
+        // Emails dos participantes selecionados no modal
+        $participantIds = array_filter(array_map('intval', $_POST['participants'] ?? []));
+        if (!empty($participantIds)) {
+            $userModel = new User();
+            foreach ($participantIds as $pid) {
+                $pu = $userModel->findById($pid);
+                if (!empty($pu['email'])) $attendees[] = $pu['email'];
+            }
+        }
+        $attendees = array_values(array_unique(array_filter($attendees)));
 
         $res = $google->createEvent([
             'title' => 'Reunião: ' . $title,

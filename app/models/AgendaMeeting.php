@@ -88,4 +88,50 @@ class AgendaMeeting
     {
         return $this->db->delete('agenda_meetings', 'id = ?', [$id]);
     }
+
+    // --- Participantes internos da reunião ---
+
+    /**
+     * Define os participantes da reunião (substitui os existentes).
+     */
+    public function setParticipants($meetingId, array $userIds)
+    {
+        $this->db->delete('agenda_meeting_participants', 'meeting_id = ?', [$meetingId]);
+        foreach ($userIds as $uid) {
+            if (!$uid) continue;
+            $this->db->insert('agenda_meeting_participants', [
+                'meeting_id' => (int)$meetingId,
+                'user_id' => (int)$uid,
+            ]);
+        }
+    }
+
+    /**
+     * Retorna os participantes (users) de uma reunião.
+     */
+    public function getParticipants($meetingId)
+    {
+        return $this->db->fetchAll(
+            "SELECT u.id, u.name, u.email, u.role
+             FROM agenda_meeting_participants p
+             JOIN users u ON p.user_id = u.id
+             WHERE p.meeting_id = ?
+             ORDER BY u.name",
+            [$meetingId]
+        );
+    }
+
+    /**
+     * Retorna apenas os emails dos participantes internos de uma reunião.
+     */
+    public function getParticipantEmails($meetingId)
+    {
+        $rows = $this->db->fetchAll(
+            "SELECT u.email FROM agenda_meeting_participants p
+             JOIN users u ON p.user_id = u.id
+             WHERE p.meeting_id = ? AND u.email IS NOT NULL AND u.email <> ''",
+            [$meetingId]
+        );
+        return array_column($rows, 'email');
+    }
 }
