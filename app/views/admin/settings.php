@@ -423,6 +423,92 @@
             </div>
         </div>
 
+        <!-- Telefonia (Nvoip) -->
+        <div class="card mb-4">
+            <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-telephone-outbound"></i> Telefonia (Nvoip)</h6></div>
+            <div class="card-body">
+                <small class="text-muted d-block mb-3">Integração de telefonia via API Nvoip v3 (servidor a servidor / <code>client_credentials</code>). Informe as credenciais fornecidas pela Nvoip. A credencial do cliente é secreta e não é reexibida após salva.</small>
+                <div class="row g-2">
+                    <div class="col-md-6">
+                        <label class="form-label fw-medium small">Auth Base URL</label>
+                        <input type="text" name="nvoip_auth_base_url" class="form-control form-control-sm" value="<?= escape($settings['nvoip_auth_base_url'] ?? '') ?>" placeholder="https://api.nvoip.com.br/auth">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-medium small">Base URL</label>
+                        <input type="text" name="nvoip_base_url" class="form-control form-control-sm" value="<?= escape($settings['nvoip_base_url'] ?? '') ?>" placeholder="https://api.nvoip.com.br/v3">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-medium small">Client ID</label>
+                        <input type="text" name="nvoip_oauth_client_id" class="form-control form-control-sm" value="<?= escape($settings['nvoip_oauth_client_id'] ?? '') ?>">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-medium small">Client Credential <span class="text-muted">(secreto)</span></label>
+                        <input type="password" name="nvoip_oauth_client_credential" class="form-control form-control-sm" value="" placeholder="<?= !empty($settings['nvoip_oauth_client_credential']) ? '•••••••• (salvo — deixe em branco para manter)' : '' ?>" autocomplete="new-password">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-medium small">Scopes</label>
+                        <input type="text" name="nvoip_oauth_scopes" class="form-control form-control-sm" value="<?= escape($settings['nvoip_oauth_scopes'] ?? '') ?>" placeholder="ex.: call:make call:query">
+                        <small class="text-muted">Use os escopos exibidos ao criar a credencial na Nvoip (para telefonia: <code>call:make</code> e <code>call:query</code>).</small>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-medium small">Originador (caller)</label>
+                        <input type="text" name="nvoip_caller" class="form-control form-control-sm" value="<?= escape($settings['nvoip_caller'] ?? '') ?>" placeholder="ex.: 148379001 (Usuário SIP da conta)">
+                        <small class="text-muted">Use o <strong>Usuário SIP</strong> cadastrado na Nvoip (não um número de telefone).</small>
+                    </div>
+                </div>
+
+                <hr class="my-3">
+                <div class="fw-medium small mb-2"><i class="bi bi-headset"></i> Webphone (WebRTC / SIP over WSS)</div>
+                <small class="text-muted d-block mb-2">Permite atender/ligar dentro do próprio CRM. Dados conforme documentação Nvoip. A senha SIP é secreta e entregue apenas ao usuário autenticado.</small>
+                <div class="row g-2">
+                    <div class="col-md-3">
+                        <label class="form-label fw-medium small">Usuário SIP (ramal)</label>
+                        <input type="text" name="nvoip_sip_user" class="form-control form-control-sm" value="<?= escape($settings['nvoip_sip_user'] ?? '') ?>" placeholder="ex.: 148379001">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-medium small">Senha SIP <span class="text-muted">(secreta)</span></label>
+                        <input type="password" name="nvoip_sip_password" class="form-control form-control-sm" value="" placeholder="<?= !empty($settings['nvoip_sip_password']) ? '•••••••• (salvo — deixe em branco para manter)' : 'senha SIP do ramal' ?>" autocomplete="new-password">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-medium small">Servidor WebSocket</label>
+                        <input type="text" name="nvoip_ws_server" class="form-control form-control-sm" value="<?= escape($settings['nvoip_ws_server'] ?? 'wss://app.nvoip.com.br:7443') ?>" placeholder="wss://app.nvoip.com.br:7443">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-medium small">Domínio SIP</label>
+                        <input type="text" name="nvoip_sip_domain" class="form-control form-control-sm" value="<?= escape($settings['nvoip_sip_domain'] ?? 'app.nvoip.com.br') ?>" placeholder="app.nvoip.com.br">
+                    </div>
+                </div>
+                <div class="mt-3 d-flex align-items-center gap-2">
+                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="testNvoip(this)"><i class="bi bi-plug"></i> Testar conexão</button>
+                    <span id="nvoip-test-result" class="small" style="display:none;"></span>
+                </div>
+            </div>
+        </div>
+
+        <script>
+        function testNvoip(btn) {
+            const result = document.getElementById('nvoip-test-result');
+            const original = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Testando...';
+            result.style.display = 'none';
+            fetch('<?= baseUrl("settings/testNvoip") ?>', { method: 'POST', headers: {'X-Requested-With':'XMLHttpRequest'} })
+                .then(r => r.json())
+                .then(data => {
+                    btn.disabled = false; btn.innerHTML = original;
+                    result.style.display = '';
+                    result.className = 'small ' + (data.success ? 'text-success' : 'text-danger');
+                    result.textContent = data.message || (data.success ? 'OK' : 'Falha');
+                })
+                .catch(() => {
+                    btn.disabled = false; btn.innerHTML = original;
+                    result.style.display = '';
+                    result.className = 'small text-danger';
+                    result.textContent = 'Erro ao testar a conexão.';
+                });
+        }
+        </script>
+
         <script>
         function addMetaToken() {
             const list = document.getElementById('meta-tokens-list');

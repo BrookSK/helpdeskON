@@ -416,6 +416,443 @@ class CrmController extends Controller
     }
 
     /**
+     * Meus Leads — lista de leads gerenciáveis.
+     * super_admin vê todos; comercial só vê os atribuídos a ele.
+     */
+    public function leads()
+    {
+        $this->requireRole(['super_admin', 'comercial']);
+        $user = $this->currentUser();
+
+        $isComercial = ($user['role'] === 'comercial');
+
+        $filters = [
+            'search' => trim($_GET['q'] ?? ''),
+            'temperature' => $_GET['temperature'] ?? '',
+            'source' => $_GET['source'] ?? '',
+        ];
+        // Comercial: escopo travado nos próprios leads
+        if ($isComercial) {
+            $filters['assigned_to'] = $user['id'];
+        }
+
+        $contactModel = new WhatsappContact();
+        $leads = $contactModel->getManagedLeads($filters);
+
+        $this->view('crm/leads', [
+            'user' => $user,
+            'leads' => $leads,
+            'isComercial' => $isComercial,
+            'filters' => $filters,
+        ]);
+    }
+
+    /**
+     * API: dados de um lead (para o modal de gerenciamento).
+     */
+    public function leadDetail($contactId = null)
+    {
+        $this->requireRole(['super_admin', 'comercial']);
+        if (!$contactId) $this->json(['error' => 'ID obrigatório'], 400);
+
+        $contactModel = new WhatsappContact();
+        $contact = $contactModel->findById($contactId);
+        if (!$contact) $this->json(['error' => 'Lead não encontrado'], 404);
+
+        // Comercial só acessa os próprios leads
+        $user = $this->currentUser();
+        if ($user['role'] === 'comercial' && (int)$contact['assigned_to'] !== (int)$user['id']) {
+            $this->json(['error' => 'Sem permissão'], 403);
+        }
+
+        $briefing = $contactModel->getBriefing($contactId);
+        $this->json(['contact' => $contact, 'briefing' => $briefing ?: null]);
+    }
+
+    /**
+     * API: atualizar dados de um lead (nome, telefone e briefing).
+     */
+    public function updateLead($contactId = null)
+    {
+        $this->requireRole(['super_admin', 'comercial']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$contactId) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+
+        $contactModel = new WhatsappContact();
+        $contact = $contactModel->findById($contactId);
+        if (!$contact) $this->json(['error' => 'Lead não encontrado'], 404);
+
+        $user = $this->currentUser();
+        if ($user['role'] === 'comercial' && (int)$contact['assigned_to'] !== (int)$user['id']) {
+            $this->json(['error' => 'Sem permissão'], 403);
+        }
+
+        // Dados do contato
+        $data = [];
+        if (isset($_POST['contact_name'])) $data['contact_name'] = trim($_POST['contact_name']) ?: null;
+        if (isset($_POST['phone'])) $data['phone'] = preg_replace('/\D/', '', $_POST['phone']) ?: null;
+        if (!empty($data)) {
+            Database::getInstance()->update('whatsapp_contacts', $data, 'id = ?', [$contactId]);
+        }
+
+        // Briefing
+        $bfKeys = ['need', 'main_pain', 'current_solution', 'expected_goal', 'urgency', 'investment_range',
+                   'decision_level', 'lead_temperature', 'lead_source', 'main_objection', 'next_step', 'notes'];
+        $bf = [];
+        foreach ($bfKeys as $k) {
+            if (isset($_POST['bf_' . $k])) $bf[$k] = trim($_POST['bf_' . $k]) ?: null;
+        }
+        if (isset($bf['lead_temperature']) && !in_array($bf['lead_temperature'], ['frio', 'morno', 'quente'])) {
+            $bf['lead_temperature'] = null;
+        }
+        if (!empty($bf)) {
+            $contactModel->saveBriefing($contactId, $bf, $user['id']);
+        }
+
+        $this->json(['success' => true]);
+    }
+
+    /**
+     * API: originar uma ligação para o Lead via Nvoip.
+     * O frontend envia apenas o contactId; o backend resolve o telefone e o usuário.
+     * POST crm/callLead/{contactId}
+     */
+    public function callLead($contactId = null)
+    {
+        $this->requireRole(['super_admin', 'comercial']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$contactId) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+
+        $contactModel = new WhatsappContact();
+        $contact = $contactModel->findById($contactId);
+        if (!$contact) $this->json(['error' => 'Lead não encontrado'], 404);
+
+        $user = $this->currentUser();
+        // Comercial só liga para os próprios leads
+        if ($user['role'] === 'comercial' && (int)$contact['assigned_to'] !== (int)$user['id']) {
+            $this->json(['error' => 'Sem permissão'], 403);
+        }
+
+        // Telefone do próprio Lead (não vem do frontend).
+        // Formato aceito pela Nvoip (conforme environment oficial): DDD + número, só dígitos.
+        // Remove símbolos e o DDI 55 quando presente (telefones do WhatsApp costumam vir com 55).
+        $called = preg_replace('/\D/', '', (string)($contact['phone'] ?? ''));
+        if (strlen($called) > 11 && strpos($called, '55') === 0) {
+            $called = substr($called, 2);
+        }
+        if ($called === '') $this->json(['error' => 'Este lead não possui telefone cadastrado.'], 400);
+
+        $api = new NvoipApi();
+        if (!$api->isConfigured()) $this->json(['error' => 'Telefonia Nvoip não configurada.'], 400);
+
+        $caller = $api->caller();
+        if ($caller === '') $this->json(['error' => 'Originador (caller) não configurado em Configurações.'], 400);
+
+        // Origina a chamada via click-to-call: chama o ramal SIP (caller) e conecta ao lead (called).
+        // Endpoint indicado para uso via CRM (payload documentado: caller, called).
+        $res = $api->clickToCall($caller, $called);
+
+        // Registra a resposta completa (sucesso ou não) para inspecionar a estrutura real.
+        Logger::info('Nvoip clickToCall resposta', [
+            'http' => $res['status'] ?? null,
+            'called' => $called,
+            'data' => $this->safeResponseJson($res['data'] ?? null),
+        ]);
+
+        // Localiza o callId na resposta efetiva (sem inventar estrutura).
+        // A Nvoip pode retornar o identificador com nomes diferentes; tentamos os mais prováveis.
+        $callId = null;
+        $status = null;
+        if (is_array($res['data'] ?? null)) {
+            $d = $res['data'];
+            $callId = $d['callId'] ?? $d['call_id'] ?? $d['id'] ?? $d['uuid'] ?? null;
+            // A Nvoip usa o campo "state" para a situação da chamada.
+            $status = $d['state'] ?? $d['status'] ?? null;
+        }
+
+        // Persiste o registro mínimo, mesmo em caso de falha (para auditoria), sem dados de auth
+        $this->recordCall([
+            'contact_id' => $contactId,
+            'user_id' => $user['id'],
+            'call_id' => $callId,
+            'caller' => $caller,
+            'called' => $called,
+            'status' => $status,
+            'response_json' => $this->safeResponseJson($res['data'] ?? null),
+        ]);
+
+        if (empty($res['success'])) {
+            // Repassa a mensagem da Nvoip quando disponível (ex.: originador/usuário SIP inválido)
+            $apiMsg = is_array($res['data'] ?? null) ? ($res['data']['message'] ?? null) : null;
+            $msg = 'Não foi possível iniciar a ligação (HTTP ' . ($res['status'] ?? '—') . ').';
+            if ($apiMsg) $msg .= ' Nvoip: ' . $apiMsg;
+            $this->json(['error' => $msg], 502);
+        }
+
+        // Não consultamos a situação imediatamente: o click-to-call é assíncrono e
+        // consultar em <1s retornaria um estado transitório. A situação final é obtida
+        // depois via crm/callStatus/{callId} (ex.: quando o usuário quiser conferir).
+        $this->json([
+            'success' => true,
+            'call_id' => $callId,
+            'status' => $status, // estado inicial retornado na criação (ex.: calling_origin)
+            'raw' => $res['data'] ?? null,
+        ]);
+    }
+
+    /**
+     * API: prepara a discagem do lead pelo webphone nativo (WebRTC).
+     * O backend resolve/normaliza o telefone (não confia no frontend) e registra a ligação.
+     * Retorna o número a ser discado pelo ramal SIP. POST crm/dialLead/{contactId}
+     */
+    public function dialLead($contactId = null)
+    {
+        $this->requireRole(['super_admin', 'comercial']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$contactId) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+
+        $contactModel = new WhatsappContact();
+        $contact = $contactModel->findById($contactId);
+        if (!$contact) $this->json(['error' => 'Lead não encontrado'], 404);
+
+        $user = $this->currentUser();
+        if ($user['role'] === 'comercial' && (int)$contact['assigned_to'] !== (int)$user['id']) {
+            $this->json(['error' => 'Sem permissão'], 403);
+        }
+
+        // Normaliza o telefone do lead (só dígitos; remove DDI 55 quando presente)
+        $called = preg_replace('/\D/', '', (string)($contact['phone'] ?? ''));
+        if (strlen($called) > 11 && strpos($called, '55') === 0) {
+            $called = substr($called, 2);
+        }
+        if ($called === '') $this->json(['error' => 'Este lead não possui telefone cadastrado.'], 400);
+
+        // Registra a ligação (origem WebRTC — sem callId da API REST)
+        $recordId = $this->recordCall([
+            'contact_id' => $contactId,
+            'user_id' => $user['id'],
+            'direction' => 'outbound',
+            'call_id' => null,
+            'caller' => Config::get('nvoip_sip_user'),
+            'called' => $called,
+            'status' => 'dialing',
+            'response_json' => null,
+        ]);
+
+        $this->json(['success' => true, 'called' => $called, 'call_record_id' => $recordId]);
+    }
+
+    /**
+     * API: registra eventos do ciclo de vida da chamada do webphone.
+     * POST crm/callEvent/{recordId}  body: event=ringing|answered|ended, cause=?, duration=?
+     * Mantém todos os registros (início, atendida, encerrada, duração).
+     */
+    public function callEvent($recordId = null)
+    {
+        $this->requireRole(['super_admin', 'comercial']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$recordId) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+
+        $db = Database::getInstance();
+        $rec = $db->fetch("SELECT * FROM nvoip_calls WHERE id = ?", [$recordId]);
+        if (!$rec) $this->json(['error' => 'Registro não encontrado'], 404);
+
+        $user = $this->currentUser();
+        if ($user['role'] === 'comercial' && (int)$rec['user_id'] !== (int)$user['id']) {
+            $this->json(['error' => 'Sem permissão'], 403);
+        }
+
+        $event = $_POST['event'] ?? '';
+        $data = [];
+        switch ($event) {
+            case 'ringing':
+                $data['status'] = 'ringing';
+                break;
+            case 'answered':
+                $data['status'] = 'answered';
+                $data['answered_at'] = date('Y-m-d H:i:s');
+                break;
+            case 'ended':
+                $data['status'] = 'ended';
+                $data['ended_at'] = date('Y-m-d H:i:s');
+                $data['duration_seconds'] = max(0, intval($_POST['duration'] ?? 0));
+                if (!empty($_POST['cause'])) $data['hangup_cause'] = substr(trim($_POST['cause']), 0, 50);
+                break;
+            default:
+                $this->json(['error' => 'Evento inválido'], 400);
+        }
+
+        $db->update('nvoip_calls', $data, 'id = ?', [$recordId]);
+        $this->json(['success' => true]);
+    }
+
+    /**
+     * API: registra uma ligação recebida no webphone (histórico de entrada).
+     * POST crm/registerInbound  body: from=numero
+     */
+    public function registerInbound()
+    {
+        $this->requireRole(['super_admin', 'comercial']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+
+        $user = $this->currentUser();
+        $from = preg_replace('/\D/', '', (string)($_POST['from'] ?? ''));
+
+        // Tenta associar a um contato existente pelo telefone (últimos 8 dígitos)
+        $contactId = null;
+        if ($from !== '') {
+            $last8 = substr($from, -8);
+            $c = Database::getInstance()->fetch(
+                "SELECT id FROM whatsapp_contacts WHERE COALESCE(is_group,0)=0
+                 AND REPLACE(REPLACE(REPLACE(phone,' ',''),'-',''),'+','') LIKE ? LIMIT 1",
+                ['%' . $last8]
+            );
+            $contactId = $c['id'] ?? null;
+        }
+
+        $recordId = $this->recordCall([
+            'contact_id' => $contactId,
+            'user_id' => $user['id'],
+            'direction' => 'inbound',
+            'call_id' => null,
+            'caller' => $from ?: null,
+            'called' => Config::get('nvoip_sip_user'),
+            'status' => 'ringing',
+            'response_json' => null,
+        ]);
+
+        $this->json(['success' => true, 'call_record_id' => $recordId]);
+    }
+
+    /**
+     * API: consultar a situação de uma chamada pelo callId armazenado.
+     * GET crm/callStatus/{callId}
+     */
+    public function callStatus($callId = null)
+    {
+        $this->requireRole(['super_admin', 'comercial']);
+        if (!$callId) $this->json(['error' => 'callId obrigatório'], 400);
+
+        $api = new NvoipApi();
+        if (!$api->isConfigured()) $this->json(['error' => 'Telefonia Nvoip não configurada.'], 400);
+
+        $res = $api->getCall($callId);
+        if (empty($res['success'])) {
+            $this->json(['error' => 'Falha ao consultar a chamada (HTTP ' . ($res['status'] ?? '—') . ').'], 502);
+        }
+
+        // Atualiza o status local se a resposta trouxer a situação (campo "state" na Nvoip)
+        $status = is_array($res['data'] ?? null) ? ($res['data']['state'] ?? $res['data']['status'] ?? null) : null;
+        if ($status !== null) {
+            Database::getInstance()->query(
+                "UPDATE nvoip_calls SET status = ? WHERE call_id = ?",
+                [$status, $callId]
+            );
+        }
+
+        $this->json(['success' => true, 'data' => $res['data']]);
+    }
+
+    /**
+     * API: histórico de ligações em uma data.
+     * GET crm/callHistory?date=YYYY-MM-DD&type=all
+     */
+    public function callHistory()
+    {
+        $this->requireRole(['super_admin', 'comercial']);
+
+        $date = $_GET['date'] ?? date('Y-m-d');
+        $type = $_GET['type'] ?? 'all';
+
+        $api = new NvoipApi();
+        if (!$api->isConfigured()) $this->json(['error' => 'Telefonia Nvoip não configurada.'], 400);
+
+        $res = $api->getHistory($date, $type);
+        if (empty($res['success'])) {
+            $this->json(['error' => 'Falha ao consultar o histórico (HTTP ' . ($res['status'] ?? '—') . ').'], 502);
+        }
+        $this->json(['success' => true, 'data' => $res['data']]);
+    }
+
+    /**
+     * API: entrega as credenciais SIP do webphone ao usuário autenticado (sob demanda).
+     * A senha SIP não fica no HTML — é buscada por este endpoint apenas por usuário logado.
+     * GET crm/sipCredentials
+     */
+    public function sipCredentials()
+    {
+        $this->requireRole(['super_admin', 'comercial']);
+
+        $sipUser = Config::get('nvoip_sip_user');
+        $sipPassword = Config::get('nvoip_sip_password');
+        $wsServer = Config::get('nvoip_ws_server') ?: 'wss://app.nvoip.com.br:7443';
+        $domain = Config::get('nvoip_sip_domain') ?: 'app.nvoip.com.br';
+
+        if (empty($sipUser) || empty($sipPassword)) {
+            $this->json(['configured' => false]);
+        }
+
+        $this->json([
+            'configured' => true,
+            'ws_server' => $wsServer,
+            'domain' => $domain,
+            'sip_user' => $sipUser,
+            'sip_password' => $sipPassword,
+            'uri' => 'sip:' . $sipUser . '@' . $domain,
+        ]);
+    }
+
+    /** Grava o registro mínimo da ligação. Retorna o id do registro (ou null em falha). */
+    private function recordCall($data)
+    {
+        try {
+            return Database::getInstance()->insert('nvoip_calls', $data);
+        } catch (\Throwable $e) { /* não bloqueia a ligação por falha de log */ }
+        return null;
+    }
+
+    /** Serializa a resposta para armazenamento, removendo eventuais campos sensíveis de auth. */
+    private function safeResponseJson($data)
+    {
+        if ($data === null) return null;
+        if (is_array($data)) {
+            foreach (['access_token', 'refresh_token', 'authorization', 'client_credential'] as $k) {
+                unset($data[$k]);
+            }
+        }
+        return is_string($data) ? $data : json_encode($data);
+    }
+
+    /**
+     * Histórico de ligações registradas pelo CRM (webphone).
+     * super_admin vê todas; comercial vê só as suas.
+     */
+    public function calls()
+    {
+        $this->requireRole(['super_admin', 'comercial']);
+        $user = $this->currentUser();
+
+        $params = [];
+        $sql = "SELECT nc.*, c.contact_name, c.push_name, u.name AS user_name
+                FROM nvoip_calls nc
+                LEFT JOIN whatsapp_contacts c ON c.id = nc.contact_id
+                LEFT JOIN users u ON u.id = nc.user_id
+                WHERE 1=1";
+        if ($user['role'] === 'comercial') {
+            $sql .= " AND nc.user_id = ?";
+            $params[] = $user['id'];
+        }
+        $sql .= " ORDER BY nc.created_at DESC LIMIT 300";
+
+        $calls = Database::getInstance()->fetchAll($sql, $params);
+        $this->view('crm/calls', ['user' => $user, 'calls' => $calls]);
+    }
+
+    /**
      * Dashboard do CRM
      */
     public function dashboard()

@@ -8,6 +8,7 @@ $statusMeta = [
     'agendada'   => ['Agendada', '#1565c0'],
     'confirmada' => ['Confirmada', '#00897b'],
     'realizada'  => ['Realizada', '#2e7d32'],
+    'convertida' => ['Convertida', '#6a1b9a'],
     'remarcada'  => ['Remarcada', '#e65100'],
     'cancelada'  => ['Cancelada', '#c62828'],
 ];

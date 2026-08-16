@@ -30,11 +30,16 @@ class AgendaController extends Controller
         $team = $userModel->getByRoles(['super_admin', 'comercial', 'marketing']);
         $leads = $this->contactModel->getLeadsForSelect();
 
+        // Todos os usuários internos (exceto clientes) para o multi-select de participantes
+        $allInternalRoles = ['super_admin', 'attendant', 'developer', 'analyst', 'comercial', 'marketing', 'whatsapp_agent'];
+        $participants = $userModel->getGroupedByRole($allInternalRoles);
+
         $this->view('agenda/index', [
             'user' => $user,
             'grouped' => $grouped,
             'team' => $team,
             'leads' => $leads,
+            'participants' => $participants,
             'isAdmin' => $user['role'] === 'super_admin',
         ]);
     }
@@ -84,6 +89,7 @@ class AgendaController extends Controller
             $briefing = $this->contactModel->getBriefing($meeting['contact_id']);
         }
         $meeting['briefing'] = $briefing;
+        $meeting['participants'] = $this->model->getParticipants($id);
         $this->json(['meeting' => $meeting]);
     }
 
@@ -118,6 +124,11 @@ class AgendaController extends Controller
             );
         }
 
+        // Contato é obrigatório (selecionar existente ou cadastrar novo)
+        if (!$contactId) {
+            $this->json(['error' => 'Selecione um cliente ou cadastre um novo.'], 400);
+        }
+
         $data = [
             'title' => $title,
             'contact_id' => $contactId,
@@ -140,6 +151,12 @@ class AgendaController extends Controller
         if ($preMeetLink) $data['meet_link'] = $preMeetLink;
 
         $id = $this->model->create($data);
+
+        // Salva participantes da equipe
+        $participantIds = array_filter(array_map('intval', $_POST['participants'] ?? []));
+        if (!empty($participantIds)) {
+            $this->model->setParticipants($id, $participantIds);
+        }
 
         // Salva/atualiza o briefing do cliente (se houver contato vinculado)
         if ($contactId) {
@@ -182,10 +199,15 @@ class AgendaController extends Controller
         // Reaproveita o link já gerado (no modal), se houver
         $meetLink = $meeting['meet_link'] ?? null;
 
+        // Emails dos participantes internos da reunião
+        $participantEmails = $this->model->getParticipantEmails($meetingId);
+
         // 1) Cria o evento no Google (se configurado e ainda não criado)
         $google = new GoogleCalendarApi();
         if ($createEvent && empty($meeting['google_event_id']) && $google->isConfigured()) {
-            $attendees = array_filter([$adminEmail, $clientEmail]);
+            $attendees = array_values(array_unique(array_filter(
+                array_merge([$adminEmail, $clientEmail], $participantEmails)
+            )));
             $res = $google->createEvent([
                 'title' => 'Reunião: ' . $meeting['title'],
                 'description' => "Reunião comercial com {$clientName}." . ($meeting['notes'] ? "\n\n" . $meeting['notes'] : ''),
@@ -257,6 +279,12 @@ class AgendaController extends Controller
 
         if (!empty($data)) $this->model->update($id, $data);
 
+        // Atualiza participantes da equipe
+        if (isset($_POST['participants'])) {
+            $participantIds = array_filter(array_map('intval', $_POST['participants']));
+            $this->model->setParticipants($id, $participantIds);
+        }
+
         // Atualiza o briefing do cliente vinculado
         if (!empty($meeting['contact_id'])) {
             $this->saveBriefingFromPost($meeting['contact_id'], $user['id']);
@@ -274,6 +302,20 @@ class AgendaController extends Controller
             $this->createGoogleEventAndInvites($id);
         }
 
+        // Se o status mudou para "cancelada" e há evento no Google, remove o evento se solicitado
+        if (isset($data['status']) && $data['status'] === 'cancelada' && !empty($meeting['google_event_id'])) {
+            if (!empty($_POST['delete_google_event'])) {
+                $notify = !empty($_POST['notify_participants']);
+                try {
+                    $g = new GoogleCalendarApi();
+                    if ($g->isConfigured()) {
+                        $g->deleteEvent($meeting['google_event_id'], $notify);
+                    }
+                    $this->model->update($id, ['google_event_id' => null, 'meet_link' => null]);
+                } catch (\Throwable $e) { /* ignora */ }
+            }
+        }
+
         $this->json(['success' => true, 'meeting' => $this->model->findById($id)]);
     }
 
@@ -283,6 +325,86 @@ class AgendaController extends Controller
         $this->requireRole($this->accessRoles);
         $google = new GoogleCalendarApi();
         $this->json(['configured' => $google->isConfigured()]);
+    }
+
+    // Dashboard de Performance Comercial
+    public function dashboard()
+    {
+        $this->requireRole(['super_admin', 'comercial', 'marketing']);
+        $user = $this->currentUser();
+
+        // Filtros de período (padrão: mês atual)
+        $startDate = $_GET['start'] ?? date('Y-m-01');
+        $endDate = $_GET['end'] ?? date('Y-m-t');
+
+        // Se for comercial, vê apenas os próprios dados
+        $filterUserId = null;
+        if ($user['role'] === 'comercial') {
+            $filterUserId = $user['id'];
+        } elseif (!empty($_GET['user_id'])) {
+            $filterUserId = intval($_GET['user_id']);
+        }
+
+        // Métricas de reuniões por usuário
+        $meetingStats = $this->model->getPerformanceStats($startDate, $endDate, $filterUserId);
+        $uniqueContacts = $this->model->getUniqueContactsByUser($startDate, $endDate, $filterUserId);
+
+        // Métricas de mensagens WhatsApp
+        $msgModel = new WhatsappMessage();
+        $messageStats = $msgModel->getMessageStatsByUser($startDate, $endDate, $filterUserId);
+        $responseStats = $msgModel->getContactResponseStats($startDate, $endDate, $filterUserId);
+
+        // Série mensal (gráfico)
+        $trend = $this->model->getMonthlyTrend(6, $filterUserId);
+
+        // Lista de usuários comerciais (para filtro no admin)
+        $userModel = new User();
+        $comerciais = $userModel->getByRoles(['super_admin', 'comercial', 'marketing']);
+
+        // Monta dados consolidados por usuário para a tabela comparativa
+        $tableData = [];
+        $allUserIds = array_unique(array_merge(
+            array_keys($meetingStats),
+            array_keys($messageStats),
+            array_keys($responseStats)
+        ));
+        foreach ($allUserIds as $uid) {
+            $ms = $meetingStats[$uid] ?? [];
+            $msg = $messageStats[$uid] ?? ['sent' => 0, 'received' => 0, 'contacts_messaged' => 0];
+            $resp = $responseStats[$uid] ?? ['contacted' => 0, 'replied' => 0, 'no_reply' => 0];
+            $tableData[] = [
+                'user_id' => $uid,
+                'user_name' => $ms['user_name'] ?? 'Usuário #' . $uid,
+                'total_meetings' => $ms['total'] ?? 0,
+                'agendada' => ($ms['agendada'] ?? 0) + ($ms['a_agendar'] ?? 0),
+                'confirmada' => $ms['confirmada'] ?? 0,
+                'realizada' => $ms['realizada'] ?? 0,
+                'convertida' => $ms['convertida'] ?? 0,
+                'remarcada' => $ms['remarcada'] ?? 0,
+                'cancelada' => $ms['cancelada'] ?? 0,
+                'unique_contacts' => $uniqueContacts[$uid] ?? 0,
+                'messages_sent' => $msg['sent'],
+                'messages_received' => $msg['received'],
+                'contacts_messaged' => $msg['contacts_messaged'],
+                'contacts_contacted' => $resp['contacted'],
+                'contacts_replied' => $resp['replied'],
+                'contacts_no_reply' => $resp['no_reply'],
+            ];
+        }
+
+        // Ordena por total de conversões (desc)
+        usort($tableData, fn($a, $b) => $b['convertida'] <=> $a['convertida']);
+
+        $this->view('agenda/dashboard', [
+            'user' => $user,
+            'tableData' => $tableData,
+            'trend' => $trend,
+            'comerciais' => $comerciais,
+            'startDate' => $startDate,
+            'endDate' => $endDate,
+            'filterUserId' => $filterUserId,
+            'isAdmin' => in_array($user['role'], ['super_admin', 'marketing']),
+        ]);
     }
 
     // API: gerar o link do Google Meet ANTES de salvar (garante o link)
@@ -304,6 +426,17 @@ class AgendaController extends Controller
         $db = Database::getInstance();
         $admin = $db->fetch("SELECT email FROM users WHERE role = 'super_admin' AND is_active = 1 AND email <> '' ORDER BY id ASC LIMIT 1");
         $attendees = array_filter([$admin['email'] ?? null, trim($_POST['client_email'] ?? '')]);
+
+        // Emails dos participantes selecionados no modal
+        $participantIds = array_filter(array_map('intval', $_POST['participants'] ?? []));
+        if (!empty($participantIds)) {
+            $userModel = new User();
+            foreach ($participantIds as $pid) {
+                $pu = $userModel->findById($pid);
+                if (!empty($pu['email'])) $attendees[] = $pu['email'];
+            }
+        }
+        $attendees = array_values(array_unique(array_filter($attendees)));
 
         $res = $google->createEvent([
             'title' => 'Reunião: ' . $title,
@@ -350,7 +483,21 @@ class AgendaController extends Controller
     {
         $this->requireRole($this->accessRoles);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
-        if (!$this->model->findById($id)) $this->json(['error' => 'Reunião não encontrada'], 404);
+
+        $meeting = $this->model->findById($id);
+        if (!$meeting) $this->json(['error' => 'Reunião não encontrada'], 404);
+
+        // Se há evento no Google Calendar e o usuário pediu para remover
+        if (!empty($meeting['google_event_id']) && !empty($_POST['delete_google_event'])) {
+            $notify = !empty($_POST['notify_participants']);
+            try {
+                $google = new GoogleCalendarApi();
+                if ($google->isConfigured()) {
+                    $google->deleteEvent($meeting['google_event_id'], $notify);
+                }
+            } catch (\Throwable $e) { /* ignora erro na remoção do evento */ }
+        }
+
         $this->model->delete($id);
         $this->json(['success' => true]);
     }

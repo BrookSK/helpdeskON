@@ -158,4 +158,33 @@ class GoogleCalendarApi
         curl_close($ch);
         return ['success' => $code < 400];
     }
+
+    /**
+     * Exclui um evento do Google Calendar.
+     * @param string $eventId  ID do evento no Google
+     * @param bool   $notify   Se true, envia notificação de cancelamento aos convidados
+     */
+    public function deleteEvent($eventId, $notify = true)
+    {
+        $token = $this->getAccessToken();
+        if (!$token || !$eventId) return ['success' => false];
+
+        $sendUpdates = $notify ? 'all' : 'none';
+        $url = 'https://www.googleapis.com/calendar/v3/calendars/' . rawurlencode($this->calendarId)
+             . '/events/' . rawurlencode($eventId) . '?sendUpdates=' . $sendUpdates;
+
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_CUSTOMREQUEST => 'DELETE',
+            CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $token],
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 30,
+        ]);
+        curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        // Google retorna 204 No Content para exclusão bem-sucedida
+        return ['success' => $code >= 200 && $code < 300];
+    }
 }

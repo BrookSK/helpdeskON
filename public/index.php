@@ -28,6 +28,10 @@ spl_autoload_register(function ($class) {
     }
 });
 
+// Logger centralizado + handlers globais de erro (log aparece no painel do servidor)
+require_once APP_PATH . '/core/Logger.php';
+Logger::register();
+
 // Carregar helpers
 require_once APP_PATH . '/core/helpers.php';
 

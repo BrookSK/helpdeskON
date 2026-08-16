@@ -5,7 +5,7 @@ class AgendaMeeting
     private $db;
 
     // Status em ordem de fluxo (colunas do Kanban)
-    public static $statuses = ['a_agendar', 'agendada', 'confirmada', 'realizada', 'remarcada', 'cancelada'];
+    public static $statuses = ['a_agendar', 'agendada', 'confirmada', 'realizada', 'convertida', 'remarcada', 'cancelada'];
 
     public function __construct()
     {
@@ -87,5 +87,155 @@ class AgendaMeeting
     public function delete($id)
     {
         return $this->db->delete('agenda_meetings', 'id = ?', [$id]);
+    }
+
+    // --- Participantes internos da reunião ---
+
+    /**
+     * Define os participantes da reunião (substitui os existentes).
+     */
+    public function setParticipants($meetingId, array $userIds)
+    {
+        $this->db->delete('agenda_meeting_participants', 'meeting_id = ?', [$meetingId]);
+        foreach ($userIds as $uid) {
+            if (!$uid) continue;
+            $this->db->insert('agenda_meeting_participants', [
+                'meeting_id' => (int)$meetingId,
+                'user_id' => (int)$uid,
+            ]);
+        }
+    }
+
+    /**
+     * Retorna os participantes (users) de uma reunião.
+     */
+    public function getParticipants($meetingId)
+    {
+        return $this->db->fetchAll(
+            "SELECT u.id, u.name, u.email, u.role
+             FROM agenda_meeting_participants p
+             JOIN users u ON p.user_id = u.id
+             WHERE p.meeting_id = ?
+             ORDER BY u.name",
+            [$meetingId]
+        );
+    }
+
+    /**
+     * Retorna apenas os emails dos participantes internos de uma reunião.
+     */
+    public function getParticipantEmails($meetingId)
+    {
+        $rows = $this->db->fetchAll(
+            "SELECT u.email FROM agenda_meeting_participants p
+             JOIN users u ON p.user_id = u.id
+             WHERE p.meeting_id = ? AND u.email IS NOT NULL AND u.email <> ''",
+            [$meetingId]
+        );
+        return array_column($rows, 'email');
+    }
+
+    // --- Métricas de performance para o Dashboard Comercial ---
+
+    /**
+     * Conta reuniões por status para um ou todos os usuários em um período.
+     * Retorna array associativo: [user_id => [status => count, ...], ...]
+     */
+    public function getPerformanceStats($startDate = null, $endDate = null, $userId = null)
+    {
+        $sql = "SELECT m.assigned_to, u.name AS user_name, m.status, COUNT(*) AS total
+                FROM agenda_meetings m
+                JOIN users u ON m.assigned_to = u.id
+                WHERE m.assigned_to IS NOT NULL";
+        $params = [];
+
+        if ($startDate) {
+            $sql .= " AND m.created_at >= ?";
+            $params[] = $startDate . ' 00:00:00';
+        }
+        if ($endDate) {
+            $sql .= " AND m.created_at <= ?";
+            $params[] = $endDate . ' 23:59:59';
+        }
+        if ($userId) {
+            $sql .= " AND m.assigned_to = ?";
+            $params[] = $userId;
+        }
+
+        $sql .= " GROUP BY m.assigned_to, u.name, m.status ORDER BY u.name, m.status";
+        $rows = $this->db->fetchAll($sql, $params);
+
+        $result = [];
+        foreach ($rows as $r) {
+            $uid = $r['assigned_to'];
+            if (!isset($result[$uid])) {
+                $result[$uid] = ['user_name' => $r['user_name'], 'total' => 0];
+                foreach (self::$statuses as $s) $result[$uid][$s] = 0;
+            }
+            $result[$uid][$r['status']] = (int)$r['total'];
+            $result[$uid]['total'] += (int)$r['total'];
+        }
+        return $result;
+    }
+
+    /**
+     * Contatos únicos atendidos (com reunião marcada) por usuário em um período.
+     */
+    public function getUniqueContactsByUser($startDate = null, $endDate = null, $userId = null)
+    {
+        $sql = "SELECT m.assigned_to, COUNT(DISTINCT m.contact_id) AS contacts
+                FROM agenda_meetings m
+                WHERE m.assigned_to IS NOT NULL AND m.contact_id IS NOT NULL";
+        $params = [];
+
+        if ($startDate) {
+            $sql .= " AND m.created_at >= ?";
+            $params[] = $startDate . ' 00:00:00';
+        }
+        if ($endDate) {
+            $sql .= " AND m.created_at <= ?";
+            $params[] = $endDate . ' 23:59:59';
+        }
+        if ($userId) {
+            $sql .= " AND m.assigned_to = ?";
+            $params[] = $userId;
+        }
+
+        $sql .= " GROUP BY m.assigned_to";
+        $rows = $this->db->fetchAll($sql, $params);
+
+        $result = [];
+        foreach ($rows as $r) {
+            $result[$r['assigned_to']] = (int)$r['contacts'];
+        }
+        return $result;
+    }
+
+    /**
+     * Série mensal de reuniões por status (últimos N meses), opcionalmente por usuário.
+     */
+    public function getMonthlyTrend($months = 6, $userId = null)
+    {
+        $result = [];
+        for ($i = $months - 1; $i >= 0; $i--) {
+            $ym = date('Y-m', strtotime("-{$i} months"));
+            $sql = "SELECT status, COUNT(*) as total FROM agenda_meetings
+                    WHERE DATE_FORMAT(created_at, '%Y-%m') = ?";
+            $params = [$ym];
+            if ($userId) {
+                $sql .= " AND assigned_to = ?";
+                $params[] = $userId;
+            }
+            $sql .= " GROUP BY status";
+            $rows = $this->db->fetchAll($sql, $params);
+
+            $entry = ['month' => $ym, 'label' => date('m/Y', strtotime($ym . '-01'))];
+            foreach (self::$statuses as $s) $entry[$s] = 0;
+            foreach ($rows as $r) {
+                $entry[$r['status']] = (int)$r['total'];
+            }
+            $result[] = $entry;
+        }
+        return $result;
     }
 }

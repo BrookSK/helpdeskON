@@ -37,6 +37,67 @@ class WhatsappContact
     }
 
     /**
+     * Lista os leads para a aba "Meus leads".
+     * Um lead é um contato individual (não-grupo) com dados comerciais (briefing) e/ou card no CRM.
+     * - super_admin: vê todos.
+     * - comercial: só vê os leads atribuídos a ele (assigned_to) ou onde é responsável por card CRM.
+     *
+     * $filters: ['search' => string, 'temperature' => enum, 'source' => string, 'assigned_to' => int]
+     */
+    public function getManagedLeads($filters = [])
+    {
+        $sql = "SELECT c.id, c.contact_name, c.push_name, c.phone, c.assigned_to,
+                       c.last_message_at, c.is_group,
+                       u.name AS assigned_name,
+                       b.lead_temperature, b.lead_source, b.need, b.investment_range,
+                       b.urgency, b.main_pain, b.next_step,
+                       crm.board_name AS crm_board_name, crm.column_name AS crm_column_name,
+                       crm.card_value AS crm_value
+                FROM whatsapp_contacts c
+                LEFT JOIN users u ON c.assigned_to = u.id
+                LEFT JOIN commercial_briefings b ON b.contact_id = c.id
+                LEFT JOIN (
+                    SELECT cc.contact_id, b2.name AS board_name, col.name AS column_name, cc.value AS card_value
+                    FROM crm_cards cc
+                    JOIN crm_columns col ON cc.column_id = col.id
+                    JOIN crm_boards b2 ON col.board_id = b2.id
+                    WHERE cc.contact_id IS NOT NULL
+                    GROUP BY cc.contact_id
+                ) crm ON crm.contact_id = c.id
+                WHERE COALESCE(c.is_group, 0) = 0";
+        $params = [];
+
+        // Escopo por usuário (comercial só vê os seus)
+        if (!empty($filters['assigned_to'])) {
+            $sql .= " AND c.assigned_to = ?";
+            $params[] = $filters['assigned_to'];
+        }
+
+        // Busca por nome ou telefone
+        if (!empty($filters['search'])) {
+            $sql .= " AND (c.contact_name LIKE ? OR c.push_name LIKE ? OR c.phone LIKE ?)";
+            $s = '%' . $filters['search'] . '%';
+            $params[] = $s; $params[] = $s; $params[] = $s;
+        }
+
+        // Filtro por temperatura
+        if (!empty($filters['temperature'])) {
+            $sql .= " AND b.lead_temperature = ?";
+            $params[] = $filters['temperature'];
+        }
+
+        // Filtro por fonte do lead
+        if (!empty($filters['source'])) {
+            $sql .= " AND b.lead_source = ?";
+            $params[] = $filters['source'];
+        }
+
+        $sql .= " ORDER BY c.last_message_at IS NULL, c.last_message_at DESC, c.contact_name ASC";
+
+        return $this->db->fetchAll($sql, $params);
+    }
+
+    /**
      * Cria um contato/lead manual (usado quando se cadastra um cliente novo pela Agenda).
      * Usa a instância padrão disponível; gera um remote_jid sintético a partir do telefone.
      */

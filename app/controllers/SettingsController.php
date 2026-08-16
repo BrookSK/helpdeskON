@@ -31,12 +31,28 @@ class SettingsController extends Controller
             'whatsapp_default_group_jid', 'whatsapp_group_notify_enabled',
             'cron_token',
             'linkedin_client_id', 'linkedin_client_secret', 'linkedin_scopes',
+            // Nvoip (telefonia) — campos não-secretos
+            'nvoip_auth_base_url', 'nvoip_base_url', 'nvoip_oauth_client_id',
+            'nvoip_oauth_scopes', 'nvoip_caller',
+            // Nvoip webphone (WSS) — campos não-secretos
+            'nvoip_sip_user', 'nvoip_ws_server', 'nvoip_sip_domain',
         ];
 
         foreach ($fields as $field) {
             if (isset($_POST[$field])) {
                 Config::set($field, trim($_POST[$field]));
             }
+        }
+
+        // Nvoip client credential é SECRETO: só atualiza quando um novo valor for informado.
+        // Deixar o campo em branco preserva a credencial já salva (nunca é reexibida no frontend).
+        if (isset($_POST['nvoip_oauth_client_credential']) && trim($_POST['nvoip_oauth_client_credential']) !== '') {
+            Config::set('nvoip_oauth_client_credential', trim($_POST['nvoip_oauth_client_credential']));
+        }
+
+        // Senha SIP também é SECRETA: mesma regra (em branco mantém a salva).
+        if (isset($_POST['nvoip_sip_password']) && trim($_POST['nvoip_sip_password']) !== '') {
+            Config::set('nvoip_sip_password', trim($_POST['nvoip_sip_password']));
         }
 
         // === Tokens dinâmicos: Meta (array meta_tokens[]) ===
@@ -222,6 +238,32 @@ class SettingsController extends Controller
         } else {
             $this->json(['success' => false, 'message' => "Falha no webhook. HTTP {$httpCode}. Resposta: " . substr($response, 0, 200)]);
         }
+    }
+
+    // Testar conexão Nvoip (fluxo client_credentials)
+    public function testNvoip()
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            $this->json(['success' => false, 'message' => 'Método inválido'], 405);
+        }
+
+        $api = new NvoipApi();
+        if (!$api->isConfigured()) {
+            $this->json(['success' => false, 'message' => 'Preencha as credenciais da Nvoip e salve antes de testar.']);
+        }
+
+        // Autenticação servidor a servidor (client_credentials).
+        // Emitir o token é o critério de sucesso: confirma credenciais, URLs e escopos válidos.
+        // Não testamos /users aqui porque a credencial de telefonia (call:make/call:query)
+        // normalmente não tem escopo para listar usuários (retornaria 403 esperado).
+        $auth = $api->authenticate();
+        if (empty($auth['success'])) {
+            // Mensagem genérica — não expõe token/segredo/headers.
+            $this->json(['success' => false, 'message' => $auth['error'] ?? 'Falha na autenticação com a Nvoip.']);
+        }
+
+        $this->json(['success' => true, 'message' => 'Conexão com a Nvoip estabelecida com sucesso (autenticação OK).']);
     }
 
     // Testar envio de email SMTP

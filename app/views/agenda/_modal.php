@@ -23,7 +23,7 @@
 
                     <!-- Cliente do CRM -->
                     <div class="col-md-8">
-                        <label class="form-label small fw-medium">Cliente (CRM)</label>
+                        <label class="form-label small fw-medium">Cliente (CRM) *</label>
                         <select id="mt-client" class="form-select form-select-sm" onchange="onClientChange()">
                             <option value="">Selecione um lead do CRM...</option>
                             <?php foreach ($leads as $l): ?>
@@ -74,9 +74,25 @@
                             <option value="agendada">Agendada</option>
                             <option value="confirmada">Confirmada</option>
                             <option value="realizada">Realizada</option>
+                            <option value="convertida">Convertida</option>
                             <option value="remarcada">Remarcada</option>
                             <option value="cancelada">Cancelada</option>
                         </select>
+                    </div>
+
+                    <!-- Participantes da equipe -->
+                    <div class="col-12">
+                        <label class="form-label small fw-medium">Participantes da equipe</label>
+                        <select id="mt-participants" class="form-select form-select-sm" multiple size="4" style="min-height:90px;">
+                            <?php foreach ($participants as $role => $users): ?>
+                            <optgroup label="<?= roleLabel($role) ?>">
+                                <?php foreach ($users as $p): ?>
+                                <option value="<?= $p['id'] ?>"><?= escape($p['name']) ?></option>
+                                <?php endforeach; ?>
+                            </optgroup>
+                            <?php endforeach; ?>
+                        </select>
+                        <small class="text-muted">Segure Ctrl (ou Cmd) para selecionar vários</small>
                     </div>
 
                     <div class="col-12">
@@ -192,6 +208,9 @@ function resetMeetingForm() {
     document.getElementById('mt-urgency').value = 'media';
     document.getElementById('mt-temperature').value = '';
     document.getElementById('mt-status').value = 'a_agendar';
+    // Limpa participantes
+    const ptSel = document.getElementById('mt-participants');
+    if (ptSel) Array.from(ptSel.options).forEach(o => o.selected = false);
     const bfTemp = document.getElementById('bf-lead_temperature'); if (bfTemp) bfTemp.value = '';
     const bfUrg = document.getElementById('bf-urgency'); if (bfUrg) bfUrg.value = '';
     document.querySelectorAll('.mt-new-client').forEach(el => el.style.display = 'none');
@@ -276,6 +295,12 @@ function fillMeeting(m) {
     document.getElementById('mt-client-email').value = m.client_email || '';
     document.getElementById('mt-google-event-id').value = m.google_event_id || '';
     document.getElementById('mt-meet-link').value = m.meet_link || '';
+    // Preenche participantes selecionados
+    const ptSel = document.getElementById('mt-participants');
+    if (ptSel && m.participants) {
+        const ids = m.participants.map(p => String(p.id));
+        Array.from(ptSel.options).forEach(o => o.selected = ids.includes(o.value));
+    }
     fillBriefing(m.briefing);
     // Urgência e temperatura são campos únicos (briefing). Usa os do briefing; se vazios, cai nos da reunião.
     syncInherited(m.urgency || 'media', m.temperature || '');
@@ -332,6 +357,11 @@ function collectPayload() {
     // Link do Meet já gerado (evita criar evento duplicado)
     fd.append('google_event_id', document.getElementById('mt-google-event-id').value);
     fd.append('meet_link', document.getElementById('mt-meet-link').value);
+    // Participantes da equipe
+    const ptSel = document.getElementById('mt-participants');
+    if (ptSel) {
+        Array.from(ptSel.selectedOptions).forEach(o => fd.append('participants[]', o.value));
+    }
     // Briefing
     BF_FIELDS.forEach(k => fd.append('bf_' + k, document.getElementById('bf-' + k).value));
     return fd;
@@ -362,6 +392,11 @@ function generateMeet(btn) {
     fd.append('notes', document.getElementById('mt-notes').value);
     const mid = document.getElementById('mt-id').value;
     if (mid) fd.append('meeting_id', mid);
+    // Envia participantes para inclusão no evento Google
+    const ptSel = document.getElementById('mt-participants');
+    if (ptSel) {
+        Array.from(ptSel.selectedOptions).forEach(o => fd.append('participants[]', o.value));
+    }
 
     fetch(`${BASE}agenda/generateMeet`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json()).then(d => {
@@ -377,9 +412,34 @@ function generateMeet(btn) {
 function saveMeeting() {
     const title = document.getElementById('mt-title').value.trim();
     if (!title) { alert('Informe o título.'); return; }
+
+    // Contato obrigatório
+    const clientVal = document.getElementById('mt-client').value;
+    if (!clientVal) { alert('Selecione um cliente (CRM) ou cadastre um novo.'); return; }
+    if (clientVal === '__new__' && !document.getElementById('mt-new-name').value.trim()) {
+        alert('Informe o nome do novo cliente.'); return;
+    }
+
     const id = document.getElementById('mt-id').value;
     const url = id ? `${BASE}agenda/update/${id}` : `${BASE}agenda/create`;
-    fetch(url, { method: 'POST', body: collectPayload(), headers: {'X-Requested-With':'XMLHttpRequest'} })
+
+    const fd = collectPayload();
+
+    // Se está editando e mudando status para "cancelada" e há evento Google, pergunta
+    if (id) {
+        const newStatus = document.getElementById('mt-status').value;
+        const hasGoogleEvent = !!document.getElementById('mt-google-event-id').value;
+        if (newStatus === 'cancelada' && hasGoogleEvent) {
+            const deleteEvent = confirm('A reunião será cancelada. Deseja remover o evento do Google Calendar?');
+            if (deleteEvent) {
+                fd.append('delete_google_event', '1');
+                const notify = confirm('Notificar os participantes sobre o cancelamento?');
+                if (notify) fd.append('notify_participants', '1');
+            }
+        }
+    }
+
+    fetch(url, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json()).then(d => {
             if (d.error) { alert(d.error); return; }
             location.reload();
@@ -388,8 +448,26 @@ function saveMeeting() {
 
 function deleteMeeting() {
     const id = document.getElementById('mt-id').value;
-    if (!id || !confirm('Excluir esta reunião?')) return;
-    fetch(`${BASE}agenda/delete/${id}`, { method: 'POST', headers: {'X-Requested-With':'XMLHttpRequest'} })
+    if (!id) return;
+
+    const hasGoogleEvent = !!document.getElementById('mt-google-event-id').value;
+    let deleteGoogleEvent = false;
+    let notifyParticipants = false;
+
+    if (!confirm('Excluir esta reunião?')) return;
+
+    if (hasGoogleEvent) {
+        deleteGoogleEvent = confirm('Deseja também remover o evento do Google Calendar?');
+        if (deleteGoogleEvent) {
+            notifyParticipants = confirm('Notificar os participantes sobre o cancelamento?');
+        }
+    }
+
+    const fd = new FormData();
+    if (deleteGoogleEvent) fd.append('delete_google_event', '1');
+    if (notifyParticipants) fd.append('notify_participants', '1');
+
+    fetch(`${BASE}agenda/delete/${id}`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json()).then(d => {
             if (d.error) { alert(d.error); return; }
             location.reload();
