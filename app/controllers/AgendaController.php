@@ -297,6 +297,20 @@ class AgendaController extends Controller
             $this->createGoogleEventAndInvites($id);
         }
 
+        // Se o status mudou para "cancelada" e há evento no Google, remove o evento se solicitado
+        if (isset($data['status']) && $data['status'] === 'cancelada' && !empty($meeting['google_event_id'])) {
+            if (!empty($_POST['delete_google_event'])) {
+                $notify = !empty($_POST['notify_participants']);
+                try {
+                    $g = new GoogleCalendarApi();
+                    if ($g->isConfigured()) {
+                        $g->deleteEvent($meeting['google_event_id'], $notify);
+                    }
+                    $this->model->update($id, ['google_event_id' => null, 'meet_link' => null]);
+                } catch (\Throwable $e) { /* ignora */ }
+            }
+        }
+
         $this->json(['success' => true, 'meeting' => $this->model->findById($id)]);
     }
 
@@ -384,7 +398,21 @@ class AgendaController extends Controller
     {
         $this->requireRole($this->accessRoles);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
-        if (!$this->model->findById($id)) $this->json(['error' => 'Reunião não encontrada'], 404);
+
+        $meeting = $this->model->findById($id);
+        if (!$meeting) $this->json(['error' => 'Reunião não encontrada'], 404);
+
+        // Se há evento no Google Calendar e o usuário pediu para remover
+        if (!empty($meeting['google_event_id']) && !empty($_POST['delete_google_event'])) {
+            $notify = !empty($_POST['notify_participants']);
+            try {
+                $google = new GoogleCalendarApi();
+                if ($google->isConfigured()) {
+                    $google->deleteEvent($meeting['google_event_id'], $notify);
+                }
+            } catch (\Throwable $e) { /* ignora erro na remoção do evento */ }
+        }
+
         $this->model->delete($id);
         $this->json(['success' => true]);
     }

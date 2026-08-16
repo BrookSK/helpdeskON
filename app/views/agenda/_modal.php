@@ -413,7 +413,24 @@ function saveMeeting() {
     if (!title) { alert('Informe o título.'); return; }
     const id = document.getElementById('mt-id').value;
     const url = id ? `${BASE}agenda/update/${id}` : `${BASE}agenda/create`;
-    fetch(url, { method: 'POST', body: collectPayload(), headers: {'X-Requested-With':'XMLHttpRequest'} })
+
+    const fd = collectPayload();
+
+    // Se está editando e mudando status para "cancelada" e há evento Google, pergunta
+    if (id) {
+        const newStatus = document.getElementById('mt-status').value;
+        const hasGoogleEvent = !!document.getElementById('mt-google-event-id').value;
+        if (newStatus === 'cancelada' && hasGoogleEvent) {
+            const deleteEvent = confirm('A reunião será cancelada. Deseja remover o evento do Google Calendar?');
+            if (deleteEvent) {
+                fd.append('delete_google_event', '1');
+                const notify = confirm('Notificar os participantes sobre o cancelamento?');
+                if (notify) fd.append('notify_participants', '1');
+            }
+        }
+    }
+
+    fetch(url, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json()).then(d => {
             if (d.error) { alert(d.error); return; }
             location.reload();
@@ -422,8 +439,26 @@ function saveMeeting() {
 
 function deleteMeeting() {
     const id = document.getElementById('mt-id').value;
-    if (!id || !confirm('Excluir esta reunião?')) return;
-    fetch(`${BASE}agenda/delete/${id}`, { method: 'POST', headers: {'X-Requested-With':'XMLHttpRequest'} })
+    if (!id) return;
+
+    const hasGoogleEvent = !!document.getElementById('mt-google-event-id').value;
+    let deleteGoogleEvent = false;
+    let notifyParticipants = false;
+
+    if (!confirm('Excluir esta reunião?')) return;
+
+    if (hasGoogleEvent) {
+        deleteGoogleEvent = confirm('Deseja também remover o evento do Google Calendar?');
+        if (deleteGoogleEvent) {
+            notifyParticipants = confirm('Notificar os participantes sobre o cancelamento?');
+        }
+    }
+
+    const fd = new FormData();
+    if (deleteGoogleEvent) fd.append('delete_google_event', '1');
+    if (notifyParticipants) fd.append('notify_participants', '1');
+
+    fetch(`${BASE}agenda/delete/${id}`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json()).then(d => {
             if (d.error) { alert(d.error); return; }
             location.reload();
