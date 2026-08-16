@@ -136,7 +136,7 @@
                     <i class="bi bi-whatsapp"></i> WhatsApp Chat
                 </a>
             </li>
-            <?php $crmSectionActive = in_array($currentPage ?? '', ['crm', 'crm_dashboard', 'crm_commissions', 'crm_leads']); ?>
+            <?php $crmSectionActive = in_array($currentPage ?? '', ['crm', 'crm_dashboard', 'crm_commissions', 'crm_leads', 'crm_calls']); ?>
             <li class="nav-item">
                 <a class="nav-link d-flex align-items-center justify-content-between <?= ($currentPage ?? '') === 'crm' ? 'active' : '' ?>" href="<?= baseUrl('crm') ?>">
                     <span class="nav-link-body"><i class="bi bi-kanban"></i> <span class="nav-text">CRM</span></span>
@@ -153,6 +153,11 @@
                 <li class="nav-item">
                     <a class="nav-link <?= ($currentPage ?? '') === 'crm_leads' ? 'active' : '' ?>" href="<?= baseUrl('crm/leads') ?>" style="padding-left:2.6rem;font-size:0.85rem;">
                         <i class="bi bi-person-lines-fill"></i> Meus leads
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link <?= ($currentPage ?? '') === 'crm_calls' ? 'active' : '' ?>" href="<?= baseUrl('crm/calls') ?>" style="padding-left:2.6rem;font-size:0.85rem;">
+                        <i class="bi bi-telephone"></i> Ligações
                     </a>
                 </li>
                 <li class="nav-item">

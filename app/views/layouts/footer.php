@@ -238,5 +238,13 @@
     }
     </style>
     <?php endif; ?>
+
+    <?php
+    // Webphone nativo (WebRTC/SIP over WSS) — roda dentro do CRM para papéis de telefonia.
+    $nvoipTelephonyRoles = ['super_admin', 'comercial'];
+    if (in_array($currentUserRole, $nvoipTelephonyRoles) && Config::get('nvoip_sip_user')):
+        require APP_PATH . '/views/layouts/_webphone.php';
+    endif;
+    ?>
 </body>
 </html>

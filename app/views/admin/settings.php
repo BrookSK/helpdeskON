@@ -456,6 +456,28 @@
                         <small class="text-muted">Use o <strong>Usuário SIP</strong> cadastrado na Nvoip (não um número de telefone).</small>
                     </div>
                 </div>
+
+                <hr class="my-3">
+                <div class="fw-medium small mb-2"><i class="bi bi-headset"></i> Webphone (WebRTC / SIP over WSS)</div>
+                <small class="text-muted d-block mb-2">Permite atender/ligar dentro do próprio CRM. Dados conforme documentação Nvoip. A senha SIP é secreta e entregue apenas ao usuário autenticado.</small>
+                <div class="row g-2">
+                    <div class="col-md-3">
+                        <label class="form-label fw-medium small">Usuário SIP (ramal)</label>
+                        <input type="text" name="nvoip_sip_user" class="form-control form-control-sm" value="<?= escape($settings['nvoip_sip_user'] ?? '') ?>" placeholder="ex.: 148379001">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-medium small">Senha SIP <span class="text-muted">(secreta)</span></label>
+                        <input type="password" name="nvoip_sip_password" class="form-control form-control-sm" value="" placeholder="<?= !empty($settings['nvoip_sip_password']) ? '•••••••• (salvo — deixe em branco para manter)' : 'senha SIP do ramal' ?>" autocomplete="new-password">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-medium small">Servidor WebSocket</label>
+                        <input type="text" name="nvoip_ws_server" class="form-control form-control-sm" value="<?= escape($settings['nvoip_ws_server'] ?? 'wss://app.nvoip.com.br:7443') ?>" placeholder="wss://app.nvoip.com.br:7443">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-medium small">Domínio SIP</label>
+                        <input type="text" name="nvoip_sip_domain" class="form-control form-control-sm" value="<?= escape($settings['nvoip_sip_domain'] ?? 'app.nvoip.com.br') ?>" placeholder="app.nvoip.com.br">
+                    </div>
+                </div>
                 <div class="mt-3 d-flex align-items-center gap-2">
                     <button type="button" class="btn btn-sm btn-outline-primary" onclick="testNvoip(this)"><i class="bi bi-plug"></i> Testar conexão</button>
                     <span id="nvoip-test-result" class="small" style="display:none;"></span>

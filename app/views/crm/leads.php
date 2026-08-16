@@ -136,7 +136,8 @@ $sourceLabels = [
 <script>
 const BASE = '<?= baseUrl('') ?>';
 
-// Origina uma ligação via Nvoip (backend resolve telefone e usuário a partir do leadId).
+// Origina a ligação pelo webphone nativo (WebRTC). O backend resolve o telefone do lead
+// e registra a ligação; o áudio acontece no navegador, dentro do CRM.
 function callLead(leadId, btn) {
     if (btn.dataset.loading === '1') return; // bloqueia múltiplos cliques
     btn.dataset.loading = '1';
@@ -144,23 +145,18 @@ function callLead(leadId, btn) {
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Iniciando...';
 
-    fetch(BASE + 'crm/callLead/' + leadId, { method: 'POST', headers: {'X-Requested-With':'XMLHttpRequest'} })
+    // Pede ao backend o número normalizado do lead (não confia no frontend) e registra a ligação
+    fetch(BASE + 'crm/dialLead/' + leadId, { method: 'POST', headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json())
         .then(d => {
             btn.disabled = false; btn.dataset.loading = '0'; btn.innerHTML = original;
             if (d.error) { alert(d.error); return; }
-            const st = (d.status || '').toLowerCase();
-            if (st === 'failed') {
-                alert('A Nvoip não completou a ligação (situação: failed).\n\n'
-                    + 'A chamada tenta tocar primeiro o seu Usuário SIP (originador). '
-                    + 'Verifique se o SIP está registrado/online em um dispositivo ou app Nvoip.\n\n'
-                    + 'callId: ' + (d.call_id || '—'));
+            if (typeof window.nvCall !== 'function') {
+                alert('Webphone não disponível nesta tela. Recarregue a página.');
                 return;
             }
-            let msg = 'Ligação iniciada.';
-            if (d.status) msg += '\nSituação: ' + d.status;
-            if (d.call_id) msg += '\ncallId: ' + d.call_id;
-            alert(msg);
+            const ok = window.nvCall(d.called, d.call_record_id);
+            if (!ok) return; // nvCall já avisou (ramal não registrado, etc.)
         })
         .catch(() => {
             btn.disabled = false; btn.dataset.loading = '0'; btn.innerHTML = original;

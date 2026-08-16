@@ -34,6 +34,8 @@ class SettingsController extends Controller
             // Nvoip (telefonia) — campos não-secretos
             'nvoip_auth_base_url', 'nvoip_base_url', 'nvoip_oauth_client_id',
             'nvoip_oauth_scopes', 'nvoip_caller',
+            // Nvoip webphone (WSS) — campos não-secretos
+            'nvoip_sip_user', 'nvoip_ws_server', 'nvoip_sip_domain',
         ];
 
         foreach ($fields as $field) {
@@ -46,6 +48,11 @@ class SettingsController extends Controller
         // Deixar o campo em branco preserva a credencial já salva (nunca é reexibida no frontend).
         if (isset($_POST['nvoip_oauth_client_credential']) && trim($_POST['nvoip_oauth_client_credential']) !== '') {
             Config::set('nvoip_oauth_client_credential', trim($_POST['nvoip_oauth_client_credential']));
+        }
+
+        // Senha SIP também é SECRETA: mesma regra (em branco mantém a salva).
+        if (isset($_POST['nvoip_sip_password']) && trim($_POST['nvoip_sip_password']) !== '') {
+            Config::set('nvoip_sip_password', trim($_POST['nvoip_sip_password']));
         }
 
         // === Tokens dinâmicos: Meta (array meta_tokens[]) ===

@@ -124,7 +124,7 @@ class NvoipApi
     }
 
     /**
-     * Cria (origina) uma chamada.
+     * Cria (origina) uma chamada direta.
      * POST {{baseUrl}}/calls/
      * Payload documentado: caller, called, checkDDI, transfer.
      */
@@ -137,6 +137,22 @@ class NvoipApi
             'transfer' => (bool) $transfer,
         ];
         return $this->request('POST', $this->baseUrl . '/calls/', $payload);
+    }
+
+    /**
+     * Click-to-call: chama primeiro o ramal SIP (caller) e, após o atendimento,
+     * conecta ao destino (called). O ramal precisa estar registrado e apto a
+     * receber a primeira perna. Endpoint indicado para uso via CRM.
+     * POST {{baseUrl}}/calls/click-to-call
+     * Payload documentado: caller, called.
+     */
+    public function clickToCall($caller, $called)
+    {
+        $payload = [
+            'caller' => $caller,
+            'called' => $called,
+        ];
+        return $this->request('POST', $this->baseUrl . '/calls/click-to-call', $payload);
     }
 
     /**

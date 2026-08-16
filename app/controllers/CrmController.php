@@ -550,11 +550,12 @@ class CrmController extends Controller
         $caller = $api->caller();
         if ($caller === '') $this->json(['error' => 'Originador (caller) não configurado em Configurações.'], 400);
 
-        // Origina a chamada (checkDDI: true, transfer: false — conforme exemplo oficial)
-        $res = $api->createCall($caller, $called, true, false);
+        // Origina a chamada via click-to-call: chama o ramal SIP (caller) e conecta ao lead (called).
+        // Endpoint indicado para uso via CRM (payload documentado: caller, called).
+        $res = $api->clickToCall($caller, $called);
 
         // Registra a resposta completa (sucesso ou não) para inspecionar a estrutura real.
-        Logger::info('Nvoip createCall resposta', [
+        Logger::info('Nvoip clickToCall resposta', [
             'http' => $res['status'] ?? null,
             'called' => $called,
             'data' => $this->safeResponseJson($res['data'] ?? null),
@@ -590,33 +591,141 @@ class CrmController extends Controller
             $this->json(['error' => $msg], 502);
         }
 
-        // Consulta a situação uma vez (se houver callId) para dar visibilidade real do andamento.
-        $situation = null;
-        if ($callId) {
-            $st = $api->getCall($callId);
-            Logger::info('Nvoip getCall (pós-criação)', [
-                'call_id' => $callId,
-                'http' => $st['status'] ?? null,
-                'data' => $this->safeResponseJson($st['data'] ?? null),
-            ]);
-            if (!empty($st['success']) && is_array($st['data'] ?? null)) {
-                $situation = $st['data']['state'] ?? $st['data']['status'] ?? null;
-                // Atualiza o status persistido com a situação real
-                if ($situation !== null) {
-                    Database::getInstance()->query(
-                        "UPDATE nvoip_calls SET status = ? WHERE call_id = ?",
-                        [$situation, $callId]
-                    );
-                }
-            }
-        }
-
+        // Não consultamos a situação imediatamente: o click-to-call é assíncrono e
+        // consultar em <1s retornaria um estado transitório. A situação final é obtida
+        // depois via crm/callStatus/{callId} (ex.: quando o usuário quiser conferir).
         $this->json([
             'success' => true,
             'call_id' => $callId,
-            'status' => $situation ?: $status,
+            'status' => $status, // estado inicial retornado na criação (ex.: calling_origin)
             'raw' => $res['data'] ?? null,
         ]);
+    }
+
+    /**
+     * API: prepara a discagem do lead pelo webphone nativo (WebRTC).
+     * O backend resolve/normaliza o telefone (não confia no frontend) e registra a ligação.
+     * Retorna o número a ser discado pelo ramal SIP. POST crm/dialLead/{contactId}
+     */
+    public function dialLead($contactId = null)
+    {
+        $this->requireRole(['super_admin', 'comercial']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$contactId) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+
+        $contactModel = new WhatsappContact();
+        $contact = $contactModel->findById($contactId);
+        if (!$contact) $this->json(['error' => 'Lead não encontrado'], 404);
+
+        $user = $this->currentUser();
+        if ($user['role'] === 'comercial' && (int)$contact['assigned_to'] !== (int)$user['id']) {
+            $this->json(['error' => 'Sem permissão'], 403);
+        }
+
+        // Normaliza o telefone do lead (só dígitos; remove DDI 55 quando presente)
+        $called = preg_replace('/\D/', '', (string)($contact['phone'] ?? ''));
+        if (strlen($called) > 11 && strpos($called, '55') === 0) {
+            $called = substr($called, 2);
+        }
+        if ($called === '') $this->json(['error' => 'Este lead não possui telefone cadastrado.'], 400);
+
+        // Registra a ligação (origem WebRTC — sem callId da API REST)
+        $recordId = $this->recordCall([
+            'contact_id' => $contactId,
+            'user_id' => $user['id'],
+            'direction' => 'outbound',
+            'call_id' => null,
+            'caller' => Config::get('nvoip_sip_user'),
+            'called' => $called,
+            'status' => 'dialing',
+            'response_json' => null,
+        ]);
+
+        $this->json(['success' => true, 'called' => $called, 'call_record_id' => $recordId]);
+    }
+
+    /**
+     * API: registra eventos do ciclo de vida da chamada do webphone.
+     * POST crm/callEvent/{recordId}  body: event=ringing|answered|ended, cause=?, duration=?
+     * Mantém todos os registros (início, atendida, encerrada, duração).
+     */
+    public function callEvent($recordId = null)
+    {
+        $this->requireRole(['super_admin', 'comercial']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$recordId) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+
+        $db = Database::getInstance();
+        $rec = $db->fetch("SELECT * FROM nvoip_calls WHERE id = ?", [$recordId]);
+        if (!$rec) $this->json(['error' => 'Registro não encontrado'], 404);
+
+        $user = $this->currentUser();
+        if ($user['role'] === 'comercial' && (int)$rec['user_id'] !== (int)$user['id']) {
+            $this->json(['error' => 'Sem permissão'], 403);
+        }
+
+        $event = $_POST['event'] ?? '';
+        $data = [];
+        switch ($event) {
+            case 'ringing':
+                $data['status'] = 'ringing';
+                break;
+            case 'answered':
+                $data['status'] = 'answered';
+                $data['answered_at'] = date('Y-m-d H:i:s');
+                break;
+            case 'ended':
+                $data['status'] = 'ended';
+                $data['ended_at'] = date('Y-m-d H:i:s');
+                $data['duration_seconds'] = max(0, intval($_POST['duration'] ?? 0));
+                if (!empty($_POST['cause'])) $data['hangup_cause'] = substr(trim($_POST['cause']), 0, 50);
+                break;
+            default:
+                $this->json(['error' => 'Evento inválido'], 400);
+        }
+
+        $db->update('nvoip_calls', $data, 'id = ?', [$recordId]);
+        $this->json(['success' => true]);
+    }
+
+    /**
+     * API: registra uma ligação recebida no webphone (histórico de entrada).
+     * POST crm/registerInbound  body: from=numero
+     */
+    public function registerInbound()
+    {
+        $this->requireRole(['super_admin', 'comercial']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+
+        $user = $this->currentUser();
+        $from = preg_replace('/\D/', '', (string)($_POST['from'] ?? ''));
+
+        // Tenta associar a um contato existente pelo telefone (últimos 8 dígitos)
+        $contactId = null;
+        if ($from !== '') {
+            $last8 = substr($from, -8);
+            $c = Database::getInstance()->fetch(
+                "SELECT id FROM whatsapp_contacts WHERE COALESCE(is_group,0)=0
+                 AND REPLACE(REPLACE(REPLACE(phone,' ',''),'-',''),'+','') LIKE ? LIMIT 1",
+                ['%' . $last8]
+            );
+            $contactId = $c['id'] ?? null;
+        }
+
+        $recordId = $this->recordCall([
+            'contact_id' => $contactId,
+            'user_id' => $user['id'],
+            'direction' => 'inbound',
+            'call_id' => null,
+            'caller' => $from ?: null,
+            'called' => Config::get('nvoip_sip_user'),
+            'status' => 'ringing',
+            'response_json' => null,
+        ]);
+
+        $this->json(['success' => true, 'call_record_id' => $recordId]);
     }
 
     /**
@@ -669,12 +778,41 @@ class CrmController extends Controller
         $this->json(['success' => true, 'data' => $res['data']]);
     }
 
-    /** Grava o registro mínimo da ligação. */
+    /**
+     * API: entrega as credenciais SIP do webphone ao usuário autenticado (sob demanda).
+     * A senha SIP não fica no HTML — é buscada por este endpoint apenas por usuário logado.
+     * GET crm/sipCredentials
+     */
+    public function sipCredentials()
+    {
+        $this->requireRole(['super_admin', 'comercial']);
+
+        $sipUser = Config::get('nvoip_sip_user');
+        $sipPassword = Config::get('nvoip_sip_password');
+        $wsServer = Config::get('nvoip_ws_server') ?: 'wss://app.nvoip.com.br:7443';
+        $domain = Config::get('nvoip_sip_domain') ?: 'app.nvoip.com.br';
+
+        if (empty($sipUser) || empty($sipPassword)) {
+            $this->json(['configured' => false]);
+        }
+
+        $this->json([
+            'configured' => true,
+            'ws_server' => $wsServer,
+            'domain' => $domain,
+            'sip_user' => $sipUser,
+            'sip_password' => $sipPassword,
+            'uri' => 'sip:' . $sipUser . '@' . $domain,
+        ]);
+    }
+
+    /** Grava o registro mínimo da ligação. Retorna o id do registro (ou null em falha). */
     private function recordCall($data)
     {
         try {
-            Database::getInstance()->insert('nvoip_calls', $data);
+            return Database::getInstance()->insert('nvoip_calls', $data);
         } catch (\Throwable $e) { /* não bloqueia a ligação por falha de log */ }
+        return null;
     }
 
     /** Serializa a resposta para armazenamento, removendo eventuais campos sensíveis de auth. */
@@ -687,6 +825,31 @@ class CrmController extends Controller
             }
         }
         return is_string($data) ? $data : json_encode($data);
+    }
+
+    /**
+     * Histórico de ligações registradas pelo CRM (webphone).
+     * super_admin vê todas; comercial vê só as suas.
+     */
+    public function calls()
+    {
+        $this->requireRole(['super_admin', 'comercial']);
+        $user = $this->currentUser();
+
+        $params = [];
+        $sql = "SELECT nc.*, c.contact_name, c.push_name, u.name AS user_name
+                FROM nvoip_calls nc
+                LEFT JOIN whatsapp_contacts c ON c.id = nc.contact_id
+                LEFT JOIN users u ON u.id = nc.user_id
+                WHERE 1=1";
+        if ($user['role'] === 'comercial') {
+            $sql .= " AND nc.user_id = ?";
+            $params[] = $user['id'];
+        }
+        $sql .= " ORDER BY nc.created_at DESC LIMIT 300";
+
+        $calls = Database::getInstance()->fetchAll($sql, $params);
+        $this->view('crm/calls', ['user' => $user, 'calls' => $calls]);
     }
 
     /**
