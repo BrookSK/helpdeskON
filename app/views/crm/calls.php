@@ -48,6 +48,7 @@ $fmtDur = function($s) {
                             <th>Usuário</th>
                             <th>Situação</th>
                             <th>Duração</th>
+                            <th></th>
                         </tr>
                     </thead>
                     <tbody>
@@ -65,6 +66,13 @@ $fmtDur = function($s) {
                             <td><?= escape($c['user_name'] ?: '—') ?></td>
                             <td><span class="badge rounded-pill" style="background:<?= $sm[1] ?>1a;color:<?= $sm[1] ?>;"><?= escape($sm[0]) ?></span></td>
                             <td><?= $fmtDur($c['duration_seconds']) ?></td>
+                            <td class="text-end">
+                                <?php if (in_array($c['status'], ['dialing', 'ringing', 'answered'], true)): ?>
+                                <button class="btn btn-sm btn-outline-danger" title="Encerrar registro" onclick="endCall(<?= $c['id'] ?>, this)">
+                                    <i class="bi bi-x-circle"></i> Encerrar
+                                </button>
+                                <?php endif; ?>
+                            </td>
                         </tr>
                         <?php endforeach; ?>
                     </tbody>
@@ -75,4 +83,20 @@ $fmtDur = function($s) {
     </div>
 </div>
 
+<script>
+const BASE = '<?= baseUrl('') ?>';
+// Encerra manualmente um registro de ligação preso (dialing/ringing/answered)
+function endCall(id, btn) {
+    if (!confirm('Encerrar este registro de ligação?')) return;
+    btn.disabled = true;
+    const fd = new FormData();
+    fd.append('event', 'ended');
+    fd.append('duration', '0');
+    fd.append('cause', 'manual');
+    fetch(BASE + 'crm/callEvent/' + id, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json())
+        .then(d => { if (d.error) { alert(d.error); btn.disabled = false; return; } location.reload(); })
+        .catch(() => { btn.disabled = false; alert('Erro ao encerrar.'); });
+}
+</script>
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>
