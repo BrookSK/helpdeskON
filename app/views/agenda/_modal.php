@@ -23,7 +23,7 @@
 
                     <!-- Cliente do CRM -->
                     <div class="col-md-8">
-                        <label class="form-label small fw-medium">Cliente (CRM)</label>
+                        <label class="form-label small fw-medium">Cliente (CRM) *</label>
                         <select id="mt-client" class="form-select form-select-sm" onchange="onClientChange()">
                             <option value="">Selecione um lead do CRM...</option>
                             <?php foreach ($leads as $l): ?>
@@ -74,6 +74,7 @@
                             <option value="agendada">Agendada</option>
                             <option value="confirmada">Confirmada</option>
                             <option value="realizada">Realizada</option>
+                            <option value="convertida">Convertida</option>
                             <option value="remarcada">Remarcada</option>
                             <option value="cancelada">Cancelada</option>
                         </select>
@@ -411,6 +412,14 @@ function generateMeet(btn) {
 function saveMeeting() {
     const title = document.getElementById('mt-title').value.trim();
     if (!title) { alert('Informe o título.'); return; }
+
+    // Contato obrigatório
+    const clientVal = document.getElementById('mt-client').value;
+    if (!clientVal) { alert('Selecione um cliente (CRM) ou cadastre um novo.'); return; }
+    if (clientVal === '__new__' && !document.getElementById('mt-new-name').value.trim()) {
+        alert('Informe o nome do novo cliente.'); return;
+    }
+
     const id = document.getElementById('mt-id').value;
     const url = id ? `${BASE}agenda/update/${id}` : `${BASE}agenda/create`;
 

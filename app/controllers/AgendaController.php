@@ -124,6 +124,11 @@ class AgendaController extends Controller
             );
         }
 
+        // Contato é obrigatório (selecionar existente ou cadastrar novo)
+        if (!$contactId) {
+            $this->json(['error' => 'Selecione um cliente ou cadastre um novo.'], 400);
+        }
+
         $data = [
             'title' => $title,
             'contact_id' => $contactId,
@@ -320,6 +325,86 @@ class AgendaController extends Controller
         $this->requireRole($this->accessRoles);
         $google = new GoogleCalendarApi();
         $this->json(['configured' => $google->isConfigured()]);
+    }
+
+    // Dashboard de Performance Comercial
+    public function dashboard()
+    {
+        $this->requireRole(['super_admin', 'comercial', 'marketing']);
+        $user = $this->currentUser();
+
+        // Filtros de período (padrão: mês atual)
+        $startDate = $_GET['start'] ?? date('Y-m-01');
+        $endDate = $_GET['end'] ?? date('Y-m-t');
+
+        // Se for comercial, vê apenas os próprios dados
+        $filterUserId = null;
+        if ($user['role'] === 'comercial') {
+            $filterUserId = $user['id'];
+        } elseif (!empty($_GET['user_id'])) {
+            $filterUserId = intval($_GET['user_id']);
+        }
+
+        // Métricas de reuniões por usuário
+        $meetingStats = $this->model->getPerformanceStats($startDate, $endDate, $filterUserId);
+        $uniqueContacts = $this->model->getUniqueContactsByUser($startDate, $endDate, $filterUserId);
+
+        // Métricas de mensagens WhatsApp
+        $msgModel = new WhatsappMessage();
+        $messageStats = $msgModel->getMessageStatsByUser($startDate, $endDate, $filterUserId);
+        $responseStats = $msgModel->getContactResponseStats($startDate, $endDate, $filterUserId);
+
+        // Série mensal (gráfico)
+        $trend = $this->model->getMonthlyTrend(6, $filterUserId);
+
+        // Lista de usuários comerciais (para filtro no admin)
+        $userModel = new User();
+        $comerciais = $userModel->getByRoles(['super_admin', 'comercial', 'marketing']);
+
+        // Monta dados consolidados por usuário para a tabela comparativa
+        $tableData = [];
+        $allUserIds = array_unique(array_merge(
+            array_keys($meetingStats),
+            array_keys($messageStats),
+            array_keys($responseStats)
+        ));
+        foreach ($allUserIds as $uid) {
+            $ms = $meetingStats[$uid] ?? [];
+            $msg = $messageStats[$uid] ?? ['sent' => 0, 'received' => 0, 'contacts_messaged' => 0];
+            $resp = $responseStats[$uid] ?? ['contacted' => 0, 'replied' => 0, 'no_reply' => 0];
+            $tableData[] = [
+                'user_id' => $uid,
+                'user_name' => $ms['user_name'] ?? 'Usuário #' . $uid,
+                'total_meetings' => $ms['total'] ?? 0,
+                'agendada' => ($ms['agendada'] ?? 0) + ($ms['a_agendar'] ?? 0),
+                'confirmada' => $ms['confirmada'] ?? 0,
+                'realizada' => $ms['realizada'] ?? 0,
+                'convertida' => $ms['convertida'] ?? 0,
+                'remarcada' => $ms['remarcada'] ?? 0,
+                'cancelada' => $ms['cancelada'] ?? 0,
+                'unique_contacts' => $uniqueContacts[$uid] ?? 0,
+                'messages_sent' => $msg['sent'],
+                'messages_received' => $msg['received'],
+                'contacts_messaged' => $msg['contacts_messaged'],
+                'contacts_contacted' => $resp['contacted'],
+                'contacts_replied' => $resp['replied'],
+                'contacts_no_reply' => $resp['no_reply'],
+            ];
+        }
+
+        // Ordena por total de conversões (desc)
+        usort($tableData, fn($a, $b) => $b['convertida'] <=> $a['convertida']);
+
+        $this->view('agenda/dashboard', [
+            'user' => $user,
+            'tableData' => $tableData,
+            'trend' => $trend,
+            'comerciais' => $comerciais,
+            'startDate' => $startDate,
+            'endDate' => $endDate,
+            'filterUserId' => $filterUserId,
+            'isAdmin' => in_array($user['role'], ['super_admin', 'marketing']),
+        ]);
     }
 
     // API: gerar o link do Google Meet ANTES de salvar (garante o link)
