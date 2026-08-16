@@ -115,6 +115,11 @@ $sourceLabels = [
                                 <a class="btn btn-sm btn-success" title="Iniciar chat no WhatsApp" href="<?= baseUrl('whatsapp/chat/' . $l['id']) ?>">
                                     <i class="bi bi-whatsapp"></i>
                                 </a>
+                                <?php if (!empty($l['phone'])): ?>
+                                <button class="btn btn-sm btn-outline-primary btn-call" title="Telefonar" onclick="callLead(<?= $l['id'] ?>, this)">
+                                    <i class="bi bi-telephone-outbound"></i> Telefonar
+                                </button>
+                                <?php endif; ?>
                             </td>
                         </tr>
                         <?php endforeach; ?>
@@ -130,5 +135,26 @@ $sourceLabels = [
 
 <script>
 const BASE = '<?= baseUrl('') ?>';
+
+// Origina uma ligação via Nvoip (backend resolve telefone e usuário a partir do leadId).
+function callLead(leadId, btn) {
+    if (btn.dataset.loading === '1') return; // bloqueia múltiplos cliques
+    btn.dataset.loading = '1';
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Iniciando...';
+
+    fetch(BASE + 'crm/callLead/' + leadId, { method: 'POST', headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json())
+        .then(d => {
+            btn.disabled = false; btn.dataset.loading = '0'; btn.innerHTML = original;
+            if (d.error) { alert(d.error); return; }
+            alert('Ligação iniciada.');
+        })
+        .catch(() => {
+            btn.disabled = false; btn.dataset.loading = '0'; btn.innerHTML = original;
+            alert('Erro ao iniciar a ligação.');
+        });
+}
 </script>
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>

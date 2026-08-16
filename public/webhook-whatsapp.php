@@ -32,6 +32,9 @@ spl_autoload_register(function ($class) {
     }
 });
 
+require_once APP_PATH . '/core/Logger.php';
+Logger::register();
+
 require_once APP_PATH . '/core/helpers.php';
 require_once APP_PATH . '/core/Database.php';
 require_once APP_PATH . '/core/Config.php';

@@ -94,7 +94,10 @@
                 </div>
             </div>
             <div class="modal-footer justify-content-between">
-                <a class="btn btn-sm btn-success" id="ld-chat-btn" href="#"><i class="bi bi-whatsapp"></i> Iniciar chat</a>
+                <div class="d-flex gap-2">
+                    <a class="btn btn-sm btn-success" id="ld-chat-btn" href="#"><i class="bi bi-whatsapp"></i> Iniciar chat</a>
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="ld-call-btn" style="display:none;" onclick="callLeadFromModal(this)"><i class="bi bi-telephone-outbound"></i> Telefonar</button>
+                </div>
                 <div class="d-flex gap-2">
                     <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Fechar</button>
                     <button class="btn btn-sm btn-primary" onclick="saveLead()"><i class="bi bi-check-lg"></i> Salvar</button>
@@ -126,10 +129,19 @@ function openLead(id) {
             const c = d.contact || {};
             document.getElementById('ld-contact_name').value = c.contact_name || c.push_name || '';
             document.getElementById('ld-phone').value = c.phone || '';
+            // Botão Telefonar só quando há telefone
+            const callBtn = document.getElementById('ld-call-btn');
+            if (c.phone) { callBtn.style.display = ''; callBtn.dataset.lead = id; }
+            else callBtn.style.display = 'none';
             const b = d.briefing;
             if (b) LD_BF_FIELDS.forEach(k => { const el = document.getElementById('ld-bf-' + k); if (el && b[k] != null) el.value = b[k]; });
             getLeadModal().show();
         });
+}
+
+function callLeadFromModal(btn) {
+    const id = btn.dataset.lead || document.getElementById('ld-id').value;
+    if (typeof callLead === 'function') callLead(id, btn);
 }
 
 function saveLead() {

@@ -31,12 +31,21 @@ class SettingsController extends Controller
             'whatsapp_default_group_jid', 'whatsapp_group_notify_enabled',
             'cron_token',
             'linkedin_client_id', 'linkedin_client_secret', 'linkedin_scopes',
+            // Nvoip (telefonia) — campos não-secretos
+            'nvoip_auth_base_url', 'nvoip_base_url', 'nvoip_oauth_client_id',
+            'nvoip_oauth_scopes', 'nvoip_caller',
         ];
 
         foreach ($fields as $field) {
             if (isset($_POST[$field])) {
                 Config::set($field, trim($_POST[$field]));
             }
+        }
+
+        // Nvoip client credential é SECRETO: só atualiza quando um novo valor for informado.
+        // Deixar o campo em branco preserva a credencial já salva (nunca é reexibida no frontend).
+        if (isset($_POST['nvoip_oauth_client_credential']) && trim($_POST['nvoip_oauth_client_credential']) !== '') {
+            Config::set('nvoip_oauth_client_credential', trim($_POST['nvoip_oauth_client_credential']));
         }
 
         // === Tokens dinâmicos: Meta (array meta_tokens[]) ===
@@ -222,6 +231,38 @@ class SettingsController extends Controller
         } else {
             $this->json(['success' => false, 'message' => "Falha no webhook. HTTP {$httpCode}. Resposta: " . substr($response, 0, 200)]);
         }
+    }
+
+    // Testar conexão Nvoip (fluxo client_credentials)
+    public function testNvoip()
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            $this->json(['success' => false, 'message' => 'Método inválido'], 405);
+        }
+
+        $api = new NvoipApi();
+        if (!$api->isConfigured()) {
+            $this->json(['success' => false, 'message' => 'Preencha as credenciais da Nvoip e salve antes de testar.']);
+        }
+
+        // 1) Autenticação servidor a servidor
+        $auth = $api->authenticate();
+        if (empty($auth['success'])) {
+            // Mensagem genérica — não expõe token/segredo/headers.
+            $this->json(['success' => false, 'message' => $auth['error'] ?? 'Falha na autenticação com a Nvoip.']);
+        }
+
+        // 2) Confirma comunicação com a conta listando usuários (não gera chamada nem cobrança)
+        $users = $api->getUsers(0, 1);
+        if (empty($users['success'])) {
+            $this->json([
+                'success' => true,
+                'message' => 'Autenticação OK. Não foi possível confirmar a listagem de usuários (HTTP ' . ($users['status'] ?? '—') . ').',
+            ]);
+        }
+
+        $this->json(['success' => true, 'message' => 'Conexão com a Nvoip estabelecida com sucesso.']);
     }
 
     // Testar envio de email SMTP
