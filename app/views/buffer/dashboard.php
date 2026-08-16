@@ -451,7 +451,10 @@ $networkInfo = [
                 $svAcc = fn($k) => ($acc[$k] !== null && $acc[$k] !== '') ? (float)$acc[$k] : 0;
                 $accPosts = $socialPostsByAccount[$acc['id']] ?? [];
             ?>
-            <div class="ms-net-card">
+            <div class="ms-net-card" style="position:relative;">
+                <?php if ($isAdmin): ?>
+                <button class="btn btn-sm ms-net-delete" onclick="deleteSocialAccount(<?= $acc['id'] ?>,'<?= escape($acc['display_name'] ?: $acc['external_id']) ?>')"><i class="bi bi-trash"></i></button>
+                <?php endif; ?>
                 <div class="ms-net-head">
                     <div class="ms-net-avatar" style="background: <?= $pi[2] ?>12; color: <?= $pi[2] ?>;">
                         <?php if (!empty($acc['avatar'])): ?><img src="<?= escape($acc['avatar']) ?>" alt=""><?php else: ?><i class="bi <?= $pi[1] ?>"></i><?php endif; ?>
@@ -543,7 +546,10 @@ $networkInfo = [
                     }
                 }
             ?>
-            <div class="ms-net-card">
+            <div class="ms-net-card" style="position:relative;">
+                <?php if ($isAdmin): ?>
+                <button class="btn btn-sm ms-net-delete" onclick="deleteBufferChannel(<?= $ch['id'] ?>,'<?= escape($ch['name']) ?>')"><i class="bi bi-trash"></i></button>
+                <?php endif; ?>
                 <div class="ms-net-head">
                     <div class="ms-net-avatar" style="background: <?= $ni[2] ?>12; color: <?= $ni[2] ?>;">
                         <?php if (!empty($ch['avatar'])): ?><img src="<?= escape($ch['avatar']) ?>" alt=""><?php else: ?><i class="bi <?= $ni[1] ?>"></i><?php endif; ?>
@@ -707,6 +713,14 @@ function act(b,url){const o=b.innerHTML;b.disabled=true;b.innerHTML='<span class
 function deleteSocialAccount(id, name) {
     if (!confirm('Remover a conta "' + name + '" da listagem? Os dados serão apagados.')) return;
     fetch(BASE + 'social/delete/' + id, { method: 'POST', headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json())
+        .then(d => { if (d.success) location.reload(); else alert(d.error || 'Erro ao remover.'); })
+        .catch(() => alert('Erro de conexão.'));
+}
+
+function deleteBufferChannel(id, name) {
+    if (!confirm('Remover o canal "' + name + '" da listagem?')) return;
+    fetch(BASE + 'buffer/deleteChannel/' + id, { method: 'POST', headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json())
         .then(d => { if (d.success) location.reload(); else alert(d.error || 'Erro ao remover.'); })
         .catch(() => alert('Erro de conexão.'));

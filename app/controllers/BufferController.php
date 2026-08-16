@@ -320,6 +320,14 @@ class BufferController extends Controller
         $this->json(['success' => true]);
     }
 
+    public function deleteChannel($id = null)
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+        Database::getInstance()->delete('buffer_channels', 'id = ?', [$id]);
+        $this->json(['success' => true]);
+    }
+
     // Lista contas Buffer (JSON) — para a tela de Configurações
     public function accounts()
     {
