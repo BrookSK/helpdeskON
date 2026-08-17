@@ -520,6 +520,12 @@ class CrmController extends Controller
      */
     public function callLead($contactId = null)
     {
+        // DESATIVADO: o fluxo de ligação é 100% pelo webphone (dialLead).
+        // Este endpoint REST (click-to-call) originava uma chamada paralela pelo número virtual,
+        // criando registro duplicado e número com 55 duplicado. Redireciona para o fluxo correto.
+        $this->json(['error' => 'Use o webphone (botão Telefonar) para ligar.'], 400);
+        return;
+        // ---- código antigo mantido abaixo, inacessível ----
         $this->requireRole(['super_admin', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$contactId) {
             $this->json(['error' => 'Requisição inválida'], 400);

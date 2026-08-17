@@ -285,7 +285,18 @@ window.SIP = SIP;
         return true;
     };
 
+    // Garante um único DDI 55 no número (remove 55 repetidos no início e mantém um só)
+    function sanitizeDial(n){
+        n = String(n).replace(/\D/g,'');
+        // colapsa 55 repetidos no início até sobrar o nacional
+        while(n.length>13 && n.indexOf('55')===0){ n = n.substring(2); }
+        // se ficou 55 + nacional(11) = 13, ok; se ficou nacional(11), ok
+        return n;
+    }
+
     function doDial(numero){
+        numero = sanitizeDial(numero);
+        serverLog('info','doDial numero final '+numero);
         const target=SIP.UserAgent.makeURI('sip:'+numero+'@'+sipConfig.domain);
         if(!window.nvWebphoneReady){
             showDots(false); setStatusText('Ramal indisponível');
