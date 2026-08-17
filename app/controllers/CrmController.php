@@ -788,16 +788,17 @@ class CrmController extends Controller
         $this->requireRole(['super_admin', 'comercial']);
 
         $user = $this->currentUser();
-        // Busca o ramal SIP próprio do usuário no banco (evita conflito de registro entre operadores).
+        // Ramal SIP é SEMPRE individual do usuário (sem fallback global, para não haver
+        // conflito de registro — dois usuários nunca compartilham o mesmo ramal).
         $dbUser = Database::getInstance()->fetch("SELECT sip_user, sip_password FROM users WHERE id = ?", [$user['id']]);
-        // Preferência: ramal do usuário; fallback: ramal global de Configurações.
-        $sipUser = !empty($dbUser['sip_user']) ? $dbUser['sip_user'] : Config::get('nvoip_sip_user');
-        $sipPassword = !empty($dbUser['sip_password']) ? $dbUser['sip_password'] : Config::get('nvoip_sip_password');
+        $sipUser = $dbUser['sip_user'] ?? null;
+        $sipPassword = $dbUser['sip_password'] ?? null;
         $wsServer = Config::get('nvoip_ws_server') ?: 'wss://app.nvoip.com.br:7443';
         $domain = Config::get('nvoip_sip_domain') ?: 'app.nvoip.com.br';
 
         if (empty($sipUser) || empty($sipPassword)) {
-            $this->json(['configured' => false]);
+            // Usuário sem ramal SIP configurado: webphone não é habilitado para ele.
+            $this->json(['configured' => false, 'reason' => 'no_extension']);
         }
 
         // Servidores ICE (STUN/TURN) — configuráveis via settings 'nvoip_ice_servers' (JSON).

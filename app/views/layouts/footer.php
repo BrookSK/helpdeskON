@@ -240,12 +240,10 @@
     <?php endif; ?>
 
     <?php
-    // Webphone nativo (WebRTC/SIP over WSS) — carregado apenas na tela de Leads,
-    // para evitar registro duplicado do mesmo ramal em várias abas do CRM (causa erro 480).
+    // Webphone nativo (WebRTC/SIP over WSS) — apenas na tela de Leads.
+    // O ramal/senha SIP são individuais por usuário; o endpoint sipCredentials decide se há ramal.
     $nvoipTelephonyRoles = ['super_admin', 'comercial'];
-    if (in_array($currentUserRole, $nvoipTelephonyRoles)
-        && ($currentPage ?? '') === 'crm_leads'
-        && Config::get('nvoip_sip_user')):
+    if (in_array($currentUserRole, $nvoipTelephonyRoles) && ($currentPage ?? '') === 'crm_leads'):
         require APP_PATH . '/views/layouts/_webphone.php';
     endif;
     ?>
