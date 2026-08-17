@@ -35,10 +35,12 @@ class PlanningCard
     {
         $sql = "SELECT pc.*, 
                        u.name as assigned_name,
-                       co.name as company_name
+                       co.name as company_name,
+                       cb.name as client_name
                 FROM planning_cards pc
                 LEFT JOIN users u ON pc.assigned_to = u.id
                 LEFT JOIN companies co ON pc.company_id = co.id
+                LEFT JOIN users cb ON pc.created_by = cb.id
                 WHERE 1=1";
         $params = [];
 
