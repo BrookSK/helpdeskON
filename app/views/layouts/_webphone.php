@@ -133,6 +133,15 @@ window.SIP = SIP;
             window.nvWebphoneReady=false; window.nvRegRejectCode=code; serverLog('error','REGISTER rejeitado '+code); }}}).catch(()=>{});
     }
 
+    // Libera o ramal após a chamada: desregistra e para o UA, para não ocupar o ramal em repouso.
+    function releaseRamal(){
+        try{
+            reconnecting=true; // impede reconexão automática após desligar de propósito
+            if(registerer){ registerer.unregister().catch(()=>{}); }
+            setTimeout(()=>{ try{ if(ua){ ua.stop().catch(()=>{}); } }catch(e){} ua=null; registerer=null; window.nvWebphoneReady=false; reconnecting=false; }, 800);
+        }catch(e){ ua=null; registerer=null; window.nvWebphoneReady=false; reconnecting=false; }
+    }
+
     // Reconexão única com backoff — evita múltiplas tentativas concorrentes que derrubam o registro
     function scheduleReconnect(){
         if(reconnecting) return;
@@ -221,7 +230,9 @@ window.SIP = SIP;
                 attachAudio(session); startTimer(); reportEvent('answered'); }
             else if(state===SIP.SessionState.Terminated){ const dur=elapsed(); showDots(false); setStatusText('Chamada encerrada'); resetControls();
                 serverLog('info','Session Terminated (duração '+dur+'s)');
-                reportEvent('ended',{duration:dur}); currentSession=null; currentRecordId=null; answeredAt=null; setTimeout(closeModal,900); }
+                reportEvent('ended',{duration:dur}); currentSession=null; currentRecordId=null; answeredAt=null; setTimeout(closeModal,900);
+                // Libera o ramal ao encerrar (desregistra) — evita manter o ramal ocupado após a chamada
+                releaseRamal(); }
         });
     }
 
@@ -247,22 +258,28 @@ window.SIP = SIP;
         if(currentSession){ alert('Já existe uma ligação em andamento. Encerre-a antes de iniciar outra.'); return false; }
         const target=SIP.UserAgent.makeURI('sip:'+numero+'@'+sipConfig.domain);
         if(!target){ alert('Número inválido.'); return false; }
-        // Exige ramal registrado antes de discar
-        if(!window.nvWebphoneReady){
-            openModal(); setPeer(numero); showDots(false); setStatusText('Ramal indisponível');
-            const w=$('nv-call-reg-warn'); w.style.display='';
-            w.textContent = window.nvNoExtension ? 'Seu usuário não tem Ramal/Senha SIP cadastrados.' : 'Ramal ainda não registrado. Aguarde o webphone conectar e tente de novo.';
+        if(window.nvNoExtension){
+            openModal(); setPeer(numero); showDots(false); setStatusText('Sem ramal');
+            const w=$('nv-call-reg-warn'); w.style.display=''; w.textContent='Seu usuário não tem Ramal/Senha SIP cadastrados. Peça ao administrador em Usuários → editar.';
             return false;
         }
         currentRecordId=recordId||null;
-        openModal(); setPeer(numero); showDots(true); setStatusText('Chamando...'); show('nv-call-answer',false); show('nv-call-mute',false); stopTimer();
-        // Pede microfone e SÓ ENTÃO disca (sem áudio local o ICE não gera candidatos)
-        navigator.mediaDevices.getUserMedia({audio:true, video:false})
-            .then(()=>{ serverLog('info','Microfone OK'); doDial(numero); })
-            .catch(err=>{ showDots(false); setStatusText('Microfone bloqueado');
-                const w=$('nv-call-reg-warn'); w.style.display=''; w.textContent='Permita o acesso ao microfone no navegador para ligar.';
-                serverLog('error','getUserMedia falhou', String(err&&err.name||err));
-                reportEvent('ended',{duration:0,cause:'no_mic'}); currentRecordId=null; });
+        openModal(); setPeer(numero); showDots(true); setStatusText('Preparando...'); show('nv-call-answer',false); show('nv-call-mute',false); stopTimer();
+
+        // Registra o ramal sob demanda (só ao ligar) e pede o microfone, então disca.
+        Promise.all([
+            ensureRegistered(),
+            navigator.mediaDevices.getUserMedia({audio:true, video:false})
+        ]).then(()=>{ serverLog('info','Registrado + Microfone OK'); setStatusText('Chamando...'); doDial(numero); })
+        .catch(err=>{
+            showDots(false);
+            const w=$('nv-call-reg-warn'); w.style.display='';
+            if(err==='no_extension'){ setStatusText('Sem ramal'); w.textContent='Seu usuário não tem Ramal/Senha SIP cadastrados.'; }
+            else if(err==='timeout'){ setStatusText('Ramal indisponível'); w.textContent='Não foi possível registrar seu ramal. Verifique o ramal/senha no seu cadastro.'; }
+            else { setStatusText('Microfone bloqueado'); w.textContent='Permita o acesso ao microfone no navegador para ligar.'; }
+            serverLog('error','Falha ao preparar ligação', String(err&&err.name||err||''));
+            reportEvent('ended',{duration:0,cause:'prepare_failed'}); currentRecordId=null;
+        });
         return true;
     };
 
@@ -298,7 +315,33 @@ window.SIP = SIP;
         return true;
     };
 
-    if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', initWebphone);
-    else initWebphone();
+    // Carrega apenas as credenciais (não registra ainda). O registro é sob demanda, ao ligar.
+    function preloadCredentials(){
+        if(!window.SIP){ return; }
+        fetch(CRM_BASE+'crm/sipCredentials',{headers:{'X-Requested-With':'XMLHttpRequest'}})
+            .then(r=>r.json()).then(cfg=>{
+                if(!cfg.configured){ window.nvNoExtension=true; return; }
+                sipConfig=cfg; // guarda; só registra quando o usuário for ligar
+            }).catch(()=>{});
+    }
+
+    // Registra o ramal sob demanda (retorna Promise que resolve quando registrar)
+    function ensureRegistered(){
+        return new Promise((resolve, reject)=>{
+            if(window.nvWebphoneReady){ resolve(); return; }
+            if(!sipConfig){ reject('no_extension'); return; }
+            if(!ua) startUA(sipConfig);
+            // Aguarda o registro até 8s
+            let waited=0;
+            const iv=setInterval(()=>{
+                waited+=300;
+                if(window.nvWebphoneReady){ clearInterval(iv); resolve(); }
+                else if(waited>=8000){ clearInterval(iv); reject('timeout'); }
+            },300);
+        });
+    }
+
+    if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', preloadCredentials);
+    else preloadCredentials();
 })();
 </script>
