@@ -629,7 +629,9 @@ class CrmController extends Controller
         while (strlen($called) > 11 && strpos($called, '55') === 0) {
             $called = substr($called, 2);
         }
-        // 2) Aplica o formato configurado: 'ddi' adiciona exatamente um 55; 'local' mantém nacional.
+        // 2) Aplica o formato configurado sobre o número nacional (DDD+numero).
+        //    'local' -> nacional (ex.: 17991253062); 'ddi' -> 55+nacional (ex.: 5517991253062).
+        //    Obs.: se a rota da conta Nvoip já prefixa o DDI, use 'local' para não duplicar o 55.
         $fmt = Config::get('nvoip_dial_format') ?: 'local';
         if ($fmt === 'ddi') {
             $called = '55' . $called;
