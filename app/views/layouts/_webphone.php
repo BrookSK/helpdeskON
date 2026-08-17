@@ -97,8 +97,15 @@ window.SIP = SIP;
                 sessionDescriptionHandlerFactoryOptions:{ peerConnectionConfiguration:{ iceServers } },
                 delegate:{ onInvite:inv=>handleIncoming(inv) }
             });
+            // Captura o código real de fechamento do WebSocket para diagnóstico
+            try{
+                const origWs = ua.transport;
+                if(origWs && origWs.onWebSocketClose){
+                    const orig = origWs.onWebSocketClose.bind(origWs);
+                    origWs.onWebSocketClose = function(ev){ try{ serverLog('error','WS fechado code='+(ev&&ev.code)+' reason='+(ev&&ev.reason||'')+' wasClean='+(ev&&ev.wasClean)); }catch(e){} return orig(ev); };
+                }
+            }catch(e){}
             ua.transport.stateChange.addListener(ts=>{ console.log('[Webphone] Transport:',ts); serverLog('info','Transport '+ts);
-                // Reconecta automaticamente se o WebSocket cair (ex.: código 1006)
                 if(ts===SIP.TransportState.Disconnected){
                     setTimeout(()=>{ try{ if(ua && ua.transport && ua.transport.state===SIP.TransportState.Disconnected){
                         ua.reconnect().then(()=>{ if(registerer) registerer.register(); }).catch(()=>{});
