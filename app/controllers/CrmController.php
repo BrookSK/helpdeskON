@@ -816,6 +816,31 @@ class CrmController extends Controller
         ]);
     }
 
+    /**
+     * API: recebe logs do webphone (frontend) e grava no log do servidor via Logger.
+     * Permite depurar as chamadas WebRTC pelo painel de logs. POST crm/webphoneLog
+     */
+    public function webphoneLog()
+    {
+        $this->requireRole(['super_admin', 'comercial']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+
+        $user = $this->currentUser();
+        $level = $_POST['level'] ?? 'info';
+        $message = substr(trim($_POST['message'] ?? ''), 0, 500);
+        $context = [
+            'user_id' => $user['id'],
+            'sip_user' => Config::get('nvoip_sip_user'),
+        ];
+        if (isset($_POST['detail'])) $context['detail'] = substr((string)$_POST['detail'], 0, 1000);
+
+        if ($message !== '') {
+            if (strtolower($level) === 'error') Logger::error('Webphone: ' . $message, $context);
+            else Logger::info('Webphone: ' . $message, $context);
+        }
+        $this->json(['success' => true]);
+    }
+
     /** Grava o registro mínimo da ligação. Retorna o id do registro (ou null em falha). */
     private function recordCall($data)
     {

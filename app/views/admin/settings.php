@@ -478,9 +478,13 @@
                         <input type="text" name="nvoip_sip_domain" class="form-control form-control-sm" value="<?= escape($settings['nvoip_sip_domain'] ?? 'app.nvoip.com.br') ?>" placeholder="app.nvoip.com.br">
                     </div>
                     <div class="col-12">
-                        <label class="form-label fw-medium small">Servidores ICE (STUN/TURN) — JSON</label>
-                        <textarea name="nvoip_ice_servers" class="form-control form-control-sm" rows="2" placeholder='[{"urls":"stun:stun.l.google.com:19302"},{"urls":"turn:HOST:3478","username":"USUARIO","credential":"SENHA"}]'><?= escape($settings['nvoip_ice_servers'] ?? '') ?></textarea>
-                        <small class="text-muted">Necessário TURN quando há firewall/NAT restritivo (evita o erro 408 após o toque). Informe o servidor TURN fornecido pela Nvoip.</small>
+                        <label class="form-label fw-medium small">Servidores ICE (STUN) — JSON (opcional)</label>
+                        <textarea name="nvoip_ice_servers" class="form-control form-control-sm" rows="2" placeholder='[{"urls":"stun:stun.l.google.com:19302"}]'><?= escape($settings['nvoip_ice_servers'] ?? '') ?></textarea>
+                        <small class="text-muted d-block">
+                            A Nvoip usa mídia UDP direta (não usa TURN). Se o ramal registra mas a chamada cai com <code>408</code> após o toque (sem áudio),
+                            o problema é o <strong>firewall da rede</strong>. Libere na saída para <code>app.nvoip.com.br</code> (54.233.253.44):
+                            <strong>TCP 7443</strong> (WSS) e <strong>UDP 10000–60000</strong> (áudio RTP/WebRTC); desative <strong>SIP ALG</strong> e não aplique inspeção SSL nesse domínio.
+                        </small>
                     </div>
                 </div>
                 <div class="mt-3 d-flex align-items-center gap-2">
