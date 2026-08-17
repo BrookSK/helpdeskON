@@ -247,9 +247,16 @@ window.SIP = SIP;
         if(currentSession){ alert('Já existe uma ligação em andamento. Encerre-a antes de iniciar outra.'); return false; }
         const target=SIP.UserAgent.makeURI('sip:'+numero+'@'+sipConfig.domain);
         if(!target){ alert('Número inválido.'); return false; }
+        // Exige ramal registrado antes de discar
+        if(!window.nvWebphoneReady){
+            openModal(); setPeer(numero); showDots(false); setStatusText('Ramal indisponível');
+            const w=$('nv-call-reg-warn'); w.style.display='';
+            w.textContent = window.nvNoExtension ? 'Seu usuário não tem Ramal/Senha SIP cadastrados.' : 'Ramal ainda não registrado. Aguarde o webphone conectar e tente de novo.';
+            return false;
+        }
         currentRecordId=recordId||null;
         openModal(); setPeer(numero); showDots(true); setStatusText('Chamando...'); show('nv-call-answer',false); show('nv-call-mute',false); stopTimer();
-        // Garante permissão de microfone ANTES de discar (sem áudio local, o ICE não gera candidatos → 408)
+        // Pede microfone e SÓ ENTÃO disca (sem áudio local o ICE não gera candidatos)
         navigator.mediaDevices.getUserMedia({audio:true, video:false})
             .then(()=>{ serverLog('info','Microfone OK'); doDial(numero); })
             .catch(err=>{ showDots(false); setStatusText('Microfone bloqueado');
