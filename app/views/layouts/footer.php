@@ -240,9 +240,9 @@
     <?php endif; ?>
 
     <?php
-    // Webphone oficial da Nvoip embutido — roda dentro do CRM para papéis de telefonia.
+    // Webphone nativo (WebRTC/SIP over WSS) — roda dentro do CRM para papéis de telefonia.
     $nvoipTelephonyRoles = ['super_admin', 'comercial'];
-    if (in_array($currentUserRole, $nvoipTelephonyRoles) && Config::get('nvoip_webphone_api_key')):
+    if (in_array($currentUserRole, $nvoipTelephonyRoles) && Config::get('nvoip_sip_user')):
         require APP_PATH . '/views/layouts/_webphone.php';
     endif;
     ?>
