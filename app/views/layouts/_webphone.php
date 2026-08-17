@@ -178,6 +178,18 @@ window.SIP = SIP;
         if(!target){ alert('Número inválido.'); return false; }
         currentRecordId=recordId||null;
         openModal(); setPeer(numero); showDots(true); setStatusText('Chamando...'); show('nv-call-answer',false); show('nv-call-mute',false); stopTimer();
+        // Garante permissão de microfone ANTES de discar (sem áudio local, o ICE não gera candidatos → 408)
+        navigator.mediaDevices.getUserMedia({audio:true, video:false})
+            .then(()=>{ serverLog('info','Microfone OK'); doDial(numero); })
+            .catch(err=>{ showDots(false); setStatusText('Microfone bloqueado');
+                const w=$('nv-call-reg-warn'); w.style.display=''; w.textContent='Permita o acesso ao microfone no navegador para ligar.';
+                serverLog('error','getUserMedia falhou', String(err&&err.name||err));
+                reportEvent('ended',{duration:0,cause:'no_mic'}); currentRecordId=null; });
+        return true;
+    };
+
+    function doDial(numero){
+        const target=SIP.UserAgent.makeURI('sip:'+numero+'@'+sipConfig.domain);
         if(!window.nvWebphoneReady){
             showDots(false); setStatusText('Ramal indisponível');
             const w=$('nv-call-reg-warn'); w.style.display='';
