@@ -36,12 +36,17 @@ class PlanningCard
         $sql = "SELECT pc.*, 
                        u.name as assigned_name,
                        co.name as company_name,
-                       cb.name as client_name,
-                       cb.role as client_role
+                       CASE
+                           WHEN t.id IS NOT NULL THEN tcl.name
+                           WHEN cb.role IN ('client','sub_client') THEN cb.name
+                           ELSE NULL
+                       END as client_name
                 FROM planning_cards pc
                 LEFT JOIN users u ON pc.assigned_to = u.id
                 LEFT JOIN companies co ON pc.company_id = co.id
                 LEFT JOIN users cb ON pc.created_by = cb.id
+                LEFT JOIN tickets t ON pc.ticket_id = t.id
+                LEFT JOIN users tcl ON t.client_id = tcl.id
                 WHERE 1=1";
         $params = [];
 
