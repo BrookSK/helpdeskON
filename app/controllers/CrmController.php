@@ -796,6 +796,15 @@ class CrmController extends Controller
             $this->json(['configured' => false]);
         }
 
+        // Servidores ICE (STUN/TURN) — configuráveis via settings 'nvoip_ice_servers' (JSON).
+        // Ex.: [{"urls":"stun:stun.l.google.com:19302"},{"urls":"turn:host:3478","username":"u","credential":"p"}]
+        $iceRaw = Config::get('nvoip_ice_servers');
+        $iceServers = [];
+        if (!empty($iceRaw)) {
+            $decoded = json_decode($iceRaw, true);
+            if (is_array($decoded)) $iceServers = $decoded;
+        }
+
         $this->json([
             'configured' => true,
             'ws_server' => $wsServer,
@@ -803,6 +812,7 @@ class CrmController extends Controller
             'sip_user' => $sipUser,
             'sip_password' => $sipPassword,
             'uri' => 'sip:' . $sipUser . '@' . $domain,
+            'ice_servers' => $iceServers,
         ]);
     }
 

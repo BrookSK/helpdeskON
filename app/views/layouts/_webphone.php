@@ -98,6 +98,11 @@ window.SIP = SIP;
             const uri=SIP.UserAgent.makeURI(cfg.uri);
             ua=new SIP.UserAgent({ uri, transportOptions:{server:cfg.ws_server},
                 authorizationUsername:cfg.sip_user, authorizationPassword:cfg.sip_password, displayName:cfg.sip_user,
+                // STUN/TURN ajudam a mídia (áudio RTP) a atravessar NAT/firewall — causa comum do 408 após o 183.
+                // Os iceServers vêm de Configurações (cfg.ice_servers); STUN público como fallback.
+                sessionDescriptionHandlerFactoryOptions:{
+                    peerConnectionConfiguration:{ iceServers: (cfg.ice_servers && cfg.ice_servers.length) ? cfg.ice_servers : [ { urls:'stun:stun.l.google.com:19302' } ] }
+                },
                 delegate:{ onInvite:inv=>handleIncoming(inv) } });
             ua.transport.stateChange.addListener(ts=>console.log('[Webphone] Transport:',ts));
             ua.start().then(()=>{
@@ -119,9 +124,15 @@ window.SIP = SIP;
         const remote=$('nv-wp-audio');
         const pc=session.sessionDescriptionHandler&&session.sessionDescriptionHandler.peerConnection;
         if(!pc) return;
-        const stream=new MediaStream();
-        pc.getReceivers().forEach(r=>{ if(r.track) stream.addTrack(r.track); });
-        remote.srcObject=stream;
+        const bind=()=>{
+            const stream=new MediaStream();
+            pc.getReceivers().forEach(r=>{ if(r.track) stream.addTrack(r.track); });
+            remote.srcObject=stream;
+            remote.play&&remote.play().catch(()=>{});
+        };
+        bind();
+        // Toca também o early media (183) — a mídia pode chegar antes do 200 OK
+        pc.ontrack = bind;
     }
 
     window.nvToggleMute=function(){

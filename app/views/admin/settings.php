@@ -477,6 +477,11 @@
                         <label class="form-label fw-medium small">Domínio SIP</label>
                         <input type="text" name="nvoip_sip_domain" class="form-control form-control-sm" value="<?= escape($settings['nvoip_sip_domain'] ?? 'app.nvoip.com.br') ?>" placeholder="app.nvoip.com.br">
                     </div>
+                    <div class="col-12">
+                        <label class="form-label fw-medium small">Servidores ICE (STUN/TURN) — JSON</label>
+                        <textarea name="nvoip_ice_servers" class="form-control form-control-sm" rows="2" placeholder='[{"urls":"stun:stun.l.google.com:19302"},{"urls":"turn:HOST:3478","username":"USUARIO","credential":"SENHA"}]'><?= escape($settings['nvoip_ice_servers'] ?? '') ?></textarea>
+                        <small class="text-muted">Necessário TURN quando há firewall/NAT restritivo (evita o erro 408 após o toque). Informe o servidor TURN fornecido pela Nvoip.</small>
+                    </div>
                 </div>
                 <div class="mt-3 d-flex align-items-center gap-2">
                     <button type="button" class="btn btn-sm btn-outline-primary" onclick="testNvoip(this)"><i class="bi bi-plug"></i> Testar conexão</button>
