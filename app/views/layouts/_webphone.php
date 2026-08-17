@@ -210,7 +210,8 @@ window.SIP = SIP;
             reportEvent('ended',{duration:0,cause:'ramal_indisponivel'}); currentRecordId=null; return false;
         }
         serverLog('info','INVITE enviado para '+numero);
-        const inviter=new SIP.Inviter(ua,target,{sessionDescriptionHandlerOptions:{constraints:{audio:true,video:false}}});
+        // earlyMedia: aplica a SDP que a Nvoip envia no 183 (sem isso o ICE fica em "new" e dá 408)
+        const inviter=new SIP.Inviter(ua,target,{ earlyMedia:true, sessionDescriptionHandlerOptions:{constraints:{audio:true,video:false}}});
         wireSession(inviter, numero);
         inviter.invite({ requestDelegate:{
             onProgress:r=>{ serverLog('info','INVITE progress '+r.message.statusCode+' '+r.message.reasonPhrase); },
