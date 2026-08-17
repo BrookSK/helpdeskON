@@ -253,11 +253,13 @@ window.SIP = SIP;
         try{ if(s.state===SIP.SessionState.Established) s.bye(); else if(s instanceof SIP.Inviter) s.cancel(); else s.reject(); }catch(e){} };
 
     window.nvCall=function(numero, recordId){
-        if(!ua||!sipConfig){ alert('Webphone não inicializado.'); return false; }
         // Trava: impede iniciar nova ligação enquanto há uma sessão ativa (evita acúmulo no ramal → 503/480)
         if(currentSession){ alert('Já existe uma ligação em andamento. Encerre-a antes de iniciar outra.'); return false; }
-        const target=SIP.UserAgent.makeURI('sip:'+numero+'@'+sipConfig.domain);
-        if(!target){ alert('Número inválido.'); return false; }
+        if(!sipConfig && !window.nvNoExtension){
+            // credenciais ainda não carregaram — tenta carregar e avisa
+            preloadCredentials();
+            alert('Webphone ainda inicializando. Aguarde 2 segundos e tente novamente.'); return false;
+        }
         if(window.nvNoExtension){
             openModal(); setPeer(numero); showDots(false); setStatusText('Sem ramal');
             const w=$('nv-call-reg-warn'); w.style.display=''; w.textContent='Seu usuário não tem Ramal/Senha SIP cadastrados. Peça ao administrador em Usuários → editar.';
