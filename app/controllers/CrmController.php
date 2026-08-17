@@ -536,12 +536,8 @@ class CrmController extends Controller
         }
 
         // Telefone do próprio Lead (não vem do frontend).
-        // Formato aceito pela Nvoip (conforme environment oficial): DDD + número, só dígitos.
-        // Remove símbolos e o DDI 55 quando presente (telefones do WhatsApp costumam vir com 55).
-        $called = preg_replace('/\D/', '', (string)($contact['phone'] ?? ''));
-        if (strlen($called) > 11 && strpos($called, '55') === 0) {
-            $called = substr($called, 2);
-        }
+        // Normaliza o número conforme o formato configurado (garante um único 55 quando 'ddi').
+        $called = $this->normalizeCalled($contact['phone'] ?? '');
         if ($called === '') $this->json(['error' => 'Este lead não possui telefone cadastrado.'], 400);
 
         $api = new NvoipApi();
@@ -623,19 +619,9 @@ class CrmController extends Controller
             $this->json(['error' => 'Sem permissão'], 403);
         }
 
-        // Normaliza o telefone do lead conforme o formato exigido pela rota da Nvoip.
-        // 1) Remove todos os prefixos 55 repetidos, reduzindo ao número nacional (DDD+numero, 10-11 díg.)
-        $called = preg_replace('/\D/', '', (string)($contact['phone'] ?? ''));
-        while (strlen($called) > 11 && strpos($called, '55') === 0) {
-            $called = substr($called, 2);
-        }
-        // 2) Aplica o formato configurado sobre o número nacional (DDD+numero).
-        //    'local' -> nacional (ex.: 17991253062); 'ddi' -> 55+nacional (ex.: 5517991253062).
-        //    Obs.: se a rota da conta Nvoip já prefixa o DDI, use 'local' para não duplicar o 55.
+        // Normaliza o número conforme o formato configurado (garante um único 55 quando 'ddi').
+        $called = $this->normalizeCalled($contact['phone'] ?? '');
         $fmt = Config::get('nvoip_dial_format') ?: 'local';
-        if ($fmt === 'ddi') {
-            $called = '55' . $called;
-        }
         if ($called === '') $this->json(['error' => 'Este lead não possui telefone cadastrado.'], 400);
 
         // Log de diagnóstico: telefone bruto do lead x número final discado
@@ -874,6 +860,27 @@ class CrmController extends Controller
             else Logger::info('Webphone: ' . $message, $context);
         }
         $this->json(['success' => true]);
+    }
+
+    /**
+     * Normaliza o telefone do lead para discagem na Nvoip, GARANTINDO um único DDI 55.
+     * 1) Mantém só dígitos. 2) Remove TODOS os prefixos 55 repetidos até o número nacional.
+     * 3) Aplica o formato: 'ddi' => 55+nacional (um só); 'local' => nacional (sem 55).
+     */
+    private function normalizeCalled($phone)
+    {
+        $n = preg_replace('/\D/', '', (string)$phone);
+        // Remove prefixos 55 repetidos enquanto sobrar mais que um número nacional (>11 díg.)
+        while (strlen($n) > 11 && strpos($n, '55') === 0) {
+            $n = substr($n, 2);
+        }
+        if ($n === '') return '';
+        $fmt = Config::get('nvoip_dial_format') ?: 'local';
+        if ($fmt === 'ddi') {
+            // Garante exatamente um 55 (nunca duplica)
+            $n = '55' . $n;
+        }
+        return $n;
     }
 
     /** Grava o registro mínimo da ligação. Retorna o id do registro (ou null em falha). */
