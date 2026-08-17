@@ -82,7 +82,10 @@ window.SIP = SIP;
     function initWebphone(){
         if(!window.SIP){ console.warn('SIP.js não carregou'); return; }
         fetch(CRM_BASE+'crm/sipCredentials',{headers:{'X-Requested-With':'XMLHttpRequest'}})
-            .then(r=>r.json()).then(cfg=>{ if(!cfg.configured) return; sipConfig=cfg; startUA(cfg); }).catch(()=>{});
+            .then(r=>r.json()).then(cfg=>{
+                if(!cfg.configured){ window.nvNoExtension=true; serverLog('info','Webphone sem credenciais para o usuário ('+(cfg.reason||'')+')'); return; }
+                sipConfig=cfg; startUA(cfg);
+            }).catch(()=>{});
     }
     function startUA(cfg){
         try{
@@ -232,10 +235,12 @@ window.SIP = SIP;
         if(!window.nvWebphoneReady){
             showDots(false); setStatusText('Ramal indisponível');
             const w=$('nv-call-reg-warn'); w.style.display='';
-            if(window.nvRegRejectCode===401||window.nvRegRejectCode===403){
-                w.textContent='Senha SIP incorreta. Verifique em Configurações.';
+            if(window.nvNoExtension){
+                w.textContent='Seu usuário não tem Ramal/Senha SIP cadastrados. Peça ao administrador para preencher em Usuários → editar.';
+            } else if(window.nvRegRejectCode===401||window.nvRegRejectCode===403){
+                w.textContent='Senha SIP incorreta para o seu ramal. Verifique no cadastro do usuário.';
             } else {
-                w.textContent='Ramal não registrado. O mesmo ramal pode estar aberto em outro dispositivo/aba. Feche as outras sessões ou use um ramal por usuário.';
+                w.textContent='Ramal não registrado. Aguarde alguns segundos e tente novamente, ou verifique o ramal no cadastro do usuário.';
             }
             reportEvent('ended',{duration:0,cause:'ramal_indisponivel'}); currentRecordId=null; return false;
         }

@@ -790,14 +790,26 @@ class CrmController extends Controller
         $user = $this->currentUser();
         // Ramal SIP é SEMPRE individual do usuário (sem fallback global, para não haver
         // conflito de registro — dois usuários nunca compartilham o mesmo ramal).
-        $dbUser = Database::getInstance()->fetch("SELECT sip_user, sip_password FROM users WHERE id = ?", [$user['id']]);
-        $sipUser = $dbUser['sip_user'] ?? null;
-        $sipPassword = $dbUser['sip_password'] ?? null;
+        $sipUser = null; $sipPassword = null;
+        try {
+            $dbUser = Database::getInstance()->fetch("SELECT sip_user, sip_password FROM users WHERE id = ?", [$user['id']]);
+            $sipUser = $dbUser['sip_user'] ?? null;
+            $sipPassword = $dbUser['sip_password'] ?? null;
+        } catch (\Throwable $e) {
+            // Colunas ainda não existem (migration 046 não rodou)
+            Logger::error('Webphone: colunas sip_user/sip_password ausentes — rode migrations/046', ['erro' => $e->getMessage()]);
+            $this->json(['configured' => false, 'reason' => 'migration_pending']);
+        }
         $wsServer = Config::get('nvoip_ws_server') ?: 'wss://app.nvoip.com.br:7443';
         $domain = Config::get('nvoip_sip_domain') ?: 'app.nvoip.com.br';
 
         if (empty($sipUser) || empty($sipPassword)) {
             // Usuário sem ramal SIP configurado: webphone não é habilitado para ele.
+            Logger::info('Webphone: usuário sem credenciais SIP', [
+                'user_id' => $user['id'],
+                'has_sip_user' => !empty($sipUser),
+                'has_sip_password' => !empty($sipPassword),
+            ]);
             $this->json(['configured' => false, 'reason' => 'no_extension']);
         }
 
