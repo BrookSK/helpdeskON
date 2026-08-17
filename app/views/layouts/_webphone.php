@@ -94,15 +94,29 @@ window.SIP = SIP;
                 sessionDescriptionHandlerFactoryOptions:{ peerConnectionConfiguration:{ iceServers } },
                 delegate:{ onInvite:inv=>handleIncoming(inv) }
             });
-            ua.transport.stateChange.addListener(ts=>{ console.log('[Webphone] Transport:',ts); serverLog('info','Transport '+ts); });
-            ua.start().then(()=>{
-                registerer=new SIP.Registerer(ua);
-                registerer.stateChange.addListener(s=>{ console.log('[Webphone] Registerer:',s);
-                    window.nvWebphoneReady=(s===SIP.RegistererState.Registered); serverLog('info','Registerer '+s); });
-                registerer.register({ requestDelegate:{ onReject:resp=>{ const code=resp&&resp.message?resp.message.statusCode:'';
-                    console.error('[Webphone] REGISTER rejeitado:',code); window.nvWebphoneReady=false; window.nvRegRejectCode=code;
-                    serverLog('error','REGISTER rejeitado '+code); }}});
-            }).catch(e=>{ window.nvWebphoneReady=false; console.error('[Webphone] start falhou:',e); serverLog('error','UA start falhou', String(e&&e.message||e)); });
+            ua.transport.stateChange.addListener(ts=>{ console.log('[Webphone] Transport:',ts); serverLog('info','Transport '+ts);
+                // Reconecta automaticamente se o WebSocket cair (ex.: código 1006)
+                if(ts===SIP.TransportState.Disconnected){
+                    setTimeout(()=>{ try{ if(ua && ua.transport && ua.transport.state===SIP.TransportState.Disconnected){
+                        ua.reconnect().then(()=>{ if(registerer) registerer.register(); }).catch(()=>{});
+                    } }catch(e){} }, 3000);
+                }
+            });
+            const doStart=(attempt)=>{
+                ua.start().then(()=>{
+                    if(!registerer){
+                        registerer=new SIP.Registerer(ua);
+                        registerer.stateChange.addListener(s=>{ console.log('[Webphone] Registerer:',s);
+                            window.nvWebphoneReady=(s===SIP.RegistererState.Registered); serverLog('info','Registerer '+s); });
+                    }
+                    registerer.register({ requestDelegate:{ onReject:resp=>{ const code=resp&&resp.message?resp.message.statusCode:'';
+                        console.error('[Webphone] REGISTER rejeitado:',code); window.nvWebphoneReady=false; window.nvRegRejectCode=code;
+                        serverLog('error','REGISTER rejeitado '+code); }}});
+                }).catch(e=>{ window.nvWebphoneReady=false; console.error('[Webphone] start falhou:',e);
+                    serverLog('error','UA start falhou (tentativa '+(attempt+1)+')', String(e&&e.message||e));
+                    if(attempt<8){ setTimeout(()=>doStart(attempt+1), Math.min(2000*(attempt+1), 10000)); } });
+            };
+            doStart(0);
         }catch(e){ console.warn('Webphone init falhou',e); }
     }
 
@@ -218,7 +232,11 @@ window.SIP = SIP;
         if(!window.nvWebphoneReady){
             showDots(false); setStatusText('Ramal indisponível');
             const w=$('nv-call-reg-warn'); w.style.display='';
-            w.textContent=(window.nvRegRejectCode===401||window.nvRegRejectCode===403)?'Senha SIP incorreta. Verifique em Configurações.':'O ramal não está registrado. Verifique a Senha SIP em Configurações.';
+            if(window.nvRegRejectCode===401||window.nvRegRejectCode===403){
+                w.textContent='Senha SIP incorreta. Verifique em Configurações.';
+            } else {
+                w.textContent='Ramal não registrado. O mesmo ramal pode estar aberto em outro dispositivo/aba. Feche as outras sessões ou use um ramal por usuário.';
+            }
             reportEvent('ended',{duration:0,cause:'ramal_indisponivel'}); currentRecordId=null; return false;
         }
         serverLog('info','INVITE enviado para '+numero);
