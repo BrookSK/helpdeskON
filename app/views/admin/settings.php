@@ -481,7 +481,7 @@
                             <option value="zero_ddi" <?= ($settings['nvoip_dial_format'] ?? '') === 'zero_ddi' ? 'selected' : '' ?>>0 + 55 + DDD + número (ex.: 05517991253062)</option>
                             <option value="e164" <?= ($settings['nvoip_dial_format'] ?? '') === 'e164' ? 'selected' : '' ?>>+55 + DDD + número (E.164, ex.: +5517991253062)</option>
                         </select>
-                        <small class="text-muted">Se as ligações aparecem como "erro de rota/desconhecido" no relatório Nvoip, troque o formato.</small>
+                        <small class="text-muted">A Nvoip adiciona o 55 automaticamente — use <strong>DDD + número</strong> (sem 55). Se der "desconhecido", ative "Ligações internacionais" no painel Nvoip (aba Empresa).</small>
                     </div>
                     <div class="col-12">
                         <label class="form-label fw-medium small">Servidores ICE (STUN) — JSON (opcional)</label>

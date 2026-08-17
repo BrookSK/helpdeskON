@@ -296,11 +296,13 @@ window.SIP = SIP;
         return true;
     };
 
-    // Mantém dígitos e um eventual + inicial (E.164). Não altera o número (backend já normaliza).
+    // Mantém dígitos e um eventual + inicial (E.164). Colapsa 55 duplicados no início (garante um só).
     function sanitizeDial(n){
         n = String(n).trim();
         const plus = n.charAt(0)==='+';
         n = n.replace(/\D/g,'');
+        // Colapsa "5555..." repetido para um único 55 quando o número ficaria longo demais.
+        while (n.length > 13 && n.indexOf('55') === 0) { n = n.substring(2); }
         return plus ? ('+'+n) : n;
     }
 
