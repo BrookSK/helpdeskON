@@ -170,7 +170,7 @@ function callLead(leadId, btn) {
             btn.disabled = false; btn.dataset.loading = '0'; btn.innerHTML = original;
             if (d.error) { alert(d.error); return; }
             if (typeof window.nvCall !== 'function') { alert('Webphone não disponível. Recarregue (Ctrl+F5).'); return; }
-            window.nvCall(d.called, d.call_record_id);
+            window.nvCall(d.called, d.call_record_id, d.lead || null);
         })
         .catch(() => {
             btn.disabled = false; btn.dataset.loading = '0'; btn.innerHTML = original;

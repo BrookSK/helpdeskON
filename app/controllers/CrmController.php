@@ -647,7 +647,52 @@ class CrmController extends Controller
             'response_json' => null,
         ]);
 
-        $this->json(['success' => true, 'called' => $called, 'call_record_id' => $recordId]);
+        // Dados do cliente para exibir no modal da ligação
+        $briefing = $contactModel->getBriefing($contactId);
+        $lead = [
+            'id' => $contact['id'],
+            'name' => $contact['contact_name'] ?: ($contact['push_name'] ?? 'Cliente'),
+            'phone' => $contact['phone'] ?? null,
+        ];
+
+        $this->json([
+            'success' => true,
+            'called' => $called,
+            'call_record_id' => $recordId,
+            'lead' => $lead,
+            'briefing' => $briefing ?: null,
+        ]);
+    }
+
+    /**
+     * API: salva a nota/observação da ligação no registro nvoip_calls e (opcional) no briefing.
+     * POST crm/saveCallNote/{recordId}  body: note, contact_id
+     */
+    public function saveCallNote($recordId = null)
+    {
+        $this->requireRole(['super_admin', 'comercial']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$recordId) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+        $note = trim($_POST['note'] ?? '');
+        $db = Database::getInstance();
+        // Grava a nota no registro da ligação (coluna response_json reaproveitada como observação)
+        $db->query("UPDATE nvoip_calls SET response_json = ? WHERE id = ?", [
+            json_encode(['note' => $note], JSON_UNESCAPED_UNICODE), $recordId
+        ]);
+
+        // Se veio contato, acrescenta a nota ao briefing (campo notes)
+        $contactId = !empty($_POST['contact_id']) ? intval($_POST['contact_id']) : null;
+        if ($contactId && $note !== '') {
+            $user = $this->currentUser();
+            $cm = new WhatsappContact();
+            $bf = $cm->getBriefing($contactId);
+            $prev = $bf['notes'] ?? '';
+            $stamp = date('d/m/Y H:i');
+            $merged = trim($prev . "\n[" . $stamp . " • ligação] " . $note);
+            $cm->saveBriefing($contactId, ['notes' => $merged], $user['id']);
+        }
+        $this->json(['success' => true]);
     }
 
     /**
