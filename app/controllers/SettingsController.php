@@ -36,6 +36,7 @@ class SettingsController extends Controller
             'nvoip_oauth_scopes', 'nvoip_caller',
             // Nvoip webphone (WSS) — campos não-secretos
             'nvoip_sip_user', 'nvoip_ws_server', 'nvoip_sip_domain', 'nvoip_ice_servers',
+            'nvoip_webphone_api_key',
         ];
 
         foreach ($fields as $field) {

@@ -478,6 +478,11 @@
                         <input type="text" name="nvoip_sip_domain" class="form-control form-control-sm" value="<?= escape($settings['nvoip_sip_domain'] ?? 'app.nvoip.com.br') ?>" placeholder="app.nvoip.com.br">
                     </div>
                     <div class="col-12">
+                        <label class="form-label fw-medium small">Public Token do Widget (Nvoip)</label>
+                        <input type="text" name="nvoip_webphone_api_key" class="form-control form-control-sm" value="<?= escape($settings['nvoip_webphone_api_key'] ?? '') ?>" placeholder="public-token do widget Nvoip">
+                        <small class="text-muted">É o <code>public-token</code> do script de integração do widget Nvoip. Ele carrega o telefone dentro do CRM.</small>
+                    </div>
+                    <div class="col-12">
                         <label class="form-label fw-medium small">Servidores ICE (STUN) — JSON (opcional)</label>
                         <textarea name="nvoip_ice_servers" class="form-control form-control-sm" rows="2" placeholder='[{"urls":"stun:stun.l.google.com:19302"}]'><?= escape($settings['nvoip_ice_servers'] ?? '') ?></textarea>
                         <small class="text-muted d-block">

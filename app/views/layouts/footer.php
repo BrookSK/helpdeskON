@@ -242,7 +242,7 @@
     <?php
     // Webphone oficial da Nvoip embutido — roda dentro do CRM para papéis de telefonia.
     $nvoipTelephonyRoles = ['super_admin', 'comercial'];
-    if (in_array($currentUserRole, $nvoipTelephonyRoles) && Config::get('nvoip_base_url')):
+    if (in_array($currentUserRole, $nvoipTelephonyRoles) && Config::get('nvoip_webphone_api_key')):
         require APP_PATH . '/views/layouts/_webphone.php';
     endif;
     ?>
