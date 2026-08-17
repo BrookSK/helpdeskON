@@ -97,7 +97,7 @@ window.SIP = SIP;
         try{
             const uri=SIP.UserAgent.makeURI(cfg.uri);
             ua=new SIP.UserAgent({ uri, transportOptions:{server:cfg.ws_server},
-                authorizationUsername:cfg.sip_user, password:cfg.sip_password, displayName:cfg.sip_user,
+                authorizationUsername:cfg.sip_user, authorizationPassword:cfg.sip_password, displayName:cfg.sip_user,
                 delegate:{ onInvite:inv=>handleIncoming(inv) } });
             ua.transport.stateChange.addListener(ts=>console.log('[Webphone] Transport:',ts));
             ua.start().then(()=>{
