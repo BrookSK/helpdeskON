@@ -163,18 +163,14 @@ function callLead(leadId, btn) {
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Iniciando...';
 
-    // Fluxo correto: garante o webphone registrado (para receber a perna de origem),
-    // e a Nvoip (via API /calls/ com checkDDI=false) liga para o ramal e conecta ao lead.
-    // O webphone toca no PC (handleIncoming), você atende e fala; o lead atende no celular.
-    if (typeof window.nvPrepareForIncoming === 'function') {
-        window.nvPrepareForIncoming(); // registra o ramal e mostra "aguardando chamada"
-    }
-    fetch(BASE + 'crm/callLead/' + leadId, { method: 'POST', headers: {'X-Requested-With':'XMLHttpRequest'} })
+    // Webphone SIP direto: disca o cliente pelo ramal, com áudio no PC.
+    fetch(BASE + 'crm/dialLead/' + leadId, { method: 'POST', headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json())
         .then(d => {
             btn.disabled = false; btn.dataset.loading = '0'; btn.innerHTML = original;
             if (d.error) { alert(d.error); return; }
-            // A Nvoip vai ligar para o ramal (webphone toca) e depois discar o lead.
+            if (typeof window.nvCall !== 'function') { alert('Webphone não disponível. Recarregue (Ctrl+F5).'); return; }
+            window.nvCall(d.called, d.call_record_id);
         })
         .catch(() => {
             btn.disabled = false; btn.dataset.loading = '0'; btn.innerHTML = original;
