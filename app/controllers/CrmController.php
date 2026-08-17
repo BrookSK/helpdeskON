@@ -884,8 +884,12 @@ class CrmController extends Controller
         $semDDI = $n;
         if ($n === '') return '';
         $fmt = Config::get('nvoip_dial_format') ?: 'local';
-        if ($fmt === 'ddi') {
-            $n = '55' . $n;
+        // $n aqui é o número nacional (DDD+numero, sem 55). Aplica o prefixo conforme o formato.
+        switch ($fmt) {
+            case 'ddi':      $n = '55' . $n; break;       // 5517991253062
+            case 'zero':     $n = '0' . $n; break;        // 017991253062
+            case 'zero_ddi': $n = '055' . $n; break;      // 05517991253062
+            case 'local':    default: /* mantém nacional */ break; // 17991253062
         }
         Logger::info('normalizeCalled etapas', [
             'orig' => $orig, 'digitos' => $apenasDigitos, 'sem_ddi' => $semDDI, 'formato' => $fmt, 'final' => $n,
