@@ -214,7 +214,13 @@ window.SIP = SIP;
 
         const inviter=new SIP.Inviter(ua,target,{sessionDescriptionHandlerOptions:{constraints:{audio:true,video:false}}});
         wireSession(inviter, numero);
-        inviter.invite().catch(e=>{ showDots(false); setStatusText('Falha ao chamar'); console.warn(e); reportEvent('ended',{duration:0,cause:'invite_failed'}); resetControls(); setTimeout(closeModal,1500); });
+        inviter.invite({ requestDelegate:{
+            onProgress:r=>console.log('[Webphone] INVITE progress:', r.message.statusCode, r.message.reasonPhrase),
+            onAccept:r=>console.log('[Webphone] INVITE accept:', r.message.statusCode),
+            onReject:r=>{ console.error('[Webphone] INVITE rejeitado:', r.message.statusCode, r.message.reasonPhrase);
+                showDots(false); setStatusText('Recusada ('+r.message.statusCode+')'); },
+            onTrying:r=>console.log('[Webphone] INVITE trying:', r.message.statusCode)
+        }}).catch(e=>{ showDots(false); setStatusText('Falha ao chamar'); console.warn(e); reportEvent('ended',{duration:0,cause:'invite_failed'}); resetControls(); setTimeout(closeModal,1500); });
         return true;
     };
 
