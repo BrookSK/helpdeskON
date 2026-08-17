@@ -636,6 +636,13 @@ class CrmController extends Controller
         }
         if ($called === '') $this->json(['error' => 'Este lead não possui telefone cadastrado.'], 400);
 
+        // Log de diagnóstico: telefone bruto do lead x número final discado
+        Logger::info('Nvoip dial normalize', [
+            'raw' => $contact['phone'] ?? null,
+            'formato' => $fmt,
+            'called_final' => $called,
+        ]);
+
         // Registra a ligação (origem WebRTC — sem callId da API REST)
         $recordId = $this->recordCall([
             'contact_id' => $contactId,
