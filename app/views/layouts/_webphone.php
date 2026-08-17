@@ -208,6 +208,19 @@ window.SIP = SIP;
     };
     function resetControls(){ show('nv-call-answer',false); show('nv-call-mute',false); isMuted=false; stopTimer(); }
 
+    // Encerra e descarta a sessão atual para NÃO deixar chamada pendurada na Nvoip (evita 503).
+    function cleanupSession(){
+        const s=currentSession;
+        if(s){
+            try{
+                if(s.state===SIP.SessionState.Established) s.bye();
+                else if(s instanceof SIP.Inviter) s.cancel();
+                else if(s.reject) s.reject();
+            }catch(e){}
+        }
+        currentSession=null; answeredAt=null; resetControls();
+    }
+
     function wireSession(session, peerLabel){
         currentSession=session; setPeer(peerLabel||'');
         session.stateChange.addListener(state=>{
@@ -273,8 +286,13 @@ window.SIP = SIP;
         inviter.invite({ requestDelegate:{
             onProgress:r=>{ serverLog('info','INVITE progress '+r.message.statusCode+' '+r.message.reasonPhrase); },
             onAccept:r=>{ serverLog('info','INVITE accept '+r.message.statusCode); },
-            onReject:r=>{ showDots(false); setStatusText('Recusada ('+r.message.statusCode+')'); serverLog('error','INVITE rejeitado '+r.message.statusCode+' '+r.message.reasonPhrase); }
-        }}).catch(e=>{ showDots(false); setStatusText('Falha ao chamar'); serverLog('error','invite() exception',String(e&&e.message||e)); reportEvent('ended',{duration:0,cause:'invite_failed'}); resetControls(); setTimeout(closeModal,1500); });
+            onReject:r=>{ const code=r.message.statusCode; showDots(false); setStatusText('Recusada ('+code+')');
+                serverLog('error','INVITE rejeitado '+code+' '+r.message.reasonPhrase);
+                // Mensagem clara para 503 (limite de chamadas simultâneas do ramal)
+                if(code===503){ const w=$('nv-call-reg-warn'); if(w){ w.style.display=''; w.textContent='Limite de chamadas simultâneas atingido no ramal. Aguarde ~1 min (chamadas presas expiram) e tente de novo.'; } }
+                cleanupSession(); setTimeout(closeModal,2000);
+            }
+        }}).catch(e=>{ showDots(false); setStatusText('Falha ao chamar'); serverLog('error','invite() exception',String(e&&e.message||e)); reportEvent('ended',{duration:0,cause:'invite_failed'}); cleanupSession(); setTimeout(closeModal,1500); });
         attachIceDiagnostics(inviter);
         return true;
     };
