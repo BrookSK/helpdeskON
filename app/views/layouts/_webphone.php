@@ -241,11 +241,20 @@ window.SIP = SIP;
     function handleIncoming(invitation){
         openModal();
         const from=invitation.remoteIdentity&&invitation.remoteIdentity.uri?invitation.remoteIdentity.uri.user:'';
-        showDots(true); setStatusText('Chamada recebida'); setPeer(from); show('nv-call-answer',true);
+        wireSession(invitation, from); window._nvInvitation=invitation;
         const fd=new FormData(); fd.append('from',from||'');
         fetch(CRM_BASE+'crm/registerInbound',{method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest'}})
             .then(r=>r.json()).then(d=>{ if(d&&d.call_record_id) currentRecordId=d.call_record_id; }).catch(()=>{});
-        wireSession(invitation, from); window._nvInvitation=invitation;
+
+        // Se foi uma ligação iniciada pelo CRM (perna de origem da Nvoip), auto-atende.
+        if(window._nvAutoAnswer){
+            window._nvAutoAnswer=false;
+            showDots(true); setStatusText('Conectando...'); setPeer(from);
+            invitation.accept({sessionDescriptionHandlerOptions:{constraints:{audio:true,video:false}}});
+        } else {
+            // Chamada recebida normal: mostra Atender
+            showDots(true); setStatusText('Chamada recebida'); setPeer(from); show('nv-call-answer',true);
+        }
     }
 
     window.nvAnswer=function(){ const inv=window._nvInvitation; if(!inv) return;
@@ -346,6 +355,20 @@ window.SIP = SIP;
                 sipConfig=cfg; // guarda; só registra quando o usuário for ligar
             }).catch(()=>{});
     }
+
+    // Prepara o webphone para RECEBER a perna de origem que a Nvoip vai enviar (fluxo /calls/).
+    // Registra o ramal e mostra o modal "Aguardando chamada..." até a Nvoip ligar para o ramal.
+    window.nvPrepareForIncoming = function(){
+        if(window.nvNoExtension){ alert('Seu usuário não tem Ramal/Senha SIP cadastrados.'); return; }
+        openModal(); setPeer('Conectando...'); showDots(true); setStatusText('Preparando ligação...');
+        show('nv-call-answer',false); show('nv-call-mute',false); stopTimer();
+        // Registra o ramal; quando a Nvoip ligar para ele, handleIncoming abre/atende.
+        ensureRegistered().then(()=>{
+            setStatusText('Chamando... aguarde o áudio');
+            window._nvAutoAnswer = true; // auto-atende a perna de origem da Nvoip
+        }).catch(()=>{ showDots(false); setStatusText('Ramal indisponível');
+            const w=$('nv-call-reg-warn'); w.style.display=''; w.textContent='Não foi possível registrar seu ramal. Verifique o ramal/senha no seu cadastro.'; });
+    };
 
     // Registra o ramal sob demanda (retorna Promise que resolve quando registrar)
     function ensureRegistered(){
