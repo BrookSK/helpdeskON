@@ -845,9 +845,12 @@ class CrmController extends Controller
         $user = $this->currentUser();
         $level = $_POST['level'] ?? 'info';
         $message = substr(trim($_POST['message'] ?? ''), 0, 500);
+        // Loga o ramal REAL do usuário (não o global, que foi removido)
+        $uRamal = null;
+        try { $r = Database::getInstance()->fetch("SELECT sip_user FROM users WHERE id = ?", [$user['id']]); $uRamal = $r['sip_user'] ?? null; } catch (\Throwable $e) {}
         $context = [
             'user_id' => $user['id'],
-            'sip_user' => Config::get('nvoip_sip_user'),
+            'ramal' => $uRamal,
         ];
         if (isset($_POST['detail'])) $context['detail'] = substr((string)$_POST['detail'], 0, 1000);
 
