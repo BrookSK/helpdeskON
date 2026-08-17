@@ -106,6 +106,27 @@ window.SIP = SIP;
         }catch(e){ console.warn('Webphone init falhou',e); }
     }
 
+    // Diagnóstico de ICE/mídia: espera o peerConnection surgir e loga candidatos e estados.
+    function attachIceDiagnostics(session){
+        let tries=0;
+        const iv=setInterval(()=>{
+            tries++;
+            const pc=session.sessionDescriptionHandler&&session.sessionDescriptionHandler.peerConnection;
+            if(pc){
+                clearInterval(iv);
+                serverLog('info','PeerConnection criado');
+                let host=0, srflx=0, relay=0;
+                pc.onicecandidate=e=>{
+                    if(e.candidate){ const t=e.candidate.type||''; if(t==='host')host++; else if(t==='srflx')srflx++; else if(t==='relay')relay++; }
+                    else { serverLog('info','ICE candidates: host='+host+' srflx='+srflx+' relay='+relay); }
+                };
+                pc.oniceconnectionstatechange=()=>{ serverLog('info','ICE state: '+pc.iceConnectionState);
+                    if(pc.iceConnectionState==='failed') serverLog('error','ICE falhou (mídia não estabelecida)'); };
+                pc.onicegatheringstatechange=()=>serverLog('info','ICE gathering: '+pc.iceGatheringState);
+            } else if(tries>20){ clearInterval(iv); serverLog('error','PeerConnection não encontrado (SDH)'); }
+        },200);
+    }
+
     function attachAudio(session){
         const remote=$('nv-wp-audio');
         const pc=session.sessionDescriptionHandler&&session.sessionDescriptionHandler.peerConnection;
@@ -171,8 +192,7 @@ window.SIP = SIP;
             onAccept:r=>{ serverLog('info','INVITE accept '+r.message.statusCode); },
             onReject:r=>{ showDots(false); setStatusText('Recusada ('+r.message.statusCode+')'); serverLog('error','INVITE rejeitado '+r.message.statusCode+' '+r.message.reasonPhrase); }
         }}).catch(e=>{ showDots(false); setStatusText('Falha ao chamar'); serverLog('error','invite() exception',String(e&&e.message||e)); reportEvent('ended',{duration:0,cause:'invite_failed'}); resetControls(); setTimeout(closeModal,1500); });
-        setTimeout(()=>{ const pc=inviter.sessionDescriptionHandler&&inviter.sessionDescriptionHandler.peerConnection;
-            if(pc){ pc.oniceconnectionstatechange=()=>{ serverLog('info','ICE state: '+pc.iceConnectionState); if(pc.iceConnectionState==='failed') serverLog('error','ICE falhou (mídia não estabelecida)'); }; } },500);
+        attachIceDiagnostics(inviter);
         return true;
     };
 
