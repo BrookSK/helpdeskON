@@ -295,9 +295,11 @@ window.SIP = SIP;
     }
 
     function doDial(numero){
+        const antes = numero;
         numero = sanitizeDial(numero);
-        serverLog('info','doDial numero final '+numero);
-        const target=SIP.UserAgent.makeURI('sip:'+numero+'@'+sipConfig.domain);
+        const uriStr = 'sip:'+numero+'@'+sipConfig.domain;
+        serverLog('info','doDial recebido='+antes+' final='+numero+' uri='+uriStr);
+        const target=SIP.UserAgent.makeURI(uriStr);
         if(!window.nvWebphoneReady){
             showDots(false); setStatusText('Ramal indisponível');
             const w=$('nv-call-reg-warn'); w.style.display='';
