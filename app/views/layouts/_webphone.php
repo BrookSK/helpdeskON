@@ -144,7 +144,6 @@ window.SIP = SIP;
             ua.reconnect().then(()=>{ doRegister(); }).catch(()=>{ reconnecting=false; scheduleReconnect(); });
         }, 4000);
     }
-    }
 
     // Diagnóstico de ICE/mídia por POLLING (não depende de callbacks que o SIP.js pode sobrescrever).
     function attachIceDiagnostics(session){
