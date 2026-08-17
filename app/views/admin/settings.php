@@ -472,6 +472,14 @@
                         <label class="form-label fw-medium small">Domínio SIP</label>
                         <input type="text" name="nvoip_sip_domain" class="form-control form-control-sm" value="<?= escape($settings['nvoip_sip_domain'] ?? 'app.nvoip.com.br') ?>" placeholder="app.nvoip.com.br">
                     </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-medium small">Formato de discagem</label>
+                        <select name="nvoip_dial_format" class="form-select form-select-sm">
+                            <option value="local" <?= ($settings['nvoip_dial_format'] ?? 'local') === 'local' ? 'selected' : '' ?>>DDD + número (ex.: 17991253062)</option>
+                            <option value="ddi" <?= ($settings['nvoip_dial_format'] ?? '') === 'ddi' ? 'selected' : '' ?>>55 + DDD + número (ex.: 5517991253062)</option>
+                        </select>
+                        <small class="text-muted">Se as ligações aparecem como "erro de rota/desconhecido" no relatório Nvoip, troque o formato.</small>
+                    </div>
                     <div class="col-12">
                         <label class="form-label fw-medium small">Servidores ICE (STUN) — JSON (opcional)</label>
                         <textarea name="nvoip_ice_servers" class="form-control form-control-sm" rows="2" placeholder='[{"urls":"stun:stun.l.google.com:19302"}]'><?= escape($settings['nvoip_ice_servers'] ?? '') ?></textarea>

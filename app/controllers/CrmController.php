@@ -623,10 +623,16 @@ class CrmController extends Controller
             $this->json(['error' => 'Sem permissão'], 403);
         }
 
-        // Normaliza o telefone do lead (só dígitos; remove DDI 55 quando presente)
+        // Normaliza o telefone do lead conforme o formato exigido pela rota da Nvoip.
+        // Config 'nvoip_dial_format': 'local' (DDD+numero, padrão) ou 'ddi' (55+DDD+numero).
         $called = preg_replace('/\D/', '', (string)($contact['phone'] ?? ''));
+        // Base: remove DDI 55 se veio (telefones do WhatsApp costumam ter 55)
         if (strlen($called) > 11 && strpos($called, '55') === 0) {
             $called = substr($called, 2);
+        }
+        $fmt = Config::get('nvoip_dial_format') ?: 'local';
+        if ($fmt === 'ddi' && strlen($called) <= 11) {
+            $called = '55' . $called;
         }
         if ($called === '') $this->json(['error' => 'Este lead não possui telefone cadastrado.'], 400);
 

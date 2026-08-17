@@ -35,7 +35,7 @@ class SettingsController extends Controller
             'nvoip_auth_base_url', 'nvoip_base_url', 'nvoip_oauth_client_id',
             'nvoip_oauth_scopes', 'nvoip_caller',
             // Nvoip webphone (WSS) — config global (ramal/senha SIP são por usuário)
-            'nvoip_ws_server', 'nvoip_sip_domain', 'nvoip_ice_servers',
+            'nvoip_ws_server', 'nvoip_sip_domain', 'nvoip_ice_servers', 'nvoip_dial_format',
         ];
 
         foreach ($fields as $field) {
