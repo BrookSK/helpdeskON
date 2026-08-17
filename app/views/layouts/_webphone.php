@@ -106,25 +106,30 @@ window.SIP = SIP;
         }catch(e){ console.warn('Webphone init falhou',e); }
     }
 
-    // Diagnóstico de ICE/mídia: espera o peerConnection surgir e loga candidatos e estados.
+    // Diagnóstico de ICE/mídia por POLLING (não depende de callbacks que o SIP.js pode sobrescrever).
     function attachIceDiagnostics(session){
-        let tries=0;
+        let waited=0, found=false, lastIce='', lastGath='', logged=0;
         const iv=setInterval(()=>{
-            tries++;
+            waited+=500;
             const pc=session.sessionDescriptionHandler&&session.sessionDescriptionHandler.peerConnection;
-            if(pc){
-                clearInterval(iv);
-                serverLog('info','PeerConnection criado');
-                let host=0, srflx=0, relay=0;
-                pc.onicecandidate=e=>{
-                    if(e.candidate){ const t=e.candidate.type||''; if(t==='host')host++; else if(t==='srflx')srflx++; else if(t==='relay')relay++; }
-                    else { serverLog('info','ICE candidates: host='+host+' srflx='+srflx+' relay='+relay); }
-                };
-                pc.oniceconnectionstatechange=()=>{ serverLog('info','ICE state: '+pc.iceConnectionState);
-                    if(pc.iceConnectionState==='failed') serverLog('error','ICE falhou (mídia não estabelecida)'); };
-                pc.onicegatheringstatechange=()=>serverLog('info','ICE gathering: '+pc.iceGatheringState);
-            } else if(tries>20){ clearInterval(iv); serverLog('error','PeerConnection não encontrado (SDH)'); }
-        },200);
+            if(!pc){ if(waited>=6000){ clearInterval(iv); serverLog('error','PeerConnection não encontrado (SDH)'); } return; }
+            if(!found){ found=true; serverLog('info','PeerConnection detectado'); }
+            if(pc.iceConnectionState!==lastIce){ lastIce=pc.iceConnectionState; serverLog('info','ICE state: '+lastIce);
+                if(lastIce==='failed') serverLog('error','ICE falhou (mídia não estabelecida)'); }
+            if(pc.iceGatheringState!==lastGath){ lastGath=pc.iceGatheringState; serverLog('info','ICE gathering: '+lastGath); }
+            // Ao completar a coleta, conta os tipos de candidato local pela SDP
+            if(pc.iceGatheringState==='complete' && !logged){
+                logged=1;
+                try{
+                    const sdp=(pc.localDescription&&pc.localDescription.sdp)||'';
+                    const host=(sdp.match(/typ host/g)||[]).length;
+                    const srflx=(sdp.match(/typ srflx/g)||[]).length;
+                    const relay=(sdp.match(/typ relay/g)||[]).length;
+                    serverLog('info','ICE candidates (SDP): host='+host+' srflx='+srflx+' relay='+relay);
+                }catch(e){}
+            }
+            if(waited>=25000 || lastIce==='connected' || lastIce==='completed' || lastIce==='failed' || lastIce==='closed'){ clearInterval(iv); }
+        },500);
     }
 
     function attachAudio(session){
