@@ -116,6 +116,14 @@ window.SIP = SIP;
             if(!found){ found=true; serverLog('info','PeerConnection detectado'); }
             if(pc.iceConnectionState!==lastIce){ lastIce=pc.iceConnectionState; serverLog('info','ICE state: '+lastIce);
                 if(lastIce==='failed') serverLog('error','ICE falhou (mídia não estabelecida)'); }
+            // Se após alguns segundos o ICE não conectar, alerta que a mídia UDP está bloqueada
+            if(waited>=8000 && (lastIce==='new'||lastIce==='checking'||lastIce==='failed')){
+                const w=$('nv-call-reg-warn');
+                if(w && (w.style.display==='none' || !w.textContent)){
+                    w.style.display=''; w.textContent='Áudio bloqueado pela rede. Libere UDP 10000-60000 para app.nvoip.com.br no firewall.';
+                    serverLog('error','Midia UDP nao estabeleceu (ICE '+lastIce+') — liberar UDP 10000-60000');
+                }
+            }
             if(pc.iceGatheringState!==lastGath){ lastGath=pc.iceGatheringState; serverLog('info','ICE gathering: '+lastGath); }
             // Ao completar a coleta, conta os tipos de candidato local pela SDP
             if(pc.iceGatheringState==='complete' && !logged){
