@@ -535,13 +535,14 @@ class CrmController extends Controller
             $this->json(['error' => 'Sem permissão'], 403);
         }
 
-        // API REST /calls/ usa checkDDI: true, que COMPLETA o DDI automaticamente.
-        // Por isso enviamos o número NACIONAL (só dígitos, sem 55) — o checkDDI adiciona o 55 correto.
+        // Envia o número COM 55 (um só) e checkDDI:FALSE — assim a Nvoip NÃO mexe no DDI
+        // e disca exatamente o número enviado (evita a duplicação do 55).
         $called = preg_replace('/\D/', '', (string)($contact['phone'] ?? ''));
         while (strlen($called) > 11 && strpos($called, '55') === 0) {
-            $called = substr($called, 2); // remove 55 para o checkDDI não duplicar
+            $called = substr($called, 2);
         }
-        if ($called === '') $this->json(['error' => 'Este lead não possui telefone cadastrado.'], 400);
+        $called = '55' . $called; // garante exatamente um 55
+        if ($called === '55') $this->json(['error' => 'Este lead não possui telefone cadastrado.'], 400);
 
         $api = new NvoipApi();
         if (!$api->isConfigured()) $this->json(['error' => 'Telefonia Nvoip não configurada.'], 400);
@@ -549,9 +550,9 @@ class CrmController extends Controller
         $caller = $api->caller();
         if ($caller === '') $this->json(['error' => 'Originador (caller) não configurado em Configurações.'], 400);
 
-        // Chamada direta: caller + called (nacional) + checkDDI:true (completa o DDI).
-        Logger::info('Nvoip createCall (REST checkDDI)', ['caller' => $caller, 'called' => $called]);
-        $res = $api->createCall($caller, $called, true, false);
+        // checkDDI:false -> Nvoip não completa/duplica o DDI; disca o número como enviado.
+        Logger::info('Nvoip createCall (checkDDI=false)', ['caller' => $caller, 'called' => $called]);
+        $res = $api->createCall($caller, $called, false, false);
 
         // Registra a resposta completa (sucesso ou não) para inspecionar a estrutura real.
         Logger::info('Nvoip clickToCall resposta', [
