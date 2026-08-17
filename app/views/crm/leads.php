@@ -145,21 +145,17 @@ function callLead(leadId, btn) {
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Iniciando...';
 
-    // Registra a ligação no banco e disca pelo webphone oficial da Nvoip (embutido no CRM)
+    // Registra a ligação no banco e disca pelo webphone nativo (WebRTC) — áudio no navegador.
     fetch(BASE + 'crm/dialLead/' + leadId, { method: 'POST', headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json())
         .then(d => {
             btn.disabled = false; btn.dataset.loading = '0'; btn.innerHTML = original;
             if (d.error) { alert(d.error); return; }
-
-            const numero = d.called;
-            // Tenta acionar a discagem diretamente pelo widget da Nvoip
-            const dialed = (typeof window.nvWidgetDial === 'function') && window.nvWidgetDial(numero);
-            if (!dialed) {
-                // Widget não expôs função de discagem: copia o número e orienta usar o webphone da Nvoip
-                if (navigator.clipboard) { navigator.clipboard.writeText(numero).catch(()=>{}); }
-                alert('Número ' + numero + ' copiado.\n\nAbra o webphone da Nvoip (canto da tela) e cole o número para ligar.\n\nA ligação foi registrada no histórico do CRM.');
+            if (typeof window.nvCall !== 'function') {
+                alert('Webphone não disponível nesta tela. Recarregue a página (Ctrl+F5).');
+                return;
             }
+            window.nvCall(d.called, d.call_record_id); // abre o modal (Chamando/mudo/desligar)
         })
         .catch(() => {
             btn.disabled = false; btn.dataset.loading = '0'; btn.innerHTML = original;
