@@ -87,8 +87,11 @@ window.SIP = SIP;
                 sipConfig=cfg; startUA(cfg);
             }).catch(()=>{});
     }
+    let reconnecting=false, reconnectTimer=null;
+
     function startUA(cfg){
         try{
+            if(ua){ serverLog('info','UA já inicializado, ignorando'); return; } // instância única
             const uri=SIP.UserAgent.makeURI(cfg.uri);
             const iceServers = (cfg.ice_servers && cfg.ice_servers.length) ? cfg.ice_servers : [{urls:'stun:stun.l.google.com:19302'}];
             ua=new SIP.UserAgent({
@@ -97,37 +100,50 @@ window.SIP = SIP;
                 sessionDescriptionHandlerFactoryOptions:{ peerConnectionConfiguration:{ iceServers } },
                 delegate:{ onInvite:inv=>handleIncoming(inv) }
             });
-            // Captura o código real de fechamento do WebSocket para diagnóstico
+
+            // Captura o código real de fechamento do WebSocket (diagnóstico)
             try{
-                const origWs = ua.transport;
-                if(origWs && origWs.onWebSocketClose){
-                    const orig = origWs.onWebSocketClose.bind(origWs);
-                    origWs.onWebSocketClose = function(ev){ try{ serverLog('error','WS fechado code='+(ev&&ev.code)+' reason='+(ev&&ev.reason||'')+' wasClean='+(ev&&ev.wasClean)); }catch(e){} return orig(ev); };
+                const t = ua.transport;
+                if(t && t.onWebSocketClose){
+                    const orig = t.onWebSocketClose.bind(t);
+                    t.onWebSocketClose = function(ev){ try{ serverLog('error','WS fechado code='+(ev&&ev.code)+' wasClean='+(ev&&ev.wasClean)); }catch(e){} return orig(ev); };
                 }
             }catch(e){}
-            ua.transport.stateChange.addListener(ts=>{ console.log('[Webphone] Transport:',ts); serverLog('info','Transport '+ts);
-                if(ts===SIP.TransportState.Disconnected){
-                    setTimeout(()=>{ try{ if(ua && ua.transport && ua.transport.state===SIP.TransportState.Disconnected){
-                        ua.reconnect().then(()=>{ if(registerer) registerer.register(); }).catch(()=>{});
-                    } }catch(e){} }, 3000);
-                }
+
+            // ÚNICO ponto de reconexão: ao desconectar, agenda uma reconexão controlada (single-flight)
+            ua.transport.stateChange.addListener(ts=>{
+                console.log('[Webphone] Transport:',ts); serverLog('info','Transport '+ts);
+                if(ts===SIP.TransportState.Connected){ reconnecting=false; }
+                if(ts===SIP.TransportState.Disconnected){ scheduleReconnect(); }
             });
-            const doStart=(attempt)=>{
-                ua.start().then(()=>{
-                    if(!registerer){
-                        registerer=new SIP.Registerer(ua);
-                        registerer.stateChange.addListener(s=>{ console.log('[Webphone] Registerer:',s);
-                            window.nvWebphoneReady=(s===SIP.RegistererState.Registered); serverLog('info','Registerer '+s); });
-                    }
-                    registerer.register({ requestDelegate:{ onReject:resp=>{ const code=resp&&resp.message?resp.message.statusCode:'';
-                        console.error('[Webphone] REGISTER rejeitado:',code); window.nvWebphoneReady=false; window.nvRegRejectCode=code;
-                        serverLog('error','REGISTER rejeitado '+code); }}});
-                }).catch(e=>{ window.nvWebphoneReady=false; console.error('[Webphone] start falhou:',e);
-                    serverLog('error','UA start falhou (tentativa '+(attempt+1)+')', String(e&&e.message||e));
-                    if(attempt<8){ setTimeout(()=>doStart(attempt+1), Math.min(2000*(attempt+1), 10000)); } });
-            };
-            doStart(0);
+
+            registerer=new SIP.Registerer(ua);
+            registerer.stateChange.addListener(s=>{ console.log('[Webphone] Registerer:',s);
+                window.nvWebphoneReady=(s===SIP.RegistererState.Registered); serverLog('info','Registerer '+s); });
+
+            ua.start().then(()=>doRegister()).catch(e=>{
+                window.nvWebphoneReady=false; serverLog('error','UA start falhou', String(e&&e.message||e)); scheduleReconnect();
+            });
         }catch(e){ console.warn('Webphone init falhou',e); }
+    }
+
+    function doRegister(){
+        if(!registerer) return;
+        registerer.register({ requestDelegate:{ onReject:resp=>{ const code=resp&&resp.message?resp.message.statusCode:'';
+            window.nvWebphoneReady=false; window.nvRegRejectCode=code; serverLog('error','REGISTER rejeitado '+code); }}}).catch(()=>{});
+    }
+
+    // Reconexão única com backoff — evita múltiplas tentativas concorrentes que derrubam o registro
+    function scheduleReconnect(){
+        if(reconnecting) return;
+        reconnecting=true;
+        if(reconnectTimer) clearTimeout(reconnectTimer);
+        reconnectTimer=setTimeout(()=>{
+            if(!ua){ reconnecting=false; return; }
+            if(ua.transport.state===SIP.TransportState.Connected){ reconnecting=false; return; }
+            ua.reconnect().then(()=>{ doRegister(); }).catch(()=>{ reconnecting=false; scheduleReconnect(); });
+        }, 4000);
+    }
     }
 
     // Diagnóstico de ICE/mídia por POLLING (não depende de callbacks que o SIP.js pode sobrescrever).
