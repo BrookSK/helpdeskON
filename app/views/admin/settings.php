@@ -475,10 +475,11 @@
                     <div class="col-md-6">
                         <label class="form-label fw-medium small">Formato de discagem</label>
                         <select name="nvoip_dial_format" class="form-select form-select-sm">
-                            <option value="local" <?= ($settings['nvoip_dial_format'] ?? 'local') === 'local' ? 'selected' : '' ?>>DDD + número (ex.: 17991253062)</option>
-                            <option value="ddi" <?= ($settings['nvoip_dial_format'] ?? '') === 'ddi' ? 'selected' : '' ?>>55 + DDD + número (ex.: 5517991253062)</option>
+                            <option value="ddi" <?= ($settings['nvoip_dial_format'] ?? 'ddi') === 'ddi' ? 'selected' : '' ?>>55 + DDD + número (ex.: 5517991253062) — recomendado</option>
+                            <option value="local" <?= ($settings['nvoip_dial_format'] ?? '') === 'local' ? 'selected' : '' ?>>DDD + número (ex.: 17991253062)</option>
                             <option value="zero" <?= ($settings['nvoip_dial_format'] ?? '') === 'zero' ? 'selected' : '' ?>>0 + DDD + número (ex.: 017991253062)</option>
                             <option value="zero_ddi" <?= ($settings['nvoip_dial_format'] ?? '') === 'zero_ddi' ? 'selected' : '' ?>>0 + 55 + DDD + número (ex.: 05517991253062)</option>
+                            <option value="e164" <?= ($settings['nvoip_dial_format'] ?? '') === 'e164' ? 'selected' : '' ?>>+55 + DDD + número (E.164, ex.: +5517991253062)</option>
                         </select>
                         <small class="text-muted">Se as ligações aparecem como "erro de rota/desconhecido" no relatório Nvoip, troque o formato.</small>
                     </div>

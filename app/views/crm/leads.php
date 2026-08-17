@@ -116,8 +116,11 @@ $sourceLabels = [
                                     <i class="bi bi-whatsapp"></i>
                                 </a>
                                 <?php if (!empty($l['phone'])): ?>
-                                <button class="btn btn-sm btn-outline-primary btn-call" title="Telefonar" onclick="callLead(<?= $l['id'] ?>, this)">
+                                <button class="btn btn-sm btn-outline-primary btn-call" title="Telefonar (webphone)" onclick="callLead(<?= $l['id'] ?>, this)">
                                     <i class="bi bi-telephone-outbound"></i> Telefonar
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary" title="Testar chamada via API (checkDDI)" onclick="callLeadRest(<?= $l['id'] ?>, this)">
+                                    <i class="bi bi-phone-vibrate"></i>
                                 </button>
                                 <?php endif; ?>
                             </td>
@@ -135,6 +138,21 @@ $sourceLabels = [
 
 <script>
 const BASE = '<?= baseUrl('') ?>';
+
+// Teste via API REST /calls/ com checkDDI (Nvoip completa o DDI). Origina click-to-call.
+function callLeadRest(leadId, btn) {
+    if (btn.dataset.loading === '1') return;
+    btn.dataset.loading = '1'; const o = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    fetch(BASE + 'crm/callLead/' + leadId, { method: 'POST', headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json())
+        .then(d => {
+            btn.disabled = false; btn.dataset.loading = '0'; btn.innerHTML = o;
+            if (d.error) { alert('Erro: ' + d.error); return; }
+            alert('Chamada solicitada via API (checkDDI). Verifique o Destino no relatório Nvoip.\ncallId: ' + (d.call_id || '—'));
+        })
+        .catch(() => { btn.disabled = false; btn.dataset.loading = '0'; btn.innerHTML = o; alert('Erro na chamada.'); });
+}
 
 // Origina a ligação pelo webphone nativo (WebRTC). O backend resolve o telefone do lead
 // e registra a ligação; o áudio acontece no navegador, dentro do CRM.

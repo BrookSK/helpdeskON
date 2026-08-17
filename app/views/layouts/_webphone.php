@@ -287,13 +287,12 @@ window.SIP = SIP;
         return true;
     };
 
-    // Garante um único DDI 55 no número (remove 55 repetidos no início e mantém um só)
+    // Mantém dígitos e um eventual + inicial (E.164). Não altera o número (backend já normaliza).
     function sanitizeDial(n){
-        n = String(n).replace(/\D/g,'');
-        // colapsa 55 repetidos no início até sobrar o nacional
-        while(n.length>13 && n.indexOf('55')===0){ n = n.substring(2); }
-        // se ficou 55 + nacional(11) = 13, ok; se ficou nacional(11), ok
-        return n;
+        n = String(n).trim();
+        const plus = n.charAt(0)==='+';
+        n = n.replace(/\D/g,'');
+        return plus ? ('+'+n) : n;
     }
 
     function doDial(numero){

@@ -520,11 +520,6 @@ class CrmController extends Controller
      */
     public function callLead($contactId = null)
     {
-        // DESATIVADO: o fluxo de ligação é 100% pelo webphone (dialLead).
-        Logger::error('Nvoip callLead REST foi chamado (deveria estar desativado)', ['contact' => $contactId]);
-        $this->json(['error' => 'Use o webphone (botão Telefonar) para ligar.'], 400);
-        return;
-        // ---- código antigo mantido abaixo, inacessível ----
         $this->requireRole(['super_admin', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$contactId) {
             $this->json(['error' => 'Requisição inválida'], 400);
@@ -540,9 +535,12 @@ class CrmController extends Controller
             $this->json(['error' => 'Sem permissão'], 403);
         }
 
-        // Telefone do próprio Lead (não vem do frontend).
-        // Normaliza o número conforme o formato configurado (garante um único 55 quando 'ddi').
-        $called = $this->normalizeCalled($contact['phone'] ?? '');
+        // API REST /calls/ usa checkDDI: true, que COMPLETA o DDI automaticamente.
+        // Por isso enviamos o número NACIONAL (só dígitos, sem 55) — o checkDDI adiciona o 55 correto.
+        $called = preg_replace('/\D/', '', (string)($contact['phone'] ?? ''));
+        while (strlen($called) > 11 && strpos($called, '55') === 0) {
+            $called = substr($called, 2); // remove 55 para o checkDDI não duplicar
+        }
         if ($called === '') $this->json(['error' => 'Este lead não possui telefone cadastrado.'], 400);
 
         $api = new NvoipApi();
@@ -551,9 +549,9 @@ class CrmController extends Controller
         $caller = $api->caller();
         if ($caller === '') $this->json(['error' => 'Originador (caller) não configurado em Configurações.'], 400);
 
-        // Origina a chamada via click-to-call: chama o ramal SIP (caller) e conecta ao lead (called).
-        // Endpoint indicado para uso via CRM (payload documentado: caller, called).
-        $res = $api->clickToCall($caller, $called);
+        // Chamada direta: caller + called (nacional) + checkDDI:true (completa o DDI).
+        Logger::info('Nvoip createCall (REST checkDDI)', ['caller' => $caller, 'called' => $called]);
+        $res = $api->createCall($caller, $called, true, false);
 
         // Registra a resposta completa (sucesso ou não) para inspecionar a estrutura real.
         Logger::info('Nvoip clickToCall resposta', [
@@ -889,6 +887,7 @@ class CrmController extends Controller
             case 'ddi':      $n = '55' . $n; break;       // 5517991253062
             case 'zero':     $n = '0' . $n; break;        // 017991253062
             case 'zero_ddi': $n = '055' . $n; break;      // 05517991253062
+            case 'e164':     $n = '+55' . $n; break;      // +5517991253062 (E.164 com +)
             case 'local':    default: /* mantém nacional */ break; // 17991253062
         }
         Logger::info('normalizeCalled etapas', [
