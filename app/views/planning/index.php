@@ -90,7 +90,7 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                                     <?php if ($card['company_name']): ?>
                                     <span><i class="bi bi-building"></i> <?= escape($card['company_name']) ?></span><br>
                                     <?php endif; ?>
-                                    <?php if (!empty($card['client_name'])): ?>
+                                    <?php if (!empty($card['client_name']) && in_array($card['client_role'] ?? '', ['client', 'sub_client'])): ?>
                                     <span><i class="bi bi-person-badge"></i> <?= escape($card['client_name']) ?></span><br>
                                     <?php endif; ?>
                                     <span><i class="bi bi-person"></i> <?= escape($card['assigned_name'] ?? 'Não atribuído') ?></span>
