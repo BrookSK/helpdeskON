@@ -315,6 +315,12 @@ window.SIP = SIP;
         serverLog('info','INVITE enviado para '+numero);
         // earlyMedia: aplica a SDP que a Nvoip envia no 183 (sem isso o ICE fica em "new" e dá 408)
         const inviter=new SIP.Inviter(ua,target,{ earlyMedia:true, sessionDescriptionHandlerOptions:{constraints:{audio:true,video:false}}});
+        // Loga o número REAL no pacote SIP (To/RequestURI) — revela qualquer transformação do SIP.js
+        try{
+            const toUri = inviter.request && inviter.request.to && inviter.request.to.uri ? inviter.request.to.uri.toString() : '';
+            const ruri = inviter.request && inviter.request.ruri ? inviter.request.ruri.toString() : '';
+            serverLog('info','SIP To='+toUri+' RURI='+ruri);
+        }catch(e){}
         wireSession(inviter, numero);
         inviter.invite({ requestDelegate:{
             onProgress:r=>{ serverLog('info','INVITE progress '+r.message.statusCode+' '+r.message.reasonPhrase); },

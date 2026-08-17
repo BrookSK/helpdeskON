@@ -521,8 +521,7 @@ class CrmController extends Controller
     public function callLead($contactId = null)
     {
         // DESATIVADO: o fluxo de ligação é 100% pelo webphone (dialLead).
-        // Este endpoint REST (click-to-call) originava uma chamada paralela pelo número virtual,
-        // criando registro duplicado e número com 55 duplicado. Redireciona para o fluxo correto.
+        Logger::error('Nvoip callLead REST foi chamado (deveria estar desativado)', ['contact' => $contactId]);
         $this->json(['error' => 'Use o webphone (botão Telefonar) para ligar.'], 400);
         return;
         // ---- código antigo mantido abaixo, inacessível ----
@@ -875,17 +874,22 @@ class CrmController extends Controller
      */
     private function normalizeCalled($phone)
     {
-        $n = preg_replace('/\D/', '', (string)$phone);
+        $orig = (string)$phone;
+        $n = preg_replace('/\D/', '', $orig);
+        $apenasDigitos = $n;
         // Remove prefixos 55 repetidos enquanto sobrar mais que um número nacional (>11 díg.)
         while (strlen($n) > 11 && strpos($n, '55') === 0) {
             $n = substr($n, 2);
         }
+        $semDDI = $n;
         if ($n === '') return '';
         $fmt = Config::get('nvoip_dial_format') ?: 'local';
         if ($fmt === 'ddi') {
-            // Garante exatamente um 55 (nunca duplica)
             $n = '55' . $n;
         }
+        Logger::info('normalizeCalled etapas', [
+            'orig' => $orig, 'digitos' => $apenasDigitos, 'sem_ddi' => $semDDI, 'formato' => $fmt, 'final' => $n,
+        ]);
         return $n;
     }
 
