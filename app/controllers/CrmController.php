@@ -624,14 +624,14 @@ class CrmController extends Controller
         }
 
         // Normaliza o telefone do lead conforme o formato exigido pela rota da Nvoip.
-        // Config 'nvoip_dial_format': 'local' (DDD+numero, padrão) ou 'ddi' (55+DDD+numero).
+        // 1) Remove todos os prefixos 55 repetidos, reduzindo ao número nacional (DDD+numero, 10-11 díg.)
         $called = preg_replace('/\D/', '', (string)($contact['phone'] ?? ''));
-        // Base: remove DDI 55 se veio (telefones do WhatsApp costumam ter 55)
-        if (strlen($called) > 11 && strpos($called, '55') === 0) {
+        while (strlen($called) > 11 && strpos($called, '55') === 0) {
             $called = substr($called, 2);
         }
+        // 2) Aplica o formato configurado: 'ddi' adiciona exatamente um 55; 'local' mantém nacional.
         $fmt = Config::get('nvoip_dial_format') ?: 'local';
-        if ($fmt === 'ddi' && strlen($called) <= 11) {
+        if ($fmt === 'ddi') {
             $called = '55' . $called;
         }
         if ($called === '') $this->json(['error' => 'Este lead não possui telefone cadastrado.'], 400);
