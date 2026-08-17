@@ -108,6 +108,7 @@ window.SIP = SIP;
 
     // Diagnóstico de ICE/mídia por POLLING (não depende de callbacks que o SIP.js pode sobrescrever).
     function attachIceDiagnostics(session){
+        window._nvStatsChecked=false;
         let waited=0, found=false, lastIce='', lastGath='', logged=0;
         const iv=setInterval(()=>{
             waited+=500;
@@ -136,7 +137,17 @@ window.SIP = SIP;
                     serverLog('info','ICE candidates (SDP): host='+host+' srflx='+srflx+' relay='+relay);
                 }catch(e){}
             }
-            if(waited>=25000 || lastIce==='connected' || lastIce==='completed' || lastIce==='failed' || lastIce==='closed'){ clearInterval(iv); }
+            // Ao conectar, checa estatísticas de RTP após 3s (se não houver mídia, a Nvoip derruba)
+            if((lastIce==='connected'||lastIce==='completed') && !window._nvStatsChecked){
+                window._nvStatsChecked=true;
+                setTimeout(()=>{ try{ pc.getStats().then(stats=>{
+                    let inb=0, outb=0;
+                    stats.forEach(r=>{ if(r.type==='inbound-rtp'&&r.kind==='audio') inb=r.packetsReceived||0;
+                        if(r.type==='outbound-rtp'&&r.kind==='audio') outb=r.packetsSent||0; });
+                    serverLog('info','RTP áudio: recebidos='+inb+' enviados='+outb);
+                }); }catch(e){} }, 3000);
+            }
+            if(waited>=25000 || lastIce==='failed' || lastIce==='closed'){ clearInterval(iv); }
         },500);
     }
 
@@ -165,6 +176,7 @@ window.SIP = SIP;
             else if(state===SIP.SessionState.Established){ showDots(false); setStatusText('Em chamada'); show('nv-call-mute',true); show('nv-call-answer',false);
                 attachAudio(session); startTimer(); reportEvent('answered'); }
             else if(state===SIP.SessionState.Terminated){ const dur=elapsed(); showDots(false); setStatusText('Chamada encerrada'); resetControls();
+                serverLog('info','Session Terminated (duração '+dur+'s)');
                 reportEvent('ended',{duration:dur}); currentSession=null; currentRecordId=null; answeredAt=null; setTimeout(closeModal,900); }
         });
     }
