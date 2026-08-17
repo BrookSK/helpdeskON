@@ -134,12 +134,14 @@ window.SIP = SIP;
     }
 
     // Libera o ramal após a chamada: desregistra e para o UA, para não ocupar o ramal em repouso.
+    // Só executa se NÃO houver outra sessão ativa (evita derrubar chamada em curso).
     function releaseRamal(){
+        if(currentSession) return; // há chamada ativa — não libera agora
         try{
             reconnecting=true; // impede reconexão automática após desligar de propósito
             if(registerer){ registerer.unregister().catch(()=>{}); }
-            setTimeout(()=>{ try{ if(ua){ ua.stop().catch(()=>{}); } }catch(e){} ua=null; registerer=null; window.nvWebphoneReady=false; reconnecting=false; }, 800);
-        }catch(e){ ua=null; registerer=null; window.nvWebphoneReady=false; reconnecting=false; }
+            setTimeout(()=>{ try{ if(ua && !currentSession){ ua.stop().catch(()=>{}); ua=null; registerer=null; window.nvWebphoneReady=false; } }catch(e){} reconnecting=false; }, 1000);
+        }catch(e){ reconnecting=false; }
     }
 
     // Reconexão única com backoff — evita múltiplas tentativas concorrentes que derrubam o registro
