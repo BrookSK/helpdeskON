@@ -237,7 +237,6 @@ window.SIP = SIP;
         show('nv-call-hangup', false); // Esconde o botão vermelho
         reportEvent('ended',{duration:dur});
         currentSession=null; answeredAt=null;
-        releaseRamal();
     }
 
     /** Monitora se a outra parte desligou (ICE disconnected / connection closed). */
