@@ -47,6 +47,14 @@
                     </select>
                 </div>
                 <div class="col-6 col-md-auto">
+                    <select name="attendant" class="form-select form-select-sm">
+                        <option value="">Todos Atendentes</option>
+                        <?php foreach ($attendants ?? [] as $att): ?>
+                        <option value="<?= $att['id'] ?>" <?= ($_GET['attendant'] ?? '') == $att['id'] ? 'selected' : '' ?>><?= escape($att['name']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="col-6 col-md-auto">
                     <div class="form-check form-check-inline mb-0">
                         <input class="form-check-input" type="checkbox" name="hide_completed" value="1" id="hideCompleted" <?= !empty($_GET['hide_completed']) ? 'checked' : '' ?>>
                         <label class="form-check-label small" for="hideCompleted">Ocultar concluídas</label>

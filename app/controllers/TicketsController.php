@@ -38,6 +38,7 @@ class TicketsController extends Controller
             if (!empty($_GET['status'])) $filters['status'] = $_GET['status'];
             if (!empty($_GET['priority'])) $filters['priority'] = $_GET['priority'];
             if (!empty($_GET['company'])) $filters['company_id'] = $_GET['company'];
+            if (!empty($_GET['attendant'])) $filters['attendant_id'] = $_GET['attendant'];
             if (!empty($_GET['hide_completed'])) $filters['hide_completed'] = true;
 
             // "Ocultar arquivados" vem marcado por padrão. Só desativa se o form foi
@@ -69,7 +70,7 @@ class TicketsController extends Controller
                 $companies = $companyModel->getAll();
             }
 
-            $this->view('attendant/tickets', ['user' => $user, 'tickets' => $tickets, 'companies' => $companies]);
+            $this->view('attendant/tickets', ['user' => $user, 'tickets' => $tickets, 'companies' => $companies, 'attendants' => (new User())->getByRoles(['super_admin', 'attendant', 'developer', 'analyst', 'comercial', 'marketing', 'whatsapp_agent'])]);
         }
     }
 
