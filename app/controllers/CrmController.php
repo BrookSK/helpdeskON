@@ -847,9 +847,15 @@ class CrmController extends Controller
         $userSip = $dbUser['sip_user'] ?? null;
         $userSipPass = $dbUser['sip_password'] ?? null;
 
-        // Prioridade: ramal do próprio usuário > ramal global (fallback)
-        $sipUser = !empty($userSip) ? $userSip : Config::get('nvoip_sip_user');
-        $sipPassword = !empty($userSipPass) ? $userSipPass : Config::get('nvoip_sip_password');
+        // Se o usuário tem ramal E senha próprios, usa os dele.
+        // Caso contrário, usa o ramal/senha padrão (global = Super Admin).
+        if (!empty($userSip) && !empty($userSipPass)) {
+            $sipUser = $userSip;
+            $sipPassword = $userSipPass;
+        } else {
+            $sipUser = Config::get('nvoip_sip_user');
+            $sipPassword = Config::get('nvoip_sip_password');
+        }
 
         if (empty($sipUser) || empty($sipPassword)) {
             // Usuário sem ramal SIP configurado: webphone não é habilitado para ele.
