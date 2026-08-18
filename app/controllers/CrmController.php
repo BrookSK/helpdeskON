@@ -341,12 +341,27 @@ class CrmController extends Controller
             $this->json(['error' => 'Requisição inválida'], 400);
         }
         $user = $this->currentUser();
+
+        // Quem fechou: se informado no POST, usa; senão assume o próprio usuário
+        $closedBy = !empty($_POST['closed_by']) ? intval($_POST['closed_by']) : $user['id'];
+
+        // Quem prospectou: o assigned_to do card (quem estava responsável pelo lead)
+        $card = $this->boardModel->findCard($cardId);
+        $prospectedBy = $card['assigned_to'] ?? $user['id'];
+
         $this->boardModel->updateCard($cardId, [
             'lead_outcome' => 'converted',
             'outcome_at' => date('Y-m-d H:i:s'),
-            'converted_by' => $user['id'],
+            'converted_by' => $closedBy,
+            'prospected_by' => $prospectedBy,
         ]);
-        $this->boardModel->addActivity($cardId, $user['id'], 'note', '✅ Lead convertido');
+
+        $closedByName = '';
+        if ($closedBy != $prospectedBy) {
+            $closedUser = (new User())->findById($closedBy);
+            $closedByName = $closedUser ? " por {$closedUser['name']}" : '';
+        }
+        $this->boardModel->addActivity($cardId, $user['id'], 'note', "✅ Lead convertido — fechado{$closedByName}");
         $this->json(['success' => true]);
     }
 

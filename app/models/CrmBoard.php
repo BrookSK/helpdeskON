@@ -245,17 +245,36 @@ class CrmBoard
      */
     public function getCommissions($month = null, $userId = null)
     {
-        $sql = "SELECT u.id as user_id, u.name as user_name, u.commission_percent,
-                       COUNT(c.id) as converted_count,
-                       COALESCE(SUM(c.value), 0) as total_value,
-                       COALESCE(SUM(c.value) * u.commission_percent / 100, 0) as commission_value
+        // Comissão de fechamento: leads onde o user é converted_by (ele fechou)
+        // Se ele também é o prospected_by (ou assigned_to), usa commission_closing_percent
+        // Se ele NÃO é o prospected_by, usa commission_closing_percent do closer
+        // Comissão de prospecção: leads onde o user é prospected_by mas outro fechou
+        // Usa commission_prospection_percent do prospector
+
+        // Query principal: agrupa por usuário, calcula comissões separadamente
+        $sql = "SELECT u.id as user_id, u.name as user_name,
+                       u.commission_percent, u.commission_prospection_percent, u.commission_closing_percent,
+                       -- Leads que ele FECHOU (converted_by = ele)
+                       COUNT(DISTINCT c_closed.id) as closed_count,
+                       COALESCE(SUM(DISTINCT c_closed.value), 0) as closed_value,
+                       -- Leads que ele PROSPECTOU e outro fechou
+                       COUNT(DISTINCT c_prosp.id) as prospected_count,
+                       COALESCE(SUM(DISTINCT c_prosp.value), 0) as prospected_value
                 FROM users u
-                LEFT JOIN crm_cards c
-                    ON c.converted_by = u.id
-                    AND c.lead_outcome = 'converted'";
+                LEFT JOIN crm_cards c_closed
+                    ON c_closed.converted_by = u.id
+                    AND c_closed.lead_outcome = 'converted'";
         $params = [];
         if ($month) {
-            $sql .= " AND DATE_FORMAT(c.outcome_at, '%Y-%m') = ?";
+            $sql .= " AND DATE_FORMAT(c_closed.outcome_at, '%Y-%m') = ?";
+            $params[] = $month;
+        }
+        $sql .= " LEFT JOIN crm_cards c_prosp
+                    ON c_prosp.prospected_by = u.id
+                    AND c_prosp.lead_outcome = 'converted'
+                    AND c_prosp.converted_by != u.id";
+        if ($month) {
+            $sql .= " AND DATE_FORMAT(c_prosp.outcome_at, '%Y-%m') = ?";
             $params[] = $month;
         }
         $sql .= " WHERE u.role = 'comercial'";
@@ -263,8 +282,31 @@ class CrmBoard
             $sql .= " AND u.id = ?";
             $params[] = $userId;
         }
-        $sql .= " GROUP BY u.id, u.name, u.commission_percent ORDER BY commission_value DESC, u.name";
-        return $this->db->fetchAll($sql, $params);
+        $sql .= " GROUP BY u.id, u.name, u.commission_percent, u.commission_prospection_percent, u.commission_closing_percent
+                   ORDER BY u.name";
+
+        $rows = $this->db->fetchAll($sql, $params);
+
+        // Calcula comissão total por usuário
+        foreach ($rows as &$r) {
+            $closingPct = (float)$r['commission_closing_percent'] ?: (float)$r['commission_percent'];
+            $prospPct = (float)$r['commission_prospection_percent'];
+
+            $closingCommission = (float)$r['closed_value'] * $closingPct / 100;
+            $prospCommission = (float)$r['prospected_value'] * $prospPct / 100;
+
+            $r['closing_commission'] = $closingCommission;
+            $r['prospection_commission'] = $prospCommission;
+            $r['commission_value'] = $closingCommission + $prospCommission;
+            $r['converted_count'] = (int)$r['closed_count'] + (int)$r['prospected_count'];
+            $r['total_value'] = (float)$r['closed_value'] + (float)$r['prospected_value'];
+        }
+        unset($r);
+
+        // Ordena por comissão total desc
+        usort($rows, fn($a, $b) => $b['commission_value'] <=> $a['commission_value']);
+
+        return $rows;
     }
 
     /**

@@ -238,4 +238,62 @@ class AgendaMeeting
         }
         return $result;
     }
+
+    /**
+     * Métricas de fechamento: quantas reuniões convertidas cada usuário fechou ele mesmo vs terceiros.
+     * Retorna: [user_id => ['closed_self' => X, 'closed_by_others' => Y], ...]
+     */
+    public function getClosingStats($startDate = null, $endDate = null, $userId = null)
+    {
+        // Fechamentos onde o próprio responsável fechou (assigned_to == closed_by)
+        $sqlSelf = "SELECT m.assigned_to AS user_id, COUNT(*) AS total
+                    FROM agenda_meetings m
+                    WHERE m.status = 'convertida' AND m.closed_by IS NOT NULL AND m.assigned_to = m.closed_by";
+        $params = [];
+        if ($startDate) { $sqlSelf .= " AND m.created_at >= ?"; $params[] = $startDate . ' 00:00:00'; }
+        if ($endDate) { $sqlSelf .= " AND m.created_at <= ?"; $params[] = $endDate . ' 23:59:59'; }
+        if ($userId) { $sqlSelf .= " AND m.assigned_to = ?"; $params[] = $userId; }
+        $sqlSelf .= " GROUP BY m.assigned_to";
+        $selfRows = $this->db->fetchAll($sqlSelf, $params);
+
+        // Fechamentos onde outra pessoa fechou (assigned_to != closed_by) — perspectiva do prospector
+        $sqlOther = "SELECT m.assigned_to AS user_id, COUNT(*) AS total
+                     FROM agenda_meetings m
+                     WHERE m.status = 'convertida' AND m.closed_by IS NOT NULL AND m.assigned_to != m.closed_by";
+        $params2 = [];
+        if ($startDate) { $sqlOther .= " AND m.created_at >= ?"; $params2[] = $startDate . ' 00:00:00'; }
+        if ($endDate) { $sqlOther .= " AND m.created_at <= ?"; $params2[] = $endDate . ' 23:59:59'; }
+        if ($userId) { $sqlOther .= " AND m.assigned_to = ?"; $params2[] = $userId; }
+        $sqlOther .= " GROUP BY m.assigned_to";
+        $otherRows = $this->db->fetchAll($sqlOther, $params2);
+
+        // Fechamentos que o user realizou para outros (ele como closed_by mas não é o assigned_to)
+        $sqlClosedFor = "SELECT m.closed_by AS user_id, COUNT(*) AS total
+                         FROM agenda_meetings m
+                         WHERE m.status = 'convertida' AND m.closed_by IS NOT NULL AND m.assigned_to != m.closed_by";
+        $params3 = [];
+        if ($startDate) { $sqlClosedFor .= " AND m.created_at >= ?"; $params3[] = $startDate . ' 00:00:00'; }
+        if ($endDate) { $sqlClosedFor .= " AND m.created_at <= ?"; $params3[] = $endDate . ' 23:59:59'; }
+        if ($userId) { $sqlClosedFor .= " AND m.closed_by = ?"; $params3[] = $userId; }
+        $sqlClosedFor .= " GROUP BY m.closed_by";
+        $closedForRows = $this->db->fetchAll($sqlClosedFor, $params3);
+
+        $result = [];
+        foreach ($selfRows as $r) {
+            $uid = $r['user_id'];
+            if (!isset($result[$uid])) $result[$uid] = ['closed_self' => 0, 'closed_by_others' => 0, 'closed_for_others' => 0];
+            $result[$uid]['closed_self'] = (int)$r['total'];
+        }
+        foreach ($otherRows as $r) {
+            $uid = $r['user_id'];
+            if (!isset($result[$uid])) $result[$uid] = ['closed_self' => 0, 'closed_by_others' => 0, 'closed_for_others' => 0];
+            $result[$uid]['closed_by_others'] = (int)$r['total'];
+        }
+        foreach ($closedForRows as $r) {
+            $uid = $r['user_id'];
+            if (!isset($result[$uid])) $result[$uid] = ['closed_self' => 0, 'closed_by_others' => 0, 'closed_for_others' => 0];
+            $result[$uid]['closed_for_others'] = (int)$r['total'];
+        }
+        return $result;
+    }
 }

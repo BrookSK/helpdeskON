@@ -289,6 +289,19 @@
                             <button class="btn btn-sm btn-success flex-fill" onclick="convertLead()"><i class="bi bi-check-circle"></i> Convertido</button>
                             <button class="btn btn-sm btn-danger flex-fill" onclick="lostLead()"><i class="bi bi-x-circle"></i> Perdido</button>
                         </div>
+                        <!-- Select quem fechou (aparece ao converter) -->
+                        <div id="closed-by-crm-field" class="mb-2" style="display:none;">
+                            <label class="form-label small fw-medium mb-1">Quem fechou o negócio?</label>
+                            <select id="crm-closed-by" class="form-select form-select-sm">
+                                <?php foreach ($teamMembers as $m): ?>
+                                <option value="<?= $m['id'] ?>"><?= escape($m['name']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <div class="d-flex gap-2 mt-1">
+                                <button class="btn btn-sm btn-success flex-fill" onclick="confirmConvert()"><i class="bi bi-check-lg"></i> Confirmar</button>
+                                <button class="btn btn-sm btn-outline-secondary flex-fill" onclick="cancelConvert()">Cancelar</button>
+                            </div>
+                        </div>
                         <a href="#" id="card-open-chat" class="btn btn-sm btn-outline-success w-100 mb-2" style="display:none;">
                             <i class="bi bi-whatsapp"></i> Abrir no Chat
                         </a>
@@ -550,8 +563,23 @@ function deleteCard() {
 }
 
 function convertLead() {
-    if (!currentCardId || !confirm('Marcar este lead como CONVERTIDO?')) return;
-    fetch(BASE + 'crm/convertLead/' + currentCardId, { method: 'POST', body: new FormData(), headers: {'X-Requested-With': 'XMLHttpRequest'} })
+    if (!currentCardId) return;
+    // Mostra o campo de quem fechou
+    document.getElementById('closed-by-crm-field').style.display = '';
+}
+
+function cancelConvert() {
+    document.getElementById('closed-by-crm-field').style.display = 'none';
+}
+
+function confirmConvert() {
+    const closedBy = document.getElementById('crm-closed-by').value;
+    if (!closedBy) { alert('Selecione quem fechou o negócio.'); return; }
+
+    const fd = new FormData();
+    fd.append('closed_by', closedBy);
+
+    fetch(BASE + 'crm/convertLead/' + currentCardId, { method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'} })
     .then(r => r.json())
     .then(data => { if (data.success) location.reload(); else alert(data.error || 'Erro'); });
 }

@@ -10,6 +10,7 @@ $totals = [
     'messages_sent' => 0, 'messages_received' => 0, 'contacts_messaged' => 0,
     'contacts_contacted' => 0, 'contacts_replied' => 0, 'contacts_no_reply' => 0,
     'emails_sent' => 0, 'emails_failed' => 0, 'emails_total' => 0, 'emails_unique_contacts' => 0,
+    'closed_self' => 0, 'closed_by_others' => 0, 'closed_for_others' => 0,
 ];
 foreach ($tableData as $row) {
     foreach ($totals as $k => &$v) $v += $row[$k] ?? 0;
@@ -160,6 +161,31 @@ $conversionRate = $totals['realizada'] > 0 ? round(($totals['convertida'] / $tot
         </div>
     </div>
 
+    <!-- Cards de fechamento/comissão -->
+    <div class="row row-cols-2 row-cols-md-3 g-3 mb-4">
+        <div class="col">
+            <div class="card stat-card h-100" style="border-left-color:#2e7d32">
+                <div class="stat-label"><i class="bi bi-trophy"></i> Fechou Próprio</div>
+                <div class="stat-value" style="color:#2e7d32"><?= $totals['closed_self'] ?></div>
+                <small class="text-muted">Trouxe o lead e fechou</small>
+            </div>
+        </div>
+        <div class="col">
+            <div class="card stat-card h-100" style="border-left-color:#1565c0">
+                <div class="stat-label"><i class="bi bi-people"></i> Outro Fechou</div>
+                <div class="stat-value" style="color:#1565c0"><?= $totals['closed_by_others'] ?></div>
+                <small class="text-muted">Trouxe o lead, outro fechou</small>
+            </div>
+        </div>
+        <div class="col">
+            <div class="card stat-card h-100" style="border-left-color:#7b1fa2">
+                <div class="stat-label"><i class="bi bi-hand-thumbs-up"></i> Fechou p/ Outros</div>
+                <div class="stat-value" style="color:#7b1fa2"><?= $totals['closed_for_others'] ?></div>
+                <small class="text-muted">Fechou leads de outra pessoa</small>
+            </div>
+        </div>
+    </div>
+
     <!-- Tabela comparativa -->
     <?php if (count($tableData) > 0): ?>
     <div class="card mb-4">
@@ -175,6 +201,8 @@ $conversionRate = $totals['realizada'] > 0 ? round(($totals['convertida'] / $tot
                             <th class="text-center">Reuniões</th>
                             <th class="text-center">Realizadas</th>
                             <th class="text-center" style="color:#6a1b9a">Convertidas</th>
+                            <th class="text-center" style="color:#2e7d32">Fechou</th>
+                            <th class="text-center" style="color:#1565c0">Outro Fechou</th>
                             <th class="text-center">Remarcadas</th>
                             <th class="text-center">Canceladas</th>
                             <th class="text-center">Taxa Conv.</th>
@@ -194,6 +222,8 @@ $conversionRate = $totals['realizada'] > 0 ? round(($totals['convertida'] / $tot
                             <td class="text-center"><?= $row['total_meetings'] ?></td>
                             <td class="text-center"><?= $row['realizada'] ?></td>
                             <td class="text-center fw-bold" style="color:#6a1b9a"><?= $row['convertida'] ?></td>
+                            <td class="text-center fw-medium" style="color:#2e7d32"><?= $row['closed_self'] ?? 0 ?></td>
+                            <td class="text-center" style="color:#1565c0"><?= $row['closed_by_others'] ?? 0 ?></td>
                             <td class="text-center"><?= $row['remarcada'] ?></td>
                             <td class="text-center"><?= $row['cancelada'] ?></td>
                             <td class="text-center">
