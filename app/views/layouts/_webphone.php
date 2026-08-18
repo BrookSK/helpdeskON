@@ -239,19 +239,57 @@ window.SIP = SIP;
         currentSession=null; answeredAt=null;
     }
 
-    /** Monitora se a outra parte desligou (ICE disconnected / connection closed). */
+    /** Monitora se a outra parte desligou (múltiplas estratégias). */
     function monitorRemoteHangup(session){
         const sdh = session.sessionDescriptionHandler;
         if(!sdh || !sdh.peerConnection) return;
         const pc = sdh.peerConnection;
+
+        // Estratégia 1: connectionState change
         pc.onconnectionstatechange = function(){
             if(pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed'){
-                // Outra parte desligou — encerra do nosso lado também
-                if(currentSession && currentSession.state === SIP.SessionState.Established){
-                    try { currentSession.bye(); } catch(e){}
-                }
+                endSessionIfActive();
             }
         };
+
+        // Estratégia 2: iceConnectionState change
+        pc.oniceconnectionstatechange = function(){
+            if(pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'closed'){
+                // Aguarda 2s para confirmar (pode ser transiente)
+                setTimeout(()=>{
+                    if(pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'closed'){
+                        endSessionIfActive();
+                    }
+                }, 2000);
+            }
+        };
+
+        // Estratégia 3: Watchdog de RTP — se parar de receber pacotes por 8s, encerra
+        let lastBytesReceived = 0;
+        let staleCount = 0;
+        const rtpWatchdog = setInterval(()=>{
+            if(!currentSession || currentSession.state !== SIP.SessionState.Established){
+                clearInterval(rtpWatchdog); return;
+            }
+            pc.getStats().then(stats=>{
+                let totalBytes = 0;
+                stats.forEach(report=>{
+                    if(report.type === 'inbound-rtp' && report.kind === 'audio'){
+                        totalBytes += report.bytesReceived || 0;
+                    }
+                });
+                if(totalBytes === lastBytesReceived){ staleCount++; }
+                else { staleCount = 0; lastBytesReceived = totalBytes; }
+                // 4 checks x 2s = 8 segundos sem áudio
+                if(staleCount >= 4){ clearInterval(rtpWatchdog); endSessionIfActive(); }
+            }).catch(()=>{});
+        }, 2000);
+    }
+
+    function endSessionIfActive(){
+        if(currentSession && currentSession.state === SIP.SessionState.Established){
+            try { currentSession.bye(); } catch(e){}
+        }
     }
     function fmtDur(s){ return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0'); }
 
