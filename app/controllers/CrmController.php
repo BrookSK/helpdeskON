@@ -962,6 +962,19 @@ class CrmController extends Controller
     }
 
     /**
+     * DEBUG: Lista ramais/usuários da conta Nvoip (para descobrir dados SIP).
+     * GET crm/nvoipUsers — apenas super_admin
+     */
+    public function nvoipUsers()
+    {
+        $this->requireRole(['super_admin']);
+        $api = new NvoipApi();
+        if (!$api->isConfigured()) $this->json(['error' => 'Nvoip não configurado'], 400);
+        $res = $api->getUsers(0, 100);
+        $this->json($res);
+    }
+
+    /**
      * Histórico de ligações registradas pelo CRM (webphone).
      * super_admin vê todas; comercial vê só as suas.
      */
