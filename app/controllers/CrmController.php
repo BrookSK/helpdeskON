@@ -629,7 +629,9 @@ class CrmController extends Controller
         if ($called === '') $this->json(['error' => 'Este lead não possui telefone cadastrado.'], 400);
 
         // Verifica se o ramal está em uso por outro usuário
-        $sipUser = $user['sip_user'] ?: Config::get('nvoip_sip_user');
+        $db = Database::getInstance();
+        $dbUserSip = $db->fetch("SELECT sip_user FROM users WHERE id = ?", [$user['id']]);
+        $sipUser = !empty($dbUserSip['sip_user']) ? $dbUserSip['sip_user'] : Config::get('nvoip_sip_user');
         $lockCheck = $this->checkRamalLock($sipUser, $user['id']);
         if ($lockCheck) {
             $this->json(['error' => 'O ramal está em uso por ' . $lockCheck . '. Aguarde a ligação encerrar para tentar novamente.'], 409);
@@ -651,7 +653,7 @@ class CrmController extends Controller
             'user_id' => $user['id'],
             'direction' => 'outbound',
             'call_id' => null,
-            'caller' => $user['sip_user'] ?: Config::get('nvoip_sip_user'),
+            'caller' => $sipUser,
             'called' => $called,
             'status' => 'dialing',
             'response_json' => null,
@@ -1175,7 +1177,7 @@ class CrmController extends Controller
         // Lock expirou (mais de 5 minutos) — libera
         $lockedAt = strtotime($lockData['locked_at'] ?? '');
         if ($lockedAt && (time() - $lockedAt) > 300) {
-            $db->execute("DELETE FROM settings WHERE setting_key = ?", ['ramal_lock_' . $sipUser]);
+            $db->query("DELETE FROM settings WHERE setting_key = ?", ['ramal_lock_' . $sipUser]);
             return null;
         }
 
@@ -1207,7 +1209,7 @@ class CrmController extends Controller
         foreach ($locks as $lock) {
             $data = json_decode($lock['setting_value'] ?? '{}', true);
             if (($data['user_id'] ?? null) == $userId) {
-                $db->execute("DELETE FROM settings WHERE setting_key = ?", [$lock['setting_key']]);
+                $db->query("DELETE FROM settings WHERE setting_key = ?", [$lock['setting_key']]);
             }
         }
     }
