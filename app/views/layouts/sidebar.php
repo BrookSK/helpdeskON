@@ -59,6 +59,11 @@
                 </a>
             </li>
             <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'prospection_inbox' ? 'active' : '' ?>" href="<?= baseUrl('prospection/inbox') ?>">
+                    <i class="bi bi-inbox"></i> Caixa de Entrada
+                </a>
+            </li>
+            <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'buffer_dashboard' ? 'active' : '' ?>" href="<?= baseUrl('buffer/dashboard') ?>">
                     <i class="bi bi-graph-up-arrow"></i> Métricas Sociais
                 </a>
@@ -134,6 +139,11 @@
             <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'prospection' ? 'active' : '' ?>" href="<?= baseUrl('prospection') ?>">
                     <i class="bi bi-envelope-paper"></i> Prospecção E-mail
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'prospection_inbox' ? 'active' : '' ?>" href="<?= baseUrl('prospection/inbox') ?>">
+                    <i class="bi bi-inbox"></i> Caixa de Entrada
                 </a>
             </li>
             <?php endif; ?>

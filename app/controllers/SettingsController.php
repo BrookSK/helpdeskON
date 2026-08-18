@@ -315,6 +315,9 @@ class SettingsController extends Controller
             'prospection_smtp_host' => Config::get('prospection_smtp_host', ''),
             'prospection_smtp_port' => Config::get('prospection_smtp_port', '587'),
             'prospection_smtp_encryption' => Config::get('prospection_smtp_encryption', 'tls'),
+            'prospection_imap_host' => Config::get('prospection_imap_host', ''),
+            'prospection_imap_port' => Config::get('prospection_imap_port', '993'),
+            'prospection_imap_encryption' => Config::get('prospection_imap_encryption', 'ssl'),
         ];
 
         $this->view('admin/email_accounts', [
@@ -333,6 +336,9 @@ class SettingsController extends Controller
         Config::set('prospection_smtp_host', trim($_POST['prospection_smtp_host'] ?? ''));
         Config::set('prospection_smtp_port', trim($_POST['prospection_smtp_port'] ?? '587'));
         Config::set('prospection_smtp_encryption', trim($_POST['prospection_smtp_encryption'] ?? 'tls'));
+        Config::set('prospection_imap_host', trim($_POST['prospection_imap_host'] ?? ''));
+        Config::set('prospection_imap_port', trim($_POST['prospection_imap_port'] ?? '993'));
+        Config::set('prospection_imap_encryption', trim($_POST['prospection_imap_encryption'] ?? 'ssl'));
 
         flash('success', 'Servidor padrão salvo!');
         $this->redirect('settings/emailAccounts');
@@ -354,6 +360,9 @@ class SettingsController extends Controller
             'smtp_port' => intval($_POST['smtp_port'] ?? 587),
             'smtp_encryption' => in_array($_POST['smtp_encryption'] ?? '', ['tls', 'ssl', 'none']) ? $_POST['smtp_encryption'] : 'tls',
             'smtp_username' => trim($_POST['smtp_username'] ?? ''),
+            'imap_host' => trim($_POST['imap_host'] ?? '') ?: null,
+            'imap_port' => intval($_POST['imap_port'] ?? 993),
+            'imap_encryption' => in_array($_POST['imap_encryption'] ?? '', ['ssl', 'tls', 'none']) ? $_POST['imap_encryption'] : 'ssl',
         ];
 
         if ($id) {

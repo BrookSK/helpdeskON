@@ -192,4 +192,112 @@ class ProspectionController extends Controller
 
         $this->json(['prospection' => $prospection]);
     }
+
+    /**
+     * Caixa de entrada: lista e-mails recebidos das contas do usuário.
+     */
+    public function inbox()
+    {
+        $this->requireRole($this->accessRoles);
+        $user = $this->currentUser();
+
+        // Contas vinculadas ao usuário (com IMAP configurado)
+        $accounts = $this->accountModel->getByUser($user['id']);
+        $imapAccounts = array_filter($accounts, fn($a) => !empty($a['imap_host']));
+
+        // Conta selecionada (filtro)
+        $selectedAccountId = !empty($_GET['account_id']) ? intval($_GET['account_id']) : null;
+        $page = max(1, intval($_GET['page'] ?? 1));
+        $perPage = 30;
+        $search = trim($_GET['search'] ?? '') ?: null;
+
+        $messages = [];
+        $total = 0;
+        $error = null;
+        $activeAccount = null;
+
+        if (!empty($imapAccounts)) {
+            // Se não selecionou, usa a primeira
+            if (!$selectedAccountId) {
+                $activeAccount = reset($imapAccounts);
+                $selectedAccountId = $activeAccount['id'];
+            } else {
+                foreach ($imapAccounts as $acc) {
+                    if ($acc['id'] == $selectedAccountId) { $activeAccount = $acc; break; }
+                }
+            }
+
+            if ($activeAccount) {
+                $reader = new ImapReader($activeAccount);
+                $result = $reader->connect();
+
+                if ($result === true) {
+                    $imapSearch = null;
+                    if ($search) {
+                        $imapSearch = 'OR SUBJECT "' . addslashes($search) . '" FROM "' . addslashes($search) . '"';
+                    }
+
+                    $total = $reader->getTotal($imapSearch);
+                    $offset = ($page - 1) * $perPage;
+                    $messages = $reader->fetchMessages($perPage, $offset, $imapSearch);
+                    $reader->disconnect();
+                } else {
+                    $error = $result;
+                }
+            }
+        }
+
+        $totalPages = ceil($total / $perPage);
+
+        $this->view('prospection/inbox', [
+            'user' => $user,
+            'accounts' => $imapAccounts,
+            'selectedAccountId' => $selectedAccountId,
+            'activeAccount' => $activeAccount,
+            'messages' => $messages,
+            'total' => $total,
+            'page' => $page,
+            'totalPages' => $totalPages,
+            'search' => $search,
+            'error' => $error,
+        ]);
+    }
+
+    /**
+     * API: Lê o conteúdo completo de um e-mail (AJAX).
+     */
+    public function readEmail()
+    {
+        $this->requireRole($this->accessRoles);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+
+        $user = $this->currentUser();
+        $accountId = intval($_POST['account_id'] ?? 0);
+        $uid = intval($_POST['uid'] ?? 0);
+
+        if (!$accountId || !$uid) $this->json(['error' => 'Parâmetros inválidos'], 400);
+
+        // Verifica se o usuário tem acesso a essa conta
+        $account = $this->accountModel->findById($accountId);
+        if (!$account || empty($account['imap_host'])) $this->json(['error' => 'Conta inválida ou IMAP não configurado'], 400);
+
+        $linkedUsers = $this->accountModel->getLinkedUserIds($accountId);
+        if (!in_array($user['id'], $linkedUsers)) $this->json(['error' => 'Sem permissão'], 403);
+
+        $reader = new ImapReader($account);
+        $result = $reader->connect();
+
+        if ($result !== true) {
+            $this->json(['error' => $result], 500);
+        }
+
+        $message = $reader->readMessage($uid);
+        $reader->disconnect();
+
+        if (!$message) {
+            $this->json(['error' => 'E-mail não encontrado'], 404);
+        }
+
+        $this->json(['message' => $message]);
+    }
 }
