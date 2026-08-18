@@ -310,11 +310,32 @@ class SettingsController extends Controller
         $userModel = new User();
         $allUsers = $userModel->getByRoles(['super_admin', 'attendant', 'developer', 'analyst', 'comercial', 'marketing', 'whatsapp_agent']);
 
+        // Defaults do servidor
+        $defaults = [
+            'prospection_smtp_host' => Config::get('prospection_smtp_host', ''),
+            'prospection_smtp_port' => Config::get('prospection_smtp_port', '587'),
+            'prospection_smtp_encryption' => Config::get('prospection_smtp_encryption', 'tls'),
+        ];
+
         $this->view('admin/email_accounts', [
             'user' => $user,
             'accounts' => $accounts,
             'allUsers' => $allUsers,
+            'defaults' => $defaults,
         ]);
+    }
+
+    public function saveEmailDefaults()
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->redirect('settings/emailAccounts');
+
+        Config::set('prospection_smtp_host', trim($_POST['prospection_smtp_host'] ?? ''));
+        Config::set('prospection_smtp_port', trim($_POST['prospection_smtp_port'] ?? '587'));
+        Config::set('prospection_smtp_encryption', trim($_POST['prospection_smtp_encryption'] ?? 'tls'));
+
+        flash('success', 'Servidor padrão salvo!');
+        $this->redirect('settings/emailAccounts');
     }
 
     public function saveEmailAccount()

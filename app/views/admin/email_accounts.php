@@ -18,6 +18,37 @@
         <div class="alert alert-success alert-dismissible fade show"><?= escape($msg) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
     <?php endif; ?>
 
+    <!-- Servidor Padrão -->
+    <div class="card mb-3">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center">
+            <h6 class="mb-0" style="font-size:0.85rem;"><i class="bi bi-server"></i> Servidor Padrão</h6>
+            <small class="text-muted">Preenche automaticamente ao criar novas contas</small>
+        </div>
+        <div class="card-body py-2">
+            <form method="POST" action="<?= baseUrl('settings/saveEmailDefaults') ?>" class="row g-2 align-items-end">
+                <div class="col-md-4">
+                    <label class="form-label small mb-0">Servidor SMTP</label>
+                    <input type="text" name="prospection_smtp_host" class="form-control form-control-sm" value="<?= escape($defaults['prospection_smtp_host'] ?? '') ?>" placeholder="smtp.seudominio.com">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small mb-0">Porta</label>
+                    <input type="number" name="prospection_smtp_port" class="form-control form-control-sm" value="<?= escape($defaults['prospection_smtp_port'] ?? '587') ?>">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small mb-0">Criptografia</label>
+                    <select name="prospection_smtp_encryption" class="form-select form-select-sm">
+                        <option value="tls" <?= ($defaults['prospection_smtp_encryption'] ?? 'tls') === 'tls' ? 'selected' : '' ?>>TLS (587)</option>
+                        <option value="ssl" <?= ($defaults['prospection_smtp_encryption'] ?? '') === 'ssl' ? 'selected' : '' ?>>SSL (465)</option>
+                        <option value="none" <?= ($defaults['prospection_smtp_encryption'] ?? '') === 'none' ? 'selected' : '' ?>>Nenhuma (25)</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <button type="submit" class="btn btn-sm btn-primary w-100"><i class="bi bi-check-lg"></i> Salvar Padrão</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <div class="card">
         <div class="card-body p-0">
             <div class="table-responsive">
@@ -155,9 +186,9 @@ function openAccountModal() {
     document.getElementById('acc-id').value = '';
     document.getElementById('acc-email').value = '';
     document.getElementById('acc-display-name').value = '';
-    document.getElementById('acc-smtp-host').value = '';
-    document.getElementById('acc-smtp-port').value = '587';
-    document.getElementById('acc-smtp-encryption').value = 'tls';
+    document.getElementById('acc-smtp-host').value = '<?= escape($defaults['prospection_smtp_host'] ?? '') ?>';
+    document.getElementById('acc-smtp-port').value = '<?= escape($defaults['prospection_smtp_port'] ?? '587') ?>';
+    document.getElementById('acc-smtp-encryption').value = '<?= escape($defaults['prospection_smtp_encryption'] ?? 'tls') ?>';
     document.getElementById('acc-smtp-username').value = '';
     document.getElementById('acc-smtp-password').value = '';
     document.getElementById('acc-smtp-password').required = true;
