@@ -841,9 +841,15 @@ class CrmController extends Controller
         $wsServer = Config::get('nvoip_ws_server') ?: 'wss://app.nvoip.com.br:7443';
         $domain = Config::get('nvoip_sip_domain') ?: 'app.nvoip.com.br';
 
+        // Busca ramal SIP do usuário diretamente no banco (currentUser() não traz esses campos)
+        $db = Database::getInstance();
+        $dbUser = $db->fetch("SELECT sip_user, sip_password FROM users WHERE id = ?", [$user['id']]);
+        $userSip = $dbUser['sip_user'] ?? null;
+        $userSipPass = $dbUser['sip_password'] ?? null;
+
         // Prioridade: ramal do próprio usuário > ramal global (fallback)
-        $sipUser = !empty($user['sip_user']) ? $user['sip_user'] : Config::get('nvoip_sip_user');
-        $sipPassword = !empty($user['sip_password']) ? $user['sip_password'] : Config::get('nvoip_sip_password');
+        $sipUser = !empty($userSip) ? $userSip : Config::get('nvoip_sip_user');
+        $sipPassword = !empty($userSipPass) ? $userSipPass : Config::get('nvoip_sip_password');
 
         if (empty($sipUser) || empty($sipPassword)) {
             // Usuário sem ramal SIP configurado: webphone não é habilitado para ele.
