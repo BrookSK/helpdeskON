@@ -643,6 +643,18 @@ class CrmController extends Controller
         $fmt = Config::get('nvoip_dial_format') ?: 'local';
         if ($called === '') $this->json(['error' => 'Este lead não possui telefone cadastrado.'], 400);
 
+        // Verifica se o ramal está em uso por outro usuário
+        $db = Database::getInstance();
+        $dbUserSip = $db->fetch("SELECT sip_user FROM users WHERE id = ?", [$user['id']]);
+        $sipUser = !empty($dbUserSip['sip_user']) ? $dbUserSip['sip_user'] : Config::get('nvoip_sip_user');
+        $lockCheck = $this->checkRamalLock($sipUser, $user['id']);
+        if ($lockCheck) {
+            $this->json(['error' => 'O ramal está em uso por ' . $lockCheck . '. Aguarde a ligação encerrar para tentar novamente.'], 409);
+        }
+
+        // Marca ramal como em uso
+        $this->lockRamal($sipUser, $user['id'], $user['name']);
+
         // Log de diagnóstico: telefone bruto do lead x número final discado
         Logger::info('Nvoip dial normalize', [
             'raw' => $contact['phone'] ?? null,
@@ -656,7 +668,7 @@ class CrmController extends Controller
             'user_id' => $user['id'],
             'direction' => 'outbound',
             'call_id' => null,
-            'caller' => $user['sip_user'] ?: Config::get('nvoip_sip_user'),
+            'caller' => $sipUser,
             'called' => $called,
             'status' => 'dialing',
             'response_json' => null,
@@ -752,6 +764,12 @@ class CrmController extends Controller
         }
 
         $db->update('nvoip_calls', $data, 'id = ?', [$recordId]);
+
+        // Libera o ramal quando a ligação encerra
+        if ($event === 'ended') {
+            $this->unlockRamal($user['id']);
+        }
+
         $this->json(['success' => true]);
     }
 
@@ -1150,6 +1168,65 @@ class CrmController extends Controller
         }
 
         $this->json($boards);
+    }
+
+    // ===== Lock de ramal (evita dois usuários no mesmo ramal) =====
+
+    /**
+     * Verifica se o ramal está em uso por outro usuário.
+     * Retorna o nome do usuário que está usando, ou null se livre.
+     * Lock expira automaticamente após 5 minutos (segurança contra locks órfãos).
+     */
+    private function checkRamalLock($sipUser, $currentUserId)
+    {
+        $db = Database::getInstance();
+        $lock = $db->fetch(
+            "SELECT setting_value FROM settings WHERE setting_key = ?",
+            ['ramal_lock_' . $sipUser]
+        );
+        if (!$lock) return null;
+
+        $lockData = json_decode($lock['setting_value'] ?? '{}', true);
+        if (!$lockData) return null;
+
+        // Lock expirou (mais de 5 minutos) — libera
+        $lockedAt = strtotime($lockData['locked_at'] ?? '');
+        if ($lockedAt && (time() - $lockedAt) > 300) {
+            $db->query("DELETE FROM settings WHERE setting_key = ?", ['ramal_lock_' . $sipUser]);
+            return null;
+        }
+
+        // É o próprio usuário — não bloqueia
+        if (($lockData['user_id'] ?? null) == $currentUserId) return null;
+
+        return $lockData['user_name'] ?? 'outro usuário';
+    }
+
+    /** Marca o ramal como em uso pelo usuário. */
+    private function lockRamal($sipUser, $userId, $userName)
+    {
+        $db = Database::getInstance();
+        $key = 'ramal_lock_' . $sipUser;
+        $value = json_encode(['user_id' => $userId, 'user_name' => $userName, 'locked_at' => date('Y-m-d H:i:s')]);
+        $existing = $db->fetch("SELECT id FROM settings WHERE setting_key = ?", [$key]);
+        if ($existing) {
+            $db->update('settings', ['setting_value' => $value], 'setting_key = ?', [$key]);
+        } else {
+            $db->insert('settings', ['setting_key' => $key, 'setting_value' => $value]);
+        }
+    }
+
+    /** Libera o lock do ramal para o usuário. */
+    private function unlockRamal($userId)
+    {
+        $db = Database::getInstance();
+        $locks = $db->fetchAll("SELECT setting_key, setting_value FROM settings WHERE setting_key LIKE 'ramal_lock_%'");
+        foreach ($locks as $lock) {
+            $data = json_decode($lock['setting_value'] ?? '{}', true);
+            if (($data['user_id'] ?? null) == $userId) {
+                $db->query("DELETE FROM settings WHERE setting_key = ?", [$lock['setting_key']]);
+            }
+        }
     }
 }
 
