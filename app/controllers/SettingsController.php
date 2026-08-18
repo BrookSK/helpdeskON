@@ -296,4 +296,111 @@ class SettingsController extends Controller
             $this->json(['success' => false, 'message' => 'Falha no envio. Verifique as credenciais SMTP.']);
         }
     }
+
+    // ===== Contas de E-mail para Prospecção =====
+
+    public function emailAccounts()
+    {
+        $this->requireRole(['super_admin']);
+        $user = $this->currentUser();
+        $model = new EmailAccount();
+        $accounts = $model->getAll();
+
+        // Usuários internos para vinculação
+        $userModel = new User();
+        $allUsers = $userModel->getByRoles(['super_admin', 'attendant', 'developer', 'analyst', 'comercial', 'marketing', 'whatsapp_agent']);
+
+        // Defaults do servidor
+        $defaults = [
+            'prospection_smtp_host' => Config::get('prospection_smtp_host', ''),
+            'prospection_smtp_port' => Config::get('prospection_smtp_port', '587'),
+            'prospection_smtp_encryption' => Config::get('prospection_smtp_encryption', 'tls'),
+        ];
+
+        $this->view('admin/email_accounts', [
+            'user' => $user,
+            'accounts' => $accounts,
+            'allUsers' => $allUsers,
+            'defaults' => $defaults,
+        ]);
+    }
+
+    public function saveEmailDefaults()
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->redirect('settings/emailAccounts');
+
+        Config::set('prospection_smtp_host', trim($_POST['prospection_smtp_host'] ?? ''));
+        Config::set('prospection_smtp_port', trim($_POST['prospection_smtp_port'] ?? '587'));
+        Config::set('prospection_smtp_encryption', trim($_POST['prospection_smtp_encryption'] ?? 'tls'));
+
+        flash('success', 'Servidor padrão salvo!');
+        $this->redirect('settings/emailAccounts');
+    }
+
+    public function saveEmailAccount()
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->redirect('settings/emailAccounts');
+
+        $user = $this->currentUser();
+        $model = new EmailAccount();
+        $id = !empty($_POST['id']) ? intval($_POST['id']) : null;
+
+        $data = [
+            'email' => trim($_POST['email'] ?? ''),
+            'display_name' => trim($_POST['display_name'] ?? '') ?: null,
+            'smtp_host' => trim($_POST['smtp_host'] ?? ''),
+            'smtp_port' => intval($_POST['smtp_port'] ?? 587),
+            'smtp_encryption' => in_array($_POST['smtp_encryption'] ?? '', ['tls', 'ssl', 'none']) ? $_POST['smtp_encryption'] : 'tls',
+            'smtp_username' => trim($_POST['smtp_username'] ?? ''),
+        ];
+
+        if ($id) {
+            // Atualiza — só manda senha se foi preenchida
+            if (!empty($_POST['smtp_password'])) {
+                $data['smtp_password'] = $_POST['smtp_password'];
+            }
+            $model->update($id, $data);
+        } else {
+            $data['smtp_password'] = $_POST['smtp_password'] ?? '';
+            $data['created_by'] = $user['id'];
+            $id = $model->create($data);
+        }
+
+        // Vincula usuários
+        $userIds = array_filter(array_map('intval', $_POST['users'] ?? []));
+        $model->setLinkedUsers($id, $userIds);
+
+        flash('success', 'Conta de e-mail salva com sucesso!');
+        $this->redirect('settings/emailAccounts');
+    }
+
+    public function deleteEmailAccount($id = null)
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->redirect('settings/emailAccounts');
+
+        $model = new EmailAccount();
+        $model->delete($id);
+
+        flash('success', 'Conta de e-mail excluída.');
+        $this->redirect('settings/emailAccounts');
+    }
+
+    public function getEmailAccount($id = null)
+    {
+        $this->requireRole(['super_admin']);
+        if (!$id) $this->json(['error' => 'ID não informado'], 400);
+
+        $model = new EmailAccount();
+        $account = $model->findById($id);
+        if (!$account) $this->json(['error' => 'Conta não encontrada'], 404);
+
+        $account['linked_users'] = $model->getLinkedUserIds($id);
+        // Não envia a senha pro frontend
+        unset($account['smtp_password']);
+
+        $this->json(['account' => $account]);
+    }
 }

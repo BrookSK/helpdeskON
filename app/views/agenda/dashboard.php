@@ -9,6 +9,7 @@ $totals = [
     'convertida' => 0, 'remarcada' => 0, 'cancelada' => 0, 'unique_contacts' => 0,
     'messages_sent' => 0, 'messages_received' => 0, 'contacts_messaged' => 0,
     'contacts_contacted' => 0, 'contacts_replied' => 0, 'contacts_no_reply' => 0,
+    'emails_sent' => 0, 'emails_failed' => 0, 'emails_total' => 0, 'emails_unique_contacts' => 0,
 ];
 foreach ($tableData as $row) {
     foreach ($totals as $k => &$v) $v += $row[$k] ?? 0;
@@ -131,6 +132,34 @@ $conversionRate = $totals['realizada'] > 0 ? round(($totals['convertida'] / $tot
         </div>
     </div>
 
+    <!-- Cards de e-mail prospecção -->
+    <div class="row row-cols-2 row-cols-md-4 g-3 mb-4">
+        <div class="col">
+            <div class="card stat-card h-100" style="border-left-color:#e65100">
+                <div class="stat-label"><i class="bi bi-envelope"></i> E-mails Enviados</div>
+                <div class="stat-value" style="color:#e65100"><?= $totals['emails_sent'] ?></div>
+            </div>
+        </div>
+        <div class="col">
+            <div class="card stat-card h-100" style="border-left-color:#c62828">
+                <div class="stat-label"><i class="bi bi-envelope-x"></i> E-mails Falharam</div>
+                <div class="stat-value" style="color:#c62828"><?= $totals['emails_failed'] ?></div>
+            </div>
+        </div>
+        <div class="col">
+            <div class="card stat-card h-100" style="border-left-color:#00897b">
+                <div class="stat-label"><i class="bi bi-envelope-check"></i> Leads Prospectados (email)</div>
+                <div class="stat-value" style="color:#00897b"><?= $totals['emails_unique_contacts'] ?></div>
+            </div>
+        </div>
+        <div class="col">
+            <div class="card stat-card h-100" style="border-left-color:#455a64">
+                <div class="stat-label"><i class="bi bi-envelope-paper"></i> Total E-mails</div>
+                <div class="stat-value" style="color:#455a64"><?= $totals['emails_total'] ?></div>
+            </div>
+        </div>
+    </div>
+
     <!-- Tabela comparativa -->
     <?php if (count($tableData) > 0): ?>
     <div class="card mb-4">
@@ -154,6 +183,7 @@ $conversionRate = $totals['realizada'] > 0 ? round(($totals['convertida'] / $tot
                             <th class="text-center">Msg Rec.</th>
                             <th class="text-center">Responderam</th>
                             <th class="text-center">S/ Resposta</th>
+                            <th class="text-center" style="color:#e65100">Emails</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -174,6 +204,7 @@ $conversionRate = $totals['realizada'] > 0 ? round(($totals['convertida'] / $tot
                             <td class="text-center"><?= number_format($row['messages_received'], 0, ',', '.') ?></td>
                             <td class="text-center text-success"><?= $row['contacts_replied'] ?></td>
                             <td class="text-center text-danger"><?= $row['contacts_no_reply'] ?></td>
+                            <td class="text-center fw-medium" style="color:#e65100"><?= $row['emails_sent'] ?? 0 ?></td>
                         </tr>
                         <?php endforeach; ?>
                     </tbody>

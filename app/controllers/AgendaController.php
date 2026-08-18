@@ -354,6 +354,10 @@ class AgendaController extends Controller
         $messageStats = $msgModel->getMessageStatsByUser($startDate, $endDate, $filterUserId);
         $responseStats = $msgModel->getContactResponseStats($startDate, $endDate, $filterUserId);
 
+        // Métricas de e-mail prospecção
+        $emailModel = new EmailProspection();
+        $emailStats = $emailModel->getStatsByUser($startDate, $endDate, $filterUserId);
+
         // Série mensal (gráfico)
         $trend = $this->model->getMonthlyTrend(6, $filterUserId);
 
@@ -366,12 +370,14 @@ class AgendaController extends Controller
         $allUserIds = array_unique(array_merge(
             array_keys($meetingStats),
             array_keys($messageStats),
-            array_keys($responseStats)
+            array_keys($responseStats),
+            array_keys($emailStats)
         ));
         foreach ($allUserIds as $uid) {
             $ms = $meetingStats[$uid] ?? [];
             $msg = $messageStats[$uid] ?? ['sent' => 0, 'received' => 0, 'contacts_messaged' => 0];
             $resp = $responseStats[$uid] ?? ['contacted' => 0, 'replied' => 0, 'no_reply' => 0];
+            $em = $emailStats[$uid] ?? ['sent' => 0, 'failed' => 0, 'total' => 0, 'unique_contacts' => 0];
             $tableData[] = [
                 'user_id' => $uid,
                 'user_name' => $ms['user_name'] ?? 'Usuário #' . $uid,
@@ -389,6 +395,10 @@ class AgendaController extends Controller
                 'contacts_contacted' => $resp['contacted'],
                 'contacts_replied' => $resp['replied'],
                 'contacts_no_reply' => $resp['no_reply'],
+                'emails_sent' => $em['sent'],
+                'emails_failed' => $em['failed'],
+                'emails_total' => $em['total'],
+                'emails_unique_contacts' => $em['unique_contacts'],
             ];
         }
 
