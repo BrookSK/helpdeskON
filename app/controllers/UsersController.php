@@ -186,6 +186,15 @@ class UsersController extends Controller
         $db = Database::getInstance();
         $db->update('users', $data, 'id = ?', [$id]);
 
+        // Salvar ramal SIP (Nvoip) — por usuário
+        $sipUser = trim($_POST['nvoip_sip_user'] ?? '');
+        $sipPassword = trim($_POST['nvoip_sip_password'] ?? '');
+        $sipData = ['nvoip_sip_user' => $sipUser ?: null];
+        if ($sipPassword !== '') {
+            $sipData['nvoip_sip_password'] = $sipPassword;
+        }
+        $db->update('users', $sipData, 'id = ?', [$id]);
+
         // Salvar acesso a empresas (para equipe interna)
         $role = $data['role'] ?? $_POST['role'] ?? '';
         if (in_array($role, ['attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial'])) {

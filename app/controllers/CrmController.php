@@ -636,7 +636,7 @@ class CrmController extends Controller
             'user_id' => $user['id'],
             'direction' => 'outbound',
             'call_id' => null,
-            'caller' => Config::get('nvoip_sip_user'),
+            'caller' => $user['nvoip_sip_user'] ?: Config::get('nvoip_sip_user'),
             'called' => $called,
             'status' => 'dialing',
             'response_json' => null,
@@ -787,10 +787,13 @@ class CrmController extends Controller
     {
         $this->requireRole(['super_admin', 'comercial']);
 
-        $sipUser = Config::get('nvoip_sip_user');
-        $sipPassword = Config::get('nvoip_sip_password');
+        $user = $this->currentUser();
         $wsServer = Config::get('nvoip_ws_server') ?: 'wss://app.nvoip.com.br:7443';
         $domain = Config::get('nvoip_sip_domain') ?: 'app.nvoip.com.br';
+
+        // Prioridade: ramal do próprio usuário > ramal global (fallback)
+        $sipUser = !empty($user['nvoip_sip_user']) ? $user['nvoip_sip_user'] : Config::get('nvoip_sip_user');
+        $sipPassword = !empty($user['nvoip_sip_password']) ? $user['nvoip_sip_password'] : Config::get('nvoip_sip_password');
 
         if (empty($sipUser) || empty($sipPassword)) {
             $this->json(['configured' => false]);

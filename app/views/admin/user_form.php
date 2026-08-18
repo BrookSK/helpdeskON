@@ -147,6 +147,26 @@
                         </div>
                     </div>
 
+                    <!-- Ramal SIP (Nvoip) — para webphone -->
+                    <div id="sip-fields" class="col-12" style="<?= in_array($editUser['role'] ?? '', ['super_admin', 'comercial']) ? '' : 'display:none' ?>">
+                        <hr class="my-2">
+                        <h6 class="fw-medium mb-2" style="font-size:0.88rem"><i class="bi bi-telephone"></i> Ramal SIP (Nvoip)</h6>
+                        <div class="alert alert-info py-2 small mb-3">
+                            <i class="bi bi-info-circle"></i> Cada operador deve ter um <strong>ramal SIP único</strong> no Nvoip. Dois usuários com o mesmo ramal causam conflito de registro (a ligação não completa).
+                        </div>
+                        <div class="row g-2">
+                            <div class="col-sm-6">
+                                <label class="form-label fw-medium small">Ramal SIP (Nvoip)</label>
+                                <input type="text" name="nvoip_sip_user" class="form-control form-control-sm" value="<?= escape($editUser['nvoip_sip_user'] ?? '') ?>" placeholder="ex.: 148379002">
+                                <div class="form-text small">Ramal próprio do usuário para o webphone.<br>Deixe vazio para usar o ramal global.</div>
+                            </div>
+                            <div class="col-sm-6">
+                                <label class="form-label fw-medium small">Senha SIP (Nvoip)</label>
+                                <input type="password" name="nvoip_sip_password" class="form-control form-control-sm" value="" placeholder="<?= !empty($editUser['nvoip_sip_password']) ? '•••••••• (salvo — deixe em branco para manter)' : 'senha SIP do ramal' ?>" autocomplete="new-password">
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="col-12 mt-3">
                         <button type="submit" class="btn btn-primary px-4">
                             <i class="bi bi-check-lg"></i> <?= $editUser ? 'Atualizar' : 'Cadastrar' ?>
@@ -169,6 +189,9 @@ function toggleCompanyFields() {
 
     const commissionField = document.getElementById('commission-field');
     if (commissionField) commissionField.style.display = role === 'comercial' ? '' : 'none';
+
+    const sipFields = document.getElementById('sip-fields');
+    if (sipFields) sipFields.style.display = ['super_admin', 'comercial'].includes(role) ? '' : 'none';
 }
 
 function toggleNewCompany() {
