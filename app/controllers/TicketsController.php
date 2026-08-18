@@ -38,10 +38,18 @@ class TicketsController extends Controller
             if (!empty($_GET['status'])) $filters['status'] = $_GET['status'];
             if (!empty($_GET['priority'])) $filters['priority'] = $_GET['priority'];
             if (!empty($_GET['company'])) $filters['company_id'] = $_GET['company'];
-            // Filtro por atendente: padrão = o próprio usuário logado (a menos que selecione "Todos")
-            if (isset($_GET['attendant'])) {
-                if ($_GET['attendant'] !== '') $filters['attendant_id'] = $_GET['attendant'];
+
+            // Filtro por atendente:
+            // Admin/marketing podem ver de todos; atendentes só veem o próprio
+            $isAdmin = in_array($user['role'], ['super_admin', 'marketing']);
+            if ($isAdmin) {
+                if (isset($_GET['attendant'])) {
+                    if ($_GET['attendant'] !== '') $filters['attendant_id'] = $_GET['attendant'];
+                } else {
+                    $filters['attendant_id'] = $user['id'];
+                }
             } else {
+                // Atendente sempre vê só o dele
                 $filters['attendant_id'] = $user['id'];
             }
             if (!empty($_GET['hide_completed'])) $filters['hide_completed'] = true;
@@ -75,7 +83,7 @@ class TicketsController extends Controller
                 $companies = $companyModel->getAll();
             }
 
-            $this->view('attendant/tickets', ['user' => $user, 'tickets' => $tickets, 'companies' => $companies, 'attendants' => (new User())->getByRoles(['super_admin', 'attendant', 'developer', 'analyst', 'comercial', 'marketing', 'whatsapp_agent'])]);
+            $this->view('attendant/tickets', ['user' => $user, 'tickets' => $tickets, 'companies' => $companies, 'attendants' => (new User())->getByRoles(['super_admin', 'attendant', 'developer', 'analyst', 'comercial', 'marketing', 'whatsapp_agent']), 'isAdmin' => $isAdmin]);
         }
     }
 
