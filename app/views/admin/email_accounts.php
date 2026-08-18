@@ -45,6 +45,22 @@
                 <div class="col-md-3">
                     <button type="submit" class="btn btn-sm btn-primary w-100"><i class="bi bi-check-lg"></i> Salvar Padrão</button>
                 </div>
+                <div class="col-md-4 mt-2">
+                    <label class="form-label small mb-0">Servidor IMAP</label>
+                    <input type="text" name="prospection_imap_host" class="form-control form-control-sm" value="<?= escape($defaults['prospection_imap_host'] ?? '') ?>" placeholder="imap.seudominio.com">
+                </div>
+                <div class="col-md-2 mt-2">
+                    <label class="form-label small mb-0">Porta IMAP</label>
+                    <input type="number" name="prospection_imap_port" class="form-control form-control-sm" value="<?= escape($defaults['prospection_imap_port'] ?? '993') ?>">
+                </div>
+                <div class="col-md-3 mt-2">
+                    <label class="form-label small mb-0">Criptografia IMAP</label>
+                    <select name="prospection_imap_encryption" class="form-select form-select-sm">
+                        <option value="ssl" <?= ($defaults['prospection_imap_encryption'] ?? 'ssl') === 'ssl' ? 'selected' : '' ?>>SSL (993)</option>
+                        <option value="tls" <?= ($defaults['prospection_imap_encryption'] ?? '') === 'tls' ? 'selected' : '' ?>>TLS (143)</option>
+                        <option value="none" <?= ($defaults['prospection_imap_encryption'] ?? '') === 'none' ? 'selected' : '' ?>>Nenhuma (143)</option>
+                    </select>
+                </div>
             </form>
         </div>
     </div>
@@ -152,6 +168,25 @@
                             <input type="password" name="smtp_password" id="acc-smtp-password" class="form-control form-control-sm" placeholder="Deixe vazio para manter a atual (edição)">
                         </div>
 
+                        <div class="col-12"><hr class="my-1"><small class="text-muted fw-medium">Configuração IMAP (leitura de e-mails)</small></div>
+
+                        <div class="col-md-5">
+                            <label class="form-label small fw-medium">Servidor IMAP</label>
+                            <input type="text" name="imap_host" id="acc-imap-host" class="form-control form-control-sm" placeholder="imap.seudominio.com">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-medium">Porta</label>
+                            <input type="number" name="imap_port" id="acc-imap-port" class="form-control form-control-sm" value="993">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small fw-medium">Criptografia</label>
+                            <select name="imap_encryption" id="acc-imap-encryption" class="form-select form-select-sm">
+                                <option value="ssl">SSL (993)</option>
+                                <option value="tls">TLS (143)</option>
+                                <option value="none">Nenhuma (143)</option>
+                            </select>
+                        </div>
+
                         <div class="col-12"><hr class="my-1"><small class="text-muted fw-medium">Usuários que podem usar esta conta</small></div>
 
                         <div class="col-12">
@@ -192,6 +227,9 @@ function openAccountModal() {
     document.getElementById('acc-smtp-username').value = '';
     document.getElementById('acc-smtp-password').value = '';
     document.getElementById('acc-smtp-password').required = true;
+    document.getElementById('acc-imap-host').value = '<?= escape($defaults['prospection_imap_host'] ?? '') ?>';
+    document.getElementById('acc-imap-port').value = '<?= escape($defaults['prospection_imap_port'] ?? '993') ?>';
+    document.getElementById('acc-imap-encryption').value = '<?= escape($defaults['prospection_imap_encryption'] ?? 'ssl') ?>';
     Array.from(document.getElementById('acc-users').options).forEach(o => o.selected = false);
     document.getElementById('acc-modal-title').textContent = 'Nova Conta de E-mail';
     getAccountModal().show();
@@ -212,6 +250,10 @@ function editAccount(id) {
             document.getElementById('acc-smtp-username').value = a.smtp_username || '';
             document.getElementById('acc-smtp-password').value = '';
             document.getElementById('acc-smtp-password').required = false;
+            // IMAP
+            document.getElementById('acc-imap-host').value = a.imap_host || '';
+            document.getElementById('acc-imap-port').value = a.imap_port || '993';
+            document.getElementById('acc-imap-encryption').value = a.imap_encryption || 'ssl';
             // Marcar usuários vinculados
             const ids = (a.linked_users || []).map(String);
             Array.from(document.getElementById('acc-users').options).forEach(o => o.selected = ids.includes(o.value));
