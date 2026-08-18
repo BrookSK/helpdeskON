@@ -535,14 +535,14 @@ class CrmController extends Controller
             $this->json(['error' => 'Sem permissão'], 403);
         }
 
-        // Telefone do próprio Lead (não vem do frontend).
-        // Formato aceito pela Nvoip (conforme environment oficial): DDD + número, só dígitos.
-        // Remove símbolos e o DDI 55 quando presente (telefones do WhatsApp costumam vir com 55).
+        // Envia o número COM 55 (um só) e checkDDI:FALSE — assim a Nvoip NÃO mexe no DDI
+        // e disca exatamente o número enviado (evita a duplicação do 55).
         $called = preg_replace('/\D/', '', (string)($contact['phone'] ?? ''));
-        if (strlen($called) > 11 && strpos($called, '55') === 0) {
+        while (strlen($called) > 11 && strpos($called, '55') === 0) {
             $called = substr($called, 2);
         }
-        if ($called === '') $this->json(['error' => 'Este lead não possui telefone cadastrado.'], 400);
+        $called = '55' . $called; // garante exatamente um 55
+        if ($called === '55') $this->json(['error' => 'Este lead não possui telefone cadastrado.'], 400);
 
         $api = new NvoipApi();
         if (!$api->isConfigured()) $this->json(['error' => 'Telefonia Nvoip não configurada.'], 400);
@@ -550,9 +550,9 @@ class CrmController extends Controller
         $caller = $api->caller();
         if ($caller === '') $this->json(['error' => 'Originador (caller) não configurado em Configurações.'], 400);
 
-        // Origina a chamada via click-to-call: chama o ramal SIP (caller) e conecta ao lead (called).
-        // Endpoint indicado para uso via CRM (payload documentado: caller, called).
-        $res = $api->clickToCall($caller, $called);
+        // checkDDI:false -> Nvoip não completa/duplica o DDI; disca o número como enviado.
+        Logger::info('Nvoip createCall (checkDDI=false)', ['caller' => $caller, 'called' => $called]);
+        $res = $api->createCall($caller, $called, false, false);
 
         // Registra a resposta completa (sucesso ou não) para inspecionar a estrutura real.
         Logger::info('Nvoip clickToCall resposta', [
@@ -623,12 +623,17 @@ class CrmController extends Controller
             $this->json(['error' => 'Sem permissão'], 403);
         }
 
-        // Normaliza o telefone do lead (só dígitos; remove DDI 55 quando presente)
-        $called = preg_replace('/\D/', '', (string)($contact['phone'] ?? ''));
-        if (strlen($called) > 11 && strpos($called, '55') === 0) {
-            $called = substr($called, 2);
-        }
+        // Normaliza o número conforme o formato configurado (garante um único 55 quando 'ddi').
+        $called = $this->normalizeCalled($contact['phone'] ?? '');
+        $fmt = Config::get('nvoip_dial_format') ?: 'local';
         if ($called === '') $this->json(['error' => 'Este lead não possui telefone cadastrado.'], 400);
+
+        // Log de diagnóstico: telefone bruto do lead x número final discado
+        Logger::info('Nvoip dial normalize', [
+            'raw' => $contact['phone'] ?? null,
+            'formato' => $fmt,
+            'called_final' => $called,
+        ]);
 
         // Registra a ligação (origem WebRTC — sem callId da API REST)
         $recordId = $this->recordCall([
@@ -642,7 +647,52 @@ class CrmController extends Controller
             'response_json' => null,
         ]);
 
-        $this->json(['success' => true, 'called' => $called, 'call_record_id' => $recordId]);
+        // Dados do cliente para exibir no modal da ligação
+        $briefing = $contactModel->getBriefing($contactId);
+        $lead = [
+            'id' => $contact['id'],
+            'name' => $contact['contact_name'] ?: ($contact['push_name'] ?? 'Cliente'),
+            'phone' => $contact['phone'] ?? null,
+        ];
+
+        $this->json([
+            'success' => true,
+            'called' => $called,
+            'call_record_id' => $recordId,
+            'lead' => $lead,
+            'briefing' => $briefing ?: null,
+        ]);
+    }
+
+    /**
+     * API: salva a nota/observação da ligação no registro nvoip_calls e (opcional) no briefing.
+     * POST crm/saveCallNote/{recordId}  body: note, contact_id
+     */
+    public function saveCallNote($recordId = null)
+    {
+        $this->requireRole(['super_admin', 'comercial']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$recordId) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+        $note = trim($_POST['note'] ?? '');
+        $db = Database::getInstance();
+        // Grava a nota no registro da ligação (coluna response_json reaproveitada como observação)
+        $db->query("UPDATE nvoip_calls SET response_json = ? WHERE id = ?", [
+            json_encode(['note' => $note], JSON_UNESCAPED_UNICODE), $recordId
+        ]);
+
+        // Se veio contato, acrescenta a nota ao briefing (campo notes)
+        $contactId = !empty($_POST['contact_id']) ? intval($_POST['contact_id']) : null;
+        if ($contactId && $note !== '') {
+            $user = $this->currentUser();
+            $cm = new WhatsappContact();
+            $bf = $cm->getBriefing($contactId);
+            $prev = $bf['notes'] ?? '';
+            $stamp = date('d/m/Y H:i');
+            $merged = trim($prev . "\n[" . $stamp . " • ligação] " . $note);
+            $cm->saveBriefing($contactId, ['notes' => $merged], $user['id']);
+        }
+        $this->json(['success' => true]);
     }
 
     /**
@@ -796,7 +846,22 @@ class CrmController extends Controller
         $sipPassword = !empty($user['nvoip_sip_password']) ? $user['nvoip_sip_password'] : Config::get('nvoip_sip_password');
 
         if (empty($sipUser) || empty($sipPassword)) {
-            $this->json(['configured' => false]);
+            // Usuário sem ramal SIP configurado: webphone não é habilitado para ele.
+            Logger::info('Webphone: usuário sem credenciais SIP', [
+                'user_id' => $user['id'],
+                'has_sip_user' => !empty($sipUser),
+                'has_sip_password' => !empty($sipPassword),
+            ]);
+            $this->json(['configured' => false, 'reason' => 'no_extension']);
+        }
+
+        // Servidores ICE (STUN/TURN) — configuráveis via settings 'nvoip_ice_servers' (JSON).
+        // Ex.: [{"urls":"stun:stun.l.google.com:19302"},{"urls":"turn:host:3478","username":"u","credential":"p"}]
+        $iceRaw = Config::get('nvoip_ice_servers');
+        $iceServers = [];
+        if (!empty($iceRaw)) {
+            $decoded = json_decode($iceRaw, true);
+            if (is_array($decoded)) $iceServers = $decoded;
         }
 
         $this->json([
@@ -806,7 +871,67 @@ class CrmController extends Controller
             'sip_user' => $sipUser,
             'sip_password' => $sipPassword,
             'uri' => 'sip:' . $sipUser . '@' . $domain,
+            'ice_servers' => $iceServers,
         ]);
+    }
+
+    /**
+     * API: recebe logs do webphone (frontend) e grava no log do servidor via Logger.
+     * Permite depurar as chamadas WebRTC pelo painel de logs. POST crm/webphoneLog
+     */
+    public function webphoneLog()
+    {
+        $this->requireRole(['super_admin', 'comercial']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+
+        $user = $this->currentUser();
+        $level = $_POST['level'] ?? 'info';
+        $message = substr(trim($_POST['message'] ?? ''), 0, 500);
+        // Loga o ramal REAL do usuário (não o global, que foi removido)
+        $uRamal = null;
+        try { $r = Database::getInstance()->fetch("SELECT sip_user FROM users WHERE id = ?", [$user['id']]); $uRamal = $r['sip_user'] ?? null; } catch (\Throwable $e) {}
+        $context = [
+            'user_id' => $user['id'],
+            'ramal' => $uRamal,
+        ];
+        if (isset($_POST['detail'])) $context['detail'] = substr((string)$_POST['detail'], 0, 1000);
+
+        if ($message !== '') {
+            if (strtolower($level) === 'error') Logger::error('Webphone: ' . $message, $context);
+            else Logger::info('Webphone: ' . $message, $context);
+        }
+        $this->json(['success' => true]);
+    }
+
+    /**
+     * Normaliza o telefone do lead para discagem na Nvoip, GARANTINDO um único DDI 55.
+     * 1) Mantém só dígitos. 2) Remove TODOS os prefixos 55 repetidos até o número nacional.
+     * 3) Aplica o formato: 'ddi' => 55+nacional (um só); 'local' => nacional (sem 55).
+     */
+    private function normalizeCalled($phone)
+    {
+        $orig = (string)$phone;
+        $n = preg_replace('/\D/', '', $orig);
+        $apenasDigitos = $n;
+        // Remove prefixos 55 repetidos enquanto sobrar mais que um número nacional (>11 díg.)
+        while (strlen($n) > 11 && strpos($n, '55') === 0) {
+            $n = substr($n, 2);
+        }
+        $semDDI = $n;
+        if ($n === '') return '';
+        $fmt = Config::get('nvoip_dial_format') ?: 'local';
+        // $n aqui é o número nacional (DDD+numero, sem 55). Aplica o prefixo conforme o formato.
+        switch ($fmt) {
+            case 'ddi':      $n = '55' . $n; break;       // 5517991253062
+            case 'zero':     $n = '0' . $n; break;        // 017991253062
+            case 'zero_ddi': $n = '055' . $n; break;      // 05517991253062
+            case 'e164':     $n = '+55' . $n; break;      // +5517991253062 (E.164 com +)
+            case 'local':    default: /* mantém nacional */ break; // 17991253062
+        }
+        Logger::info('normalizeCalled etapas', [
+            'orig' => $orig, 'digitos' => $apenasDigitos, 'sem_ddi' => $semDDI, 'formato' => $fmt, 'final' => $n,
+        ]);
+        return $n;
     }
 
     /** Grava o registro mínimo da ligação. Retorna o id do registro (ou null em falha). */

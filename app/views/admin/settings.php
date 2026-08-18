@@ -459,23 +459,38 @@
 
                 <hr class="my-3">
                 <div class="fw-medium small mb-2"><i class="bi bi-headset"></i> Webphone (WebRTC / SIP over WSS)</div>
-                <small class="text-muted d-block mb-2">Permite atender/ligar dentro do próprio CRM. Dados conforme documentação Nvoip. A senha SIP é secreta e entregue apenas ao usuário autenticado.</small>
+                <small class="text-muted d-block mb-2">
+                    Configuração global do servidor. O <strong>ramal e a senha SIP são individuais por usuário</strong>
+                    (defina em <strong>Usuários → editar → Ramal/Senha SIP</strong>). Cada operador precisa de um ramal único na Nvoip.
+                </small>
                 <div class="row g-2">
-                    <div class="col-md-3">
-                        <label class="form-label fw-medium small">Usuário SIP (ramal)</label>
-                        <input type="text" name="nvoip_sip_user" class="form-control form-control-sm" value="<?= escape($settings['nvoip_sip_user'] ?? '') ?>" placeholder="ex.: 148379001">
-                    </div>
-                    <div class="col-md-3">
-                        <label class="form-label fw-medium small">Senha SIP <span class="text-muted">(secreta)</span></label>
-                        <input type="password" name="nvoip_sip_password" class="form-control form-control-sm" value="" placeholder="<?= !empty($settings['nvoip_sip_password']) ? '•••••••• (salvo — deixe em branco para manter)' : 'senha SIP do ramal' ?>" autocomplete="new-password">
-                    </div>
-                    <div class="col-md-3">
+                    <div class="col-md-6">
                         <label class="form-label fw-medium small">Servidor WebSocket</label>
                         <input type="text" name="nvoip_ws_server" class="form-control form-control-sm" value="<?= escape($settings['nvoip_ws_server'] ?? 'wss://app.nvoip.com.br:7443') ?>" placeholder="wss://app.nvoip.com.br:7443">
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-md-6">
                         <label class="form-label fw-medium small">Domínio SIP</label>
                         <input type="text" name="nvoip_sip_domain" class="form-control form-control-sm" value="<?= escape($settings['nvoip_sip_domain'] ?? 'app.nvoip.com.br') ?>" placeholder="app.nvoip.com.br">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-medium small">Formato de discagem</label>
+                        <select name="nvoip_dial_format" class="form-select form-select-sm">
+                            <option value="ddi" <?= ($settings['nvoip_dial_format'] ?? 'ddi') === 'ddi' ? 'selected' : '' ?>>55 + DDD + número (ex.: 5517991253062) — recomendado</option>
+                            <option value="local" <?= ($settings['nvoip_dial_format'] ?? '') === 'local' ? 'selected' : '' ?>>DDD + número (ex.: 17991253062)</option>
+                            <option value="zero" <?= ($settings['nvoip_dial_format'] ?? '') === 'zero' ? 'selected' : '' ?>>0 + DDD + número (ex.: 017991253062)</option>
+                            <option value="zero_ddi" <?= ($settings['nvoip_dial_format'] ?? '') === 'zero_ddi' ? 'selected' : '' ?>>0 + 55 + DDD + número (ex.: 05517991253062)</option>
+                            <option value="e164" <?= ($settings['nvoip_dial_format'] ?? '') === 'e164' ? 'selected' : '' ?>>+55 + DDD + número (E.164, ex.: +5517991253062)</option>
+                        </select>
+                        <small class="text-muted">A Nvoip adiciona o 55 automaticamente — use <strong>DDD + número</strong> (sem 55). Se der "desconhecido", ative "Ligações internacionais" no painel Nvoip (aba Empresa).</small>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label fw-medium small">Servidores ICE (STUN) — JSON (opcional)</label>
+                        <textarea name="nvoip_ice_servers" class="form-control form-control-sm" rows="2" placeholder='[{"urls":"stun:stun.l.google.com:19302"}]'><?= escape($settings['nvoip_ice_servers'] ?? '') ?></textarea>
+                        <small class="text-muted d-block">
+                            A Nvoip usa mídia UDP direta (não usa TURN). Se o ramal registra mas a chamada cai com <code>408</code> após o toque (sem áudio),
+                            o problema é o <strong>firewall da rede</strong>. Libere na saída para <code>app.nvoip.com.br</code> (54.233.253.44):
+                            <strong>TCP 7443</strong> (WSS) e <strong>UDP 10000–60000</strong> (áudio RTP/WebRTC); desative <strong>SIP ALG</strong> e não aplique inspeção SSL nesse domínio.
+                        </small>
                     </div>
                 </div>
                 <div class="mt-3 d-flex align-items-center gap-2">

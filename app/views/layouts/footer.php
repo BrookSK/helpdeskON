@@ -240,9 +240,10 @@
     <?php endif; ?>
 
     <?php
-    // Webphone nativo (WebRTC/SIP over WSS) — roda dentro do CRM para papéis de telefonia.
+    // Webphone nativo (WebRTC/SIP over WSS) — apenas na tela de Leads.
+    // O ramal/senha SIP são individuais por usuário; o endpoint sipCredentials decide se há ramal.
     $nvoipTelephonyRoles = ['super_admin', 'comercial'];
-    if (in_array($currentUserRole, $nvoipTelephonyRoles) && Config::get('nvoip_sip_user')):
+    if (in_array($currentUserRole, $nvoipTelephonyRoles) && ($currentPage ?? '') === 'crm_leads'):
         require APP_PATH . '/views/layouts/_webphone.php';
     endif;
     ?>

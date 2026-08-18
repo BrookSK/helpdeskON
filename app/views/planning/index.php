@@ -90,6 +90,9 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                                     <?php if ($card['company_name']): ?>
                                     <span><i class="bi bi-building"></i> <?= escape($card['company_name']) ?></span><br>
                                     <?php endif; ?>
+                                    <?php if (!empty($card['created_by_name']) && $card['created_by_name'] !== ($card['assigned_name'] ?? '')): ?>
+                                    <span><i class="bi bi-person-badge"></i> <?= escape($card['created_by_name']) ?></span><br>
+                                    <?php endif; ?>
                                     <span><i class="bi bi-person"></i> <?= escape($card['assigned_name'] ?? 'Não atribuído') ?></span>
                                     <?php if ($card['due_date']): ?>
                                     <span class="float-end <?= $isOverdue ? 'text-danger fw-semibold' : '' ?>"><i class="bi bi-clock"></i> <?= date('d/m H:i', strtotime($card['due_date'])) ?></span>

@@ -77,6 +77,8 @@ class UsersController extends Controller
             'is_company_owner' => ($role === 'client' && $isOwner) ? 1 : 0,
             'see_all_companies' => (in_array($role, ['attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']) && $seeAll) ? 1 : 0,
             'commission_percent' => $commission,
+            'sip_user' => trim($_POST['sip_user'] ?? '') ?: null,
+            'sip_password' => trim($_POST['sip_password'] ?? '') ?: null,
             'is_active' => 1,
         ]);
 
@@ -177,10 +179,15 @@ class UsersController extends Controller
             'is_company_owner' => ($role === 'client') ? $isOwner : 0,
             'see_all_companies' => (in_array($role, ['attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']) && $seeAll) ? 1 : 0,
             'commission_percent' => ($role === 'comercial') ? floatval($_POST['commission_percent'] ?? 0) : 0,
+            'sip_user' => trim($_POST['sip_user'] ?? '') ?: null,
         ];
 
         if (!empty($password)) {
             $data['password'] = password_hash($password, PASSWORD_DEFAULT);
+        }
+        // Senha SIP é secreta: só atualiza se um novo valor for informado (em branco mantém a atual)
+        if (isset($_POST['sip_password']) && trim($_POST['sip_password']) !== '') {
+            $data['sip_password'] = trim($_POST['sip_password']);
         }
 
         $db = Database::getInstance();

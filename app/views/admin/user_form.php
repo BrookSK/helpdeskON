@@ -52,6 +52,23 @@
                         </select>
                     </div>
 
+                    <!-- Ramal SIP (telefonia Nvoip) -->
+                    <div class="col-12">
+                        <div class="alert alert-info py-2 px-3 small mb-2">
+                            <i class="bi bi-info-circle"></i> Cada operador deve ter um <strong>ramal SIP único</strong> na Nvoip.
+                            Dois usuários com o mesmo ramal causam conflito de registro (a ligação não completa).
+                        </div>
+                    </div>
+                    <div class="col-sm-6">
+                        <label class="form-label fw-medium small">Ramal SIP (Nvoip)</label>
+                        <input type="text" name="sip_user" class="form-control" value="<?= escape($editUser['sip_user'] ?? '') ?>" placeholder="ex.: 148379001">
+                        <small class="text-muted">Ramal próprio do usuário para o webphone. Deixe vazio para usar o ramal global.</small>
+                    </div>
+                    <div class="col-sm-6">
+                        <label class="form-label fw-medium small">Senha SIP (Nvoip)</label>
+                        <input type="password" name="sip_password" class="form-control" value="" placeholder="<?= !empty($editUser['sip_password']) ? '•••••••• (salva — deixe em branco para manter)' : 'senha SIP do ramal' ?>" autocomplete="new-password">
+                    </div>
+
                     <!-- % de comissão (só para papel Comercial) -->
                     <div id="commission-field" class="col-sm-6" style="<?= ($editUser['role'] ?? '') === 'comercial' ? '' : 'display:none' ?>">
                         <label class="form-label fw-medium small">% de Comissão</label>
