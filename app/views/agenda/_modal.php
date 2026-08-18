@@ -69,7 +69,7 @@
                     </div>
                     <div class="col-md-8">
                         <label class="form-label small fw-medium">Status</label>
-                        <select id="mt-status" class="form-select form-select-sm">
+                        <select id="mt-status" class="form-select form-select-sm" onchange="onStatusChange()">
                             <option value="a_agendar">A agendar</option>
                             <option value="agendada">Agendada</option>
                             <option value="confirmada">Confirmada</option>
@@ -78,6 +78,18 @@
                             <option value="remarcada">Remarcada</option>
                             <option value="cancelada">Cancelada</option>
                         </select>
+                    </div>
+
+                    <!-- Quem fechou (aparece só quando status = convertida) -->
+                    <div class="col-md-6" id="closed-by-field" style="display:none;">
+                        <label class="form-label small fw-medium">Quem fechou o negócio? *</label>
+                        <select id="mt-closed-by" class="form-select form-select-sm">
+                            <option value="">Selecione...</option>
+                            <?php foreach ($team as $t): ?>
+                            <option value="<?= $t['id'] ?>"><?= escape($t['name']) ?> (<?= roleLabel($t['role']) ?>)</option>
+                            <?php endforeach; ?>
+                        </select>
+                        <small class="text-muted">Quem efetivamente realizou o fechamento comercial</small>
                     </div>
 
                     <!-- Participantes da equipe -->
@@ -208,6 +220,8 @@ function resetMeetingForm() {
     document.getElementById('mt-urgency').value = 'media';
     document.getElementById('mt-temperature').value = '';
     document.getElementById('mt-status').value = 'a_agendar';
+    document.getElementById('mt-closed-by').value = '';
+    document.getElementById('closed-by-field').style.display = 'none';
     // Limpa participantes
     const ptSel = document.getElementById('mt-participants');
     if (ptSel) Array.from(ptSel.options).forEach(o => o.selected = false);
@@ -291,6 +305,8 @@ function fillMeeting(m) {
     document.getElementById('mt-client').value = m.contact_id || '';
     document.getElementById('mt-assigned').value = m.assigned_to || '';
     document.getElementById('mt-status').value = m.status || 'a_agendar';
+    document.getElementById('mt-closed-by').value = m.closed_by || '';
+    onStatusChange();
     document.getElementById('mt-notes').value = m.notes || '';
     document.getElementById('mt-client-email').value = m.client_email || '';
     document.getElementById('mt-google-event-id').value = m.google_event_id || '';
@@ -306,6 +322,17 @@ function fillMeeting(m) {
     syncInherited(m.urgency || 'media', m.temperature || '');
     if (m.meet_link) showMeetLink(m.meet_link);
     document.getElementById('mt-delete-btn').style.display = '';
+}
+
+// Mostra/oculta campo "Quem fechou" conforme o status
+function onStatusChange() {
+    const status = document.getElementById('mt-status').value;
+    const field = document.getElementById('closed-by-field');
+    if (status === 'convertida') {
+        field.style.display = '';
+    } else {
+        field.style.display = 'none';
+    }
 }
 
 // Ao escolher cliente: carrega o briefing ou mostra campos de novo cliente
@@ -344,6 +371,7 @@ function collectPayload() {
     document.getElementById('mt-temperature').value = tempVal;
     fd.append('temperature', tempVal);
     fd.append('status', document.getElementById('mt-status').value);
+    fd.append('closed_by', document.getElementById('mt-closed-by').value);
     fd.append('notes', document.getElementById('mt-notes').value);
     fd.append('client_email', document.getElementById('mt-client-email').value.trim());
 
@@ -418,6 +446,12 @@ function saveMeeting() {
     if (!clientVal) { alert('Selecione um cliente (CRM) ou cadastre um novo.'); return; }
     if (clientVal === '__new__' && !document.getElementById('mt-new-name').value.trim()) {
         alert('Informe o nome do novo cliente.'); return;
+    }
+
+    // Se convertida, exige quem fechou
+    const status = document.getElementById('mt-status').value;
+    if (status === 'convertida' && !document.getElementById('mt-closed-by').value) {
+        alert('Informe quem fechou o negócio.'); return;
     }
 
     const id = document.getElementById('mt-id').value;

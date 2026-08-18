@@ -67,6 +67,8 @@ class UsersController extends Controller
         $rawPassword = $sendInvite ? bin2hex(random_bytes(8)) : $password;
         $seeAll = isset($_POST['see_all_companies']) ? 1 : 0;
         $commission = ($role === 'comercial') ? floatval($_POST['commission_percent'] ?? 0) : 0;
+        $commissionProspection = ($role === 'comercial') ? floatval($_POST['commission_prospection_percent'] ?? 0) : 0;
+        $commissionClosing = ($role === 'comercial') ? floatval($_POST['commission_closing_percent'] ?? 0) : 0;
         $userId = $db->insert('users', [
             'name' => $name,
             'email' => $email,
@@ -77,6 +79,8 @@ class UsersController extends Controller
             'is_company_owner' => ($role === 'client' && $isOwner) ? 1 : 0,
             'see_all_companies' => (in_array($role, ['attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']) && $seeAll) ? 1 : 0,
             'commission_percent' => $commission,
+            'commission_prospection_percent' => $commissionProspection,
+            'commission_closing_percent' => $commissionClosing,
             'sip_user' => trim($_POST['sip_user'] ?? '') ?: null,
             'sip_password' => trim($_POST['sip_password'] ?? '') ?: null,
             'is_active' => 1,
@@ -179,6 +183,8 @@ class UsersController extends Controller
             'is_company_owner' => ($role === 'client') ? $isOwner : 0,
             'see_all_companies' => (in_array($role, ['attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']) && $seeAll) ? 1 : 0,
             'commission_percent' => ($role === 'comercial') ? floatval($_POST['commission_percent'] ?? 0) : 0,
+            'commission_prospection_percent' => ($role === 'comercial') ? floatval($_POST['commission_prospection_percent'] ?? 0) : 0,
+            'commission_closing_percent' => ($role === 'comercial') ? floatval($_POST['commission_closing_percent'] ?? 0) : 0,
             'sip_user' => trim($_POST['sip_user'] ?? '') ?: null,
         ];
 
