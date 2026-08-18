@@ -641,7 +641,7 @@ class CrmController extends Controller
             'user_id' => $user['id'],
             'direction' => 'outbound',
             'call_id' => null,
-            'caller' => $user['nvoip_sip_user'] ?: Config::get('nvoip_sip_user'),
+            'caller' => $user['sip_user'] ?: Config::get('nvoip_sip_user'),
             'called' => $called,
             'status' => 'dialing',
             'response_json' => null,
@@ -842,8 +842,8 @@ class CrmController extends Controller
         $domain = Config::get('nvoip_sip_domain') ?: 'app.nvoip.com.br';
 
         // Prioridade: ramal do próprio usuário > ramal global (fallback)
-        $sipUser = !empty($user['nvoip_sip_user']) ? $user['nvoip_sip_user'] : Config::get('nvoip_sip_user');
-        $sipPassword = !empty($user['nvoip_sip_password']) ? $user['nvoip_sip_password'] : Config::get('nvoip_sip_password');
+        $sipUser = !empty($user['sip_user']) ? $user['sip_user'] : Config::get('nvoip_sip_user');
+        $sipPassword = !empty($user['sip_password']) ? $user['sip_password'] : Config::get('nvoip_sip_password');
 
         if (empty($sipUser) || empty($sipPassword)) {
             // Usuário sem ramal SIP configurado: webphone não é habilitado para ele.

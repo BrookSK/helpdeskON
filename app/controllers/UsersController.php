@@ -194,11 +194,11 @@ class UsersController extends Controller
         $db->update('users', $data, 'id = ?', [$id]);
 
         // Salvar ramal SIP (Nvoip) — por usuário
-        $sipUser = trim($_POST['nvoip_sip_user'] ?? '');
-        $sipPassword = trim($_POST['nvoip_sip_password'] ?? '');
-        $sipData = ['nvoip_sip_user' => $sipUser ?: null];
+        $sipUser = trim($_POST['sip_user'] ?? ($_POST['nvoip_sip_user'] ?? ''));
+        $sipPassword = trim($_POST['sip_password'] ?? ($_POST['nvoip_sip_password'] ?? ''));
+        $sipData = ['sip_user' => $sipUser ?: null];
         if ($sipPassword !== '') {
-            $sipData['nvoip_sip_password'] = $sipPassword;
+            $sipData['sip_password'] = $sipPassword;
         }
         $db->update('users', $sipData, 'id = ?', [$id]);
 
