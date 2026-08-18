@@ -49,8 +49,11 @@
                 <div class="col-6 col-md-auto">
                     <select name="attendant" class="form-select form-select-sm">
                         <option value="">Todos Atendentes</option>
+                        <?php
+                        $selectedAttendant = isset($_GET['attendant']) ? $_GET['attendant'] : $user['id'];
+                        ?>
                         <?php foreach ($attendants ?? [] as $att): ?>
-                        <option value="<?= $att['id'] ?>" <?= ($_GET['attendant'] ?? '') == $att['id'] ? 'selected' : '' ?>><?= escape($att['name']) ?></option>
+                        <option value="<?= $att['id'] ?>" <?= $selectedAttendant == $att['id'] ? 'selected' : '' ?>><?= escape($att['name']) ?></option>
                         <?php endforeach; ?>
                     </select>
                 </div>

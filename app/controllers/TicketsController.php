@@ -38,7 +38,12 @@ class TicketsController extends Controller
             if (!empty($_GET['status'])) $filters['status'] = $_GET['status'];
             if (!empty($_GET['priority'])) $filters['priority'] = $_GET['priority'];
             if (!empty($_GET['company'])) $filters['company_id'] = $_GET['company'];
-            if (!empty($_GET['attendant'])) $filters['attendant_id'] = $_GET['attendant'];
+            // Filtro por atendente: padrão = o próprio usuário logado (a menos que selecione "Todos")
+            if (isset($_GET['attendant'])) {
+                if ($_GET['attendant'] !== '') $filters['attendant_id'] = $_GET['attendant'];
+            } else {
+                $filters['attendant_id'] = $user['id'];
+            }
             if (!empty($_GET['hide_completed'])) $filters['hide_completed'] = true;
 
             // "Ocultar arquivados" vem marcado por padrão. Só desativa se o form foi
