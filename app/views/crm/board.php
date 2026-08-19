@@ -68,9 +68,6 @@
                         <?php if ($card['phone']): ?>
                         <div class="crm-card-phone">
                             <i class="bi bi-telephone"></i> <?= escape($card['phone']) ?>
-                            <?php if (!empty($card['contact_id'])): ?>
-                            <button class="btn btn-sm p-0 ms-2 text-success" onclick="event.stopPropagation(); callFromCard(<?= $card['contact_id'] ?>, '<?= escape($card['contact_name'] ?: $card['title']) ?>', '<?= escape($card['phone']) ?>', this)" title="Ligar via VoIP"><i class="bi bi-telephone-outbound-fill"></i></button>
-                            <?php endif; ?>
                         </div>
                         <?php endif; ?>
                         <div class="crm-card-footer">
