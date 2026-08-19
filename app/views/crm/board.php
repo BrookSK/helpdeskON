@@ -307,6 +307,9 @@
                                 <button class="btn btn-sm btn-outline-secondary flex-fill" onclick="cancelConvert()">Cancelar</button>
                             </div>
                         </div>
+                        <button id="card-call-btn" class="btn btn-sm btn-outline-primary w-100 mb-2" style="display:none;" onclick="callFromCardDetail(this)">
+                            <i class="bi bi-telephone-outbound"></i> Telefonar
+                        </button>
                         <a href="#" id="card-open-chat" class="btn btn-sm btn-outline-success w-100 mb-2" style="display:none;">
                             <i class="bi bi-whatsapp"></i> Abrir no Chat
                         </a>
@@ -429,7 +432,7 @@ function createCard() {
     });
 }
 
-// Ligação VoIP direto do card
+// Ligação VoIP direto do card (kanban)
 function callFromCard(contactId, name, phone, btn) {
     if (btn.dataset.loading === '1') return;
     btn.dataset.loading = '1';
@@ -444,6 +447,18 @@ function callFromCard(contactId, name, phone, btn) {
             window.nvCall(d.called, d.call_record_id, d.lead || { id: contactId, name: name, phone: phone });
         })
         .catch(() => { btn.dataset.loading = '0'; btn.innerHTML = o; alert('Erro ao iniciar a ligação.'); });
+}
+
+// Ligação VoIP do modal de detalhes do card
+function callFromCardDetail(btn) {
+    if (!currentCardId) return;
+    // Pega o contact_id do card aberto via o link do chat (que contém o contact_id)
+    const chatBtn = document.getElementById('card-open-chat');
+    if (!chatBtn || chatBtn.style.display === 'none') { alert('Este card não tem um contato vinculado.'); return; }
+    const href = chatBtn.href || '';
+    const contactId = href.split('/').pop();
+    if (!contactId) { alert('Contato não encontrado.'); return; }
+    callFromCard(parseInt(contactId), document.getElementById('card-title').value, document.getElementById('card-phone').value, btn);
 }
 
 function openCardDetail(cardId) {
@@ -476,12 +491,15 @@ function openCardDetail(cardId) {
 
         // Botão "Abrir no Chat" — leva direto à conversa do contato vinculado
         const openChatBtn = document.getElementById('card-open-chat');
+        const callBtn = document.getElementById('card-call-btn');
         if (openChatBtn) {
             if (card.contact_id) {
                 openChatBtn.href = BASE + 'whatsapp/chat/' + card.contact_id;
                 openChatBtn.style.display = '';
+                if (callBtn) callBtn.style.display = '';
             } else {
                 openChatBtn.style.display = 'none';
+                if (callBtn) callBtn.style.display = 'none';
             }
         }
         document.getElementById('card-followup-amount').value = '';
