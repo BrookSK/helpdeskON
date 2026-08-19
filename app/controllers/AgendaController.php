@@ -2,7 +2,7 @@
 
 class AgendaController extends Controller
 {
-    private $accessRoles = ['super_admin', 'comercial', 'marketing'];
+    private $accessRoles = ['super_admin', 'comercial'];
     private $model;
     private $contactModel;
 
@@ -344,7 +344,7 @@ class AgendaController extends Controller
     // Dashboard de Performance Comercial
     public function dashboard()
     {
-        $this->requireRole(['super_admin', 'comercial', 'marketing']);
+        $this->requireRole(['super_admin', 'comercial']);
         $user = $this->currentUser();
 
         // Filtros de período (padrão: mês atual)
