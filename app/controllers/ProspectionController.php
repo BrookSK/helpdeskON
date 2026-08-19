@@ -2,7 +2,7 @@
 
 class ProspectionController extends Controller
 {
-    private $accessRoles = ['super_admin', 'comercial', 'marketing'];
+    private $accessRoles = ['super_admin', 'comercial', 'marketing', 'attendant'];
     private $accountModel;
     private $prospectionModel;
     private $contactModel;
