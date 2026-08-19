@@ -52,7 +52,8 @@ class CrmController extends Controller
         $userModel = new User();
         $team = $userModel->getAttendants();
         $admins = $db->fetchAll("SELECT id, name FROM users WHERE role = 'super_admin' AND is_active = 1");
-        $teamMembers = array_merge($admins, $team);
+        $comerciais = $db->fetchAll("SELECT id, name FROM users WHERE role = 'comercial' AND is_active = 1");
+        $teamMembers = array_merge($admins, $comerciais, $team);
 
         // Etiquetas disponíveis para vincular a colunas/cards
         $labels = $db->fetchAll("SELECT * FROM whatsapp_labels ORDER BY name ASC");
