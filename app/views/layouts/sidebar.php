@@ -135,7 +135,7 @@
                 </a>
             </li>
             <?php endif; ?>
-            <?php if (in_array($user['role'] ?? '', ['super_admin', 'comercial', 'marketing'])): ?>
+            <?php if (in_array($user['role'] ?? '', ['super_admin', 'comercial', 'marketing', 'attendant'])): ?>
             <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'prospection' ? 'active' : '' ?>" href="<?= baseUrl('prospection') ?>">
                     <i class="bi bi-envelope-paper"></i> Prospecção E-mail
