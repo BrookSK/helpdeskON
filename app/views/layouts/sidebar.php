@@ -44,16 +44,6 @@
                 </a>
             </li>
             <li class="nav-item">
-                <a class="nav-link <?= ($currentPage ?? '') === 'agenda' ? 'active' : '' ?>" href="<?= baseUrl('agenda') ?>">
-                    <i class="bi bi-calendar2-week"></i> Agenda
-                </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link <?= ($currentPage ?? '') === 'agenda_dashboard' ? 'active' : '' ?>" href="<?= baseUrl('agenda/dashboard') ?>">
-                    <i class="bi bi-bar-chart-line"></i> Performance
-                </a>
-            </li>
-            <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'prospection' ? 'active' : '' ?>" href="<?= baseUrl('prospection') ?>">
                     <i class="bi bi-envelope-paper"></i> Prospecção E-mail
                 </a>

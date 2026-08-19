@@ -2,7 +2,7 @@
 
 class AgendaController extends Controller
 {
-    private $accessRoles = ['super_admin', 'comercial', 'marketing'];
+    private $accessRoles = ['super_admin', 'comercial'];
     private $model;
     private $contactModel;
 
@@ -344,7 +344,7 @@ class AgendaController extends Controller
     // Dashboard de Performance Comercial
     public function dashboard()
     {
-        $this->requireRole(['super_admin', 'comercial', 'marketing']);
+        $this->requireRole(['super_admin', 'comercial']);
         $user = $this->currentUser();
 
         // Filtros de período (padrão: mês atual)
@@ -353,7 +353,8 @@ class AgendaController extends Controller
 
         // Se for comercial, vê apenas os próprios dados
         $filterUserId = null;
-        if ($user['role'] === 'comercial') {
+        if ($user['role'] !== 'super_admin') {
+            // Apenas super_admin vê todos; demais veem só o próprio
             $filterUserId = $user['id'];
         } elseif (!empty($_GET['user_id'])) {
             $filterUserId = intval($_GET['user_id']);
@@ -434,7 +435,7 @@ class AgendaController extends Controller
             'startDate' => $startDate,
             'endDate' => $endDate,
             'filterUserId' => $filterUserId,
-            'isAdmin' => in_array($user['role'], ['super_admin', 'marketing']),
+            'isAdmin' => $user['role'] === 'super_admin',
         ]);
     }
 

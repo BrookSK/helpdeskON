@@ -124,7 +124,7 @@ class ProspectionController extends Controller
         $user = $this->currentUser();
 
         $filters = [];
-        $isAdmin = in_array($user['role'], ['super_admin', 'marketing']);
+        $isAdmin = ($user['role'] === 'super_admin');
 
         // Comercial vê só os próprios; admin vê todos ou filtra
         if (!$isAdmin) {
@@ -186,7 +186,7 @@ class ProspectionController extends Controller
 
         // Comercial só vê os próprios
         $user = $this->currentUser();
-        if (!in_array($user['role'], ['super_admin', 'marketing']) && $prospection['user_id'] != $user['id']) {
+        if ($user['role'] !== 'super_admin' && $prospection['user_id'] != $user['id']) {
             $this->json(['error' => 'Sem permissão'], 403);
         }
 
