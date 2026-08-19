@@ -292,6 +292,7 @@ class CrmController extends Controller
 
     /**
      * API: Mover card (drag-and-drop)
+     * Se a coluna de destino for "Fechado", exige closed_by e marca como convertido.
      */
     public function moveCard()
     {
@@ -309,11 +310,46 @@ class CrmController extends Controller
         }
 
         $user = $this->currentUser();
-        $this->boardModel->moveCard($cardId, $columnId, $position);
-
-        // Registrar atividade
         $newCol = $this->boardModel->findColumn($columnId);
-        $this->boardModel->addActivity($cardId, $user['id'], 'move', "Movido para \"{$newCol['name']}\"");
+
+        // Detectar se a coluna de destino é "Fechado" (case-insensitive)
+        $isClosedColumn = mb_strtolower(trim($newCol['name'])) === 'fechado';
+
+        if ($isClosedColumn) {
+            // Exigir informação de quem fechou
+            $closedBy = !empty($_POST['closed_by']) ? intval($_POST['closed_by']) : null;
+            if (!$closedBy) {
+                $this->json(['error' => 'Informe quem fechou o negócio.', 'requires_closed_by' => true], 400);
+            }
+
+            // Buscar card para determinar quem prospectou
+            $card = $this->boardModel->findCard($cardId);
+            $prospectedBy = $card['assigned_to'] ?? $user['id'];
+
+            // Mover o card
+            $this->boardModel->moveCard($cardId, $columnId, $position);
+
+            // Marcar como convertido com as informações de fechamento
+            $this->boardModel->updateCard($cardId, [
+                'lead_outcome' => 'converted',
+                'outcome_at' => date('Y-m-d H:i:s'),
+                'converted_by' => $closedBy,
+                'prospected_by' => $prospectedBy,
+            ]);
+
+            // Registrar atividade
+            $closedByName = '';
+            if ($closedBy != $user['id']) {
+                $closedUser = (new User())->findById($closedBy);
+                $closedByName = $closedUser ? " por {$closedUser['name']}" : '';
+            }
+            $this->boardModel->addActivity($cardId, $user['id'], 'move', "Movido para \"{$newCol['name']}\"");
+            $this->boardModel->addActivity($cardId, $user['id'], 'note', "✅ Lead convertido (fechamento){$closedByName}");
+        } else {
+            // Movimentação normal
+            $this->boardModel->moveCard($cardId, $columnId, $position);
+            $this->boardModel->addActivity($cardId, $user['id'], 'move', "Movido para \"{$newCol['name']}\"");
+        }
 
         $this->json(['success' => true]);
     }

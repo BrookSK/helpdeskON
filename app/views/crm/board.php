@@ -34,7 +34,7 @@
                         </ul>
                     </div>
                 </div>
-                <div class="crm-cards-list" data-column-id="<?= $col['id'] ?>">
+                <div class="crm-cards-list" data-column-id="<?= $col['id'] ?>" data-column-name="<?= escape($col['name']) ?>">
                     <?php foreach ($col['cards'] as $card): ?>
                     <?php
                     $displayName = $card['contact_name'] ?: $card['title'];
@@ -87,6 +87,29 @@
                 </div>
             </div>
             <?php endforeach; ?>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Quem Fechou (ao mover para coluna Fechado) -->
+<div class="modal fade" id="moveClosedByModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-sm modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title"><i class="bi bi-check-circle text-success"></i> Quem fechou o negócio?</h6>
+            </div>
+            <div class="modal-body">
+                <p class="small text-muted mb-2">Selecione o responsável pelo fechamento deste lead:</p>
+                <select id="move-closed-by" class="form-select form-select-sm">
+                    <?php foreach ($teamMembers as $m): ?>
+                    <option value="<?= $m['id'] ?>"><?= escape($m['name']) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div class="modal-footer py-2">
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="cancelMoveToFechado()">Cancelar</button>
+                <button type="button" class="btn btn-sm btn-success" onclick="confirmMoveToFechado()"><i class="bi bi-check-lg"></i> Confirmar</button>
+            </div>
         </div>
     </div>
 </div>
@@ -360,6 +383,8 @@ let currentCardId = null;
 // =========================================
 // DRAG AND DROP
 // =========================================
+let pendingMoveData = null; // Armazena dados de move pendente (coluna Fechado)
+
 document.querySelectorAll('.crm-cards-list').forEach(list => {
     new Sortable(list, {
         group: 'crm-cards',
@@ -369,8 +394,17 @@ document.querySelectorAll('.crm-cards-list').forEach(list => {
         onEnd: function(evt) {
             const cardId = evt.item.dataset.cardId;
             const newColumnId = evt.to.dataset.columnId;
+            const columnName = (evt.to.dataset.columnName || '').trim().toLowerCase();
             const position = [...evt.to.children].indexOf(evt.item);
 
+            // Se a coluna de destino é "Fechado", interceptar e pedir quem fechou
+            if (columnName === 'fechado') {
+                pendingMoveData = { cardId, newColumnId, position, evt };
+                new bootstrap.Modal(document.getElementById('moveClosedByModal')).show();
+                return;
+            }
+
+            // Movimentação normal
             const fd = new FormData();
             fd.append('card_id', cardId);
             fd.append('column_id', newColumnId);
@@ -387,6 +421,44 @@ document.querySelectorAll('.crm-cards-list').forEach(list => {
         }
     });
 });
+
+function confirmMoveToFechado() {
+    if (!pendingMoveData) return;
+    const closedBy = document.getElementById('move-closed-by').value;
+    if (!closedBy) { alert('Selecione quem fechou o negócio.'); return; }
+
+    const fd = new FormData();
+    fd.append('card_id', pendingMoveData.cardId);
+    fd.append('column_id', pendingMoveData.newColumnId);
+    fd.append('position', pendingMoveData.position);
+    fd.append('closed_by', closedBy);
+
+    fetch(BASE + 'crm/moveCard', { method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'} })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            bootstrap.Modal.getInstance(document.getElementById('moveClosedByModal')).hide();
+            updateColumnCounts();
+            // Atualizar visual do card para mostrar como convertido
+            const cardEl = document.querySelector(`[data-card-id="${pendingMoveData.cardId}"]`);
+            if (cardEl) cardEl.classList.add('outcome-converted');
+            pendingMoveData = null;
+        } else {
+            alert(data.error || 'Erro ao mover card.');
+        }
+    });
+}
+
+function cancelMoveToFechado() {
+    if (pendingMoveData) {
+        // Reverter o card para a posição original
+        const evt = pendingMoveData.evt;
+        evt.from.insertBefore(evt.item, evt.from.children[evt.oldIndex] || null);
+        updateColumnCounts();
+        pendingMoveData = null;
+    }
+    bootstrap.Modal.getInstance(document.getElementById('moveClosedByModal')).hide();
+}
 
 function updateColumnCounts() {
     document.querySelectorAll('.crm-column').forEach(col => {
