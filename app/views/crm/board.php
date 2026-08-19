@@ -66,7 +66,12 @@
                             <?php endif; ?>
                         </div>
                         <?php if ($card['phone']): ?>
-                        <div class="crm-card-phone"><i class="bi bi-telephone"></i> <?= escape($card['phone']) ?></div>
+                        <div class="crm-card-phone">
+                            <i class="bi bi-telephone"></i> <?= escape($card['phone']) ?>
+                            <?php if (!empty($card['contact_id'])): ?>
+                            <button class="btn btn-sm p-0 ms-2 text-success" onclick="event.stopPropagation(); callFromCard(<?= $card['contact_id'] ?>, '<?= escape($card['contact_name'] ?: $card['title']) ?>', '<?= escape($card['phone']) ?>', this)" title="Ligar via VoIP"><i class="bi bi-telephone-outbound-fill"></i></button>
+                            <?php endif; ?>
+                        </div>
                         <?php endif; ?>
                         <div class="crm-card-footer">
                             <?php if (!empty($card['investment_range'])): ?>
@@ -422,6 +427,23 @@ function createCard() {
             alert(data.error || 'Erro ao criar card');
         }
     });
+}
+
+// Ligação VoIP direto do card
+function callFromCard(contactId, name, phone, btn) {
+    if (btn.dataset.loading === '1') return;
+    btn.dataset.loading = '1';
+    const o = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:12px;height:12px;"></span>';
+    fetch(BASE + 'crm/dialLead/' + contactId, { method: 'POST', headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json())
+        .then(d => {
+            btn.dataset.loading = '0'; btn.innerHTML = o;
+            if (d.error) { alert(d.error); return; }
+            if (typeof window.nvCall !== 'function') { alert('Webphone não disponível. Recarregue a página.'); return; }
+            window.nvCall(d.called, d.call_record_id, d.lead || { id: contactId, name: name, phone: phone });
+        })
+        .catch(() => { btn.dataset.loading = '0'; btn.innerHTML = o; alert('Erro ao iniciar a ligação.'); });
 }
 
 function openCardDetail(cardId) {

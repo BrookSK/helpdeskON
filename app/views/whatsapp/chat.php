@@ -146,6 +146,11 @@
                     <div class="wpp-avatar-lg mx-auto" id="detail-avatar">?</div>
                     <h6 class="mt-2" id="detail-name">—</h6>
                     <small class="text-muted" id="detail-phone">—</small>
+                    <div class="mt-2">
+                        <button class="btn btn-sm btn-outline-success" id="detail-call-btn" onclick="callFromWhatsapp(this)" title="Ligar via VoIP" style="display:none;">
+                            <i class="bi bi-telephone-outbound"></i> Telefonar
+                        </button>
+                    </div>
                 </div>
                 <hr>
                 <div class="mb-3">
@@ -1316,6 +1321,9 @@ function openChat(contactId, isGroup = false) {
         document.getElementById('chat-service-status').value = contact.service_status || 'novo';
         document.getElementById('detail-name').textContent = name;
         document.getElementById('detail-phone').textContent = contact.phone || '';
+        // Mostrar botão de ligar se tem telefone
+        const callBtn = document.getElementById('detail-call-btn');
+        if (callBtn) callBtn.style.display = contact.phone ? '' : 'none';
         const detailAvatar = document.getElementById('detail-avatar');
         if (contact.profile_picture_url) {
             detailAvatar.innerHTML = `<img src="${escapeHtml(contact.profile_picture_url)}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" onerror="this.parentNode.textContent='${escapeHtml(initials)}'">`;
@@ -2482,6 +2490,24 @@ function mobileCloseSidebar() {
         mobileCloseSidebar();
     }
 })();
+
+function callFromWhatsapp(btn) {
+    if (!activeContactId) { alert('Selecione um contato primeiro.'); return; }
+    if (btn.dataset.loading === '1') return;
+    btn.dataset.loading = '1';
+    const o = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Ligando...';
+    fetch(BASE + 'crm/dialLead/' + activeContactId, { method: 'POST', headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json())
+        .then(d => {
+            btn.disabled = false; btn.dataset.loading = '0'; btn.innerHTML = o;
+            if (d.error) { alert(d.error); return; }
+            if (typeof window.nvCall !== 'function') { alert('Webphone não disponível. Recarregue a página.'); return; }
+            window.nvCall(d.called, d.call_record_id, d.lead || null);
+        })
+        .catch(() => { btn.disabled = false; btn.dataset.loading = '0'; btn.innerHTML = o; alert('Erro ao iniciar a ligação.'); });
+}
 
 function saveContactDetails() {
     if (!activeContactId) return;
