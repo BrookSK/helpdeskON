@@ -542,7 +542,11 @@ function scheduleToBuffer() {
     fetch(`${BASE}buffer/schedule`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json()).then(data => {
             if (data.error) { result.innerHTML = `<span class="text-danger">${data.error}</span>`; return; }
-            result.innerHTML = `<span class="text-success"><i class="bi bi-check-circle"></i> ${data.created} publicação(ões) agendada(s) no Buffer.</span>`;
+            if (data.queued) {
+                result.innerHTML = `<span class="text-warning"><i class="bi bi-clock-history"></i> ${data.message}</span>`;
+            } else {
+                result.innerHTML = `<span class="text-success"><i class="bi bi-check-circle"></i> ${data.created} publicação(ões) agendada(s) no Buffer.</span>`;
+            }
             // Marca o item como agendado
             const fd2 = new FormData();
             fd2.append('status', 'agendado');

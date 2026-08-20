@@ -167,6 +167,59 @@ try {
     } // end if (!$skipBuffer)
 
     // ============================================================
+    // 1b) BUFFER: Processar fila de posts pendentes (queued)
+    // ============================================================
+    $bufferData = $bufferData ?? new BufferData();
+    $bufferAccounts = $bufferAccounts ?? new BufferAccount();
+    $db = Database::getInstance();
+    $queuedPosts = $db->fetchAll("SELECT * FROM buffer_posts WHERE status = 'queued' ORDER BY created_at ASC LIMIT 10");
+
+    if (!empty($queuedPosts)) {
+        $allAccounts = $allAccounts ?? $bufferAccounts->all(true);
+        $allChannels = $bufferData->getChannels(false);
+        $chMap = [];
+        foreach ($allChannels as $c) $chMap[$c['channel_id']] = $c;
+        $accMap = [];
+        foreach ($allAccounts as $a) $accMap[$a['id']] = $a;
+        $defaultKey = Config::get('buffer_api_key') ?: ($allAccounts[0]['api_key'] ?? '');
+
+        foreach ($queuedPosts as $qp) {
+            $apiKey = $defaultKey;
+            if (isset($chMap[$qp['channel_id']]) && !empty($chMap[$qp['channel_id']]['buffer_account_id'])) {
+                $aId = $chMap[$qp['channel_id']]['buffer_account_id'];
+                if (isset($accMap[$aId])) $apiKey = $accMap[$aId]['api_key'];
+            }
+            $api = new BufferApi($apiKey);
+
+            $dueAtIso = null;
+            if (!empty($qp['due_at'])) {
+                $dt = new DateTime($qp['due_at']);
+                $dt->setTimezone(new DateTimeZone('UTC'));
+                $dueAtIso = $dt->format('Y-m-d\TH:i:s.000\Z');
+            }
+
+            $res = $api->createPost($qp['channel_id'], $qp['text'], $dueAtIso);
+            if (($res['http'] ?? 0) === 429) break; // Rate limit — parar
+
+            $node = $res['data']['createPost']['post'] ?? null;
+            if ($node) {
+                $db->update('buffer_posts', [
+                    'buffer_post_id' => $node['id'],
+                    'status' => $node['status'] ?? 'scheduled',
+                    'due_at' => !empty($node['dueAt']) ? date('Y-m-d H:i:s', strtotime($node['dueAt'])) : $qp['due_at'],
+                    'external_link' => $node['externalLink'] ?? null,
+                ], 'id = ?', [$qp['id']]);
+            } else {
+                $errMsg = $res['data']['createPost']['message'] ?? ($res['errors'][0]['message'] ?? 'erro');
+                if (stripos($errMsg, 'too many requests') !== false) break; // Rate limit — parar
+                // Outro erro: marcar como falha
+                $db->update('buffer_posts', ['status' => 'error'], 'id = ?', [$qp['id']]);
+            }
+            usleep(500000); // 500ms entre posts
+        }
+    }
+
+    // ============================================================
     // 2) SOCIAL: Auto-importar + Meta (Instagram + Facebook) + LinkedIn
     // ============================================================
 

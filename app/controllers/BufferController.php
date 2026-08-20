@@ -441,18 +441,52 @@ class BufferController extends Controller
             // Log para diagnóstico de erros da API Buffer
             $this->logBufferResponse($res, $channelId);
 
-            // Se é rate limit, parar imediatamente (não adianta tentar outros canais)
+            // Se é rate limit, salvar na fila local para enviar depois
             if (($res['http'] ?? 0) === 429) {
-                $errMsg = $res['errors'][0]['message'] ?? 'Limite de requisições excedido.';
-                $this->json(['error' => $errMsg], 400);
+                // Salvar todos os canais restantes na fila
+                foreach (array_slice($channelIds, $idx) as $queuedChannelId) {
+                    $this->data->savePost([
+                        'marketing_item_id' => $marketingItemId,
+                        'buffer_post_id' => 'queued_' . uniqid(),
+                        'channel_id' => $queuedChannelId,
+                        'service' => $channelMap[$queuedChannelId]['service'] ?? null,
+                        'text' => $text,
+                        'status' => 'queued',
+                        'due_at' => $dueAtIso ? date('Y-m-d H:i:s', strtotime($dueAtIso)) : null,
+                        'created_by' => $user['id'],
+                    ]);
+                }
+                $this->json([
+                    'success' => true,
+                    'created' => count($created),
+                    'queued' => count($channelIds) - $idx,
+                    'message' => 'Limite da API Buffer atingido. ' . (count($created) ? count($created) . ' post(s) agendado(s). ' : '') . 'Os demais foram salvos na fila e serão enviados automaticamente quando o limite resetar.',
+                ]);
             }
 
             $node = $res['data']['createPost']['post'] ?? null;
             $errMsg = $res['data']['createPost']['message'] ?? ($res['errors'][0]['message'] ?? null);
 
-            // Rate limit detectado na mensagem: parar
+            // Rate limit detectado na mensagem: salvar na fila
             if ($errMsg && stripos($errMsg, 'too many requests') !== false) {
-                $this->json(['error' => 'Limite de requisições da API Buffer atingido. Aguarde alguns minutos e tente novamente.'], 400);
+                foreach (array_slice($channelIds, $idx) as $queuedChannelId) {
+                    $this->data->savePost([
+                        'marketing_item_id' => $marketingItemId,
+                        'buffer_post_id' => 'queued_' . uniqid(),
+                        'channel_id' => $queuedChannelId,
+                        'service' => $channelMap[$queuedChannelId]['service'] ?? null,
+                        'text' => $text,
+                        'status' => 'queued',
+                        'due_at' => $dueAtIso ? date('Y-m-d H:i:s', strtotime($dueAtIso)) : null,
+                        'created_by' => $user['id'],
+                    ]);
+                }
+                $this->json([
+                    'success' => true,
+                    'created' => count($created),
+                    'queued' => count($channelIds) - $idx,
+                    'message' => 'Limite da API Buffer atingido. Os posts foram salvos na fila e serão enviados automaticamente.',
+                ]);
             }
 
             if ($node) {

@@ -202,7 +202,7 @@ class BufferApi
                 ... on MutationError { message }
             }
         }';
-        return $this->query($q, ['input' => $input], 1);
+        return $this->query($q, ['input' => $input], 0);
     }
 
     /** Exclui um post. */
