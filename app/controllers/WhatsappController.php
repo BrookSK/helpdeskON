@@ -114,24 +114,23 @@ class WhatsappController extends Controller
         $user = $this->currentUser();
         $filters = [];
 
-        // Filtragem automática: cada usuário vê apenas seus contatos + sem dono
-        // Super admin pode usar o filtro para ver todos (passando assigned_to=all)
+        // Filtragem automática: cada usuário vê apenas SEUS contatos
         if (!empty($_GET['assigned_to'])) {
             if ($_GET['assigned_to'] === 'all' && $user['role'] === 'super_admin') {
-                // Admin pediu para ver todos — não filtra
+                // Admin pediu para ver todos — não filtra por assigned_to
             } elseif ($_GET['assigned_to'] === 'unassigned') {
                 $filters['assigned_to'] = 'unassigned';
             } else {
-                // Não-admins não podem filtrar por outro usuário
+                // Filtrar por um usuário específico (apenas admin pode escolher outro)
                 if ($user['role'] === 'super_admin') {
                     $filters['assigned_to'] = $_GET['assigned_to'];
                 } else {
-                    $filters['assigned_to_or_unassigned'] = $user['id'];
+                    $filters['assigned_to'] = $user['id'];
                 }
             }
         } else {
-            // Padrão: filtrar pelo próprio usuário + sem dono
-            $filters['assigned_to_or_unassigned'] = $user['id'];
+            // Padrão: filtrar APENAS pelos contatos do próprio usuário
+            $filters['assigned_to'] = $user['id'];
         }
 
         if (!empty($_GET['label_id'])) $filters['label_id'] = $_GET['label_id'];
