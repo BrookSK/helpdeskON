@@ -73,6 +73,13 @@ $stats = ['buffer_channels' => 0, 'buffer_posts' => 0, 'social_updated' => 0, 's
 // ============================================================
 // 1) BUFFER: Sincronizar canais e métricas
 // ============================================================
+// Limitar a 1x a cada 12h para não esgotar o rate limit (250 req/dia no Free)
+$lastCronSync = Config::get('buffer_cron_last_sync');
+$skipBuffer = ($lastCronSync && (time() - strtotime($lastCronSync)) < 43200); // 12h
+
+if ($skipBuffer) {
+    $log("1/4 — Buffer: Pulando (já sincronizado nas últimas 12h)");
+} else {
 $log("1/4 — Sincronizando canais do Buffer...");
 $bufferAccounts = new BufferAccount();
 $bufferData = new BufferData();
@@ -137,7 +144,7 @@ foreach ($allAccounts as $acc) {
             $after = $conn['pageInfo']['endCursor'] ?? null;
             $hasNext = !empty($conn['pageInfo']['hasNextPage']);
             $pages++;
-        } while ($hasNext && $pages < 20);
+        } while ($hasNext && $pages < 5);
 
         // Agregação por canal
         $snapshotModel = new SocialSnapshot();
@@ -171,6 +178,8 @@ foreach ($allAccounts as $acc) {
     }
 }
 $log("   Buffer: {$stats['buffer_channels']} canais, {$stats['buffer_posts']} posts");
+Config::set('buffer_cron_last_sync', date('Y-m-d H:i:s'));
+} // end if (!$skipBuffer)
 
 // ============================================================
 // 2) SOCIAL: Sincronizar contas diretas (Meta + LinkedIn)
