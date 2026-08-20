@@ -543,7 +543,7 @@ function scheduleToBuffer() {
         .then(r => r.json()).then(data => {
             if (data.error) { result.innerHTML = `<span class="text-danger">${data.error}</span>`; return; }
             if (data.queued) {
-                result.innerHTML = `<span class="text-warning"><i class="bi bi-clock-history"></i> ${data.message}</span>`;
+                result.innerHTML = `<div class="alert alert-info small py-2 px-3 mb-0 mt-1"><i class="bi bi-clock-history"></i> ${data.message}</div>`;
             } else {
                 result.innerHTML = `<span class="text-success"><i class="bi bi-check-circle"></i> ${data.created} publicação(ões) agendada(s) no Buffer.</span>`;
             }
