@@ -111,8 +111,22 @@ class WhatsappController extends Controller
             $this->json(['contacts' => [], 'groups' => []]);
         }
 
+        $user = $this->currentUser();
         $filters = [];
-        if (!empty($_GET['assigned_to'])) $filters['assigned_to'] = $_GET['assigned_to'];
+
+        // Não-admins veem apenas contatos atribuídos a si + sem dono
+        if ($user['role'] !== 'super_admin') {
+            // Se o frontend não enviou filtro específico, forçar filtro pelo próprio usuário + sem dono
+            if (empty($_GET['assigned_to'])) {
+                $filters['assigned_to_or_unassigned'] = $user['id'];
+            } else {
+                // Não permitir filtrar por outro usuário se não for admin
+                $filters['assigned_to_or_unassigned'] = $user['id'];
+            }
+        } else {
+            if (!empty($_GET['assigned_to'])) $filters['assigned_to'] = $_GET['assigned_to'];
+        }
+
         if (!empty($_GET['label_id'])) $filters['label_id'] = $_GET['label_id'];
         if (!empty($_GET['search'])) $filters['search'] = $_GET['search'];
         if (!empty($_GET['service_status'])) $filters['service_status'] = $_GET['service_status'];
@@ -774,10 +788,18 @@ class WhatsappController extends Controller
         $contact = $this->contactModel->findById($contactId);
         if (!$contact) $this->json(['error' => 'Contato não encontrado'], 404);
 
+        $user = $this->currentUser();
         $data = [];
         if (isset($_POST['contact_name'])) $data['contact_name'] = trim($_POST['contact_name']);
         if (isset($_POST['internal_notes'])) $data['internal_notes'] = trim($_POST['internal_notes']);
-        if (isset($_POST['assigned_to'])) $data['assigned_to'] = $_POST['assigned_to'] ?: null;
+        if (isset($_POST['assigned_to'])) {
+            // Não-admins só podem atribuir a si mesmos
+            if ($user['role'] !== 'super_admin') {
+                $data['assigned_to'] = $user['id'];
+            } else {
+                $data['assigned_to'] = $_POST['assigned_to'] ?: null;
+            }
+        }
         if (isset($_POST['service_status'])) $data['service_status'] = $_POST['service_status'] ?: 'novo';
 
         if (!empty($data)) {
@@ -1759,6 +1781,7 @@ class WhatsappController extends Controller
 
         $phone = preg_replace('/\D/', '', $_POST['phone'] ?? '');
         $name = trim($_POST['name'] ?? '');
+        $user = $this->currentUser();
 
         if (empty($phone)) {
             $this->json(['error' => 'Informe o número.'], 400);
@@ -1807,6 +1830,8 @@ class WhatsappController extends Controller
         $update = ['is_archived' => 0];
         if (!empty($name)) $update['contact_name'] = $name;
         if (!empty($picUrl)) $update['profile_picture_url'] = $picUrl;
+        // Auto-atribuir ao usuário que iniciou a conversa
+        $update['assigned_to'] = $user['id'];
         $db = Database::getInstance();
         $db->update('whatsapp_contacts', $update, 'id = ?', [$contactId]);
 

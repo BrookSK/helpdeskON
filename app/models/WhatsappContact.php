@@ -224,7 +224,11 @@ class WhatsappContact
         }
 
         // Filtro por atendente atribuído
-        if (!empty($filters['assigned_to'])) {
+        if (!empty($filters['assigned_to_or_unassigned'])) {
+            // Mostra contatos atribuídos ao usuário OU sem dono (para que ele possa assumir)
+            $sql .= " AND (c.assigned_to = ? OR c.assigned_to IS NULL)";
+            $params[] = $filters['assigned_to_or_unassigned'];
+        } elseif (!empty($filters['assigned_to'])) {
             if ($filters['assigned_to'] === 'unassigned') {
                 $sql .= " AND c.assigned_to IS NULL";
             } else {

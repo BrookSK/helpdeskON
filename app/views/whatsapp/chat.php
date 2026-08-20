@@ -29,6 +29,7 @@
                 </button>
                 <input type="text" class="form-control form-control-sm" id="contact-search" placeholder="Buscar contato ou grupo...">
                 <div class="d-flex gap-1 mt-2 flex-nowrap">
+                    <?php if ($user['role'] === 'super_admin'): ?>
                     <select class="form-select form-select-sm flex-fill" id="filter-assigned" style="font-size:0.72rem;min-width:0;width:33%;">
                         <option value="">Todos</option>
                         <option value="unassigned">Sem dono</option>
@@ -36,6 +37,9 @@
                         <option value="<?= $m['id'] ?>"><?= escape($m['name']) ?></option>
                         <?php endforeach; ?>
                     </select>
+                    <?php else: ?>
+                    <input type="hidden" id="filter-assigned" value="">
+                    <?php endif; ?>
                     <select class="form-select form-select-sm flex-fill" id="filter-label" style="font-size:0.72rem;min-width:0;width:33%;">
                         <option value="">Etiquetas</option>
                         <?php foreach ($labels as $l): ?>
@@ -159,12 +163,18 @@
                 </div>
                 <div class="mb-3">
                     <label class="form-label small fw-medium">Atribuído a</label>
+                    <?php if ($user['role'] === 'super_admin'): ?>
                     <select class="form-select form-select-sm" id="detail-assigned">
                         <option value="">Ninguém</option>
                         <?php foreach ($teamMembers as $m): ?>
                         <option value="<?= $m['id'] ?>"><?= escape($m['name']) ?></option>
                         <?php endforeach; ?>
                     </select>
+                    <?php else: ?>
+                    <select class="form-select form-select-sm" id="detail-assigned" disabled>
+                        <option value="<?= $user['id'] ?>"><?= escape($user['name']) ?></option>
+                    </select>
+                    <?php endif; ?>
                 </div>
                 <div class="mb-3">
                     <label class="form-label small fw-medium">Observações Internas</label>
