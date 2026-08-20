@@ -1837,7 +1837,7 @@ class WhatsappController extends Controller
         $update = ['is_archived' => 0];
         if (!empty($name)) $update['contact_name'] = $name;
         if (!empty($picUrl)) $update['profile_picture_url'] = $picUrl;
-        // Auto-atribuir ao usuário que iniciou a conversa
+        // Auto-atribuir ao usuário que iniciou a conversa (sempre, mesmo se contato já existir)
         $update['assigned_to'] = $user['id'];
         $db = Database::getInstance();
         $db->update('whatsapp_contacts', $update, 'id = ?', [$contactId]);
