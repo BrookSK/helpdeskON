@@ -468,4 +468,33 @@ class PlanningCard
             'completed' => (int)($result['completed'] ?? 0),
         ];
     }
+
+    /**
+     * Busca cards de planejamento para a view do cliente.
+     * Retorna apenas campos não-sensíveis (sem datas/prazos).
+     */
+    public function getByCompanyForClient($companyId, $filters = [])
+    {
+        $sql = "SELECT pc.id, pc.title, pc.status, pc.priority, co.name as company_name
+                FROM planning_cards pc
+                LEFT JOIN companies co ON pc.company_id = co.id
+                WHERE pc.company_id = ?
+                  AND pc.status NOT IN ('archived')";
+        $params = [$companyId];
+
+        if (!empty($filters['status'])) {
+            $sql .= " AND pc.status = ?";
+            $params[] = $filters['status'];
+        }
+        if (!empty($filters['priority'])) {
+            $sql .= " AND pc.priority = ?";
+            $params[] = $filters['priority'];
+        }
+        if (!empty($filters['hide_completed'])) {
+            $sql .= " AND pc.status NOT IN ('completed')";
+        }
+
+        $sql .= " ORDER BY FIELD(pc.status, 'open', 'in_progress', 'em_revisao_interna', 'waiting_client', 'em_homologacao', 'aprovado_producao', 'completed', 'denied'), FIELD(pc.priority, 'urgent', 'high', 'medium', 'low'), pc.id DESC";
+        return $this->db->fetchAll($sql, $params);
+    }
 }

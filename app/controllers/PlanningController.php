@@ -1159,6 +1159,40 @@ class PlanningController extends Controller
             curl_close($ch);
         }
     }
+
+    /**
+     * View de demandas (planning cards) para o cliente.
+     * Exibe em formato de lista, sem informações sensíveis (prazo, datas, atendente técnico).
+     */
+    public function clientDemands()
+    {
+        $this->requireRole(['client']);
+        $user = $this->currentUser();
+
+        $fullUser = (new User())->findById($user['id']);
+        $companyId = $fullUser['company_id'] ?? null;
+
+        if (!$companyId) {
+            $this->view('client/demands', ['user' => $user, 'cards' => [], 'isOwner' => false, 'filters' => []]);
+            return;
+        }
+
+        $filters = [];
+        if (!empty($_GET['status'])) $filters['status'] = $_GET['status'];
+        if (!empty($_GET['priority'])) $filters['priority'] = $_GET['priority'];
+        if (!empty($_GET['hide_completed'])) $filters['hide_completed'] = true;
+
+        $cards = $this->cardModel->getByCompanyForClient($companyId, $filters);
+
+        $isOwner = !empty($fullUser['is_company_owner']);
+
+        $this->view('client/demands', [
+            'user' => $user,
+            'cards' => $cards,
+            'isOwner' => $isOwner,
+            'filters' => $filters,
+        ]);
+    }
 }
 
 

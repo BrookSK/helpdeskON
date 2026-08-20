@@ -76,6 +76,11 @@
                     <i class="bi bi-folder"></i> Documentos
                 </a>
             </li>
+            <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'demands' ? 'active' : '' ?>" href="<?= baseUrl('planning/clientDemands') ?>">
+                    <i class="bi bi-kanban"></i> Planejamento
+                </a>
+            </li>
             <?php
             $sidebarFullUser = (new User())->findById($user['id'] ?? 0);
             if ($sidebarFullUser && $sidebarFullUser['is_company_owner']): ?>
