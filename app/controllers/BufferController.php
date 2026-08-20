@@ -257,6 +257,14 @@ class BufferController extends Controller
         $this->requireRole($this->accessRoles);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
 
+        // Cache: não sincronizar se já sincronizou nas últimas 6 horas
+        $forceSync = !empty($_POST['force']);
+        $lastSync = Config::get('buffer_channels_last_sync');
+        if (!$forceSync && $lastSync && (time() - strtotime($lastSync)) < 21600) {
+            $this->json(['success' => true, 'count' => 0, 'cached' => true, 'channels' => $this->data->getChannels()]);
+            return;
+        }
+
         $accounts = $this->accountsModel->all(true);
         if (empty($accounts)) $this->json(['error' => 'Nenhuma chave da API Buffer configurada.'], 400);
 
@@ -277,6 +285,7 @@ class BufferController extends Controller
             $total += count($channels);
         }
 
+        Config::set('buffer_channels_last_sync', date('Y-m-d H:i:s'));
         $this->json(['success' => true, 'count' => $total, 'errors' => $errors, 'channels' => $this->data->getChannels()]);
     }
 
@@ -487,6 +496,14 @@ class BufferController extends Controller
         $this->requireRole($this->accessRoles);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
 
+        // Cache: não sincronizar métricas se já sincronizou nas últimas 6 horas
+        $forceSync = !empty($_POST['force']);
+        $lastSync = Config::get('buffer_metrics_last_sync');
+        if (!$forceSync && $lastSync && (time() - strtotime($lastSync)) < 21600) {
+            $this->json(['success' => true, 'posts' => 0, 'cached' => true]);
+            return;
+        }
+
         $accounts = $this->accountsModel->all(true);
         if (empty($accounts)) $this->json(['error' => 'Nenhuma chave da API Buffer configurada.'], 400);
 
@@ -581,6 +598,7 @@ class BufferController extends Controller
             }
         }
 
+        Config::set('buffer_metrics_last_sync', date('Y-m-d H:i:s'));
         $this->json([
             'success' => true,
             'posts' => $postCount,
