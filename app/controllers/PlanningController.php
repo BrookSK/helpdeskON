@@ -1166,38 +1166,9 @@ class PlanningController extends Controller
      */
     public function clientDemands()
     {
-        $this->requireRole(['client']);
-        $user = $this->currentUser();
-
-        $fullUser = (new User())->findById($user['id']);
-        $companyId = $fullUser['company_id'] ?? null;
-
-        if (!$companyId) {
-            $this->view('client/demands', ['user' => $user, 'cards' => [], 'isOwner' => false, 'filters' => []]);
-            return;
-        }
-
-        $filters = [];
-        if (!empty($_GET['status'])) $filters['status'] = $_GET['status'];
-        if (!empty($_GET['priority'])) $filters['priority'] = $_GET['priority'];
-        if (!empty($_GET['hide_completed'])) $filters['hide_completed'] = true;
-
-        // Ocultar arquivados por padrão (a menos que filtro seja enviado sem o checkbox)
-        $isSubmitted = isset($_GET['filtered']);
-        $hideArchived = $isSubmitted ? !empty($_GET['hide_archived']) : true;
-        if ($hideArchived) $filters['hide_archived'] = true;
-
-        $cards = $this->cardModel->getByCompanyForClient($companyId, $filters);
-
-        $isOwner = !empty($fullUser['is_company_owner']);
-
-        $this->view('client/demands', [
-            'user' => $user,
-            'cards' => $cards,
-            'isOwner' => $isOwner,
-            'filters' => $filters,
-            'hideArchived' => $hideArchived,
-        ]);
+        // Acesso removido para clientes - redireciona para dashboard
+        $this->requireLogin();
+        $this->redirect('dashboard');
     }
 }
 
