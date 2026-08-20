@@ -22,8 +22,9 @@ class BufferApi
     /**
      * Executa uma query/mutation GraphQL.
      * Retorna ['data' => ..., 'errors' => ..., 'http' => code].
+     * Implementa retry automático com backoff exponencial em caso de rate limiting (429).
      */
-    public function query($query, $variables = [])
+    public function query($query, $variables = [], $maxRetries = 3)
     {
         if (empty($this->apiKey)) {
             return ['errors' => [['message' => 'Chave da API Buffer não configurada.']], 'http' => 0];
@@ -32,32 +33,45 @@ class BufferApi
         $payload = ['query' => $query];
         if (!empty($variables)) $payload['variables'] = $variables;
 
-        $ch = curl_init($this->endpoint);
-        curl_setopt_array($ch, [
-            CURLOPT_POST => true,
-            CURLOPT_HTTPHEADER => [
-                'Authorization: Bearer ' . $this->apiKey,
-                'Content-Type: application/json',
-            ],
-            CURLOPT_POSTFIELDS => json_encode($payload),
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 45,
-        ]);
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $curlErr = curl_error($ch);
-        curl_close($ch);
+        $attempt = 0;
+        while ($attempt <= $maxRetries) {
+            $ch = curl_init($this->endpoint);
+            curl_setopt_array($ch, [
+                CURLOPT_POST => true,
+                CURLOPT_HTTPHEADER => [
+                    'Authorization: Bearer ' . $this->apiKey,
+                    'Content-Type: application/json',
+                ],
+                CURLOPT_POSTFIELDS => json_encode($payload),
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT => 45,
+            ]);
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $curlErr = curl_error($ch);
+            curl_close($ch);
 
-        if ($response === false) {
-            return ['errors' => [['message' => 'Falha de conexão: ' . $curlErr]], 'http' => $httpCode];
+            if ($response === false) {
+                return ['errors' => [['message' => 'Falha de conexão: ' . $curlErr]], 'http' => $httpCode];
+            }
+
+            // Rate limiting (429): aguardar e tentar novamente
+            if ($httpCode === 429 && $attempt < $maxRetries) {
+                $attempt++;
+                $waitSeconds = pow(2, $attempt); // 2s, 4s, 8s
+                sleep($waitSeconds);
+                continue;
+            }
+
+            $decoded = json_decode($response, true);
+            if (!is_array($decoded)) {
+                return ['errors' => [['message' => 'Resposta inválida da API Buffer.']], 'http' => $httpCode];
+            }
+            $decoded['http'] = $httpCode;
+            return $decoded;
         }
 
-        $decoded = json_decode($response, true);
-        if (!is_array($decoded)) {
-            return ['errors' => [['message' => 'Resposta inválida da API Buffer.']], 'http' => $httpCode];
-        }
-        $decoded['http'] = $httpCode;
-        return $decoded;
+        return ['errors' => [['message' => 'Rate limit excedido após múltiplas tentativas.']], 'http' => 429];
     }
 
     /** Conta + organizações do dono da chave. */

@@ -383,7 +383,10 @@ class BufferController extends Controller
 
         $created = [];
         $errors = [];
-        foreach ($channelIds as $channelId) {
+        foreach ($channelIds as $idx => $channelId) {
+            // Delay entre chamadas para evitar rate limiting da API Buffer
+            if ($idx > 0) usleep(500000); // 500ms entre cada canal
+
             $res = $api->createPost($channelId, $text, $dueAtIso, $assets);
             $node = $res['data']['createPost']['post'] ?? null;
             $errMsg = $res['data']['createPost']['message'] ?? ($res['errors'][0]['message'] ?? null);
