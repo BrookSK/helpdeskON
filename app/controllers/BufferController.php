@@ -524,6 +524,17 @@ class BufferController extends Controller
         $this->json(['success' => true, 'created' => count($created), 'errors' => $errors]);
     }
 
+    // API: Limpar fila de posts pendentes (queued)
+    public function clearQueue()
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $db = Database::getInstance();
+        $count = $db->fetch("SELECT COUNT(*) as t FROM buffer_posts WHERE status = 'queued'");
+        $db->query("DELETE FROM buffer_posts WHERE status = 'queued'");
+        $this->json(['success' => true, 'deleted' => $count['t'] ?? 0]);
+    }
+
     // API: sincronizar métricas dos posts enviados
     public function syncMetrics()
     {
