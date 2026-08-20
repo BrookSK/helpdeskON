@@ -357,8 +357,6 @@ class BufferController extends Controller
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
 
         $user = $this->currentUser();
-        $api = new BufferApi();
-        if (!$api->hasKey()) $this->json(['error' => 'Configure a chave da API Buffer em Configurações.'], 400);
 
         $text = trim($_POST['text'] ?? '');
         $channelIds = $_POST['channel_ids'] ?? [];
@@ -381,12 +379,36 @@ class BufferController extends Controller
             $this->json(['error' => 'Informe o texto e selecione ao menos um canal.'], 400);
         }
 
+        // Mapear canais para suas contas Buffer (para usar a API key correta por canal)
+        $allChannels = $this->data->getChannels(false);
+        $channelMap = [];
+        foreach ($allChannels as $c) {
+            $channelMap[$c['channel_id']] = $c;
+        }
+
+        // Carregar todas as contas Buffer ativas
+        $accounts = $this->accountsModel->all(true);
+        $accountMap = [];
+        foreach ($accounts as $acc) {
+            $accountMap[$acc['id']] = $acc;
+        }
+
+        // Determinar a API key padrão (fallback)
+        $defaultApiKey = Config::get('buffer_api_key');
+        if (empty($defaultApiKey) && !empty($accounts)) {
+            $defaultApiKey = $accounts[0]['api_key'] ?? '';
+        }
+        if (empty($defaultApiKey)) {
+            $this->json(['error' => 'Configure a chave da API Buffer em Configurações.'], 400);
+        }
+
         // Log de entrada para diagnóstico
         $this->logBufferResponse(['_input' => [
             'text' => substr($text, 0, 50),
             'channels' => $channelIds,
             'dueAtIso' => $dueAtIso,
             'assets' => $assets,
+            'accounts_count' => count($accounts),
         ]], 'INPUT');
 
         $created = [];
@@ -394,6 +416,16 @@ class BufferController extends Controller
         foreach ($channelIds as $idx => $channelId) {
             // Delay entre chamadas para evitar rate limiting da API Buffer
             if ($idx > 0) usleep(1000000); // 1s entre cada canal
+
+            // Usar a API key da conta vinculada ao canal (ou a padrão)
+            $apiKey = $defaultApiKey;
+            if (isset($channelMap[$channelId]) && !empty($channelMap[$channelId]['buffer_account_id'])) {
+                $accId = $channelMap[$channelId]['buffer_account_id'];
+                if (isset($accountMap[$accId]) && !empty($accountMap[$accId]['api_key'])) {
+                    $apiKey = $accountMap[$accId]['api_key'];
+                }
+            }
+            $api = new BufferApi($apiKey);
 
             $res = $api->createPost($channelId, $text, $dueAtIso, $assets);
 
@@ -413,9 +445,6 @@ class BufferController extends Controller
             if ($errMsg && stripos($errMsg, 'too many requests') !== false) {
                 $this->json(['error' => 'Limite de requisições da API Buffer atingido. Aguarde alguns minutos e tente novamente.'], 400);
             }
-
-            $node = $res['data']['createPost']['post'] ?? null;
-            $errMsg = $res['data']['createPost']['message'] ?? ($res['errors'][0]['message'] ?? null);
 
             if ($node) {
                 $channel = null;
@@ -440,7 +469,14 @@ class BufferController extends Controller
         }
 
         if (empty($created)) {
-            $this->json(['error' => 'Nenhum post criado. ' . implode('; ', $errors)], 400);
+            $this->json([
+                'error' => 'Nenhum post criado. ' . implode('; ', $errors),
+                'debug' => [
+                    'channels_tried' => count($channelIds),
+                    'api_key_length' => strlen($defaultApiKey ?? ''),
+                    'has_accounts' => count($accounts),
+                ],
+            ], 400);
         }
         $this->json(['success' => true, 'created' => count($created), 'errors' => $errors]);
     }
