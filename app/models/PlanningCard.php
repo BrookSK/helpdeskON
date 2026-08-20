@@ -70,7 +70,7 @@ class PlanningCard
             $params = array_merge($params, $filters['allowed_companies']);
         }
 
-        $sql .= " ORDER BY pc.position ASC, pc.updated_at DESC";
+        $sql .= " ORDER BY pc.position ASC, pc.id ASC";
         return $this->db->fetchAll($sql, $params);
     }
 
@@ -103,7 +103,7 @@ class PlanningCard
                 $params = array_merge($params, $filters['allowed_companies']);
             }
 
-            $sql .= " ORDER BY pc.position ASC, pc.updated_at DESC";
+            $sql .= " ORDER BY pc.position ASC, pc.id ASC";
             $result[$status] = $this->db->fetchAll($sql, $params);
         }
 
