@@ -22,7 +22,8 @@ class BufferApi
     /**
      * Executa uma query/mutation GraphQL.
      * Retorna ['data' => ..., 'errors' => ..., 'http' => code].
-     * Implementa retry automático com backoff exponencial em caso de rate limiting (429).
+     * Implementa retry automático com backoff em caso de rate limiting (429).
+     * Se o limite diário/mensal foi atingido, informa ao usuário sem retry infinito.
      */
     public function query($query, $variables = [], $maxRetries = 3)
     {
@@ -45,33 +46,97 @@ class BufferApi
                 CURLOPT_POSTFIELDS => json_encode($payload),
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_TIMEOUT => 45,
+                CURLOPT_HEADER => true,
             ]);
-            $response = curl_exec($ch);
+            $fullResponse = curl_exec($ch);
             $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $headerSize = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
             $curlErr = curl_error($ch);
             curl_close($ch);
 
-            if ($response === false) {
+            if ($fullResponse === false) {
                 return ['errors' => [['message' => 'Falha de conexão: ' . $curlErr]], 'http' => $httpCode];
             }
 
-            // Rate limiting (429): aguardar e tentar novamente
-            if ($httpCode === 429 && $attempt < $maxRetries) {
-                $attempt++;
-                $waitSeconds = pow(2, $attempt); // 2s, 4s, 8s
-                sleep($waitSeconds);
-                continue;
+            $headers = substr($fullResponse, 0, $headerSize);
+            $response = substr($fullResponse, $headerSize);
+
+            // Rate limiting via HTTP 429
+            if ($httpCode === 429) {
+                // Verificar qual janela foi excedida (via extensions.window no body)
+                $decoded = json_decode($response, true);
+                $window = $decoded['errors'][0]['extensions']['window'] ?? null;
+
+                // Se é limite de 24h ou 30d, não adianta ficar tentando — informar ao usuário
+                if ($window === '24h' || $window === '30d') {
+                    $retryAfter = $this->parseRetryAfter($headers);
+                    $waitMsg = $retryAfter ? " Tente novamente em " . $this->formatWait($retryAfter) . "." : '';
+                    $windowLabel = $window === '24h' ? 'diário' : 'mensal';
+                    return ['errors' => [['message' => "Limite {$windowLabel} da API Buffer atingido.{$waitMsg}"]], 'http' => 429];
+                }
+
+                // Limite de 15min: tentar novamente com backoff
+                if ($attempt < $maxRetries) {
+                    $retryAfter = $this->parseRetryAfter($headers);
+                    $wait = $retryAfter ? min($retryAfter, 30) : pow(2, $attempt + 1);
+                    $attempt++;
+                    sleep($wait);
+                    continue;
+                }
+
+                $decoded = $decoded ?? json_decode($response, true);
+                if (is_array($decoded)) { $decoded['http'] = $httpCode; return $decoded; }
+                return ['errors' => [['message' => 'Rate limit excedido. Aguarde alguns minutos e tente novamente.']], 'http' => 429];
             }
 
             $decoded = json_decode($response, true);
             if (!is_array($decoded)) {
                 return ['errors' => [['message' => 'Resposta inválida da API Buffer.']], 'http' => $httpCode];
             }
+
+            // Rate limiting via mensagem de erro no corpo (HTTP 200 mas com erro de rate limit)
+            $isRateLimited = false;
+            if (!empty($decoded['errors'])) {
+                foreach ($decoded['errors'] as $err) {
+                    if (isset($err['message']) && stripos($err['message'], 'too many requests') !== false) {
+                        $isRateLimited = true;
+                        break;
+                    }
+                }
+            }
+            $mutationMsg = $decoded['data']['createPost']['message'] ?? '';
+            if ($mutationMsg && stripos($mutationMsg, 'too many requests') !== false) {
+                $isRateLimited = true;
+            }
+
+            if ($isRateLimited && $attempt < $maxRetries) {
+                $attempt++;
+                sleep(pow(2, $attempt) + 1);
+                continue;
+            }
+
             $decoded['http'] = $httpCode;
             return $decoded;
         }
 
-        return ['errors' => [['message' => 'Rate limit excedido após múltiplas tentativas.']], 'http' => 429];
+        return ['errors' => [['message' => 'Limite de requisições excedido. Aguarde alguns minutos e tente novamente.']], 'http' => 429];
+    }
+
+    /** Extrai o valor do header Retry-After (em segundos). */
+    private function parseRetryAfter($headers)
+    {
+        if (preg_match('/Retry-After:\s*(\d+)/i', $headers, $m)) {
+            return intval($m[1]);
+        }
+        return null;
+    }
+
+    /** Formata segundos em texto legível. */
+    private function formatWait($seconds)
+    {
+        if ($seconds < 60) return "{$seconds} segundos";
+        if ($seconds < 3600) return ceil($seconds / 60) . " minutos";
+        return ceil($seconds / 3600) . " hora(s)";
     }
 
     /** Conta + organizações do dono da chave. */
@@ -137,7 +202,7 @@ class BufferApi
                 ... on MutationError { message }
             }
         }';
-        return $this->query($q, ['input' => $input]);
+        return $this->query($q, ['input' => $input], 1);
     }
 
     /** Exclui um post. */

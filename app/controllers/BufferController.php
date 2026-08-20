@@ -381,13 +381,39 @@ class BufferController extends Controller
             $this->json(['error' => 'Informe o texto e selecione ao menos um canal.'], 400);
         }
 
+        // Log de entrada para diagnóstico
+        $this->logBufferResponse(['_input' => [
+            'text' => substr($text, 0, 50),
+            'channels' => $channelIds,
+            'dueAtIso' => $dueAtIso,
+            'assets' => $assets,
+        ]], 'INPUT');
+
         $created = [];
         $errors = [];
         foreach ($channelIds as $idx => $channelId) {
             // Delay entre chamadas para evitar rate limiting da API Buffer
-            if ($idx > 0) usleep(500000); // 500ms entre cada canal
+            if ($idx > 0) usleep(1000000); // 1s entre cada canal
 
             $res = $api->createPost($channelId, $text, $dueAtIso, $assets);
+
+            // Log para diagnóstico de erros da API Buffer
+            $this->logBufferResponse($res, $channelId);
+
+            // Se é rate limit, parar imediatamente (não adianta tentar outros canais)
+            if (($res['http'] ?? 0) === 429) {
+                $errMsg = $res['errors'][0]['message'] ?? 'Limite de requisições excedido.';
+                $this->json(['error' => $errMsg], 400);
+            }
+
+            $node = $res['data']['createPost']['post'] ?? null;
+            $errMsg = $res['data']['createPost']['message'] ?? ($res['errors'][0]['message'] ?? null);
+
+            // Rate limit detectado na mensagem: parar
+            if ($errMsg && stripos($errMsg, 'too many requests') !== false) {
+                $this->json(['error' => 'Limite de requisições da API Buffer atingido. Aguarde alguns minutos e tente novamente.'], 400);
+            }
+
             $node = $res['data']['createPost']['post'] ?? null;
             $errMsg = $res['data']['createPost']['message'] ?? ($res['errors'][0]['message'] ?? null);
 
@@ -558,5 +584,21 @@ class BufferController extends Controller
         Config::set($cacheTimeKey, date('Y-m-d H:i:s'));
 
         return !$valid;
+    }
+
+    /**
+     * Log de diagnóstico das respostas da API Buffer.
+     */
+    private function logBufferResponse($res, $channelId)
+    {
+        try {
+            $logFile = PUBLIC_PATH . '/uploads/buffer_api.log';
+            $entry = '[' . date('Y-m-d H:i:s') . '] channel=' . $channelId
+                . ' http=' . ($res['http'] ?? '?')
+                . ' response=' . json_encode($res, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n";
+            file_put_contents($logFile, $entry, FILE_APPEND);
+        } catch (\Throwable $e) {
+            // ignora
+        }
     }
 }
