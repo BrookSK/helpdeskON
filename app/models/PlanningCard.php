@@ -70,7 +70,7 @@ class PlanningCard
             $params = array_merge($params, $filters['allowed_companies']);
         }
 
-        $sql .= " ORDER BY FIELD(pc.priority, 'urgent', 'high', 'medium', 'low'), pc.position ASC, pc.id ASC";
+        $sql .= " ORDER BY FIELD(pc.priority, 'urgent', 'high', 'medium', 'low'), pc.due_date IS NULL, pc.due_date ASC, pc.position ASC, pc.id ASC";
         return $this->db->fetchAll($sql, $params);
     }
 
@@ -103,7 +103,7 @@ class PlanningCard
                 $params = array_merge($params, $filters['allowed_companies']);
             }
 
-            $sql .= " ORDER BY FIELD(pc.priority, 'urgent', 'high', 'medium', 'low'), pc.position ASC, pc.id ASC";
+            $sql .= " ORDER BY FIELD(pc.priority, 'urgent', 'high', 'medium', 'low'), pc.due_date IS NULL, pc.due_date ASC, pc.position ASC, pc.id ASC";
             $result[$status] = $this->db->fetchAll($sql, $params);
         }
 
