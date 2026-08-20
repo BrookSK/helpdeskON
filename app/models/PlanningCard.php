@@ -192,6 +192,20 @@ class PlanningCard
         return $this->db->update('planning_cards', $data, 'id = ?', [$id]);
     }
 
+    /**
+     * Reordena todos os cards de uma coluna (status) com posições sequenciais.
+     * Recebe os IDs na ordem desejada e atribui position = 0, 1, 2, ...
+     */
+    public function reorderCards($ids, $status)
+    {
+        foreach ($ids as $position => $id) {
+            $this->db->update('planning_cards', [
+                'position' => $position,
+                'status' => $status,
+            ], 'id = ?', [$id]);
+        }
+    }
+
     public function delete($id)
     {
         return $this->db->delete('planning_cards', 'id = ?', [$id]);

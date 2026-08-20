@@ -642,16 +642,43 @@ document.querySelectorAll('#kanban-view .kanban-list').forEach(list => {
         onEnd: function(evt) {
             const cardId = evt.item.dataset.id;
             const newStatus = evt.to.dataset.status;
-            const position = evt.newIndex;
-            const formData = new FormData();
-            formData.append('status', newStatus);
-            formData.append('position', position);
-            fetch(BASE + 'planning/updateStatus/' + cardId, { method: 'POST', body: formData, headers: {'X-Requested-With':'XMLHttpRequest'} })
-                .then(r => r.json()).then(data => { if (!data.success) evt.from.appendChild(evt.item); updateKanbanCounts(); })
-                .catch(() => { evt.from.appendChild(evt.item); updateKanbanCounts(); });
+            const oldStatus = evt.from.dataset.status;
+
+            // Se mudou de coluna, atualizar status primeiro (dispara notificações de ticket)
+            if (newStatus !== oldStatus) {
+                const formData = new FormData();
+                formData.append('status', newStatus);
+                formData.append('position', evt.newIndex);
+                fetch(BASE + 'planning/updateStatus/' + cardId, { method: 'POST', body: formData, headers: {'X-Requested-With':'XMLHttpRequest'} })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (!data.success) { evt.from.appendChild(evt.item); updateKanbanCounts(); return; }
+                        // Persistir ordem completa da coluna destino
+                        reorderColumn(evt.to);
+                        updateKanbanCounts();
+                    })
+                    .catch(() => { evt.from.appendChild(evt.item); updateKanbanCounts(); });
+            } else {
+                // Apenas reordenamento dentro da mesma coluna
+                reorderColumn(evt.to);
+            }
         }
     });
 });
+
+// Persiste a ordem completa de uma coluna no backend
+function reorderColumn(listEl) {
+    const status = listEl.dataset.status;
+    const ids = [...listEl.querySelectorAll('.planning-card')].map(el => el.dataset.id);
+    if (!ids.length) return;
+
+    const fd = new FormData();
+    fd.append('status', status);
+    fd.append('card_ids', ids.join(','));
+    fetch(BASE + 'planning/reorder', { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json())
+        .then(data => { if (!data.success) console.warn('Erro ao salvar ordem:', data.error); });
+}
 function updateKanbanCounts() {
     document.querySelectorAll('.kanban-column').forEach(col => {
         const list = col.querySelector('.kanban-list');
