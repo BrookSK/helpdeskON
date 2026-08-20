@@ -214,6 +214,11 @@ class MarketingController extends Controller
             $this->notifyAdmins('Conteúdo aguardando aprovação', "{$user['name']} enviou \"{$item['title']}\" para aprovação.");
         }
 
+        // Notificar responsável via WhatsApp quando aprovado via update
+        if (($data['status'] ?? '') === 'aprovado' && $item['assigned_to']) {
+            $this->notifyWhatsappApproval($item);
+        }
+
         $this->json(['success' => true, 'item' => $this->itemModel->findById($id)]);
     }
 
@@ -231,6 +236,9 @@ class MarketingController extends Controller
 
         if ($item['assigned_to']) {
             $this->notify($item['assigned_to'], 'Conteúdo aprovado', "Sua demanda \"{$item['title']}\" foi aprovada. Já pode ser agendada.");
+
+            // Notificar responsável via WhatsApp
+            $this->notifyWhatsappApproval($item);
         }
         $this->json(['success' => true, 'item' => $this->itemModel->findById($id)]);
     }
@@ -444,6 +452,43 @@ class MarketingController extends Controller
     }
 
     // ===== Helpers de notificação =====
+
+    /**
+     * Envia notificação via WhatsApp para o responsável quando um post é aprovado.
+     * Valida que o responsável existe e possui telefone cadastrado antes do envio.
+     */
+    private function notifyWhatsappApproval($item)
+    {
+        if (empty($item['assigned_to'])) return;
+
+        try {
+            $userModel = new User();
+            $assignedUser = $userModel->findById($item['assigned_to']);
+
+            // Validar: responsável precisa existir e ter telefone cadastrado
+            if (!$assignedUser || empty($assignedUser['phone'])) return;
+
+            $rede = $item['social_network'] ?? 'Não definida';
+            $dataAgendamento = !empty($item['scheduled_at'])
+                ? date('d/m/Y H:i', strtotime($item['scheduled_at']))
+                : 'A definir';
+
+            $whatsMessage = "✅ *Conteúdo Aprovado — Marketing*\n\n"
+                . "*Título:* {$item['title']}\n"
+                . "*Rede social:* {$rede}\n"
+                . "*Agendamento:* {$dataAgendamento}\n\n"
+                . "Sua demanda foi aprovada e já pode ser agendada para publicação.";
+
+            WhatsappNotifier::sendToPhone(
+                $assignedUser['phone'],
+                $whatsMessage,
+                $assignedUser['name']
+            );
+        } catch (\Throwable $e) {
+            // Silencioso — WhatsApp é canal complementar, não deve bloquear a aprovação
+        }
+    }
+
     private function notify($userId, $title, $message)
     {
         try {
