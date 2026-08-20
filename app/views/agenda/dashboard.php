@@ -75,19 +75,19 @@ $conversionRate = $totals['realizada'] > 0 ? round(($totals['convertida'] / $tot
 
     <!-- WhatsApp + E-mails -->
     <div class="row g-2 mb-3">
-        <div class="col-6 col-md-2"><div class="mc" style="border-color:#1976d2"><span class="mc-v" style="color:#1976d2"><?= number_format($totals['messages_sent'], 0, ',', '.') ?></span><span class="mc-l"><i class="bi bi-whatsapp"></i> Msg Env.</span></div></div>
-        <div class="col-6 col-md-2"><div class="mc" style="border-color:#7b1fa2"><span class="mc-v" style="color:#7b1fa2"><?= number_format($totals['messages_received'], 0, ',', '.') ?></span><span class="mc-l">Msg Rec.</span></div></div>
+        <div class="col-6 col-md-2"><div class="mc" style="border-color:#1976d2"><span class="mc-v" style="color:#1976d2"><?= number_format($totals['messages_sent'], 0, ',', '.') ?></span><span class="mc-l"><i class="bi bi-whatsapp"></i> Mensagens Enviadas</span></div></div>
+        <div class="col-6 col-md-2"><div class="mc" style="border-color:#7b1fa2"><span class="mc-v" style="color:#7b1fa2"><?= number_format($totals['messages_received'], 0, ',', '.') ?></span><span class="mc-l">Mensagens Recebidas</span></div></div>
         <div class="col-6 col-md-2"><div class="mc" style="border-color:#2e7d32"><span class="mc-v" style="color:#2e7d32"><?= $totals['contacts_replied'] ?></span><span class="mc-l">Responderam</span></div></div>
-        <div class="col-6 col-md-2"><div class="mc" style="border-color:#c62828"><span class="mc-v" style="color:#c62828"><?= $totals['contacts_no_reply'] ?></span><span class="mc-l">S/ Resposta</span></div></div>
-        <div class="col-6 col-md-2"><div class="mc" style="border-color:#e65100"><span class="mc-v" style="color:#e65100"><?= $totals['emails_sent'] ?></span><span class="mc-l"><i class="bi bi-envelope"></i> Emails Env.</span></div></div>
-        <div class="col-6 col-md-2"><div class="mc" style="border-color:#455a64"><span class="mc-v" style="color:#455a64"><?= $totals['emails_total'] ?></span><span class="mc-l">Total Emails</span></div></div>
+        <div class="col-6 col-md-2"><div class="mc" style="border-color:#c62828"><span class="mc-v" style="color:#c62828"><?= $totals['contacts_no_reply'] ?></span><span class="mc-l">Sem Resposta</span></div></div>
+        <div class="col-6 col-md-2"><div class="mc" style="border-color:#e65100"><span class="mc-v" style="color:#e65100"><?= $totals['emails_sent'] ?></span><span class="mc-l"><i class="bi bi-envelope"></i> E-mails Enviados</span></div></div>
+        <div class="col-6 col-md-2"><div class="mc" style="border-color:#455a64"><span class="mc-v" style="color:#455a64"><?= $totals['emails_total'] ?></span><span class="mc-l">Total E-mails</span></div></div>
     </div>
 
     <!-- Fechamento -->
     <div class="row g-2 mb-3">
         <div class="col-6 col-md-4"><div class="mc" style="border-color:#2e7d32"><span class="mc-v" style="color:#2e7d32"><?= $totals['closed_self'] ?></span><span class="mc-l"><i class="bi bi-trophy"></i> Fechou Próprio</span><span class="mc-sub">Trouxe o lead e fechou</span></div></div>
         <div class="col-6 col-md-4"><div class="mc" style="border-color:#1565c0"><span class="mc-v" style="color:#1565c0"><?= $totals['closed_by_others'] ?></span><span class="mc-l"><i class="bi bi-people"></i> Outro Fechou</span><span class="mc-sub">Trouxe o lead, outro fechou</span></div></div>
-        <div class="col-6 col-md-4"><div class="mc" style="border-color:#7b1fa2"><span class="mc-v" style="color:#7b1fa2"><?= $totals['closed_for_others'] ?></span><span class="mc-l"><i class="bi bi-hand-thumbs-up"></i> Fechou p/ Outros</span><span class="mc-sub">Fechou leads de outra pessoa</span></div></div>
+        <div class="col-6 col-md-4"><div class="mc" style="border-color:#7b1fa2"><span class="mc-v" style="color:#7b1fa2"><?= $totals['closed_for_others'] ?></span><span class="mc-l"><i class="bi bi-hand-thumbs-up"></i> Fechou por Outros</span><span class="mc-sub">Fechou leads de outra pessoa</span></div></div>
     </div>
 
     <!-- Tabela comparativa -->
