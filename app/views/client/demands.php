@@ -33,6 +33,7 @@ $priorityLabels = [
     <div class="card mb-3">
         <div class="card-body py-2 px-3">
             <form method="GET" class="row g-2 align-items-center">
+                <input type="hidden" name="filtered" value="1">
                 <div class="col-6 col-md-auto">
                     <select name="status" class="form-select form-select-sm">
                         <option value="">Todos Status</option>
@@ -49,10 +50,14 @@ $priorityLabels = [
                         <?php endforeach; ?>
                     </select>
                 </div>
-                <div class="col-auto">
+                <div class="col-auto d-flex gap-3">
                     <div class="form-check form-check-inline mb-0">
                         <input class="form-check-input" type="checkbox" name="hide_completed" value="1" id="hideCompleted" <?= !empty($filters['hide_completed']) ? 'checked' : '' ?>>
                         <label class="form-check-label small" for="hideCompleted">Ocultar concluídos</label>
+                    </div>
+                    <div class="form-check form-check-inline mb-0">
+                        <input class="form-check-input" type="checkbox" name="hide_archived" value="1" id="hideArchived" <?= !empty($hideArchived) ? 'checked' : '' ?>>
+                        <label class="form-check-label small" for="hideArchived">Ocultar arquivados</label>
                     </div>
                 </div>
                 <div class="col-12 col-md-auto">

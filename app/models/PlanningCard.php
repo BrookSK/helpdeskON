@@ -472,15 +472,18 @@ class PlanningCard
     /**
      * Busca cards de planejamento para a view do cliente.
      * Retorna apenas campos não-sensíveis (sem datas/prazos).
+     * Mostra todos os cards vinculados à empresa do cliente
+     * (por company_id OU por ticket criado por usuário da empresa).
      */
     public function getByCompanyForClient($companyId, $filters = [])
     {
         $sql = "SELECT pc.id, pc.title, pc.status, pc.priority, co.name as company_name
                 FROM planning_cards pc
                 LEFT JOIN companies co ON pc.company_id = co.id
-                WHERE pc.company_id = ?
-                  AND pc.status NOT IN ('archived')";
-        $params = [$companyId];
+                LEFT JOIN tickets t ON pc.ticket_id = t.id
+                LEFT JOIN users tc ON t.client_id = tc.id
+                WHERE (pc.company_id = ? OR tc.company_id = ?)";
+        $params = [$companyId, $companyId];
 
         if (!empty($filters['status'])) {
             $sql .= " AND pc.status = ?";
@@ -491,7 +494,10 @@ class PlanningCard
             $params[] = $filters['priority'];
         }
         if (!empty($filters['hide_completed'])) {
-            $sql .= " AND pc.status NOT IN ('completed')";
+            $sql .= " AND pc.status NOT IN ('completed', 'archived')";
+        }
+        if (!empty($filters['hide_archived'])) {
+            $sql .= " AND pc.status != 'archived'";
         }
 
         $sql .= " ORDER BY FIELD(pc.status, 'open', 'in_progress', 'em_revisao_interna', 'waiting_client', 'em_homologacao', 'aprovado_producao', 'completed', 'denied'), FIELD(pc.priority, 'urgent', 'high', 'medium', 'low'), pc.id DESC";

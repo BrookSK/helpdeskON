@@ -1182,6 +1182,11 @@ class PlanningController extends Controller
         if (!empty($_GET['priority'])) $filters['priority'] = $_GET['priority'];
         if (!empty($_GET['hide_completed'])) $filters['hide_completed'] = true;
 
+        // Ocultar arquivados por padrão (a menos que filtro seja enviado sem o checkbox)
+        $isSubmitted = isset($_GET['filtered']);
+        $hideArchived = $isSubmitted ? !empty($_GET['hide_archived']) : true;
+        if ($hideArchived) $filters['hide_archived'] = true;
+
         $cards = $this->cardModel->getByCompanyForClient($companyId, $filters);
 
         $isOwner = !empty($fullUser['is_company_owner']);
@@ -1191,6 +1196,7 @@ class PlanningController extends Controller
             'cards' => $cards,
             'isOwner' => $isOwner,
             'filters' => $filters,
+            'hideArchived' => $hideArchived,
         ]);
     }
 }
