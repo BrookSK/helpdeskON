@@ -59,65 +59,35 @@ $conversionRate = $totals['realizada'] > 0 ? round(($totals['convertida'] / $tot
         </div>
     </div>
 
-    <!-- Métricas — Layout compacto -->
+    <!-- Métricas -->
     <div class="row g-2 mb-3">
-        <!-- Reuniões -->
-        <div class="col-12">
-            <div class="card">
-                <div class="card-body py-2 px-3">
-                    <div class="d-flex flex-wrap gap-4 align-items-center">
-                        <span class="metric-item"><span class="metric-label">Reuniões</span><span class="metric-val" style="color:#1565c0"><?= $totals['total_meetings'] ?></span></span>
-                        <span class="metric-item"><span class="metric-label">Realizadas</span><span class="metric-val" style="color:#2e7d32"><?= $totals['realizada'] ?></span></span>
-                        <span class="metric-item"><span class="metric-label">Convertidas</span><span class="metric-val" style="color:#6a1b9a"><?= $totals['convertida'] ?></span></span>
-                        <span class="metric-item"><span class="metric-label">Remarcadas</span><span class="metric-val" style="color:#e65100"><?= $totals['remarcada'] ?></span></span>
-                        <span class="metric-item"><span class="metric-label">Canceladas</span><span class="metric-val" style="color:#c62828"><?= $totals['cancelada'] ?></span></span>
-                        <span class="metric-item"><span class="metric-label">Taxa Conversão</span><span class="metric-val" style="color:#00897b"><?= $conversionRate ?>%</span></span>
-                        <span class="metric-item"><span class="metric-label">Contatos Alcançados</span><span class="metric-val" style="color:#455a64"><?= $totals['contacts_contacted'] ?></span></span>
-                    </div>
-                </div>
-            </div>
-        </div>
+        <div class="col-6 col-md-3"><div class="mc" style="border-color:#1565c0"><span class="mc-v" style="color:#1565c0"><?= $totals['total_meetings'] ?></span><span class="mc-l">Reuniões</span></div></div>
+        <div class="col-6 col-md-3"><div class="mc" style="border-color:#2e7d32"><span class="mc-v" style="color:#2e7d32"><?= $totals['realizada'] ?></span><span class="mc-l">Realizadas</span></div></div>
+        <div class="col-6 col-md-3"><div class="mc" style="border-color:#6a1b9a"><span class="mc-v" style="color:#6a1b9a"><?= $totals['convertida'] ?></span><span class="mc-l">Convertidas</span></div></div>
+        <div class="col-6 col-md-3"><div class="mc" style="border-color:#00897b"><span class="mc-v" style="color:#00897b"><?= $conversionRate ?>%</span><span class="mc-l">Taxa Conversão</span></div></div>
+    </div>
+    <div class="row g-2 mb-3">
+        <div class="col-6 col-md-3"><div class="mc" style="border-color:#e65100"><span class="mc-v" style="color:#e65100"><?= $totals['remarcada'] ?></span><span class="mc-l">Remarcadas</span></div></div>
+        <div class="col-6 col-md-3"><div class="mc" style="border-color:#c62828"><span class="mc-v" style="color:#c62828"><?= $totals['cancelada'] ?></span><span class="mc-l">Canceladas</span></div></div>
+        <div class="col-6 col-md-3"><div class="mc" style="border-color:#455a64"><span class="mc-v" style="color:#455a64"><?= $totals['contacts_contacted'] ?></span><span class="mc-l">Contatos Alcançados</span></div></div>
+        <div class="col-6 col-md-3"><div class="mc" style="border-color:#455a64"><span class="mc-v" style="color:#455a64"><?= $totals['unique_contacts'] ?></span><span class="mc-l">Contatos Únicos</span></div></div>
+    </div>
 
-        <!-- Mensagens WhatsApp -->
-        <div class="col-12">
-            <div class="card">
-                <div class="card-body py-2 px-3">
-                    <div class="d-flex flex-wrap gap-4 align-items-center">
-                        <span class="metric-item"><span class="metric-label"><i class="bi bi-whatsapp text-success"></i> Msg Enviadas</span><span class="metric-val" style="color:#1976d2"><?= number_format($totals['messages_sent'], 0, ',', '.') ?></span></span>
-                        <span class="metric-item"><span class="metric-label">Msg Recebidas</span><span class="metric-val" style="color:#7b1fa2"><?= number_format($totals['messages_received'], 0, ',', '.') ?></span></span>
-                        <span class="metric-item"><span class="metric-label">Responderam</span><span class="metric-val" style="color:#2e7d32"><?= $totals['contacts_replied'] ?></span></span>
-                        <span class="metric-item"><span class="metric-label">Sem Resposta</span><span class="metric-val" style="color:#c62828"><?= $totals['contacts_no_reply'] ?></span></span>
-                    </div>
-                </div>
-            </div>
-        </div>
+    <!-- WhatsApp + E-mails -->
+    <div class="row g-2 mb-3">
+        <div class="col-6 col-md-2"><div class="mc" style="border-color:#1976d2"><span class="mc-v" style="color:#1976d2"><?= number_format($totals['messages_sent'], 0, ',', '.') ?></span><span class="mc-l"><i class="bi bi-whatsapp"></i> Msg Env.</span></div></div>
+        <div class="col-6 col-md-2"><div class="mc" style="border-color:#7b1fa2"><span class="mc-v" style="color:#7b1fa2"><?= number_format($totals['messages_received'], 0, ',', '.') ?></span><span class="mc-l">Msg Rec.</span></div></div>
+        <div class="col-6 col-md-2"><div class="mc" style="border-color:#2e7d32"><span class="mc-v" style="color:#2e7d32"><?= $totals['contacts_replied'] ?></span><span class="mc-l">Responderam</span></div></div>
+        <div class="col-6 col-md-2"><div class="mc" style="border-color:#c62828"><span class="mc-v" style="color:#c62828"><?= $totals['contacts_no_reply'] ?></span><span class="mc-l">S/ Resposta</span></div></div>
+        <div class="col-6 col-md-2"><div class="mc" style="border-color:#e65100"><span class="mc-v" style="color:#e65100"><?= $totals['emails_sent'] ?></span><span class="mc-l"><i class="bi bi-envelope"></i> Emails Env.</span></div></div>
+        <div class="col-6 col-md-2"><div class="mc" style="border-color:#455a64"><span class="mc-v" style="color:#455a64"><?= $totals['emails_total'] ?></span><span class="mc-l">Total Emails</span></div></div>
+    </div>
 
-        <!-- E-mails -->
-        <div class="col-12">
-            <div class="card">
-                <div class="card-body py-2 px-3">
-                    <div class="d-flex flex-wrap gap-4 align-items-center">
-                        <span class="metric-item"><span class="metric-label"><i class="bi bi-envelope"></i> E-mails Enviados</span><span class="metric-val" style="color:#e65100"><?= $totals['emails_sent'] ?></span></span>
-                        <span class="metric-item"><span class="metric-label">Falharam</span><span class="metric-val" style="color:#c62828"><?= $totals['emails_failed'] ?></span></span>
-                        <span class="metric-item"><span class="metric-label">Leads Prospectados</span><span class="metric-val" style="color:#00897b"><?= $totals['emails_unique_contacts'] ?></span></span>
-                        <span class="metric-item"><span class="metric-label">Total E-mails</span><span class="metric-val" style="color:#455a64"><?= $totals['emails_total'] ?></span></span>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Fechamento -->
-        <div class="col-12">
-            <div class="card">
-                <div class="card-body py-2 px-3">
-                    <div class="d-flex flex-wrap gap-4 align-items-center">
-                        <span class="metric-item"><span class="metric-label"><i class="bi bi-trophy"></i> Fechou Próprio</span><span class="metric-val" style="color:#2e7d32"><?= $totals['closed_self'] ?></span><small class="text-muted d-block" style="font-size:0.62rem">Trouxe o lead e fechou</small></span>
-                        <span class="metric-item"><span class="metric-label"><i class="bi bi-people"></i> Outro Fechou</span><span class="metric-val" style="color:#1565c0"><?= $totals['closed_by_others'] ?></span><small class="text-muted d-block" style="font-size:0.62rem">Trouxe o lead, outro fechou</small></span>
-                        <span class="metric-item"><span class="metric-label"><i class="bi bi-hand-thumbs-up"></i> Fechou p/ Outros</span><span class="metric-val" style="color:#7b1fa2"><?= $totals['closed_for_others'] ?></span><small class="text-muted d-block" style="font-size:0.62rem">Fechou leads de outra pessoa</small></span>
-                    </div>
-                </div>
-            </div>
-        </div>
+    <!-- Fechamento -->
+    <div class="row g-2 mb-3">
+        <div class="col-6 col-md-4"><div class="mc" style="border-color:#2e7d32"><span class="mc-v" style="color:#2e7d32"><?= $totals['closed_self'] ?></span><span class="mc-l"><i class="bi bi-trophy"></i> Fechou Próprio</span><span class="mc-sub">Trouxe o lead e fechou</span></div></div>
+        <div class="col-6 col-md-4"><div class="mc" style="border-color:#1565c0"><span class="mc-v" style="color:#1565c0"><?= $totals['closed_by_others'] ?></span><span class="mc-l"><i class="bi bi-people"></i> Outro Fechou</span><span class="mc-sub">Trouxe o lead, outro fechou</span></div></div>
+        <div class="col-6 col-md-4"><div class="mc" style="border-color:#7b1fa2"><span class="mc-v" style="color:#7b1fa2"><?= $totals['closed_for_others'] ?></span><span class="mc-l"><i class="bi bi-hand-thumbs-up"></i> Fechou p/ Outros</span><span class="mc-sub">Fechou leads de outra pessoa</span></div></div>
     </div>
 
     <!-- Tabela comparativa -->
@@ -202,9 +172,10 @@ $conversionRate = $totals['realizada'] > 0 ? round(($totals['convertida'] / $tot
 </div>
 
 <style>
-.metric-item { display: inline-flex; flex-direction: column; align-items: flex-start; min-width: 100px; }
-.metric-label { font-size: 0.68rem; color: #667; font-weight: 600; text-transform: uppercase; letter-spacing: .3px; line-height: 1.2; }
-.metric-val { font-size: 1.25rem; font-weight: 700; line-height: 1.3; }
+.mc { background: #fff; border-left: 4px solid #ddd; border-radius: 6px; padding: 10px 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); height: 100%; }
+.mc-v { display: block; font-size: 1.3rem; font-weight: 700; line-height: 1.2; }
+.mc-l { display: block; font-size: 0.7rem; color: #555; font-weight: 600; text-transform: uppercase; letter-spacing: .2px; margin-top: 2px; }
+.mc-sub { display: block; font-size: 0.6rem; color: #999; margin-top: 1px; }
 .stat-card { border-left: 4px solid #ddd; padding: 12px 16px; }
 .stat-label { font-size: 0.72rem; color: #667; font-weight: 600; text-transform: uppercase; letter-spacing: .3px; margin-bottom: 2px; }
 .stat-value { font-size: 1.4rem; font-weight: 700; }
