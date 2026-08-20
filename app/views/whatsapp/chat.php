@@ -31,7 +31,8 @@
                 <div class="d-flex gap-1 mt-2 flex-nowrap">
                     <?php if ($user['role'] === 'super_admin'): ?>
                     <select class="form-select form-select-sm flex-fill" id="filter-assigned" style="font-size:0.72rem;min-width:0;width:33%;">
-                        <option value="">Todos</option>
+                        <option value="" selected>Meus contatos</option>
+                        <option value="all">Todos</option>
                         <option value="unassigned">Sem dono</option>
                         <?php foreach ($teamMembers as $m): ?>
                         <option value="<?= $m['id'] ?>"><?= escape($m['name']) ?></option>
