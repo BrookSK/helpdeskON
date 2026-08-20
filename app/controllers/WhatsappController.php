@@ -57,9 +57,10 @@ class WhatsappController extends Controller
 
         $labels = $this->contactModel->getAllLabels();
         $userModel = new User();
-        $team = $userModel->getAttendants();
-        $admins = $db->fetchAll("SELECT id, name FROM users WHERE role = 'super_admin' AND is_active = 1");
-        $teamMembers = array_merge($admins, $team);
+        // Todos os usuários ativos que têm acesso ao WhatsApp Chat
+        $teamMembers = $db->fetchAll(
+            "SELECT id, name FROM users WHERE role IN ('super_admin', 'attendant', 'whatsapp_agent', 'comercial') AND is_active = 1 ORDER BY name"
+        );
 
         $this->view('whatsapp/chat', [
             'user' => $user,
