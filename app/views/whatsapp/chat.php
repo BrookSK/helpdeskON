@@ -39,7 +39,9 @@
                         <?php endforeach; ?>
                     </select>
                     <?php else: ?>
-                    <input type="hidden" id="filter-assigned" value="">
+                    <select class="form-select form-select-sm flex-fill" id="filter-assigned" style="font-size:0.72rem;min-width:0;width:33%;">
+                        <option value="" selected><?= escape($user['name']) ?></option>
+                    </select>
                     <?php endif; ?>
                     <select class="form-select form-select-sm flex-fill" id="filter-label" style="font-size:0.72rem;min-width:0;width:33%;">
                         <option value="">Etiquetas</option>
@@ -172,7 +174,8 @@
                         <?php endforeach; ?>
                     </select>
                     <?php else: ?>
-                    <select class="form-select form-select-sm" id="detail-assigned" disabled>
+                    <select class="form-select form-select-sm" id="detail-assigned">
+                        <option value="">Ninguém</option>
                         <option value="<?= $user['id'] ?>"><?= escape($user['name']) ?></option>
                     </select>
                     <?php endif; ?>
