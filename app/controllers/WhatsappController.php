@@ -68,9 +68,15 @@ class WhatsappController extends Controller
             "SELECT id, name FROM users WHERE role IN ('super_admin', 'attendant', 'whatsapp_agent', 'comercial') AND is_active = 1 ORDER BY name"
         );
 
+        // Todas as instâncias para filtro e seleção
+        $allInstances = $db->fetchAll(
+            "SELECT id, instance_name, display_name, connection_status FROM whatsapp_instances ORDER BY is_default DESC, display_name ASC"
+        );
+
         $this->view('whatsapp/chat', [
             'user' => $user,
             'instance' => $instance,
+            'instances' => $allInstances,
             'labels' => $labels,
             'teamMembers' => $teamMembers,
             'activeContactId' => $contactId,
@@ -121,12 +127,28 @@ class WhatsappController extends Controller
     {
         $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
 
-        $instance = $this->getUserInstance();
-        if (!$instance) {
-            $this->json(['contacts' => [], 'groups' => []]);
+        $db = Database::getInstance();
+        $user = $this->currentUser();
+
+        // Determinar instância(s) a mostrar
+        // Se veio filtro de instância específica, usa. Senão, mostra de todas.
+        $instanceFilter = null;
+        if (!empty($_GET['instance_id'])) {
+            if ($_GET['instance_id'] === 'all') {
+                $instanceFilter = null; // Todas
+            } else {
+                $instanceFilter = intval($_GET['instance_id']);
+            }
+        }
+        // Se não tem filtro, busca todas as instâncias disponíveis
+        if ($instanceFilter === null) {
+            $allInstances = $db->fetchAll("SELECT id FROM whatsapp_instances");
+            $instanceFilter = array_column($allInstances, 'id');
+            if (empty($instanceFilter)) {
+                $this->json(['contacts' => [], 'groups' => []]);
+            }
         }
 
-        $user = $this->currentUser();
         $filters = [];
 
         // Filtragem automática: cada usuário vê apenas SEUS contatos
@@ -156,19 +178,19 @@ class WhatsappController extends Controller
         $type = $_GET['type'] ?? 'all';
 
         if ($type === 'all') {
-            $contacts = $this->contactModel->getAll($instance['id'], $filters, 'contacts');
+            $contacts = $this->contactModel->getAll($instanceFilter, $filters, 'contacts');
             // Grupos não são filtrados por assigned_to (não possuem dono individual)
             $groupFilters = $filters;
             unset($groupFilters['assigned_to']);
-            $groups = $this->contactModel->getAll($instance['id'], $groupFilters, 'groups');
+            $groups = $this->contactModel->getAll($instanceFilter, $groupFilters, 'groups');
             $this->json(['contacts' => $contacts, 'groups' => $groups]);
         } else if ($type === 'groups') {
             $groupFilters = $filters;
             unset($groupFilters['assigned_to']);
-            $results = $this->contactModel->getAll($instance['id'], $groupFilters, $type);
+            $results = $this->contactModel->getAll($instanceFilter, $groupFilters, $type);
             $this->json($results);
         } else {
-            $results = $this->contactModel->getAll($instance['id'], $filters, $type);
+            $results = $this->contactModel->getAll($instanceFilter, $filters, $type);
             $this->json($results);
         }
     }
@@ -1854,7 +1876,14 @@ class WhatsappController extends Controller
             $this->json(['error' => 'Informe o número.'], 400);
         }
 
-        $instance = $this->getUserInstance();
+        // Usar instância selecionada pelo usuário, ou fallback para getUserInstance()
+        $db = Database::getInstance();
+        if (!empty($_POST['instance_id'])) {
+            $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE id = ?", [intval($_POST['instance_id'])]);
+        }
+        if (empty($instance)) {
+            $instance = $this->getUserInstance();
+        }
         if (!$instance) {
             $this->json(['error' => 'Nenhuma instância de WhatsApp disponível.'], 400);
         }

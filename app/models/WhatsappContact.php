@@ -172,11 +172,13 @@ class WhatsappContact
 
     /**
      * Retorna contatos com filtros (para lista do chat)
+     * @param int|array|null $instanceId Um ID, array de IDs, ou null para todas as instâncias
      * @param string $type 'contacts', 'groups' ou 'all'
      */
     public function getAll($instanceId, $filters = [], $type = 'contacts')
     {
         $sql = "SELECT c.*, 
+                    wi.display_name as instance_display_name,
                     (SELECT GROUP_CONCAT(l.name SEPARATOR ', ') 
                      FROM whatsapp_contact_labels cl 
                      JOIN whatsapp_labels l ON cl.label_id = l.id 
@@ -189,6 +191,7 @@ class WhatsappContact
                     crm.board_name as crm_board_name,
                     crm.column_name as crm_column_name
                 FROM whatsapp_contacts c
+                LEFT JOIN whatsapp_instances wi ON c.instance_id = wi.id
                 LEFT JOIN users u ON c.assigned_to = u.id
                 LEFT JOIN (
                     SELECT cc.contact_id, b.name as board_name, col.name as column_name
@@ -207,8 +210,19 @@ class WhatsappContact
                         GROUP BY contact_id
                     ) m2 ON m1.contact_id = m2.contact_id AND m1.id = m2.max_id
                 ) lm ON lm.contact_id = c.id
-                WHERE c.instance_id = ?";
-        $params = [$instanceId];
+                WHERE 1=1";
+        $params = [];
+
+        // Filtro por instância(s)
+        if (is_array($instanceId) && !empty($instanceId)) {
+            $placeholders = implode(',', array_fill(0, count($instanceId), '?'));
+            $sql .= " AND c.instance_id IN ($placeholders)";
+            $params = array_merge($params, $instanceId);
+        } elseif (!empty($instanceId) && !is_array($instanceId)) {
+            $sql .= " AND c.instance_id = ?";
+            $params[] = $instanceId;
+        }
+        // Se $instanceId é null ou vazio, não filtra — mostra de todas
 
         // Filtro por tipo (contatos individuais vs grupos)
         if ($type === 'contacts') {

@@ -57,6 +57,16 @@
                         <option value="novo">Novo</option>
                     </select>
                 </div>
+                <?php if (count($instances ?? []) > 1): ?>
+                <div class="d-flex gap-1 mt-1">
+                    <select class="form-select form-select-sm" id="filter-instance" style="font-size:0.72rem;" onchange="loadContacts()">
+                        <option value="all">Todos WhatsApp</option>
+                        <?php foreach ($instances as $inst): ?>
+                        <option value="<?= $inst['id'] ?>"><?= escape($inst['display_name'] ?: $inst['instance_name']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <?php endif; ?>
             </div>
             <!-- Abas Contatos / Grupos -->
             <div class="wpp-tabs">
@@ -370,6 +380,16 @@
                     <label class="form-label small fw-medium">Nome</label>
                     <input type="text" id="start-conv-name" class="form-control form-control-sm" placeholder="Opcional — se vazio, usa o nome do WhatsApp">
                 </div>
+                <?php if (count($instances ?? []) > 1): ?>
+                <div class="mb-2">
+                    <label class="form-label small fw-medium">Enviar pelo WhatsApp *</label>
+                    <select id="start-conv-instance" class="form-select form-select-sm">
+                        <?php foreach ($instances as $inst): ?>
+                        <option value="<?= $inst['id'] ?>" <?= (!empty($inst['is_default']) || $inst === reset($instances)) ? '' : '' ?>><?= escape($inst['display_name'] ?: $inst['instance_name']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <?php endif; ?>
                 <div id="start-conv-error" class="text-danger small" style="display:none;"></div>
             </div>
             <div class="modal-footer">
@@ -520,6 +540,7 @@ body { overflow: hidden !important; margin: 0; padding: 0; }
 .wpp-contact-tags { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px; }
 .wpp-tag-badge { font-size: 0.6rem; background: #e0f7f4; color: #00997D; border: 1px solid #b2f2e8; border-radius: 10px; padding: 1px 7px; line-height: 1.4; }
 .wpp-crm-badge { font-size: 0.6rem; background: #ede7f6; color: #5e35b1; border: 1px solid #d1c4e9; border-radius: 10px; padding: 1px 7px; line-height: 1.4; }
+.wpp-instance-badge { font-size: 0.6rem; background: #e8f5e9; color: #2e7d32; border: 1px solid #c8e6c9; border-radius: 10px; padding: 1px 7px; line-height: 1.4; }
 .wpp-contact-meta { text-align: right; flex-shrink: 0; }
 .wpp-contact-time { font-size: 0.62rem; color: #999; }
 .wpp-unread { background: var(--primary); color: #fff; font-size: 0.6rem; padding: 2px 6px; border-radius: 10px; display: inline-block; margin-top: 2px; }
@@ -1112,12 +1133,15 @@ function loadContacts(silent = false) {
     const assigned = document.getElementById('filter-assigned').value;
     const label = document.getElementById('filter-label').value;
     const status = document.getElementById('filter-status').value;
+    const instanceEl = document.getElementById('filter-instance');
+    const instance = instanceEl ? instanceEl.value : 'all';
 
     let url = BASE + 'whatsapp/contacts?type=all';
     if (search) url += '&search=' + encodeURIComponent(search);
     if (assigned) url += '&assigned_to=' + encodeURIComponent(assigned);
     if (label) url += '&label_id=' + encodeURIComponent(label);
     if (status) url += '&service_status=' + encodeURIComponent(status);
+    if (instance && instance !== 'all') url += '&instance_id=' + encodeURIComponent(instance);
 
     fetch(url, { headers: {'X-Requested-With': 'XMLHttpRequest'} })
     .then(r => r.json())
@@ -1219,8 +1243,14 @@ function renderContactItem(c, isGroup) {
         crmHtml = `<span class="wpp-crm-badge"><i class="bi bi-kanban"></i> ${escapeHtml(c.crm_board_name)}${c.crm_column_name ? ' › ' + escapeHtml(c.crm_column_name) : ''}</span>`;
     }
 
-    const metaTags = (labelsHtml || crmHtml)
-        ? `<div class="wpp-contact-tags">${labelsHtml}${crmHtml}</div>`
+    // Badge da instância/WhatsApp de origem
+    let instanceHtml = '';
+    if (c.instance_display_name) {
+        instanceHtml = `<span class="wpp-instance-badge"><i class="bi bi-whatsapp"></i> ${escapeHtml(c.instance_display_name)}</span>`;
+    }
+
+    const metaTags = (labelsHtml || crmHtml || instanceHtml)
+        ? `<div class="wpp-contact-tags">${instanceHtml}${labelsHtml}${crmHtml}</div>`
         : '';
 
     return `<div class="wpp-contact-item ${isActive}" onclick="openChat(${c.id}, ${isGroup})" data-id="${c.id}">
@@ -2699,6 +2729,8 @@ function startConversation() {
     const fd = new FormData();
     fd.append('phone', phone);
     fd.append('name', name);
+    const instanceSelect = document.getElementById('start-conv-instance');
+    if (instanceSelect) fd.append('instance_id', instanceSelect.value);
 
     fetch(BASE + 'whatsapp/startConversation', { method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'} })
     .then(r => r.json())
