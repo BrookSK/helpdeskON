@@ -391,6 +391,18 @@ class AgendaController extends Controller
             array_keys($responseStats),
             array_keys($emailStats)
         ));
+
+        // Buscar nomes de todos os usuários envolvidos para evitar "Usuário #ID"
+        $userNames = [];
+        if (!empty($allUserIds)) {
+            $db = Database::getInstance();
+            $placeholders = implode(',', array_fill(0, count($allUserIds), '?'));
+            $nameRows = $db->fetchAll("SELECT id, name FROM users WHERE id IN ($placeholders)", array_values($allUserIds));
+            foreach ($nameRows as $nr) {
+                $userNames[$nr['id']] = $nr['name'];
+            }
+        }
+
         foreach ($allUserIds as $uid) {
             $ms = $meetingStats[$uid] ?? [];
             $msg = $messageStats[$uid] ?? ['sent' => 0, 'received' => 0, 'contacts_messaged' => 0];
@@ -399,7 +411,7 @@ class AgendaController extends Controller
             $cl = $closingStats[$uid] ?? ['closed_self' => 0, 'closed_by_others' => 0, 'closed_for_others' => 0];
             $tableData[] = [
                 'user_id' => $uid,
-                'user_name' => $ms['user_name'] ?? 'Usuário #' . $uid,
+                'user_name' => $ms['user_name'] ?? $userNames[$uid] ?? 'Usuário #' . $uid,
                 'total_meetings' => $ms['total'] ?? 0,
                 'agendada' => ($ms['agendada'] ?? 0) + ($ms['a_agendar'] ?? 0),
                 'confirmada' => $ms['confirmada'] ?? 0,
