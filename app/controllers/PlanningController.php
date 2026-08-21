@@ -12,8 +12,16 @@ class PlanningController extends Controller
     // Página principal — Kanban + Calendário
     public function index()
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']);
+        $this->requireLogin();
         $user = $this->currentUser();
+
+        // Cliente é redirecionado para a view de demandas em lista
+        if ($user['role'] === 'client') {
+            $this->redirect('planning/clientDemands');
+            return;
+        }
+
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']);
 
         $filters = [];
         if (!empty($_GET['company_id'])) $filters['company_id'] = $_GET['company_id'];
