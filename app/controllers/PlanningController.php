@@ -1174,7 +1174,6 @@ class PlanningController extends Controller
      */
     public function clientDemands()
     {
-<<<<<<< HEAD
         $this->requireRole(['client']);
         $user = $this->currentUser();
 
@@ -1225,11 +1224,6 @@ class PlanningController extends Controller
             'filters' => $filters,
             'hideArchived' => $hideArchived,
         ]);
-=======
-        // Acesso removido para clientes - redireciona para dashboard
-        $this->requireLogin();
-        $this->redirect('dashboard');
->>>>>>> f99a2842a7c3c3d8fa862fc74e694c3074cbab17
     }
 }
 
