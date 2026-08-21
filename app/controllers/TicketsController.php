@@ -286,6 +286,19 @@ class TicketsController extends Controller
         $user = $this->currentUser();
         $ticket = $this->ticketModel->findById($id);
 
+        // Se não encontrou o ticket pelo ID, tentar buscar via planning card
+        if (!$ticket) {
+            $db = Database::getInstance();
+            $card = $db->fetch("SELECT ticket_id FROM planning_cards WHERE id = ?", [$id]);
+            if ($card && !empty($card['ticket_id'])) {
+                $ticket = $this->ticketModel->findById($card['ticket_id']);
+            } elseif ($card) {
+                // Card existe mas não tem ticket vinculado — redirecionar para planejamento
+                $this->redirect('planning');
+                return;
+            }
+        }
+
         if (!$ticket) {
             flash('error', 'Demanda não encontrada.');
             $this->redirect('tickets');
