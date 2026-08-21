@@ -289,12 +289,29 @@ class TicketsController extends Controller
         // Se não encontrou o ticket pelo ID, tentar buscar via planning card
         if (!$ticket) {
             $db = Database::getInstance();
-            $card = $db->fetch("SELECT ticket_id FROM planning_cards WHERE id = ?", [$id]);
+            $card = $db->fetch("SELECT * FROM planning_cards WHERE id = ?", [$id]);
             if ($card && !empty($card['ticket_id'])) {
+                // Card tem ticket vinculado — usar ele
                 $ticket = $this->ticketModel->findById($card['ticket_id']);
             } elseif ($card) {
-                // Card existe mas não tem ticket vinculado — redirecionar para planejamento
-                $this->redirect('planning');
+                // Card existe mas não tem ticket — criar ticket a partir do card
+                $ticketData = [
+                    'title' => $card['title'],
+                    'description' => strip_tags($card['description'] ?? ''),
+                    'client_id' => $card['created_by'] ?? $user['id'],
+                    'attendant_id' => $card['assigned_to'],
+                    'technical_responsible_id' => $card['technical_responsible_id'] ?? null,
+                    'priority' => $card['priority'] ?? 'medium',
+                    'status' => $card['status'] ?? 'open',
+                    'category' => 'desenvolvimento',
+                ];
+                $newTicketId = $this->ticketModel->create($ticketData);
+
+                // Vincular o card ao ticket recém-criado
+                $db->update('planning_cards', ['ticket_id' => $newTicketId], 'id = ?', [$card['id']]);
+
+                // Redirecionar para o ticket criado
+                $this->redirect('tickets/show/' . $newTicketId);
                 return;
             }
         }
