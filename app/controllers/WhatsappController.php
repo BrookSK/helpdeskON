@@ -1360,7 +1360,7 @@ class WhatsappController extends Controller
 
         $db = Database::getInstance();
         $groups = $db->fetchAll(
-            "SELECT id, remote_jid, contact_name FROM whatsapp_contacts WHERE instance_id = ? AND is_group = 1",
+            "SELECT id, remote_jid, contact_name, profile_picture_url FROM whatsapp_contacts WHERE instance_id = ? AND is_group = 1",
             [$instance['id']]
         );
 
@@ -1375,8 +1375,19 @@ class WhatsappController extends Controller
         foreach ($groups as $g) {
             $targetNum = preg_replace('/@.*/', '', $g['remote_jid']);
             $subject = $groupMap[$targetNum] ?? null;
+            $updateData = [];
             if (!empty($subject) && $subject !== $g['contact_name']) {
-                $db->update('whatsapp_contacts', ['contact_name' => $subject], 'id = ?', [$g['id']]);
+                $updateData['contact_name'] = $subject;
+            }
+            // Também tentar puxar a foto do grupo se não tiver
+            if (empty($g['profile_picture_url'])) {
+                $picUrl = $this->fetchProfilePicUrl($instance, $g['remote_jid']);
+                if (!empty($picUrl)) {
+                    $updateData['profile_picture_url'] = $picUrl;
+                }
+            }
+            if (!empty($updateData)) {
+                $db->update('whatsapp_contacts', $updateData, 'id = ?', [$g['id']]);
                 $updated++;
             }
         }
@@ -1614,7 +1625,12 @@ class WhatsappController extends Controller
     private function fetchProfilePicUrl($instance, $number)
     {
         try {
-            $num = preg_replace('/@.*/', '', $number);
+            // Para grupos, manter o JID completo (com @g.us); para contatos, só o número
+            if (strpos($number, '@g.us') !== false) {
+                $num = $number; // Manter JID completo para grupos
+            } else {
+                $num = preg_replace('/@.*/', '', $number);
+            }
             $url = rtrim($instance['api_url'], '/') . '/chat/fetchProfilePictureUrl/' . $instance['instance_name'];
             $ch = curl_init($url);
             curl_setopt_array($ch, [
@@ -1631,7 +1647,7 @@ class WhatsappController extends Controller
             if ($httpCode >= 400 || empty($response)) return null;
             $data = json_decode($response, true);
             if (!is_array($data)) return null;
-            return $data['profilePictureUrl'] ?? $data['url'] ?? null;
+            return $data['profilePictureUrl'] ?? $data['url'] ?? $data['profilePicUrl'] ?? null;
         } catch (Exception $e) {
             return null;
         }
