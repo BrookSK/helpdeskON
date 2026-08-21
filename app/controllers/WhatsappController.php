@@ -54,6 +54,12 @@ class WhatsappController extends Controller
         if (!$instance) {
             $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE user_id IS NULL LIMIT 1");
         }
+        if (!$instance) {
+            $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE is_default = 1 LIMIT 1");
+        }
+        if (!$instance) {
+            $instance = $db->fetch("SELECT * FROM whatsapp_instances LIMIT 1");
+        }
 
         $labels = $this->contactModel->getAllLabels();
         $userModel = new User();
@@ -96,8 +102,16 @@ class WhatsappController extends Controller
         $instance = $db->fetch(
             "SELECT * FROM whatsapp_instances WHERE user_id IS NULL LIMIT 1"
         );
+        if ($instance) return $instance;
 
-        return $instance; // Pode ser null — usuário não tem acesso a nada
+        // 4. Instância padrão (mesmo vinculada a outro usuário) — fallback final
+        $instance = $db->fetch(
+            "SELECT * FROM whatsapp_instances WHERE is_default = 1 LIMIT 1"
+        );
+        if ($instance) return $instance;
+
+        // 5. Qualquer instância como último recurso
+        return $db->fetch("SELECT * FROM whatsapp_instances LIMIT 1");
     }
 
     /**
@@ -143,8 +157,16 @@ class WhatsappController extends Controller
 
         if ($type === 'all') {
             $contacts = $this->contactModel->getAll($instance['id'], $filters, 'contacts');
-            $groups = $this->contactModel->getAll($instance['id'], $filters, 'groups');
+            // Grupos não são filtrados por assigned_to (não possuem dono individual)
+            $groupFilters = $filters;
+            unset($groupFilters['assigned_to']);
+            $groups = $this->contactModel->getAll($instance['id'], $groupFilters, 'groups');
             $this->json(['contacts' => $contacts, 'groups' => $groups]);
+        } else if ($type === 'groups') {
+            $groupFilters = $filters;
+            unset($groupFilters['assigned_to']);
+            $results = $this->contactModel->getAll($instance['id'], $groupFilters, $type);
+            $this->json($results);
         } else {
             $results = $this->contactModel->getAll($instance['id'], $filters, $type);
             $this->json($results);
@@ -1979,7 +2001,7 @@ class WhatsappController extends Controller
      */
     public function notifications()
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
         $user = $this->currentUser();
 
         $db = Database::getInstance();

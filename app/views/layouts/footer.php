@@ -86,7 +86,7 @@
 
     <?php
     // Notificações push de WhatsApp — só para roles com acesso ao chat e fora da tela de chat
-    $wppNotifRoles = ['super_admin', 'attendant', 'whatsapp_agent'];
+    $wppNotifRoles = ['super_admin', 'attendant', 'whatsapp_agent', 'comercial'];
     $isOnChatPage = (($currentPage ?? '') === 'whatsapp_chat');
     if (in_array($currentUserRole, $wppNotifRoles) && !$isOnChatPage):
     ?>
