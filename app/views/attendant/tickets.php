@@ -107,7 +107,11 @@
                             <td><span class="priority-<?= $c['priority'] ?>"><?= priorityLabel($c['priority']) ?></span></td>
                             <td><?= !empty($c['updated_at']) ? timeAgo($c['updated_at']) : (!empty($c['created_at']) ? timeAgo($c['created_at']) : '-') ?></td>
                             <td>
-                                <button class="btn btn-sm btn-outline-primary" onclick="openCardModal(<?= $c['id'] ?>)">Ver</button>
+                                <?php if (!empty($c['ticket_id'])): ?>
+                                <a href="<?= baseUrl('tickets/show/' . $c['ticket_id']) ?>" class="btn btn-sm btn-outline-primary">Ver</a>
+                                <?php else: ?>
+                                <a href="<?= baseUrl('tickets/show/' . $c['id']) ?>" class="btn btn-sm btn-outline-primary">Ver</a>
+                                <?php endif; ?>
                                 <?php if (($user['role'] ?? '') === 'super_admin'): ?>
                                 <form action="<?= baseUrl('planning/delete/' . $c['id']) ?>" method="POST" class="d-inline" onsubmit="return confirm('Excluir PERMANENTEMENTE o card #<?= $c['id'] ?>? Esta ação não pode ser desfeita.');">
                                     <button type="submit" class="btn btn-sm btn-outline-danger" title="Excluir"><i class="bi bi-trash3-fill"></i></button>
@@ -125,7 +129,8 @@
             <!-- Mobile -->
             <div class="d-md-none p-3">
                 <?php foreach ($cards ?? [] as $c): ?>
-                <div class="mb-2 p-3 border rounded-3" onclick="openCardModal(<?= $c['id'] ?>)" style="cursor:pointer;">
+                <?php $viewUrl = !empty($c['ticket_id']) ? baseUrl('tickets/show/' . $c['ticket_id']) : baseUrl('tickets/show/' . $c['id']); ?>
+                <a href="<?= $viewUrl ?>" class="d-block text-decoration-none mb-2 p-3 border rounded-3">
                     <div class="d-flex justify-content-between align-items-start mb-1">
                         <span class="fw-medium text-dark text-truncate" style="max-width:70%">#<?= $c['id'] ?> <?= escape($c['title']) ?></span>
                         <span class="badge-status badge-<?= $c['status'] ?>"><?= statusLabel($c['status']) ?></span>
@@ -135,7 +140,7 @@
                         <span class="text-muted"><i class="bi bi-person"></i> <?= escape($c['assigned_name'] ?? 'Não atribuído') ?></span>
                         <span class="priority-<?= $c['priority'] ?>"><?= priorityLabel($c['priority']) ?></span>
                     </div>
-                </div>
+                </a>
                 <?php endforeach; ?>
                 <?php if (empty($cards)): ?>
                 <p class="text-center text-muted py-4">Nenhuma demanda encontrada.</p>
@@ -144,71 +149,5 @@
         </div>
     </div>
 </div>
-
-<!-- Modal para visualizar card (reusa a mesma lógica do planejamento) -->
-<div class="modal fade" id="cardDetailModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h6 class="modal-title" id="cardDetailTitle">Detalhes do Card</h6>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body" id="cardDetailBody">
-                <div class="text-center py-4"><span class="spinner-border"></span></div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<script>
-function openCardModal(cardId) {
-    const modal = new bootstrap.Modal(document.getElementById('cardDetailModal'));
-    const body = document.getElementById('cardDetailBody');
-    body.innerHTML = '<div class="text-center py-4"><span class="spinner-border"></span></div>';
-    modal.show();
-
-    fetch('<?= baseUrl("planning/get/") ?>' + cardId, { headers: {'X-Requested-With': 'XMLHttpRequest'} })
-    .then(r => r.json())
-    .then(data => {
-        if (data.error) {
-            body.innerHTML = '<p class="text-danger">' + data.error + '</p>';
-            return;
-        }
-        const card = data.card;
-        let html = '<div class="mb-3">';
-        html += '<h6 class="fw-bold">#' + card.id + ' - ' + escapeHtml(card.title) + '</h6>';
-        if (card.description) html += '<div class="mt-2 small">' + card.description + '</div>';
-        html += '</div>';
-        html += '<div class="row g-2 mb-3 small">';
-        html += '<div class="col-sm-6"><strong>Empresa:</strong> ' + escapeHtml(card.company_name || '-') + '</div>';
-        html += '<div class="col-sm-6"><strong>Responsável:</strong> ' + escapeHtml(card.assigned_name || 'Não atribuído') + '</div>';
-        html += '<div class="col-sm-6"><strong>Status:</strong> ' + escapeHtml(card.status) + '</div>';
-        html += '<div class="col-sm-6"><strong>Prioridade:</strong> ' + escapeHtml(card.priority) + '</div>';
-        if (card.due_date) html += '<div class="col-sm-6"><strong>Prazo:</strong> ' + card.due_date + '</div>';
-        html += '</div>';
-
-        // Comentários
-        if (data.comments && data.comments.length) {
-            html += '<h6 class="mt-3 small fw-bold">Comentários</h6>';
-            data.comments.forEach(c => {
-                html += '<div class="border-start border-3 ps-2 mb-2 small"><strong>' + escapeHtml(c.user_name || '') + ':</strong> ' + escapeHtml(c.message) + '</div>';
-            });
-        }
-
-        body.innerHTML = html;
-        document.getElementById('cardDetailTitle').textContent = 'Card #' + card.id;
-    })
-    .catch(() => {
-        body.innerHTML = '<p class="text-danger">Erro ao carregar detalhes.</p>';
-    });
-}
-
-function escapeHtml(str) {
-    if (!str) return '';
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
-}
-</script>
 
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>
