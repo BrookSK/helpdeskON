@@ -1174,56 +1174,10 @@ class PlanningController extends Controller
      */
     public function clientDemands()
     {
-        $this->requireRole(['client']);
-        $user = $this->currentUser();
-
-        $fullUser = (new User())->findById($user['id']);
-        $companyId = $fullUser['company_id'] ?? null;
-
-        if (!$companyId) {
-            $this->view('client/demands', ['user' => $user, 'cards' => [], 'isOwner' => false, 'filters' => [], 'hideArchived' => true]);
-            return;
-        }
-
-        $filters = [];
-        if (!empty($_GET['status'])) $filters['status'] = $_GET['status'];
-        if (!empty($_GET['priority'])) $filters['priority'] = $_GET['priority'];
-        if (!empty($_GET['hide_completed'])) $filters['hide_completed'] = true;
-
-        // Ocultar arquivados por padrão
-        $isSubmitted = isset($_GET['filtered']);
-        $hideArchived = $isSubmitted ? !empty($_GET['hide_archived']) : true;
-
-        // Buscar todos os cards vinculados à empresa do cliente
-        // (por company_id direto OU pelo ticket criado por alguém da empresa)
-        $cards = $this->cardModel->getAllForClientCompany($companyId, $filters);
-
-        // Filtrar arquivados se necessário
-        if ($hideArchived) {
-            $cards = array_filter($cards, fn($c) => $c['status'] !== 'archived');
-            $cards = array_values($cards);
-        }
-
-        // Remover informações sensíveis antes de passar para a view
-        $safeCards = array_map(function($card) {
-            return [
-                'id' => $card['id'],
-                'title' => $card['title'],
-                'status' => $card['status'],
-                'priority' => $card['priority'],
-                'company_name' => $card['company_name'] ?? '-',
-            ];
-        }, $cards);
-
-        $isOwner = !empty($fullUser['is_company_owner']);
-
-        $this->view('client/demands', [
-            'user' => $user,
-            'cards' => $safeCards,
-            'isOwner' => $isOwner,
-            'filters' => $filters,
-            'hideArchived' => $hideArchived,
-        ]);
+        // Acesso ao Planejamento removido para clientes.
+        // O cliente acompanha somente as demandas dele em "Minhas Demandas".
+        $this->requireLogin();
+        $this->redirect('dashboard');
     }
 }
 
