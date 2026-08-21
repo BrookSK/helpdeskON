@@ -470,20 +470,27 @@ class PlanningCard
     }
 
     /**
-     * Busca cards de planejamento para a view do cliente.
-     * Retorna apenas campos não-sensíveis (sem datas/prazos).
-     * Mostra todos os cards vinculados à empresa do cliente
-     * (por company_id OU por ticket criado por usuário da empresa).
+     * Busca TODOS os cards de planejamento vinculados à empresa do cliente.
+     * Busca por múltiplos caminhos:
+     * 1. Cards com company_id = empresa do cliente
+     * 2. Cards vinculados a tickets criados por usuários da empresa
+     * 3. Cards criados por usuários da empresa
+     * Retorna apenas campos não-sensíveis.
      */
-    public function getByCompanyForClient($companyId, $filters = [])
+    public function getAllForClientCompany($companyId, $filters = [])
     {
-        $sql = "SELECT pc.id, pc.title, pc.status, pc.priority, co.name as company_name
+        $sql = "SELECT DISTINCT pc.id, pc.title, pc.status, pc.priority, co.name as company_name
                 FROM planning_cards pc
                 LEFT JOIN companies co ON pc.company_id = co.id
                 LEFT JOIN tickets t ON pc.ticket_id = t.id
                 LEFT JOIN users tc ON t.client_id = tc.id
-                WHERE (pc.company_id = ? OR tc.company_id = ?)";
-        $params = [$companyId, $companyId];
+                LEFT JOIN users cb ON pc.created_by = cb.id
+                WHERE (
+                    pc.company_id = ?
+                    OR tc.company_id = ?
+                    OR (cb.company_id = ? AND cb.role = 'client')
+                )";
+        $params = [$companyId, $companyId, $companyId];
 
         if (!empty($filters['status'])) {
             $sql .= " AND pc.status = ?";
@@ -496,11 +503,8 @@ class PlanningCard
         if (!empty($filters['hide_completed'])) {
             $sql .= " AND pc.status NOT IN ('completed', 'archived')";
         }
-        if (!empty($filters['hide_archived'])) {
-            $sql .= " AND pc.status != 'archived'";
-        }
 
-        $sql .= " ORDER BY FIELD(pc.status, 'open', 'in_progress', 'em_revisao_interna', 'waiting_client', 'em_homologacao', 'aprovado_producao', 'completed', 'denied'), FIELD(pc.priority, 'urgent', 'high', 'medium', 'low'), pc.id DESC";
+        $sql .= " ORDER BY FIELD(pc.priority, 'urgent', 'high', 'medium', 'low'), pc.id DESC";
         return $this->db->fetchAll($sql, $params);
     }
 }

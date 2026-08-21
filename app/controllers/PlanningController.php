@@ -1186,8 +1186,6 @@ class PlanningController extends Controller
         }
 
         $filters = [];
-        $filters['company_id'] = $companyId;
-
         if (!empty($_GET['status'])) $filters['status'] = $_GET['status'];
         if (!empty($_GET['priority'])) $filters['priority'] = $_GET['priority'];
         if (!empty($_GET['hide_completed'])) $filters['hide_completed'] = true;
@@ -1196,7 +1194,9 @@ class PlanningController extends Controller
         $isSubmitted = isset($_GET['filtered']);
         $hideArchived = $isSubmitted ? !empty($_GET['hide_archived']) : true;
 
-        $cards = $this->cardModel->getAll($filters);
+        // Buscar todos os cards vinculados à empresa do cliente
+        // (por company_id direto OU pelo ticket criado por alguém da empresa)
+        $cards = $this->cardModel->getAllForClientCompany($companyId, $filters);
 
         // Filtrar arquivados se necessário
         if ($hideArchived) {
