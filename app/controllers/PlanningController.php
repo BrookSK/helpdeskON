@@ -1173,27 +1173,45 @@ class PlanningController extends Controller
         $companyId = $fullUser['company_id'] ?? null;
 
         if (!$companyId) {
-            $this->view('client/demands', ['user' => $user, 'cards' => [], 'isOwner' => false, 'filters' => []]);
+            $this->view('client/demands', ['user' => $user, 'cards' => [], 'isOwner' => false, 'filters' => [], 'hideArchived' => true]);
             return;
         }
 
         $filters = [];
+        $filters['company_id'] = $companyId;
+
         if (!empty($_GET['status'])) $filters['status'] = $_GET['status'];
         if (!empty($_GET['priority'])) $filters['priority'] = $_GET['priority'];
         if (!empty($_GET['hide_completed'])) $filters['hide_completed'] = true;
 
-        // Ocultar arquivados por padrão (a menos que filtro seja enviado sem o checkbox)
+        // Ocultar arquivados por padrão
         $isSubmitted = isset($_GET['filtered']);
         $hideArchived = $isSubmitted ? !empty($_GET['hide_archived']) : true;
-        if ($hideArchived) $filters['hide_archived'] = true;
 
-        $cards = $this->cardModel->getByCompanyForClient($companyId, $filters);
+        $cards = $this->cardModel->getAll($filters);
+
+        // Filtrar arquivados se necessário
+        if ($hideArchived) {
+            $cards = array_filter($cards, fn($c) => $c['status'] !== 'archived');
+            $cards = array_values($cards);
+        }
+
+        // Remover informações sensíveis antes de passar para a view
+        $safeCards = array_map(function($card) {
+            return [
+                'id' => $card['id'],
+                'title' => $card['title'],
+                'status' => $card['status'],
+                'priority' => $card['priority'],
+                'company_name' => $card['company_name'] ?? '-',
+            ];
+        }, $cards);
 
         $isOwner = !empty($fullUser['is_company_owner']);
 
         $this->view('client/demands', [
             'user' => $user,
-            'cards' => $cards,
+            'cards' => $safeCards,
             'isOwner' => $isOwner,
             'filters' => $filters,
             'hideArchived' => $hideArchived,
