@@ -388,6 +388,23 @@ class BufferController extends Controller
             $this->json(['error' => 'Informe o texto e selecione ao menos um canal.'], 400);
         }
 
+        // Proteção contra duplicatas: verificar se já existe um post agendado
+        // com o mesmo marketing_item_id, canais e texto nos últimos 5 minutos
+        if ($marketingItemId) {
+            $db = Database::getInstance();
+            $recent = $db->fetch(
+                "SELECT id FROM buffer_posts 
+                 WHERE marketing_item_id = ? AND status IN ('scheduled', 'queued') 
+                   AND created_at > DATE_SUB(NOW(), INTERVAL 5 MINUTE)
+                 LIMIT 1",
+                [$marketingItemId]
+            );
+            if ($recent) {
+                $this->json(['success' => true, 'created' => 0, 'message' => 'Este item já foi agendado recentemente. Verifique no Buffer.']);
+                return;
+            }
+        }
+
         // Mapear canais para suas contas Buffer (para usar a API key correta por canal)
         $allChannels = $this->data->getChannels(false);
         $channelMap = [];

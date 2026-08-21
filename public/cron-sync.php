@@ -71,6 +71,15 @@ try {
     $bufferData = new BufferData();
     $allAccounts = $bufferAccounts->all(true);
 
+    // Não sincronizar métricas do Buffer se já fez nas últimas 6 horas
+    // (para não consumir o rate limit antes do usuário agendar)
+    $lastBufferSync = Config::get('buffer_cron_last_sync');
+    $skipBufferMetrics = $lastBufferSync && (time() - strtotime($lastBufferSync)) < 21600;
+
+    if (!$skipBufferMetrics) {
+        Config::set('buffer_cron_last_sync', date('Y-m-d H:i:s'));
+    }
+
     $since = strtotime('-365 days');
     $until = time();
     $startIso = gmdate('Y-m-d\T00:00:00\Z', $since);
@@ -88,7 +97,7 @@ try {
                 $bufferAccounts->update($acc['id'], ['organization_id' => $orgId]);
             }
 
-            // Canais
+            // Canais (leve, 1 chamada — sempre sincronizar)
             $res = $api->getChannels($orgId);
             if (empty($res['errors'])) {
                 $channels = $res['data']['channels'] ?? [];
@@ -96,7 +105,9 @@ try {
                 $stats['buffer_channels'] += count($channels);
             }
 
-            // Posts com métricas
+            // Posts com métricas — só se não fez recentemente
+            if ($skipBufferMetrics) continue;
+
             $after = null; $pages = 0;
             do {
                 $res = $api->getSentPostsWithMetrics($orgId, [], 50, $after);

@@ -525,6 +525,7 @@ function scheduleToBuffer() {
     const id = document.getElementById('item-id').value;
     const channels = Array.from(document.querySelectorAll('.buffer-channel-cb:checked')).map(cb => cb.value);
     const result = document.getElementById('item-buffer-result');
+    const btn = event.target.closest('button') || document.querySelector('[onclick="scheduleToBuffer()"]');
     if (!channels.length) { result.innerHTML = '<span class="text-danger">Selecione ao menos um canal.</span>'; return; }
 
     const text = document.getElementById('item-copy').value.trim() || document.getElementById('item-title').value.trim();
@@ -538,14 +539,18 @@ function scheduleToBuffer() {
     if (dueAt) fd.append('due_at', dueAt.replace('T', ' '));
     if (imageUrl) fd.append('image_url', imageUrl);
 
-    result.innerHTML = '<span class="text-muted">Agendando...</span>';
+    // Desabilitar botão para evitar cliques duplos
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Agendando...'; }
+    result.innerHTML = '<span class="text-muted">Agendando no Buffer, aguarde...</span>';
     fetch(`${BASE}buffer/schedule`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json()).then(data => {
             if (data.error) { result.innerHTML = `<span class="text-danger">${data.error}</span>`; return; }
             if (data.queued) {
                 result.innerHTML = `<div class="alert alert-info small py-2 px-3 mb-0 mt-1"><i class="bi bi-clock-history"></i> ${data.message}</div>`;
+            } else if (data.message) {
+                result.innerHTML = `<div class="alert alert-success small py-2 px-3 mb-0 mt-1"><i class="bi bi-check-circle"></i> ${data.message}</div>`;
             } else {
-                result.innerHTML = `<span class="text-success"><i class="bi bi-check-circle"></i> ${data.created} publicação(ões) agendada(s) no Buffer.</span>`;
+                result.innerHTML = `<span class="text-success"><i class="bi bi-check-circle"></i> ${data.created} publicação(ões) agendada(s) no Buffer com sucesso!</span>`;
             }
             // Marca o item como agendado
             const fd2 = new FormData();
@@ -553,7 +558,8 @@ function scheduleToBuffer() {
             fetch(`${BASE}marketing/update/${id}`, { method: 'POST', body: fd2, headers: {'X-Requested-With':'XMLHttpRequest'} })
                 .then(() => afterItemChange());
         })
-        .catch(() => { result.innerHTML = '<span class="text-danger">Erro na requisição.</span>'; });
+        .catch(() => { result.innerHTML = '<span class="text-danger">Erro na requisição.</span>'; })
+        .finally(() => { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-calendar-check"></i> Agendar no Buffer'; } });
 }
 
 // Recarrega a aba ativa após mudanças

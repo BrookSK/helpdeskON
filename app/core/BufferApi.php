@@ -72,13 +72,13 @@ class BufferApi
                     $retryAfter = $this->parseRetryAfter($headers);
                     $waitMsg = $retryAfter ? " Tente novamente em " . $this->formatWait($retryAfter) . "." : '';
                     $windowLabel = $window === '24h' ? 'diário' : 'mensal';
-                    return ['errors' => [['message' => "Limite {$windowLabel} da API Buffer atingido.{$waitMsg}"]], 'http' => 429];
+                    return ['errors' => [['message' => "Limite {$windowLabel} da API Buffer atingido.{$waitMsg}"]], 'http' => 429, 'window' => $window];
                 }
 
-                // Limite de 15min: tentar novamente com backoff
+                // Limite de 15min ou desconhecido: tentar novamente com backoff
                 if ($attempt < $maxRetries) {
                     $retryAfter = $this->parseRetryAfter($headers);
-                    $wait = $retryAfter ? min($retryAfter, 30) : pow(2, $attempt + 1);
+                    $wait = $retryAfter ? min($retryAfter, 15) : min(pow(2, $attempt + 1), 10);
                     $attempt++;
                     sleep($wait);
                     continue;
@@ -202,7 +202,7 @@ class BufferApi
                 ... on MutationError { message }
             }
         }';
-        return $this->query($q, ['input' => $input], 0);
+        return $this->query($q, ['input' => $input], 2);
     }
 
     /** Exclui um post. */
