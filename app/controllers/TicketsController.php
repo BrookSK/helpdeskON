@@ -1234,4 +1234,51 @@ class TicketsController extends Controller
 
         $this->json(['notes' => $notes]);
     }
+
+    /**
+     * Dashboard de Performance Operacional
+     * Mostra métricas de tempo de resolução, quantidade de tickets, etc.
+     */
+    public function performance()
+    {
+        $this->requireRole(['super_admin', 'attendant', 'comercial']);
+        $user = $this->currentUser();
+
+        // Filtros de período (padrão: mês atual)
+        $startDate = $_GET['start'] ?? date('Y-m-01');
+        $endDate = $_GET['end'] ?? date('Y-m-t');
+
+        // Filtro por atendente
+        $filterUserId = null;
+        if ($user['role'] !== 'super_admin') {
+            $filterUserId = $user['id'];
+        } elseif (!empty($_GET['user_id'])) {
+            $filterUserId = intval($_GET['user_id']);
+        }
+
+        // Métricas gerais
+        $metrics = $this->ticketModel->getOperationalMetrics($startDate, $endDate, $filterUserId);
+
+        // Tabela por atendente
+        $byAttendant = $this->ticketModel->getOperationalMetricsByAttendant($startDate, $endDate);
+
+        // Distribuição por status
+        $statusDist = $this->ticketModel->getStatusDistribution($startDate, $endDate, $filterUserId);
+
+        // Lista de atendentes para filtro
+        $userModel = new User();
+        $attendants = $userModel->getByRoles(['super_admin', 'attendant', 'developer', 'analyst', 'whatsapp_agent']);
+
+        $this->view('tickets/performance', [
+            'user' => $user,
+            'metrics' => $metrics,
+            'byAttendant' => $byAttendant,
+            'statusDist' => $statusDist,
+            'attendants' => $attendants,
+            'startDate' => $startDate,
+            'endDate' => $endDate,
+            'filterUserId' => $filterUserId,
+            'isAdmin' => $user['role'] === 'super_admin',
+        ]);
+    }
 }
