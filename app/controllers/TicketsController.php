@@ -277,6 +277,51 @@ class TicketsController extends Controller
         $this->redirect('tickets/show/' . $ticketId);
     }
 
+    /**
+     * Visualizar detalhes de um planning card.
+     * Busca o ticket vinculado ao card. Se não existir, cria um a partir do card.
+     */
+    public function showCard($cardId = null)
+    {
+        $this->requireLogin();
+        if (!$cardId) $this->redirect('tickets');
+
+        $db = Database::getInstance();
+        $card = $db->fetch("SELECT * FROM planning_cards WHERE id = ?", [$cardId]);
+
+        if (!$card) {
+            flash('error', 'Demanda não encontrada.');
+            $this->redirect('tickets');
+        }
+
+        // Se o card tem ticket vinculado, verificar se bate (mesmo título)
+        if (!empty($card['ticket_id'])) {
+            $ticket = $this->ticketModel->findById($card['ticket_id']);
+            if ($ticket) {
+                $this->redirect('tickets/show/' . $ticket['id']);
+                return;
+            }
+        }
+
+        // Não tem ticket vinculado ou o ticket não existe — criar um novo a partir do card
+        $ticketData = [
+            'title' => $card['title'],
+            'description' => strip_tags($card['description'] ?? ''),
+            'client_id' => $card['created_by'] ?? $this->currentUser()['id'],
+            'attendant_id' => $card['assigned_to'],
+            'technical_responsible_id' => $card['technical_responsible_id'] ?? null,
+            'priority' => $card['priority'] ?? 'medium',
+            'status' => $card['status'] ?? 'open',
+            'category' => 'desenvolvimento',
+        ];
+        $newTicketId = $this->ticketModel->create($ticketData);
+
+        // Vincular o card ao ticket recém-criado
+        $db->update('planning_cards', ['ticket_id' => $newTicketId], 'id = ?', [$card['id']]);
+
+        $this->redirect('tickets/show/' . $newTicketId);
+    }
+
     // Visualizar ticket
     public function show($id = null)
     {
@@ -285,36 +330,6 @@ class TicketsController extends Controller
 
         $user = $this->currentUser();
         $ticket = $this->ticketModel->findById($id);
-
-        // Se não encontrou o ticket pelo ID, tentar buscar via planning card
-        if (!$ticket) {
-            $db = Database::getInstance();
-            $card = $db->fetch("SELECT * FROM planning_cards WHERE id = ?", [$id]);
-            if ($card && !empty($card['ticket_id'])) {
-                // Card tem ticket vinculado — usar ele
-                $ticket = $this->ticketModel->findById($card['ticket_id']);
-            } elseif ($card) {
-                // Card existe mas não tem ticket — criar ticket a partir do card
-                $ticketData = [
-                    'title' => $card['title'],
-                    'description' => strip_tags($card['description'] ?? ''),
-                    'client_id' => $card['created_by'] ?? $user['id'],
-                    'attendant_id' => $card['assigned_to'],
-                    'technical_responsible_id' => $card['technical_responsible_id'] ?? null,
-                    'priority' => $card['priority'] ?? 'medium',
-                    'status' => $card['status'] ?? 'open',
-                    'category' => 'desenvolvimento',
-                ];
-                $newTicketId = $this->ticketModel->create($ticketData);
-
-                // Vincular o card ao ticket recém-criado
-                $db->update('planning_cards', ['ticket_id' => $newTicketId], 'id = ?', [$card['id']]);
-
-                // Redirecionar para o ticket criado
-                $this->redirect('tickets/show/' . $newTicketId);
-                return;
-            }
-        }
 
         if (!$ticket) {
             flash('error', 'Demanda não encontrada.');

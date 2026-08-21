@@ -107,11 +107,7 @@
                             <td><span class="priority-<?= $c['priority'] ?>"><?= priorityLabel($c['priority']) ?></span></td>
                             <td><?= !empty($c['updated_at']) ? timeAgo($c['updated_at']) : (!empty($c['created_at']) ? timeAgo($c['created_at']) : '-') ?></td>
                             <td>
-                                <?php if (!empty($c['ticket_id'])): ?>
-                                <a href="<?= baseUrl('tickets/show/' . $c['ticket_id']) ?>" class="btn btn-sm btn-outline-primary">Ver</a>
-                                <?php else: ?>
-                                <a href="<?= baseUrl('tickets/show/' . $c['id']) ?>" class="btn btn-sm btn-outline-primary">Ver</a>
-                                <?php endif; ?>
+                                <a href="<?= baseUrl('tickets/showCard/' . $c['id']) ?>" class="btn btn-sm btn-outline-primary">Ver</a>
                                 <?php if (($user['role'] ?? '') === 'super_admin'): ?>
                                 <form action="<?= baseUrl('planning/delete/' . $c['id']) ?>" method="POST" class="d-inline" onsubmit="return confirm('Excluir PERMANENTEMENTE o card #<?= $c['id'] ?>? Esta ação não pode ser desfeita.');">
                                     <button type="submit" class="btn btn-sm btn-outline-danger" title="Excluir"><i class="bi bi-trash3-fill"></i></button>
@@ -129,8 +125,7 @@
             <!-- Mobile -->
             <div class="d-md-none p-3">
                 <?php foreach ($cards ?? [] as $c): ?>
-                <?php $viewUrl = !empty($c['ticket_id']) ? baseUrl('tickets/show/' . $c['ticket_id']) : baseUrl('tickets/show/' . $c['id']); ?>
-                <a href="<?= $viewUrl ?>" class="d-block text-decoration-none mb-2 p-3 border rounded-3">
+                <a href="<?= baseUrl('tickets/showCard/' . $c['id']) ?>" class="d-block text-decoration-none mb-2 p-3 border rounded-3">
                     <div class="d-flex justify-content-between align-items-start mb-1">
                         <span class="fw-medium text-dark text-truncate" style="max-width:70%">#<?= $c['id'] ?> <?= escape($c['title']) ?></span>
                         <span class="badge-status badge-<?= $c['status'] ?>"><?= statusLabel($c['status']) ?></span>
