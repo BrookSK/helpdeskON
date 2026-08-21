@@ -1371,19 +1371,35 @@ class WhatsappController extends Controller
             $this->json(['success' => false, 'message' => 'Não foi possível obter os grupos da API. Verifique a conexão da instância.']);
         }
 
+        // Log de diagnóstico para verificar o que a API retorna
+        @file_put_contents(
+            PUBLIC_PATH . '/uploads/sync_groups_debug.log',
+            '[' . date('Y-m-d H:i:s') . '] GroupMap keys: ' . implode(', ', array_keys($groupMap)) . "\n" .
+            'First group data: ' . json_encode(array_slice($groupMap, 0, 2, true)) . "\n",
+            FILE_APPEND
+        );
+
         $updated = 0;
         foreach ($groups as $g) {
             $targetNum = preg_replace('/@.*/', '', $g['remote_jid']);
-            $subject = $groupMap[$targetNum] ?? null;
+            $groupData = $groupMap[$targetNum] ?? null;
+            $subject = is_array($groupData) ? ($groupData['subject'] ?? null) : $groupData;
+            $picture = is_array($groupData) ? ($groupData['picture'] ?? null) : null;
+
             $updateData = [];
             if (!empty($subject) && $subject !== $g['contact_name']) {
                 $updateData['contact_name'] = $subject;
             }
-            // Também tentar puxar a foto do grupo se não tiver
+            // Atualizar foto do grupo se veio da API ou tentar buscar individualmente
             if (empty($g['profile_picture_url'])) {
-                $picUrl = $this->fetchProfilePicUrl($instance, $g['remote_jid']);
-                if (!empty($picUrl)) {
-                    $updateData['profile_picture_url'] = $picUrl;
+                if (!empty($picture)) {
+                    $updateData['profile_picture_url'] = $picture;
+                } else {
+                    // Tentar buscar foto individualmente via endpoint de profile picture
+                    $picUrl = $this->fetchProfilePicUrl($instance, $g['remote_jid']);
+                    if (!empty($picUrl)) {
+                        $updateData['profile_picture_url'] = $picUrl;
+                    }
                 }
             }
             if (!empty($updateData)) {
@@ -1397,8 +1413,8 @@ class WhatsappController extends Controller
 
     /**
      * Busca todos os grupos da instância na Evolution API e retorna um mapa
-     * [numeroDoGrupo => subject]. Usa o endpoint /group/fetchAllGroups.
-     * Chamada HTTP direta para não alterar a classe EvolutionApi.
+     * [numeroDoGrupo => ['subject' => ..., 'picture' => ...]].
+     * Usa o endpoint /group/fetchAllGroups.
      */
     private function fetchGroupsMap($instance)
     {
@@ -1433,9 +1449,13 @@ class WhatsappController extends Controller
                 if (!is_array($grp)) continue;
                 $jid = $grp['id'] ?? $grp['jid'] ?? $grp['remoteJid'] ?? '';
                 $subject = $grp['subject'] ?? $grp['name'] ?? null;
-                if (!empty($jid) && !empty($subject)) {
+                $picture = $grp['pictureUrl'] ?? $grp['profilePictureUrl'] ?? $grp['picture'] ?? $grp['imgUrl'] ?? null;
+                if (!empty($jid)) {
                     $num = preg_replace('/@.*/', '', $jid);
-                    $map[$num] = $subject;
+                    $map[$num] = [
+                        'subject' => $subject,
+                        'picture' => $picture,
+                    ];
                 }
             }
         } catch (Exception $e) {
@@ -1453,7 +1473,9 @@ class WhatsappController extends Controller
         $map = $this->fetchGroupsMap($instance);
         if (empty($map)) return null;
         $targetNum = preg_replace('/@.*/', '', $groupJid);
-        return $map[$targetNum] ?? null;
+        $data = $map[$targetNum] ?? null;
+        if (is_array($data)) return $data['subject'] ?? null;
+        return $data;
     }
 
     /**
