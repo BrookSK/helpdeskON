@@ -30,9 +30,25 @@ class TicketsController extends Controller
                 $this->view('client/tickets', ['user' => $user, 'tickets' => $tickets, 'isOwner' => false]);
             }
         } elseif ($user['role'] === 'comercial') {
-            // Comercial vê apenas os tickets atribuídos a ele ou criados por ele
-            $tickets = $this->ticketModel->getByAttendantOrCreator($user['id']);
-            $this->view('attendant/tickets', ['user' => $user, 'tickets' => $tickets, 'companies' => []]);
+            // Comercial vê os cards de planejamento atribuídos a ele
+            $cardModel = new PlanningCard();
+            $planningFilters = ['assigned_to' => $user['id']];
+            if (!empty($_GET['status'])) $planningFilters['status'] = $_GET['status'];
+            if (!empty($_GET['priority'])) $planningFilters['priority'] = $_GET['priority'];
+            if (!empty($_GET['company'])) $planningFilters['company_id'] = $_GET['company'];
+            if (!empty($_GET['hide_completed'])) $planningFilters['hide_completed'] = true;
+
+            $cards = $cardModel->getAll($planningFilters);
+
+            // Ocultar arquivados por padrão
+            $isSubmitted = isset($_GET['filtered']);
+            $hideArchived = $isSubmitted ? !empty($_GET['hide_archived']) : true;
+            if ($hideArchived) {
+                $cards = array_filter($cards, fn($c) => $c['status'] !== 'archived');
+                $cards = array_values($cards);
+            }
+
+            $this->view('attendant/tickets', ['user' => $user, 'cards' => $cards, 'companies' => [], 'attendants' => [], 'isAdmin' => false]);
         } else {
             $filters = [];
             if (!empty($_GET['status'])) $filters['status'] = $_GET['status'];
@@ -67,7 +83,24 @@ class TicketsController extends Controller
                 $filters['allowed_companies'] = !empty($realIds) ? $realIds : [0];
             }
 
-            $tickets = $this->ticketModel->getAll($filters);
+            // Buscar planning cards (mesmos dados do kanban do planejamento)
+            $cardModel = new PlanningCard();
+            $planningFilters = [];
+            if (!empty($filters['status'])) $planningFilters['status'] = $filters['status'];
+            if (!empty($filters['priority'])) $planningFilters['priority'] = $filters['priority'];
+            if (!empty($_GET['company'])) $planningFilters['company_id'] = $_GET['company'];
+            if (!empty($filters['attendant_id'])) $planningFilters['assigned_to'] = $filters['attendant_id'];
+            if (!empty($filters['hide_completed'])) $planningFilters['hide_completed'] = true;
+            if (!empty($filters['allowed_companies'])) $planningFilters['allowed_companies'] = $filters['allowed_companies'];
+
+            $cards = $cardModel->getAll($planningFilters);
+
+            // Filtrar arquivados se necessário
+            if ($hideArchived) {
+                $cards = array_filter($cards, fn($c) => $c['status'] !== 'archived');
+                $cards = array_values($cards);
+            }
+
             $companyModel = new Company();
 
             // Atendente só vê empresas que tem acesso no filtro
@@ -83,7 +116,7 @@ class TicketsController extends Controller
                 $companies = $companyModel->getAll();
             }
 
-            $this->view('attendant/tickets', ['user' => $user, 'tickets' => $tickets, 'companies' => $companies, 'attendants' => (new User())->getByRoles(['super_admin', 'attendant', 'developer', 'analyst', 'comercial', 'marketing', 'whatsapp_agent']), 'isAdmin' => $isAdmin]);
+            $this->view('attendant/tickets', ['user' => $user, 'cards' => $cards, 'companies' => $companies, 'attendants' => (new User())->getByRoles(['super_admin', 'attendant', 'developer', 'analyst', 'comercial', 'marketing', 'whatsapp_agent']), 'isAdmin' => $isAdmin]);
         }
     }
 
