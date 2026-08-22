@@ -806,18 +806,8 @@ class WhatsappController extends Controller
         $contact = $this->contactModel->findById($contactId);
         if (!$contact) $this->json(['error' => 'Contato não encontrado'], 404);
 
-        // Backfill da foto de perfil, se ainda não tiver ou se expirou (mais de 24h)
-        $needsRefresh = empty($contact['profile_picture_url']);
-        if (!$needsRefresh && !empty($contact['profile_picture_url'])) {
-            // URLs do WhatsApp expiram — verificar idade da URL salva
-            // Se o contato foi atualizado há mais de 24h, tentar renovar
-            $lastUpdate = $contact['updated_at'] ?? $contact['last_message_at'] ?? null;
-            if ($lastUpdate && (time() - strtotime($lastUpdate)) > 86400) {
-                $needsRefresh = true;
-            }
-        }
-
-        if ($needsRefresh) {
+        // Backfill da foto de perfil — só se estiver vazia (não tentar renovar URLs existentes)
+        if (empty($contact['profile_picture_url'])) {
             $db = Database::getInstance();
             $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE id = ?", [$contact['instance_id']]);
             $numberForPic = !empty($contact['is_group']) ? $contact['remote_jid'] : ($contact['phone'] ?: $contact['remote_jid']);
@@ -858,9 +848,8 @@ class WhatsappController extends Controller
             $db->update('whatsapp_contacts', ['profile_picture_url' => $picUrl], 'id = ?', [$contactId]);
             $this->json(['url' => $picUrl]);
         } else {
-            // Limpar a URL expirada do banco para não tentar carregá-la de novo
-            $db->update('whatsapp_contacts', ['profile_picture_url' => null], 'id = ?', [$contactId]);
-            $this->json(['url' => null]);
+            // Não conseguiu renovar — manter a URL existente (não apagar)
+            $this->json(['url' => $contact['profile_picture_url'] ?? null]);
         }
     }
 
