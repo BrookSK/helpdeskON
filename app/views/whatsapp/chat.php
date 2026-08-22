@@ -1224,7 +1224,7 @@ function renderContactItem(c, isGroup) {
     let icon = isGroup ? '<i class="bi bi-people-fill" style="font-size:0.9rem;"></i>' : initials;
     // Foto de perfil quando disponível
     if (c.profile_picture_url) {
-        icon = `<img src="${escapeHtml(c.profile_picture_url)}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" onerror="this.parentNode.textContent='${isGroup ? '' : escapeHtml(initials)}'">`;
+        icon = `<img src="${escapeHtml(c.profile_picture_url)}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" onerror="handlePhotoError(this, ${c.id}, ${isGroup}, '${escapeHtml(initials)}')">`;
     }
 
     // Prévia da última mensagem (estilo WhatsApp)
@@ -2898,6 +2898,32 @@ function escapeHtml(str) {
     const div = document.createElement('div');
     div.textContent = str;
     return div.innerHTML;
+}
+
+// Quando uma foto de perfil falha (URL expirada), tenta renovar via API
+const _photoRefreshCache = new Set();
+function handlePhotoError(imgEl, contactId, isGroup, fallbackInitials) {
+    // Mostrar fallback imediatamente
+    if (isGroup) {
+        imgEl.parentNode.innerHTML = '<i class="bi bi-people-fill" style="font-size:0.9rem;"></i>';
+    } else {
+        imgEl.parentNode.textContent = fallbackInitials || '?';
+    }
+    // Tentar renovar a foto (apenas uma vez por contato por sessão)
+    if (_photoRefreshCache.has(contactId)) return;
+    _photoRefreshCache.add(contactId);
+    fetch(BASE + 'whatsapp/refreshPhoto/' + contactId, { headers: {'X-Requested-With': 'XMLHttpRequest'} })
+        .then(r => r.json())
+        .then(data => {
+            if (data.url) {
+                // Atualizar a imagem no DOM se o contato ainda estiver visível
+                const item = document.querySelector(`.wpp-contact-item[data-id="${contactId}"] .wpp-avatar-sm`);
+                if (item) {
+                    item.innerHTML = `<img src="${escapeHtml(data.url)}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" onerror="this.parentNode.textContent='${fallbackInitials || '?'}'">`;
+                }
+            }
+        })
+        .catch(() => {});
 }
 
 function showToast(msg) {
