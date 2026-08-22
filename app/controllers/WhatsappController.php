@@ -1429,6 +1429,7 @@ class WhatsappController extends Controller
         );
 
         $updated = 0;
+        $photoLog = [];
         foreach ($groups as $g) {
             $targetNum = preg_replace('/@.*/', '', $g['remote_jid']);
             $groupData = $groupMap[$targetNum] ?? null;
@@ -1439,18 +1440,18 @@ class WhatsappController extends Controller
             if (!empty($subject) && $subject !== $g['contact_name']) {
                 $updateData['contact_name'] = $subject;
             }
-            // Atualizar foto do grupo se não tem ou se é URL externa expirada
-            $isExternalUrl = !empty($g['profile_picture_url'])
-                && (strpos($g['profile_picture_url'], 'pps.whatsapp.net') !== false
-                    || strpos($g['profile_picture_url'], 'mmg.whatsapp.net') !== false);
-            $needsPhoto = empty($g['profile_picture_url']) || $isExternalUrl;
-            if ($needsPhoto) {
+            // Atualizar foto do grupo se não tem
+            if (empty($g['profile_picture_url'])) {
                 if (!empty($picture)) {
                     $updateData['profile_picture_url'] = $picture;
+                    $photoLog[] = $g['contact_name'] . ': from_map';
                 } else {
                     $picUrl = $this->fetchProfilePicUrl($instance, $g['remote_jid']);
                     if (!empty($picUrl)) {
                         $updateData['profile_picture_url'] = $picUrl;
+                        $photoLog[] = $g['contact_name'] . ': from_api';
+                    } else {
+                        $photoLog[] = $g['contact_name'] . ': NOT_FOUND';
                     }
                 }
             }
@@ -1459,6 +1460,13 @@ class WhatsappController extends Controller
                 $updated++;
             }
         }
+
+        // Log de diagnóstico
+        @file_put_contents(
+            PUBLIC_PATH . '/uploads/sync_groups_photos.log',
+            '[' . date('Y-m-d H:i:s') . '] Photos: ' . implode(' | ', $photoLog) . "\n",
+            FILE_APPEND
+        );
 
         $this->json(['success' => true, 'updated' => $updated, 'total' => count($groups)]);
     }
