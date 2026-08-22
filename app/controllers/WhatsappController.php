@@ -1559,13 +1559,12 @@ class WhatsappController extends Controller
         }
 
         $db = Database::getInstance();
-        // Buscar contatos E grupos sem foto (incluindo todos os grupos para forçar refresh)
+        // Buscar contatos E grupos sem foto
         $contacts = $db->fetchAll(
             "SELECT id, phone, remote_jid, is_group, profile_picture_url FROM whatsapp_contacts
              WHERE instance_id = ? AND (
                 profile_picture_url IS NULL 
                 OR profile_picture_url = ''
-                OR (is_group = 1 AND profile_picture_url LIKE '%pps.whatsapp.net%')
              )
              LIMIT 100",
             [$instance['id']]
@@ -1582,6 +1581,71 @@ class WhatsappController extends Controller
         }
 
         $this->json(['success' => true, 'updated' => $updated, 'total' => count($contacts)]);
+    }
+
+    /**
+     * Endpoint de diagnóstico: força busca de fotos dos grupos e mostra resposta bruta da API.
+     * Acesse: /whatsapp/forceGroupPhotos
+     */
+    public function forceGroupPhotos()
+    {
+        $this->requireRole(['super_admin']);
+        $db = Database::getInstance();
+        
+        // Pegar TODAS as instâncias
+        $instances = $db->fetchAll("SELECT * FROM whatsapp_instances");
+        $results = [];
+
+        foreach ($instances as $instance) {
+            $groups = $db->fetchAll(
+                "SELECT id, remote_jid, contact_name, profile_picture_url FROM whatsapp_contacts WHERE instance_id = ? AND is_group = 1",
+                [$instance['id']]
+            );
+
+            foreach ($groups as $g) {
+                // Se já tem foto, pular
+                if (!empty($g['profile_picture_url'])) {
+                    $results[] = ['group' => $g['contact_name'], 'status' => 'already_has_photo'];
+                    continue;
+                }
+
+                // Tentar com JID completo
+                $jid = $g['remote_jid'];
+                $url = rtrim($instance['api_url'], '/') . '/chat/fetchProfilePictureUrl/' . $instance['instance_name'];
+                
+                $ch = curl_init($url);
+                curl_setopt_array($ch, [
+                    CURLOPT_POST => true,
+                    CURLOPT_POSTFIELDS => json_encode(['number' => $jid]),
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_HTTPHEADER => ['apikey: ' . $instance['api_key'], 'Content-Type: application/json'],
+                    CURLOPT_SSL_VERIFYPEER => false,
+                    CURLOPT_TIMEOUT => 15,
+                ]);
+                $response = curl_exec($ch);
+                $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                curl_close($ch);
+                
+                $data = json_decode($response, true);
+                $picUrl = $data['profilePictureUrl'] ?? $data['url'] ?? $data['profilePicUrl'] ?? $data['picture'] ?? null;
+
+                if (!empty($picUrl)) {
+                    $db->update('whatsapp_contacts', ['profile_picture_url' => $picUrl], 'id = ?', [$g['id']]);
+                    $results[] = ['group' => $g['contact_name'], 'status' => 'UPDATED', 'url' => substr($picUrl, 0, 80)];
+                } else {
+                    $results[] = [
+                        'group' => $g['contact_name'],
+                        'jid' => $jid,
+                        'status' => 'NOT_FOUND',
+                        'http' => $httpCode,
+                        'raw' => substr($response ?? '', 0, 200),
+                        'instance' => $instance['instance_name'],
+                    ];
+                }
+            }
+        }
+
+        $this->json(['results' => $results]);
     }
 
     /**
