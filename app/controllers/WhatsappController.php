@@ -1748,7 +1748,6 @@ class WhatsappController extends Controller
         if (!is_array($data)) return null;
         return $data['profilePictureUrl'] ?? $data['url'] ?? $data['profilePicUrl'] ?? $data['picture'] ?? null;
     }
-    }
 
     /**
      * Processa atualização de status (ack) das mensagens enviadas.
