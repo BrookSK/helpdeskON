@@ -1542,9 +1542,14 @@ class WhatsappController extends Controller
         }
 
         $db = Database::getInstance();
+        // Buscar contatos E grupos sem foto (incluindo todos os grupos para forçar refresh)
         $contacts = $db->fetchAll(
-            "SELECT id, phone, remote_jid, is_group FROM whatsapp_contacts
-             WHERE instance_id = ? AND (profile_picture_url IS NULL OR profile_picture_url = '')
+            "SELECT id, phone, remote_jid, is_group, profile_picture_url FROM whatsapp_contacts
+             WHERE instance_id = ? AND (
+                profile_picture_url IS NULL 
+                OR profile_picture_url = ''
+                OR (is_group = 1 AND profile_picture_url LIKE '%pps.whatsapp.net%')
+             )
              LIMIT 100",
             [$instance['id']]
         );
@@ -1706,25 +1711,43 @@ class WhatsappController extends Controller
                 $num = preg_replace('/@.*/', '', $number);
             }
             $url = rtrim($instance['api_url'], '/') . '/chat/fetchProfilePictureUrl/' . $instance['instance_name'];
-            $ch = curl_init($url);
-            curl_setopt_array($ch, [
-                CURLOPT_POST => true,
-                CURLOPT_POSTFIELDS => json_encode(['number' => $num]),
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_HTTPHEADER => ['apikey: ' . $instance['api_key'], 'Content-Type: application/json'],
-                CURLOPT_SSL_VERIFYPEER => false,
-                CURLOPT_TIMEOUT => 15,
-            ]);
-            $response = curl_exec($ch);
-            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            curl_close($ch);
-            if ($httpCode >= 400 || empty($response)) return null;
-            $data = json_decode($response, true);
-            if (!is_array($data)) return null;
-            return $data['profilePictureUrl'] ?? $data['url'] ?? $data['profilePicUrl'] ?? null;
+
+            // Tentar com o formato atual
+            $result = $this->doFetchPicRequest($url, $num, $instance['api_key']);
+            if ($result) return $result;
+
+            // Fallback: se era grupo com @g.us, tentar sem o sufixo
+            if (strpos($number, '@g.us') !== false) {
+                $numOnly = preg_replace('/@.*/', '', $number);
+                $result = $this->doFetchPicRequest($url, $numOnly, $instance['api_key']);
+                if ($result) return $result;
+            }
+
+            return null;
         } catch (Exception $e) {
             return null;
         }
+    }
+
+    private function doFetchPicRequest($url, $num, $apiKey)
+    {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => json_encode(['number' => $num]),
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HTTPHEADER => ['apikey: ' . $apiKey, 'Content-Type: application/json'],
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_TIMEOUT => 15,
+        ]);
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        if ($httpCode >= 400 || empty($response)) return null;
+        $data = json_decode($response, true);
+        if (!is_array($data)) return null;
+        return $data['profilePictureUrl'] ?? $data['url'] ?? $data['profilePicUrl'] ?? $data['picture'] ?? null;
+    }
     }
 
     /**
