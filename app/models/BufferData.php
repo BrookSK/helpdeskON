@@ -101,52 +101,6 @@ class BufferData
         return $this->db->fetch("SELECT * FROM buffer_posts WHERE buffer_post_id = ?", [$bufferPostId]);
     }
 
-    /**
-     * Retorna posts locais com status 'scheduled' cuja due_at já passou.
-     * São candidatos a verificação: deveriam ter sido publicados pelo Buffer.
-     */
-    public function getOverdueScheduledPosts($minutesGrace = 10)
-    {
-        $cutoff = date('Y-m-d H:i:s', time() - ($minutesGrace * 60));
-        return $this->db->fetchAll(
-            "SELECT bp.*, bc.buffer_account_id, bc.name AS channel_name, bc.service AS channel_service
-             FROM buffer_posts bp
-             LEFT JOIN buffer_channels bc ON bc.channel_id = bp.channel_id
-             WHERE bp.status IN ('scheduled', 'pending')
-               AND bp.due_at IS NOT NULL
-               AND bp.due_at <= ?
-             ORDER BY bp.due_at ASC
-             LIMIT 100",
-            [$cutoff]
-        );
-    }
-
-    /**
-     * Atualiza o status de um post local.
-     */
-    public function updatePostStatus($bufferPostId, $status, $extra = [])
-    {
-        $data = array_merge(['status' => $status], $extra);
-        return $this->db->update('buffer_posts', $data, 'buffer_post_id = ?', [$bufferPostId]);
-    }
-
-    /**
-     * Retorna posts associados a um item de marketing, com nome do canal.
-     */
-    public function getPostsByMarketingItem($marketingItemId)
-    {
-        return $this->db->fetchAll(
-            "SELECT bp.buffer_post_id, bp.status, bp.due_at, bp.sent_at, bp.external_link,
-                    bp.channel_id, bp.service,
-                    bc.name AS channel_name
-             FROM buffer_posts bp
-             LEFT JOIN buffer_channels bc ON bc.channel_id = bp.channel_id
-             WHERE bp.marketing_item_id = ?
-             ORDER BY bp.due_at DESC",
-            [$marketingItemId]
-        );
-    }
-
     // ===== Métricas agregadas por canal =====
     /** Remove o snapshot agregado anterior de um canal. */
     public function clearChannelMetrics($channelId)

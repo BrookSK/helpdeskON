@@ -22,8 +22,10 @@ class BufferApi
     /**
      * Executa uma query/mutation GraphQL.
      * Retorna ['data' => ..., 'errors' => ..., 'http' => code].
+     * Implementa retry automático com backoff em caso de rate limiting (429).
+     * Se o limite diário/mensal foi atingido, informa ao usuário sem retry infinito.
      */
-    public function query($query, $variables = [])
+    public function query($query, $variables = [], $maxRetries = 3)
     {
         if (empty($this->apiKey)) {
             return ['errors' => [['message' => 'Chave da API Buffer não configurada.']], 'http' => 0];
@@ -32,59 +34,109 @@ class BufferApi
         $payload = ['query' => $query];
         if (!empty($variables)) $payload['variables'] = $variables;
 
-        $ch = curl_init($this->endpoint);
-        curl_setopt_array($ch, [
-            CURLOPT_POST => true,
-            CURLOPT_HTTPHEADER => [
-                'Authorization: Bearer ' . $this->apiKey,
-                'Content-Type: application/json',
-            ],
-            CURLOPT_POSTFIELDS => json_encode($payload),
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 45,
-        ]);
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $curlErr = curl_error($ch);
-        curl_close($ch);
-
-        // Extrai o nome da operação GraphQL para facilitar identificação nos logs
-        $opName = 'unknown';
-        if (preg_match('/(?:query|mutation)\s+(\w+)/', $query, $m)) {
-            $opName = $m[1];
-        }
-
-        if ($response === false) {
-            Logger::error('BufferApi connection failure', [
-                'operation' => $opName,
-                'curl_error' => $curlErr,
-                'http_code' => $httpCode,
+        $attempt = 0;
+        while ($attempt <= $maxRetries) {
+            $ch = curl_init($this->endpoint);
+            curl_setopt_array($ch, [
+                CURLOPT_POST => true,
+                CURLOPT_HTTPHEADER => [
+                    'Authorization: Bearer ' . $this->apiKey,
+                    'Content-Type: application/json',
+                ],
+                CURLOPT_POSTFIELDS => json_encode($payload),
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT => 45,
+                CURLOPT_HEADER => true,
             ]);
-            return ['errors' => [['message' => 'Falha de conexão: ' . $curlErr]], 'http' => $httpCode];
+            $fullResponse = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $headerSize = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+            $curlErr = curl_error($ch);
+            curl_close($ch);
+
+            if ($fullResponse === false) {
+                return ['errors' => [['message' => 'Falha de conexão: ' . $curlErr]], 'http' => $httpCode];
+            }
+
+            $headers = substr($fullResponse, 0, $headerSize);
+            $response = substr($fullResponse, $headerSize);
+
+            // Rate limiting via HTTP 429
+            if ($httpCode === 429) {
+                // Verificar qual janela foi excedida (via extensions.window no body)
+                $decoded = json_decode($response, true);
+                $window = $decoded['errors'][0]['extensions']['window'] ?? null;
+
+                // Se é limite de 24h ou 30d, não adianta ficar tentando — informar ao usuário
+                if ($window === '24h' || $window === '30d') {
+                    $retryAfter = $this->parseRetryAfter($headers);
+                    $waitMsg = $retryAfter ? " Tente novamente em " . $this->formatWait($retryAfter) . "." : '';
+                    $windowLabel = $window === '24h' ? 'diário' : 'mensal';
+                    return ['errors' => [['message' => "Limite {$windowLabel} da API Buffer atingido.{$waitMsg}"]], 'http' => 429, 'window' => $window];
+                }
+
+                // Limite de 15min ou desconhecido: tentar novamente com backoff
+                if ($attempt < $maxRetries) {
+                    $retryAfter = $this->parseRetryAfter($headers);
+                    $wait = $retryAfter ? min($retryAfter, 15) : min(pow(2, $attempt + 1), 10);
+                    $attempt++;
+                    sleep($wait);
+                    continue;
+                }
+
+                $decoded = $decoded ?? json_decode($response, true);
+                if (is_array($decoded)) { $decoded['http'] = $httpCode; return $decoded; }
+                return ['errors' => [['message' => 'Rate limit excedido. Aguarde alguns minutos e tente novamente.']], 'http' => 429];
+            }
+
+            $decoded = json_decode($response, true);
+            if (!is_array($decoded)) {
+                return ['errors' => [['message' => 'Resposta inválida da API Buffer.']], 'http' => $httpCode];
+            }
+
+            // Rate limiting via mensagem de erro no corpo (HTTP 200 mas com erro de rate limit)
+            $isRateLimited = false;
+            if (!empty($decoded['errors'])) {
+                foreach ($decoded['errors'] as $err) {
+                    if (isset($err['message']) && stripos($err['message'], 'too many requests') !== false) {
+                        $isRateLimited = true;
+                        break;
+                    }
+                }
+            }
+            $mutationMsg = $decoded['data']['createPost']['message'] ?? '';
+            if ($mutationMsg && stripos($mutationMsg, 'too many requests') !== false) {
+                $isRateLimited = true;
+            }
+
+            if ($isRateLimited && $attempt < $maxRetries) {
+                $attempt++;
+                sleep(pow(2, $attempt) + 1);
+                continue;
+            }
+
+            $decoded['http'] = $httpCode;
+            return $decoded;
         }
 
-        $decoded = json_decode($response, true);
-        if (!is_array($decoded)) {
-            Logger::error('BufferApi invalid response', [
-                'operation' => $opName,
-                'http_code' => $httpCode,
-                'response_preview' => substr($response, 0, 300),
-            ]);
-            return ['errors' => [['message' => 'Resposta inválida da API Buffer.']], 'http' => $httpCode];
-        }
-        $decoded['http'] = $httpCode;
+        return ['errors' => [['message' => 'Limite de requisições excedido. Aguarde alguns minutos e tente novamente.']], 'http' => 429];
+    }
 
-        // Loga erros GraphQL ou HTTP não-2xx
-        if (!empty($decoded['errors']) || $httpCode >= 400) {
-            Logger::warning('BufferApi error response', [
-                'operation' => $opName,
-                'http_code' => $httpCode,
-                'errors' => $decoded['errors'] ?? null,
-                'has_data' => isset($decoded['data']),
-            ]);
+    /** Extrai o valor do header Retry-After (em segundos). */
+    private function parseRetryAfter($headers)
+    {
+        if (preg_match('/Retry-After:\s*(\d+)/i', $headers, $m)) {
+            return intval($m[1]);
         }
+        return null;
+    }
 
-        return $decoded;
+    /** Formata segundos em texto legível. */
+    private function formatWait($seconds)
+    {
+        if ($seconds < 60) return "{$seconds} segundos";
+        if ($seconds < 3600) return ceil($seconds / 60) . " minutos";
+        return ceil($seconds / 3600) . " hora(s)";
     }
 
     /** Conta + organizações do dono da chave. */
@@ -150,7 +202,7 @@ class BufferApi
                 ... on MutationError { message }
             }
         }';
-        return $this->query($q, ['input' => $input]);
+        return $this->query($q, ['input' => $input], 2);
     }
 
     /** Exclui um post. */
@@ -207,42 +259,5 @@ class BufferApi
             }
         }';
         return $this->query($q, ['input' => $input]);
-    }
-
-    /**
-     * Busca um post individual pelo ID do Buffer.
-     * Útil para verificar o status atual de um post agendado.
-     */
-    public function getPost($postId)
-    {
-        $q = 'query GetPost($id: ID!) {
-            post(id: $id) {
-                id text status dueAt sentAt channelId channelService externalLink
-            }
-        }';
-        return $this->query($q, ['id' => $postId]);
-    }
-
-    /**
-     * Lista posts de uma organização filtrando por status.
-     * $statuses: array de status (ex: ['scheduled', 'error', 'sending']).
-     */
-    public function getPostsByStatus($organizationId, $statuses = ['scheduled'], $channelIds = [], $first = 50)
-    {
-        $filter = ['status' => $statuses];
-        if (!empty($channelIds)) $filter['channelIds'] = $channelIds;
-
-        $input = ['organizationId' => $organizationId, 'filter' => $filter,
-                  'sort' => [['field' => 'dueAt', 'direction' => 'asc']]];
-
-        $q = 'query GetPostsByStatus($first: Int, $input: PostsInput!) {
-            posts(first: $first, input: $input) {
-                edges { node {
-                    id text status dueAt sentAt channelId channelService externalLink
-                } }
-                pageInfo { hasNextPage endCursor }
-            }
-        }';
-        return $this->query($q, ['first' => $first, 'input' => $input]);
     }
 }
