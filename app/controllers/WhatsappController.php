@@ -1592,9 +1592,44 @@ class WhatsappController extends Controller
         $this->requireRole(['super_admin']);
         $db = Database::getInstance();
         
-        // Pegar TODAS as instâncias
+        // Se veio um upload de foto manual, processar
+        if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['contact_id'])) {
+            $contactId = intval($_POST['contact_id']);
+            $contact = $this->contactModel->findById($contactId);
+            if (!$contact) $this->json(['error' => 'Contato não encontrado'], 404);
+
+            if (!empty($_FILES['photo']['tmp_name']) && $_FILES['photo']['error'] === UPLOAD_ERR_OK) {
+                $ext = strtolower(pathinfo($_FILES['photo']['name'], PATHINFO_EXTENSION)) ?: 'jpg';
+                $dir = PUBLIC_PATH . '/uploads/whatsapp_avatars';
+                if (!is_dir($dir)) @mkdir($dir, 0755, true);
+                $filename = 'group_' . $contactId . '_' . time() . '.' . $ext;
+                $localPath = 'uploads/whatsapp_avatars/' . $filename;
+                if (move_uploaded_file($_FILES['photo']['tmp_name'], PUBLIC_PATH . '/' . $localPath)) {
+                    $db->update('whatsapp_contacts', ['profile_picture_url' => baseUrl($localPath)], 'id = ?', [$contactId]);
+                    $this->json(['success' => true, 'url' => baseUrl($localPath)]);
+                }
+            } elseif (!empty($_POST['photo_url'])) {
+                $db->update('whatsapp_contacts', ['profile_picture_url' => trim($_POST['photo_url'])], 'id = ?', [$contactId]);
+                $this->json(['success' => true, 'url' => trim($_POST['photo_url'])]);
+            }
+            $this->json(['error' => 'Envie uma foto ou URL'], 400);
+        }
+
+        // GET: Pegar TODAS as instâncias e mostrar diagnóstico
+        // Se ?restart=1, reinicia a instância antes de buscar (força refresh do cache)
         $instances = $db->fetchAll("SELECT * FROM whatsapp_instances");
         $results = [];
+        $restarted = false;
+
+        if (!empty($_GET['restart'])) {
+            foreach ($instances as $instance) {
+                $api = new EvolutionApi($instance['api_url'], $instance['api_key'], $instance['instance_name']);
+                $api->restartInstance();
+                $restarted = true;
+            }
+            // Esperar a reconexão
+            sleep(5);
+        }
 
         foreach ($instances as $instance) {
             $groups = $db->fetchAll(
@@ -1603,13 +1638,11 @@ class WhatsappController extends Controller
             );
 
             foreach ($groups as $g) {
-                // Se já tem foto, pular
                 if (!empty($g['profile_picture_url'])) {
-                    $results[] = ['group' => $g['contact_name'], 'status' => 'already_has_photo'];
+                    $results[] = ['group' => $g['contact_name'], 'id' => $g['id'], 'status' => 'has_photo', 'url' => substr($g['profile_picture_url'], 0, 60)];
                     continue;
                 }
 
-                // Tentar com JID completo
                 $jid = $g['remote_jid'];
                 $url = rtrim($instance['api_url'], '/') . '/chat/fetchProfilePictureUrl/' . $instance['instance_name'];
                 
@@ -1627,25 +1660,18 @@ class WhatsappController extends Controller
                 curl_close($ch);
                 
                 $data = json_decode($response, true);
-                $picUrl = $data['profilePictureUrl'] ?? $data['url'] ?? $data['profilePicUrl'] ?? $data['picture'] ?? null;
+                $picUrl = $data['profilePictureUrl'] ?? $data['url'] ?? $data['profilePicUrl'] ?? null;
 
                 if (!empty($picUrl)) {
                     $db->update('whatsapp_contacts', ['profile_picture_url' => $picUrl], 'id = ?', [$g['id']]);
-                    $results[] = ['group' => $g['contact_name'], 'status' => 'UPDATED', 'url' => substr($picUrl, 0, 80)];
+                    $results[] = ['group' => $g['contact_name'], 'id' => $g['id'], 'status' => 'UPDATED'];
                 } else {
-                    $results[] = [
-                        'group' => $g['contact_name'],
-                        'jid' => $jid,
-                        'status' => 'NOT_FOUND',
-                        'http' => $httpCode,
-                        'raw' => substr($response ?? '', 0, 200),
-                        'instance' => $instance['instance_name'],
-                    ];
+                    $results[] = ['group' => $g['contact_name'], 'id' => $g['id'], 'status' => 'NOT_AVAILABLE'];
                 }
             }
         }
 
-        $this->json(['results' => $results]);
+        $this->json(['results' => $results, 'restarted' => $restarted, 'tip' => 'Se fotos não aparecem, acesse com ?restart=1 para reiniciar a instância e forçar refresh. Para upload manual: POST com contact_id + photo (file) ou photo_url.']);
     }
 
     /**
@@ -1812,12 +1838,31 @@ class WhatsappController extends Controller
 
     private function doFetchPicRequest($url, $num, $apiKey)
     {
+        // Tentar via POST (formato padrão Evolution API v2)
         $ch = curl_init($url);
         curl_setopt_array($ch, [
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => json_encode(['number' => $num]),
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_HTTPHEADER => ['apikey: ' . $apiKey, 'Content-Type: application/json'],
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_TIMEOUT => 15,
+        ]);
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        if ($httpCode >= 400 || empty($response)) return null;
+        $data = json_decode($response, true);
+        if (!is_array($data)) return null;
+        $result = $data['profilePictureUrl'] ?? $data['url'] ?? $data['profilePicUrl'] ?? $data['picture'] ?? null;
+        if ($result) return $result;
+
+        // Tentar via GET com query param (formato alternativo)
+        $getUrl = $url . '?number=' . urlencode($num);
+        $ch = curl_init($getUrl);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HTTPHEADER => ['apikey: ' . $apiKey],
             CURLOPT_SSL_VERIFYPEER => false,
             CURLOPT_TIMEOUT => 15,
         ]);
