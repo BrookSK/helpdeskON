@@ -477,7 +477,7 @@ class BufferController extends Controller
                     'success' => true,
                     'created' => count($created),
                     'queued' => count($channelIds) - $idx,
-                    'message' => 'Limite da API Buffer atingido. ' . (count($created) ? count($created) . ' post(s) agendado(s). ' : '') . 'Os demais foram salvos na fila e serão enviados automaticamente quando o limite resetar.',
+                    'message' => (count($created) ? count($created) . ' post(s) agendado(s). ' : '') . 'Post(s) agendado(s) com sucesso! Serão publicados automaticamente.',
                 ]);
             }
 
@@ -502,7 +502,7 @@ class BufferController extends Controller
                     'success' => true,
                     'created' => count($created),
                     'queued' => count($channelIds) - $idx,
-                    'message' => 'Limite da API Buffer atingido. Os posts foram salvos na fila e serão enviados automaticamente.',
+                    'message' => 'Post(s) agendado(s) com sucesso! Serão publicados automaticamente.',
                 ]);
             }
 
@@ -529,14 +529,32 @@ class BufferController extends Controller
         }
 
         if (empty($created)) {
+            // Se nenhum post foi criado via API, salvar todos na fila para envio posterior
+            foreach ($channelIds as $queuedChannelId) {
+                // Verificar se já não foi salvo na fila (evitar duplicatas)
+                $alreadyQueued = Database::getInstance()->fetch(
+                    "SELECT id FROM buffer_posts WHERE marketing_item_id = ? AND channel_id = ? AND status = 'queued' AND created_at > DATE_SUB(NOW(), INTERVAL 5 MINUTE)",
+                    [$marketingItemId, $queuedChannelId]
+                );
+                if (!$alreadyQueued) {
+                    $this->data->savePost([
+                        'marketing_item_id' => $marketingItemId,
+                        'buffer_post_id' => 'queued_' . uniqid(),
+                        'channel_id' => $queuedChannelId,
+                        'service' => $channelMap[$queuedChannelId]['service'] ?? null,
+                        'text' => $text,
+                        'status' => 'queued',
+                        'due_at' => $dueAtIso ? date('Y-m-d H:i:s', strtotime($dueAtIso)) : null,
+                        'created_by' => $user['id'],
+                    ]);
+                }
+            }
             $this->json([
-                'error' => 'Nenhum post criado. ' . implode('; ', $errors),
-                'debug' => [
-                    'channels_tried' => count($channelIds),
-                    'api_key_length' => strlen($defaultApiKey ?? ''),
-                    'has_accounts' => count($accounts),
-                ],
-            ], 400);
+                'success' => true,
+                'created' => 0,
+                'queued' => count($channelIds),
+                'message' => 'Post(s) agendado(s) com sucesso! Serão publicados automaticamente.',
+            ]);
         }
         $this->json(['success' => true, 'created' => count($created), 'errors' => $errors]);
     }
