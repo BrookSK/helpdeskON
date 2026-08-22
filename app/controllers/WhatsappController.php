@@ -1450,10 +1450,15 @@ class WhatsappController extends Controller
             if (!empty($subject) && $subject !== $g['contact_name']) {
                 $updateData['contact_name'] = $subject;
             }
-            // Atualizar foto do grupo se veio da API ou tentar buscar individualmente
-            if (empty($g['profile_picture_url'])) {
+            // Atualizar foto do grupo: renovar se vazia OU se é URL externa (expira)
+            $needsPhoto = empty($g['profile_picture_url'])
+                || strpos($g['profile_picture_url'], 'pps.whatsapp.net') !== false
+                || strpos($g['profile_picture_url'], 'mmg.whatsapp.net') !== false;
+            if ($needsPhoto) {
                 if (!empty($picture)) {
-                    $updateData['profile_picture_url'] = $picture;
+                    // Baixar e salvar localmente
+                    $localUrl = $this->downloadAndSaveProfilePic($picture, $g['remote_jid']);
+                    if ($localUrl) $updateData['profile_picture_url'] = $localUrl;
                 } else {
                     // Tentar buscar foto individualmente via endpoint de profile picture
                     $picUrl = $this->fetchProfilePicUrl($instance, $g['remote_jid']);
@@ -1729,7 +1734,53 @@ class WhatsappController extends Controller
             if ($httpCode >= 400 || empty($response)) return null;
             $data = json_decode($response, true);
             if (!is_array($data)) return null;
-            return $data['profilePictureUrl'] ?? $data['url'] ?? $data['profilePicUrl'] ?? null;
+            $remoteUrl = $data['profilePictureUrl'] ?? $data['url'] ?? $data['profilePicUrl'] ?? null;
+            if (empty($remoteUrl)) return null;
+
+            // Baixar a imagem e salvar localmente para evitar expiração de URL
+            return $this->downloadAndSaveProfilePic($remoteUrl, $num);
+        } catch (Exception $e) {
+            return null;
+        }
+    }
+
+    /**
+     * Baixa uma imagem de perfil remota e salva localmente.
+     * Retorna o caminho relativo local (uploads/...) ou null se falhar.
+     */
+    private function downloadAndSaveProfilePic($remoteUrl, $identifier)
+    {
+        try {
+            $ch = curl_init($remoteUrl);
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT => 15,
+                CURLOPT_FOLLOWLOCATION => true,
+                CURLOPT_SSL_VERIFYPEER => false,
+            ]);
+            $imageData = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $contentType = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+            curl_close($ch);
+
+            if ($httpCode >= 400 || empty($imageData) || strlen($imageData) < 100) {
+                return null;
+            }
+
+            // Determinar extensão
+            $ext = 'jpg';
+            if (strpos($contentType, 'png') !== false) $ext = 'png';
+            elseif (strpos($contentType, 'webp') !== false) $ext = 'webp';
+
+            // Salvar em uploads/whatsapp_avatars/
+            $dir = PUBLIC_PATH . '/uploads/whatsapp_avatars';
+            if (!is_dir($dir)) mkdir($dir, 0755, true);
+
+            $filename = md5($identifier) . '.' . $ext;
+            $localPath = 'uploads/whatsapp_avatars/' . $filename;
+            file_put_contents(PUBLIC_PATH . '/' . $localPath, $imageData);
+
+            return baseUrl($localPath);
         } catch (Exception $e) {
             return null;
         }
