@@ -34,7 +34,7 @@
                         </ul>
                     </div>
                 </div>
-                <div class="crm-cards-list" data-column-id="<?= $col['id'] ?>">
+                <div class="crm-cards-list" data-column-id="<?= $col['id'] ?>" data-column-name="<?= escape($col['name']) ?>">
                     <?php foreach ($col['cards'] as $card): ?>
                     <?php
                     $displayName = $card['contact_name'] ?: $card['title'];
@@ -66,7 +66,9 @@
                             <?php endif; ?>
                         </div>
                         <?php if ($card['phone']): ?>
-                        <div class="crm-card-phone"><i class="bi bi-telephone"></i> <?= escape($card['phone']) ?></div>
+                        <div class="crm-card-phone">
+                            <i class="bi bi-telephone"></i> <?= escape($card['phone']) ?>
+                        </div>
                         <?php endif; ?>
                         <div class="crm-card-footer">
                             <?php if (!empty($card['investment_range'])): ?>
@@ -85,6 +87,29 @@
                 </div>
             </div>
             <?php endforeach; ?>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Quem Fechou (ao mover para coluna Fechado) -->
+<div class="modal fade" id="moveClosedByModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-sm modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title"><i class="bi bi-check-circle text-success"></i> Quem fechou o negócio?</h6>
+            </div>
+            <div class="modal-body">
+                <p class="small text-muted mb-2">Selecione o responsável pelo fechamento deste lead:</p>
+                <select id="move-closed-by" class="form-select form-select-sm">
+                    <?php foreach ($teamMembers as $m): ?>
+                    <option value="<?= $m['id'] ?>"><?= escape($m['name']) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div class="modal-footer py-2">
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="cancelMoveToFechado()">Cancelar</button>
+                <button type="button" class="btn btn-sm btn-success" onclick="confirmMoveToFechado()"><i class="bi bi-check-lg"></i> Confirmar</button>
+            </div>
         </div>
     </div>
 </div>
@@ -289,6 +314,22 @@
                             <button class="btn btn-sm btn-success flex-fill" onclick="convertLead()"><i class="bi bi-check-circle"></i> Convertido</button>
                             <button class="btn btn-sm btn-danger flex-fill" onclick="lostLead()"><i class="bi bi-x-circle"></i> Perdido</button>
                         </div>
+                        <!-- Select quem fechou (aparece ao converter) -->
+                        <div id="closed-by-crm-field" class="mb-2" style="display:none;">
+                            <label class="form-label small fw-medium mb-1">Quem fechou o negócio?</label>
+                            <select id="crm-closed-by" class="form-select form-select-sm">
+                                <?php foreach ($teamMembers as $m): ?>
+                                <option value="<?= $m['id'] ?>"><?= escape($m['name']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <div class="d-flex gap-2 mt-1">
+                                <button class="btn btn-sm btn-success flex-fill" onclick="confirmConvert()"><i class="bi bi-check-lg"></i> Confirmar</button>
+                                <button class="btn btn-sm btn-outline-secondary flex-fill" onclick="cancelConvert()">Cancelar</button>
+                            </div>
+                        </div>
+                        <button id="card-call-btn" class="btn btn-sm btn-outline-primary w-100 mb-2" style="display:none;" onclick="callFromCardDetail(this)">
+                            <i class="bi bi-telephone-outbound"></i> Telefonar
+                        </button>
                         <a href="#" id="card-open-chat" class="btn btn-sm btn-outline-success w-100 mb-2" style="display:none;">
                             <i class="bi bi-whatsapp"></i> Abrir no Chat
                         </a>
@@ -342,6 +383,8 @@ let currentCardId = null;
 // =========================================
 // DRAG AND DROP
 // =========================================
+let pendingMoveData = null; // Armazena dados de move pendente (coluna Fechado)
+
 document.querySelectorAll('.crm-cards-list').forEach(list => {
     new Sortable(list, {
         group: 'crm-cards',
@@ -351,8 +394,17 @@ document.querySelectorAll('.crm-cards-list').forEach(list => {
         onEnd: function(evt) {
             const cardId = evt.item.dataset.cardId;
             const newColumnId = evt.to.dataset.columnId;
+            const columnName = (evt.to.dataset.columnName || '').trim().toLowerCase();
             const position = [...evt.to.children].indexOf(evt.item);
 
+            // Se a coluna de destino é "Fechado", interceptar e pedir quem fechou
+            if (columnName === 'fechado') {
+                pendingMoveData = { cardId, newColumnId, position, evt };
+                new bootstrap.Modal(document.getElementById('moveClosedByModal')).show();
+                return;
+            }
+
+            // Movimentação normal
             const fd = new FormData();
             fd.append('card_id', cardId);
             fd.append('column_id', newColumnId);
@@ -369,6 +421,44 @@ document.querySelectorAll('.crm-cards-list').forEach(list => {
         }
     });
 });
+
+function confirmMoveToFechado() {
+    if (!pendingMoveData) return;
+    const closedBy = document.getElementById('move-closed-by').value;
+    if (!closedBy) { alert('Selecione quem fechou o negócio.'); return; }
+
+    const fd = new FormData();
+    fd.append('card_id', pendingMoveData.cardId);
+    fd.append('column_id', pendingMoveData.newColumnId);
+    fd.append('position', pendingMoveData.position);
+    fd.append('closed_by', closedBy);
+
+    fetch(BASE + 'crm/moveCard', { method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'} })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            bootstrap.Modal.getInstance(document.getElementById('moveClosedByModal')).hide();
+            updateColumnCounts();
+            // Atualizar visual do card para mostrar como convertido
+            const cardEl = document.querySelector(`[data-card-id="${pendingMoveData.cardId}"]`);
+            if (cardEl) cardEl.classList.add('outcome-converted');
+            pendingMoveData = null;
+        } else {
+            alert(data.error || 'Erro ao mover card.');
+        }
+    });
+}
+
+function cancelMoveToFechado() {
+    if (pendingMoveData) {
+        // Reverter o card para a posição original
+        const evt = pendingMoveData.evt;
+        evt.from.insertBefore(evt.item, evt.from.children[evt.oldIndex] || null);
+        updateColumnCounts();
+        pendingMoveData = null;
+    }
+    bootstrap.Modal.getInstance(document.getElementById('moveClosedByModal')).hide();
+}
 
 function updateColumnCounts() {
     document.querySelectorAll('.crm-column').forEach(col => {
@@ -411,6 +501,35 @@ function createCard() {
     });
 }
 
+// Ligação VoIP direto do card (kanban)
+function callFromCard(contactId, name, phone, btn) {
+    if (btn.dataset.loading === '1') return;
+    btn.dataset.loading = '1';
+    const o = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:12px;height:12px;"></span>';
+    fetch(BASE + 'crm/dialLead/' + contactId, { method: 'POST', headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json())
+        .then(d => {
+            btn.dataset.loading = '0'; btn.innerHTML = o;
+            if (d.error) { alert(d.error); return; }
+            if (typeof window.nvCall !== 'function') { alert('Webphone não disponível. Recarregue a página.'); return; }
+            window.nvCall(d.called, d.call_record_id, d.lead || { id: contactId, name: name, phone: phone });
+        })
+        .catch(() => { btn.dataset.loading = '0'; btn.innerHTML = o; alert('Erro ao iniciar a ligação.'); });
+}
+
+// Ligação VoIP do modal de detalhes do card
+function callFromCardDetail(btn) {
+    if (!currentCardId) return;
+    // Pega o contact_id do card aberto via o link do chat (que contém o contact_id)
+    const chatBtn = document.getElementById('card-open-chat');
+    if (!chatBtn || chatBtn.style.display === 'none') { alert('Este card não tem um contato vinculado.'); return; }
+    const href = chatBtn.href || '';
+    const contactId = href.split('/').pop();
+    if (!contactId) { alert('Contato não encontrado.'); return; }
+    callFromCard(parseInt(contactId), document.getElementById('card-title').value, document.getElementById('card-phone').value, btn);
+}
+
 function openCardDetail(cardId) {
     event.stopPropagation();
     currentCardId = cardId;
@@ -441,12 +560,15 @@ function openCardDetail(cardId) {
 
         // Botão "Abrir no Chat" — leva direto à conversa do contato vinculado
         const openChatBtn = document.getElementById('card-open-chat');
+        const callBtn = document.getElementById('card-call-btn');
         if (openChatBtn) {
             if (card.contact_id) {
                 openChatBtn.href = BASE + 'whatsapp/chat/' + card.contact_id;
                 openChatBtn.style.display = '';
+                if (callBtn) callBtn.style.display = '';
             } else {
                 openChatBtn.style.display = 'none';
+                if (callBtn) callBtn.style.display = 'none';
             }
         }
         document.getElementById('card-followup-amount').value = '';
@@ -550,8 +672,23 @@ function deleteCard() {
 }
 
 function convertLead() {
-    if (!currentCardId || !confirm('Marcar este lead como CONVERTIDO?')) return;
-    fetch(BASE + 'crm/convertLead/' + currentCardId, { method: 'POST', body: new FormData(), headers: {'X-Requested-With': 'XMLHttpRequest'} })
+    if (!currentCardId) return;
+    // Mostra o campo de quem fechou
+    document.getElementById('closed-by-crm-field').style.display = '';
+}
+
+function cancelConvert() {
+    document.getElementById('closed-by-crm-field').style.display = 'none';
+}
+
+function confirmConvert() {
+    const closedBy = document.getElementById('crm-closed-by').value;
+    if (!closedBy) { alert('Selecione quem fechou o negócio.'); return; }
+
+    const fd = new FormData();
+    fd.append('closed_by', closedBy);
+
+    fetch(BASE + 'crm/convertLead/' + currentCardId, { method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'} })
     .then(r => r.json())
     .then(data => { if (data.success) location.reload(); else alert(data.error || 'Erro'); });
 }

@@ -59,9 +59,26 @@ try {
     // ============================================================
     // 1) BUFFER: Sincronizar canais e métricas
     // ============================================================
+    // Limitar a 1x a cada 12h para não esgotar o rate limit (250 req/dia no Free)
+    $lastCronSync = Config::get('buffer_cron_last_sync');
+    $skipBuffer = ($lastCronSync && (time() - strtotime($lastCronSync)) < 43200); // 12h
+
+    if ($skipBuffer) {
+        // Pula a sync do Buffer — já foi feita recentemente
+    } else {
+
     $bufferAccounts = new BufferAccount();
     $bufferData = new BufferData();
     $allAccounts = $bufferAccounts->all(true);
+
+    // Não sincronizar métricas do Buffer se já fez nas últimas 6 horas
+    // (para não consumir o rate limit antes do usuário agendar)
+    $lastBufferSync = Config::get('buffer_cron_last_sync');
+    $skipBufferMetrics = $lastBufferSync && (time() - strtotime($lastBufferSync)) < 21600;
+
+    if (!$skipBufferMetrics) {
+        Config::set('buffer_cron_last_sync', date('Y-m-d H:i:s'));
+    }
 
     $since = strtotime('-365 days');
     $until = time();
@@ -80,7 +97,7 @@ try {
                 $bufferAccounts->update($acc['id'], ['organization_id' => $orgId]);
             }
 
-            // Canais
+            // Canais (leve, 1 chamada — sempre sincronizar)
             $res = $api->getChannels($orgId);
             if (empty($res['errors'])) {
                 $channels = $res['data']['channels'] ?? [];
@@ -88,7 +105,9 @@ try {
                 $stats['buffer_channels'] += count($channels);
             }
 
-            // Posts com métricas
+            // Posts com métricas — só se não fez recentemente
+            if ($skipBufferMetrics) continue;
+
             $after = null; $pages = 0;
             do {
                 $res = $api->getSentPostsWithMetrics($orgId, [], 50, $after);
@@ -121,7 +140,7 @@ try {
                 $after = $conn['pageInfo']['endCursor'] ?? null;
                 $hasNext = !empty($conn['pageInfo']['hasNextPage']);
                 $pages++;
-            } while ($hasNext && $pages < 20);
+            } while ($hasNext && $pages < 5);
 
             // Agregação por canal
             $snapshotModel = new SocialSnapshot();
@@ -152,6 +171,62 @@ try {
             }
         } catch (\Throwable $e) {
             $errors[] = 'Buffer: ' . $e->getMessage();
+        }
+    }
+
+    Config::set('buffer_cron_last_sync', date('Y-m-d H:i:s'));
+    } // end if (!$skipBuffer)
+
+    // ============================================================
+    // 1b) BUFFER: Processar fila de posts pendentes (queued)
+    // ============================================================
+    $bufferData = $bufferData ?? new BufferData();
+    $bufferAccounts = $bufferAccounts ?? new BufferAccount();
+    $db = Database::getInstance();
+    $queuedPosts = $db->fetchAll("SELECT * FROM buffer_posts WHERE status = 'queued' ORDER BY created_at ASC LIMIT 10");
+
+    if (!empty($queuedPosts)) {
+        $allAccounts = $allAccounts ?? $bufferAccounts->all(true);
+        $allChannels = $bufferData->getChannels(false);
+        $chMap = [];
+        foreach ($allChannels as $c) $chMap[$c['channel_id']] = $c;
+        $accMap = [];
+        foreach ($allAccounts as $a) $accMap[$a['id']] = $a;
+        $defaultKey = Config::get('buffer_api_key') ?: ($allAccounts[0]['api_key'] ?? '');
+
+        foreach ($queuedPosts as $qp) {
+            $apiKey = $defaultKey;
+            if (isset($chMap[$qp['channel_id']]) && !empty($chMap[$qp['channel_id']]['buffer_account_id'])) {
+                $aId = $chMap[$qp['channel_id']]['buffer_account_id'];
+                if (isset($accMap[$aId])) $apiKey = $accMap[$aId]['api_key'];
+            }
+            $api = new BufferApi($apiKey);
+
+            $dueAtIso = null;
+            if (!empty($qp['due_at'])) {
+                $dt = new DateTime($qp['due_at']);
+                $dt->setTimezone(new DateTimeZone('UTC'));
+                $dueAtIso = $dt->format('Y-m-d\TH:i:s.000\Z');
+            }
+
+            $res = $api->createPost($qp['channel_id'], $qp['text'], $dueAtIso);
+            if (($res['http'] ?? 0) === 429) break; // Rate limit — parar
+
+            $node = $res['data']['createPost']['post'] ?? null;
+            if ($node) {
+                $db->update('buffer_posts', [
+                    'buffer_post_id' => $node['id'],
+                    'status' => $node['status'] ?? 'scheduled',
+                    'due_at' => !empty($node['dueAt']) ? date('Y-m-d H:i:s', strtotime($node['dueAt'])) : $qp['due_at'],
+                    'external_link' => $node['externalLink'] ?? null,
+                ], 'id = ?', [$qp['id']]);
+            } else {
+                $errMsg = $res['data']['createPost']['message'] ?? ($res['errors'][0]['message'] ?? 'erro');
+                if (stripos($errMsg, 'too many requests') !== false) break; // Rate limit — parar
+                // Outro erro: marcar como falha
+                $db->update('buffer_posts', ['status' => 'error'], 'id = ?', [$qp['id']]);
+            }
+            usleep(500000); // 500ms entre posts
         }
     }
 

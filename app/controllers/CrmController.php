@@ -52,7 +52,8 @@ class CrmController extends Controller
         $userModel = new User();
         $team = $userModel->getAttendants();
         $admins = $db->fetchAll("SELECT id, name FROM users WHERE role = 'super_admin' AND is_active = 1");
-        $teamMembers = array_merge($admins, $team);
+        $comerciais = $db->fetchAll("SELECT id, name FROM users WHERE role = 'comercial' AND is_active = 1");
+        $teamMembers = array_merge($admins, $comerciais, $team);
 
         // Etiquetas disponíveis para vincular a colunas/cards
         $labels = $db->fetchAll("SELECT * FROM whatsapp_labels ORDER BY name ASC");
@@ -291,6 +292,7 @@ class CrmController extends Controller
 
     /**
      * API: Mover card (drag-and-drop)
+     * Se a coluna de destino for "Fechado", exige closed_by e marca como convertido.
      */
     public function moveCard()
     {
@@ -308,11 +310,46 @@ class CrmController extends Controller
         }
 
         $user = $this->currentUser();
-        $this->boardModel->moveCard($cardId, $columnId, $position);
-
-        // Registrar atividade
         $newCol = $this->boardModel->findColumn($columnId);
-        $this->boardModel->addActivity($cardId, $user['id'], 'move', "Movido para \"{$newCol['name']}\"");
+
+        // Detectar se a coluna de destino é "Fechado" (case-insensitive)
+        $isClosedColumn = mb_strtolower(trim($newCol['name'])) === 'fechado';
+
+        if ($isClosedColumn) {
+            // Exigir informação de quem fechou
+            $closedBy = !empty($_POST['closed_by']) ? intval($_POST['closed_by']) : null;
+            if (!$closedBy) {
+                $this->json(['error' => 'Informe quem fechou o negócio.', 'requires_closed_by' => true], 400);
+            }
+
+            // Buscar card para determinar quem prospectou
+            $card = $this->boardModel->findCard($cardId);
+            $prospectedBy = $card['assigned_to'] ?? $user['id'];
+
+            // Mover o card
+            $this->boardModel->moveCard($cardId, $columnId, $position);
+
+            // Marcar como convertido com as informações de fechamento
+            $this->boardModel->updateCard($cardId, [
+                'lead_outcome' => 'converted',
+                'outcome_at' => date('Y-m-d H:i:s'),
+                'converted_by' => $closedBy,
+                'prospected_by' => $prospectedBy,
+            ]);
+
+            // Registrar atividade
+            $closedByName = '';
+            if ($closedBy != $user['id']) {
+                $closedUser = (new User())->findById($closedBy);
+                $closedByName = $closedUser ? " por {$closedUser['name']}" : '';
+            }
+            $this->boardModel->addActivity($cardId, $user['id'], 'move', "Movido para \"{$newCol['name']}\"");
+            $this->boardModel->addActivity($cardId, $user['id'], 'note', "✅ Lead convertido (fechamento){$closedByName}");
+        } else {
+            // Movimentação normal
+            $this->boardModel->moveCard($cardId, $columnId, $position);
+            $this->boardModel->addActivity($cardId, $user['id'], 'move', "Movido para \"{$newCol['name']}\"");
+        }
 
         $this->json(['success' => true]);
     }
@@ -341,12 +378,27 @@ class CrmController extends Controller
             $this->json(['error' => 'Requisição inválida'], 400);
         }
         $user = $this->currentUser();
+
+        // Quem fechou: se informado no POST, usa; senão assume o próprio usuário
+        $closedBy = !empty($_POST['closed_by']) ? intval($_POST['closed_by']) : $user['id'];
+
+        // Quem prospectou: o assigned_to do card (quem estava responsável pelo lead)
+        $card = $this->boardModel->findCard($cardId);
+        $prospectedBy = $card['assigned_to'] ?? $user['id'];
+
         $this->boardModel->updateCard($cardId, [
             'lead_outcome' => 'converted',
             'outcome_at' => date('Y-m-d H:i:s'),
-            'converted_by' => $user['id'],
+            'converted_by' => $closedBy,
+            'prospected_by' => $prospectedBy,
         ]);
-        $this->boardModel->addActivity($cardId, $user['id'], 'note', '✅ Lead convertido');
+
+        $closedByName = '';
+        if ($closedBy != $prospectedBy) {
+            $closedUser = (new User())->findById($closedBy);
+            $closedByName = $closedUser ? " por {$closedUser['name']}" : '';
+        }
+        $this->boardModel->addActivity($cardId, $user['id'], 'note', "✅ Lead convertido — fechado{$closedByName}");
         $this->json(['success' => true]);
     }
 
@@ -628,6 +680,18 @@ class CrmController extends Controller
         $fmt = Config::get('nvoip_dial_format') ?: 'local';
         if ($called === '') $this->json(['error' => 'Este lead não possui telefone cadastrado.'], 400);
 
+        // Verifica se o ramal está em uso por outro usuário
+        $db = Database::getInstance();
+        $dbUserSip = $db->fetch("SELECT sip_user FROM users WHERE id = ?", [$user['id']]);
+        $sipUser = !empty($dbUserSip['sip_user']) ? $dbUserSip['sip_user'] : Config::get('nvoip_sip_user');
+        $lockCheck = $this->checkRamalLock($sipUser, $user['id']);
+        if ($lockCheck) {
+            $this->json(['error' => 'O ramal está em uso por ' . $lockCheck . '. Aguarde a ligação encerrar para tentar novamente.'], 409);
+        }
+
+        // Marca ramal como em uso
+        $this->lockRamal($sipUser, $user['id'], $user['name']);
+
         // Log de diagnóstico: telefone bruto do lead x número final discado
         Logger::info('Nvoip dial normalize', [
             'raw' => $contact['phone'] ?? null,
@@ -641,7 +705,7 @@ class CrmController extends Controller
             'user_id' => $user['id'],
             'direction' => 'outbound',
             'call_id' => null,
-            'caller' => Config::get('nvoip_sip_user'),
+            'caller' => $sipUser,
             'called' => $called,
             'status' => 'dialing',
             'response_json' => null,
@@ -737,6 +801,12 @@ class CrmController extends Controller
         }
 
         $db->update('nvoip_calls', $data, 'id = ?', [$recordId]);
+
+        // Libera o ramal quando a ligação encerra
+        if ($event === 'ended') {
+            $this->unlockRamal($user['id']);
+        }
+
         $this->json(['success' => true]);
     }
 
@@ -838,20 +908,24 @@ class CrmController extends Controller
         $this->requireRole(['super_admin', 'comercial']);
 
         $user = $this->currentUser();
-        // Ramal SIP é SEMPRE individual do usuário (sem fallback global, para não haver
-        // conflito de registro — dois usuários nunca compartilham o mesmo ramal).
-        $sipUser = null; $sipPassword = null;
-        try {
-            $dbUser = Database::getInstance()->fetch("SELECT sip_user, sip_password FROM users WHERE id = ?", [$user['id']]);
-            $sipUser = $dbUser['sip_user'] ?? null;
-            $sipPassword = $dbUser['sip_password'] ?? null;
-        } catch (\Throwable $e) {
-            // Colunas ainda não existem (migration 046 não rodou)
-            Logger::error('Webphone: colunas sip_user/sip_password ausentes — rode migrations/046', ['erro' => $e->getMessage()]);
-            $this->json(['configured' => false, 'reason' => 'migration_pending']);
-        }
         $wsServer = Config::get('nvoip_ws_server') ?: 'wss://app.nvoip.com.br:7443';
         $domain = Config::get('nvoip_sip_domain') ?: 'app.nvoip.com.br';
+
+        // Busca ramal SIP do usuário diretamente no banco (currentUser() não traz esses campos)
+        $db = Database::getInstance();
+        $dbUser = $db->fetch("SELECT sip_user, sip_password FROM users WHERE id = ?", [$user['id']]);
+        $userSip = $dbUser['sip_user'] ?? null;
+        $userSipPass = $dbUser['sip_password'] ?? null;
+
+        // Se o usuário tem ramal E senha próprios, usa os dele.
+        // Caso contrário, usa o ramal/senha padrão (global = Super Admin).
+        if (!empty($userSip) && !empty($userSipPass)) {
+            $sipUser = $userSip;
+            $sipPassword = $userSipPass;
+        } else {
+            $sipUser = Config::get('nvoip_sip_user');
+            $sipPassword = Config::get('nvoip_sip_password');
+        }
 
         if (empty($sipUser) || empty($sipPassword)) {
             // Usuário sem ramal SIP configurado: webphone não é habilitado para ele.
@@ -961,6 +1035,19 @@ class CrmController extends Controller
             }
         }
         return is_string($data) ? $data : json_encode($data);
+    }
+
+    /**
+     * DEBUG: Lista ramais/usuários da conta Nvoip (para descobrir dados SIP).
+     * GET crm/nvoipUsers — apenas super_admin
+     */
+    public function nvoipUsers()
+    {
+        $this->requireRole(['super_admin']);
+        $api = new NvoipApi();
+        if (!$api->isConfigured()) $this->json(['error' => 'Nvoip não configurado'], 400);
+        $res = $api->getUsers(0, 100);
+        $this->json($res);
     }
 
     /**
@@ -1118,6 +1205,65 @@ class CrmController extends Controller
         }
 
         $this->json($boards);
+    }
+
+    // ===== Lock de ramal (evita dois usuários no mesmo ramal) =====
+
+    /**
+     * Verifica se o ramal está em uso por outro usuário.
+     * Retorna o nome do usuário que está usando, ou null se livre.
+     * Lock expira automaticamente após 5 minutos (segurança contra locks órfãos).
+     */
+    private function checkRamalLock($sipUser, $currentUserId)
+    {
+        $db = Database::getInstance();
+        $lock = $db->fetch(
+            "SELECT setting_value FROM settings WHERE setting_key = ?",
+            ['ramal_lock_' . $sipUser]
+        );
+        if (!$lock) return null;
+
+        $lockData = json_decode($lock['setting_value'] ?? '{}', true);
+        if (!$lockData) return null;
+
+        // Lock expirou (mais de 5 minutos) — libera
+        $lockedAt = strtotime($lockData['locked_at'] ?? '');
+        if ($lockedAt && (time() - $lockedAt) > 300) {
+            $db->query("DELETE FROM settings WHERE setting_key = ?", ['ramal_lock_' . $sipUser]);
+            return null;
+        }
+
+        // É o próprio usuário — não bloqueia
+        if (($lockData['user_id'] ?? null) == $currentUserId) return null;
+
+        return $lockData['user_name'] ?? 'outro usuário';
+    }
+
+    /** Marca o ramal como em uso pelo usuário. */
+    private function lockRamal($sipUser, $userId, $userName)
+    {
+        $db = Database::getInstance();
+        $key = 'ramal_lock_' . $sipUser;
+        $value = json_encode(['user_id' => $userId, 'user_name' => $userName, 'locked_at' => date('Y-m-d H:i:s')]);
+        $existing = $db->fetch("SELECT id FROM settings WHERE setting_key = ?", [$key]);
+        if ($existing) {
+            $db->update('settings', ['setting_value' => $value], 'setting_key = ?', [$key]);
+        } else {
+            $db->insert('settings', ['setting_key' => $key, 'setting_value' => $value]);
+        }
+    }
+
+    /** Libera o lock do ramal para o usuário. */
+    private function unlockRamal($userId)
+    {
+        $db = Database::getInstance();
+        $locks = $db->fetchAll("SELECT setting_key, setting_value FROM settings WHERE setting_key LIKE 'ramal_lock_%'");
+        foreach ($locks as $lock) {
+            $data = json_decode($lock['setting_value'] ?? '{}', true);
+            if (($data['user_id'] ?? null) == $userId) {
+                $db->query("DELETE FROM settings WHERE setting_key = ?", [$lock['setting_key']]);
+            }
+        }
     }
 }
 

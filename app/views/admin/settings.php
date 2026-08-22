@@ -90,9 +90,12 @@
         <div class="card mb-4">
             <div class="card-header bg-white d-flex justify-content-between align-items-center">
                 <h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-envelope"></i> Email (SMTP)</h6>
-                <button type="button" class="btn btn-outline-primary btn-sm" onclick="testSmtp()">
-                    <i class="bi bi-send-check"></i> Testar
-                </button>
+                <div class="d-flex gap-2">
+                    <a href="<?= baseUrl('settings/emailAccounts') ?>" class="btn btn-outline-secondary btn-sm"><i class="bi bi-envelope-at"></i> Contas de Prospecção</a>
+                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="testSmtp()">
+                        <i class="bi bi-send-check"></i> Testar
+                    </button>
+                </div>
             </div>
             <div class="card-body">
                 <div id="smtp-test-result" class="mb-3" style="display:none"></div>

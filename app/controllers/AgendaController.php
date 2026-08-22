@@ -2,7 +2,7 @@
 
 class AgendaController extends Controller
 {
-    private $accessRoles = ['super_admin', 'comercial', 'marketing'];
+    private $accessRoles = ['super_admin', 'comercial'];
     private $model;
     private $contactModel;
 
@@ -143,6 +143,11 @@ class AgendaController extends Controller
             'notes' => trim($_POST['notes'] ?? '') ?: null,
         ];
 
+        // Se convertida, salva quem fechou
+        if ($data['status'] === 'convertida' && !empty($_POST['closed_by'])) {
+            $data['closed_by'] = intval($_POST['closed_by']);
+        }
+
         $data['client_email'] = trim($_POST['client_email'] ?? '') ?: null;
         // Se o link do Meet já foi gerado no modal, reaproveita (evita criar evento duplicado)
         $preEventId = trim($_POST['google_event_id'] ?? '') ?: null;
@@ -277,6 +282,15 @@ class AgendaController extends Controller
         if (isset($_POST['notes'])) $data['notes'] = trim($_POST['notes']) ?: null;
         if (isset($_POST['client_email'])) $data['client_email'] = trim($_POST['client_email']) ?: null;
 
+        // Se convertida, salva quem fechou; se saiu de convertida, limpa
+        if (isset($data['status'])) {
+            if ($data['status'] === 'convertida' && !empty($_POST['closed_by'])) {
+                $data['closed_by'] = intval($_POST['closed_by']);
+            } elseif ($data['status'] !== 'convertida') {
+                $data['closed_by'] = null;
+            }
+        }
+
         if (!empty($data)) $this->model->update($id, $data);
 
         // Atualiza participantes da equipe
@@ -330,7 +344,7 @@ class AgendaController extends Controller
     // Dashboard de Performance Comercial
     public function dashboard()
     {
-        $this->requireRole(['super_admin', 'comercial', 'marketing']);
+        $this->requireRole(['super_admin', 'comercial']);
         $user = $this->currentUser();
 
         // Filtros de período (padrão: mês atual)
@@ -339,7 +353,8 @@ class AgendaController extends Controller
 
         // Se for comercial, vê apenas os próprios dados
         $filterUserId = null;
-        if ($user['role'] === 'comercial') {
+        if ($user['role'] !== 'super_admin') {
+            // Apenas super_admin vê todos; demais veem só o próprio
             $filterUserId = $user['id'];
         } elseif (!empty($_GET['user_id'])) {
             $filterUserId = intval($_GET['user_id']);
@@ -354,6 +369,13 @@ class AgendaController extends Controller
         $messageStats = $msgModel->getMessageStatsByUser($startDate, $endDate, $filterUserId);
         $responseStats = $msgModel->getContactResponseStats($startDate, $endDate, $filterUserId);
 
+        // Métricas de e-mail prospecção
+        $emailModel = new EmailProspection();
+        $emailStats = $emailModel->getStatsByUser($startDate, $endDate, $filterUserId);
+
+        // Métricas de fechamento (próprio vs terceiros)
+        $closingStats = $this->model->getClosingStats($startDate, $endDate, $filterUserId);
+
         // Série mensal (gráfico)
         $trend = $this->model->getMonthlyTrend(6, $filterUserId);
 
@@ -366,15 +388,30 @@ class AgendaController extends Controller
         $allUserIds = array_unique(array_merge(
             array_keys($meetingStats),
             array_keys($messageStats),
-            array_keys($responseStats)
+            array_keys($responseStats),
+            array_keys($emailStats)
         ));
+
+        // Buscar nomes de todos os usuários envolvidos para evitar "Usuário #ID"
+        $userNames = [];
+        if (!empty($allUserIds)) {
+            $db = Database::getInstance();
+            $placeholders = implode(',', array_fill(0, count($allUserIds), '?'));
+            $nameRows = $db->fetchAll("SELECT id, name FROM users WHERE id IN ($placeholders)", array_values($allUserIds));
+            foreach ($nameRows as $nr) {
+                $userNames[$nr['id']] = $nr['name'];
+            }
+        }
+
         foreach ($allUserIds as $uid) {
             $ms = $meetingStats[$uid] ?? [];
             $msg = $messageStats[$uid] ?? ['sent' => 0, 'received' => 0, 'contacts_messaged' => 0];
             $resp = $responseStats[$uid] ?? ['contacted' => 0, 'replied' => 0, 'no_reply' => 0];
+            $em = $emailStats[$uid] ?? ['sent' => 0, 'failed' => 0, 'total' => 0, 'unique_contacts' => 0];
+            $cl = $closingStats[$uid] ?? ['closed_self' => 0, 'closed_by_others' => 0, 'closed_for_others' => 0];
             $tableData[] = [
                 'user_id' => $uid,
-                'user_name' => $ms['user_name'] ?? 'Usuário #' . $uid,
+                'user_name' => $ms['user_name'] ?? $userNames[$uid] ?? 'Usuário #' . $uid,
                 'total_meetings' => $ms['total'] ?? 0,
                 'agendada' => ($ms['agendada'] ?? 0) + ($ms['a_agendar'] ?? 0),
                 'confirmada' => $ms['confirmada'] ?? 0,
@@ -382,6 +419,9 @@ class AgendaController extends Controller
                 'convertida' => $ms['convertida'] ?? 0,
                 'remarcada' => $ms['remarcada'] ?? 0,
                 'cancelada' => $ms['cancelada'] ?? 0,
+                'closed_self' => $cl['closed_self'],
+                'closed_by_others' => $cl['closed_by_others'],
+                'closed_for_others' => $cl['closed_for_others'],
                 'unique_contacts' => $uniqueContacts[$uid] ?? 0,
                 'messages_sent' => $msg['sent'],
                 'messages_received' => $msg['received'],
@@ -389,6 +429,10 @@ class AgendaController extends Controller
                 'contacts_contacted' => $resp['contacted'],
                 'contacts_replied' => $resp['replied'],
                 'contacts_no_reply' => $resp['no_reply'],
+                'emails_sent' => $em['sent'],
+                'emails_failed' => $em['failed'],
+                'emails_total' => $em['total'],
+                'emails_unique_contacts' => $em['unique_contacts'],
             ];
         }
 
@@ -403,7 +447,7 @@ class AgendaController extends Controller
             'startDate' => $startDate,
             'endDate' => $endDate,
             'filterUserId' => $filterUserId,
-            'isAdmin' => in_array($user['role'], ['super_admin', 'marketing']),
+            'isAdmin' => $user['role'] === 'super_admin',
         ]);
     }
 
@@ -473,6 +517,11 @@ class AgendaController extends Controller
 
         $status = $_POST['status'] ?? '';
         if (!in_array($status, AgendaMeeting::$statuses)) $this->json(['error' => 'Status inválido'], 400);
+
+        // Não permite arrastar para "convertida" sem informar quem fechou — deve usar o modal
+        if ($status === 'convertida') {
+            $this->json(['error' => 'Para marcar como convertida, abra a reunião e informe quem fechou o negócio.'], 400);
+        }
 
         $this->model->updateStatus($id, $status, intval($_POST['position'] ?? 0));
         $this->json(['success' => true]);

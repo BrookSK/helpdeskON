@@ -70,13 +70,33 @@
                     </div>
 
                     <!-- % de comissão (só para papel Comercial) -->
-                    <div id="commission-field" class="col-sm-6" style="<?= ($editUser['role'] ?? '') === 'comercial' ? '' : 'display:none' ?>">
-                        <label class="form-label fw-medium small">% de Comissão</label>
-                        <div class="input-group input-group-sm">
-                            <input type="number" step="0.01" min="0" max="100" name="commission_percent" class="form-control" value="<?= escape($editUser['commission_percent'] ?? '0') ?>" placeholder="Ex: 10">
-                            <span class="input-group-text">%</span>
+                    <div id="commission-field" class="col-12" style="<?= ($editUser['role'] ?? '') === 'comercial' ? '' : 'display:none' ?>">
+                        <div class="row g-3">
+                            <div class="col-sm-4">
+                                <label class="form-label fw-medium small">% Comissão (Prospecção)</label>
+                                <div class="input-group input-group-sm">
+                                    <input type="number" step="0.01" min="0" max="100" name="commission_prospection_percent" class="form-control" value="<?= escape($editUser['commission_prospection_percent'] ?? '0') ?>">
+                                    <span class="input-group-text">%</span>
+                                </div>
+                                <small class="text-muted">Trouxe o lead, mas outra pessoa fechou.</small>
+                            </div>
+                            <div class="col-sm-4">
+                                <label class="form-label fw-medium small">% Comissão (Fechamento)</label>
+                                <div class="input-group input-group-sm">
+                                    <input type="number" step="0.01" min="0" max="100" name="commission_closing_percent" class="form-control" value="<?= escape($editUser['commission_closing_percent'] ?? '0') ?>">
+                                    <span class="input-group-text">%</span>
+                                </div>
+                                <small class="text-muted">Trouxe o lead E fechou ele mesmo.</small>
+                            </div>
+                            <div class="col-sm-4">
+                                <label class="form-label fw-medium small">% Comissão (legado)</label>
+                                <div class="input-group input-group-sm">
+                                    <input type="number" step="0.01" min="0" max="100" name="commission_percent" class="form-control" value="<?= escape($editUser['commission_percent'] ?? '0') ?>">
+                                    <span class="input-group-text">%</span>
+                                </div>
+                                <small class="text-muted">Percentual geral (usado em cálculos anteriores).</small>
+                            </div>
                         </div>
-                        <small class="text-muted">Percentual sobre o valor dos leads convertidos por este usuário.</small>
                     </div>
 
                     <!-- Campos de empresa (só para clientes) -->

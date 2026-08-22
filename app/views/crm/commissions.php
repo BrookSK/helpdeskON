@@ -76,10 +76,14 @@
                     <thead class="table-light">
                         <tr>
                             <th>Comercial</th>
-                            <th>% Comissão</th>
-                            <th>Leads Convertidos</th>
+                            <th class="text-center">% Fechamento</th>
+                            <th class="text-center">% Prospecção</th>
+                            <th class="text-center">Fechou</th>
+                            <th class="text-center">Prospectou</th>
                             <th>Valor Total</th>
-                            <th>Comissão a Pagar</th>
+                            <th class="text-success">Comissão Fechamento</th>
+                            <th class="text-primary">Comissão Prospecção</th>
+                            <th class="fw-bold">Total a Pagar</th>
                             <th></th>
                         </tr>
                     </thead>
@@ -87,14 +91,18 @@
                         <?php foreach ($commissions as $c): ?>
                         <tr class="commission-row" style="cursor:pointer" onclick="toggleLeads(<?= $c['user_id'] ?>)">
                             <td class="fw-medium"><i class="bi bi-person-badge"></i> <?= escape($c['user_name']) ?></td>
-                            <td><?= number_format((float)$c['commission_percent'], 2, ',', '.') ?>%</td>
-                            <td><span class="badge bg-success"><?= $c['converted_count'] ?></span></td>
+                            <td class="text-center"><?= number_format((float)($c['commission_closing_percent'] ?: $c['commission_percent']), 1) ?>%</td>
+                            <td class="text-center"><?= number_format((float)$c['commission_prospection_percent'], 1) ?>%</td>
+                            <td class="text-center"><span class="badge bg-success"><?= $c['closed_count'] ?></span></td>
+                            <td class="text-center"><span class="badge bg-primary"><?= $c['prospected_count'] ?></span></td>
                             <td>R$ <?= number_format((float)$c['total_value'], 2, ',', '.') ?></td>
-                            <td class="fw-medium text-success">R$ <?= number_format((float)$c['commission_value'], 2, ',', '.') ?></td>
+                            <td class="text-success">R$ <?= number_format((float)$c['closing_commission'], 2, ',', '.') ?></td>
+                            <td class="text-primary">R$ <?= number_format((float)$c['prospection_commission'], 2, ',', '.') ?></td>
+                            <td class="fw-bold text-success">R$ <?= number_format((float)$c['commission_value'], 2, ',', '.') ?></td>
                             <td><i class="bi bi-chevron-down" id="chevron-<?= $c['user_id'] ?>"></i></td>
                         </tr>
                         <tr id="leads-row-<?= $c['user_id'] ?>" style="display:none;">
-                            <td colspan="6" class="p-0">
+                            <td colspan="10" class="p-0">
                                 <div id="leads-content-<?= $c['user_id'] ?>" class="p-3 bg-light">
                                     <div class="text-muted small">Carregando...</div>
                                 </div>
@@ -102,7 +110,7 @@
                         </tr>
                         <?php endforeach; ?>
                         <?php if (empty($commissions)): ?>
-                        <tr><td colspan="6" class="text-center text-muted py-4">Nenhum usuário comercial encontrado.</td></tr>
+                        <tr><td colspan="10" class="text-center text-muted py-4">Nenhum usuário comercial encontrado.</td></tr>
                         <?php endif; ?>
                     </tbody>
                 </table>

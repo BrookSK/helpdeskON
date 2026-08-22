@@ -86,7 +86,7 @@
 
     <?php
     // Notificações push de WhatsApp — só para roles com acesso ao chat e fora da tela de chat
-    $wppNotifRoles = ['super_admin', 'attendant', 'whatsapp_agent'];
+    $wppNotifRoles = ['super_admin', 'attendant', 'whatsapp_agent', 'comercial'];
     $isOnChatPage = (($currentPage ?? '') === 'whatsapp_chat');
     if (in_array($currentUserRole, $wppNotifRoles) && !$isOnChatPage):
     ?>
@@ -240,10 +240,10 @@
     <?php endif; ?>
 
     <?php
-    // Webphone nativo (WebRTC/SIP over WSS) — apenas na tela de Leads.
-    // O ramal/senha SIP são individuais por usuário; o endpoint sipCredentials decide se há ramal.
+    // Webphone nativo (WebRTC/SIP over WSS) — disponível em todas as telas do CRM e WhatsApp.
     $nvoipTelephonyRoles = ['super_admin', 'comercial'];
-    if (in_array($currentUserRole, $nvoipTelephonyRoles) && ($currentPage ?? '') === 'crm_leads'):
+    $webphonePages = ['crm_leads', 'crm', 'whatsapp_chat'];
+    if (in_array($currentUserRole, $nvoipTelephonyRoles) && in_array($currentPage ?? '', $webphonePages)):
         require APP_PATH . '/views/layouts/_webphone.php';
     endif;
     ?>

@@ -35,10 +35,13 @@ class PlanningCard
     {
         $sql = "SELECT pc.*, 
                        u.name as assigned_name,
-                       co.name as company_name
+                       co.name as company_name,
+                       cb.name as created_by_name,
+                       cb.role as created_by_role
                 FROM planning_cards pc
                 LEFT JOIN users u ON pc.assigned_to = u.id
                 LEFT JOIN companies co ON pc.company_id = co.id
+                LEFT JOIN users cb ON pc.created_by = cb.id
                 WHERE 1=1";
         $params = [];
 
@@ -67,7 +70,7 @@ class PlanningCard
             $params = array_merge($params, $filters['allowed_companies']);
         }
 
-        $sql .= " ORDER BY pc.position ASC, pc.updated_at DESC";
+        $sql .= " ORDER BY FIELD(pc.priority, 'urgent', 'high', 'medium', 'low'), pc.due_date IS NULL, pc.due_date ASC, pc.position ASC, pc.id ASC";
         return $this->db->fetchAll($sql, $params);
     }
 
@@ -79,10 +82,12 @@ class PlanningCard
         foreach ($statuses as $status) {
             $sql = "SELECT pc.*, 
                            u.name as assigned_name,
-                           co.name as company_name
+                           co.name as company_name,
+                           cb.name as created_by_name
                     FROM planning_cards pc
                     LEFT JOIN users u ON pc.assigned_to = u.id
                     LEFT JOIN companies co ON pc.company_id = co.id
+                    LEFT JOIN users cb ON pc.created_by = cb.id
                     WHERE pc.status = ?";
             $params = [$status];
 
@@ -100,7 +105,7 @@ class PlanningCard
                 $params = array_merge($params, $filters['allowed_companies']);
             }
 
-            $sql .= " ORDER BY pc.position ASC, pc.updated_at DESC";
+            $sql .= " ORDER BY FIELD(pc.priority, 'urgent', 'high', 'medium', 'low'), pc.due_date IS NULL, pc.due_date ASC, pc.position ASC, pc.id ASC";
             $result[$status] = $this->db->fetchAll($sql, $params);
         }
 
@@ -187,6 +192,20 @@ class PlanningCard
             $data['status'] = $status;
         }
         return $this->db->update('planning_cards', $data, 'id = ?', [$id]);
+    }
+
+    /**
+     * Reordena todos os cards de uma coluna (status) com posições sequenciais.
+     * Recebe os IDs na ordem desejada e atribui position = 0, 1, 2, ...
+     */
+    public function reorderCards($ids, $status)
+    {
+        foreach ($ids as $position => $id) {
+            $this->db->update('planning_cards', [
+                'position' => $position,
+                'status' => $status,
+            ], 'id = ?', [$id]);
+        }
     }
 
     public function delete($id)
@@ -448,5 +467,44 @@ class PlanningCard
             'total' => (int)($result['total'] ?? 0),
             'completed' => (int)($result['completed'] ?? 0),
         ];
+    }
+
+    /**
+     * Busca TODOS os cards de planejamento vinculados à empresa do cliente.
+     * Busca por múltiplos caminhos:
+     * 1. Cards com company_id = empresa do cliente
+     * 2. Cards vinculados a tickets criados por usuários da empresa
+     * 3. Cards criados por usuários da empresa
+     * Retorna apenas campos não-sensíveis.
+     */
+    public function getAllForClientCompany($companyId, $filters = [])
+    {
+        $sql = "SELECT DISTINCT pc.id, pc.title, pc.status, pc.priority, co.name as company_name
+                FROM planning_cards pc
+                LEFT JOIN companies co ON pc.company_id = co.id
+                LEFT JOIN tickets t ON pc.ticket_id = t.id
+                LEFT JOIN users tc ON t.client_id = tc.id
+                LEFT JOIN users cb ON pc.created_by = cb.id
+                WHERE (
+                    pc.company_id = ?
+                    OR tc.company_id = ?
+                    OR (cb.company_id = ? AND cb.role = 'client')
+                )";
+        $params = [$companyId, $companyId, $companyId];
+
+        if (!empty($filters['status'])) {
+            $sql .= " AND pc.status = ?";
+            $params[] = $filters['status'];
+        }
+        if (!empty($filters['priority'])) {
+            $sql .= " AND pc.priority = ?";
+            $params[] = $filters['priority'];
+        }
+        if (!empty($filters['hide_completed'])) {
+            $sql .= " AND pc.status NOT IN ('completed', 'archived')";
+        }
+
+        $sql .= " ORDER BY FIELD(pc.priority, 'urgent', 'high', 'medium', 'low'), pc.id DESC";
+        return $this->db->fetchAll($sql, $params);
     }
 }

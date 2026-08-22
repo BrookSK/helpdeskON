@@ -222,14 +222,74 @@ window.SIP = SIP;
         session.stateChange.addListener(state=>{
             if(state===SIP.SessionState.Establishing){ showDots(true); setStatusText('Chamando...'); reportEvent('ringing'); }
             else if(state===SIP.SessionState.Established){ showDots(false); setStatusText('Em chamada'); show('nv-call-mute',true); show('nv-call-answer',false);
-                attachAudio(session); startTimer(); reportEvent('answered'); }
-            else if(state===SIP.SessionState.Terminated){ const dur=elapsed(); showDots(false);
-                setStatusText('Chamada encerrada' + (dur? ' • '+fmtDur(dur) : ''));
-                resetControls(); reportEvent('ended',{duration:dur});
-                currentSession=null; answeredAt=null;
-                // NÃO fecha o modal — usuário decide (registrar nota, ver briefing, fechar).
-                releaseRamal(); }
+                attachAudio(session); startTimer(); reportEvent('answered');
+                // Monitora desconexão remota via peerConnection
+                monitorRemoteHangup(session);
+            }
+            else if(state===SIP.SessionState.Terminated){ onCallEnded(); }
         });
+    }
+
+    function onCallEnded(){
+        const dur=elapsed(); showDots(false);
+        setStatusText('Chamada encerrada' + (dur? ' • '+fmtDur(dur) : ''));
+        resetControls();
+        show('nv-call-hangup', false); // Esconde o botão vermelho
+        reportEvent('ended',{duration:dur});
+        currentSession=null; answeredAt=null;
+    }
+
+    /** Monitora se a outra parte desligou (múltiplas estratégias). */
+    function monitorRemoteHangup(session){
+        const sdh = session.sessionDescriptionHandler;
+        if(!sdh || !sdh.peerConnection) return;
+        const pc = sdh.peerConnection;
+
+        // Estratégia 1: connectionState change
+        pc.onconnectionstatechange = function(){
+            if(pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed'){
+                endSessionIfActive();
+            }
+        };
+
+        // Estratégia 2: iceConnectionState change
+        pc.oniceconnectionstatechange = function(){
+            if(pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'closed'){
+                // Aguarda 2s para confirmar (pode ser transiente)
+                setTimeout(()=>{
+                    if(pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'closed'){
+                        endSessionIfActive();
+                    }
+                }, 2000);
+            }
+        };
+
+        // Estratégia 3: Watchdog de RTP — se parar de receber pacotes por 8s, encerra
+        let lastBytesReceived = 0;
+        let staleCount = 0;
+        const rtpWatchdog = setInterval(()=>{
+            if(!currentSession || currentSession.state !== SIP.SessionState.Established){
+                clearInterval(rtpWatchdog); return;
+            }
+            pc.getStats().then(stats=>{
+                let totalBytes = 0;
+                stats.forEach(report=>{
+                    if(report.type === 'inbound-rtp' && report.kind === 'audio'){
+                        totalBytes += report.bytesReceived || 0;
+                    }
+                });
+                if(totalBytes === lastBytesReceived){ staleCount++; }
+                else { staleCount = 0; lastBytesReceived = totalBytes; }
+                // 4 checks x 2s = 8 segundos sem áudio
+                if(staleCount >= 4){ clearInterval(rtpWatchdog); endSessionIfActive(); }
+            }).catch(()=>{});
+        }, 2000);
+    }
+
+    function endSessionIfActive(){
+        if(currentSession && currentSession.state === SIP.SessionState.Established){
+            try { currentSession.bye(); } catch(e){}
+        }
     }
     function fmtDur(s){ return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0'); }
 
@@ -253,7 +313,7 @@ window.SIP = SIP;
     window.nvAnswer=function(){ const inv=window._nvInvitation; if(!inv) return;
         inv.accept({sessionDescriptionHandlerOptions:{constraints:{audio:true,video:false}}}); show('nv-call-answer',false); };
     window.nvHangup=function(){ const s=currentSession;
-        if(!s){ if(currentRecordId){ reportEvent('ended',{duration:0,cause:'cancelled'}); } setStatusText('Chamada encerrada'); showDots(false); resetControls(); return; }
+        if(!s){ if(currentRecordId){ reportEvent('ended',{duration:0,cause:'cancelled'}); } setStatusText('Chamada encerrada'); showDots(false); resetControls(); show('nv-call-hangup', false); return; }
         try{ if(s.state===SIP.SessionState.Established) s.bye(); else if(s instanceof SIP.Inviter) s.cancel(); else s.reject(); }catch(e){} };
 
     // Abre o briefing do lead (usa o modal de gerenciamento da tela de Leads, se existir)

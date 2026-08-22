@@ -12,8 +12,16 @@ class PlanningController extends Controller
     // Página principal — Kanban + Calendário
     public function index()
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']);
+        $this->requireLogin();
         $user = $this->currentUser();
+
+        // Cliente é redirecionado para a view de demandas em lista
+        if ($user['role'] === 'client') {
+            $this->redirect('planning/clientDemands');
+            return;
+        }
+
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']);
 
         $filters = [];
         if (!empty($_GET['company_id'])) $filters['company_id'] = $_GET['company_id'];
@@ -315,6 +323,32 @@ class PlanningController extends Controller
             }
         }
 
+        $this->json(['success' => true]);
+    }
+
+    // Reordenar cards de uma coluna (persiste a ordem completa)
+    public function reorder()
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            $this->json(['error' => 'Método inválido'], 405);
+        }
+
+        $status = $_POST['status'] ?? '';
+        $idsRaw = $_POST['card_ids'] ?? '';
+
+        $validStatuses = ['open', 'in_progress', 'em_revisao_interna', 'waiting_client', 'em_homologacao', 'aprovado_producao', 'completed', 'denied', 'archived'];
+        if (!in_array($status, $validStatuses)) {
+            $this->json(['error' => 'Status inválido'], 400);
+        }
+
+        // card_ids vem como string separada por vírgula: "12,5,8,3"
+        $ids = array_filter(array_map('intval', explode(',', $idsRaw)));
+        if (empty($ids)) {
+            $this->json(['error' => 'Lista de cards vazia'], 400);
+        }
+
+        $this->cardModel->reorderCards($ids, $status);
         $this->json(['success' => true]);
     }
 
@@ -1132,6 +1166,18 @@ class PlanningController extends Controller
             curl_exec($ch);
             curl_close($ch);
         }
+    }
+
+    /**
+     * View de demandas (planning cards) para o cliente.
+     * Exibe em formato de lista, sem informações sensíveis (prazo, datas, atendente técnico).
+     */
+    public function clientDemands()
+    {
+        // Acesso ao Planejamento removido para clientes.
+        // O cliente acompanha somente as demandas dele em "Minhas Demandas".
+        $this->requireLogin();
+        $this->redirect('dashboard');
     }
 }
 

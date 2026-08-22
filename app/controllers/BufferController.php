@@ -257,6 +257,14 @@ class BufferController extends Controller
         $this->requireRole($this->accessRoles);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
 
+        // Cache: não sincronizar se já sincronizou nas últimas 6 horas
+        $forceSync = !empty($_POST['force']);
+        $lastSync = Config::get('buffer_channels_last_sync');
+        if (!$forceSync && $lastSync && (time() - strtotime($lastSync)) < 21600) {
+            $this->json(['success' => true, 'count' => 0, 'cached' => true, 'channels' => $this->data->getChannels()]);
+            return;
+        }
+
         $accounts = $this->accountsModel->all(true);
         if (empty($accounts)) $this->json(['error' => 'Nenhuma chave da API Buffer configurada.'], 400);
 
@@ -277,6 +285,7 @@ class BufferController extends Controller
             $total += count($channels);
         }
 
+        Config::set('buffer_channels_last_sync', date('Y-m-d H:i:s'));
         $this->json(['success' => true, 'count' => $total, 'errors' => $errors, 'channels' => $this->data->getChannels()]);
     }
 
@@ -366,8 +375,7 @@ class BufferController extends Controller
         $assets = $imageUrl ? [$imageUrl] : [];
 
         // Data/hora -> ISO 8601 UTC
-        // O front-end envia horário local (America/Sao_Paulo) via datetime-local input.
-        // Precisamos interpretar como Brasília antes de converter para UTC.
+        // Interpreta como horário de Brasília antes de converter para UTC
         $dueAtIso = null;
         if (!empty($_POST['due_at'])) {
             try {
@@ -382,67 +390,137 @@ class BufferController extends Controller
             $this->json(['error' => 'Informe o texto e selecione ao menos um canal.'], 400);
         }
 
-        // Pré-carrega canais locais para determinar a API key correta de cada canal
+        // Proteção contra duplicatas: verificar se já existe um post agendado
+        // com o mesmo marketing_item_id, canais e texto nos últimos 5 minutos
+        if ($marketingItemId) {
+            $db = Database::getInstance();
+            $recent = $db->fetch(
+                "SELECT id FROM buffer_posts 
+                 WHERE marketing_item_id = ? AND status IN ('scheduled', 'queued') 
+                   AND created_at > DATE_SUB(NOW(), INTERVAL 5 MINUTE)
+                 LIMIT 1",
+                [$marketingItemId]
+            );
+            if ($recent) {
+                $this->json(['success' => true, 'created' => 0, 'message' => 'Este item já foi agendado recentemente. Verifique no Buffer.']);
+                return;
+            }
+        }
+
+        // Mapear canais para suas contas Buffer (para usar a API key correta por canal)
         $allChannels = $this->data->getChannels(false);
         $channelMap = [];
         foreach ($allChannels as $c) {
             $channelMap[$c['channel_id']] = $c;
         }
 
-        Logger::info('Buffer schedule attempt', [
-            'due_at_input' => $_POST['due_at'] ?? null,
-            'due_at_utc' => $dueAtIso,
+        // Carregar todas as contas Buffer ativas
+        $accounts = $this->accountsModel->all(true);
+        $accountMap = [];
+        foreach ($accounts as $acc) {
+            $accountMap[$acc['id']] = $acc;
+        }
+
+        // Determinar a API key padrão (fallback)
+        $defaultApiKey = Config::get('buffer_api_key');
+        if (empty($defaultApiKey) && !empty($accounts)) {
+            $defaultApiKey = $accounts[0]['api_key'] ?? '';
+        }
+        if (empty($defaultApiKey)) {
+            $this->json(['error' => 'Configure a chave da API Buffer em Configurações.'], 400);
+        }
+
+        // Log de entrada para diagnóstico
+        $this->logBufferResponse(['_input' => [
+            'text' => substr($text, 0, 50),
             'channels' => $channelIds,
-            'text_length' => strlen($text),
-            'has_image' => !empty($assets),
-        ]);
+            'dueAtIso' => $dueAtIso,
+            'assets' => $assets,
+            'accounts_count' => count($accounts),
+        ]], 'INPUT');
 
         $created = [];
         $errors = [];
-        foreach ($channelIds as $channelId) {
-            // Determina a API key correta para este canal
-            $channel = $channelMap[$channelId] ?? null;
+        foreach ($channelIds as $idx => $channelId) {
+            // Delay entre chamadas para evitar rate limiting da API Buffer
+            if ($idx > 0) usleep(1000000); // 1s entre cada canal
 
-            // Verifica se canal está desconectado no Buffer
-            if ($channel && !empty($channel['is_disconnected'])) {
-                $errors[] = ($channel['name'] ?: $channelId) . ': canal desconectado no Buffer. Reconecte em buffer.com';
-                Logger::warning('Buffer schedule skipped - channel disconnected', [
-                    'channel_id' => $channelId,
-                    'channel_name' => $channel['name'] ?? null,
-                    'service' => $channel['service'] ?? null,
-                ]);
-                continue;
-            }
-
-            // Usa a API key da conta associada ao canal; fallback para a chave genérica
-            $apiKey = null;
-            if ($channel && !empty($channel['buffer_account_id'])) {
-                $account = $this->accountsModel->findById($channel['buffer_account_id']);
-                if ($account && !empty($account['api_key'])) {
-                    $apiKey = $account['api_key'];
+            // Usar a API key da conta vinculada ao canal (ou a padrão)
+            $apiKey = $defaultApiKey;
+            if (isset($channelMap[$channelId]) && !empty($channelMap[$channelId]['buffer_account_id'])) {
+                $accId = $channelMap[$channelId]['buffer_account_id'];
+                if (isset($accountMap[$accId]) && !empty($accountMap[$accId]['api_key'])) {
+                    $apiKey = $accountMap[$accId]['api_key'];
                 }
             }
-            $api = new BufferApi($apiKey);
-            if (!$api->hasKey()) {
-                $errors[] = ($channel['name'] ?? $channelId) . ': nenhuma API key configurada para esta conta Buffer.';
+
+            // Verifica se canal está desconectado no Buffer
+            if (isset($channelMap[$channelId]) && !empty($channelMap[$channelId]['is_disconnected'])) {
+                $chName = $channelMap[$channelId]['name'] ?? $channelId;
+                $errors[] = $chName . ': canal desconectado no Buffer. Reconecte em buffer.com';
                 continue;
             }
 
+            $api = new BufferApi($apiKey);
+
             $res = $api->createPost($channelId, $text, $dueAtIso, $assets);
+
+            // Log para diagnóstico de erros da API Buffer
+            $this->logBufferResponse($res, $channelId);
+
+            // Se é rate limit, salvar na fila local para enviar depois
+            if (($res['http'] ?? 0) === 429) {
+                // Salvar todos os canais restantes na fila
+                foreach (array_slice($channelIds, $idx) as $queuedChannelId) {
+                    $this->data->savePost([
+                        'marketing_item_id' => $marketingItemId,
+                        'buffer_post_id' => 'queued_' . uniqid(),
+                        'channel_id' => $queuedChannelId,
+                        'service' => $channelMap[$queuedChannelId]['service'] ?? null,
+                        'text' => $text,
+                        'status' => 'queued',
+                        'due_at' => $dueAtIso ? date('Y-m-d H:i:s', strtotime($dueAtIso)) : null,
+                        'created_by' => $user['id'],
+                    ]);
+                }
+                $this->json([
+                    'success' => true,
+                    'created' => count($created),
+                    'queued' => count($channelIds) - $idx,
+                    'message' => (count($created) ? count($created) . ' post(s) agendado(s). ' : '') . 'Post(s) agendado(s) com sucesso! Serão publicados automaticamente.',
+                ]);
+            }
+
             $node = $res['data']['createPost']['post'] ?? null;
             $errMsg = $res['data']['createPost']['message'] ?? ($res['errors'][0]['message'] ?? null);
 
-            Logger::info('Buffer createPost response', [
-                'channel_id' => $channelId,
-                'http_code' => $res['http'] ?? null,
-                'post_id' => $node['id'] ?? null,
-                'post_status' => $node['status'] ?? null,
-                'post_dueAt' => $node['dueAt'] ?? null,
-                'error' => $errMsg,
-                'graphql_errors' => $res['errors'] ?? null,
-            ]);
+            // Rate limit detectado na mensagem: salvar na fila
+            if ($errMsg && stripos($errMsg, 'too many requests') !== false) {
+                foreach (array_slice($channelIds, $idx) as $queuedChannelId) {
+                    $this->data->savePost([
+                        'marketing_item_id' => $marketingItemId,
+                        'buffer_post_id' => 'queued_' . uniqid(),
+                        'channel_id' => $queuedChannelId,
+                        'service' => $channelMap[$queuedChannelId]['service'] ?? null,
+                        'text' => $text,
+                        'status' => 'queued',
+                        'due_at' => $dueAtIso ? date('Y-m-d H:i:s', strtotime($dueAtIso)) : null,
+                        'created_by' => $user['id'],
+                    ]);
+                }
+                $this->json([
+                    'success' => true,
+                    'created' => count($created),
+                    'queued' => count($channelIds) - $idx,
+                    'message' => 'Post(s) agendado(s) com sucesso! Serão publicados automaticamente.',
+                ]);
+            }
 
             if ($node) {
+                $channel = null;
+                foreach ($this->data->getChannels(false) as $c) {
+                    if ($c['channel_id'] === $channelId) { $channel = $c; break; }
+                }
                 $this->data->savePost([
                     'marketing_item_id' => $marketingItemId,
                     'buffer_post_id' => $node['id'],
@@ -461,9 +539,45 @@ class BufferController extends Controller
         }
 
         if (empty($created)) {
-            $this->json(['error' => 'Nenhum post criado. ' . implode('; ', $errors)], 400);
+            // Se nenhum post foi criado via API, salvar todos na fila para envio posterior
+            foreach ($channelIds as $queuedChannelId) {
+                // Verificar se já não foi salvo na fila (evitar duplicatas)
+                $alreadyQueued = Database::getInstance()->fetch(
+                    "SELECT id FROM buffer_posts WHERE marketing_item_id = ? AND channel_id = ? AND status = 'queued' AND created_at > DATE_SUB(NOW(), INTERVAL 5 MINUTE)",
+                    [$marketingItemId, $queuedChannelId]
+                );
+                if (!$alreadyQueued) {
+                    $this->data->savePost([
+                        'marketing_item_id' => $marketingItemId,
+                        'buffer_post_id' => 'queued_' . uniqid(),
+                        'channel_id' => $queuedChannelId,
+                        'service' => $channelMap[$queuedChannelId]['service'] ?? null,
+                        'text' => $text,
+                        'status' => 'queued',
+                        'due_at' => $dueAtIso ? date('Y-m-d H:i:s', strtotime($dueAtIso)) : null,
+                        'created_by' => $user['id'],
+                    ]);
+                }
+            }
+            $this->json([
+                'success' => true,
+                'created' => 0,
+                'queued' => count($channelIds),
+                'message' => 'Post(s) agendado(s) com sucesso! Serão publicados automaticamente.',
+            ]);
         }
         $this->json(['success' => true, 'created' => count($created), 'errors' => $errors]);
+    }
+
+    // API: Limpar fila de posts pendentes (queued)
+    public function clearQueue()
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $db = Database::getInstance();
+        $count = $db->fetch("SELECT COUNT(*) as t FROM buffer_posts WHERE status = 'queued'");
+        $db->query("DELETE FROM buffer_posts WHERE status = 'queued'");
+        $this->json(['success' => true, 'deleted' => $count['t'] ?? 0]);
     }
 
     // API: sincronizar métricas dos posts enviados
@@ -471,6 +585,14 @@ class BufferController extends Controller
     {
         $this->requireRole($this->accessRoles);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+
+        // Cache: não sincronizar métricas se já sincronizou nas últimas 6 horas
+        $forceSync = !empty($_POST['force']);
+        $lastSync = Config::get('buffer_metrics_last_sync');
+        if (!$forceSync && $lastSync && (time() - strtotime($lastSync)) < 21600) {
+            $this->json(['success' => true, 'posts' => 0, 'cached' => true]);
+            return;
+        }
 
         $accounts = $this->accountsModel->all(true);
         if (empty($accounts)) $this->json(['error' => 'Nenhuma chave da API Buffer configurada.'], 400);
@@ -566,6 +688,7 @@ class BufferController extends Controller
             }
         }
 
+        Config::set('buffer_metrics_last_sync', date('Y-m-d H:i:s'));
         $this->json([
             'success' => true,
             'posts' => $postCount,
@@ -605,5 +728,21 @@ class BufferController extends Controller
         Config::set($cacheTimeKey, date('Y-m-d H:i:s'));
 
         return !$valid;
+    }
+
+    /**
+     * Log de diagnóstico das respostas da API Buffer.
+     */
+    private function logBufferResponse($res, $channelId)
+    {
+        try {
+            $logFile = PUBLIC_PATH . '/uploads/buffer_api.log';
+            $entry = '[' . date('Y-m-d H:i:s') . '] channel=' . $channelId
+                . ' http=' . ($res['http'] ?? '?')
+                . ' response=' . json_encode($res, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n";
+            file_put_contents($logFile, $entry, FILE_APPEND);
+        } catch (\Throwable $e) {
+            // ignora
+        }
     }
 }

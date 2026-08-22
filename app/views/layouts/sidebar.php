@@ -44,13 +44,13 @@
                 </a>
             </li>
             <li class="nav-item">
-                <a class="nav-link <?= ($currentPage ?? '') === 'agenda' ? 'active' : '' ?>" href="<?= baseUrl('agenda') ?>">
-                    <i class="bi bi-calendar2-week"></i> Agenda
+                <a class="nav-link <?= ($currentPage ?? '') === 'prospection' ? 'active' : '' ?>" href="<?= baseUrl('prospection') ?>">
+                    <i class="bi bi-envelope-paper"></i> Prospecção E-mail
                 </a>
             </li>
             <li class="nav-item">
-                <a class="nav-link <?= ($currentPage ?? '') === 'agenda_dashboard' ? 'active' : '' ?>" href="<?= baseUrl('agenda/dashboard') ?>">
-                    <i class="bi bi-bar-chart-line"></i> Performance
+                <a class="nav-link <?= ($currentPage ?? '') === 'prospection_inbox' ? 'active' : '' ?>" href="<?= baseUrl('prospection/inbox') ?>">
+                    <i class="bi bi-inbox"></i> Caixa de Entrada
                 </a>
             </li>
             <li class="nav-item">
@@ -119,9 +119,39 @@
                     <i class="bi bi-calendar2-week"></i> Agenda
                 </a>
             </li>
+            <?php endif; ?>
+            <?php if (in_array($user['role'] ?? '', ['super_admin', 'comercial', 'attendant'])): ?>
+            <?php $perfSectionActive = in_array($currentPage ?? '', ['agenda_dashboard', 'performance_operacional']); ?>
             <li class="nav-item">
-                <a class="nav-link <?= ($currentPage ?? '') === 'agenda_dashboard' ? 'active' : '' ?>" href="<?= baseUrl('agenda/dashboard') ?>">
-                    <i class="bi bi-bar-chart-line"></i> Performance
+                <a class="nav-link d-flex align-items-center justify-content-between <?= $perfSectionActive ? 'active' : '' ?>" href="<?= baseUrl('agenda/dashboard') ?>">
+                    <span class="nav-link-body"><i class="bi bi-bar-chart-line"></i> <span class="nav-text">Performance</span></span>
+                    <i class="bi bi-chevron-down performance-caret <?= $perfSectionActive ? '' : 'collapsed-caret' ?>" onclick="event.preventDefault();event.stopPropagation();toggleSubnav(this, 'performance-subnav');" style="font-size:0.7rem;padding:4px;cursor:pointer;transition:transform 0.2s;"></i>
+                </a>
+            </li>
+            <ul class="nav flex-column" id="performance-subnav" style="<?= $perfSectionActive ? '' : 'display:none;' ?>list-style:none;padding-left:0;">
+                <?php if (in_array($user['role'] ?? '', ['super_admin', 'comercial'])): ?>
+                <li class="nav-item">
+                    <a class="nav-link <?= ($currentPage ?? '') === 'agenda_dashboard' ? 'active' : '' ?>" href="<?= baseUrl('agenda/dashboard') ?>" style="padding-left:2.6rem;font-size:0.85rem;">
+                        <i class="bi bi-briefcase"></i> Comercial
+                    </a>
+                </li>
+                <?php endif; ?>
+                <li class="nav-item">
+                    <a class="nav-link <?= ($currentPage ?? '') === 'performance_operacional' ? 'active' : '' ?>" href="<?= baseUrl('tickets/performance') ?>" style="padding-left:2.6rem;font-size:0.85rem;">
+                        <i class="bi bi-gear"></i> Operacional
+                    </a>
+                </li>
+            </ul>
+            <?php endif; ?>
+            <?php if (in_array($user['role'] ?? '', ['super_admin', 'comercial', 'marketing', 'attendant'])): ?>
+            <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'prospection' ? 'active' : '' ?>" href="<?= baseUrl('prospection') ?>">
+                    <i class="bi bi-envelope-paper"></i> Prospecção E-mail
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'prospection_inbox' ? 'active' : '' ?>" href="<?= baseUrl('prospection/inbox') ?>">
+                    <i class="bi bi-inbox"></i> Caixa de Entrada
                 </a>
             </li>
             <?php endif; ?>

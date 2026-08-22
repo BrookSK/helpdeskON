@@ -251,4 +251,121 @@ class Ticket
         }
         return $counts;
     }
+
+    /**
+     * Métricas operacionais para o dashboard de performance.
+     * Retorna estatísticas de resolução de tickets por atendente.
+     */
+    public function getOperationalMetrics($startDate, $endDate, $attendantId = null)
+    {
+        $params = [$startDate . ' 00:00:00', $endDate . ' 23:59:59'];
+        $attendantFilter = '';
+        if ($attendantId) {
+            $attendantFilter = ' AND t.attendant_id = ?';
+            $params[] = $attendantId;
+        }
+
+        // Tickets resolvidos no período
+        $resolved = $this->db->fetch(
+            "SELECT COUNT(*) as total FROM tickets t
+             WHERE t.completed_at IS NOT NULL
+               AND t.completed_at BETWEEN ? AND ?" . $attendantFilter,
+            $params
+        );
+
+        // Tempo médio de resolução (criação -> conclusão)
+        $avgResolution = $this->db->fetch(
+            "SELECT AVG(TIMESTAMPDIFF(HOUR, t.created_at, t.completed_at)) as avg_hours
+             FROM tickets t
+             WHERE t.completed_at IS NOT NULL
+               AND t.completed_at BETWEEN ? AND ?" . $attendantFilter,
+            $params
+        );
+
+        // Tempo médio de aceitação (criação -> primeira mudança de status para in_progress)
+        // Usa updated_at dos tickets que saíram de open como proxy
+        $avgAcceptance = $this->db->fetch(
+            "SELECT AVG(TIMESTAMPDIFF(HOUR, t.created_at, t.updated_at)) as avg_hours
+             FROM tickets t
+             WHERE t.status != 'open'
+               AND t.attendant_id IS NOT NULL
+               AND t.created_at BETWEEN ? AND ?" . $attendantFilter,
+            $params
+        );
+
+        // Total de tickets abertos no período
+        $opened = $this->db->fetch(
+            "SELECT COUNT(*) as total FROM tickets t
+             WHERE t.created_at BETWEEN ? AND ?" . $attendantFilter,
+            $params
+        );
+
+        // Tickets em aberto (não resolvidos)
+        $pending = $this->db->fetch(
+            "SELECT COUNT(*) as total FROM tickets t
+             WHERE t.status NOT IN ('completed', 'archived', 'denied')
+               AND t.created_at <= ?" . $attendantFilter,
+            array_merge([$endDate . ' 23:59:59'], $attendantId ? [$attendantId] : [])
+        );
+
+        return [
+            'resolved' => (int)($resolved['total'] ?? 0),
+            'opened' => (int)($opened['total'] ?? 0),
+            'pending' => (int)($pending['total'] ?? 0),
+            'avg_resolution_hours' => round((float)($avgResolution['avg_hours'] ?? 0), 1),
+            'avg_acceptance_hours' => round((float)($avgAcceptance['avg_hours'] ?? 0), 1),
+        ];
+    }
+
+    /**
+     * Métricas operacionais por atendente (tabela comparativa).
+     */
+    public function getOperationalMetricsByAttendant($startDate, $endDate)
+    {
+        $sql = "SELECT 
+                    a.id as user_id,
+                    a.name as user_name,
+                    COUNT(CASE WHEN t.completed_at BETWEEN ? AND ? THEN 1 END) as resolved,
+                    COUNT(CASE WHEN t.created_at BETWEEN ? AND ? THEN 1 END) as opened,
+                    COUNT(CASE WHEN t.status NOT IN ('completed', 'archived', 'denied') THEN 1 END) as pending,
+                    AVG(CASE WHEN t.completed_at IS NOT NULL AND t.completed_at BETWEEN ? AND ?
+                        THEN TIMESTAMPDIFF(HOUR, t.created_at, t.completed_at) END) as avg_resolution_hours
+                FROM users a
+                INNER JOIN tickets t ON t.attendant_id = a.id
+                WHERE a.role IN ('super_admin', 'attendant', 'developer', 'analyst', 'whatsapp_agent')
+                  AND a.is_active = 1
+                GROUP BY a.id, a.name
+                HAVING resolved > 0 OR pending > 0
+                ORDER BY resolved DESC";
+
+        $start = $startDate . ' 00:00:00';
+        $end = $endDate . ' 23:59:59';
+        $params = [$start, $end, $start, $end, $start, $end];
+
+        $rows = $this->db->fetchAll($sql, $params);
+
+        return array_map(function($row) {
+            $row['avg_resolution_hours'] = round((float)($row['avg_resolution_hours'] ?? 0), 1);
+            return $row;
+        }, $rows);
+    }
+
+    /**
+     * Distribuição de tickets por status para o período.
+     */
+    public function getStatusDistribution($startDate, $endDate, $attendantId = null)
+    {
+        $sql = "SELECT t.status, COUNT(*) as total
+                FROM tickets t
+                WHERE t.created_at BETWEEN ? AND ?";
+        $params = [$startDate . ' 00:00:00', $endDate . ' 23:59:59'];
+
+        if ($attendantId) {
+            $sql .= " AND t.attendant_id = ?";
+            $params[] = $attendantId;
+        }
+
+        $sql .= " GROUP BY t.status ORDER BY total DESC";
+        return $this->db->fetchAll($sql, $params);
+    }
 }

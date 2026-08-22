@@ -30,14 +30,44 @@ class TicketsController extends Controller
                 $this->view('client/tickets', ['user' => $user, 'tickets' => $tickets, 'isOwner' => false]);
             }
         } elseif ($user['role'] === 'comercial') {
-            // Comercial vê apenas os tickets atribuídos a ele ou criados por ele
-            $tickets = $this->ticketModel->getByAttendantOrCreator($user['id']);
-            $this->view('attendant/tickets', ['user' => $user, 'tickets' => $tickets, 'companies' => []]);
+            // Comercial vê os cards de planejamento atribuídos a ele
+            $cardModel = new PlanningCard();
+            $planningFilters = ['assigned_to' => $user['id']];
+            if (!empty($_GET['status'])) $planningFilters['status'] = $_GET['status'];
+            if (!empty($_GET['priority'])) $planningFilters['priority'] = $_GET['priority'];
+            if (!empty($_GET['company'])) $planningFilters['company_id'] = $_GET['company'];
+            if (!empty($_GET['hide_completed'])) $planningFilters['hide_completed'] = true;
+
+            $cards = $cardModel->getAll($planningFilters);
+
+            // Ocultar arquivados por padrão
+            $isSubmitted = isset($_GET['filtered']);
+            $hideArchived = $isSubmitted ? !empty($_GET['hide_archived']) : true;
+            if ($hideArchived) {
+                $cards = array_filter($cards, fn($c) => $c['status'] !== 'archived');
+                $cards = array_values($cards);
+            }
+
+            $this->view('attendant/tickets', ['user' => $user, 'cards' => $cards, 'companies' => [], 'attendants' => [], 'isAdmin' => false]);
         } else {
             $filters = [];
             if (!empty($_GET['status'])) $filters['status'] = $_GET['status'];
             if (!empty($_GET['priority'])) $filters['priority'] = $_GET['priority'];
             if (!empty($_GET['company'])) $filters['company_id'] = $_GET['company'];
+
+            // Filtro por atendente:
+            // Admin/marketing podem ver de todos; atendentes só veem o próprio
+            $isAdmin = in_array($user['role'], ['super_admin', 'marketing']);
+            if ($isAdmin) {
+                if (isset($_GET['attendant'])) {
+                    if ($_GET['attendant'] !== '') $filters['attendant_id'] = $_GET['attendant'];
+                } else {
+                    $filters['attendant_id'] = $user['id'];
+                }
+            } else {
+                // Atendente sempre vê só o dele
+                $filters['attendant_id'] = $user['id'];
+            }
             if (!empty($_GET['hide_completed'])) $filters['hide_completed'] = true;
 
             // "Ocultar arquivados" vem marcado por padrão. Só desativa se o form foi
@@ -53,7 +83,24 @@ class TicketsController extends Controller
                 $filters['allowed_companies'] = !empty($realIds) ? $realIds : [0];
             }
 
-            $tickets = $this->ticketModel->getAll($filters);
+            // Buscar planning cards (mesmos dados do kanban do planejamento)
+            $cardModel = new PlanningCard();
+            $planningFilters = [];
+            if (!empty($filters['status'])) $planningFilters['status'] = $filters['status'];
+            if (!empty($filters['priority'])) $planningFilters['priority'] = $filters['priority'];
+            if (!empty($_GET['company'])) $planningFilters['company_id'] = $_GET['company'];
+            if (!empty($filters['attendant_id'])) $planningFilters['assigned_to'] = $filters['attendant_id'];
+            if (!empty($filters['hide_completed'])) $planningFilters['hide_completed'] = true;
+            if (!empty($filters['allowed_companies'])) $planningFilters['allowed_companies'] = $filters['allowed_companies'];
+
+            $cards = $cardModel->getAll($planningFilters);
+
+            // Filtrar arquivados se necessário
+            if ($hideArchived) {
+                $cards = array_filter($cards, fn($c) => $c['status'] !== 'archived');
+                $cards = array_values($cards);
+            }
+
             $companyModel = new Company();
 
             // Atendente só vê empresas que tem acesso no filtro
@@ -69,7 +116,7 @@ class TicketsController extends Controller
                 $companies = $companyModel->getAll();
             }
 
-            $this->view('attendant/tickets', ['user' => $user, 'tickets' => $tickets, 'companies' => $companies]);
+            $this->view('attendant/tickets', ['user' => $user, 'cards' => $cards, 'companies' => $companies, 'attendants' => (new User())->getByRoles(['super_admin', 'attendant', 'developer', 'analyst', 'comercial', 'marketing', 'whatsapp_agent']), 'isAdmin' => $isAdmin]);
         }
     }
 
@@ -228,6 +275,51 @@ class TicketsController extends Controller
 
         flash('success', 'Demanda criada com sucesso!');
         $this->redirect('tickets/show/' . $ticketId);
+    }
+
+    /**
+     * Visualizar detalhes de um planning card.
+     * Busca o ticket vinculado ao card. Se não existir, cria um a partir do card.
+     */
+    public function showCard($cardId = null)
+    {
+        $this->requireLogin();
+        if (!$cardId) $this->redirect('tickets');
+
+        $db = Database::getInstance();
+        $card = $db->fetch("SELECT * FROM planning_cards WHERE id = ?", [$cardId]);
+
+        if (!$card) {
+            flash('error', 'Demanda não encontrada.');
+            $this->redirect('tickets');
+        }
+
+        // Se o card tem ticket vinculado, verificar se bate (mesmo título)
+        if (!empty($card['ticket_id'])) {
+            $ticket = $this->ticketModel->findById($card['ticket_id']);
+            if ($ticket) {
+                $this->redirect('tickets/show/' . $ticket['id']);
+                return;
+            }
+        }
+
+        // Não tem ticket vinculado ou o ticket não existe — criar um novo a partir do card
+        $ticketData = [
+            'title' => $card['title'],
+            'description' => strip_tags($card['description'] ?? ''),
+            'client_id' => $card['created_by'] ?? $this->currentUser()['id'],
+            'attendant_id' => $card['assigned_to'],
+            'technical_responsible_id' => $card['technical_responsible_id'] ?? null,
+            'priority' => $card['priority'] ?? 'medium',
+            'status' => $card['status'] ?? 'open',
+            'category' => 'desenvolvimento',
+        ];
+        $newTicketId = $this->ticketModel->create($ticketData);
+
+        // Vincular o card ao ticket recém-criado
+        $db->update('planning_cards', ['ticket_id' => $newTicketId], 'id = ?', [$card['id']]);
+
+        $this->redirect('tickets/show/' . $newTicketId);
     }
 
     // Visualizar ticket
@@ -1219,5 +1311,52 @@ class TicketsController extends Controller
         );
 
         $this->json(['notes' => $notes]);
+    }
+
+    /**
+     * Dashboard de Performance Operacional
+     * Mostra métricas de tempo de resolução, quantidade de tickets, etc.
+     */
+    public function performance()
+    {
+        $this->requireRole(['super_admin', 'attendant', 'comercial']);
+        $user = $this->currentUser();
+
+        // Filtros de período (padrão: mês atual)
+        $startDate = $_GET['start'] ?? date('Y-m-01');
+        $endDate = $_GET['end'] ?? date('Y-m-t');
+
+        // Filtro por atendente
+        $filterUserId = null;
+        if ($user['role'] !== 'super_admin') {
+            $filterUserId = $user['id'];
+        } elseif (!empty($_GET['user_id'])) {
+            $filterUserId = intval($_GET['user_id']);
+        }
+
+        // Métricas gerais
+        $metrics = $this->ticketModel->getOperationalMetrics($startDate, $endDate, $filterUserId);
+
+        // Tabela por atendente
+        $byAttendant = $this->ticketModel->getOperationalMetricsByAttendant($startDate, $endDate);
+
+        // Distribuição por status
+        $statusDist = $this->ticketModel->getStatusDistribution($startDate, $endDate, $filterUserId);
+
+        // Lista de atendentes para filtro
+        $userModel = new User();
+        $attendants = $userModel->getByRoles(['super_admin', 'attendant', 'developer', 'analyst', 'whatsapp_agent']);
+
+        $this->view('tickets/performance', [
+            'user' => $user,
+            'metrics' => $metrics,
+            'byAttendant' => $byAttendant,
+            'statusDist' => $statusDist,
+            'attendants' => $attendants,
+            'startDate' => $startDate,
+            'endDate' => $endDate,
+            'filterUserId' => $filterUserId,
+            'isAdmin' => $user['role'] === 'super_admin',
+        ]);
     }
 }

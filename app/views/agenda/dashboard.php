@@ -9,6 +9,8 @@ $totals = [
     'convertida' => 0, 'remarcada' => 0, 'cancelada' => 0, 'unique_contacts' => 0,
     'messages_sent' => 0, 'messages_received' => 0, 'contacts_messaged' => 0,
     'contacts_contacted' => 0, 'contacts_replied' => 0, 'contacts_no_reply' => 0,
+    'emails_sent' => 0, 'emails_failed' => 0, 'emails_total' => 0, 'emails_unique_contacts' => 0,
+    'closed_self' => 0, 'closed_by_others' => 0, 'closed_for_others' => 0,
 ];
 foreach ($tableData as $row) {
     foreach ($totals as $k => &$v) $v += $row[$k] ?? 0;
@@ -57,78 +59,35 @@ $conversionRate = $totals['realizada'] > 0 ? round(($totals['convertida'] / $tot
         </div>
     </div>
 
-    <!-- Stat Cards -->
-    <div class="row row-cols-2 row-cols-md-3 row-cols-lg-7 g-3 mb-4">
-        <div class="col">
-            <div class="card stat-card h-100" style="border-left-color:#1565c0">
-                <div class="stat-label">Reuniões</div>
-                <div class="stat-value" style="color:#1565c0"><?= $totals['total_meetings'] ?></div>
-            </div>
-        </div>
-        <div class="col">
-            <div class="card stat-card h-100" style="border-left-color:#2e7d32">
-                <div class="stat-label">Realizadas</div>
-                <div class="stat-value" style="color:#2e7d32"><?= $totals['realizada'] ?></div>
-            </div>
-        </div>
-        <div class="col">
-            <div class="card stat-card h-100" style="border-left-color:#6a1b9a">
-                <div class="stat-label">Convertidas</div>
-                <div class="stat-value" style="color:#6a1b9a"><?= $totals['convertida'] ?></div>
-            </div>
-        </div>
-        <div class="col">
-            <div class="card stat-card h-100" style="border-left-color:#e65100">
-                <div class="stat-label">Remarcadas</div>
-                <div class="stat-value" style="color:#e65100"><?= $totals['remarcada'] ?></div>
-            </div>
-        </div>
-        <div class="col">
-            <div class="card stat-card h-100" style="border-left-color:#c62828">
-                <div class="stat-label">Canceladas</div>
-                <div class="stat-value" style="color:#c62828"><?= $totals['cancelada'] ?></div>
-            </div>
-        </div>
-        <div class="col">
-            <div class="card stat-card h-100" style="border-left-color:#00897b">
-                <div class="stat-label">Taxa Conversão</div>
-                <div class="stat-value" style="color:#00897b"><?= $conversionRate ?>%</div>
-            </div>
-        </div>
-        <div class="col">
-            <div class="card stat-card h-100" style="border-left-color:#455a64">
-                <div class="stat-label">Contatos Alcançados</div>
-                <div class="stat-value" style="color:#455a64"><?= $totals['contacts_contacted'] ?></div>
-            </div>
-        </div>
+    <!-- Métricas -->
+    <div class="row g-2 mb-3">
+        <div class="col-6 col-md-3"><div class="mc" style="border-color:#1565c0"><span class="mc-v" style="color:#1565c0"><?= $totals['total_meetings'] ?></span><span class="mc-l">Reuniões</span></div></div>
+        <div class="col-6 col-md-3"><div class="mc" style="border-color:#2e7d32"><span class="mc-v" style="color:#2e7d32"><?= $totals['realizada'] ?></span><span class="mc-l">Realizadas</span></div></div>
+        <div class="col-6 col-md-3"><div class="mc" style="border-color:#6a1b9a"><span class="mc-v" style="color:#6a1b9a"><?= $totals['convertida'] ?></span><span class="mc-l">Convertidas</span></div></div>
+        <div class="col-6 col-md-3"><div class="mc" style="border-color:#00897b"><span class="mc-v" style="color:#00897b"><?= $conversionRate ?>%</span><span class="mc-l">Taxa Conversão</span></div></div>
+    </div>
+    <div class="row g-2 mb-3">
+        <div class="col-6 col-md-3"><div class="mc" style="border-color:#e65100"><span class="mc-v" style="color:#e65100"><?= $totals['remarcada'] ?></span><span class="mc-l">Remarcadas</span></div></div>
+        <div class="col-6 col-md-3"><div class="mc" style="border-color:#c62828"><span class="mc-v" style="color:#c62828"><?= $totals['cancelada'] ?></span><span class="mc-l">Canceladas</span></div></div>
+        <div class="col-6 col-md-3"><div class="mc" style="border-color:#455a64"><span class="mc-v" style="color:#455a64"><?= $totals['contacts_contacted'] ?></span><span class="mc-l">Contatos Alcançados</span></div></div>
+        <div class="col-6 col-md-3"><div class="mc" style="border-color:#455a64"><span class="mc-v" style="color:#455a64"><?= $totals['unique_contacts'] ?></span><span class="mc-l">Contatos Únicos</span></div></div>
     </div>
 
-    <!-- Cards de mensagens -->
-    <div class="row row-cols-2 row-cols-md-4 g-3 mb-4">
-        <div class="col">
-            <div class="card stat-card h-100" style="border-left-color:#1976d2">
-                <div class="stat-label">Mensagens Enviadas</div>
-                <div class="stat-value" style="color:#1976d2"><?= number_format($totals['messages_sent'], 0, ',', '.') ?></div>
-            </div>
-        </div>
-        <div class="col">
-            <div class="card stat-card h-100" style="border-left-color:#7b1fa2">
-                <div class="stat-label">Mensagens Recebidas</div>
-                <div class="stat-value" style="color:#7b1fa2"><?= number_format($totals['messages_received'], 0, ',', '.') ?></div>
-            </div>
-        </div>
-        <div class="col">
-            <div class="card stat-card h-100" style="border-left-color:#2e7d32">
-                <div class="stat-label">Contatos Responderam</div>
-                <div class="stat-value" style="color:#2e7d32"><?= $totals['contacts_replied'] ?></div>
-            </div>
-        </div>
-        <div class="col">
-            <div class="card stat-card h-100" style="border-left-color:#c62828">
-                <div class="stat-label">Sem Resposta</div>
-                <div class="stat-value" style="color:#c62828"><?= $totals['contacts_no_reply'] ?></div>
-            </div>
-        </div>
+    <!-- WhatsApp + E-mails -->
+    <div class="row g-2 mb-3">
+        <div class="col-6 col-md-2"><div class="mc" style="border-color:#1976d2"><span class="mc-v" style="color:#1976d2"><?= number_format($totals['messages_sent'], 0, ',', '.') ?></span><span class="mc-l"><i class="bi bi-whatsapp"></i> Mensagens Enviadas</span></div></div>
+        <div class="col-6 col-md-2"><div class="mc" style="border-color:#7b1fa2"><span class="mc-v" style="color:#7b1fa2"><?= number_format($totals['messages_received'], 0, ',', '.') ?></span><span class="mc-l">Mensagens Recebidas</span></div></div>
+        <div class="col-6 col-md-2"><div class="mc" style="border-color:#2e7d32"><span class="mc-v" style="color:#2e7d32"><?= $totals['contacts_replied'] ?></span><span class="mc-l">Responderam</span></div></div>
+        <div class="col-6 col-md-2"><div class="mc" style="border-color:#c62828"><span class="mc-v" style="color:#c62828"><?= $totals['contacts_no_reply'] ?></span><span class="mc-l">Sem Resposta</span></div></div>
+        <div class="col-6 col-md-2"><div class="mc" style="border-color:#e65100"><span class="mc-v" style="color:#e65100"><?= $totals['emails_sent'] ?></span><span class="mc-l"><i class="bi bi-envelope"></i> E-mails Enviados</span></div></div>
+        <div class="col-6 col-md-2"><div class="mc" style="border-color:#455a64"><span class="mc-v" style="color:#455a64"><?= $totals['emails_total'] ?></span><span class="mc-l">Total E-mails</span></div></div>
+    </div>
+
+    <!-- Fechamento -->
+    <div class="row g-2 mb-3">
+        <div class="col-6 col-md-4"><div class="mc" style="border-color:#2e7d32"><span class="mc-v" style="color:#2e7d32"><?= $totals['closed_self'] ?></span><span class="mc-l"><i class="bi bi-trophy"></i> Fechou Próprio</span><span class="mc-sub">Trouxe o lead e fechou</span></div></div>
+        <div class="col-6 col-md-4"><div class="mc" style="border-color:#1565c0"><span class="mc-v" style="color:#1565c0"><?= $totals['closed_by_others'] ?></span><span class="mc-l"><i class="bi bi-people"></i> Outro Fechou</span><span class="mc-sub">Trouxe o lead, outro fechou</span></div></div>
+        <div class="col-6 col-md-4"><div class="mc" style="border-color:#7b1fa2"><span class="mc-v" style="color:#7b1fa2"><?= $totals['closed_for_others'] ?></span><span class="mc-l"><i class="bi bi-hand-thumbs-up"></i> Fechou por Outros</span><span class="mc-sub">Fechou leads de outra pessoa</span></div></div>
     </div>
 
     <!-- Tabela comparativa -->
@@ -146,6 +105,8 @@ $conversionRate = $totals['realizada'] > 0 ? round(($totals['convertida'] / $tot
                             <th class="text-center">Reuniões</th>
                             <th class="text-center">Realizadas</th>
                             <th class="text-center" style="color:#6a1b9a">Convertidas</th>
+                            <th class="text-center" style="color:#2e7d32">Fechou</th>
+                            <th class="text-center" style="color:#1565c0">Outro Fechou</th>
                             <th class="text-center">Remarcadas</th>
                             <th class="text-center">Canceladas</th>
                             <th class="text-center">Taxa Conv.</th>
@@ -154,6 +115,7 @@ $conversionRate = $totals['realizada'] > 0 ? round(($totals['convertida'] / $tot
                             <th class="text-center">Msg Rec.</th>
                             <th class="text-center">Responderam</th>
                             <th class="text-center">S/ Resposta</th>
+                            <th class="text-center" style="color:#e65100">Emails</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -164,6 +126,8 @@ $conversionRate = $totals['realizada'] > 0 ? round(($totals['convertida'] / $tot
                             <td class="text-center"><?= $row['total_meetings'] ?></td>
                             <td class="text-center"><?= $row['realizada'] ?></td>
                             <td class="text-center fw-bold" style="color:#6a1b9a"><?= $row['convertida'] ?></td>
+                            <td class="text-center fw-medium" style="color:#2e7d32"><?= $row['closed_self'] ?? 0 ?></td>
+                            <td class="text-center" style="color:#1565c0"><?= $row['closed_by_others'] ?? 0 ?></td>
                             <td class="text-center"><?= $row['remarcada'] ?></td>
                             <td class="text-center"><?= $row['cancelada'] ?></td>
                             <td class="text-center">
@@ -174,6 +138,7 @@ $conversionRate = $totals['realizada'] > 0 ? round(($totals['convertida'] / $tot
                             <td class="text-center"><?= number_format($row['messages_received'], 0, ',', '.') ?></td>
                             <td class="text-center text-success"><?= $row['contacts_replied'] ?></td>
                             <td class="text-center text-danger"><?= $row['contacts_no_reply'] ?></td>
+                            <td class="text-center fw-medium" style="color:#e65100"><?= $row['emails_sent'] ?? 0 ?></td>
                         </tr>
                         <?php endforeach; ?>
                     </tbody>
@@ -207,6 +172,10 @@ $conversionRate = $totals['realizada'] > 0 ? round(($totals['convertida'] / $tot
 </div>
 
 <style>
+.mc { background: #fff; border-left: 4px solid #ddd; border-radius: 6px; padding: 10px 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); height: 100%; }
+.mc-v { display: block; font-size: 1.3rem; font-weight: 700; line-height: 1.2; }
+.mc-l { display: block; font-size: 0.7rem; color: #555; font-weight: 600; text-transform: uppercase; letter-spacing: .2px; margin-top: 2px; }
+.mc-sub { display: block; font-size: 0.6rem; color: #999; margin-top: 1px; }
 .stat-card { border-left: 4px solid #ddd; padding: 12px 16px; }
 .stat-label { font-size: 0.72rem; color: #667; font-weight: 600; text-transform: uppercase; letter-spacing: .3px; margin-bottom: 2px; }
 .stat-value { font-size: 1.4rem; font-weight: 700; }

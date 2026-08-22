@@ -8,7 +8,7 @@
             <h5 class="mb-0">Todas as Demandas</h5>
             <small class="text-muted">Gerencie as demandas dos clientes</small>
         </div>
-        <a href="<?= baseUrl('tickets/kanban') ?>" class="btn btn-outline-primary btn-sm"><i class="bi bi-kanban"></i> Kanban</a>
+        <a href="<?= baseUrl('planning') ?>" class="btn btn-outline-primary btn-sm"><i class="bi bi-kanban"></i> Kanban</a>
     </div>
 
     <!-- Filtros -->
@@ -46,6 +46,19 @@
                         <?php endforeach; ?>
                     </select>
                 </div>
+                <?php if (!empty($isAdmin)): ?>
+                <div class="col-6 col-md-auto">
+                    <select name="attendant" class="form-select form-select-sm">
+                        <option value="">Todos Atendentes</option>
+                        <?php
+                        $selectedAttendant = isset($_GET['attendant']) ? $_GET['attendant'] : $user['id'];
+                        ?>
+                        <?php foreach ($attendants ?? [] as $att): ?>
+                        <option value="<?= $att['id'] ?>" <?= $selectedAttendant == $att['id'] ? 'selected' : '' ?>><?= escape($att['name']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <?php endif; ?>
                 <div class="col-6 col-md-auto">
                     <div class="form-check form-check-inline mb-0">
                         <input class="form-check-input" type="checkbox" name="hide_completed" value="1" id="hideCompleted" <?= !empty($_GET['hide_completed']) ? 'checked' : '' ?>>
@@ -75,7 +88,7 @@
                         <tr>
                             <th>#</th>
                             <th>Título</th>
-                            <th>Cliente</th>
+                            <th>Empresa</th>
                             <th>Atendente</th>
                             <th>Status</th>
                             <th>Prioridade</th>
@@ -84,28 +97,26 @@
                         </tr>
                     </thead>
                     <tbody>
-                        <?php foreach ($tickets as $t): ?>
+                        <?php foreach ($cards ?? [] as $c): ?>
                         <tr>
-                            <td><?= $t['id'] ?></td>
-                            <td class="text-truncate" style="max-width:180px"><?= escape($t['title']) ?></td>
-                            <td><?= escape($t['client_name']) ?></td>
-                            <td><?= escape($t['attendant_name'] ?? 'Não atribuído') ?></td>
-                            <td><span class="badge-status badge-<?= $t['status'] ?>"><?= statusLabel($t['status']) ?></span></td>
-                            <td><span class="priority-<?= $t['priority'] ?>"><?= priorityLabel($t['priority']) ?></span></td>
-                            <td><?= timeAgo($t['updated_at']) ?></td>
+                            <td><?= $c['id'] ?></td>
+                            <td class="text-truncate" style="max-width:220px"><?= escape($c['title']) ?></td>
+                            <td><?= escape($c['company_name'] ?? '-') ?></td>
+                            <td><?= escape($c['assigned_name'] ?? 'Não atribuído') ?></td>
+                            <td><span class="badge-status badge-<?= $c['status'] ?>"><?= statusLabel($c['status']) ?></span></td>
+                            <td><span class="priority-<?= $c['priority'] ?>"><?= priorityLabel($c['priority']) ?></span></td>
+                            <td><?= !empty($c['updated_at']) ? timeAgo($c['updated_at']) : (!empty($c['created_at']) ? timeAgo($c['created_at']) : '-') ?></td>
                             <td>
-                                <div class="btn-group btn-group-sm">
-                                    <a href="<?= baseUrl('tickets/show/' . $t['id']) ?>" class="btn btn-sm btn-outline-primary">Ver</a>
-                                    <?php if (($user['role'] ?? '') === 'super_admin'): ?>
-                                    <form action="<?= baseUrl('tickets/deletePermanent/' . $t['id']) ?>" method="POST" class="d-inline" onsubmit="return confirm('Excluir PERMANENTEMENTE a demanda #<?= $t['id'] ?>? Esta ação remove mensagens, anexos e o card vinculado e não pode ser desfeita.');">
-                                        <button type="submit" class="btn btn-sm btn-outline-danger" title="Excluir permanentemente"><i class="bi bi-trash3-fill"></i></button>
-                                    </form>
-                                    <?php endif; ?>
-                                </div>
+                                <a href="<?= baseUrl('tickets/showCard/' . $c['id']) ?>" class="btn btn-sm btn-outline-primary">Ver</a>
+                                <?php if (($user['role'] ?? '') === 'super_admin'): ?>
+                                <form action="<?= baseUrl('planning/delete/' . $c['id']) ?>" method="POST" class="d-inline" onsubmit="return confirm('Excluir PERMANENTEMENTE o card #<?= $c['id'] ?>? Esta ação não pode ser desfeita.');">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger" title="Excluir"><i class="bi bi-trash3-fill"></i></button>
+                                </form>
+                                <?php endif; ?>
                             </td>
                         </tr>
                         <?php endforeach; ?>
-                        <?php if (empty($tickets)): ?>
+                        <?php if (empty($cards)): ?>
                         <tr><td colspan="8" class="text-center text-muted py-4">Nenhuma demanda encontrada.</td></tr>
                         <?php endif; ?>
                     </tbody>
@@ -113,27 +124,20 @@
             </div>
             <!-- Mobile -->
             <div class="d-md-none p-3">
-                <?php foreach ($tickets as $t): ?>
-                <div class="mb-2 p-3 border rounded-3">
-                    <a href="<?= baseUrl('tickets/show/' . $t['id']) ?>" class="d-block text-decoration-none">
-                        <div class="d-flex justify-content-between align-items-start mb-1">
-                            <span class="fw-medium text-dark text-truncate" style="max-width:70%">#<?= $t['id'] ?> <?= escape($t['title']) ?></span>
-                            <span class="badge-status badge-<?= $t['status'] ?>"><?= statusLabel($t['status']) ?></span>
-                        </div>
-                        <div class="d-flex gap-2 align-items-center flex-wrap" style="font-size:0.75rem">
-                            <span class="text-muted"><i class="bi bi-person"></i> <?= escape($t['client_name']) ?></span>
-                            <span class="priority-<?= $t['priority'] ?>"><?= priorityLabel($t['priority']) ?></span>
-                            <span class="text-muted"><?= timeAgo($t['updated_at']) ?></span>
-                        </div>
-                    </a>
-                    <?php if (($user['role'] ?? '') === 'super_admin'): ?>
-                    <form action="<?= baseUrl('tickets/deletePermanent/' . $t['id']) ?>" method="POST" class="mt-2" onsubmit="return confirm('Excluir PERMANENTEMENTE a demanda #<?= $t['id'] ?>? Esta ação não pode ser desfeita.');">
-                        <button type="submit" class="btn btn-sm btn-outline-danger w-100"><i class="bi bi-trash3-fill"></i> Excluir permanentemente</button>
-                    </form>
-                    <?php endif; ?>
-                </div>
+                <?php foreach ($cards ?? [] as $c): ?>
+                <a href="<?= baseUrl('tickets/showCard/' . $c['id']) ?>" class="d-block text-decoration-none mb-2 p-3 border rounded-3">
+                    <div class="d-flex justify-content-between align-items-start mb-1">
+                        <span class="fw-medium text-dark text-truncate" style="max-width:70%">#<?= $c['id'] ?> <?= escape($c['title']) ?></span>
+                        <span class="badge-status badge-<?= $c['status'] ?>"><?= statusLabel($c['status']) ?></span>
+                    </div>
+                    <div class="d-flex gap-2 align-items-center flex-wrap" style="font-size:0.75rem">
+                        <span class="text-muted"><i class="bi bi-building"></i> <?= escape($c['company_name'] ?? '-') ?></span>
+                        <span class="text-muted"><i class="bi bi-person"></i> <?= escape($c['assigned_name'] ?? 'Não atribuído') ?></span>
+                        <span class="priority-<?= $c['priority'] ?>"><?= priorityLabel($c['priority']) ?></span>
+                    </div>
+                </a>
                 <?php endforeach; ?>
-                <?php if (empty($tickets)): ?>
+                <?php if (empty($cards)): ?>
                 <p class="text-center text-muted py-4">Nenhuma demanda encontrada.</p>
                 <?php endif; ?>
             </div>
