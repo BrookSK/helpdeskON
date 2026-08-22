@@ -533,6 +533,11 @@ body { overflow: hidden !important; margin: 0; padding: 0; }
 .wpp-contact-item.active { background: #e0f7f4; border-left: 3px solid var(--primary); }
 .wpp-avatar-sm { width: 38px; height: 38px; border-radius: 50%; background: #e0e0e0; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; color: #555; flex-shrink: 0; font-weight: 600; }
 .wpp-avatar-sm.group-avatar { background: #c8e6c9; color: #2e7d32; }
+.wpp-avatar-sm.group-avatar-1 { background: #c8e6c9; color: #2e7d32; }
+.wpp-avatar-sm.group-avatar-2 { background: #bbdefb; color: #1565c0; }
+.wpp-avatar-sm.group-avatar-3 { background: #f8bbd0; color: #c2185b; }
+.wpp-avatar-sm.group-avatar-4 { background: #ffe0b2; color: #e65100; }
+.wpp-avatar-sm.group-avatar-5 { background: #e1bee7; color: #7b1fa2; }
 .wpp-avatar-lg { width: 70px; height: 70px; border-radius: 50%; background: #e0e0e0; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; color: #555; font-weight: 600; }
 .wpp-contact-info { flex: 1; min-width: 0; }
 .wpp-contact-name { font-size: 0.83rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1220,8 +1225,9 @@ function renderContactItem(c, isGroup) {
     const time = c.last_message_at ? formatTime(c.last_message_at) : '';
     const isActive = activeContactId == c.id ? 'active' : '';
     const unread = c.unread_count > 0 ? `<span class="wpp-unread">${c.unread_count}</span>` : '';
-    const avatarClass = isGroup ? 'wpp-avatar-sm group-avatar' : 'wpp-avatar-sm';
-    let icon = isGroup ? '<i class="bi bi-people-fill" style="font-size:0.9rem;"></i>' : initials;
+    const avatarColorIdx = (name.charCodeAt(0) + (name.charCodeAt(1) || 0)) % 5 + 1;
+    const avatarClass = isGroup ? `wpp-avatar-sm group-avatar group-avatar-${avatarColorIdx}` : 'wpp-avatar-sm';
+    let icon = isGroup ? name.substring(0, 2).toUpperCase() : initials;
     // Foto de perfil quando disponível
     if (c.profile_picture_url) {
         icon = `<img src="${escapeHtml(c.profile_picture_url)}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" onerror="handlePhotoError(this, ${c.id}, ${isGroup}, '${escapeHtml(initials)}')">`;

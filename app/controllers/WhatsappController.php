@@ -1316,6 +1316,15 @@ class WhatsappController extends Controller
                     Database::getInstance()->update('whatsapp_contacts', ['profile_picture_url' => $picUrl], 'id = ?', [$contactId]);
                 }
             }
+        } else {
+            // Para grupos: buscar foto se não temos
+            $existing = $this->contactModel->findById($contactId);
+            if ($existing && empty($existing['profile_picture_url'])) {
+                $picUrl = $this->fetchProfilePicUrl($instance, $normalizedJid);
+                if (!empty($picUrl)) {
+                    Database::getInstance()->update('whatsapp_contacts', ['profile_picture_url' => $picUrl], 'id = ?', [$contactId]);
+                }
+            }
         }
 
         // Para grupos: se temos o subject real, garantir que está salvo;
