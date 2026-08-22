@@ -1451,9 +1451,10 @@ class WhatsappController extends Controller
                 $updateData['contact_name'] = $subject;
             }
             // Atualizar foto do grupo: renovar se vazia OU se é URL externa (expira)
-            $needsPhoto = empty($g['profile_picture_url'])
-                || strpos($g['profile_picture_url'], 'pps.whatsapp.net') !== false
-                || strpos($g['profile_picture_url'], 'mmg.whatsapp.net') !== false;
+            $isExternalUrl = !empty($g['profile_picture_url'])
+                && (strpos($g['profile_picture_url'], 'pps.whatsapp.net') !== false
+                    || strpos($g['profile_picture_url'], 'mmg.whatsapp.net') !== false);
+            $needsPhoto = empty($g['profile_picture_url']) || $isExternalUrl;
             if ($needsPhoto) {
                 if (!empty($picture)) {
                     // Baixar e salvar localmente
@@ -1737,8 +1738,9 @@ class WhatsappController extends Controller
             $remoteUrl = $data['profilePictureUrl'] ?? $data['url'] ?? $data['profilePicUrl'] ?? null;
             if (empty($remoteUrl)) return null;
 
-            // Baixar a imagem e salvar localmente para evitar expiração de URL
-            return $this->downloadAndSaveProfilePic($remoteUrl, $num);
+            // Tentar baixar a imagem e salvar localmente para evitar expiração de URL
+            $localUrl = $this->downloadAndSaveProfilePic($remoteUrl, $num);
+            return $localUrl ?: $remoteUrl;
         } catch (Exception $e) {
             return null;
         }
@@ -1746,7 +1748,7 @@ class WhatsappController extends Controller
 
     /**
      * Baixa uma imagem de perfil remota e salva localmente.
-     * Retorna o caminho relativo local (uploads/...) ou null se falhar.
+     * Retorna o caminho relativo local (uploads/...) ou a URL original se o download falhar.
      */
     private function downloadAndSaveProfilePic($remoteUrl, $identifier)
     {
@@ -1754,9 +1756,10 @@ class WhatsappController extends Controller
             $ch = curl_init($remoteUrl);
             curl_setopt_array($ch, [
                 CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_TIMEOUT => 15,
+                CURLOPT_TIMEOUT => 10,
                 CURLOPT_FOLLOWLOCATION => true,
                 CURLOPT_SSL_VERIFYPEER => false,
+                CURLOPT_USERAGENT => 'Mozilla/5.0',
             ]);
             $imageData = curl_exec($ch);
             $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -1764,25 +1767,33 @@ class WhatsappController extends Controller
             curl_close($ch);
 
             if ($httpCode >= 400 || empty($imageData) || strlen($imageData) < 100) {
-                return null;
+                // Download falhou — retornar a URL remota original como fallback
+                return $remoteUrl;
             }
 
             // Determinar extensão
             $ext = 'jpg';
-            if (strpos($contentType, 'png') !== false) $ext = 'png';
-            elseif (strpos($contentType, 'webp') !== false) $ext = 'webp';
+            if (strpos($contentType ?? '', 'png') !== false) $ext = 'png';
+            elseif (strpos($contentType ?? '', 'webp') !== false) $ext = 'webp';
 
             // Salvar em uploads/whatsapp_avatars/
             $dir = PUBLIC_PATH . '/uploads/whatsapp_avatars';
-            if (!is_dir($dir)) mkdir($dir, 0755, true);
+            if (!is_dir($dir)) @mkdir($dir, 0755, true);
 
-            $filename = md5($identifier) . '.' . $ext;
+            $cleanId = preg_replace('/[^a-zA-Z0-9]/', '', $identifier);
+            $filename = md5($cleanId) . '.' . $ext;
             $localPath = 'uploads/whatsapp_avatars/' . $filename;
-            file_put_contents(PUBLIC_PATH . '/' . $localPath, $imageData);
+            $written = @file_put_contents(PUBLIC_PATH . '/' . $localPath, $imageData);
+
+            if ($written === false) {
+                // Não conseguiu salvar no disco — retorna URL remota
+                return $remoteUrl;
+            }
 
             return baseUrl($localPath);
         } catch (Exception $e) {
-            return null;
+            // Qualquer erro — retorna URL remota como fallback
+            return $remoteUrl;
         }
     }
 
