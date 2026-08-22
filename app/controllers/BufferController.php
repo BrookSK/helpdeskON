@@ -466,20 +466,6 @@ class BufferController extends Controller
         $this->json(['success' => true, 'created' => count($created), 'errors' => $errors]);
     }
 
-    /**
-     * GET /buffer/postStatus/{marketing_item_id}
-     * Retorna os posts Buffer associados a um item de marketing com seus status.
-     */
-    public function postStatus($marketingItemId = null)
-    {
-        $this->requireRole($this->accessRoles);
-        $marketingItemId = intval($marketingItemId);
-        if (!$marketingItemId) $this->json(['posts' => []]);
-
-        $posts = $this->data->getPostsByMarketingItem($marketingItemId);
-        $this->json(['posts' => $posts]);
-    }
-
     // API: sincronizar métricas dos posts enviados
     public function syncMetrics()
     {
