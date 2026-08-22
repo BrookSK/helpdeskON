@@ -315,7 +315,12 @@ function fillItemForm(it) {
     if (['aprovado', 'agendado', 'publicado'].includes(it.status)) {
         bufferWrap.style.display = '';
         loadBufferChannels();
-        document.getElementById('item-buffer-result').innerHTML = '';
+        const bufferResult = document.getElementById('item-buffer-result');
+        bufferResult.innerHTML = '';
+        // Se já agendado, mostra o status dos posts no Buffer
+        if (it.status === 'agendado' && it.id) {
+            loadBufferPostStatus(it.id, bufferResult);
+        }
     } else {
         bufferWrap.style.display = 'none';
     }
@@ -541,8 +546,12 @@ function scheduleToBuffer() {
     result.innerHTML = '<span class="text-muted">Agendando...</span>';
     fetch(`${BASE}buffer/schedule`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json()).then(data => {
-            if (data.error) { result.innerHTML = `<span class="text-danger">${data.error}</span>`; return; }
-            result.innerHTML = `<span class="text-success"><i class="bi bi-check-circle"></i> ${data.created} publicação(ões) agendada(s) no Buffer.</span>`;
+            if (data.error) { result.innerHTML = `<span class="text-danger"><i class="bi bi-exclamation-triangle"></i> ${data.error}</span>`; return; }
+            let msg = `<span class="text-success"><i class="bi bi-check-circle"></i> ${data.created} publicação(ões) agendada(s) no Buffer.</span>`;
+            if (data.errors && data.errors.length) {
+                msg += `<br><span class="text-warning small"><i class="bi bi-exclamation-triangle"></i> Atenção: ${data.errors.join('; ')}</span>`;
+            }
+            result.innerHTML = msg;
             // Marca o item como agendado
             const fd2 = new FormData();
             fd2.append('status', 'agendado');
@@ -550,6 +559,26 @@ function scheduleToBuffer() {
                 .then(() => afterItemChange());
         })
         .catch(() => { result.innerHTML = '<span class="text-danger">Erro na requisição.</span>'; });
+}
+
+// Exibe status dos posts Buffer associados a um item de marketing
+function loadBufferPostStatus(itemId, container) {
+    fetch(`${BASE}buffer/postStatus/${itemId}`, { headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json()).then(data => {
+            if (!data.posts || !data.posts.length) return;
+            const icons = { sent: 'check-circle text-success', scheduled: 'clock text-primary', pending: 'clock text-muted', error: 'x-circle text-danger', error_not_found: 'x-circle text-danger', error_timeout: 'exclamation-triangle text-warning' };
+            const labels = { sent: 'Publicado', scheduled: 'Agendado', pending: 'Pendente', error: 'Erro', error_not_found: 'Não encontrado', error_timeout: 'Timeout (não publicou)' };
+            let html = '<div class="mt-2 small"><strong>Status no Buffer:</strong><ul class="mb-0 ps-3">';
+            data.posts.forEach(p => {
+                const icon = icons[p.status] || 'question-circle text-muted';
+                const label = labels[p.status] || p.status;
+                html += `<li><i class="bi bi-${icon}"></i> ${escapeHtml(p.channel_name || p.service || 'Canal')} — ${label}`;
+                if (p.due_at) html += ` <span class="text-muted">(${p.due_at})</span>`;
+                html += '</li>';
+            });
+            html += '</ul></div>';
+            container.innerHTML = html;
+        }).catch(() => {});
 }
 
 // Recarrega a aba ativa após mudanças

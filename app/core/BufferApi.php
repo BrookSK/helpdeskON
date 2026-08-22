@@ -48,15 +48,42 @@ class BufferApi
         $curlErr = curl_error($ch);
         curl_close($ch);
 
+        // Extrai o nome da operação GraphQL para facilitar identificação nos logs
+        $opName = 'unknown';
+        if (preg_match('/(?:query|mutation)\s+(\w+)/', $query, $m)) {
+            $opName = $m[1];
+        }
+
         if ($response === false) {
+            Logger::error('BufferApi connection failure', [
+                'operation' => $opName,
+                'curl_error' => $curlErr,
+                'http_code' => $httpCode,
+            ]);
             return ['errors' => [['message' => 'Falha de conexão: ' . $curlErr]], 'http' => $httpCode];
         }
 
         $decoded = json_decode($response, true);
         if (!is_array($decoded)) {
+            Logger::error('BufferApi invalid response', [
+                'operation' => $opName,
+                'http_code' => $httpCode,
+                'response_preview' => substr($response, 0, 300),
+            ]);
             return ['errors' => [['message' => 'Resposta inválida da API Buffer.']], 'http' => $httpCode];
         }
         $decoded['http'] = $httpCode;
+
+        // Loga erros GraphQL ou HTTP não-2xx
+        if (!empty($decoded['errors']) || $httpCode >= 400) {
+            Logger::warning('BufferApi error response', [
+                'operation' => $opName,
+                'http_code' => $httpCode,
+                'errors' => $decoded['errors'] ?? null,
+                'has_data' => isset($decoded['data']),
+            ]);
+        }
+
         return $decoded;
     }
 
@@ -180,5 +207,42 @@ class BufferApi
             }
         }';
         return $this->query($q, ['input' => $input]);
+    }
+
+    /**
+     * Busca um post individual pelo ID do Buffer.
+     * Útil para verificar o status atual de um post agendado.
+     */
+    public function getPost($postId)
+    {
+        $q = 'query GetPost($id: ID!) {
+            post(id: $id) {
+                id text status dueAt sentAt channelId channelService externalLink
+            }
+        }';
+        return $this->query($q, ['id' => $postId]);
+    }
+
+    /**
+     * Lista posts de uma organização filtrando por status.
+     * $statuses: array de status (ex: ['scheduled', 'error', 'sending']).
+     */
+    public function getPostsByStatus($organizationId, $statuses = ['scheduled'], $channelIds = [], $first = 50)
+    {
+        $filter = ['status' => $statuses];
+        if (!empty($channelIds)) $filter['channelIds'] = $channelIds;
+
+        $input = ['organizationId' => $organizationId, 'filter' => $filter,
+                  'sort' => [['field' => 'dueAt', 'direction' => 'asc']]];
+
+        $q = 'query GetPostsByStatus($first: Int, $input: PostsInput!) {
+            posts(first: $first, input: $input) {
+                edges { node {
+                    id text status dueAt sentAt channelId channelService externalLink
+                } }
+                pageInfo { hasNextPage endCursor }
+            }
+        }';
+        return $this->query($q, ['first' => $first, 'input' => $input]);
     }
 }

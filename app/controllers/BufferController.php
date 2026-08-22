@@ -357,8 +357,6 @@ class BufferController extends Controller
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
 
         $user = $this->currentUser();
-        $api = new BufferApi();
-        if (!$api->hasKey()) $this->json(['error' => 'Configure a chave da API Buffer em Configurações.'], 400);
 
         $text = trim($_POST['text'] ?? '');
         $channelIds = $_POST['channel_ids'] ?? [];
@@ -368,10 +366,13 @@ class BufferController extends Controller
         $assets = $imageUrl ? [$imageUrl] : [];
 
         // Data/hora -> ISO 8601 UTC
+        // O front-end envia horário local (America/Sao_Paulo) via datetime-local input.
+        // Precisamos interpretar como Brasília antes de converter para UTC.
         $dueAtIso = null;
         if (!empty($_POST['due_at'])) {
             try {
-                $dt = new DateTime($_POST['due_at']);
+                $localTz = new DateTimeZone('America/Sao_Paulo');
+                $dt = new DateTime($_POST['due_at'], $localTz);
                 $dt->setTimezone(new DateTimeZone('UTC'));
                 $dueAtIso = $dt->format('Y-m-d\TH:i:s.000\Z');
             } catch (\Throwable $e) { $dueAtIso = null; }
@@ -381,18 +382,67 @@ class BufferController extends Controller
             $this->json(['error' => 'Informe o texto e selecione ao menos um canal.'], 400);
         }
 
+        // Pré-carrega canais locais para determinar a API key correta de cada canal
+        $allChannels = $this->data->getChannels(false);
+        $channelMap = [];
+        foreach ($allChannels as $c) {
+            $channelMap[$c['channel_id']] = $c;
+        }
+
+        Logger::info('Buffer schedule attempt', [
+            'due_at_input' => $_POST['due_at'] ?? null,
+            'due_at_utc' => $dueAtIso,
+            'channels' => $channelIds,
+            'text_length' => strlen($text),
+            'has_image' => !empty($assets),
+        ]);
+
         $created = [];
         $errors = [];
         foreach ($channelIds as $channelId) {
+            // Determina a API key correta para este canal
+            $channel = $channelMap[$channelId] ?? null;
+
+            // Verifica se canal está desconectado no Buffer
+            if ($channel && !empty($channel['is_disconnected'])) {
+                $errors[] = ($channel['name'] ?: $channelId) . ': canal desconectado no Buffer. Reconecte em buffer.com';
+                Logger::warning('Buffer schedule skipped - channel disconnected', [
+                    'channel_id' => $channelId,
+                    'channel_name' => $channel['name'] ?? null,
+                    'service' => $channel['service'] ?? null,
+                ]);
+                continue;
+            }
+
+            // Usa a API key da conta associada ao canal; fallback para a chave genérica
+            $apiKey = null;
+            if ($channel && !empty($channel['buffer_account_id'])) {
+                $account = $this->accountsModel->findById($channel['buffer_account_id']);
+                if ($account && !empty($account['api_key'])) {
+                    $apiKey = $account['api_key'];
+                }
+            }
+            $api = new BufferApi($apiKey);
+            if (!$api->hasKey()) {
+                $errors[] = ($channel['name'] ?? $channelId) . ': nenhuma API key configurada para esta conta Buffer.';
+                continue;
+            }
+
             $res = $api->createPost($channelId, $text, $dueAtIso, $assets);
             $node = $res['data']['createPost']['post'] ?? null;
             $errMsg = $res['data']['createPost']['message'] ?? ($res['errors'][0]['message'] ?? null);
 
+            Logger::info('Buffer createPost response', [
+                'channel_id' => $channelId,
+                'http_code' => $res['http'] ?? null,
+                'post_id' => $node['id'] ?? null,
+                'post_status' => $node['status'] ?? null,
+                'post_dueAt' => $node['dueAt'] ?? null,
+                'error' => $errMsg,
+                'graphql_errors' => $res['errors'] ?? null,
+            ]);
+
             if ($node) {
-                $channel = null;
-                foreach ($this->data->getChannels(false) as $c) {
-                    if ($c['channel_id'] === $channelId) { $channel = $c; break; }
-                }
                 $this->data->savePost([
                     'marketing_item_id' => $marketingItemId,
                     'buffer_post_id' => $node['id'],
@@ -414,6 +464,20 @@ class BufferController extends Controller
             $this->json(['error' => 'Nenhum post criado. ' . implode('; ', $errors)], 400);
         }
         $this->json(['success' => true, 'created' => count($created), 'errors' => $errors]);
+    }
+
+    /**
+     * GET /buffer/postStatus/{marketing_item_id}
+     * Retorna os posts Buffer associados a um item de marketing com seus status.
+     */
+    public function postStatus($marketingItemId = null)
+    {
+        $this->requireRole($this->accessRoles);
+        $marketingItemId = intval($marketingItemId);
+        if (!$marketingItemId) $this->json(['posts' => []]);
+
+        $posts = $this->data->getPostsByMarketingItem($marketingItemId);
+        $this->json(['posts' => $posts]);
     }
 
     // API: sincronizar métricas dos posts enviados
