@@ -273,6 +273,17 @@ function toggleApproveOption() {
     if (reject) reject.style.display = IS_ADMIN ? '' : 'none';
 }
 
+// Mostrar/ocultar seção do Buffer baseado no status selecionado
+document.getElementById('item-status').addEventListener('change', function() {
+    const bufferWrap = document.getElementById('item-buffer-wrap');
+    if (['aprovado', 'agendado', 'publicado'].includes(this.value)) {
+        bufferWrap.style.display = '';
+        loadBufferChannels();
+    } else {
+        bufferWrap.style.display = 'none';
+    }
+});
+
 function fillItemForm(it) {
     currentItem = it;
     document.getElementById('item-modal-title').textContent = 'Editar demanda';
