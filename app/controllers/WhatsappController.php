@@ -1669,7 +1669,7 @@ class WhatsappController extends Controller
 
         foreach ($instances as $instance) {
             $groups = $db->fetchAll(
-                "SELECT id, remote_jid, contact_name, profile_picture_url FROM whatsapp_contacts WHERE instance_id = ? AND is_group = 1",
+                "SELECT id, remote_jid, contact_name, profile_picture_url, instance_id FROM whatsapp_contacts WHERE instance_id = ? AND is_group = 1",
                 [$instance['id']]
             );
 
@@ -1721,24 +1721,45 @@ class WhatsappController extends Controller
                     }
                 }
 
-                // Última tentativa: buscar via endpoint de metadata do grupo
+                // Última tentativa: buscar via endpoint de metadata do grupo (usar instância correta do grupo)
                 if (empty($picUrl)) {
-                    foreach ($instances as $tryInst) {
-                        $metaUrl = rtrim($tryInst['api_url'], '/') . '/group/findGroupInfos/' . $tryInst['instance_name'];
-                        $ch3 = curl_init($metaUrl);
-                        curl_setopt_array($ch3, [
+                    // Usar a instância onde o grupo está registrado
+                    $groupInstance = $db->fetch("SELECT wi.* FROM whatsapp_instances wi WHERE wi.id = ?", [$g['instance_id'] ?? $instance['id']]);
+                    if (!$groupInstance) $groupInstance = $instance;
+                    
+                    // Tentar endpoint findGroupInfos com a instância correta
+                    $metaUrl = rtrim($groupInstance['api_url'], '/') . '/group/findGroupInfos/' . $groupInstance['instance_name'];
+                    $ch3 = curl_init($metaUrl);
+                    curl_setopt_array($ch3, [
+                        CURLOPT_POST => true,
+                        CURLOPT_POSTFIELDS => json_encode(['groupJid' => $jid]),
+                        CURLOPT_RETURNTRANSFER => true,
+                        CURLOPT_HTTPHEADER => ['apikey: ' . $groupInstance['api_key'], 'Content-Type: application/json'],
+                        CURLOPT_SSL_VERIFYPEER => false,
+                        CURLOPT_TIMEOUT => 15,
+                    ]);
+                    $resp3 = curl_exec($ch3);
+                    curl_close($ch3);
+                    $meta = json_decode($resp3, true);
+                    $picUrl = $meta['pictureUrl'] ?? $meta['profilePictureUrl'] ?? $meta['picture'] ?? null;
+                    
+                    // Tentar também endpoint inviteInfo 
+                    if (empty($picUrl)) {
+                        $inviteUrl = rtrim($groupInstance['api_url'], '/') . '/group/inviteInfo/' . $groupInstance['instance_name'];
+                        $ch4 = curl_init($inviteUrl);
+                        curl_setopt_array($ch4, [
                             CURLOPT_POST => true,
                             CURLOPT_POSTFIELDS => json_encode(['groupJid' => $jid]),
                             CURLOPT_RETURNTRANSFER => true,
-                            CURLOPT_HTTPHEADER => ['apikey: ' . $tryInst['api_key'], 'Content-Type: application/json'],
+                            CURLOPT_HTTPHEADER => ['apikey: ' . $groupInstance['api_key'], 'Content-Type: application/json'],
                             CURLOPT_SSL_VERIFYPEER => false,
                             CURLOPT_TIMEOUT => 15,
                         ]);
-                        $resp3 = curl_exec($ch3);
-                        curl_close($ch3);
-                        $meta = json_decode($resp3, true);
-                        $picUrl = $meta['pictureUrl'] ?? $meta['profilePictureUrl'] ?? $meta['picture'] ?? null;
-                        if (!empty($picUrl)) break;
+                        $resp4 = curl_exec($ch4);
+                        curl_close($ch4);
+                        $invite = json_decode($resp4, true);
+                        $picUrl = $invite['pictureUrl'] ?? $invite['profilePictureUrl'] ?? null;
+                        $resp3 = $resp3 . ' | inviteInfo: ' . ($resp4 ?? '');
                     }
                 }
 
