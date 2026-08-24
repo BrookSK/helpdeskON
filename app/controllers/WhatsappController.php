@@ -1323,6 +1323,13 @@ class WhatsappController extends Controller
                 $picUrl = $this->fetchProfilePicUrl($instance, $normalizedJid);
                 if (!empty($picUrl)) {
                     Database::getInstance()->update('whatsapp_contacts', ['profile_picture_url' => $picUrl], 'id = ?', [$contactId]);
+                } else {
+                    // Sem foto no WhatsApp — gerar avatar com iniciais
+                    $groupName = $existing['contact_name'] ?? $contactName ?? 'GR';
+                    $avatarUrl = $this->generateGroupAvatar($groupName, $contactId);
+                    if ($avatarUrl) {
+                        Database::getInstance()->update('whatsapp_contacts', ['profile_picture_url' => $avatarUrl], 'id = ?', [$contactId]);
+                    }
                 }
             }
         }
@@ -1460,7 +1467,14 @@ class WhatsappController extends Controller
                         $updateData['profile_picture_url'] = $picUrl;
                         $photoLog[] = $g['contact_name'] . ': from_api';
                     } else {
-                        $photoLog[] = $g['contact_name'] . ': NOT_FOUND';
+                        // Grupo não tem foto no WhatsApp — gerar avatar com iniciais
+                        $avatarUrl = $this->generateGroupAvatar($g['contact_name'], $g['id']);
+                        if ($avatarUrl) {
+                            $updateData['profile_picture_url'] = $avatarUrl;
+                            $photoLog[] = $g['contact_name'] . ': generated';
+                        } else {
+                            $photoLog[] = $g['contact_name'] . ': NO_PHOTO';
+                        }
                     }
                 }
             }
@@ -1682,6 +1696,77 @@ class WhatsappController extends Controller
         }
 
         $this->json(['results' => $results, 'restarted' => $restarted, 'tip' => 'Se fotos não aparecem, acesse com ?restart=1 para reiniciar a instância e forçar refresh. Para upload manual: POST com contact_id + photo (file) ou photo_url.']);
+    }
+
+    /**
+     * Gera um avatar PNG com as iniciais do grupo (quando o grupo não tem foto no WhatsApp).
+     * Salva em uploads/whatsapp_avatars/ e retorna a URL.
+     */
+    private function generateGroupAvatar($name, $contactId)
+    {
+        if (!function_exists('imagecreatetruecolor')) return null; // GD não disponível
+
+        $initials = mb_strtoupper(mb_substr($name ?? '?', 0, 2));
+        
+        // Cores baseadas no ID para consistência
+        $colors = [
+            ['bg' => [76, 175, 80], 'fg' => [255, 255, 255]],   // Verde
+            ['bg' => [33, 150, 243], 'fg' => [255, 255, 255]],   // Azul
+            ['bg' => [233, 30, 99], 'fg' => [255, 255, 255]],    // Rosa
+            ['bg' => [255, 152, 0], 'fg' => [255, 255, 255]],    // Laranja
+            ['bg' => [156, 39, 176], 'fg' => [255, 255, 255]],   // Roxo
+            ['bg' => [0, 150, 136], 'fg' => [255, 255, 255]],    // Teal
+        ];
+        $color = $colors[$contactId % count($colors)];
+
+        $size = 200;
+        $img = imagecreatetruecolor($size, $size);
+        $bg = imagecolorallocate($img, $color['bg'][0], $color['bg'][1], $color['bg'][2]);
+        $fg = imagecolorallocate($img, $color['fg'][0], $color['fg'][1], $color['fg'][2]);
+        imagefilledrectangle($img, 0, 0, $size, $size, $bg);
+
+        // Texto centralizado
+        $fontSize = 5; // Fonte embutida do GD (1-5)
+        $fontWidth = imagefontwidth($fontSize) * strlen($initials);
+        $fontHeight = imagefontheight($fontSize);
+        $x = ($size - $fontWidth) / 2;
+        $y = ($size - $fontHeight) / 2;
+        imagestring($img, $fontSize, (int)$x, (int)$y, $initials, $fg);
+
+        // Tentar usar fonte TrueType se disponível para resultado melhor
+        $ttfFont = null;
+        $possibleFonts = [
+            '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+            '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf',
+            '/usr/share/fonts/TTF/DejaVuSans-Bold.ttf',
+        ];
+        foreach ($possibleFonts as $f) {
+            if (file_exists($f)) { $ttfFont = $f; break; }
+        }
+        if ($ttfFont) {
+            // Refazer com TTF
+            $img = imagecreatetruecolor($size, $size);
+            $bg = imagecolorallocate($img, $color['bg'][0], $color['bg'][1], $color['bg'][2]);
+            $fg = imagecolorallocate($img, $color['fg'][0], $color['fg'][1], $color['fg'][2]);
+            imagefilledrectangle($img, 0, 0, $size, $size, $bg);
+            $ttfSize = 60;
+            $bbox = imagettfbbox($ttfSize, 0, $ttfFont, $initials);
+            $textWidth = abs($bbox[4] - $bbox[0]);
+            $textHeight = abs($bbox[5] - $bbox[1]);
+            $x = ($size - $textWidth) / 2 - $bbox[0];
+            $y = ($size + $textHeight) / 2 - $bbox[1] - $textHeight;
+            imagettftext($img, $ttfSize, 0, (int)$x, (int)($size / 2 + $textHeight / 2 - 5), $fg, $ttfFont, $initials);
+        }
+
+        // Salvar
+        $dir = PUBLIC_PATH . '/uploads/whatsapp_avatars';
+        if (!is_dir($dir)) @mkdir($dir, 0755, true);
+        $filename = 'avatar_group_' . $contactId . '.png';
+        $localPath = 'uploads/whatsapp_avatars/' . $filename;
+        $saved = imagepng($img, PUBLIC_PATH . '/' . $localPath);
+        imagedestroy($img);
+
+        return $saved ? baseUrl($localPath) : null;
     }
 
     /**
