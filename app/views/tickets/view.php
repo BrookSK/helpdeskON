@@ -199,6 +199,22 @@
                     </form>
                 </div>
             </div>
+            <?php elseif ($user['role'] === 'client' && $ticket['status'] === 'em_homologacao'): ?>
+            <!-- Cliente pode aprovar quando está em homologação -->
+            <div class="card mb-3 border-success">
+                <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.88rem"><i class="bi bi-check-circle text-success"></i> Homologação</h6></div>
+                <div class="card-body">
+                    <p class="small text-muted mb-2">Esta demanda está em homologação. Teste e aprove ou solicite ajustes.</p>
+                    <form action="<?= baseUrl('tickets/updateStatus/' . $ticket['id']) ?>" method="POST">
+                        <select name="status" class="form-select form-select-sm mb-2">
+                            <option value="em_homologacao" selected>Em Homologação</option>
+                            <option value="aprovado_producao">Aprovar para Produção</option>
+                            <option value="denied">Reprovar / Solicitar ajustes</option>
+                        </select>
+                        <button type="submit" class="btn btn-success btn-sm w-100">Confirmar</button>
+                    </form>
+                </div>
+            </div>
             <?php endif; ?>
 
             <?php if ($canEditPriority): ?>

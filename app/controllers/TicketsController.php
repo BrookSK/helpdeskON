@@ -389,7 +389,9 @@ class TicketsController extends Controller
     // Atualizar status do ticket
     public function updateStatus($id = null)
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        $this->requireLogin();
+        $user = $this->currentUser();
+
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
             if ($this->isAjax()) {
                 $this->json(['error' => 'Requisição inválida'], 400);
@@ -404,6 +406,24 @@ class TicketsController extends Controller
                 $this->json(['error' => 'Status inválido'], 400);
             }
             $this->redirect('tickets/show/' . $id);
+        }
+
+        // Cliente só pode mudar de em_homologacao para aprovado_producao ou denied
+        if ($user['role'] === 'client') {
+            $currentTicket = $this->ticketModel->findById($id);
+            if (!$currentTicket || $currentTicket['status'] !== 'em_homologacao' || !in_array($status, ['aprovado_producao', 'denied'])) {
+                if ($this->isAjax()) {
+                    $this->json(['error' => 'Sem permissão'], 403);
+                }
+                $this->redirect('tickets/show/' . $id);
+                return;
+            }
+        } elseif (!in_array($user['role'], ['super_admin', 'attendant', 'whatsapp_agent'])) {
+            if ($this->isAjax()) {
+                $this->json(['error' => 'Sem permissão'], 403);
+            }
+            $this->redirect('tickets');
+            return;
         }
 
         // Capturar status anterior para detectar transições
