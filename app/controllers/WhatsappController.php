@@ -1508,6 +1508,16 @@ class WhatsappController extends Controller
             $data = json_decode($response, true);
             if (!is_array($data)) return $map;
 
+            // Log da resposta bruta para diagnóstico do campo de foto
+            @file_put_contents(
+                PUBLIC_PATH . '/uploads/fetchAllGroups_raw.log',
+                '[' . date('Y-m-d H:i:s') . '] Response (first 2 groups): ' . json_encode(array_slice(
+                    isset($data['groups']) ? $data['groups'] : (isset($data[0]) ? $data : []),
+                    0, 2
+                ), JSON_UNESCAPED_UNICODE) . "\n",
+                FILE_APPEND
+            );
+
             // A resposta pode ser uma lista direta ou vir dentro de uma chave
             $groups = $data;
             if (isset($data['groups']) && is_array($data['groups'])) {
