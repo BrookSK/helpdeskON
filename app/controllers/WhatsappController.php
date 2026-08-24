@@ -1456,13 +1456,25 @@ class WhatsappController extends Controller
             if (!empty($subject) && $subject !== $g['contact_name']) {
                 $updateData['contact_name'] = $subject;
             }
-            // Atualizar foto do grupo se não tem
-            if (empty($g['profile_picture_url'])) {
+            // Atualizar foto do grupo se não tem ou se tem apenas avatar gerado
+            $hasGeneratedAvatar = !empty($g['profile_picture_url']) && strpos($g['profile_picture_url'], 'avatar_group_') !== false;
+            if (empty($g['profile_picture_url']) || $hasGeneratedAvatar) {
                 if (!empty($picture)) {
                     $updateData['profile_picture_url'] = $picture;
                     $photoLog[] = $g['contact_name'] . ': from_map';
                 } else {
+                    // Tentar buscar via a instância do grupo
                     $picUrl = $this->fetchProfilePicUrl($instance, $g['remote_jid']);
+                    
+                    // Se não encontrou, tentar via OUTRAS instâncias
+                    if (empty($picUrl)) {
+                        $otherInstances = $db->fetchAll("SELECT * FROM whatsapp_instances WHERE id != ?", [$instance['id']]);
+                        foreach ($otherInstances as $otherInst) {
+                            $picUrl = $this->fetchProfilePicUrl($otherInst, $g['remote_jid']);
+                            if (!empty($picUrl)) break;
+                        }
+                    }
+                    
                     if (!empty($picUrl)) {
                         $updateData['profile_picture_url'] = $picUrl;
                         $photoLog[] = $g['contact_name'] . ': from_api';
@@ -1662,7 +1674,8 @@ class WhatsappController extends Controller
             );
 
             foreach ($groups as $g) {
-                if (!empty($g['profile_picture_url'])) {
+                $hasRealPhoto = !empty($g['profile_picture_url']) && strpos($g['profile_picture_url'], 'avatar_group_') === false;
+                if ($hasRealPhoto) {
                     $results[] = ['group' => $g['contact_name'], 'id' => $g['id'], 'status' => 'has_photo', 'url' => substr($g['profile_picture_url'], 0, 60)];
                     continue;
                 }
@@ -1685,6 +1698,28 @@ class WhatsappController extends Controller
                 
                 $data = json_decode($response, true);
                 $picUrl = $data['profilePictureUrl'] ?? $data['url'] ?? $data['profilePicUrl'] ?? null;
+
+                // Se não encontrou, tentar via outras instâncias
+                if (empty($picUrl)) {
+                    foreach ($instances as $otherInst) {
+                        if ($otherInst['id'] === $instance['id']) continue;
+                        $otherUrl = rtrim($otherInst['api_url'], '/') . '/chat/fetchProfilePictureUrl/' . $otherInst['instance_name'];
+                        $ch2 = curl_init($otherUrl);
+                        curl_setopt_array($ch2, [
+                            CURLOPT_POST => true,
+                            CURLOPT_POSTFIELDS => json_encode(['number' => $jid]),
+                            CURLOPT_RETURNTRANSFER => true,
+                            CURLOPT_HTTPHEADER => ['apikey: ' . $otherInst['api_key'], 'Content-Type: application/json'],
+                            CURLOPT_SSL_VERIFYPEER => false,
+                            CURLOPT_TIMEOUT => 15,
+                        ]);
+                        $resp2 = curl_exec($ch2);
+                        curl_close($ch2);
+                        $data2 = json_decode($resp2, true);
+                        $picUrl = $data2['profilePictureUrl'] ?? $data2['url'] ?? null;
+                        if (!empty($picUrl)) break;
+                    }
+                }
 
                 if (!empty($picUrl)) {
                     $db->update('whatsapp_contacts', ['profile_picture_url' => $picUrl], 'id = ?', [$g['id']]);
