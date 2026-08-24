@@ -67,11 +67,12 @@ class WhatsappContact
                 WHERE COALESCE(c.is_group, 0) = 0";
         $params = [];
 
-        // Arquivados: por padrão só mostra ativos; com 'archived' mostra só os arquivados
+        // Arquivados no CRM (campo dedicado — não afeta o arquivamento do chat).
+        // Por padrão só mostra ativos; com 'archived' mostra só os arquivados.
         if (!empty($filters['archived'])) {
-            $sql .= " AND c.is_archived = 1";
+            $sql .= " AND c.crm_archived = 1";
         } else {
-            $sql .= " AND COALESCE(c.is_archived, 0) = 0";
+            $sql .= " AND COALESCE(c.crm_archived, 0) = 0";
         }
 
         // Escopo por usuário (comercial só vê os seus)
@@ -358,7 +359,7 @@ class WhatsappContact
     }
 
     /**
-     * Arquivar/desarquivar contato
+     * Arquivar/desarquivar contato (afeta a lista do chat do WhatsApp)
      */
     public function toggleArchive($id)
     {
@@ -366,6 +367,18 @@ class WhatsappContact
         if (!$contact) return false;
         $newStatus = $contact['is_archived'] ? 0 : 1;
         return $this->db->update('whatsapp_contacts', ['is_archived' => $newStatus], 'id = ?', [$id]);
+    }
+
+    /**
+     * Arquivar/desarquivar lead apenas na aba "Meus Leads" do CRM.
+     * Usa a coluna crm_archived, sem afetar a visibilidade no chat do WhatsApp.
+     */
+    public function toggleCrmArchive($id)
+    {
+        $contact = $this->findById($id);
+        if (!$contact) return false;
+        $newStatus = empty($contact['crm_archived']) ? 1 : 0;
+        return $this->db->update('whatsapp_contacts', ['crm_archived' => $newStatus], 'id = ?', [$id]);
     }
 
     /**

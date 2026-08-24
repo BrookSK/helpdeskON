@@ -524,8 +524,8 @@ class CrmController extends Controller
             $this->json(['error' => 'Sem permissão'], 403);
         }
 
-        $contactModel->toggleArchive($contactId);
-        $archived = empty($contact['is_archived']) ? 1 : 0;
+        $contactModel->toggleCrmArchive($contactId);
+        $archived = empty($contact['crm_archived']) ? 1 : 0;
         $this->json(['success' => true, 'archived' => $archived]);
     }
 
