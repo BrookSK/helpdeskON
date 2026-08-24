@@ -1721,11 +1721,33 @@ class WhatsappController extends Controller
                     }
                 }
 
+                // Última tentativa: buscar via endpoint de metadata do grupo
+                if (empty($picUrl)) {
+                    foreach ($instances as $tryInst) {
+                        $metaUrl = rtrim($tryInst['api_url'], '/') . '/group/findGroupInfos/' . $tryInst['instance_name'];
+                        $ch3 = curl_init($metaUrl);
+                        curl_setopt_array($ch3, [
+                            CURLOPT_POST => true,
+                            CURLOPT_POSTFIELDS => json_encode(['groupJid' => $jid]),
+                            CURLOPT_RETURNTRANSFER => true,
+                            CURLOPT_HTTPHEADER => ['apikey: ' . $tryInst['api_key'], 'Content-Type: application/json'],
+                            CURLOPT_SSL_VERIFYPEER => false,
+                            CURLOPT_TIMEOUT => 15,
+                        ]);
+                        $resp3 = curl_exec($ch3);
+                        curl_close($ch3);
+                        $meta = json_decode($resp3, true);
+                        $picUrl = $meta['pictureUrl'] ?? $meta['profilePictureUrl'] ?? $meta['picture'] ?? null;
+                        if (!empty($picUrl)) break;
+                    }
+                }
+
                 if (!empty($picUrl)) {
                     $db->update('whatsapp_contacts', ['profile_picture_url' => $picUrl], 'id = ?', [$g['id']]);
                     $results[] = ['group' => $g['contact_name'], 'id' => $g['id'], 'status' => 'UPDATED'];
                 } else {
-                    $results[] = ['group' => $g['contact_name'], 'id' => $g['id'], 'status' => 'NOT_AVAILABLE'];
+                    // Log da resposta do findGroupInfos para diagnóstico
+                    $results[] = ['group' => $g['contact_name'], 'id' => $g['id'], 'status' => 'NOT_AVAILABLE', 'metadata_response' => substr($resp3 ?? '', 0, 300)];
                 }
             }
         }
