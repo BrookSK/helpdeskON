@@ -504,8 +504,8 @@ function loadBufferChannels() {
             return;
         }
         box.innerHTML = channels.map(c => `
-            <label class="d-inline-flex align-items-center gap-1 border rounded px-2 py-1" style="cursor:pointer;font-size:0.78rem;">
-                <input type="checkbox" class="buffer-channel-cb" value="${c.channel_id}">
+            <label class="d-inline-flex align-items-center gap-1 border rounded px-2 py-1" style="cursor:pointer;font-size:0.78rem;user-select:none;">
+                <input type="checkbox" class="form-check-input buffer-channel-cb" value="${c.channel_id}" style="width:16px;height:16px;margin:0;">
                 <i class="bi bi-${bufferIcon(c.service)}"></i> ${escapeHtml(c.name || c.service)}
             </label>`).join('');
     };

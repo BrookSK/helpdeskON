@@ -607,6 +607,73 @@ class BufferController extends Controller
         ]);
     }
 
+    // API: Processar fila de posts pendentes manualmente
+    public function processQueue()
+    {
+        $this->requireRole(['super_admin']);
+        $db = Database::getInstance();
+        $queuedPosts = $db->fetchAll("SELECT * FROM buffer_posts WHERE status = 'queued' ORDER BY created_at ASC LIMIT 10");
+
+        if (empty($queuedPosts)) {
+            $this->json(['success' => true, 'message' => 'Nenhum post na fila.', 'processed' => 0]);
+            return;
+        }
+
+        $allChannels = $this->data->getChannels(false);
+        $chMap = [];
+        foreach ($allChannels as $c) $chMap[$c['channel_id']] = $c;
+
+        $accounts = $this->accountsModel->all(true);
+        $accMap = [];
+        foreach ($accounts as $a) $accMap[$a['id']] = $a;
+        $defaultKey = Config::get('buffer_api_key') ?: ($accounts[0]['api_key'] ?? '');
+
+        $processed = 0;
+        $results = [];
+        foreach ($queuedPosts as $qp) {
+            $apiKey = $defaultKey;
+            if (isset($chMap[$qp['channel_id']]) && !empty($chMap[$qp['channel_id']]['buffer_account_id'])) {
+                $aId = $chMap[$qp['channel_id']]['buffer_account_id'];
+                if (isset($accMap[$aId])) $apiKey = $accMap[$aId]['api_key'];
+            }
+            $api = new BufferApi($apiKey);
+
+            $dueAtIso = null;
+            if (!empty($qp['due_at'])) {
+                $dt = new DateTime($qp['due_at']);
+                $dt->setTimezone(new DateTimeZone('UTC'));
+                $dueAtIso = $dt->format('Y-m-d\TH:i:s.000\Z');
+            }
+
+            $res = $api->createPost($qp['channel_id'], $qp['text'], $dueAtIso);
+            $this->logBufferResponse($res, 'queue_' . $qp['channel_id']);
+
+            if (($res['http'] ?? 0) === 429) {
+                $results[] = ['id' => $qp['id'], 'status' => 'rate_limited', 'window' => $res['window'] ?? '?'];
+                break;
+            }
+
+            $node = $res['data']['createPost']['post'] ?? null;
+            if ($node) {
+                $db->update('buffer_posts', [
+                    'buffer_post_id' => $node['id'],
+                    'status' => $node['status'] ?? 'scheduled',
+                    'due_at' => !empty($node['dueAt']) ? date('Y-m-d H:i:s', strtotime($node['dueAt'])) : $qp['due_at'],
+                    'external_link' => $node['externalLink'] ?? null,
+                ], 'id = ?', [$qp['id']]);
+                $results[] = ['id' => $qp['id'], 'status' => 'sent', 'buffer_id' => $node['id']];
+                $processed++;
+            } else {
+                $errMsg = $res['data']['createPost']['message'] ?? ($res['errors'][0]['message'] ?? 'erro');
+                $db->update('buffer_posts', ['status' => 'error'], 'id = ?', [$qp['id']]);
+                $results[] = ['id' => $qp['id'], 'status' => 'error', 'message' => $errMsg];
+            }
+            usleep(1000000); // 1s entre posts
+        }
+
+        $this->json(['success' => true, 'processed' => $processed, 'results' => $results]);
+    }
+
     // API: sincronizar métricas dos posts enviados
     public function syncMetrics()
     {
