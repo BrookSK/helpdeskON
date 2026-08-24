@@ -478,10 +478,13 @@ class CrmController extends Controller
 
         $isComercial = ($user['role'] === 'comercial');
 
+        $showArchived = !empty($_GET['archived']);
+
         $filters = [
             'search' => trim($_GET['q'] ?? ''),
             'temperature' => $_GET['temperature'] ?? '',
             'source' => $_GET['source'] ?? '',
+            'archived' => $showArchived ? 1 : 0,
         ];
         // Comercial: escopo travado nos próprios leads
         if ($isComercial) {
@@ -496,7 +499,34 @@ class CrmController extends Controller
             'leads' => $leads,
             'isComercial' => $isComercial,
             'filters' => $filters,
+            'showArchived' => $showArchived,
         ]);
+    }
+
+    /**
+     * API: arquivar/desarquivar um lead (remove/retorna da lista principal).
+     * POST crm/toggleArchiveLead/{contactId}
+     */
+    public function toggleArchiveLead($contactId = null)
+    {
+        $this->requireRole(['super_admin', 'comercial']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$contactId) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+
+        $contactModel = new WhatsappContact();
+        $contact = $contactModel->findById($contactId);
+        if (!$contact) $this->json(['error' => 'Lead não encontrado'], 404);
+
+        // Comercial só pode arquivar os próprios leads
+        $user = $this->currentUser();
+        if ($user['role'] === 'comercial' && (int)$contact['assigned_to'] !== (int)$user['id']) {
+            $this->json(['error' => 'Sem permissão'], 403);
+        }
+
+        $contactModel->toggleArchive($contactId);
+        $archived = empty($contact['is_archived']) ? 1 : 0;
+        $this->json(['success' => true, 'archived' => $archived]);
     }
 
     /**

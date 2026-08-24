@@ -67,6 +67,13 @@ class WhatsappContact
                 WHERE COALESCE(c.is_group, 0) = 0";
         $params = [];
 
+        // Arquivados: por padrão só mostra ativos; com 'archived' mostra só os arquivados
+        if (!empty($filters['archived'])) {
+            $sql .= " AND c.is_archived = 1";
+        } else {
+            $sql .= " AND COALESCE(c.is_archived, 0) = 0";
+        }
+
         // Escopo por usuário (comercial só vê os seus)
         if (!empty($filters['assigned_to'])) {
             $sql .= " AND c.assigned_to = ?";
