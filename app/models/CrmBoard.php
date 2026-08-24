@@ -42,9 +42,48 @@ class CrmBoard
         return $this->db->update('crm_boards', $data, 'id = ?', [$id]);
     }
 
+    /**
+     * Exclui o board e TODO o seu conteúdo (colunas, cards e atividades).
+     * Faz a limpeza explícita em ordem para funcionar mesmo que as FKs
+     * com ON DELETE CASCADE não estejam habilitadas no banco.
+     */
     public function delete($id)
     {
-        return $this->db->update('crm_boards', ['is_active' => 0], 'id = ?', [$id]);
+        // IDs das colunas do board
+        $columns = $this->db->fetchAll("SELECT id FROM crm_columns WHERE board_id = ?", [$id]);
+        $columnIds = array_column($columns, 'id');
+
+        if (!empty($columnIds)) {
+            $placeholders = implode(',', array_fill(0, count($columnIds), '?'));
+
+            // IDs dos cards dessas colunas
+            $cards = $this->db->fetchAll(
+                "SELECT id FROM crm_cards WHERE column_id IN ($placeholders)",
+                $columnIds
+            );
+            $cardIds = array_column($cards, 'id');
+
+            // Atividades dos cards
+            if (!empty($cardIds)) {
+                $cardPlaceholders = implode(',', array_fill(0, count($cardIds), '?'));
+                $this->db->query(
+                    "DELETE FROM crm_card_activities WHERE card_id IN ($cardPlaceholders)",
+                    $cardIds
+                );
+            }
+
+            // Cards das colunas
+            $this->db->query(
+                "DELETE FROM crm_cards WHERE column_id IN ($placeholders)",
+                $columnIds
+            );
+
+            // Colunas do board
+            $this->db->delete('crm_columns', 'board_id = ?', [$id]);
+        }
+
+        // Por fim, o board
+        return $this->db->delete('crm_boards', 'id = ?', [$id]);
     }
 
     // =========================================

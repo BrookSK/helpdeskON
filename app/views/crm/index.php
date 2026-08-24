@@ -37,7 +37,16 @@
                 <div class="card-body">
                     <div class="d-flex justify-content-between align-items-start mb-2">
                         <h6 class="mb-0"><?= escape($board['name']) ?></h6>
-                        <span class="badge bg-primary rounded-pill"><?= $board['total_cards'] ?? 0 ?> cards</span>
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="badge bg-primary rounded-pill"><?= $board['total_cards'] ?? 0 ?> cards</span>
+                            <?php if (($user['role'] ?? '') === 'super_admin'): ?>
+                            <button type="button" class="btn btn-sm btn-link text-danger p-0 board-delete-btn"
+                                    title="Excluir board"
+                                    onclick="event.stopPropagation(); deleteBoard(<?= (int)$board['id'] ?>, '<?= escape(addslashes($board['name'])) ?>');">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                            <?php endif; ?>
+                        </div>
                     </div>
                     <?php if ($board['description']): ?>
                     <p class="text-muted small mb-2"><?= escape($board['description']) ?></p>
@@ -90,6 +99,31 @@
 <style>
 .board-card { transition: transform 0.2s, box-shadow 0.2s; }
 .board-card:hover { transform: translateY(-3px); box-shadow: 0 6px 16px rgba(0,0,0,0.1); }
+.board-delete-btn { line-height: 1; }
+.board-delete-btn:hover { color: #a71d2a !important; }
 </style>
+
+<script>
+const BASE = '<?= baseUrl("") ?>';
+
+function deleteBoard(boardId, boardName) {
+    if (!confirm('Excluir o board "' + boardName + '"?\n\nTodas as colunas, cards e histórico deste board serão removidos permanentemente. Esta ação não pode ser desfeita.')) return;
+
+    fetch(BASE + 'crm/deleteBoard/' + boardId, {
+        method: 'POST',
+        body: new FormData(),
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    })
+    .then(r => r.json())
+    .then(res => {
+        if (res && res.success) {
+            location.reload();
+        } else {
+            alert((res && res.error) ? res.error : 'Não foi possível excluir o board.');
+        }
+    })
+    .catch(() => alert('Erro ao excluir o board.'));
+}
+</script>
 
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>
