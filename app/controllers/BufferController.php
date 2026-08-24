@@ -375,10 +375,12 @@ class BufferController extends Controller
         $assets = $imageUrl ? [$imageUrl] : [];
 
         // Data/hora -> ISO 8601 UTC
+        // Interpreta como horário de Brasília antes de converter para UTC
         $dueAtIso = null;
         if (!empty($_POST['due_at'])) {
             try {
-                $dt = new DateTime($_POST['due_at']);
+                $localTz = new DateTimeZone('America/Sao_Paulo');
+                $dt = new DateTime($_POST['due_at'], $localTz);
                 $dt->setTimezone(new DateTimeZone('UTC'));
                 $dueAtIso = $dt->format('Y-m-d\TH:i:s.000\Z');
             } catch (\Throwable $e) { $dueAtIso = null; }
@@ -451,6 +453,14 @@ class BufferController extends Controller
                     $apiKey = $accountMap[$accId]['api_key'];
                 }
             }
+
+            // Verifica se canal está desconectado no Buffer
+            if (isset($channelMap[$channelId]) && !empty($channelMap[$channelId]['is_disconnected'])) {
+                $chName = $channelMap[$channelId]['name'] ?? $channelId;
+                $errors[] = $chName . ': canal desconectado no Buffer. Reconecte em buffer.com';
+                continue;
+            }
+
             $api = new BufferApi($apiKey);
 
             $res = $api->createPost($channelId, $text, $dueAtIso, $assets);
