@@ -580,6 +580,33 @@ class BufferController extends Controller
         $this->json(['success' => true, 'deleted' => $count['t'] ?? 0]);
     }
 
+    // API: Diagnóstico da fila do Buffer
+    public function queueStatus()
+    {
+        $this->requireRole(['super_admin']);
+        $db = Database::getInstance();
+        $queued = $db->fetchAll("SELECT id, channel_id, text, status, due_at, created_at FROM buffer_posts WHERE status = 'queued' ORDER BY created_at DESC LIMIT 20");
+        $errors = $db->fetchAll("SELECT id, channel_id, text, status, due_at, created_at FROM buffer_posts WHERE status = 'error' ORDER BY created_at DESC LIMIT 10");
+        $scheduled = $db->fetchAll("SELECT id, channel_id, buffer_post_id, text, status, due_at FROM buffer_posts WHERE status = 'scheduled' ORDER BY due_at DESC LIMIT 10");
+        $sent = $db->fetchAll("SELECT id, channel_id, buffer_post_id, text, status, due_at, sent_at FROM buffer_posts WHERE status = 'sent' ORDER BY sent_at DESC LIMIT 10");
+
+        // Verificar log da API
+        $logFile = PUBLIC_PATH . '/uploads/buffer_api.log';
+        $lastLog = '';
+        if (file_exists($logFile)) {
+            $lines = file($logFile);
+            $lastLog = implode('', array_slice($lines, -5));
+        }
+
+        $this->json([
+            'queued' => $queued,
+            'errors' => $errors,
+            'scheduled' => $scheduled,
+            'sent' => $sent,
+            'last_log' => $lastLog,
+        ]);
+    }
+
     // API: sincronizar métricas dos posts enviados
     public function syncMetrics()
     {
