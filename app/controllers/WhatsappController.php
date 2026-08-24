@@ -1162,6 +1162,9 @@ class WhatsappController extends Controller
             case 'qrcode.updated':
                 $this->handleQrCodeUpdate($payload);
                 break;
+            case 'groups.update':
+                $this->handleGroupUpdate($payload);
+                break;
         }
 
         http_response_code(200);
@@ -1653,6 +1656,7 @@ class WhatsappController extends Controller
 
         // GET: Pegar TODAS as instâncias e mostrar diagnóstico
         // Se ?restart=1, reinicia a instância antes de buscar (força refresh do cache)
+        // Se ?reconnect=1, desloga e reconecta (limpa cache completo)
         $instances = $db->fetchAll("SELECT * FROM whatsapp_instances");
         $results = [];
         $restarted = false;
@@ -1663,8 +1667,22 @@ class WhatsappController extends Controller
                 $api->restartInstance();
                 $restarted = true;
             }
-            // Esperar a reconexão
             sleep(5);
+        }
+        
+        if (!empty($_GET['reconnect'])) {
+            // Forçar logout e reconexão para limpar cache do Baileys
+            foreach ($instances as $instance) {
+                $api = new EvolutionApi($instance['api_url'], $instance['api_key'], $instance['instance_name']);
+                $api->logoutInstance();
+            }
+            sleep(3);
+            foreach ($instances as $instance) {
+                $api = new EvolutionApi($instance['api_url'], $instance['api_key'], $instance['instance_name']);
+                $api->connectInstance();
+            }
+            $this->json(['message' => 'Instâncias desconectadas. Escaneie o QR code novamente em /whatsapp para reconectar. Após reconectar, acesse /whatsapp/forceGroupPhotos para buscar as fotos.']);
+            return;
         }
 
         foreach ($instances as $instance) {
@@ -1767,8 +1785,28 @@ class WhatsappController extends Controller
                     $db->update('whatsapp_contacts', ['profile_picture_url' => $picUrl], 'id = ?', [$g['id']]);
                     $results[] = ['group' => $g['contact_name'], 'id' => $g['id'], 'status' => 'UPDATED'];
                 } else {
-                    // Log da resposta do findGroupInfos para diagnóstico
-                    $results[] = ['group' => $g['contact_name'], 'id' => $g['id'], 'status' => 'NOT_AVAILABLE', 'metadata_response' => substr($resp3 ?? '', 0, 300)];
+                    // Última tentativa: buscar com parâmetro fullPicture 
+                    $lastUrl = rtrim($instance['api_url'], '/') . '/chat/fetchProfilePictureUrl/' . $instance['instance_name'];
+                    $ch5 = curl_init($lastUrl);
+                    curl_setopt_array($ch5, [
+                        CURLOPT_POST => true,
+                        CURLOPT_POSTFIELDS => json_encode(['number' => $jid, 'pictureType' => 'image']),
+                        CURLOPT_RETURNTRANSFER => true,
+                        CURLOPT_HTTPHEADER => ['apikey: ' . $instance['api_key'], 'Content-Type: application/json'],
+                        CURLOPT_SSL_VERIFYPEER => false,
+                        CURLOPT_TIMEOUT => 15,
+                    ]);
+                    $resp5 = curl_exec($ch5);
+                    curl_close($ch5);
+                    $data5 = json_decode($resp5, true);
+                    $lastPic = $data5['profilePictureUrl'] ?? $data5['url'] ?? null;
+                    
+                    if (!empty($lastPic)) {
+                        $db->update('whatsapp_contacts', ['profile_picture_url' => $lastPic], 'id = ?', [$g['id']]);
+                        $results[] = ['group' => $g['contact_name'], 'id' => $g['id'], 'status' => 'UPDATED_FULL'];
+                    } else {
+                        $results[] = ['group' => $g['contact_name'], 'id' => $g['id'], 'status' => 'NOT_AVAILABLE', 'metadata_response' => substr($resp3 ?? '', 0, 300)];
+                    }
                 }
             }
         }
@@ -2174,6 +2212,50 @@ class WhatsappController extends Controller
             'PLAYED' => 'read',
         ];
         return $map[$s] ?? null;
+    }
+
+    /**
+     * Processa atualização de grupo (foto, nome, etc.) via webhook.
+     * Captura automaticamente fotos de grupo quando o WhatsApp as disponibiliza.
+     */
+    private function handleGroupUpdate($payload)
+    {
+        $instanceName = $payload['instance'] ?? $payload['instanceName'] ?? '';
+        $db = Database::getInstance();
+        $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE instance_name = ?", [$instanceName]);
+        if (!$instance) return;
+
+        $data = $payload['data'] ?? [];
+        $items = isset($data[0]) ? $data : [$data];
+
+        foreach ($items as $item) {
+            $jid = $item['id'] ?? $item['jid'] ?? $item['remoteJid'] ?? '';
+            if (empty($jid)) continue;
+
+            $contact = $db->fetch(
+                "SELECT id, profile_picture_url FROM whatsapp_contacts WHERE instance_id = ? AND remote_jid = ? AND is_group = 1",
+                [$instance['id'], $jid]
+            );
+            if (!$contact) continue;
+
+            $updateData = [];
+
+            // Atualizar nome do grupo se veio
+            $subject = $item['subject'] ?? $item['name'] ?? null;
+            if (!empty($subject)) {
+                $updateData['contact_name'] = $subject;
+            }
+
+            // Atualizar foto se veio
+            $picture = $item['pictureUrl'] ?? $item['profilePictureUrl'] ?? $item['picture'] ?? null;
+            if (!empty($picture)) {
+                $updateData['profile_picture_url'] = $picture;
+            }
+
+            if (!empty($updateData)) {
+                $db->update('whatsapp_contacts', $updateData, 'id = ?', [$contact['id']]);
+            }
+        }
     }
 
     /**
