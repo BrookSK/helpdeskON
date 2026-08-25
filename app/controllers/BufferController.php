@@ -468,9 +468,12 @@ class BufferController extends Controller
             // Log para diagnóstico de erros da API Buffer
             $this->logBufferResponse($res, $channelId);
 
-            // Se é rate limit, salvar na fila local para enviar depois
+            // Se é rate limit, informar ao usuário o erro real
             if (($res['http'] ?? 0) === 429) {
-                // Salvar todos os canais restantes na fila
+                $window = $res['window'] ?? '';
+                $errDetail = $res['errors'][0]['message'] ?? 'Rate limit atingido';
+                
+                // Salvar na fila para tentar depois
                 foreach (array_slice($channelIds, $idx) as $queuedChannelId) {
                     $this->data->savePost([
                         'marketing_item_id' => $marketingItemId,
@@ -483,18 +486,22 @@ class BufferController extends Controller
                         'created_by' => $user['id'],
                     ]);
                 }
-                $this->json([
-                    'success' => true,
-                    'created' => count($created),
-                    'queued' => count($channelIds) - $idx,
-                    'message' => (count($created) ? count($created) . ' post(s) agendado(s). ' : '') . 'Post(s) agendado(s) com sucesso! Serão publicados automaticamente.',
-                ]);
+
+                if ($window === '24h' || $window === '30d') {
+                    $this->json([
+                        'error' => 'O plano do Buffer atingiu o limite ' . ($window === '24h' ? 'diário' : 'mensal') . ' de publicações via API. ' . $errDetail . ' O post foi salvo na fila e será publicado quando o limite resetar. Considere fazer upgrade do plano em buffer.com.',
+                    ], 400);
+                } else {
+                    $this->json([
+                        'error' => 'Buffer temporariamente indisponível (rate limit). O post foi salvo e será publicado automaticamente em alguns minutos.',
+                    ], 400);
+                }
             }
 
             $node = $res['data']['createPost']['post'] ?? null;
             $errMsg = $res['data']['createPost']['message'] ?? ($res['errors'][0]['message'] ?? null);
 
-            // Rate limit detectado na mensagem: salvar na fila
+            // Rate limit detectado na mensagem: informar usuário
             if ($errMsg && stripos($errMsg, 'too many requests') !== false) {
                 foreach (array_slice($channelIds, $idx) as $queuedChannelId) {
                     $this->data->savePost([
@@ -509,11 +516,8 @@ class BufferController extends Controller
                     ]);
                 }
                 $this->json([
-                    'success' => true,
-                    'created' => count($created),
-                    'queued' => count($channelIds) - $idx,
-                    'message' => 'Post(s) agendado(s) com sucesso! Serão publicados automaticamente.',
-                ]);
+                    'error' => 'O Buffer retornou "too many requests". O plano pode ter atingido o limite de publicações. O post foi salvo na fila. Verifique seu plano em buffer.com.',
+                ], 400);
             }
 
             if ($node) {
