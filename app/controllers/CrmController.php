@@ -478,10 +478,13 @@ class CrmController extends Controller
 
         $isComercial = ($user['role'] === 'comercial');
 
+        $showArchived = !empty($_GET['archived']);
+
         $filters = [
             'search' => trim($_GET['q'] ?? ''),
             'temperature' => $_GET['temperature'] ?? '',
             'source' => $_GET['source'] ?? '',
+            'archived' => $showArchived ? 1 : 0,
         ];
         // Comercial: escopo travado nos próprios leads
         if ($isComercial) {
@@ -496,7 +499,34 @@ class CrmController extends Controller
             'leads' => $leads,
             'isComercial' => $isComercial,
             'filters' => $filters,
+            'showArchived' => $showArchived,
         ]);
+    }
+
+    /**
+     * API: arquivar/desarquivar um lead (remove/retorna da lista principal).
+     * POST crm/toggleArchiveLead/{contactId}
+     */
+    public function toggleArchiveLead($contactId = null)
+    {
+        $this->requireRole(['super_admin', 'comercial']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$contactId) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+
+        $contactModel = new WhatsappContact();
+        $contact = $contactModel->findById($contactId);
+        if (!$contact) $this->json(['error' => 'Lead não encontrado'], 404);
+
+        // Comercial só pode arquivar os próprios leads
+        $user = $this->currentUser();
+        if ($user['role'] === 'comercial' && (int)$contact['assigned_to'] !== (int)$user['id']) {
+            $this->json(['error' => 'Sem permissão'], 403);
+        }
+
+        $contactModel->toggleCrmArchive($contactId);
+        $archived = empty($contact['crm_archived']) ? 1 : 0;
+        $this->json(['success' => true, 'archived' => $archived]);
     }
 
     /**
@@ -1059,20 +1089,44 @@ class CrmController extends Controller
         $this->requireRole(['super_admin', 'comercial']);
         $user = $this->currentUser();
 
+        $perPage = 15;
+        $page = max(1, intval($_GET['page'] ?? 1));
+        $offset = ($page - 1) * $perPage;
+
+        // Filtro base (comercial só vê as próprias ligações)
+        $where = " WHERE 1=1";
         $params = [];
+        if ($user['role'] === 'comercial') {
+            $where .= " AND nc.user_id = ?";
+            $params[] = $user['id'];
+        }
+
+        $db = Database::getInstance();
+
+        // Total de registros para calcular as páginas
+        $total = (int)($db->fetch(
+            "SELECT COUNT(*) AS t FROM nvoip_calls nc" . $where,
+            $params
+        )['t'] ?? 0);
+        $totalPages = max(1, (int)ceil($total / $perPage));
+
         $sql = "SELECT nc.*, c.contact_name, c.push_name, u.name AS user_name
                 FROM nvoip_calls nc
                 LEFT JOIN whatsapp_contacts c ON c.id = nc.contact_id
-                LEFT JOIN users u ON u.id = nc.user_id
-                WHERE 1=1";
-        if ($user['role'] === 'comercial') {
-            $sql .= " AND nc.user_id = ?";
-            $params[] = $user['id'];
-        }
-        $sql .= " ORDER BY nc.created_at DESC LIMIT 300";
+                LEFT JOIN users u ON u.id = nc.user_id"
+                . $where
+                . " ORDER BY nc.created_at DESC LIMIT {$perPage} OFFSET {$offset}";
 
-        $calls = Database::getInstance()->fetchAll($sql, $params);
-        $this->view('crm/calls', ['user' => $user, 'calls' => $calls]);
+        $calls = $db->fetchAll($sql, $params);
+
+        $this->view('crm/calls', [
+            'user' => $user,
+            'calls' => $calls,
+            'page' => $page,
+            'totalPages' => $totalPages,
+            'total' => $total,
+            'perPage' => $perPage,
+        ]);
     }
 
     /**

@@ -80,6 +80,47 @@ $fmtDur = function($s) {
             </div>
             <?php endif; ?>
         </div>
+
+        <?php if (!empty($totalPages) && $totalPages > 1): ?>
+        <div class="card-footer d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
+            <small class="text-muted">
+                Página <?= $page ?> de <?= $totalPages ?> · <?= number_format($total, 0, ',', '.') ?> ligações
+            </small>
+            <nav>
+                <ul class="pagination pagination-sm mb-0">
+                    <li class="page-item <?= $page <= 1 ? 'disabled' : '' ?>">
+                        <a class="page-link" href="<?= baseUrl('crm/calls?page=' . ($page - 1)) ?>">
+                            <i class="bi bi-chevron-left"></i>
+                        </a>
+                    </li>
+                    <?php
+                        $start = max(1, $page - 2);
+                        $end = min($totalPages, $page + 2);
+                        if ($start > 1) {
+                            echo '<li class="page-item"><a class="page-link" href="' . baseUrl('crm/calls?page=1') . '">1</a></li>';
+                            if ($start > 2) echo '<li class="page-item disabled"><span class="page-link">…</span></li>';
+                        }
+                        for ($p = $start; $p <= $end; $p++):
+                    ?>
+                    <li class="page-item <?= $p === $page ? 'active' : '' ?>">
+                        <a class="page-link" href="<?= baseUrl('crm/calls?page=' . $p) ?>"><?= $p ?></a>
+                    </li>
+                    <?php
+                        endfor;
+                        if ($end < $totalPages) {
+                            if ($end < $totalPages - 1) echo '<li class="page-item disabled"><span class="page-link">…</span></li>';
+                            echo '<li class="page-item"><a class="page-link" href="' . baseUrl('crm/calls?page=' . $totalPages) . '">' . $totalPages . '</a></li>';
+                        }
+                    ?>
+                    <li class="page-item <?= $page >= $totalPages ? 'disabled' : '' ?>">
+                        <a class="page-link" href="<?= baseUrl('crm/calls?page=' . ($page + 1)) ?>">
+                            <i class="bi bi-chevron-right"></i>
+                        </a>
+                    </li>
+                </ul>
+            </nav>
+        </div>
+        <?php endif; ?>
     </div>
 </div>
 

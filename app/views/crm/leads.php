@@ -23,6 +23,27 @@ $sourceLabels = [
         <a href="<?= baseUrl('crm') ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> CRM</a>
     </div>
 
+    <!-- Abas: Ativos / Arquivados -->
+    <?php
+        $qs = $_GET;
+        unset($qs['archived']);
+        $baseQs = http_build_query($qs);
+        $activeUrl = baseUrl('crm/leads') . ($baseQs ? '?' . $baseQs : '');
+        $archivedUrl = baseUrl('crm/leads') . '?' . http_build_query(array_merge($qs, ['archived' => 1]));
+    ?>
+    <ul class="nav nav-pills mb-3" style="font-size:0.85rem;">
+        <li class="nav-item">
+            <a class="nav-link <?= empty($showArchived) ? 'active' : '' ?>" href="<?= $activeUrl ?>">
+                <i class="bi bi-person-lines-fill"></i> Ativos
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link <?= !empty($showArchived) ? 'active' : '' ?>" href="<?= $archivedUrl ?>">
+                <i class="bi bi-archive"></i> Arquivados
+            </a>
+        </li>
+    </ul>
+
     <!-- Filtros -->
     <div class="card mb-3">
         <div class="card-body py-2 px-3">
@@ -115,6 +136,15 @@ $sourceLabels = [
                                 <a class="btn btn-sm btn-success" title="Iniciar chat no WhatsApp" href="<?= baseUrl('whatsapp/chat/' . $l['id']) ?>">
                                     <i class="bi bi-whatsapp"></i>
                                 </a>
+                                <?php if (!empty($showArchived)): ?>
+                                <button class="btn btn-sm btn-outline-success" title="Restaurar para a lista" onclick="toggleArchiveLead(<?= $l['id'] ?>, this)">
+                                    <i class="bi bi-arrow-counterclockwise"></i>
+                                </button>
+                                <?php else: ?>
+                                <button class="btn btn-sm btn-outline-danger" title="Arquivar (remover da lista)" onclick="toggleArchiveLead(<?= $l['id'] ?>, this)">
+                                    <i class="bi bi-archive"></i>
+                                </button>
+                                <?php endif; ?>
                                 <?php if (!empty($l['phone'])): ?>
                                 <button class="btn btn-sm btn-outline-primary btn-call" title="Telefonar (webphone)" onclick="callLead(<?= $l['id'] ?>, this)">
                                     <i class="bi bi-telephone-outbound"></i> Telefonar
@@ -138,6 +168,32 @@ $sourceLabels = [
 
 <script>
 const BASE = '<?= baseUrl('') ?>';
+
+// Arquiva ou restaura um lead. Remove a linha da tela sem recarregar tudo.
+function toggleArchiveLead(leadId, btn) {
+    const isArchivedView = <?= !empty($showArchived) ? 'true' : 'false' ?>;
+    const msg = isArchivedView
+        ? 'Restaurar este lead para a lista de ativos?'
+        : 'Arquivar este lead? Ele sairá da lista mas continua salvo na aba Arquivados.';
+    if (!confirm(msg)) return;
+
+    btn.disabled = true;
+    fetch(BASE + 'crm/toggleArchiveLead/' + leadId, {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    })
+    .then(r => r.json())
+    .then(d => {
+        if (d && d.success) {
+            const row = btn.closest('tr');
+            if (row) row.remove();
+        } else {
+            btn.disabled = false;
+            alert((d && d.error) ? d.error : 'Não foi possível arquivar o lead.');
+        }
+    })
+    .catch(() => { btn.disabled = false; alert('Erro ao arquivar o lead.'); });
+}
 
 // Teste via API REST /calls/ com checkDDI (Nvoip completa o DDI). Origina click-to-call.
 function callLeadRest(leadId, btn) {

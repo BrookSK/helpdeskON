@@ -1038,6 +1038,32 @@ class PlanningController extends Controller
         // Email para o responsável
         $userModel = new User();
         $assignedUser = $userModel->findById($assignedTo);
+
+        // WhatsApp direto para o telefone do atendente atribuído (mesma conexão do chat).
+        // Complementa o webhook: garante que o responsável selecionado seja avisado.
+        if ($assignedUser && !empty($assignedUser['phone'])) {
+            $startStr = $card['start_date'] ? date('d/m/Y', strtotime($card['start_date'])) : 'Não definido';
+            $endStr = $card['end_date'] ? date('d/m/Y', strtotime($card['end_date'])) : 'Não definido';
+            $dueStr = $card['due_date'] ? date('d/m/Y H:i', strtotime($card['due_date'])) : 'Não definido';
+            $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'urgent' => 'Urgente'];
+            $priorityLabel = $priorityLabels[$card['priority']] ?? $card['priority'];
+
+            $whatsMessage = "📋 *Novo Card Atribuído a Você*\n\n"
+                . "*Card:* #{$card['id']} — {$cardTitle}\n"
+                . "*Empresa:* " . ($card['company_name'] ?? 'N/A') . "\n"
+                . "*Prioridade:* {$priorityLabel}\n"
+                . "*Desenvolvimento:* {$startStr} até {$endStr}\n"
+                . "*Entrega:* {$dueStr}\n"
+                . "*Atribuído por:* {$currentUser['name']}\n\n"
+                . "Acesse o planejamento para ver os detalhes.";
+
+            try {
+                WhatsappNotifier::sendToPhone($assignedUser['phone'], $whatsMessage, $assignedUser['name']);
+            } catch (\Throwable $e) {
+                // Silencioso — WhatsApp é canal complementar
+            }
+        }
+
         if ($assignedUser && $assignedUser['email']) {
             $startStr = $card['start_date'] ? date('d/m/Y', strtotime($card['start_date'])) : 'Não definido';
             $endStr = $card['end_date'] ? date('d/m/Y', strtotime($card['end_date'])) : 'Não definido';
