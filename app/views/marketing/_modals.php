@@ -93,8 +93,9 @@
                 </div>
             </div>
             <div class="modal-footer justify-content-between">
-                <div>
+                <div class="d-flex gap-2">
                     <button class="btn btn-sm btn-outline-danger" id="item-delete-btn" onclick="deleteItem()" style="display:none;"><i class="bi bi-trash"></i> Excluir</button>
+                    <button class="btn btn-sm btn-outline-success" id="item-notify-btn" onclick="notifyResponsible()" style="display:none;" title="Reenviar a notificação ao responsável via WhatsApp"><i class="bi bi-whatsapp"></i> Notificar responsável</button>
                 </div>
                 <div class="d-flex gap-2">
                     <!-- Ações de aprovação (admin) -->
@@ -210,6 +211,8 @@ function resetItemForm() {
     const bw = document.getElementById('item-buffer-wrap');
     if (bw) bw.style.display = 'none';
     document.getElementById('item-delete-btn').style.display = 'none';
+    const nbtn = document.getElementById('item-notify-btn');
+    if (nbtn) nbtn.style.display = 'none';
     document.querySelectorAll('.mkt-approval-action').forEach(b => b.style.display = 'none');
     document.getElementById('item-file').value = '';
     document.getElementById('item-file').disabled = false;
@@ -315,6 +318,11 @@ function fillItemForm(it) {
         document.getElementById('item-review-notes').textContent = it.review_notes;
         document.getElementById('item-review-alert').style.display = '';
     }
+
+    // Botão "Notificar responsável" (fallback manual): visível para quem gerencia
+    // quando houver um responsável definido na demanda.
+    const notifyBtn = document.getElementById('item-notify-btn');
+    if (notifyBtn) notifyBtn.style.display = (canManage && it.assigned_to) ? '' : 'none';
 
     // Ações de aprovação (admin, item aguardando aprovação)
     if (IS_ADMIN && it.status === 'aguardando_aprovacao') {
@@ -471,6 +479,28 @@ function confirmRequestChanges() {
             afterItemChange();
         })
         .catch(() => { btn.disabled = false; });
+}
+
+// Reenvia manualmente ao responsável a notificação da demanda via WhatsApp.
+// Fallback para quando o disparo automático não ocorreu. A mensagem é montada
+// no backend conforme o status atual da demanda.
+function notifyResponsible() {
+    const id = document.getElementById('item-id').value;
+    if (!id) return;
+    if (!confirm('Reenviar a notificação desta demanda para o responsável via WhatsApp?')) return;
+
+    const btn = document.getElementById('item-notify-btn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Enviando...'; }
+    fetch(`${BASE}marketing/notifyResponsible/${id}`, { method: 'POST', headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json()).then(data => {
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-whatsapp"></i> Notificar responsável'; }
+            if (data.error) { alert(data.error); return; }
+            alert('Notificação enviada ao responsável via WhatsApp.');
+        })
+        .catch(() => {
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-whatsapp"></i> Notificar responsável'; }
+            alert('Erro ao enviar a notificação.');
+        });
 }
 
 function deleteItem() {
