@@ -85,7 +85,7 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                                     <span class="text-muted" style="font-size:0.7rem">#<?= $card['id'] ?></span>
                                     <span class="priority-<?= $card['priority'] ?>" style="font-size:0.7rem"><?= $priorityLabels[$card['priority']] ?? '' ?></span>
                                 </div>
-                                <div class="fw-medium" style="font-size:0.82rem"><?= escape($card['title']) ?></div>
+                                <div class="fw-medium" style="font-size:0.82rem;word-break:break-word;"><?= escape($card['title']) ?></div>
                                 <div class="text-muted mt-2" style="font-size:0.7rem">
                                     <?php if ($card['company_name']): ?>
                                     <span><i class="bi bi-building"></i> <?= escape($card['company_name']) ?></span><br>
@@ -143,6 +143,10 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                         <div class="mb-3">
                             <label class="form-label small fw-medium">Título *</label>
                             <input type="text" name="title" class="form-control form-control-sm" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small fw-medium">Descrição</label>
+                            <textarea name="description" class="form-control form-control-sm" rows="3" placeholder="Descreva os detalhes do card..."></textarea>
                         </div>
                         <div class="row g-2">
                             <div class="col-sm-6 mb-3">
