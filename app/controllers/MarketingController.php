@@ -10,6 +10,17 @@ class MarketingController extends Controller
     // Status válidos, em ordem de fluxo
     public static $statuses = ['ideia', 'em_producao', 'aguardando_aprovacao', 'aprovado', 'agendado', 'publicado', 'rejeitado'];
 
+    // Rótulos amigáveis dos status (para mensagens de notificação)
+    public static $statusLabels = [
+        'ideia' => 'Ideia',
+        'em_producao' => 'Em produção',
+        'aguardando_aprovacao' => 'Aguardando aprovação',
+        'aprovado' => 'Aprovado',
+        'agendado' => 'Agendado',
+        'publicado' => 'Publicado',
+        'rejeitado' => 'Rejeitado',
+    ];
+
     public function __construct()
     {
         $this->itemModel = new MarketingItem();
@@ -159,13 +170,19 @@ class MarketingController extends Controller
         ];
 
         $id = $this->itemModel->create($data);
+        $item = $this->itemModel->findById($id);
 
         // Notificar responsável, se houver e for diferente de quem criou
         if ($data['assigned_to'] && $data['assigned_to'] != $user['id']) {
             $this->notify($data['assigned_to'], 'Nova demanda de marketing', "{$user['name']} atribuiu a você a demanda \"{$title}\".");
+            // E também no chat WhatsApp do responsável
+            $this->notifyWhatsappResponsible($item, "📌 *Nova Demanda de Marketing*", "Você foi definido(a) como responsável por esta demanda.");
         }
 
-        $this->json(['success' => true, 'item' => $this->itemModel->findById($id)]);
+        // Notificar o Grupo Padrão de Notificações sobre a nova demanda no calendário
+        $this->notifyGroupNewItem($item, $user);
+
+        $this->json(['success' => true, 'item' => $item]);
     }
 
     // API: atualizar item
@@ -207,19 +224,27 @@ class MarketingController extends Controller
 
         if (empty($data)) $this->json(['error' => 'Nenhum campo para atualizar'], 400);
 
+        $statusChanged = isset($data['status']) && $data['status'] !== $item['status'];
         $this->itemModel->update($id, $data);
+        $updatedItem = $this->itemModel->findById($id);
 
         // Notificar admins quando enviado para aprovação
         if (($data['status'] ?? '') === 'aguardando_aprovacao') {
             $this->notifyAdmins('Conteúdo aguardando aprovação', "{$user['name']} enviou \"{$item['title']}\" para aprovação.");
         }
 
-        // Notificar responsável via WhatsApp quando aprovado via update
-        if (($data['status'] ?? '') === 'aprovado' && $item['assigned_to']) {
-            $this->notifyWhatsappApproval($item);
+        // Sempre que o status mudar, avisar o responsável no chat WhatsApp.
+        // (Quem alterou não precisa ser avisado do próprio ato.)
+        if ($statusChanged && $updatedItem['assigned_to'] && $updatedItem['assigned_to'] != $user['id']) {
+            $label = self::$statusLabels[$data['status']] ?? $data['status'];
+            $this->notifyWhatsappResponsible(
+                $updatedItem,
+                "🔄 *Status Atualizado — Marketing*",
+                "Novo status: *{$label}*\nAlterado por: {$user['name']}"
+            );
         }
 
-        $this->json(['success' => true, 'item' => $this->itemModel->findById($id)]);
+        $this->json(['success' => true, 'item' => $updatedItem]);
     }
 
     // API: aprovar (somente admin)
@@ -238,7 +263,7 @@ class MarketingController extends Controller
             $this->notify($item['assigned_to'], 'Conteúdo aprovado', "Sua demanda \"{$item['title']}\" foi aprovada. Já pode ser agendada.");
 
             // Notificar responsável via WhatsApp
-            $this->notifyWhatsappApproval($item);
+            $this->notifyWhatsappApproval($this->itemModel->findById($id));
         }
         $this->json(['success' => true, 'item' => $this->itemModel->findById($id)]);
     }
@@ -258,8 +283,96 @@ class MarketingController extends Controller
 
         if ($item['assigned_to']) {
             $this->notify($item['assigned_to'], 'Ajustes solicitados', "O admin solicitou ajustes em \"{$item['title']}\"." . ($notes ? " Observação: {$notes}" : ''));
+            $this->notifyWhatsappResponsible(
+                $this->itemModel->findById($id),
+                "✏️ *Ajustes Solicitados — Marketing*",
+                "O administrador solicitou ajustes nesta demanda." . ($notes ? "\n\n*Observação:* {$notes}" : '')
+            );
         }
         $this->json(['success' => true, 'item' => $this->itemModel->findById($id)]);
+    }
+
+    // API: reenviar manualmente ao responsável a notificação da demanda via WhatsApp.
+    // Serve como fallback para quando o disparo automático não ocorreu por algum motivo.
+    // A mensagem é montada conforme o status atual da demanda.
+    public function notifyResponsible($id = null)
+    {
+        $this->requireRole($this->accessRoles);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+        $item = $this->itemModel->findById($id);
+        if (!$item) $this->json(['error' => 'Item não encontrado'], 404);
+        if (!$this->canManage($item)) $this->json(['error' => 'Sem permissão'], 403);
+
+        if (empty($item['assigned_to'])) {
+            $this->json(['error' => 'Esta demanda não possui responsável para notificar.'], 400);
+        }
+
+        $userModel = new User();
+        $assignedUser = $userModel->findById($item['assigned_to']);
+        if (!$assignedUser || empty($assignedUser['phone'])) {
+            $this->json(['error' => 'O responsável não possui telefone cadastrado para receber a notificação.'], 400);
+        }
+
+        $status = $item['status'];
+        $notes = trim($item['review_notes'] ?? '');
+
+        // Monta a mensagem conforme o status atual (mesmo conteúdo dos disparos automáticos)
+        switch ($status) {
+            case 'aprovado':
+                $this->notifyWhatsappApproval($item);
+                $sysTitle = 'Conteúdo aprovado';
+                $sysMsg = "Sua demanda \"{$item['title']}\" foi aprovada. Já pode ser agendada.";
+                break;
+
+            case 'rejeitado':
+                $this->notifyWhatsappResponsible(
+                    $item,
+                    "❌ *Conteúdo Rejeitado — Marketing*",
+                    "Sua demanda foi rejeitada." . ($notes ? "\n\n*Motivo:* {$notes}" : '')
+                );
+                $sysTitle = 'Conteúdo rejeitado';
+                $sysMsg = "Sua demanda \"{$item['title']}\" foi rejeitada." . ($notes ? " Motivo: {$notes}" : '');
+                break;
+
+            case 'em_producao':
+                // Em produção com ajustes registrados = solicitação de ajustes
+                if ($notes !== '') {
+                    $this->notifyWhatsappResponsible(
+                        $item,
+                        "✏️ *Ajustes Solicitados — Marketing*",
+                        "O administrador solicitou ajustes nesta demanda.\n\n*Ajustes:* {$notes}"
+                    );
+                    $sysTitle = 'Ajustes solicitados';
+                    $sysMsg = "Ajustes na demanda \"{$item['title']}\": {$notes}";
+                } else {
+                    $label = self::$statusLabels[$status] ?? $status;
+                    $this->notifyWhatsappResponsible(
+                        $item,
+                        "🔄 *Status Atualizado — Marketing*",
+                        "Novo status: *{$label}*"
+                    );
+                    $sysTitle = 'Status atualizado';
+                    $sysMsg = "A demanda \"{$item['title']}\" está com status: {$label}.";
+                }
+                break;
+
+            default:
+                $label = self::$statusLabels[$status] ?? $status;
+                $this->notifyWhatsappResponsible(
+                    $item,
+                    "🔄 *Status Atualizado — Marketing*",
+                    "Novo status: *{$label}*"
+                );
+                $sysTitle = 'Status atualizado';
+                $sysMsg = "A demanda \"{$item['title']}\" está com status: {$label}.";
+                break;
+        }
+
+        $this->notify($item['assigned_to'], $sysTitle, $sysMsg);
+
+        $this->json(['success' => true]);
     }
 
     // API: rejeitar conteúdo (somente admin)
@@ -277,6 +390,11 @@ class MarketingController extends Controller
 
         if ($item['assigned_to']) {
             $this->notify($item['assigned_to'], 'Conteúdo rejeitado', "Sua demanda \"{$item['title']}\" foi rejeitada." . ($notes ? " Motivo: {$notes}" : ''));
+            $this->notifyWhatsappResponsible(
+                $this->itemModel->findById($id),
+                "❌ *Conteúdo Rejeitado — Marketing*",
+                "Sua demanda foi rejeitada." . ($notes ? "\n\n*Motivo:* {$notes}" : '')
+            );
         }
         $this->json(['success' => true, 'item' => $this->itemModel->findById($id)]);
     }
@@ -486,6 +604,63 @@ class MarketingController extends Controller
             );
         } catch (\Throwable $e) {
             // Silencioso — WhatsApp é canal complementar, não deve bloquear a aprovação
+        }
+    }
+
+    /**
+     * Envia uma mensagem no chat WhatsApp do responsável pela demanda.
+     * $header e $body compõem a mensagem; os dados da demanda são anexados abaixo.
+     */
+    private function notifyWhatsappResponsible($item, $header, $body)
+    {
+        if (empty($item['assigned_to'])) return;
+
+        try {
+            $userModel = new User();
+            $assignedUser = $userModel->findById($item['assigned_to']);
+            if (!$assignedUser || empty($assignedUser['phone'])) return;
+
+            $rede = $item['social_network'] ?? 'Não definida';
+            $dataAgendamento = !empty($item['scheduled_at'])
+                ? date('d/m/Y H:i', strtotime($item['scheduled_at']))
+                : 'A definir';
+
+            $whatsMessage = $header . "\n\n"
+                . "*Título:* {$item['title']}\n"
+                . "*Rede social:* {$rede}\n"
+                . "*Agendamento:* {$dataAgendamento}\n\n"
+                . $body;
+
+            WhatsappNotifier::sendToPhone($assignedUser['phone'], $whatsMessage, $assignedUser['name']);
+        } catch (\Throwable $e) {
+            // Silencioso — WhatsApp é canal complementar
+        }
+    }
+
+    /**
+     * Notifica o Grupo Padrão de Notificações (WhatsApp) sobre uma nova demanda no calendário.
+     */
+    private function notifyGroupNewItem($item, $creator)
+    {
+        try {
+            $rede = $item['social_network'] ?? 'Não definida';
+            $dataAgendamento = !empty($item['scheduled_at'])
+                ? date('d/m/Y H:i', strtotime($item['scheduled_at']))
+                : 'A definir';
+            $responsavel = $item['assigned_name'] ?? 'Sem responsável';
+            $statusLabel = self::$statusLabels[$item['status']] ?? $item['status'];
+
+            $msg = "🗓️ *Nova Demanda no Calendário de Marketing*\n\n"
+                . "*Título:* {$item['title']}\n"
+                . "*Rede social:* {$rede}\n"
+                . "*Agendamento:* {$dataAgendamento}\n"
+                . "*Responsável:* {$responsavel}\n"
+                . "*Status:* {$statusLabel}\n"
+                . "*Criada por:* {$creator['name']}";
+
+            WhatsappNotifier::sendToDefaultGroup($msg);
+        } catch (\Throwable $e) {
+            // Silencioso
         }
     }
 
