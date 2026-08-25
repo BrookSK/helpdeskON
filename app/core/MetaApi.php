@@ -171,4 +171,148 @@ class MetaApi
         }
         return $out;
     }
+
+    // ===== PUBLICAÇÃO DE CONTEÚDO =====
+
+    /**
+     * Publica uma imagem no Instagram (Content Publishing API).
+     * Requer: conta business/creator, token com permissão instagram_content_publish.
+     *
+     * @param string $igUserId ID da conta IG business
+     * @param string $imageUrl URL pública da imagem (JPEG)
+     * @param string $caption Texto/legenda do post
+     * @param string|null $pageToken Token da página (se diferente do token principal)
+     * @return array Resultado com 'id' do post publicado ou 'error'
+     */
+    public function publishInstagramImage($igUserId, $imageUrl, $caption, $pageToken = null)
+    {
+        // Etapa 1: Criar container de mídia
+        $containerResult = $this->post($igUserId . '/media', [
+            'image_url' => $imageUrl,
+            'caption' => $caption,
+        ], $pageToken);
+
+        if (!empty($containerResult['error']) || empty($containerResult['id'])) {
+            return ['error' => $containerResult['error']['message'] ?? 'Falha ao criar container de mídia no Instagram', 'raw' => $containerResult];
+        }
+
+        $containerId = $containerResult['id'];
+
+        // Aguardar processamento (Instagram pode levar alguns segundos)
+        sleep(3);
+
+        // Etapa 2: Publicar o container
+        $publishResult = $this->post($igUserId . '/media_publish', [
+            'creation_id' => $containerId,
+        ], $pageToken);
+
+        if (!empty($publishResult['error']) || empty($publishResult['id'])) {
+            return ['error' => $publishResult['error']['message'] ?? 'Falha ao publicar no Instagram', 'raw' => $publishResult];
+        }
+
+        return ['success' => true, 'id' => $publishResult['id']];
+    }
+
+    /**
+     * Publica um carrossel no Instagram.
+     * @param string $igUserId
+     * @param array $imageUrls Lista de URLs públicas de imagens
+     * @param string $caption
+     * @param string|null $pageToken
+     */
+    public function publishInstagramCarousel($igUserId, $imageUrls, $caption, $pageToken = null)
+    {
+        $childIds = [];
+        foreach ($imageUrls as $url) {
+            $child = $this->post($igUserId . '/media', [
+                'image_url' => $url,
+                'is_carousel_item' => true,
+            ], $pageToken);
+            if (!empty($child['id'])) {
+                $childIds[] = $child['id'];
+            }
+        }
+
+        if (empty($childIds)) {
+            return ['error' => 'Nenhuma imagem do carrossel foi processada'];
+        }
+
+        sleep(3);
+
+        $container = $this->post($igUserId . '/media', [
+            'media_type' => 'CAROUSEL',
+            'children' => implode(',', $childIds),
+            'caption' => $caption,
+        ], $pageToken);
+
+        if (empty($container['id'])) {
+            return ['error' => $container['error']['message'] ?? 'Falha ao criar carrossel'];
+        }
+
+        sleep(3);
+
+        $publish = $this->post($igUserId . '/media_publish', [
+            'creation_id' => $container['id'],
+        ], $pageToken);
+
+        if (empty($publish['id'])) {
+            return ['error' => $publish['error']['message'] ?? 'Falha ao publicar carrossel'];
+        }
+
+        return ['success' => true, 'id' => $publish['id']];
+    }
+
+    /**
+     * Publica um post na página do Facebook.
+     * @param string $pageId
+     * @param string $message Texto do post
+     * @param string|null $imageUrl URL da imagem (opcional)
+     * @param string|null $pageToken
+     */
+    public function publishFacebookPost($pageId, $message, $imageUrl = null, $pageToken = null)
+    {
+        if (!empty($imageUrl)) {
+            // Post com foto
+            $result = $this->post($pageId . '/photos', [
+                'url' => $imageUrl,
+                'caption' => $message,
+            ], $pageToken);
+        } else {
+            // Post só texto
+            $result = $this->post($pageId . '/feed', [
+                'message' => $message,
+            ], $pageToken);
+        }
+
+        if (!empty($result['error'])) {
+            return ['error' => $result['error']['message'] ?? 'Falha ao publicar no Facebook'];
+        }
+
+        return ['success' => true, 'id' => $result['id'] ?? $result['post_id'] ?? null];
+    }
+
+    /**
+     * Requisição POST à Graph API.
+     */
+    private function post($path, $params = [], $tokenOverride = null)
+    {
+        $params['access_token'] = $tokenOverride ?: $this->token;
+        $url = $this->base . '/' . $this->version . '/' . ltrim($path, '/');
+
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => http_build_query($params),
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 60,
+        ]);
+        $resp = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        $data = json_decode($resp, true);
+        if (!is_array($data)) return ['error' => ['message' => 'Resposta inválida'], 'http' => $code];
+        $data['http'] = $code;
+        return $data;
+    }
 }

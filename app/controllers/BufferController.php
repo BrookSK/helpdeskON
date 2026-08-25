@@ -374,6 +374,18 @@ class BufferController extends Controller
         $imageUrl = trim($_POST['image_url'] ?? '');
         $assets = $imageUrl ? [$imageUrl] : [];
 
+        // Se não informou URL da imagem mas o item de marketing tem anexo, usar o anexo
+        if (empty($assets) && $marketingItemId) {
+            $db = Database::getInstance();
+            $attachment = $db->fetch(
+                "SELECT file_path, file_type FROM marketing_attachments WHERE marketing_item_id = ? AND file_type LIKE 'image/%' ORDER BY id DESC LIMIT 1",
+                [$marketingItemId]
+            );
+            if ($attachment && !empty($attachment['file_path'])) {
+                $assets = [baseUrl($attachment['file_path'])];
+            }
+        }
+
         // Data/hora -> ISO 8601 UTC
         // Interpreta como horário de Brasília antes de converter para UTC
         $dueAtIso = null;
@@ -468,12 +480,32 @@ class BufferController extends Controller
             // Log para diagnóstico de erros da API Buffer
             $this->logBufferResponse($res, $channelId);
 
-            // Se é rate limit, informar ao usuário o erro real
+            // Se é rate limit, tentar fallback direto via Meta API
             if (($res['http'] ?? 0) === 429) {
                 $window = $res['window'] ?? '';
-                $errDetail = $res['errors'][0]['message'] ?? 'Rate limit atingido';
                 
-                // Salvar na fila para tentar depois
+                // Tentar publicar direto via Meta API como fallback
+                $metaResult = $this->publishDirectMeta($channelId, $text, $dueAtIso, $assets, $channelMap);
+                
+                if ($metaResult && !empty($metaResult['success'])) {
+                    // Publicou direto via Meta!
+                    $this->data->savePost([
+                        'marketing_item_id' => $marketingItemId,
+                        'buffer_post_id' => 'meta_' . ($metaResult['id'] ?? uniqid()),
+                        'channel_id' => $channelId,
+                        'service' => $channelMap[$channelId]['service'] ?? null,
+                        'text' => $text,
+                        'status' => 'sent',
+                        'due_at' => $dueAtIso ? date('Y-m-d H:i:s', strtotime($dueAtIso)) : null,
+                        'sent_at' => date('Y-m-d H:i:s'),
+                        'created_by' => $user['id'],
+                    ]);
+                    $created[] = $metaResult['id'] ?? 'meta_direct';
+                    $this->logBufferResponse(['fallback' => 'meta_api', 'result' => $metaResult], $channelId);
+                    continue; // Próximo canal
+                }
+                
+                // Fallback Meta também falhou — salvar na fila
                 foreach (array_slice($channelIds, $idx) as $queuedChannelId) {
                     $this->data->savePost([
                         'marketing_item_id' => $marketingItemId,
@@ -487,15 +519,10 @@ class BufferController extends Controller
                     ]);
                 }
 
-                if ($window === '24h' || $window === '30d') {
-                    $this->json([
-                        'error' => 'O plano do Buffer atingiu o limite ' . ($window === '24h' ? 'diário' : 'mensal') . ' de publicações via API. ' . $errDetail . ' O post foi salvo na fila e será publicado quando o limite resetar. Considere fazer upgrade do plano em buffer.com.',
-                    ], 400);
-                } else {
-                    $this->json([
-                        'error' => 'Buffer temporariamente indisponível (rate limit). O post foi salvo e será publicado automaticamente em alguns minutos.',
-                    ], 400);
-                }
+                $metaError = $metaResult['error'] ?? 'Meta API não disponível';
+                $this->json([
+                    'error' => "Buffer com limite diário esgotado. Tentativa direta via Meta API: {$metaError}. Post salvo na fila.",
+                ], 400);
             }
 
             $node = $res['data']['createPost']['post'] ?? null;
@@ -652,7 +679,24 @@ class BufferController extends Controller
             $this->logBufferResponse($res, 'queue_' . $qp['channel_id']);
 
             if (($res['http'] ?? 0) === 429) {
-                $results[] = ['id' => $qp['id'], 'status' => 'rate_limited', 'window' => $res['window'] ?? '?'];
+                // Buffer rate limit — tentar fallback via Meta API
+                $allChannels = $this->data->getChannels(false);
+                $chMapLocal = [];
+                foreach ($allChannels as $c) $chMapLocal[$c['channel_id']] = $c;
+                
+                $metaResult = $this->publishDirectMeta($qp['channel_id'], $qp['text'], $dueAtIso, [], $chMapLocal);
+                if ($metaResult && !empty($metaResult['success'])) {
+                    $db->update('buffer_posts', [
+                        'buffer_post_id' => 'meta_' . ($metaResult['id'] ?? uniqid()),
+                        'status' => 'sent',
+                        'sent_at' => date('Y-m-d H:i:s'),
+                    ], 'id = ?', [$qp['id']]);
+                    $results[] = ['id' => $qp['id'], 'status' => 'sent_via_meta', 'meta_id' => $metaResult['id'] ?? null];
+                    $processed++;
+                    continue; // Próximo post na fila
+                }
+                
+                $results[] = ['id' => $qp['id'], 'status' => 'rate_limited', 'window' => $res['window'] ?? '?', 'meta_fallback' => $metaResult['error'] ?? 'não suportado'];
                 break;
             }
 
@@ -825,6 +869,56 @@ class BufferController extends Controller
         Config::set($cacheTimeKey, date('Y-m-d H:i:s'));
 
         return !$valid;
+    }
+
+    /**
+     * Fallback: Publicar diretamente via Meta API (Instagram/Facebook) quando Buffer falha.
+     * Retorna ['success' => true, 'id' => ...] ou ['error' => 'mensagem'] ou null se não suportado.
+     */
+    private function publishDirectMeta($channelId, $text, $dueAtIso, $assets, $channelMap)
+    {
+        $channel = $channelMap[$channelId] ?? null;
+        if (!$channel) return null;
+
+        $service = strtolower($channel['service'] ?? '');
+        if (!in_array($service, ['instagram', 'facebook'])) return null; // Só suporta Instagram e Facebook
+
+        // Buscar a conta social vinculada para obter o token e IDs
+        $db = Database::getInstance();
+        $socialAccount = null;
+
+        if ($service === 'instagram') {
+            // Buscar conta Instagram pelo nome/username do canal
+            $channelName = $channel['username'] ?? $channel['name'] ?? '';
+            $socialAccount = $db->fetch(
+                "SELECT * FROM social_accounts WHERE platform IN ('meta_instagram') AND (username = ? OR display_name LIKE ?) AND is_active = 1 LIMIT 1",
+                [$channelName, '%' . $channelName . '%']
+            );
+        } elseif ($service === 'facebook') {
+            $channelName = $channel['username'] ?? $channel['name'] ?? '';
+            $socialAccount = $db->fetch(
+                "SELECT * FROM social_accounts WHERE platform = 'facebook_page' AND (display_name LIKE ?) AND is_active = 1 LIMIT 1",
+                ['%' . $channelName . '%']
+            );
+        }
+
+        if (!$socialAccount || empty($socialAccount['access_token'])) return ['error' => 'Conta Meta não encontrada ou sem token'];
+
+        $api = new MetaApi($socialAccount['access_token']);
+        $imageUrl = !empty($assets) ? $assets[0] : null;
+
+        // Se é agendamento futuro (dueAt no futuro), o Instagram não suporta agendamento via API
+        // Publicar imediatamente
+        if ($service === 'instagram') {
+            if (empty($imageUrl)) {
+                return ['error' => 'Instagram requer uma imagem para publicar'];
+            }
+            return $api->publishInstagramImage($socialAccount['external_id'], $imageUrl, $text);
+        } elseif ($service === 'facebook') {
+            return $api->publishFacebookPost($socialAccount['external_id'], $text, $imageUrl);
+        }
+
+        return null;
     }
 
     /**
