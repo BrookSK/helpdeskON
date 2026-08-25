@@ -238,7 +238,7 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                 <div class="modal-header py-2 border-bottom">
                     <div class="d-flex align-items-center gap-2">
                         <span class="badge bg-secondary" id="detail-id-badge">#</span>
-                        <h6 class="modal-title mb-0 fw-bold" id="detail-title">Card</h6>
+                        <h6 class="modal-title mb-0 fw-bold" id="detail-title" style="word-break:break-word;white-space:normal;">Card</h6>
                     </div>
                     <div class="d-flex align-items-center gap-2">
                         <span class="badge rounded-pill" id="detail-priority-badge"></span>
@@ -392,7 +392,7 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
 
                                 <div class="mb-3">
                                     <label class="form-label small fw-medium text-muted">Título</label>
-                                    <input type="text" id="detail-title-input" class="form-control form-control-sm">
+                                    <textarea id="detail-title-input" class="form-control form-control-sm" rows="2" style="resize:vertical;"></textarea>
                                 </div>
 
                                 <div class="mb-3">
