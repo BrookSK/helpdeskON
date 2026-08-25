@@ -26,6 +26,7 @@ class PlanningController extends Controller
         $filters = [];
         if (!empty($_GET['company_id'])) $filters['company_id'] = $_GET['company_id'];
         if (!empty($_GET['assigned_to'])) $filters['assigned_to'] = $_GET['assigned_to'];
+        if (!empty($_GET['order'])) $filters['order'] = $_GET['order'];
 
         // whatsapp_agent, developer e analyst só veem cards atribuídos a eles (forçar filtro)
         if (in_array($user['role'], ['whatsapp_agent', 'developer', 'analyst', 'comercial'])) {

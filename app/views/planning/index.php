@@ -53,6 +53,14 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                         <?php endforeach; ?>
                     </select>
                 </div>
+                <div class="col-6 col-md-auto">
+                    <select name="order" class="form-select form-select-sm">
+                        <option value="" <?= empty($_GET['order']) ? 'selected' : '' ?>>Ordenação padrão</option>
+                        <option value="overdue" <?= ($_GET['order'] ?? '') === 'overdue' ? 'selected' : '' ?>>Vencidos primeiro</option>
+                        <option value="priority" <?= ($_GET['order'] ?? '') === 'priority' ? 'selected' : '' ?>>Por prioridade</option>
+                        <option value="newest" <?= ($_GET['order'] ?? '') === 'newest' ? 'selected' : '' ?>>Mais recentes</option>
+                    </select>
+                </div>
                 <div class="col-12 col-md-auto">
                     <button type="submit" class="btn btn-sm btn-primary">Filtrar</button>
                     <a href="<?= baseUrl('planning') ?>?show_all=1" class="btn btn-sm btn-outline-secondary">Limpar</a>

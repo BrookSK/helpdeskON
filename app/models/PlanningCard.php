@@ -105,7 +105,17 @@ class PlanningCard
                 $params = array_merge($params, $filters['allowed_companies']);
             }
 
-            $sql .= " ORDER BY FIELD(pc.priority, 'urgent', 'high', 'medium', 'low'), pc.due_date IS NULL, pc.due_date ASC, pc.position ASC, pc.id ASC";
+            $sql .= " ORDER BY ";
+            if (!empty($filters['order']) && $filters['order'] === 'overdue') {
+                // Vencidos primeiro (prazo no passado), ordenados do mais antigo
+                $sql .= "CASE WHEN pc.due_date IS NOT NULL AND pc.due_date < NOW() THEN 0 ELSE 1 END, pc.due_date ASC, FIELD(pc.priority, 'urgent', 'high', 'medium', 'low'), pc.position ASC, pc.id ASC";
+            } elseif (!empty($filters['order']) && $filters['order'] === 'priority') {
+                $sql .= "FIELD(pc.priority, 'urgent', 'high', 'medium', 'low'), pc.due_date IS NULL, pc.due_date ASC, pc.position ASC, pc.id ASC";
+            } elseif (!empty($filters['order']) && $filters['order'] === 'newest') {
+                $sql .= "pc.id DESC";
+            } else {
+                $sql .= "FIELD(pc.priority, 'urgent', 'high', 'medium', 'low'), pc.due_date IS NULL, pc.due_date ASC, pc.position ASC, pc.id ASC";
+            }
             $result[$status] = $this->db->fetchAll($sql, $params);
         }
 
