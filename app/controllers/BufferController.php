@@ -577,7 +577,6 @@ class BufferController extends Controller
     public function clearQueue()
     {
         $this->requireRole(['super_admin']);
-        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
         $db = Database::getInstance();
         $count = $db->fetch("SELECT COUNT(*) as t FROM buffer_posts WHERE status = 'queued'");
         $db->query("DELETE FROM buffer_posts WHERE status = 'queued'");
