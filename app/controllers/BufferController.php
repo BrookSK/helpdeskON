@@ -365,6 +365,8 @@ class BufferController extends Controller
         $this->requireRole($this->accessRoles);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
 
+        try {
+
         $user = $this->currentUser();
 
         $text = trim($_POST['text'] ?? '');
@@ -598,6 +600,10 @@ class BufferController extends Controller
             ]);
         }
         $this->json(['success' => true, 'created' => count($created), 'errors' => $errors]);
+
+        } catch (\Throwable $e) {
+            $this->json(['error' => 'Erro interno: ' . $e->getMessage() . ' (linha ' . $e->getLine() . ')'], 500);
+        }
     }
 
     // API: Limpar fila de posts pendentes (queued)
