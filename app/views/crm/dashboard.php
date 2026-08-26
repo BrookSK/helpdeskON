@@ -80,8 +80,11 @@
     </div>
 
     <!-- Métricas de E-mail (prospecção + sequências) -->
-    <?php if (!empty($emailStats)): ?>
     <h6 class="mb-2 mt-2"><i class="bi bi-envelope"></i> E-mails de Prospecção & Follow-up</h6>
+    <?php if (empty($emailModuleReady)): ?>
+    <div class="alert alert-warning small"><i class="bi bi-exclamation-triangle"></i> O módulo de follow-up ainda não foi ativado no banco. Rode a migration <code>065_followup_sequences_module.sql</code> para começar a registrar métricas de e-mail.</div>
+    <?php endif; ?>
+    <?php if (true): ?>
     <div class="row row-cols-2 row-cols-md-3 row-cols-lg-6 g-3 mb-3">
         <div class="col">
             <div class="card stat-card h-100" style="border-left-color:#1565c0">
@@ -131,10 +134,12 @@
         </div>
     </div>
 
+    <?php if (!empty($emailModuleReady)): ?>
     <div class="card mb-4">
         <div class="card-header bg-white"><h6 class="mb-0">E-mails: enviados x abertos x respondidos (6 meses)</h6></div>
         <div class="card-body"><canvas id="emailTrendChart" style="max-height:260px;"></canvas></div>
     </div>
+    <?php endif; ?>
     <?php endif; ?>
 
     <!-- Gráficos -->
@@ -210,7 +215,7 @@ new Chart(document.getElementById('trendChart'), {
     }
 });
 
-<?php if (!empty($emailStats)): ?>
+<?php if (!empty($emailModuleReady)): ?>
 // Gráfico temporal de e-mails
 const emailTrend = <?= json_encode($emailTrend) ?>;
 new Chart(document.getElementById('emailTrendChart'), {

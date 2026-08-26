@@ -1193,17 +1193,27 @@ class CrmController extends Controller
         $stats = $this->boardModel->getDashboardStats();
         $trend = $this->boardModel->getMonthlyTrend(6);
 
-        // Métricas de e-mail (envios, aberturas, respostas, melhor e-mail)
-        $emailStats = null; $emailTrend = [];
+        // Métricas de e-mail (envios, aberturas, respostas, melhor e-mail).
+        // Sempre exibe a seção; se o módulo ainda não foi migrado, mostra zeros.
+        $emailStats = [
+            'sent' => 0, 'opened' => 0, 'clicked' => 0, 'replied' => 0, 'bounced' => 0,
+            'manual' => 0, 'sequence' => 0, 'open_rate' => 0, 'click_rate' => 0, 'reply_rate' => 0, 'top_email' => null,
+        ];
+        $emailTrend = [];
+        $emailModuleReady = true;
         try {
             $seqModel = new EmailSequence();
             $emailStats = $seqModel->emailDashboard();
             $emailTrend = $seqModel->emailMonthlyTrend(6);
-        } catch (\Throwable $e) { /* módulo de e-mail pode não estar migrado ainda */ }
+        } catch (\Throwable $e) {
+            $emailModuleReady = false; // tabelas ainda não existem
+        }
+        $this->_emailModuleReady = $emailModuleReady;
 
         $this->view('crm/dashboard', [
             'user' => $user, 'stats' => $stats, 'trend' => $trend,
             'emailStats' => $emailStats, 'emailTrend' => $emailTrend,
+            'emailModuleReady' => $emailModuleReady,
         ]);
     }
 
