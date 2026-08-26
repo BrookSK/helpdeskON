@@ -526,36 +526,99 @@ function deleteLead(id, btn) {
         .catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-trash"></i>'; } alert('Erro ao excluir.'); });
 }
 
-// ===== Importação p/ Meus Leads =====
-function importOne(id, btn) {
-    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>'; }
-    const fd = new FormData();
-    fd.append('ids', id);
-    fetch(BASE + 'crm/apolloImport', { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
-        .then(r => r.json())
-        .then(d => {
-            if (d.error) { alert(d.error); if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-download"></i>'; } return; }
-            markRowImported(id);
-        })
-        .catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-download"></i>'; } alert('Erro ao importar.'); });
+// ===== Importação p/ Meus Leads (exige board + coluna) =====
+let importModalInstance = null;
+let _boardsCache = null;
+let _sequencesCache = null;
+
+function getImportModal() {
+    if (!importModalInstance) importModalInstance = new bootstrap.Modal(document.getElementById('importModal'));
+    return importModalInstance;
 }
 
+// Carrega boards (com colunas) e sequências uma vez e popula os selects
+function loadImportOptions() {
+    const boardSel = document.getElementById('imp-board');
+    if (_boardsCache) return Promise.resolve();
+    return Promise.all([
+        fetch(BASE + 'crm/listBoards', { headers: {'X-Requested-With':'XMLHttpRequest'} }).then(r => r.json()),
+        fetch(BASE + 'crm/sequencesList', { headers: {'X-Requested-With':'XMLHttpRequest'} }).then(r => r.json()).catch(() => ({sequences: []})),
+    ]).then(([boards, seqRes]) => {
+        _boardsCache = Array.isArray(boards) ? boards : [];
+        boardSel.innerHTML = '<option value="">Selecione um board...</option>'
+            + _boardsCache.map(b => `<option value="${b.id}">${escapeHtml(b.name || ('Board #' + b.id))}</option>`).join('');
+        _sequencesCache = (seqRes && seqRes.sequences) ? seqRes.sequences : [];
+        const seqSel = document.getElementById('imp-sequence');
+        seqSel.innerHTML = '<option value="">Nenhuma</option>'
+            + _sequencesCache.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('');
+    });
+}
+
+function onImportBoardChange() {
+    const boardId = document.getElementById('imp-board').value;
+    const colSel = document.getElementById('imp-column');
+    const board = (_boardsCache || []).find(b => String(b.id) === String(boardId));
+    if (!board || !board.columns || !board.columns.length) {
+        colSel.innerHTML = '<option value="">Nenhuma coluna disponível</option>';
+        colSel.disabled = true;
+        return;
+    }
+    colSel.innerHTML = '<option value="">Selecione a coluna...</option>'
+        + board.columns.map(c => `<option value="${c.id}">${escapeHtml(c.name || c.title || ('Coluna #' + c.id))}</option>`).join('');
+    colSel.disabled = false;
+}
+
+// Abre o modal para 1 lead
+function importOne(id, btn) {
+    openImportModal([id]);
+}
+
+// Abre o modal para os selecionados
 function importSelected() {
     const ids = Array.from(selected);
     if (!ids.length) return;
-    if (!confirm(`Enviar ${ids.length} lead(s) para Meus Leads?`)) return;
+    openImportModal(ids);
+}
+
+function openImportModal(ids) {
+    document.getElementById('imp-ids').value = ids.join(',');
+    document.getElementById('imp-board').value = '';
+    const colSel = document.getElementById('imp-column');
+    colSel.innerHTML = '<option value="">Selecione o board primeiro...</option>';
+    colSel.disabled = true;
+    document.getElementById('imp-sequence').value = '';
+    loadImportOptions().finally(() => getImportModal().show());
+}
+
+function confirmImport(btn) {
+    const ids = (document.getElementById('imp-ids').value || '').split(',').filter(Boolean);
+    const columnId = document.getElementById('imp-column').value;
+    const boardId = document.getElementById('imp-board').value;
+    const sequenceId = document.getElementById('imp-sequence').value;
+    if (!boardId) { alert('Selecione um board do CRM.'); return; }
+    if (!columnId) { alert('Selecione uma coluna do board.'); return; }
+
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Enviando...';
+
     const fd = new FormData();
     ids.forEach(id => fd.append('ids[]', id));
+    fd.append('column_id', columnId);
+    if (sequenceId) fd.append('sequence_id', sequenceId);
+
     fetch(BASE + 'crm/apolloImport', { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json())
         .then(d => {
+            btn.disabled = false; btn.innerHTML = original;
             if (d.error) { alert(d.error); return; }
             ids.forEach(id => markRowImported(id));
             selected.clear();
             updateBulkBar();
-            alert(`${d.imported} lead(s) enviado(s) para Meus Leads.` + (d.skipped ? ` ${d.skipped} ignorado(s).` : ''));
+            getImportModal().hide();
+            alert(`${d.imported} lead(s) enviado(s) para Meus Leads e adicionado(s) ao board.` + (d.skipped ? ` ${d.skipped} ignorado(s).` : ''));
         })
-        .catch(() => alert('Erro ao importar.'));
+        .catch(() => { btn.disabled = false; btn.innerHTML = original; alert('Erro ao importar.'); });
 }
 
 // Substitui a linha após enriquecer (atualiza e-mail/telefone)

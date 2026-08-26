@@ -1364,6 +1364,25 @@ class CrmController extends Controller
         $this->json($boards);
     }
 
+    /**
+     * API: lista de sequências ativas (para o seletor ao importar leads).
+     * GET crm/sequencesList
+     */
+    public function sequencesList()
+    {
+        $this->requireRole($this->captureRoles);
+        $rows = [];
+        try {
+            $rows = (new EmailSequence())->all();
+        } catch (\Throwable $e) { $rows = []; }
+        $out = array_map(fn($s) => [
+            'id' => (int)$s['id'],
+            'name' => $s['name'] ?? ('Sequência #' . $s['id']),
+            'active' => (int)($s['active'] ?? $s['is_active'] ?? 1),
+        ], $rows);
+        $this->json(['success' => true, 'sequences' => $out]);
+    }
+
     // ===== Lock de ramal (evita dois usuários no mesmo ramal) =====
 
     /**
@@ -1722,9 +1741,18 @@ class CrmController extends Controller
         $leadModel = new ApolloLead();
         $contactModel = new WhatsappContact();
 
-        // Opções extras: adicionar ao board (coluna) e/ou iniciar sequência
+        // Board + coluna são OBRIGATÓRIOS: todo lead puxado deve gerar um card no CRM.
         $columnId = !empty($_POST['column_id']) ? intval($_POST['column_id']) : null;
         $sequenceId = !empty($_POST['sequence_id']) ? intval($_POST['sequence_id']) : null;
+
+        if (!$columnId) {
+            $this->json(['error' => 'Selecione um board e uma coluna do CRM para atribuir o(s) lead(s).'], 400);
+        }
+        // Valida que a coluna existe (e obtém o board para retorno/consistência)
+        $column = $this->boardModel->findColumn($columnId);
+        if (!$column) {
+            $this->json(['error' => 'Coluna do CRM inválida. Atualize a página e selecione novamente.'], 400);
+        }
 
         $resolver = new LeadResolver();
         $imported = 0;

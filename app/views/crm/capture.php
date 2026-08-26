@@ -206,5 +206,48 @@
     </div>
 </div>
 
+<!-- Modal: atribuir board + coluna ao(s) lead(s) antes de enviar p/ Meus Leads -->
+<div class="modal fade" id="importModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title"><i class="bi bi-kanban"></i> Enviar para Meus Leads</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="small text-muted mb-3">
+                    Todo lead puxado precisa ser atribuído a um board e uma coluna do CRM. Um card será criado automaticamente.
+                </p>
+                <input type="hidden" id="imp-ids">
+                <div class="mb-3">
+                    <label class="form-label small fw-medium">Board do CRM *</label>
+                    <select id="imp-board" class="form-select form-select-sm" onchange="onImportBoardChange()">
+                        <option value="">Selecione um board...</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small fw-medium">Coluna *</label>
+                    <select id="imp-column" class="form-select form-select-sm" disabled>
+                        <option value="">Selecione o board primeiro...</option>
+                    </select>
+                </div>
+                <div class="mb-1">
+                    <label class="form-label small fw-medium">Sequência (opcional)</label>
+                    <select id="imp-sequence" class="form-select form-select-sm">
+                        <option value="">Nenhuma</option>
+                    </select>
+                    <small class="text-muted">Inicia automaticamente uma sequência de follow-up para o lead.</small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-sm btn-success" id="imp-confirm" onclick="confirmImport(this)">
+                    <i class="bi bi-download"></i> Confirmar e enviar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <?php require APP_PATH . '/views/crm/_capture_script.php'; ?>
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>
