@@ -306,6 +306,69 @@ class ProspectionController extends Controller
     }
 
     /**
+     * API: histórico de conversa (enviados + recebidos) com um endereço de e-mail.
+     * POST prospection/emailThread  body: account_id, email
+     */
+    public function emailThread()
+    {
+        $this->requireRole($this->accessRoles);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+
+        $accountId = intval($_POST['account_id'] ?? 0);
+        $email = trim($_POST['email'] ?? '');
+        if (!$accountId || !$email || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $this->json(['error' => 'Parâmetros inválidos'], 400);
+        }
+
+        $account = $this->requireImapAccount($accountId);
+        $items = [];
+
+        // 1) Enviados (registro local de prospecção) para/deste endereço
+        $db = Database::getInstance();
+        $sent = $db->fetchAll(
+            "SELECT id, subject, body, recipient_email, recipient_name, status, sent_at, created_at
+             FROM email_prospections
+             WHERE email_account_id = ? AND recipient_email = ?
+             ORDER BY COALESCE(sent_at, created_at) DESC
+             LIMIT 50",
+            [$accountId, $email]
+        );
+        foreach ($sent as $s) {
+            $items[] = [
+                'direction' => 'sent',
+                'subject' => $s['subject'],
+                'snippet' => mb_substr(trim(strip_tags($s['body'] ?? '')), 0, 160),
+                'party' => $s['recipient_email'],
+                'date' => $s['sent_at'] ?: $s['created_at'],
+                'status' => $s['status'],
+            ];
+        }
+
+        // 2) Recebidos deste endereço (via IMAP, busca por FROM)
+        $reader = new ImapReader($account);
+        if ($reader->connect() === true) {
+            $received = $reader->searchFrom($email, 50);
+            $reader->disconnect();
+            foreach ($received as $m) {
+                $items[] = [
+                    'direction' => 'received',
+                    'subject' => $m['subject'],
+                    'snippet' => '',
+                    'party' => $m['from_email'],
+                    'date' => $m['date'],
+                    'uid' => $m['uid'],
+                    'status' => 'received',
+                ];
+            }
+        }
+
+        // Ordena do mais recente para o mais antigo
+        usort($items, fn($a, $b) => strtotime($b['date'] ?? '0') <=> strtotime($a['date'] ?? '0'));
+
+        $this->json(['success' => true, 'thread' => $items]);
+    }
+
+    /**
      * Valida o acesso do usuário atual a uma conta IMAP e retorna a conta.
      * Em caso de falha, responde JSON de erro e encerra.
      */

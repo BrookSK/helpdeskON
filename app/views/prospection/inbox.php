@@ -69,9 +69,9 @@
             <?php else: ?>
             <div class="list-group list-group-flush" id="email-list">
                 <?php foreach ($messages as $msg): ?>
-                <a href="#" class="list-group-item list-group-item-action email-row <?= $msg['seen'] ? '' : 'fw-bold' ?>" data-uid="<?= $msg['uid'] ?>" onclick="openEmail(<?= $msg['uid'] ?>); return false;">
-                    <div class="d-flex justify-content-between align-items-start">
-                        <div class="flex-grow-1" style="min-width:0;">
+                <div class="list-group-item email-row <?= $msg['seen'] ? '' : 'fw-bold' ?>" data-uid="<?= $msg['uid'] ?>">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div class="flex-grow-1" style="min-width:0;cursor:pointer;" onclick="openEmail(<?= $msg['uid'] ?>)">
                             <div class="d-flex align-items-center gap-2">
                                 <?php if (!$msg['seen']): ?>
                                 <span class="badge bg-primary rounded-circle" style="width:8px;height:8px;padding:0;"></span>
@@ -80,14 +80,20 @@
                             </div>
                             <div class="text-truncate" style="font-size:0.82rem;"><?= escape($msg['subject']) ?></div>
                         </div>
-                        <div class="text-end text-nowrap ms-3" style="font-size:0.72rem;">
-                            <span class="text-muted"><?= $msg['date'] ? date('d/m H:i', strtotime($msg['date'])) : '' ?></span>
-                            <?php if ($msg['has_attachments']): ?>
-                            <br><i class="bi bi-paperclip text-muted"></i>
-                            <?php endif; ?>
+                        <div class="d-flex align-items-center gap-2 ms-3">
+                            <div class="text-end text-nowrap" style="font-size:0.72rem;">
+                                <span class="text-muted"><?= $msg['date'] ? date('d/m H:i', strtotime($msg['date'])) : '' ?></span>
+                                <?php if ($msg['has_attachments']): ?>
+                                <br><i class="bi bi-paperclip text-muted"></i>
+                                <?php endif; ?>
+                            </div>
+                            <div class="email-row-actions d-flex gap-1">
+                                <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1" title="Arquivar" onclick="event.stopPropagation(); archiveFromList(<?= $msg['uid'] ?>, this)"><i class="bi bi-archive"></i></button>
+                                <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1" title="Excluir" onclick="event.stopPropagation(); deleteFromList(<?= $msg['uid'] ?>, this)"><i class="bi bi-trash"></i></button>
+                            </div>
                         </div>
                     </div>
-                </a>
+                </div>
                 <?php endforeach; ?>
             </div>
             <?php endif; ?>
@@ -133,6 +139,12 @@
             <div class="modal-body" id="email-modal-body">
                 <div class="text-center py-5"><span class="spinner-border"></span></div>
             </div>
+            <!-- Histórico de conversa (enviados + recebidos) com o contato -->
+            <div class="px-3 pb-2" id="email-thread-wrap" style="display:none;">
+                <hr class="my-2">
+                <h6 class="small fw-semibold mb-2"><i class="bi bi-chat-left-text"></i> Histórico com <span id="thread-party" class="text-muted"></span></h6>
+                <div id="email-thread" style="max-height:240px;overflow-y:auto;"></div>
+            </div>
             <!-- Área de resposta (oculta por padrão) -->
             <div class="modal-footer flex-column align-items-stretch" id="reply-area" style="display:none;">
                 <div class="w-100">
@@ -164,9 +176,11 @@ function openEmail(uid) {
     const title = document.getElementById('email-modal-subject');
     body.innerHTML = '<div class="text-center py-5"><span class="spinner-border"></span></div>';
     title.innerHTML = '<i class="bi bi-envelope-open"></i> Carregando...';
-    // Reseta a área de resposta
+    // Reseta a área de resposta e o histórico
     document.getElementById('reply-area').style.display = 'none';
     document.getElementById('reply-body').value = '';
+    document.getElementById('email-thread-wrap').style.display = 'none';
+    document.getElementById('email-thread').innerHTML = '';
     getEmailModal().show();
 
     const fd = new FormData();
@@ -189,6 +203,8 @@ function openEmail(uid) {
         const msg = d.message;
         currentEmail = { uid: uid, from_email: msg.from_email, from: msg.from, subject: msg.subject };
         title.innerHTML = '<i class="bi bi-envelope-open"></i> ' + escapeHtml(msg.subject);
+        // Carrega o histórico de conversa com este remetente
+        loadThread(msg.from_email);
 
         let html = `
             <div class="mb-3" style="font-size:0.82rem;">
@@ -237,6 +253,82 @@ function removeRowAndClose(uid) {
     const row = document.querySelector(`.email-row[data-uid="${uid}"]`);
     if (row) row.remove();
     getEmailModal().hide();
+}
+
+// Carrega e renderiza o histórico de conversa (enviados + recebidos) com o contato
+function loadThread(email) {
+    if (!email) return;
+    const wrap = document.getElementById('email-thread-wrap');
+    const box = document.getElementById('email-thread');
+    document.getElementById('thread-party').textContent = email;
+    box.innerHTML = '<div class="text-muted small py-2"><span class="spinner-border spinner-border-sm"></span> Carregando histórico...</div>';
+    wrap.style.display = '';
+
+    const fd = new FormData();
+    fd.append('account_id', ACCOUNT_ID);
+    fd.append('email', email);
+    fetch(`${BASE}prospection/emailThread`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json())
+        .then(d => {
+            if (d.error || !d.thread || !d.thread.length) {
+                box.innerHTML = '<div class="text-muted small py-2">Nenhuma mensagem anterior com este contato.</div>';
+                return;
+            }
+            box.innerHTML = d.thread.map(renderThreadItem).join('');
+        })
+        .catch(() => { box.innerHTML = '<div class="text-muted small py-2">Não foi possível carregar o histórico.</div>'; });
+}
+
+function renderThreadItem(it) {
+    const isSent = it.direction === 'sent';
+    const icon = isSent ? 'bi-arrow-up-right-circle text-primary' : 'bi-arrow-down-left-circle text-success';
+    const label = isSent ? 'Enviado' : 'Recebido';
+    const badge = isSent
+        ? (it.status === 'failed' ? '<span class="badge bg-danger">falhou</span>' : '<span class="badge bg-primary">enviado</span>')
+        : '<span class="badge bg-success">recebido</span>';
+    const dt = it.date ? new Date(it.date.replace(' ', 'T')).toLocaleString('pt-BR') : '—';
+    const snippet = it.snippet ? `<div class="text-muted text-truncate" style="font-size:0.75rem;">${escapeHtml(it.snippet)}</div>` : '';
+    const openable = (it.direction === 'received' && it.uid)
+        ? ` style="cursor:pointer;" onclick="openEmail(${it.uid})"` : '';
+    return `<div class="border-bottom py-2"${openable}>
+        <div class="d-flex justify-content-between align-items-center">
+            <span style="font-size:0.8rem;"><i class="bi ${icon}"></i> <strong>${label}</strong> — ${escapeHtml(it.subject || '(sem assunto)')}</span>
+            <span class="text-nowrap ms-2" style="font-size:0.7rem;">${badge} <span class="text-muted">${dt}</span></span>
+        </div>
+        ${snippet}
+    </div>`;
+}
+
+// ===== Ações direto na listagem (sem abrir o e-mail) =====
+function archiveFromList(uid, btn) {
+    const fd = new FormData();
+    fd.append('account_id', ACCOUNT_ID);
+    fd.append('uid', uid);
+    btn.disabled = true;
+    fetch(`${BASE}prospection/archiveEmail`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json())
+        .then(d => {
+            if (d.error) { alert(d.error); btn.disabled = false; return; }
+            const row = document.querySelector(`.email-row[data-uid="${uid}"]`);
+            if (row) row.remove();
+        })
+        .catch(() => { alert('Erro ao arquivar o e-mail.'); btn.disabled = false; });
+}
+
+function deleteFromList(uid, btn) {
+    if (!confirm('Excluir este e-mail? Ele será movido para a lixeira da conta.')) return;
+    const fd = new FormData();
+    fd.append('account_id', ACCOUNT_ID);
+    fd.append('uid', uid);
+    btn.disabled = true;
+    fetch(`${BASE}prospection/deleteEmail`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json())
+        .then(d => {
+            if (d.error) { alert(d.error); btn.disabled = false; return; }
+            const row = document.querySelector(`.email-row[data-uid="${uid}"]`);
+            if (row) row.remove();
+        })
+        .catch(() => { alert('Erro ao excluir o e-mail.'); btn.disabled = false; });
 }
 
 function deleteCurrent() {
@@ -308,6 +400,8 @@ function sendReply() {
             alert(d.message || 'Resposta enviada!');
             document.getElementById('reply-area').style.display = 'none';
             document.getElementById('reply-body').value = '';
+            // Atualiza o histórico para incluir a resposta recém-enviada
+            if (currentEmail) loadThread(currentEmail.from_email);
         })
         .catch(() => { btn.disabled = false; btn.innerHTML = '<i class="bi bi-send"></i> Enviar resposta'; alert('Erro ao enviar a resposta.'); });
 }
@@ -321,10 +415,14 @@ function escapeHtml(text) {
 </script>
 
 <style>
-.email-row { border-left: 3px solid transparent; transition: border-color .15s; }
+.email-row { border-left: 3px solid transparent; transition: border-color .15s, background .15s; }
 .email-row:hover { border-left-color: var(--bs-primary); background: #f8f9fa; }
 .email-row.fw-bold { border-left-color: #1976d2; background: #eef5ff; }
 .email-body-frame img { max-width: 100%; height: auto; }
+/* Ações da linha: discretas, aparecem ao passar o mouse (mantém visível em telas touch) */
+.email-row-actions { opacity: 0; transition: opacity .15s; }
+.email-row:hover .email-row-actions { opacity: 1; }
+@media (hover: none) { .email-row-actions { opacity: 1; } }
 </style>
 
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>
