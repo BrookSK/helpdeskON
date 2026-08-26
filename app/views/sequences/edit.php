@@ -70,9 +70,9 @@
         <!-- Canvas -->
         <div class="col-lg-7">
             <div class="card">
-                <div class="card-body p-0" style="position:relative;overflow:auto;height:70vh;background:#f8f9fb;">
-                    <svg id="edges" style="position:absolute;top:0;left:0;width:2000px;height:2000px;pointer-events:none;"></svg>
-                    <div id="canvas" style="position:relative;width:2000px;height:2000px;"></div>
+                <div class="card-body p-0" id="canvas-wrap">
+                    <svg id="edges" style="position:absolute;top:0;left:0;width:2400px;height:2400px;pointer-events:none;"></svg>
+                    <div id="canvas" style="position:relative;width:2400px;height:2400px;"></div>
                 </div>
             </div>
         </div>

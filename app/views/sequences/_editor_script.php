@@ -1,87 +1,89 @@
 <style>
-.seq-node { position:absolute; width:180px; background:#fff; border:2px solid #dee2e6; border-radius:10px;
-    box-shadow:0 2px 6px rgba(0,0,0,.08); cursor:grab; user-select:none; font-size:0.8rem; }
+#canvas-wrap { position:relative; overflow:auto; height:70vh; background:
+    linear-gradient(90deg, rgba(0,0,0,.03) 1px, transparent 1px) 0 0/24px 24px,
+    linear-gradient(rgba(0,0,0,.03) 1px, transparent 1px) 0 0/24px 24px, #f8f9fb; }
+.seq-node { position:absolute; width:190px; background:#fff; border:2px solid #dee2e6; border-radius:10px;
+    box-shadow:0 2px 6px rgba(0,0,0,.08); cursor:grab; user-select:none; font-size:0.8rem;
+    will-change:transform; transition:box-shadow .1s, border-color .1s; }
 .seq-node.sel { border-color: var(--primary); box-shadow:0 0 0 3px rgba(0,191,166,.2); }
+.seq-node.linktarget { outline:2px dashed var(--primary); outline-offset:2px; }
 .seq-node .hd { padding:6px 10px; border-bottom:1px solid #eee; font-weight:600; display:flex; justify-content:space-between; align-items:center; border-radius:8px 8px 0 0; }
-.seq-node .bd { padding:6px 10px; color:#667; font-size:0.74rem; min-height:24px; }
-.seq-node .port { width:18px; height:18px; border-radius:50%; background:#fff; border:2px solid var(--primary); position:absolute; cursor:crosshair; z-index:3; transition:transform .1s; }
-.seq-node .port:hover { transform:scale(1.3); background:var(--primary); }
-.seq-node .port.out { bottom:-10px; left:50%; transform:translateX(-50%); }
-.seq-node .port.out:hover { transform:translateX(-50%) scale(1.3); }
-.seq-node .port.out.yes { left:30%; background:#d4edda; border-color:#28a745; }
-.seq-node .port.out.no { left:70%; background:#f8d7da; border-color:#dc3545; }
-.seq-node .port.in { top:-10px; left:50%; transform:translateX(-50%); background:#e9ecef; }
+.seq-node .hd .x { cursor:pointer; opacity:.4; } .seq-node .hd .x:hover { opacity:1; color:#dc3545; }
+.seq-node .bd { padding:6px 10px; color:#667; font-size:0.74rem; min-height:22px; }
+.seq-node .port { width:18px; height:18px; border-radius:50%; background:#fff; border:2px solid var(--primary); position:absolute; cursor:crosshair; z-index:3; }
+.seq-node .port:hover { background:var(--primary); }
+.seq-node .port.out { bottom:-10px; left:calc(50% - 9px); }
+.seq-node .port.out.yes { left:26%; background:#d4edda; border-color:#28a745; }
+.seq-node .port.out.no { left:66%; background:#f8d7da; border-color:#dc3545; }
+.seq-node .port.in { top:-10px; left:calc(50% - 9px); background:#e9ecef; }
 .n-send .hd{color:#0d6efd} .n-wait .hd{color:#fd7e14} .n-condition .hd{color:#6f42c1}
-.n-tag .hd{color:#20c997} .n-score .hd{color:#ffc107} .n-move .hd{color:#0dcaf0} .n-end .hd{color:#dc3545}
+.n-tag .hd{color:#20c997} .n-score .hd{color:#e0a800} .n-move .hd{color:#0dcaf0} .n-end .hd{color:#dc3545}
+#link-hint { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#1a1a2e; color:#fff;
+    padding:8px 16px; border-radius:20px; font-size:0.8rem; z-index:2000; display:none; box-shadow:0 4px 12px rgba(0,0,0,.3); }
 </style>
+
+<div id="link-hint"><i class="bi bi-info-circle"></i> Clique no bloco de destino para conectar · <span onclick="cancelLink()" style="cursor:pointer;text-decoration:underline;">cancelar</span></div>
 
 <script>
 const BASE = '<?= baseUrl('') ?>';
 const SEQ_ID = <?= $sequence ? (int)$sequence['id'] : 'null' ?>;
 const COLUMNS = <?= json_encode(array_map(fn($c) => ['id'=>$c['id'],'label'=>$c['board_name'].' · '.$c['name']], $columns), JSON_UNESCAPED_UNICODE) ?>;
-
-let nodes = [];      // {id, type, x, y, data, next, nextYes, nextNo}
-let selectedId = null;
-let linkFrom = null; // {id, port}
-let seqInstance = null, partModal = null;
 const NODE_LABELS = { send:'Enviar e-mail', wait:'Aguardar', condition:'Condição', tag:'Tag', score:'Score', move:'Mover card', end:'Encerrar' };
 
-// Carrega grafo existente
+let nodes = [];       // {id, type, x, y, data, next, nextYes, nextNo, _el}
+let selectedId = null;
+let linkFrom = null;
+
 <?php if ($sequence && $sequence['graph']): ?>
-(function(){ const g = <?= $sequence['graph'] ?>; if (g && g.nodes) { nodes = g.nodes.map(n => ({x:60,y:60,data:{},...n})); } })();
+(function(){ const g = <?= $sequence['graph'] ?>; if (g && g.nodes) nodes = g.nodes.map(n => ({x:60,y:60,data:{},...n})); })();
 <?php endif; ?>
 
+const canvas = () => document.getElementById('canvas');
+const svg = () => document.getElementById('edges');
 function uid() { return 'n' + Math.random().toString(36).slice(2, 8); }
 
-function addNode(type) {
-    const n = { id: uid(), type, x: 80 + Math.random()*80, y: 80 + nodes.length*20, data: defaultData(type) };
-    nodes.push(n); render(); selectNode(n.id);
-}
-function defaultData(type) {
-    if (type === 'send') return { subject:'', body:'' };
-    if (type === 'wait') return { amount:2, unit:'days' };
-    if (type === 'condition') return { kind:'replied' };
-    if (type === 'tag') return { label:'' };
-    if (type === 'score') return { delta:3 };
-    if (type === 'move') return { column_id:'' };
-    return {};
+// ================= Render (uma vez; depois updates pontuais) =================
+function buildAll() {
+    const c = canvas(); c.innerHTML = '';
+    nodes.forEach(n => { n._el = buildNodeEl(n); c.appendChild(n._el); });
+    drawEdges();
 }
 
-function render() {
-    const canvas = document.getElementById('canvas');
-    canvas.innerHTML = '';
-    nodes.forEach(n => canvas.appendChild(renderNode(n)));
-    renderEdges();
-}
-
-function renderNode(n) {
+function buildNodeEl(n) {
     const el = document.createElement('div');
-    el.className = 'seq-node n-' + n.type + (n.id === selectedId ? ' sel' : '');
-    el.style.left = n.x + 'px'; el.style.top = n.y + 'px';
+    el.className = 'seq-node n-' + n.type;
+    el.style.transform = `translate(${n.x}px, ${n.y}px)`;
     el.dataset.id = n.id;
-    const summary = nodeSummary(n);
-    el.innerHTML = `<div class="hd"><span>${NODE_LABELS[n.type]||n.type}</span><i class="bi bi-x" onclick="delNode('${n.id}');event.stopPropagation();" style="cursor:pointer"></i></div>
-        <div class="bd">${summary}</div>
-        ${n.type!=='end' ? '<div class="port in"></div>' : '<div class="port in"></div>'}`;
-    // portas de saída
+
+    let ports = '<div class="port in"></div>';
     if (n.type === 'condition') {
-        el.innerHTML += `<div class="port out yes" title="Sim" onclick="startLink('${n.id}','yes');event.stopPropagation();"></div>
-                         <div class="port out no" title="Não" onclick="startLink('${n.id}','no');event.stopPropagation();"></div>`;
+        ports += `<div class="port out yes" title="Sim" data-port="yes"></div><div class="port out no" title="Não" data-port="no"></div>`;
     } else if (n.type !== 'end') {
-        el.innerHTML += `<div class="port out" onclick="startLink('${n.id}','next');event.stopPropagation();"></div>`;
+        ports += `<div class="port out" data-port="next"></div>`;
     }
-    // Se estamos no modo de ligação, clicar em qualquer nó (que não seja a origem) conecta
-    if (linkFrom && linkFrom.id !== n.id) {
-        el.style.outline = '2px dashed var(--primary)';
-        el.style.cursor = 'crosshair';
-    }
-    // seleção + conexão de destino (clicar no corpo enquanto liga)
-    el.addEventListener('mousedown', (e) => {
-        if (e.target.classList.contains('port')) return;
-        if (linkFrom) { finishLink(n.id); return; }
-        selectNode(n.id); startDrag(e, n, el);
+    el.innerHTML = `<div class="hd"><span>${NODE_LABELS[n.type]||n.type}</span><span class="x">&times;</span></div>
+        <div class="bd">${nodeSummary(n)}</div>${ports}`;
+
+    // Fechar
+    el.querySelector('.x').addEventListener('mousedown', (e)=>{ e.stopPropagation(); delNode(n.id); });
+    // Portas de saída → inicia ligação
+    el.querySelectorAll('.port.out').forEach(p => {
+        p.addEventListener('mousedown', (e)=>{ e.stopPropagation(); startLink(n.id, p.dataset.port); });
     });
+    // Corpo: drag OU finalizar ligação OU selecionar
+    el.addEventListener('mousedown', (e)=>{
+        if (e.target.classList.contains('port') || e.target.classList.contains('x')) return;
+        if (linkFrom) { finishLink(n.id); return; }
+        selectNode(n.id);
+        startDrag(e, n);
+    });
+    if (n.id === selectedId) el.classList.add('sel');
     return el;
+}
+
+// Atualiza só o corpo (summary) de um nó — sem recriar o DOM
+function refreshNodeBody(n) {
+    if (n._el) n._el.querySelector('.bd').innerHTML = nodeSummary(n);
 }
 
 function nodeSummary(n) {
@@ -98,64 +100,118 @@ function nodeSummary(n) {
     return '';
 }
 
-// ---- Drag ----
-function startDrag(e, n, el) {
-    const canvas = document.getElementById('canvas');
-    const startX = e.clientX, startY = e.clientY, ox = n.x, oy = n.y;
-    el.style.cursor = 'grabbing';
-    function move(ev) { n.x = Math.max(0, ox + (ev.clientX-startX)); n.y = Math.max(0, oy + (ev.clientY-startY)); el.style.left=n.x+'px'; el.style.top=n.y+'px'; renderEdges(); }
-    function up() { document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); el.style.cursor='grab'; }
-    document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
-}
-
-// ---- Conexões ----
-function startLink(nodeId, port) {
-    linkFrom = { id: nodeId, port };
-    document.body.style.cursor = 'crosshair';
-    render(); // destaca os nós de destino possíveis
-}
-function finishLink(targetId) {
-    if (!linkFrom || linkFrom.id === targetId) { cancelLink(); return; }
-    const n = nodes.find(x=>x.id===linkFrom.id);
-    if (n) {
-        if (linkFrom.port === 'yes') n.nextYes = targetId;
-        else if (linkFrom.port === 'no') n.nextNo = targetId;
-        else n.next = targetId;
-    }
-    cancelLink(); render();
-}
-function cancelLink() { linkFrom = null; document.body.style.cursor = ''; render(); }
-document.addEventListener('click', (e)=>{ if (linkFrom && !e.target.closest('.seq-node')) cancelLink(); });
-
-function renderEdges() {
-    const svg = document.getElementById('edges');
-    svg.innerHTML = '';
-    nodes.forEach(n => {
-        const conns = [];
-        if (n.next) conns.push([n.next, '#00BFA6']);
-        if (n.nextYes) conns.push([n.nextYes, '#28a745']);
-        if (n.nextNo) conns.push([n.nextNo, '#dc3545']);
-        conns.forEach(([to, color]) => {
-            const t = nodes.find(x=>x.id===to); if (!t) return;
-            const x1=n.x+90, y1=n.y+70, x2=t.x+90, y2=t.y;
-            const path = document.createElementNS('http://www.w3.org/2000/svg','path');
-            const mid=(y1+y2)/2;
-            path.setAttribute('d', `M${x1},${y1} C${x1},${mid} ${x2},${mid} ${x2},${y2}`);
-            path.setAttribute('stroke', color); path.setAttribute('fill','none'); path.setAttribute('stroke-width','2');
-            svg.appendChild(path);
+// ================= Arestas (SVG, redesenhadas via rAF) =================
+let edgeRaf = null;
+function drawEdges() {
+    if (edgeRaf) return;
+    edgeRaf = requestAnimationFrame(() => {
+        edgeRaf = null;
+        const s = svg(); let out = '';
+        nodes.forEach(n => {
+            const conns = [];
+            if (n.next) conns.push([n.next, '#00BFA6', 0.5]);
+            if (n.nextYes) conns.push([n.nextYes, '#28a745', 0.26]);
+            if (n.nextNo) conns.push([n.nextNo, '#dc3545', 0.66]);
+            conns.forEach(([to, color, fx]) => {
+                const t = nodes.find(x=>x.id===to); if (!t) return;
+                const x1 = n.x + 190*fx, y1 = n.y + 68, x2 = t.x + 95, y2 = t.y;
+                const mid = (y1+y2)/2;
+                out += `<path d="M${x1},${y1} C${x1},${mid} ${x2},${mid} ${x2},${y2}" stroke="${color}" fill="none" stroke-width="2"/>`;
+                out += `<circle cx="${x2}" cy="${y2}" r="3" fill="${color}"/>`;
+            });
         });
+        s.innerHTML = out;
     });
 }
 
-function delNode(id) {
-    nodes = nodes.filter(n=>n.id!==id);
-    nodes.forEach(n=>{ if(n.next===id)delete n.next; if(n.nextYes===id)delete n.nextYes; if(n.nextNo===id)delete n.nextNo; });
-    if (selectedId===id) { selectedId=null; renderInspector(); }
-    render();
+// ================= Drag fluido (sem recriar DOM) =================
+function startDrag(e, n) {
+    const el = n._el;
+    const startX = e.clientX, startY = e.clientY, ox = n.x, oy = n.y;
+    el.style.cursor = 'grabbing'; el.style.zIndex = 10;
+    let raf = null;
+    function move(ev) {
+        n.x = Math.max(0, ox + (ev.clientX - startX));
+        n.y = Math.max(0, oy + (ev.clientY - startY));
+        if (!raf) raf = requestAnimationFrame(() => {
+            raf = null;
+            el.style.transform = `translate(${n.x}px, ${n.y}px)`;
+            drawEdges();
+        });
+    }
+    function up() {
+        document.removeEventListener('mousemove', move);
+        document.removeEventListener('mouseup', up);
+        el.style.cursor = 'grab'; el.style.zIndex = '';
+    }
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+    e.preventDefault();
 }
 
-// ---- Inspector ----
-function selectNode(id) { selectedId = id; render(); renderInspector(); }
+// ================= Adicionar / remover =================
+function addNode(type) {
+    const scroll = document.getElementById('canvas-wrap');
+    const n = { id: uid(), type,
+        x: 60 + (scroll ? scroll.scrollLeft : 0) + Math.random()*40,
+        y: 60 + (scroll ? scroll.scrollTop : 0) + nodes.length*10,
+        data: defaultData(type) };
+    nodes.push(n);
+    n._el = buildNodeEl(n);
+    canvas().appendChild(n._el);
+    selectNode(n.id);
+}
+function defaultData(type) {
+    if (type === 'send') return { subject:'', body:'' };
+    if (type === 'wait') return { amount:2, unit:'days' };
+    if (type === 'condition') return { kind:'replied' };
+    if (type === 'tag') return { label:'' };
+    if (type === 'score') return { delta:3 };
+    if (type === 'move') return { column_id:'' };
+    return {};
+}
+function delNode(id) {
+    const n = nodes.find(x=>x.id===id);
+    if (n && n._el) n._el.remove();
+    nodes = nodes.filter(x=>x.id!==id);
+    nodes.forEach(x=>{ if(x.next===id)delete x.next; if(x.nextYes===id)delete x.nextYes; if(x.nextNo===id)delete x.nextNo; });
+    if (selectedId===id) { selectedId=null; renderInspector(); }
+    drawEdges();
+}
+
+// ================= Seleção =================
+function selectNode(id) {
+    if (selectedId) { const p = nodes.find(x=>x.id===selectedId); if (p && p._el) p._el.classList.remove('sel'); }
+    selectedId = id;
+    const n = nodes.find(x=>x.id===id); if (n && n._el) n._el.classList.add('sel');
+    renderInspector();
+}
+
+// ================= Ligações =================
+function startLink(nodeId, port) {
+    linkFrom = { id: nodeId, port };
+    document.getElementById('link-hint').style.display = 'block';
+    nodes.forEach(n => { if (n.id !== nodeId && n._el) n._el.classList.add('linktarget'); });
+}
+function finishLink(targetId) {
+    if (linkFrom && linkFrom.id !== targetId) {
+        const n = nodes.find(x=>x.id===linkFrom.id);
+        if (n) {
+            if (linkFrom.port === 'yes') n.nextYes = targetId;
+            else if (linkFrom.port === 'no') n.nextNo = targetId;
+            else n.next = targetId;
+        }
+    }
+    cancelLink(); drawEdges();
+    if (selectedId) renderInspector();
+}
+function cancelLink() {
+    linkFrom = null;
+    document.getElementById('link-hint').style.display = 'none';
+    nodes.forEach(n => { if (n._el) n._el.classList.remove('linktarget'); });
+}
+
+// ================= Inspector =================
 function renderInspector() {
     const box = document.getElementById('inspector');
     const n = nodes.find(x=>x.id===selectedId);
@@ -170,13 +226,12 @@ function renderInspector() {
         h += field('Unidade', `<select class="form-select form-select-sm" onchange="setData('unit',this.value)">
             <option value="minutes" ${n.data.unit==='minutes'?'selected':''}>Minutos</option>
             <option value="hours" ${n.data.unit==='hours'?'selected':''}>Horas</option>
-            <option value="days" ${n.data.unit==='days'||!n.data.unit?'selected':''}>Dias</option></select>`);
+            <option value="days" ${(n.data.unit==='days'||!n.data.unit)?'selected':''}>Dias</option></select>`);
     } else if (n.type==='condition') {
         h += field('Condição', `<select class="form-select form-select-sm" onchange="setData('kind',this.value)">
             <option value="replied" ${n.data.kind==='replied'?'selected':''}>Respondeu?</option>
             <option value="opened" ${n.data.kind==='opened'?'selected':''}>Abriu?</option>
             <option value="clicked" ${n.data.kind==='clicked'?'selected':''}>Clicou?</option></select>`);
-        h += `<small class="text-muted">Verde = Sim · Vermelho = Não</small>`;
     } else if (n.type==='tag') {
         h += field('Tag', `<input class="form-control form-control-sm" value="${escapeAttr(n.data.label||'')}" oninput="setData('label',this.value)">`);
     } else if (n.type==='score') {
@@ -187,13 +242,12 @@ function renderInspector() {
     } else if (n.type==='end') {
         h += '<p class="text-muted small">Encerra a sequência para o lead.</p>';
     }
-
-    // ---- Conexões (forma confiável de ligar os blocos) ----
+    // Conexões via dropdown (jeito fácil)
     if (n.type !== 'end') {
         h += '<hr><div class="fw-semibold small mb-2"><i class="bi bi-arrow-down-right-circle"></i> Próximo bloco</div>';
         const others = nodes.filter(x => x.id !== n.id);
         const optsFor = (sel) => '<option value="">— nenhum —</option>' +
-            others.map(o => `<option value="${o.id}" ${sel===o.id?'selected':''}>${NODE_LABELS[o.type]||o.type} · ${escapeHtml((nodeSummary(o)||'').replace(/<[^>]+>/g,'').slice(0,24))}</option>`).join('');
+            others.map(o => `<option value="${o.id}" ${sel===o.id?'selected':''}>${NODE_LABELS[o.type]||o.type} · ${escapeHtml((nodeSummary(o)||'').replace(/<[^>]+>/g,'').slice(0,20))}</option>`).join('');
         if (n.type === 'condition') {
             h += field('Se SIM →', `<select class="form-select form-select-sm" onchange="setNext('nextYes',this.value)">${optsFor(n.nextYes)}</select>`);
             h += field('Se NÃO →', `<select class="form-select form-select-sm" onchange="setNext('nextNo',this.value)">${optsFor(n.nextNo)}</select>`);
@@ -201,21 +255,23 @@ function renderInspector() {
             h += field('Vai para', `<select class="form-select form-select-sm" onchange="setNext('next',this.value)">${optsFor(n.next)}</select>`);
         }
     }
-
     box.innerHTML = h;
 }
+function field(label, input) { return `<div class="mb-2"><label class="form-label small mb-1">${label}</label>${input}</div>`; }
 
-// Define a conexão do nó selecionado a partir do dropdown
+// Atualiza dado sem recriar o nó (mantém foco no input) — só refresca o summary
+function setData(key, val) {
+    const n = nodes.find(x=>x.id===selectedId);
+    if (n) { n.data[key] = val; refreshNodeBody(n); }
+}
 function setNext(port, targetId) {
     const n = nodes.find(x=>x.id===selectedId);
     if (!n) return;
     if (targetId) n[port] = targetId; else delete n[port];
-    render();
+    drawEdges();
 }
-function field(label, input) { return `<div class="mb-2"><label class="form-label small mb-1">${label}</label>${input}</div>`; }
-function setData(key, val) { const n = nodes.find(x=>x.id===selectedId); if(n){ n.data[key]=val; render(); } }
 
-// ---- Salvar ----
+// ================= Salvar / participantes =================
 function buildGraph() {
     const start = nodes.length ? nodes[0].id : null;
     return { start, nodes: nodes.map(n => ({ id:n.id, type:n.type, x:n.x, y:n.y, data:n.data, next:n.next, nextYes:n.nextYes, nextNo:n.nextNo })) };
@@ -237,28 +293,26 @@ function saveSeq() {
         .then(r=>r.json()).then(d=>{
             if (d.error) { alert(d.error); return; }
             if (!SEQ_ID) { location.href = BASE + 'sequences/edit/' + d.id; return; }
-            alert('Sequência salva!');
+            const btn = document.querySelector('[onclick="saveSeq()"]');
+            if (btn) { const o=btn.innerHTML; btn.innerHTML='<i class="bi bi-check2"></i> Salvo!'; setTimeout(()=>btn.innerHTML=o,1500); }
         });
 }
 
-// ---- Participantes ----
+let partModal = null;
 function openParticipants() {
     if (!SEQ_ID) return;
     if (!partModal) partModal = new bootstrap.Modal(document.getElementById('partModal'));
-    partModal.show();
-    loadLeadsSelect(); loadParticipants();
+    partModal.show(); loadLeadsSelect(); loadParticipants();
 }
 function loadLeadsSelect() {
     fetch(BASE + 'sequences/leadsForSelect', {headers:{'X-Requested-With':'XMLHttpRequest'}})
         .then(r=>r.json()).then(d=>{
-            const sel = document.getElementById('add-lead-select');
-            sel.innerHTML = '<option value="">Selecione um lead...</option>' +
+            document.getElementById('add-lead-select').innerHTML = '<option value="">Selecione um lead...</option>' +
                 (d.leads||[]).map(l=>`<option value="${l.id}">${escapeHtml(l.name||l.lead_email)} — ${escapeHtml(l.lead_email)}</option>`).join('');
         });
 }
 function addSelectedLead() {
-    const cid = document.getElementById('add-lead-select').value;
-    if (!cid) return;
+    const cid = document.getElementById('add-lead-select').value; if (!cid) return;
     const fd = new FormData(); fd.append('sequence_id', SEQ_ID); fd.append('contact_ids[]', cid);
     fetch(BASE + 'sequences/addLeads', {method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest'}})
         .then(r=>r.json()).then(d=>{ if(d.errors&&d.errors.length)alert(d.errors.join('\n')); loadParticipants(); });
@@ -266,8 +320,7 @@ function addSelectedLead() {
 function loadParticipants() {
     fetch(BASE + 'sequences/detail/' + SEQ_ID, {headers:{'X-Requested-With':'XMLHttpRequest'}})
         .then(r=>r.json()).then(d=>{
-            const box = document.getElementById('part-list');
-            const ps = d.participants||[];
+            const box = document.getElementById('part-list'); const ps = d.participants||[];
             if (!ps.length) { box.innerHTML = '<p class="text-muted small text-center py-3 mb-0">Nenhum lead nesta sequência.</p>'; return; }
             const stMap = {active:['Ativo','success'],finished:['Concluído','secondary'],stopped:['Interrompido','warning'],failed:['Falha','danger'],paused:['Pausado','info']};
             box.innerHTML = `<table class="table table-sm mb-0" style="font-size:0.82rem;"><tbody>` + ps.map(p=>{
@@ -287,5 +340,9 @@ function removePart(id) {
 function escapeHtml(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function escapeAttr(s){return escapeHtml(s);}
 
-render();
+// ESC cancela ligação
+document.addEventListener('keydown', (e)=>{ if (e.key==='Escape' && linkFrom) cancelLink(); });
+
+buildAll();
+renderInspector();
 </script>

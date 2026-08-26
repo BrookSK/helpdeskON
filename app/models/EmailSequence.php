@@ -68,4 +68,88 @@ class EmailSequence
         foreach ($rows as $r) { $out[$r['status']] = (int) $r['t']; $out['total'] += (int) $r['t']; }
         return $out;
     }
+
+    /**
+     * Métricas globais de e-mail para o Dashboard do CRM.
+     * Opcionalmente filtra por período (Y-m-d).
+     */
+    public function emailDashboard($startDate = null, $endDate = null)
+    {
+        $where = "WHERE m.direction = 'outbound' AND m.status = 'sent'";
+        $params = [];
+        if ($startDate) { $where .= " AND m.sent_at >= ?"; $params[] = $startDate . ' 00:00:00'; }
+        if ($endDate)   { $where .= " AND m.sent_at <= ?"; $params[] = $endDate . ' 23:59:59'; }
+
+        $agg = $this->db->fetch(
+            "SELECT
+                COUNT(*) AS sent,
+                SUM(CASE WHEN m.first_open_at IS NOT NULL THEN 1 ELSE 0 END) AS opened,
+                SUM(CASE WHEN m.first_click_at IS NOT NULL THEN 1 ELSE 0 END) AS clicked,
+                SUM(CASE WHEN m.replied_at IS NOT NULL THEN 1 ELSE 0 END) AS replied,
+                SUM(CASE WHEN m.origin='manual' THEN 1 ELSE 0 END) AS manual,
+                SUM(CASE WHEN m.origin='sequence' THEN 1 ELSE 0 END) AS sequence
+             FROM email_messages m $where",
+            $params
+        ) ?: [];
+
+        $sent = (int) ($agg['sent'] ?? 0);
+        $opened = (int) ($agg['opened'] ?? 0);
+        $clicked = (int) ($agg['clicked'] ?? 0);
+        $replied = (int) ($agg['replied'] ?? 0);
+
+        // Bounces (leads com bounce) e descadastros no período não têm data — contagem global
+        $bounced = (int) ($this->db->fetch("SELECT COUNT(*) t FROM whatsapp_contacts WHERE email_bounced = 1")['t'] ?? 0);
+
+        // Melhor e-mail (maior taxa de abertura, com no mínimo relevância)
+        $top = $this->db->fetch(
+            "SELECT subject,
+                    COUNT(*) AS sent,
+                    SUM(CASE WHEN first_open_at IS NOT NULL THEN 1 ELSE 0 END) AS opened,
+                    SUM(CASE WHEN replied_at IS NOT NULL THEN 1 ELSE 0 END) AS replied
+             FROM email_messages m $where
+             GROUP BY subject
+             HAVING sent >= 1
+             ORDER BY (opened / sent) DESC, replied DESC, sent DESC
+             LIMIT 1",
+            $params
+        );
+
+        return [
+            'sent' => $sent,
+            'opened' => $opened,
+            'clicked' => $clicked,
+            'replied' => $replied,
+            'bounced' => $bounced,
+            'manual' => (int) ($agg['manual'] ?? 0),
+            'sequence' => (int) ($agg['sequence'] ?? 0),
+            'open_rate' => $sent ? round($opened / $sent * 100, 1) : 0,
+            'click_rate' => $sent ? round($clicked / $sent * 100, 1) : 0,
+            'reply_rate' => $sent ? round($replied / $sent * 100, 1) : 0,
+            'top_email' => $top ?: null,
+        ];
+    }
+
+    /** Série mensal de e-mails enviados x respondidos (últimos N meses). */
+    public function emailMonthlyTrend($months = 6)
+    {
+        $result = [];
+        for ($i = $months - 1; $i >= 0; $i--) {
+            $ym = date('Y-m', strtotime("-{$i} months"));
+            $r = $this->db->fetch(
+                "SELECT COUNT(*) sent,
+                        SUM(CASE WHEN first_open_at IS NOT NULL THEN 1 ELSE 0 END) opened,
+                        SUM(CASE WHEN replied_at IS NOT NULL THEN 1 ELSE 0 END) replied
+                 FROM email_messages
+                 WHERE direction='outbound' AND status='sent' AND DATE_FORMAT(sent_at,'%Y-%m') = ?",
+                [$ym]
+            );
+            $result[] = [
+                'label' => date('m/Y', strtotime($ym . '-01')),
+                'sent' => (int) ($r['sent'] ?? 0),
+                'opened' => (int) ($r['opened'] ?? 0),
+                'replied' => (int) ($r['replied'] ?? 0),
+            ];
+        }
+        return $result;
+    }
 }
