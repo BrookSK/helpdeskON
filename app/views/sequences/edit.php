@@ -15,77 +15,81 @@
         </div>
     </div>
 
-    <div class="row g-3">
-        <!-- Paleta -->
-        <div class="col-lg-2">
-            <div class="card">
-                <div class="card-header bg-white py-2"><h6 class="mb-0" style="font-size:0.82rem;">Blocos</h6></div>
-                <div class="card-body p-2 d-flex flex-column gap-2" id="palette">
-                    <button class="btn btn-sm btn-outline-secondary text-start" onclick="addNode('send')"><i class="bi bi-envelope"></i> Enviar e-mail</button>
-                    <button class="btn btn-sm btn-outline-secondary text-start" onclick="addNode('whatsapp')"><i class="bi bi-whatsapp"></i> Enviar WhatsApp</button>
-                    <button class="btn btn-sm btn-outline-secondary text-start" onclick="addNode('wait')"><i class="bi bi-clock"></i> Aguardar</button>
-                    <button class="btn btn-sm btn-outline-secondary text-start" onclick="addNode('condition')"><i class="bi bi-signpost-split"></i> Condição</button>
-                    <button class="btn btn-sm btn-outline-secondary text-start" onclick="addNode('tag')"><i class="bi bi-tag"></i> Adicionar tag</button>
-                    <button class="btn btn-sm btn-outline-secondary text-start" onclick="addNode('score')"><i class="bi bi-star"></i> Alterar score</button>
-                    <button class="btn btn-sm btn-outline-secondary text-start" onclick="addNode('move')"><i class="bi bi-kanban"></i> Mover card</button>
-                    <button class="btn btn-sm btn-outline-secondary text-start" onclick="addNode('end')"><i class="bi bi-stop-circle"></i> Encerrar</button>
-                    <hr class="my-1">
-                    <small class="text-muted" style="font-size:0.7rem;">Clique num bloco para adicioná-lo. Arraste para posicionar. Clique numa bolinha e depois em outro bloco para conectar.</small>
+    <!-- Barra superior: Blocos + Configurações -->
+    <div class="card mb-2">
+        <div class="card-body py-2 px-3">
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <span class="fw-semibold small me-1" style="color:#667;">Blocos:</span>
+                <button class="btn btn-sm btn-outline-primary" onclick="addNode('send')"><i class="bi bi-envelope"></i> E-mail</button>
+                <button class="btn btn-sm btn-outline-success" onclick="addNode('whatsapp')"><i class="bi bi-whatsapp"></i> WhatsApp</button>
+                <button class="btn btn-sm btn-outline-warning" onclick="addNode('wait')"><i class="bi bi-clock"></i> Aguardar</button>
+                <button class="btn btn-sm btn-outline-secondary" onclick="addNode('condition')"><i class="bi bi-signpost-split"></i> Condição</button>
+                <button class="btn btn-sm btn-outline-secondary" onclick="addNode('tag')"><i class="bi bi-tag"></i> Tag</button>
+                <button class="btn btn-sm btn-outline-secondary" onclick="addNode('score')"><i class="bi bi-star"></i> Score</button>
+                <button class="btn btn-sm btn-outline-info" onclick="addNode('move')"><i class="bi bi-kanban"></i> Mover card</button>
+                <button class="btn btn-sm btn-outline-danger" onclick="addNode('end')"><i class="bi bi-stop-circle"></i> Encerrar</button>
+                <div class="ms-auto">
+                    <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#seq-config">
+                        <i class="bi bi-gear"></i> Configurações
+                    </button>
                 </div>
             </div>
-
-            <div class="card mt-2">
-                <div class="card-header bg-white py-2"><h6 class="mb-0" style="font-size:0.82rem;">Configurações</h6></div>
-                <div class="card-body p-2">
-                    <label class="form-label small mb-1">Conta de envio</label>
-                    <select id="seq-account" class="form-select form-select-sm mb-2">
-                        <option value="">Primeira ativa</option>
-                        <?php foreach ($accounts as $a): ?>
-                        <option value="<?= $a['id'] ?>" <?= ($sequence && $sequence['email_account_id'] == $a['id']) ? 'selected' : '' ?>><?= escape($a['display_name'] ?: $a['email']) ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                    <label class="form-label small mb-1">Limite diário</label>
-                    <input type="number" id="seq-daily" class="form-control form-control-sm mb-2" min="1" value="<?= $sequence ? (int)$sequence['daily_limit'] : 100 ?>">
-                    <div class="row g-1 mb-2">
-                        <div class="col-6">
-                            <label class="form-label small mb-1">Início</label>
-                            <input type="time" id="seq-wstart" class="form-control form-control-sm" value="<?= $sequence ? substr($sequence['window_start'],0,5) : '08:00' ?>">
+            <!-- Configurações (collapse) -->
+            <div class="collapse mt-2" id="seq-config">
+                <div class="row g-2 align-items-end border-top pt-2">
+                    <div class="col-6 col-md-3">
+                        <label class="form-label small mb-1">Conta de envio</label>
+                        <select id="seq-account" class="form-select form-select-sm">
+                            <option value="">Primeira ativa</option>
+                            <?php foreach ($accounts as $a): ?>
+                            <option value="<?= $a['id'] ?>" <?= ($sequence && $sequence['email_account_id'] == $a['id']) ? 'selected' : '' ?>><?= escape($a['display_name'] ?: $a['email']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="col-6 col-md-2">
+                        <label class="form-label small mb-1">Limite diário</label>
+                        <input type="number" id="seq-daily" class="form-control form-control-sm" min="1" value="<?= $sequence ? (int)$sequence['daily_limit'] : 100 ?>">
+                    </div>
+                    <div class="col-6 col-md-2">
+                        <label class="form-label small mb-1">Início</label>
+                        <input type="time" id="seq-wstart" class="form-control form-control-sm" value="<?= $sequence ? substr($sequence['window_start'],0,5) : '08:00' ?>">
+                    </div>
+                    <div class="col-6 col-md-2">
+                        <label class="form-label small mb-1">Fim</label>
+                        <input type="time" id="seq-wend" class="form-control form-control-sm" value="<?= $sequence ? substr($sequence['window_end'],0,5) : '18:00' ?>">
+                    </div>
+                    <div class="col-6 col-md-3 d-flex gap-3 align-items-center">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="seq-weekends" <?= ($sequence && $sequence['send_weekends']) ? 'checked' : '' ?>>
+                            <label class="form-check-label small" for="seq-weekends">Fim de semana</label>
                         </div>
-                        <div class="col-6">
-                            <label class="form-label small mb-1">Fim</label>
-                            <input type="time" id="seq-wend" class="form-control form-control-sm" value="<?= $sequence ? substr($sequence['window_end'],0,5) : '18:00' ?>">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="seq-active" <?= (!$sequence || $sequence['is_active']) ? 'checked' : '' ?>>
+                            <label class="form-check-label small" for="seq-active">Ativa</label>
                         </div>
                     </div>
-                    <div class="form-check form-switch mb-2">
-                        <input class="form-check-input" type="checkbox" id="seq-weekends" <?= ($sequence && $sequence['send_weekends']) ? 'checked' : '' ?>>
-                        <label class="form-check-label small" for="seq-weekends">Enviar fins de semana</label>
-                    </div>
-                    <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" id="seq-active" <?= (!$sequence || $sequence['is_active']) ? 'checked' : '' ?>>
-                        <label class="form-check-label small" for="seq-active">Sequência ativa</label>
-                    </div>
                 </div>
             </div>
+            <small class="text-muted d-block mt-1" style="font-size:0.7rem;">Clique num bloco acima para adicioná-lo. Arraste no quadro para posicionar. Selecione um bloco para editar as propriedades.</small>
         </div>
+    </div>
 
-        <!-- Canvas -->
-        <div class="col-lg-7">
-            <div class="card">
-                <div class="card-body p-0" id="canvas-wrap">
-                    <svg id="edges" style="position:absolute;top:0;left:0;width:2400px;height:2400px;pointer-events:none;"></svg>
-                    <div id="canvas" style="position:relative;width:2400px;height:2400px;"></div>
-                </div>
-            </div>
+    <!-- Canvas em largura total -->
+    <div class="card">
+        <div class="card-body p-0" id="canvas-wrap">
+            <svg id="edges" style="position:absolute;top:0;left:0;width:3000px;height:3000px;pointer-events:none;"></svg>
+            <div id="canvas" style="position:relative;width:3000px;height:3000px;"></div>
         </div>
+    </div>
 
-        <!-- Inspector -->
-        <div class="col-lg-3">
-            <div class="card">
-                <div class="card-header bg-white py-2"><h6 class="mb-0" style="font-size:0.82rem;">Propriedades</h6></div>
-                <div class="card-body" id="inspector">
-                    <p class="text-muted small mb-0">Selecione um bloco para editar.</p>
-                </div>
-            </div>
+    <!-- Propriedades: drawer flutuante (não ocupa espaço do canvas) -->
+    <div id="inspector-drawer">
+        <div class="drawer-hd">
+            <span class="fw-semibold small"><i class="bi bi-sliders"></i> Propriedades</span>
+            <button class="btn btn-sm btn-link p-0 text-muted" onclick="closeInspector()"><i class="bi bi-x-lg"></i></button>
+        </div>
+        <div class="drawer-bd" id="inspector">
+            <p class="text-muted small mb-0">Selecione um bloco para editar.</p>
         </div>
     </div>
 </div>
@@ -109,5 +113,6 @@
     </div>
 </div>
 
+<?php require APP_PATH . '/views/layouts/_var_picker.php'; ?>
 <?php require APP_PATH . '/views/sequences/_editor_script.php'; ?>
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>

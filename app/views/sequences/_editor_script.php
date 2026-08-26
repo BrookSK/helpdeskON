@@ -1,7 +1,14 @@
 <style>
-#canvas-wrap { position:relative; overflow:auto; height:70vh; background:
+#canvas-wrap { position:relative; overflow:auto; height:calc(100vh - 220px); min-height:420px; background:
     linear-gradient(90deg, rgba(0,0,0,.03) 1px, transparent 1px) 0 0/24px 24px,
     linear-gradient(rgba(0,0,0,.03) 1px, transparent 1px) 0 0/24px 24px, #f8f9fb; }
+/* Drawer flutuante de Propriedades */
+#inspector-drawer { position:fixed; top:0; right:0; width:340px; max-width:90vw; height:100vh;
+    background:#fff; box-shadow:-4px 0 20px rgba(0,0,0,.12); z-index:1200; transform:translateX(100%);
+    transition:transform .2s ease; display:flex; flex-direction:column; }
+#inspector-drawer.open { transform:translateX(0); }
+#inspector-drawer .drawer-hd { padding:12px 16px; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center; }
+#inspector-drawer .drawer-bd { padding:16px; overflow-y:auto; flex:1; }
 .seq-node { position:absolute; width:190px; background:#fff; border:2px solid #dee2e6; border-radius:10px;
     box-shadow:0 2px 6px rgba(0,0,0,.08); cursor:grab; user-select:none; font-size:0.8rem;
     will-change:transform; transition:box-shadow .1s, border-color .1s; }
@@ -188,6 +195,13 @@ function selectNode(id) {
     selectedId = id;
     const n = nodes.find(x=>x.id===id); if (n && n._el) n._el.classList.add('sel');
     renderInspector();
+    openInspector();
+}
+function openInspector() { document.getElementById('inspector-drawer').classList.add('open'); }
+function closeInspector() {
+    document.getElementById('inspector-drawer').classList.remove('open');
+    if (selectedId) { const p = nodes.find(x=>x.id===selectedId); if (p && p._el) p._el.classList.remove('sel'); }
+    selectedId = null;
 }
 
 // ================= Ligações =================
@@ -223,12 +237,16 @@ function renderInspector() {
     if (n.type==='send') {
         h += templatePicker('email');
         h += field('Assunto', `<input id="insp-subject" class="form-control form-control-sm" value="${escapeAttr(n.data.subject||'')}" oninput="setData('subject',this.value)">`);
-        h += field('Mensagem (HTML)', `<textarea id="insp-body" class="form-control form-control-sm" rows="6" oninput="setData('body',this.value)">${escapeHtml(n.data.body||'')}</textarea>`);
-        h += `<small class="text-muted">Variáveis: {{nome}}, {{primeiro_nome}}, {{email}}, {{empresa}}</small>`;
+        h += `<label class="form-label small mb-1">Mensagem (HTML)</label>` + varChipsHtml() +
+             `<textarea id="insp-body" class="form-control form-control-sm" rows="6" oninput="setData('body',this.value)">${escapeHtml(n.data.body||'')}</textarea>`;
+        // Teste A/B
+        h += abBlock(n, 'email');
     } else if (n.type==='whatsapp') {
         h += templatePicker('whatsapp');
-        h += field('Mensagem', `<textarea id="insp-body" class="form-control form-control-sm" rows="6" oninput="setData('body',this.value)">${escapeHtml(n.data.body||'')}</textarea>`);
-        h += `<small class="text-muted">Enviada pela conexão de WhatsApp. Variáveis: {{nome}}, {{primeiro_nome}}, {{empresa}}</small>`;
+        h += `<label class="form-label small mb-1">Mensagem</label>` + varChipsHtml() +
+             `<textarea id="insp-body" class="form-control form-control-sm" rows="6" oninput="setData('body',this.value)">${escapeHtml(n.data.body||'')}</textarea>`;
+        h += `<small class="text-muted d-block mt-1">Enviada pela conexão de WhatsApp.</small>`;
+        h += abBlock(n, 'whatsapp');
     } else if (n.type==='wait') {
         h += field('Quantidade', `<input type="number" min="1" class="form-control form-control-sm" value="${n.data.amount||1}" oninput="setData('amount',parseInt(this.value)||1)">`);
         h += field('Unidade', `<select class="form-select form-select-sm" onchange="setData('unit',this.value)">
@@ -264,8 +282,22 @@ function renderInspector() {
         }
     }
     box.innerHTML = h;
+    bindInspectorVars();
 }
 function field(label, input) { return `<div class="mb-2"><label class="form-label small mb-1">${label}</label>${input}</div>`; }
+
+// Liga as barras de chips e o botão-direito aos textareas do inspector
+function bindInspectorVars() {
+    const box = document.getElementById('inspector');
+    const chipBars = box.querySelectorAll('.var-chips');
+    const bodyA = box.querySelector('#insp-body');
+    const bodyB = box.querySelector('#insp-body-b');
+    // 1ª barra → corpo A, 2ª barra → corpo B
+    if (chipBars[0] && bodyA) bindVarChips(chipBars[0], bodyA);
+    if (chipBars[1] && bodyB) bindVarChips(chipBars[1], bodyB);
+    // menu de contexto também no assunto
+    const subj = box.querySelector('#insp-subject'); if (subj) attachVarPicker(subj);
+}
 
 // Seletor de template para preencher o bloco
 function templatePicker(channel) {
@@ -284,6 +316,24 @@ function applyTemplate(channel, id) {
     const b = document.getElementById('insp-body'); if (b) b.value = n.data.body;
     refreshNodeBody(n);
 }
+// Bloco de teste A/B: quando ativado, envia aleatoriamente a variante A ou B
+function abBlock(n, channel) {
+    const on = !!n.data.ab_enabled;
+    let h = `<hr><div class="form-check form-switch mb-2">
+        <input class="form-check-input" type="checkbox" id="insp-ab" ${on?'checked':''} onchange="toggleAb(this.checked)">
+        <label class="form-check-label small fw-medium" for="insp-ab"><i class="bi bi-shuffle"></i> Teste A/B</label></div>`;
+    if (on) {
+        h += `<div class="small text-muted mb-1">Variante B (50% dos envios):</div>`;
+        if (channel === 'email') {
+            h += field('Assunto B', `<input class="form-control form-control-sm" value="${escapeAttr(n.data.subject_b||'')}" oninput="setData('subject_b',this.value)">`);
+        }
+        h += `<label class="form-label small mb-1">Mensagem B</label>` + varChipsHtml('b') +
+             `<textarea id="insp-body-b" class="form-control form-control-sm" rows="5" oninput="setData('body_b',this.value)">${escapeHtml(n.data.body_b||'')}</textarea>`;
+    }
+    return h;
+}
+function toggleAb(on) { setData('ab_enabled', on ? 1 : 0); renderInspector(); bindInspectorVars(); }
+
 function loadTemplatesForEditor() {
     fetch(BASE + 'sequences/templates', {headers:{'X-Requested-With':'XMLHttpRequest'}})
         .then(r=>r.json()).then(d=>{
@@ -377,5 +427,4 @@ document.addEventListener('keydown', (e)=>{ if (e.key==='Escape' && linkFrom) ca
 
 loadTemplatesForEditor();
 buildAll();
-renderInspector();
 </script>

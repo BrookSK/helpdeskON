@@ -197,7 +197,7 @@
                 </li>
                 <li class="nav-item">
                     <a class="nav-link <?= ($currentPage ?? '') === 'sequences' ? 'active' : '' ?>" href="<?= baseUrl('sequences') ?>" style="padding-left:2.6rem;font-size:0.85rem;">
-                        <i class="bi bi-diagram-3"></i> Sequências de E-mail
+                        <i class="bi bi-diagram-3"></i> Sequências
                     </a>
                 </li>
                 <?php $lcActive = in_array($currentPage ?? '', ['leadcapture_opps', 'leadcapture_config', 'leadcapture_health']); ?>

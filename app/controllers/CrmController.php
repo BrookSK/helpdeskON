@@ -1210,11 +1210,13 @@ class CrmController extends Controller
             $emailModuleReady = (bool) $chk;
         } catch (\Throwable $e) { $emailModuleReady = false; }
 
+        $abResults = [];
         if ($emailModuleReady) {
             try {
                 $seqModel = new EmailSequence();
                 $emailStats = $seqModel->emailDashboard();
                 $emailTrend = $seqModel->emailMonthlyTrend(6);
+                $abResults = $seqModel->abResults();
             } catch (\Throwable $e) {
                 // Tabela existe mas a query falhou: loga e mantém zeros (não escondemos a seção)
                 Logger::error('emailDashboard falhou', ['error' => $e->getMessage()]);
@@ -1224,7 +1226,7 @@ class CrmController extends Controller
         $this->view('crm/dashboard', [
             'user' => $user, 'stats' => $stats, 'trend' => $trend,
             'emailStats' => $emailStats, 'emailTrend' => $emailTrend,
-            'emailModuleReady' => $emailModuleReady,
+            'emailModuleReady' => $emailModuleReady, 'abResults' => $abResults,
         ]);
     }
 

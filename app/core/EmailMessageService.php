@@ -54,6 +54,7 @@ class EmailMessageService
             'origin' => $origin,
             'sequence_participant_id' => $params['sequence_participant_id'] ?? null,
             'node_id' => $params['node_id'] ?? null,
+            'ab_variant' => $params['ab_variant'] ?? null,
             'thread_key' => $this->normalize($to),
             'recipient_email' => $to,
             'subject' => $subject,

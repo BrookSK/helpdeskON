@@ -90,7 +90,9 @@
                             <!-- Body (Rich Text) -->
                             <div class="col-12">
                                 <label class="form-label small fw-medium">Mensagem *</label>
+                                <div id="pf-var-chips" class="mb-1"></div>
                                 <div id="pf-editor" style="min-height:200px;"></div>
+                                <small class="text-muted">Clique numa variável para inserir. Botão direito no assunto também insere variáveis.</small>
                             </div>
 
                             <!-- Anexos -->
@@ -218,6 +220,39 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Carregar últimos envios
     loadRecentSends();
+
+    // Barra de variáveis para o editor Quill (insere no cursor)
+    const chipsBox = document.getElementById('pf-var-chips');
+    if (chipsBox && window.VAR_LIST && quill) {
+        chipsBox.innerHTML = window.VAR_LIST.map(v =>
+            `<button type="button" class="btn btn-sm btn-light border py-0 px-1" title="${v.label}" style="font-size:0.72rem;margin:1px;" data-k="${v.k}"><code>${v.k}</code></button>`
+        ).join('');
+        chipsBox.querySelectorAll('button').forEach(b => {
+            b.onclick = () => {
+                const range = quill.getSelection(true);
+                quill.insertText(range ? range.index : quill.getLength(), '{{' + b.dataset.k + '}}');
+            };
+        });
+    }
+    // Menu de contexto (botão direito) no assunto
+    const subj = document.getElementById('pf-subject');
+    if (subj && typeof attachVarPicker === 'function') attachVarPicker(subj);
+
+    // Pré-preenche a partir de "Meus Leads" (query string)
+    const qs = new URLSearchParams(window.location.search);
+    if (qs.get('email')) document.getElementById('pf-recipient-email').value = qs.get('email');
+    if (qs.get('name')) document.getElementById('pf-recipient-name').value = qs.get('name');
+    if (qs.get('contact_id')) {
+        const csel = document.getElementById('pf-contact');
+        if (csel) {
+            // seleciona o lead vinculado se existir na lista
+            const opt = Array.from(csel.options).find(o => o.value === qs.get('contact_id'));
+            if (opt) { csel.value = qs.get('contact_id'); onContactChange(); }
+        }
+        // abre a caixa de sequência para facilitar o cadastro do lead na sequência
+        const enrollChk = document.getElementById('pf-enroll');
+        if (enrollChk) { enrollChk.checked = true; toggleEnroll(); }
+    }
 
     // Form submit
     document.getElementById('prospection-form')?.addEventListener('submit', function(e) {
@@ -445,4 +480,5 @@ function loadRecentSends() {
 .ql-container { border-radius: 0 0 6px 6px; min-height: 200px; }
 </style>
 
+<?php require APP_PATH . '/views/layouts/_var_picker.php'; ?>
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>

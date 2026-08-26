@@ -224,7 +224,7 @@ class SequenceEngine
     private function doSend($participant, $seq, $node)
     {
         $contactId = $participant['contact_id'];
-        $contact = $this->db->fetch("SELECT lead_email, contact_name FROM whatsapp_contacts WHERE id = ?", [$contactId]);
+        $contact = $this->db->fetch("SELECT id, lead_email, contact_name, push_name, phone FROM whatsapp_contacts WHERE id = ?", [$contactId]);
         if (empty($contact['lead_email'])) { $this->finish($participant, 'no_email'); return; }
 
         // Conta de envio: da sequência ou a primeira ativa
@@ -232,8 +232,23 @@ class SequenceEngine
         if (!$account) { $this->finish($participant, 'no_account'); return; }
 
         $data = $node['data'] ?? [];
-        $subject = $this->render($data['subject'] ?? '(sem assunto)', $contact);
-        $body = $this->render($data['body'] ?? '', $contact);
+
+        // Teste A/B: escolhe aleatoriamente a variante B (50%) quando habilitado
+        $variant = null;
+        $subjectSrc = $data['subject'] ?? '(sem assunto)';
+        $bodySrc = $data['body'] ?? '';
+        if (!empty($data['ab_enabled']) && (!empty($data['body_b']) || !empty($data['subject_b']))) {
+            if (random_int(0, 1) === 1) {
+                $variant = 'B';
+                if (!empty($data['subject_b'])) $subjectSrc = $data['subject_b'];
+                if (!empty($data['body_b'])) $bodySrc = $data['body_b'];
+            } else {
+                $variant = 'A';
+            }
+        }
+
+        $subject = $this->render($subjectSrc, $contact);
+        $body = $this->render($bodySrc, $contact);
 
         (new EmailMessageService())->send([
             'contact_id' => $contactId,
@@ -244,13 +259,14 @@ class SequenceEngine
             'origin' => 'sequence',
             'sequence_participant_id' => $participant['id'],
             'node_id' => $node['id'],
+            'ab_variant' => $variant,
         ]);
     }
 
     private function doWhatsapp($participant, $node)
     {
         $contactId = $participant['contact_id'];
-        $contact = $this->db->fetch("SELECT phone, contact_name, push_name, lead_email FROM whatsapp_contacts WHERE id = ?", [$contactId]);
+        $contact = $this->db->fetch("SELECT id, phone, contact_name, push_name, lead_email FROM whatsapp_contacts WHERE id = ?", [$contactId]);
         if (empty($contact['phone'])) {
             (new LeadTimelineService())->add($contactId, 'note', 'WhatsApp da sequência não enviado: lead sem telefone.');
             return;

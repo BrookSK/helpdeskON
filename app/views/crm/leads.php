@@ -131,34 +131,36 @@ $sourceLabels = [
                             <td><?= $l['assigned_name'] ? escape($l['assigned_name']) : '<span class="text-muted">Sem dono</span>' ?></td>
                             <?php endif; ?>
                             <td class="text-end text-nowrap">
-                                <button class="btn btn-sm btn-outline-secondary" title="Gerenciar" onclick="openLead(<?= $l['id'] ?>)">
-                                    <i class="bi bi-pencil-square"></i>
-                                </button>
-                                <a class="btn btn-sm btn-success" title="Iniciar chat no WhatsApp" href="<?= baseUrl('whatsapp/chat/' . $l['id']) ?>">
-                                    <i class="bi bi-whatsapp"></i>
-                                </a>
-                                <?php if (!empty($l['lead_source_url'])): ?>
-                                <a class="btn btn-sm btn-outline-primary" title="Abrir projeto original (99Freelas)" href="<?= escape($l['lead_source_url']) ?>" target="_blank" rel="noopener">
-                                    <i class="bi bi-box-arrow-up-right"></i>
-                                </a>
-                                <?php endif; ?>
-                                <?php if (!empty($showArchived)): ?>
-                                <button class="btn btn-sm btn-outline-success" title="Restaurar para a lista" onclick="toggleArchiveLead(<?= $l['id'] ?>, this)">
-                                    <i class="bi bi-arrow-counterclockwise"></i>
-                                </button>
-                                <?php else: ?>
-                                <button class="btn btn-sm btn-outline-danger" title="Arquivar (remover da lista)" onclick="toggleArchiveLead(<?= $l['id'] ?>, this)">
-                                    <i class="bi bi-archive"></i>
-                                </button>
-                                <?php endif; ?>
-                                <?php if (!empty($l['phone'])): ?>
-                                <button class="btn btn-sm btn-outline-primary btn-call" title="Telefonar (webphone)" onclick="callLead(<?= $l['id'] ?>, this)">
-                                    <i class="bi bi-telephone-outbound"></i> Telefonar
-                                </button>
-                                <button class="btn btn-sm btn-outline-secondary" title="Testar chamada via API (checkDDI)" onclick="callLeadRest(<?= $l['id'] ?>, this)">
-                                    <i class="bi bi-phone-vibrate"></i>
-                                </button>
-                                <?php endif; ?>
+                                <?php
+                                    $hasPhone = !empty($l['phone']);
+                                    $hasEmail = !empty($l['lead_email']);
+                                    $hasUrl = !empty($l['lead_source_url']);
+                                    $emailData = htmlspecialchars(json_encode([
+                                        'contact_id' => $l['id'],
+                                        'name' => $l['contact_name'] ?: ($l['push_name'] ?? ''),
+                                        'email' => $l['lead_email'] ?? '',
+                                    ]), ENT_QUOTES);
+                                ?>
+                                <div class="btn-group btn-group-sm" role="group">
+                                    <!-- Gerenciar -->
+                                    <button class="btn btn-outline-secondary" title="Gerenciar lead" onclick="openLead(<?= $l['id'] ?>)"><i class="bi bi-pencil-square"></i></button>
+                                    <!-- WhatsApp -->
+                                    <a class="btn btn-outline-success <?= $hasPhone ? '' : 'disabled' ?>" title="<?= $hasPhone ? 'Chat no WhatsApp' : 'Sem telefone cadastrado' ?>" href="<?= $hasPhone ? baseUrl('whatsapp/chat/' . $l['id']) : '#' ?>"><i class="bi bi-whatsapp"></i></a>
+                                    <!-- E-mail (prospecção pré-preenchida) -->
+                                    <button class="btn btn-outline-primary <?= $hasEmail ? '' : 'disabled' ?>" title="<?= $hasEmail ? 'Enviar e-mail (prospecção)' : 'Sem e-mail cadastrado' ?>" <?= $hasEmail ? '' : 'disabled' ?> onclick='openEmailLead(<?= $emailData ?>)'><i class="bi bi-envelope"></i></button>
+                                    <!-- Telefonar (webphone) -->
+                                    <button class="btn btn-outline-primary btn-call <?= $hasPhone ? '' : 'disabled' ?>" title="<?= $hasPhone ? 'Telefonar (webphone)' : 'Sem telefone cadastrado' ?>" <?= $hasPhone ? '' : 'disabled' ?> onclick="callLead(<?= $l['id'] ?>, this)"><i class="bi bi-telephone-outbound"></i></button>
+                                    <!-- Chamada via API -->
+                                    <button class="btn btn-outline-secondary <?= $hasPhone ? '' : 'disabled' ?>" title="<?= $hasPhone ? 'Chamada via API' : 'Sem telefone cadastrado' ?>" <?= $hasPhone ? '' : 'disabled' ?> onclick="callLeadRest(<?= $l['id'] ?>, this)"><i class="bi bi-phone-vibrate"></i></button>
+                                    <!-- Projeto de origem -->
+                                    <a class="btn btn-outline-info <?= $hasUrl ? '' : 'disabled' ?>" title="<?= $hasUrl ? 'Abrir projeto de origem' : 'Sem projeto de origem' ?>" href="<?= $hasUrl ? escape($l['lead_source_url']) : '#' ?>" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right"></i></a>
+                                    <!-- Arquivar / Restaurar -->
+                                    <?php if (!empty($showArchived)): ?>
+                                    <button class="btn btn-outline-success" title="Restaurar" onclick="toggleArchiveLead(<?= $l['id'] ?>, this)"><i class="bi bi-arrow-counterclockwise"></i></button>
+                                    <?php else: ?>
+                                    <button class="btn btn-outline-danger" title="Arquivar" onclick="toggleArchiveLead(<?= $l['id'] ?>, this)"><i class="bi bi-archive"></i></button>
+                                    <?php endif; ?>
+                                </div>
                             </td>
                         </tr>
                         <?php endforeach; ?>
@@ -174,6 +176,16 @@ $sourceLabels = [
 
 <script>
 const BASE = '<?= baseUrl('') ?>';
+
+// Abre a tela de Prospecção por E-mail com os dados do lead já preenchidos.
+function openEmailLead(data) {
+    const params = new URLSearchParams({
+        contact_id: data.contact_id || '',
+        email: data.email || '',
+        name: data.name || '',
+    });
+    window.location = BASE + 'prospection?' + params.toString();
+}
 
 // Arquiva ou restaura um lead. Remove a linha da tela sem recarregar tudo.
 function toggleArchiveLead(leadId, btn) {

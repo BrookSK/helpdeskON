@@ -130,6 +130,60 @@ class EmailSequence
         ];
     }
 
+    /**
+     * Resultado dos testes A/B: compara variantes A x B por taxa de abertura/resposta.
+     * Agrupa por sequência+nó (as duas variantes do mesmo bloco de envio).
+     */
+    public function abResults()
+    {
+        $rows = $this->db->fetchAll(
+            "SELECT sp.sequence_id, s.name AS sequence_name, m.node_id, m.ab_variant,
+                    COUNT(*) AS sent,
+                    SUM(CASE WHEN m.first_open_at IS NOT NULL THEN 1 ELSE 0 END) AS opened,
+                    SUM(CASE WHEN m.first_click_at IS NOT NULL THEN 1 ELSE 0 END) AS clicked,
+                    SUM(CASE WHEN m.replied_at IS NOT NULL THEN 1 ELSE 0 END) AS replied
+             FROM email_messages m
+             JOIN sequence_participants sp ON sp.id = m.sequence_participant_id
+             JOIN email_sequences s ON s.id = sp.sequence_id
+             WHERE m.ab_variant IS NOT NULL AND m.direction='outbound' AND m.status='sent'
+             GROUP BY sp.sequence_id, m.node_id, m.ab_variant
+             ORDER BY s.name, m.node_id, m.ab_variant"
+        );
+
+        // Agrupa por sequência+nó, com A e B lado a lado
+        $tests = [];
+        foreach ($rows as $r) {
+            $key = $r['sequence_id'] . ':' . $r['node_id'];
+            if (!isset($tests[$key])) {
+                $tests[$key] = ['sequence_name' => $r['sequence_name'], 'node_id' => $r['node_id'], 'variants' => []];
+            }
+            $sent = (int) $r['sent'];
+            $tests[$key]['variants'][$r['ab_variant']] = [
+                'sent' => $sent,
+                'opened' => (int) $r['opened'],
+                'replied' => (int) $r['replied'],
+                'open_rate' => $sent ? round($r['opened'] / $sent * 100, 1) : 0,
+                'reply_rate' => $sent ? round($r['replied'] / $sent * 100, 1) : 0,
+            ];
+        }
+
+        // Só retorna testes com pelo menos 2 variantes
+        $out = [];
+        foreach ($tests as $t) {
+            if (count($t['variants']) >= 2) {
+                // Vencedor por taxa de resposta (desempate por abertura)
+                $winner = null; $best = -1;
+                foreach ($t['variants'] as $v => $d) {
+                    $metric = $d['reply_rate'] * 1000 + $d['open_rate'];
+                    if ($metric > $best) { $best = $metric; $winner = $v; }
+                }
+                $t['winner'] = $winner;
+                $out[] = $t;
+            }
+        }
+        return $out;
+    }
+
     /** Série mensal de e-mails enviados x respondidos (últimos N meses). */
     public function emailMonthlyTrend($months = 6)
     {

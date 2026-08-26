@@ -139,6 +139,37 @@
         <div class="card-header bg-white"><h6 class="mb-0">E-mails: enviados x abertos x respondidos (6 meses)</h6></div>
         <div class="card-body"><canvas id="emailTrendChart" style="max-height:260px;"></canvas></div>
     </div>
+
+    <?php if (!empty($abResults)): ?>
+    <div class="card mb-4">
+        <div class="card-header bg-white"><h6 class="mb-0"><i class="bi bi-shuffle"></i> Testes A/B — qual mensagem converte mais</h6></div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0" style="font-size:0.82rem;">
+                    <thead class="table-light">
+                        <tr><th>Sequência</th><th>Variante</th><th class="text-center">Enviados</th><th class="text-center">Abertura</th><th class="text-center">Resposta</th><th class="text-center">Vencedora</th></tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($abResults as $test): ?>
+                            <?php foreach (['A','B'] as $v): if (empty($test['variants'][$v])) continue; $d = $test['variants'][$v]; $isWin = ($test['winner'] === $v); ?>
+                            <tr class="<?= $isWin ? 'table-success' : '' ?>">
+                                <?php if ($v === 'A'): ?>
+                                <td rowspan="<?= count($test['variants']) ?>"><strong><?= escape($test['sequence_name']) ?></strong><br><small class="text-muted">bloco <?= escape($test['node_id']) ?></small></td>
+                                <?php endif; ?>
+                                <td><span class="badge bg-<?= $v==='A'?'primary':'info' ?>">Variante <?= $v ?></span></td>
+                                <td class="text-center"><?= (int)$d['sent'] ?></td>
+                                <td class="text-center"><?= $d['open_rate'] ?>%</td>
+                                <td class="text-center"><strong><?= $d['reply_rate'] ?>%</strong></td>
+                                <td class="text-center"><?= $isWin ? '<i class="bi bi-trophy-fill text-warning"></i>' : '' ?></td>
+                            </tr>
+                            <?php endforeach; ?>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
     <?php endif; ?>
     <?php endif; ?>
 

@@ -47,7 +47,7 @@ class WhatsappContact
     public function getManagedLeads($filters = [])
     {
         $sql = "SELECT c.id, c.contact_name, c.push_name, c.phone, c.assigned_to,
-                       c.last_message_at, c.is_group, c.lead_source_url,
+                       c.last_message_at, c.is_group, c.lead_source_url, c.lead_email,
                        u.name AS assigned_name,
                        b.lead_temperature, b.lead_source, b.need, b.investment_range,
                        b.urgency, b.main_pain, b.next_step,
