@@ -113,10 +113,14 @@ class AgendaController extends Controller
         $title = trim($_POST['title'] ?? '');
         if ($title === '') $this->json(['error' => 'Título obrigatório'], 400);
 
+        // Tipo da reunião: comercial (fluxo atual) ou operacional (interna, só participantes)
+        $meetingType = in_array($_POST['meeting_type'] ?? '', ['comercial', 'operacional']) ? $_POST['meeting_type'] : 'comercial';
+        $isOperational = $meetingType === 'operacional';
+
         $contactId = !empty($_POST['contact_id']) ? intval($_POST['contact_id']) : null;
 
-        // Cliente novo (manual): cria o lead no CRM para ficar disponível depois
-        if (!$contactId && !empty($_POST['new_client_name'])) {
+        // Cliente novo (manual): cria o lead no CRM para ficar disponível depois (só reunião comercial)
+        if (!$isOperational && !$contactId && !empty($_POST['new_client_name'])) {
             $contactId = $this->contactModel->createManualLead(
                 trim($_POST['new_client_name']),
                 trim($_POST['new_client_phone'] ?? ''),
@@ -124,13 +128,14 @@ class AgendaController extends Controller
             );
         }
 
-        // Contato é obrigatório (selecionar existente ou cadastrar novo)
-        if (!$contactId) {
+        // Contato só é obrigatório em reunião comercial (selecionar existente ou cadastrar novo)
+        if (!$isOperational && !$contactId) {
             $this->json(['error' => 'Selecione um cliente ou cadastre um novo.'], 400);
         }
 
         $data = [
             'title' => $title,
+            'meeting_type' => $meetingType,
             'contact_id' => $contactId,
             'client_name' => trim($_POST['client_name'] ?? '') ?: (trim($_POST['new_client_name'] ?? '') ?: null),
             'client_phone' => trim($_POST['client_phone'] ?? '') ?: (trim($_POST['new_client_phone'] ?? '') ?: null),
@@ -143,17 +148,30 @@ class AgendaController extends Controller
             'notes' => trim($_POST['notes'] ?? '') ?: null,
         ];
 
-        // Se convertida, salva quem fechou
-        if ($data['status'] === 'convertida' && !empty($_POST['closed_by'])) {
-            $data['closed_by'] = intval($_POST['closed_by']);
-        }
+        // Reunião operacional: sem cliente CRM, briefing, e-mail do cliente ou Meet.
+        // Mantém apenas título, notas (descrição), data/horário e participantes.
+        if ($isOperational) {
+            $data['contact_id'] = null;
+            $data['client_name'] = null;
+            $data['client_phone'] = null;
+            $data['client_email'] = null;
+            $data['temperature'] = null;
+            $data['closed_by'] = null;
+            $preEventId = null;
+            $preMeetLink = null;
+        } else {
+            // Se convertida, salva quem fechou
+            if ($data['status'] === 'convertida' && !empty($_POST['closed_by'])) {
+                $data['closed_by'] = intval($_POST['closed_by']);
+            }
 
-        $data['client_email'] = trim($_POST['client_email'] ?? '') ?: null;
-        // Se o link do Meet já foi gerado no modal, reaproveita (evita criar evento duplicado)
-        $preEventId = trim($_POST['google_event_id'] ?? '') ?: null;
-        $preMeetLink = trim($_POST['meet_link'] ?? '') ?: null;
-        if ($preEventId) $data['google_event_id'] = $preEventId;
-        if ($preMeetLink) $data['meet_link'] = $preMeetLink;
+            $data['client_email'] = trim($_POST['client_email'] ?? '') ?: null;
+            // Se o link do Meet já foi gerado no modal, reaproveita (evita criar evento duplicado)
+            $preEventId = trim($_POST['google_event_id'] ?? '') ?: null;
+            $preMeetLink = trim($_POST['meet_link'] ?? '') ?: null;
+            if ($preEventId) $data['google_event_id'] = $preEventId;
+            if ($preMeetLink) $data['meet_link'] = $preMeetLink;
+        }
 
         $id = $this->model->create($data);
 
@@ -163,8 +181,8 @@ class AgendaController extends Controller
             $this->model->setParticipants($id, $participantIds);
         }
 
-        // Salva/atualiza o briefing do cliente (se houver contato vinculado)
-        if ($contactId) {
+        // Salva/atualiza o briefing do cliente (só reunião comercial com contato vinculado)
+        if (!$isOperational && $contactId) {
             $this->saveBriefingFromPost($contactId, $user['id']);
         }
 
@@ -173,13 +191,98 @@ class AgendaController extends Controller
             $this->notify($data['assigned_to'], 'Nova reunião na agenda', "{$user['name']} agendou \"{$title}\" com você.");
         }
 
-        // Integração Google Agenda/Meet + convites (email + WhatsApp)
-        if (!empty($data['meeting_at'])) {
+        if ($isOperational) {
+            // Reunião operacional: notifica os participantes por WhatsApp + e-mail
+            $this->notifyParticipants($id);
+        } elseif (!empty($data['meeting_at'])) {
+            // Integração Google Agenda/Meet + convites (email + WhatsApp)
             // Se o evento já foi criado no modal (link gerado), só envia os convites; senão cria agora
             $this->createGoogleEventAndInvites($id, !$preEventId);
         }
 
         $this->json(['success' => true, 'meeting' => $this->model->findById($id)]);
+    }
+
+    /**
+     * Notifica os participantes internos de uma reunião (operacional) por WhatsApp e e-mail.
+     * Retorna um resumo com as quantidades enviadas.
+     */
+    private function notifyParticipants($meetingId)
+    {
+        $meeting = $this->model->findById($meetingId);
+        if (!$meeting) return ['email' => 0, 'whatsapp' => 0];
+
+        $participants = $this->model->getParticipantContacts($meetingId);
+        if (empty($participants)) return ['email' => 0, 'whatsapp' => 0];
+
+        $whenFmt = !empty($meeting['meeting_at'])
+            ? date('d/m/Y \à\s H:i', strtotime($meeting['meeting_at']))
+            : 'a definir';
+        $desc = trim($meeting['notes'] ?? '');
+
+        $sentEmail = 0;
+        $sentWhats = 0;
+
+        foreach ($participants as $p) {
+            // E-mail
+            if (!empty($p['email'])) {
+                $emailBody = Mailer::template(
+                    'Convite de Reunião',
+                    "<p>Olá, <strong>" . htmlspecialchars($p['name']) . "</strong>!</p>
+                     <p>Você foi incluído em uma reunião:</p>
+                     <p style='margin:6px 0;'><strong>Assunto:</strong> " . htmlspecialchars($meeting['title']) . "</p>
+                     <p style='margin:6px 0;'><strong>Data:</strong> {$whenFmt}</p>"
+                     . ($desc !== '' ? "<p style='margin:6px 0;'><strong>Descrição:</strong> " . nl2br(htmlspecialchars($desc)) . "</p>" : "")
+                     . "<p>Nos vemos lá!</p>"
+                );
+                try {
+                    if (Mailer::send($p['email'], 'Convite de Reunião — ' . $meeting['title'], $emailBody)) $sentEmail++;
+                } catch (\Throwable $e) { /* ignora */ }
+            }
+
+            // WhatsApp
+            if (!empty($p['phone'])) {
+                $waMsg = "📅 *Reunião agendada*\n\n"
+                    . "*Assunto:* {$meeting['title']}\n"
+                    . "*Data:* {$whenFmt}\n"
+                    . ($desc !== '' ? "*Descrição:* {$desc}\n" : "")
+                    . "\nAté breve!";
+                try {
+                    if (WhatsappNotifier::sendToPhone($p['phone'], $waMsg, $p['name'])) $sentWhats++;
+                } catch (\Throwable $e) { /* ignora */ }
+            }
+        }
+
+        try {
+            $this->model->update($meetingId, ['notifications_sent_at' => date('Y-m-d H:i:s')]);
+        } catch (\Throwable $e) { /* ignora */ }
+
+        return ['email' => $sentEmail, 'whatsapp' => $sentWhats];
+    }
+
+    /**
+     * API: reenvia as notificações (WhatsApp + e-mail) aos participantes da reunião.
+     * Para reuniões comerciais reaproveita o fluxo de convites (Google/Meet + cliente).
+     */
+    public function resendNotifications($id = null)
+    {
+        $this->requireRole($this->accessRoles);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+
+        $meeting = $this->model->findById($id);
+        if (!$meeting) $this->json(['error' => 'Reunião não encontrada'], 404);
+
+        if (($meeting['meeting_type'] ?? 'comercial') === 'operacional') {
+            $result = $this->notifyParticipants($id);
+            $this->json([
+                'success' => true,
+                'message' => "Notificações reenviadas: {$result['email']} e-mail(s), {$result['whatsapp']} WhatsApp.",
+            ]);
+        } else {
+            // Reunião comercial: reenvia convites sem recriar o evento no Google
+            $this->createGoogleEventAndInvites($id, false);
+            $this->json(['success' => true, 'message' => 'Convites reenviados.']);
+        }
     }
 
     /**
@@ -272,6 +375,7 @@ class AgendaController extends Controller
         if (!$meeting) $this->json(['error' => 'Reunião não encontrada'], 404);
 
         $user = $this->currentUser();
+        $isOperational = ($meeting['meeting_type'] ?? 'comercial') === 'operacional';
         $data = [];
         if (isset($_POST['title'])) $data['title'] = trim($_POST['title']);
         if (isset($_POST['assigned_to'])) $data['assigned_to'] = $_POST['assigned_to'] ?: null;
@@ -297,6 +401,16 @@ class AgendaController extends Controller
         if (isset($_POST['participants'])) {
             $participantIds = array_filter(array_map('intval', $_POST['participants']));
             $this->model->setParticipants($id, $participantIds);
+        }
+
+        // Reunião operacional: não mexe em briefing/Google. Só (re)notifica participantes
+        // quando o usuário pediu explicitamente (checkbox de reenvio).
+        if ($isOperational) {
+            if (!empty($_POST['resend_notifications'])) {
+                $this->notifyParticipants($id);
+            }
+            $this->json(['success' => true, 'meeting' => $this->model->findById($id)]);
+            return;
         }
 
         // Atualiza o briefing do cliente vinculado
