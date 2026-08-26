@@ -137,6 +137,11 @@ $sourceLabels = [
                                 <a class="btn btn-sm btn-success" title="Iniciar chat no WhatsApp" href="<?= baseUrl('whatsapp/chat/' . $l['id']) ?>">
                                     <i class="bi bi-whatsapp"></i>
                                 </a>
+                                <?php if (!empty($l['lead_source_url'])): ?>
+                                <a class="btn btn-sm btn-outline-primary" title="Abrir projeto original (99Freelas)" href="<?= escape($l['lead_source_url']) ?>" target="_blank" rel="noopener">
+                                    <i class="bi bi-box-arrow-up-right"></i>
+                                </a>
+                                <?php endif; ?>
                                 <?php if (!empty($showArchived)): ?>
                                 <button class="btn btn-sm btn-outline-success" title="Restaurar para a lista" onclick="toggleArchiveLead(<?= $l['id'] ?>, this)">
                                     <i class="bi bi-arrow-counterclockwise"></i>

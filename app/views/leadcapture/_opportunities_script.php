@@ -82,11 +82,12 @@ function oppCard(o) {
         ? `Cliente: ${escapeHtml(o.client_name)}${o.client_rating ? ' ★ ' + o.client_rating : ' (sem feedback)'}`
         : '';
 
-    let actions = `<a class="btn btn-sm btn-outline-primary" href="${escapeAttr(o.canonical_url)}" target="_blank" rel="noopener" onclick="markSeen(${o.id})"><i class="bi bi-box-arrow-up-right"></i> Abrir no 99Freelas</a>`;
+    // O link do projeto NÃO fica aqui: só é liberado após adicionar ao CRM (em Meus Leads).
+    let actions = '';
     if (o.status === 'convertida') {
-        actions += ` <a class="btn btn-sm btn-success" href="${BASE}crm/leads"><i class="bi bi-person-check"></i> Ver no CRM</a>`;
+        actions += `<a class="btn btn-sm btn-success" href="${BASE}crm/leads"><i class="bi bi-person-check"></i> Ver no CRM</a>`;
     } else {
-        actions += ` <button class="btn btn-sm btn-success" onclick="convertOpp(${o.id}, this)"><i class="bi bi-plus-circle"></i> Adicionar ao CRM</button>`;
+        actions += `<button class="btn btn-sm btn-success" onclick="convertOpp(${o.id}, this)"><i class="bi bi-plus-circle"></i> Adicionar ao CRM</button>`;
         if (o.status !== 'ignorada') {
             actions += ` <button class="btn btn-sm btn-outline-secondary" onclick="ignoreOpp(${o.id})"><i class="bi bi-slash-circle"></i> Ignorar</button>`;
         } else {

@@ -220,6 +220,11 @@ class LeadcaptureController extends Controller
             'notes' => $notes,
         ], $user['id']);
 
+        // Salva a URL de origem no contato — só acessível depois de aderir ao CRM
+        Database::getInstance()->update('whatsapp_contacts', [
+            'lead_source_url' => $opp['canonical_url'],
+        ], 'id = ?', [$contactId]);
+
         $this->model->markConverted($id, $contactId);
         $this->json(['success' => true, 'lead_id' => $contactId, 'lead_url' => baseUrl('crm/leads')]);
     }
