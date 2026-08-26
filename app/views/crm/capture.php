@@ -31,18 +31,18 @@
     // Flags de contexto para o script da captação
     window.CAP_IS_ADMIN = <?= !empty($isAdmin) ? 'true' : 'false' ?>;
     window.CAP_CREDIT_LIMIT = <?= (int)($creditLimit ?? 0) ?>;
+    window.CAP_USER_ID = <?= (int)($user['id'] ?? 0) ?>;
     </script>
 
     <!-- Legenda: como funcionam os créditos Apollo (conforme documentação oficial) -->
     <div class="alert alert-light border d-flex align-items-start gap-2 py-2 px-3 mb-3" style="font-size:0.82rem;">
         <i class="bi bi-info-circle text-info mt-1"></i>
         <div>
-            <strong>Como funcionam os créditos Apollo:</strong>
+            <strong>Como funcionam os créditos:</strong>
             pesquisar e ver dados básicos (nome, cargo, empresa) é <strong>gratuito</strong>.
-            Ao clicar em <strong>Liberar</strong>, o Apollo cobra <strong>1 crédito</strong> quando um e-mail verificado é retornado
-            e <strong>+8 créditos</strong> quando um telefone celular é retornado. Se nenhum dado for encontrado, <strong>nada é cobrado</strong>.
+            Cada <strong>Liberar</strong> (revela e-mail e telefone do contato) consome <strong>1 crédito</strong>.
             <?php if (($creditLimit ?? 0) > 0): ?>
-            Seu limite é de <strong><?= (int)$creditLimit ?> crédito(s) por dia</strong>. Ao atingir o limite, novas liberações só ficam disponíveis <strong>no dia seguinte</strong> (o contador reinicia automaticamente à meia-noite).
+            Seu limite é de <strong><?= (int)$creditLimit ?> consulta(s) por dia</strong>. Ao atingir o limite, novas liberações só ficam disponíveis <strong>no dia seguinte</strong> (o contador reinicia automaticamente à meia-noite).
             <?php else: ?>
             Seu acesso está com <strong>créditos ilimitados</strong>. O administrador pode definir um limite diário no seu perfil.
             <?php endif; ?>

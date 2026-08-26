@@ -290,6 +290,7 @@ function renderPeople(people, pagination) {
         <th>Local</th>
         <th>E-mail</th>
         <th>Telefone</th>
+        <th>Responsável</th>
         <th class="text-end">Ações</th>
     </tr>`;
     const body = document.getElementById('results-body');
@@ -328,10 +329,24 @@ function personRow(p) {
     // Considera "liberado" quando já há e-mail ou telefone revelado (ou solicitado)
     const revealed = !!(p.email || p.phone || p.phone_status);
 
+    // Responsável: quem já puxou o lead para "Meus Leads"
+    const isMine = p.imported && p.owner_id && String(p.owner_id) === String(window.CAP_USER_ID);
+    const ownedByOther = p.imported && p.owner_id && !isMine;
+    let owner;
+    if (isMine) {
+        owner = '<span class="badge bg-success"><i class="bi bi-person-check"></i> Meus Leads</span>';
+    } else if (p.imported) {
+        owner = `<span class="badge bg-secondary" title="Este lead já pertence a outro comercial"><i class="bi bi-person"></i> Lista de ${escapeHtml(p.owner_name || 'outro comercial')}</span>`;
+    } else {
+        owner = '<span class="text-muted">—</span>';
+    }
+
     let actions = '<div class="btn-group btn-group-sm">';
-    if (!p.imported) {
+    if (ownedByOther) {
+        // Lead já puxado por outra pessoa: não permite reimportar
+        actions += `<span class="badge bg-light text-dark border" title="Na lista de ${escapeHtml(p.owner_name || 'outro comercial')}"><i class="bi bi-lock"></i> Indisponível</span>`;
+    } else if (!p.imported) {
         if (!revealed) {
-            // LIBERAR dados (revela e-mail + solicita telefone)
             actions += `<button class="btn btn-outline-success" title="Liberar dados (e-mail e telefone)" onclick="revealOne(${p.local_id}, this)"><i class="bi bi-unlock"></i> Liberar</button>`;
         }
         actions += `<button class="btn btn-success" title="Enviar p/ Meus Leads" onclick="importOne(${p.local_id}, this)"><i class="bi bi-download"></i></button>`;
@@ -354,6 +369,7 @@ function personRow(p) {
         <td class="small">${escapeHtml(loc)}</td>
         <td>${email}</td>
         <td>${phone}</td>
+        <td class="small">${owner}</td>
         <td class="text-end text-nowrap">${actions}</td>
     </tr>`;
 }

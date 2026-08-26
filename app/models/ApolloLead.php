@@ -128,9 +128,12 @@ class ApolloLead
      */
     public function getList($filters = [])
     {
-        $sql = "SELECT a.*, u.name AS imported_by_name
+        $sql = "SELECT a.*, u.name AS imported_by_name,
+                       owner.id AS owner_id, owner.name AS owner_name
                 FROM apollo_leads a
                 LEFT JOIN users u ON a.imported_by = u.id
+                LEFT JOIN whatsapp_contacts wc ON a.contact_id = wc.id
+                LEFT JOIN users owner ON wc.assigned_to = owner.id
                 WHERE 1=1";
         $params = [];
 

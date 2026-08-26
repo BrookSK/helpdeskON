@@ -1584,14 +1584,10 @@ class CrmController extends Controller
         $updated = $leadModel->findById($localId);
         $formatted = $this->formatApolloPerson($person, $updated);
 
-        // Contabiliza créditos conforme a documentação oficial do Apollo:
-        // 1 crédito quando há e-mail/dados demográficos; +8 se um celular for
-        // retornado. Como o telefone chega depois (webhook), os 8 créditos do
-        // telefone são debitados no retorno assíncrono. Se nada vier, 0 créditos.
-        $emailCost = !empty($formatted['email']) ? ApolloCreditUsage::COST_EMAIL : 0;
-        if ($emailCost > 0) $credit->consume($user['id'], $emailCost);
+        // Cada liberação (consulta) consome exatamente 1 crédito do limite diário.
+        $credit->consume($user['id'], 1);
 
-        // Se pedimos o telefone, guarda o request_id/solicitante para casar com o webhook.
+        // Se pedimos o telefone, guarda o request_id para casar com o webhook.
         $phonePending = false;
         if ($wantPhone && $webhookUrl) {
             $requestId = $person['id'] ?? ($res['data']['request_id'] ?? null);
@@ -1679,12 +1675,6 @@ class CrmController extends Controller
             $update = ['phone_status' => 'received'];
             if ($phone) { $update['phone'] = $phone; $update['is_enriched'] = 1; }
             $leadModel->update($lead['id'], $update);
-
-            // Debita os créditos do telefone (Apollo cobra +8 quando um celular é
-            // retornado) do usuário que solicitou a revelação.
-            if ($phone && !empty($lead['phone_requested_by'])) {
-                try { (new ApolloCreditUsage())->consume($lead['phone_requested_by'], ApolloCreditUsage::COST_MOBILE); } catch (\Throwable $e) {}
-            }
 
             // Propaga para o contato do CRM já importado, se houver
             if ($phone && !empty($lead['contact_id'])) {
@@ -2165,6 +2155,8 @@ class CrmController extends Controller
             'is_enriched' => (int)($stored['is_enriched'] ?? ($hasRealEmail ? 1 : 0)),
             'imported' => !empty($stored['contact_id']),
             'contact_id' => $stored['contact_id'] ?? null,
+            'owner_id' => $stored['owner_id'] ?? null,
+            'owner_name' => $stored['owner_name'] ?? null,
         ];
     }
 
@@ -2194,6 +2186,9 @@ class CrmController extends Controller
             'imported' => !empty($l['contact_id']),
             'contact_id' => $l['contact_id'],
             'imported_at' => $l['imported_at'],
+            // Responsável: dono do lead no CRM (assigned_to) ou quem importou
+            'owner_id' => $l['owner_id'] ?? null,
+            'owner_name' => $l['owner_name'] ?? ($l['imported_by_name'] ?? null),
         ];
     }
 }
