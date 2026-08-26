@@ -22,6 +22,7 @@
                 <div class="card-header bg-white py-2"><h6 class="mb-0" style="font-size:0.82rem;">Blocos</h6></div>
                 <div class="card-body p-2 d-flex flex-column gap-2" id="palette">
                     <button class="btn btn-sm btn-outline-secondary text-start" onclick="addNode('send')"><i class="bi bi-envelope"></i> Enviar e-mail</button>
+                    <button class="btn btn-sm btn-outline-secondary text-start" onclick="addNode('whatsapp')"><i class="bi bi-whatsapp"></i> Enviar WhatsApp</button>
                     <button class="btn btn-sm btn-outline-secondary text-start" onclick="addNode('wait')"><i class="bi bi-clock"></i> Aguardar</button>
                     <button class="btn btn-sm btn-outline-secondary text-start" onclick="addNode('condition')"><i class="bi bi-signpost-split"></i> Condição</button>
                     <button class="btn btn-sm btn-outline-secondary text-start" onclick="addNode('tag')"><i class="bi bi-tag"></i> Adicionar tag</button>

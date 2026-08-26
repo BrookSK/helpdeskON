@@ -168,6 +168,12 @@ class SequenceEngine
                 $this->logExec($participant['id'], $nodeId, $type, 'done');
                 return 'sent';
 
+            case 'whatsapp':
+                $this->doWhatsapp($participant, $node);
+                $this->advance($participant, $node['next'] ?? null, $nodes);
+                $this->logExec($participant['id'], $nodeId, $type, 'done');
+                return 'sent';
+
             case 'wait':
                 $secs = $this->waitSeconds($node['data'] ?? []);
                 $this->db->update('sequence_participants', [
@@ -239,6 +245,25 @@ class SequenceEngine
             'sequence_participant_id' => $participant['id'],
             'node_id' => $node['id'],
         ]);
+    }
+
+    private function doWhatsapp($participant, $node)
+    {
+        $contactId = $participant['contact_id'];
+        $contact = $this->db->fetch("SELECT phone, contact_name, push_name, lead_email FROM whatsapp_contacts WHERE id = ?", [$contactId]);
+        if (empty($contact['phone'])) {
+            (new LeadTimelineService())->add($contactId, 'note', 'WhatsApp da sequência não enviado: lead sem telefone.');
+            return;
+        }
+        $msg = $this->render($node['data']['body'] ?? '', $contact);
+        if (trim($msg) === '') return;
+
+        try {
+            WhatsappNotifier::sendToPhone($contact['phone'], $msg, $contact['contact_name'] ?? null);
+            (new LeadTimelineService())->add($contactId, 'note', 'WhatsApp enviado pela sequência.', ['channel' => 'whatsapp']);
+        } catch (\Throwable $e) {
+            Logger::error('SequenceEngine whatsapp', ['contact' => $contactId, 'error' => $e->getMessage()]);
+        }
     }
 
     private function evalCondition($kind, $contactId)
@@ -357,13 +382,8 @@ class SequenceEngine
 
     private function render($text, $contact)
     {
-        $name = $contact['contact_name'] ?? '';
-        $first = trim(explode(' ', $name)[0] ?? '');
-        return strtr((string) $text, [
-            '{{nome}}' => $name,
-            '{{primeiro_nome}}' => $first,
-            '{{email}}' => $contact['lead_email'] ?? '',
-        ]);
+        // Usa o renderizador único de templates (mesmas variáveis em toda a plataforma)
+        return MessageTemplate::render($text, $contact);
     }
 
     /**

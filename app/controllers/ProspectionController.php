@@ -33,11 +33,18 @@ class ProspectionController extends Controller
             "SELECT id, name FROM email_sequences WHERE is_active = 1 ORDER BY name ASC"
         );
 
+        // Templates de e-mail (para disparo manual padronizado, editável antes de enviar)
+        $templates = [];
+        try {
+            $templates = (new MessageTemplate())->all('email');
+        } catch (\Throwable $e) { /* módulo de templates pode não estar migrado */ }
+
         $this->view('prospection/index', [
             'user' => $user,
             'accounts' => $accounts,
             'leads' => $leads,
             'sequences' => $sequences,
+            'templates' => $templates,
         ]);
     }
 

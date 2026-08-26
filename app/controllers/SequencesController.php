@@ -164,4 +164,52 @@ class SequencesController extends Controller
         );
         $this->json(['leads' => $rows]);
     }
+
+    // ============ Templates ============
+
+    /** Lista de templates (JSON). GET sequences/templates?channel= */
+    public function templates()
+    {
+        $this->requireRole($this->roles);
+        $channel = in_array($_GET['channel'] ?? '', ['email', 'whatsapp']) ? $_GET['channel'] : null;
+        $this->json(['templates' => (new MessageTemplate())->all($channel)]);
+    }
+
+    /** Cria/atualiza um template. POST sequences/saveTemplate */
+    public function saveTemplate()
+    {
+        $this->requireRole($this->roles);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+
+        $user = $this->currentUser();
+        $id = intval($_POST['id'] ?? 0);
+        $channel = in_array($_POST['channel'] ?? '', ['email', 'whatsapp']) ? $_POST['channel'] : 'email';
+        $name = trim($_POST['name'] ?? '');
+        $body = $_POST['body'] ?? '';
+        if ($name === '' || trim($body) === '') $this->json(['error' => 'Informe nome e conteúdo do template.'], 400);
+
+        $data = [
+            'channel' => $channel,
+            'name' => $name,
+            'subject' => ($channel === 'email') ? (trim($_POST['subject'] ?? '') ?: null) : null,
+            'body' => $body,
+        ];
+        $model = new MessageTemplate();
+        if ($id) {
+            $model->update($id, $data);
+        } else {
+            $data['created_by'] = $user['id'];
+            $id = $model->create($data);
+        }
+        $this->json(['success' => true, 'id' => $id]);
+    }
+
+    /** Exclui um template. POST sequences/deleteTemplate/{id} */
+    public function deleteTemplate($id = null)
+    {
+        $this->requireRole($this->roles);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+        (new MessageTemplate())->delete($id);
+        $this->json(['success' => true]);
+    }
 }

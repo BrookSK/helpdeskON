@@ -66,6 +66,21 @@
                                 <input type="text" id="pf-bcc" class="form-control form-control-sm" placeholder="oculto@email.com">
                             </div>
 
+                            <!-- Template -->
+                            <?php if (!empty($templates)): ?>
+                            <div class="col-12">
+                                <label class="form-label small fw-medium">Template <small class="text-muted">(preenche assunto e mensagem — você pode editar)</small></label>
+                                <select id="pf-template" class="form-select form-select-sm" onchange="applyEmailTemplate(this.value)">
+                                    <option value="">— nenhum —</option>
+                                    <?php foreach ($templates as $t): ?>
+                                    <option value="<?= $t['id'] ?>"
+                                        data-subject="<?= escape($t['subject'] ?? '') ?>"
+                                        data-body="<?= escape($t['body']) ?>"><?= escape($t['name']) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <?php endif; ?>
+
                             <!-- Assunto -->
                             <div class="col-12">
                                 <label class="form-label small fw-medium">Assunto *</label>
@@ -289,6 +304,32 @@ function sendEmail() {
         btn.innerHTML = '<i class="bi bi-send"></i> Enviar E-mail';
         alert('Erro de conexão.');
     });
+}
+
+// Preenche assunto e corpo a partir do template escolhido (editável antes de enviar).
+// Substitui as variáveis com os dados do lead vinculado, quando houver.
+function applyEmailTemplate(id) {
+    if (!id) return;
+    const opt = document.querySelector(`#pf-template option[value="${id}"]`);
+    if (!opt) return;
+    let subject = opt.dataset.subject || '';
+    let body = opt.dataset.body || '';
+
+    // Substitui variáveis com o lead selecionado (se houver)
+    const sel = document.getElementById('pf-contact');
+    const leadName = sel.value ? (sel.options[sel.selectedIndex].textContent.split(' — ')[0].trim()) : '';
+    const first = leadName ? leadName.split(' ')[0] : '';
+    const email = document.getElementById('pf-recipient-email').value.trim();
+    const repl = (s) => s.replace(/\{\{nome\}\}/g, leadName).replace(/\{\{primeiro_nome\}\}/g, first)
+        .replace(/\{\{email\}\}/g, email).replace(/\{\{empresa\}\}/g, '');
+    subject = repl(subject); body = repl(body);
+
+    if (subject) document.getElementById('pf-subject').value = subject;
+    if (quill && body) {
+        // Se o template tiver HTML, injeta como HTML; senão como texto
+        if (/<[a-z][\s\S]*>/i.test(body)) quill.root.innerHTML = body;
+        else quill.setText(body);
+    }
 }
 
 function toggleEnroll() {

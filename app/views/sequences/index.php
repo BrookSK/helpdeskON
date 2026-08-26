@@ -8,10 +8,35 @@
             <h5 class="mb-0"><i class="bi bi-diagram-3"></i> Sequências de E-mail</h5>
             <small class="text-muted">Follow-up automático de leads do CRM</small>
         </div>
-        <a href="<?= baseUrl('sequences/edit') ?>" class="btn btn-sm btn-primary"><i class="bi bi-plus-lg"></i> Nova sequência</a>
+        <div class="d-flex gap-2">
+            <a href="<?= baseUrl('sequences/edit') ?>" class="btn btn-sm btn-primary" id="btn-new-seq"><i class="bi bi-plus-lg"></i> Nova sequência</a>
+            <button class="btn btn-sm btn-primary d-none" id="btn-new-tpl" onclick="openTemplate()"><i class="bi bi-plus-lg"></i> Novo template</button>
+        </div>
     </div>
 
-    <div class="row g-3">
+    <ul class="nav nav-pills seq-tabs mb-3" id="seq-tabs">
+        <li class="nav-item"><button class="nav-link active" data-tab="sequences" onclick="switchSeqTab('sequences')"><i class="bi bi-diagram-3"></i> Sequências</button></li>
+        <li class="nav-item"><button class="nav-link" data-tab="templates" onclick="switchSeqTab('templates')"><i class="bi bi-file-earmark-text"></i> Templates</button></li>
+    </ul>
+    <style>
+    .seq-tabs .nav-link { color:#555; font-size:0.85rem; border-radius:8px; }
+    .seq-tabs .nav-link.active { background: var(--primary); color:#fff; }
+    </style>
+
+    <!-- ABA TEMPLATES -->
+    <div id="tab-templates" style="display:none;">
+        <div class="card">
+            <div class="card-body p-0">
+                <table class="table table-hover align-middle mb-0" style="font-size:0.85rem;">
+                    <thead class="table-light"><tr><th>Nome</th><th>Canal</th><th>Assunto</th><th class="text-end">Ações</th></tr></thead>
+                    <tbody id="tpl-tbody"><tr><td colspan="4" class="text-center text-muted py-3">Carregando...</td></tr></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ABA SEQUÊNCIAS -->
+    <div id="tab-sequences" class="row g-3">
         <?php if (empty($sequences)): ?>
         <div class="col-12">
             <div class="card"><div class="card-body text-center py-5">
@@ -49,12 +74,124 @@
     </div>
 </div>
 
+<!-- Modal Template -->
+<div class="modal fade" id="tplModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title" id="tpl-modal-title">Novo template</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="tpl-id">
+                <div class="row g-2">
+                    <div class="col-md-8">
+                        <label class="form-label small fw-medium">Nome *</label>
+                        <input type="text" id="tpl-name" class="form-control form-control-sm" placeholder="Ex: Apresentação comercial">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small fw-medium">Canal *</label>
+                        <select id="tpl-channel" class="form-select form-select-sm" onchange="tplChannelChange()">
+                            <option value="email">E-mail</option>
+                            <option value="whatsapp">WhatsApp</option>
+                        </select>
+                    </div>
+                    <div class="col-12" id="tpl-subject-wrap">
+                        <label class="form-label small fw-medium">Assunto</label>
+                        <input type="text" id="tpl-subject" class="form-control form-control-sm" placeholder="Assunto do e-mail">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small fw-medium">Conteúdo *</label>
+                        <textarea id="tpl-body" class="form-control form-control-sm" rows="8" placeholder="Olá {{primeiro_nome}}, ..."></textarea>
+                        <small class="text-muted">Variáveis: {{nome}}, {{primeiro_nome}}, {{email}}, {{empresa}}</small>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button class="btn btn-sm btn-primary" onclick="saveTemplate()"><i class="bi bi-check-lg"></i> Salvar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
 const BASE = '<?= baseUrl('') ?>';
+let tplModal = null;
+
+function switchSeqTab(tab) {
+    document.querySelectorAll('#seq-tabs .nav-link').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+    document.getElementById('tab-sequences').style.display = (tab === 'sequences') ? '' : 'none';
+    document.getElementById('tab-templates').style.display = (tab === 'templates') ? '' : 'none';
+    document.getElementById('btn-new-seq').classList.toggle('d-none', tab !== 'sequences');
+    document.getElementById('btn-new-tpl').classList.toggle('d-none', tab !== 'templates');
+    if (tab === 'templates') loadTemplates();
+}
+
 function delSeq(id) {
     if (!confirm('Excluir esta sequência? Os participantes e o histórico serão removidos.')) return;
     fetch(BASE + 'sequences/delete/' + id, { method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'} })
         .then(r=>r.json()).then(d=>{ if(d.error){alert(d.error);return;} location.reload(); });
 }
+
+// ---- Templates ----
+function loadTemplates() {
+    fetch(BASE + 'sequences/templates', {headers:{'X-Requested-With':'XMLHttpRequest'}})
+        .then(r=>r.json()).then(d=>{
+            const tb = document.getElementById('tpl-tbody');
+            const ts = d.templates || [];
+            if (!ts.length) { tb.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">Nenhum template. Clique em "Novo template".</td></tr>'; return; }
+            tb.innerHTML = ts.map(t => `<tr>
+                <td class="fw-semibold">${escapeHtml(t.name)}</td>
+                <td><span class="badge ${t.channel==='whatsapp'?'bg-success':'bg-primary'}">${t.channel==='whatsapp'?'WhatsApp':'E-mail'}</span></td>
+                <td class="text-muted small">${escapeHtml(t.subject||'—')}</td>
+                <td class="text-end text-nowrap">
+                    <button class="btn btn-sm btn-outline-secondary" onclick='editTemplate(${JSON.stringify(t)})'><i class="bi bi-pencil"></i></button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="delTemplate(${t.id})"><i class="bi bi-trash"></i></button>
+                </td></tr>`).join('');
+        });
+}
+function getTplModal(){ if(!tplModal) tplModal = new bootstrap.Modal(document.getElementById('tplModal')); return tplModal; }
+function openTemplate() {
+    document.getElementById('tpl-modal-title').textContent = 'Novo template';
+    document.getElementById('tpl-id').value = '';
+    document.getElementById('tpl-name').value = '';
+    document.getElementById('tpl-channel').value = 'email';
+    document.getElementById('tpl-subject').value = '';
+    document.getElementById('tpl-body').value = '';
+    tplChannelChange();
+    getTplModal().show();
+}
+function editTemplate(t) {
+    document.getElementById('tpl-modal-title').textContent = 'Editar template';
+    document.getElementById('tpl-id').value = t.id;
+    document.getElementById('tpl-name').value = t.name || '';
+    document.getElementById('tpl-channel').value = t.channel || 'email';
+    document.getElementById('tpl-subject').value = t.subject || '';
+    document.getElementById('tpl-body').value = t.body || '';
+    tplChannelChange();
+    getTplModal().show();
+}
+function tplChannelChange() {
+    const isEmail = document.getElementById('tpl-channel').value === 'email';
+    document.getElementById('tpl-subject-wrap').style.display = isEmail ? '' : 'none';
+}
+function saveTemplate() {
+    const fd = new FormData();
+    const id = document.getElementById('tpl-id').value;
+    if (id) fd.append('id', id);
+    fd.append('channel', document.getElementById('tpl-channel').value);
+    fd.append('name', document.getElementById('tpl-name').value.trim());
+    fd.append('subject', document.getElementById('tpl-subject').value);
+    fd.append('body', document.getElementById('tpl-body').value);
+    fetch(BASE + 'sequences/saveTemplate', {method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest'}})
+        .then(r=>r.json()).then(d=>{ if(d.error){alert(d.error);return;} getTplModal().hide(); loadTemplates(); });
+}
+function delTemplate(id) {
+    if (!confirm('Excluir este template?')) return;
+    fetch(BASE + 'sequences/deleteTemplate/' + id, {method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}})
+        .then(r=>r.json()).then(()=>loadTemplates());
+}
+function escapeHtml(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 </script>
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>

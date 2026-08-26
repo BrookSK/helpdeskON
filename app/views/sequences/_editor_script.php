@@ -16,7 +16,7 @@
 .seq-node .port.out.yes { left:26%; background:#d4edda; border-color:#28a745; }
 .seq-node .port.out.no { left:66%; background:#f8d7da; border-color:#dc3545; }
 .seq-node .port.in { top:-10px; left:calc(50% - 9px); background:#e9ecef; }
-.n-send .hd{color:#0d6efd} .n-wait .hd{color:#fd7e14} .n-condition .hd{color:#6f42c1}
+.n-send .hd{color:#0d6efd} .n-whatsapp .hd{color:#198754} .n-wait .hd{color:#fd7e14} .n-condition .hd{color:#6f42c1}
 .n-tag .hd{color:#20c997} .n-score .hd{color:#e0a800} .n-move .hd{color:#0dcaf0} .n-end .hd{color:#dc3545}
 #link-hint { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#1a1a2e; color:#fff;
     padding:8px 16px; border-radius:20px; font-size:0.8rem; z-index:2000; display:none; box-shadow:0 4px 12px rgba(0,0,0,.3); }
@@ -28,7 +28,8 @@
 const BASE = '<?= baseUrl('') ?>';
 const SEQ_ID = <?= $sequence ? (int)$sequence['id'] : 'null' ?>;
 const COLUMNS = <?= json_encode(array_map(fn($c) => ['id'=>$c['id'],'label'=>$c['board_name'].' · '.$c['name']], $columns), JSON_UNESCAPED_UNICODE) ?>;
-const NODE_LABELS = { send:'Enviar e-mail', wait:'Aguardar', condition:'Condição', tag:'Tag', score:'Score', move:'Mover card', end:'Encerrar' };
+const NODE_LABELS = { send:'Enviar e-mail', whatsapp:'Enviar WhatsApp', wait:'Aguardar', condition:'Condição', tag:'Tag', score:'Score', move:'Mover card', end:'Encerrar' };
+let EMAIL_TEMPLATES = [], WA_TEMPLATES = [];
 
 let nodes = [];       // {id, type, x, y, data, next, nextYes, nextNo, _el}
 let selectedId = null;
@@ -90,6 +91,7 @@ function nodeSummary(n) {
     const d = n.data || {};
     switch (n.type) {
         case 'send': return d.subject ? ('Assunto: ' + escapeHtml(d.subject)) : '<em>sem assunto</em>';
+        case 'whatsapp': return d.body ? escapeHtml(d.body.slice(0,50)) : '<em>sem mensagem</em>';
         case 'wait': return 'Aguardar ' + (d.amount||0) + ' ' + ({minutes:'min',hours:'h',days:'dias'}[d.unit]||'dias');
         case 'condition': return 'Se ' + ({replied:'respondeu',opened:'abriu',clicked:'clicou'}[d.kind]||'?') + '?';
         case 'tag': return 'Tag: ' + escapeHtml(d.label||'');
@@ -163,6 +165,7 @@ function addNode(type) {
 }
 function defaultData(type) {
     if (type === 'send') return { subject:'', body:'' };
+    if (type === 'whatsapp') return { body:'' };
     if (type === 'wait') return { amount:2, unit:'days' };
     if (type === 'condition') return { kind:'replied' };
     if (type === 'tag') return { label:'' };
@@ -218,9 +221,14 @@ function renderInspector() {
     if (!n) { box.innerHTML = '<p class="text-muted small mb-0">Selecione um bloco para editar.</p>'; return; }
     let h = `<div class="mb-2 fw-semibold small">${NODE_LABELS[n.type]}</div>`;
     if (n.type==='send') {
-        h += field('Assunto', `<input class="form-control form-control-sm" value="${escapeAttr(n.data.subject||'')}" oninput="setData('subject',this.value)">`);
-        h += field('Mensagem (HTML)', `<textarea class="form-control form-control-sm" rows="6" oninput="setData('body',this.value)">${escapeHtml(n.data.body||'')}</textarea>`);
-        h += `<small class="text-muted">Variáveis: {{nome}}, {{primeiro_nome}}, {{email}}</small>`;
+        h += templatePicker('email');
+        h += field('Assunto', `<input id="insp-subject" class="form-control form-control-sm" value="${escapeAttr(n.data.subject||'')}" oninput="setData('subject',this.value)">`);
+        h += field('Mensagem (HTML)', `<textarea id="insp-body" class="form-control form-control-sm" rows="6" oninput="setData('body',this.value)">${escapeHtml(n.data.body||'')}</textarea>`);
+        h += `<small class="text-muted">Variáveis: {{nome}}, {{primeiro_nome}}, {{email}}, {{empresa}}</small>`;
+    } else if (n.type==='whatsapp') {
+        h += templatePicker('whatsapp');
+        h += field('Mensagem', `<textarea id="insp-body" class="form-control form-control-sm" rows="6" oninput="setData('body',this.value)">${escapeHtml(n.data.body||'')}</textarea>`);
+        h += `<small class="text-muted">Enviada pela conexão de WhatsApp. Variáveis: {{nome}}, {{primeiro_nome}}, {{empresa}}</small>`;
     } else if (n.type==='wait') {
         h += field('Quantidade', `<input type="number" min="1" class="form-control form-control-sm" value="${n.data.amount||1}" oninput="setData('amount',parseInt(this.value)||1)">`);
         h += field('Unidade', `<select class="form-select form-select-sm" onchange="setData('unit',this.value)">
@@ -258,6 +266,30 @@ function renderInspector() {
     box.innerHTML = h;
 }
 function field(label, input) { return `<div class="mb-2"><label class="form-label small mb-1">${label}</label>${input}</div>`; }
+
+// Seletor de template para preencher o bloco
+function templatePicker(channel) {
+    const list = channel === 'whatsapp' ? WA_TEMPLATES : EMAIL_TEMPLATES;
+    if (!list.length) return '<div class="mb-2"><small class="text-muted">Nenhum template ' + (channel==='whatsapp'?'de WhatsApp':'de e-mail') + '. Crie em Sequências → Templates.</small></div>';
+    const opts = '<option value="">— usar template —</option>' + list.map(t=>`<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
+    return field('Template', `<select class="form-select form-select-sm" onchange="applyTemplate('${channel}', this.value)">${opts}</select>`);
+}
+function applyTemplate(channel, id) {
+    if (!id) return;
+    const list = channel === 'whatsapp' ? WA_TEMPLATES : EMAIL_TEMPLATES;
+    const t = list.find(x=>x.id==id); if (!t) return;
+    const n = nodes.find(x=>x.id===selectedId); if (!n) return;
+    if (channel === 'email' && t.subject) { n.data.subject = t.subject; const s=document.getElementById('insp-subject'); if(s)s.value=t.subject; }
+    n.data.body = t.body || '';
+    const b = document.getElementById('insp-body'); if (b) b.value = n.data.body;
+    refreshNodeBody(n);
+}
+function loadTemplatesForEditor() {
+    fetch(BASE + 'sequences/templates', {headers:{'X-Requested-With':'XMLHttpRequest'}})
+        .then(r=>r.json()).then(d=>{
+            (d.templates||[]).forEach(t => { if (t.channel==='whatsapp') WA_TEMPLATES.push(t); else EMAIL_TEMPLATES.push(t); });
+        }).catch(()=>{});
+}
 
 // Atualiza dado sem recriar o nó (mantém foco no input) — só refresca o summary
 function setData(key, val) {
@@ -343,6 +375,7 @@ function escapeAttr(s){return escapeHtml(s);}
 // ESC cancela ligação
 document.addEventListener('keydown', (e)=>{ if (e.key==='Escape' && linkFrom) cancelLink(); });
 
+loadTemplatesForEditor();
 buildAll();
 renderInspector();
 </script>
