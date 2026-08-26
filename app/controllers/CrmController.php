@@ -1436,8 +1436,10 @@ class CrmController extends Controller
         $user = $this->currentUser();
 
         $apollo = new ApolloApi();
+        // currentUser() vem da sessão e não traz apollo_daily_credits; busca o registro completo.
+        $fullUser = (new User())->findById($user['id']) ?: $user;
         $credit = new ApolloCreditUsage();
-        $chk = $credit->check($user, 0);
+        $chk = $credit->check($fullUser, 0);
         $this->view('crm/capture', [
             'user' => $user,
             'apolloConfigured' => $apollo->isConfigured(),
@@ -1544,7 +1546,7 @@ class CrmController extends Controller
         // Controle de crédito diário do usuário. O custo real é definido pelo
         // Apollo (1 crédito p/ e-mail, +8 p/ celular); aqui exigimos ao menos 1
         // crédito disponível para permitir a liberação.
-        $user = $this->currentUser();
+        $user = (new User())->findById($this->currentUser()['id']) ?: $this->currentUser();
         $credit = new ApolloCreditUsage();
         $chk = $credit->check($user, 1);
         if (!$chk['allowed']) {
