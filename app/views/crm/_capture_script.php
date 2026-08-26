@@ -21,8 +21,16 @@ function switchTab(tab) {
 
     document.getElementById('people-filters').style.display = (tab === 'people') ? '' : 'none';
     document.getElementById('orgs-filters').style.display = (tab === 'orgs') ? '' : 'none';
-    document.getElementById('filters-col').style.display = (tab === 'captured') ? 'none' : '';
-    document.getElementById('search-btn').closest('.card-footer').style.display = (tab === 'captured') ? 'none' : '';
+
+    // Sem filtros (aba Capturados): esconde a coluna de filtros e faz os resultados
+    // ocuparem a largura total, alinhando com o header da página.
+    const filtersCol = document.getElementById('filters-col');
+    const resultsCol = document.getElementById('results-col');
+    const hideFilters = (tab === 'captured');
+    filtersCol.style.display = hideFilters ? 'none' : '';
+    resultsCol.classList.toggle('col-lg-9', !hideFilters);
+    resultsCol.classList.toggle('col-lg-12', hideFilters);
+    document.getElementById('search-btn').closest('.card-footer').style.display = hideFilters ? 'none' : '';
     selected.clear();
     updateBulkBar();
     if (tab === 'captured') { loadCaptured(1); }
