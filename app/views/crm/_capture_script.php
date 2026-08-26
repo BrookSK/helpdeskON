@@ -46,19 +46,25 @@ function resetResults() {
 function collectFilters() {
     const fd = new FormData();
     const scope = currentTab === 'orgs' ? 'orgs' : 'people';
-    // Campos que viram arrays/strings de filtro
+
+    // 1) Campos simples: texto (data-key) e checkbox booleano (data-bool)
     document.querySelectorAll('.f-' + scope).forEach(el => {
         const key = el.dataset.key;
-        if (el.type === 'checkbox') {
+        if (el.type === 'checkbox' && el.dataset.bool) {
             fd.append(key, el.checked ? 'true' : 'false');
-        } else if (el.multiple) {
-            const vals = Array.from(el.selectedOptions).map(o => o.value).filter(Boolean);
-            if (vals.length) fd.append(key, vals.join(','));
-        } else if (el.value.trim() !== '') {
+        } else if (el.type !== 'checkbox' && el.value.trim() !== '') {
             fd.append(key, el.value.trim());
         }
     });
-    // Campos "raw" (min/max/datas) enviados como estão
+
+    // 2) Checkboxes de múltipla escolha (chips): agrupa por data-key e junta com vírgula
+    const multi = {};
+    document.querySelectorAll('.f-' + scope + '-multi:checked').forEach(el => {
+        (multi[el.dataset.key] = multi[el.dataset.key] || []).push(el.value);
+    });
+    Object.keys(multi).forEach(k => fd.append(k, multi[k].join(',')));
+
+    // 3) Campos de intervalo (selects/inputs min-max, datas)
     document.querySelectorAll('.f-' + scope + '-raw').forEach(el => {
         if (el.value !== '') fd.append(el.dataset.key, el.value);
     });
@@ -68,11 +74,22 @@ function collectFilters() {
 function clearFilters() {
     const scope = currentTab === 'orgs' ? 'orgs' : 'people';
     document.querySelectorAll('.f-' + scope).forEach(el => {
-        if (el.type === 'checkbox') el.checked = (el.id === 'similar-titles');
-        else if (el.multiple) Array.from(el.options).forEach(o => o.selected = false);
+        if (el.type === 'checkbox') el.checked = !!el.dataset.bool; // bool volta marcado (default)
         else el.value = '';
     });
-    document.querySelectorAll('.f-' + scope + '-raw').forEach(el => el.value = '');
+    document.querySelectorAll('.f-' + scope + '-multi').forEach(el => el.checked = false);
+    document.querySelectorAll('.f-' + scope + '-raw').forEach(el => { el.value = (el.tagName === 'SELECT') ? '' : ''; });
+    // Reaplica o estado visual dos chips
+    document.querySelectorAll('.cap-chip').forEach(chip => {
+        const cb = chip.querySelector('input[type=checkbox]');
+        if (cb) chip.classList.toggle('checked', cb.checked);
+    });
+}
+
+// Reflete o estado do checkbox no visual do chip
+function syncChip(cb) {
+    const chip = cb.closest('.cap-chip');
+    if (chip) chip.classList.toggle('checked', cb.checked);
 }
 
 // ===== Busca =====
@@ -520,5 +537,15 @@ function escapeHtml(s) {
 }
 function escapeAttr(s) { return escapeHtml(s); }
 
-document.addEventListener('DOMContentLoaded', checkApolloStatus);
+// Aplica o estado visual inicial dos chips (ex.: "cargos similares" já vem marcado)
+function initChips() {
+    document.querySelectorAll('.cap-chip input[type=checkbox]').forEach(cb => {
+        cb.closest('.cap-chip').classList.toggle('checked', cb.checked);
+    });
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    checkApolloStatus();
+    initChips();
+});
 </script>
