@@ -122,11 +122,27 @@
     <div class="modal-dialog modal-xl modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
-                <h6 class="modal-title" id="email-modal-subject"><i class="bi bi-envelope-open"></i> E-mail</h6>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <h6 class="modal-title text-truncate" id="email-modal-subject" style="max-width:60%;"><i class="bi bi-envelope-open"></i> E-mail</h6>
+                <div class="d-flex align-items-center gap-2">
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="btn-reply" onclick="toggleReply()"><i class="bi bi-reply"></i> Responder</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-archive" onclick="archiveCurrent()"><i class="bi bi-archive"></i> Arquivar</button>
+                    <button type="button" class="btn btn-sm btn-outline-danger" id="btn-delete" onclick="deleteCurrent()"><i class="bi bi-trash"></i> Excluir</button>
+                    <button type="button" class="btn-close ms-1" data-bs-dismiss="modal"></button>
+                </div>
             </div>
             <div class="modal-body" id="email-modal-body">
                 <div class="text-center py-5"><span class="spinner-border"></span></div>
+            </div>
+            <!-- Área de resposta (oculta por padrão) -->
+            <div class="modal-footer flex-column align-items-stretch" id="reply-area" style="display:none;">
+                <div class="w-100">
+                    <label class="form-label small fw-medium mb-1">Responder para <span id="reply-to-label" class="text-muted"></span></label>
+                    <textarea id="reply-body" class="form-control form-control-sm mb-2" rows="5" placeholder="Escreva sua resposta..."></textarea>
+                    <div class="d-flex justify-content-end gap-2">
+                        <button class="btn btn-sm btn-outline-secondary" onclick="toggleReply()">Cancelar</button>
+                        <button class="btn btn-sm btn-primary" id="reply-send-btn" onclick="sendReply()"><i class="bi bi-send"></i> Enviar resposta</button>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -136,6 +152,7 @@
 const BASE = '<?= baseUrl("") ?>';
 const ACCOUNT_ID = <?= (int)$selectedAccountId ?>;
 let emailModal = null;
+let currentEmail = null; // { uid, from_email, from, subject }
 
 function getEmailModal() {
     if (!emailModal) emailModal = new bootstrap.Modal(document.getElementById('emailModal'));
@@ -147,6 +164,9 @@ function openEmail(uid) {
     const title = document.getElementById('email-modal-subject');
     body.innerHTML = '<div class="text-center py-5"><span class="spinner-border"></span></div>';
     title.innerHTML = '<i class="bi bi-envelope-open"></i> Carregando...';
+    // Reseta a área de resposta
+    document.getElementById('reply-area').style.display = 'none';
+    document.getElementById('reply-body').value = '';
     getEmailModal().show();
 
     const fd = new FormData();
@@ -167,6 +187,7 @@ function openEmail(uid) {
         }
 
         const msg = d.message;
+        currentEmail = { uid: uid, from_email: msg.from_email, from: msg.from, subject: msg.subject };
         title.innerHTML = '<i class="bi bi-envelope-open"></i> ' + escapeHtml(msg.subject);
 
         let html = `
@@ -209,6 +230,86 @@ function openEmail(uid) {
     .catch(() => {
         body.innerHTML = '<div class="alert alert-danger">Erro ao carregar o e-mail.</div>';
     });
+}
+
+// Remove a linha da lista e fecha o modal após excluir/arquivar
+function removeRowAndClose(uid) {
+    const row = document.querySelector(`.email-row[data-uid="${uid}"]`);
+    if (row) row.remove();
+    getEmailModal().hide();
+}
+
+function deleteCurrent() {
+    if (!currentEmail) return;
+    if (!confirm('Excluir este e-mail? Ele será movido para a lixeira da conta.')) return;
+    const btn = document.getElementById('btn-delete');
+    btn.disabled = true;
+    const fd = new FormData();
+    fd.append('account_id', ACCOUNT_ID);
+    fd.append('uid', currentEmail.uid);
+    fetch(`${BASE}prospection/deleteEmail`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json())
+        .then(d => {
+            btn.disabled = false;
+            if (d.error) { alert(d.error); return; }
+            removeRowAndClose(currentEmail.uid);
+        })
+        .catch(() => { btn.disabled = false; alert('Erro ao excluir o e-mail.'); });
+}
+
+function archiveCurrent() {
+    if (!currentEmail) return;
+    const btn = document.getElementById('btn-archive');
+    btn.disabled = true;
+    const fd = new FormData();
+    fd.append('account_id', ACCOUNT_ID);
+    fd.append('uid', currentEmail.uid);
+    fetch(`${BASE}prospection/archiveEmail`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json())
+        .then(d => {
+            btn.disabled = false;
+            if (d.error) { alert(d.error); return; }
+            removeRowAndClose(currentEmail.uid);
+        })
+        .catch(() => { btn.disabled = false; alert('Erro ao arquivar o e-mail.'); });
+}
+
+function toggleReply() {
+    const area = document.getElementById('reply-area');
+    const showing = area.style.display !== 'none';
+    if (showing) { area.style.display = 'none'; return; }
+    if (!currentEmail) return;
+    document.getElementById('reply-to-label').textContent = currentEmail.from_email || currentEmail.from;
+    area.style.display = '';
+    document.getElementById('reply-body').focus();
+}
+
+function sendReply() {
+    if (!currentEmail) return;
+    const bodyText = document.getElementById('reply-body').value.trim();
+    if (!bodyText) { alert('Escreva a resposta.'); return; }
+
+    const subject = /^re:/i.test(currentEmail.subject) ? currentEmail.subject : ('Re: ' + currentEmail.subject);
+    // Converte quebras de linha em <br> para o corpo HTML
+    const htmlBody = escapeHtml(bodyText).replace(/\n/g, '<br>');
+
+    const btn = document.getElementById('reply-send-btn');
+    btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Enviando...';
+    const fd = new FormData();
+    fd.append('account_id', ACCOUNT_ID);
+    fd.append('to', currentEmail.from_email);
+    fd.append('subject', subject);
+    fd.append('body', htmlBody);
+    fetch(`${BASE}prospection/replyEmail`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json())
+        .then(d => {
+            btn.disabled = false; btn.innerHTML = '<i class="bi bi-send"></i> Enviar resposta';
+            if (d.error) { alert(d.error); return; }
+            alert(d.message || 'Resposta enviada!');
+            document.getElementById('reply-area').style.display = 'none';
+            document.getElementById('reply-body').value = '';
+        })
+        .catch(() => { btn.disabled = false; btn.innerHTML = '<i class="bi bi-send"></i> Enviar resposta'; alert('Erro ao enviar a resposta.'); });
 }
 
 function escapeHtml(text) {

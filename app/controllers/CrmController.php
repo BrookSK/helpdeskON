@@ -577,6 +577,10 @@ class CrmController extends Controller
         $data = [];
         if (isset($_POST['contact_name'])) $data['contact_name'] = trim($_POST['contact_name']) ?: null;
         if (isset($_POST['phone'])) $data['phone'] = preg_replace('/\D/', '', $_POST['phone']) ?: null;
+        if (isset($_POST['lead_email'])) {
+            $em = trim($_POST['lead_email']);
+            $data['lead_email'] = ($em && filter_var($em, FILTER_VALIDATE_EMAIL)) ? $em : null;
+        }
         if (!empty($data)) {
             Database::getInstance()->update('whatsapp_contacts', $data, 'id = ?', [$contactId]);
         }
