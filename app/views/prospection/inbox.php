@@ -127,8 +127,8 @@
 <div class="modal fade" id="emailModal" tabindex="-1">
     <div class="modal-dialog modal-xl modal-dialog-scrollable">
         <div class="modal-content">
-            <div class="modal-header">
-                <h6 class="modal-title text-truncate" id="email-modal-subject" style="max-width:60%;"><i class="bi bi-envelope-open"></i> E-mail</h6>
+            <div class="modal-header d-flex justify-content-between align-items-center">
+                <h6 class="modal-title text-truncate me-auto" id="email-modal-subject" style="max-width:50%;"><i class="bi bi-envelope-open"></i> E-mail</h6>
                 <div class="d-flex align-items-center gap-2">
                     <button type="button" class="btn btn-sm btn-outline-primary" id="btn-reply" onclick="toggleReply()"><i class="bi bi-reply"></i> Responder</button>
                     <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-archive" onclick="archiveCurrent()"><i class="bi bi-archive"></i> Arquivar</button>
