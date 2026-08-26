@@ -331,7 +331,8 @@ function openMeetingModal(id = null, dateStr = null) {
 function fillMeeting(m) {
     document.getElementById('meeting-modal-title').textContent = 'Editar reunião';
     document.getElementById('mt-id').value = m.id;
-    document.getElementById('mt-type').value = m.meeting_type || 'comercial';
+    const mtType = (m.meeting_type || 'comercial').toString().trim().toLowerCase();
+    document.getElementById('mt-type').value = (mtType === 'operacional') ? 'operacional' : 'comercial';
     onMeetingTypeChange();
     document.getElementById('mt-contact-id').value = m.contact_id || '';
     document.getElementById('mt-title').value = m.title || '';
