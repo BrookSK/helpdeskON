@@ -146,6 +146,19 @@
             </div>
         </div>
 
+        <!-- Apollo.io (Captação de Leads) -->
+        <div class="card mb-4">
+            <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-search"></i> Apollo.io (Captação de Leads)</h6></div>
+            <div class="card-body">
+                <label class="form-label fw-medium small">API Key</label>
+                <input type="password" name="apollo_api_key" class="form-control form-control-sm" value="<?= escape($settings['apollo_api_key'] ?? '') ?>" placeholder="Sua chave x-api-key do Apollo">
+                <small class="text-muted d-block mb-2">Gere em app.apollo.io → Settings → Integrations → API. Usada na aba CRM → Captação de Leads.</small>
+                <label class="form-label fw-medium small">Base URL</label>
+                <input type="text" name="apollo_base_url" class="form-control form-control-sm" value="<?= escape($settings['apollo_base_url'] ?? 'https://api.apollo.io/api/v1') ?>" placeholder="https://api.apollo.io/api/v1">
+                <small class="text-muted">Padrão: https://api.apollo.io/api/v1 (não altere sem necessidade).</small>
+            </div>
+        </div>
+
         <!-- Buffer (agendamento social) — múltiplas contas -->
         <div class="card mb-4">
             <div class="card-header bg-white d-flex justify-content-between align-items-center">

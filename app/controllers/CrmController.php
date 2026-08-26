@@ -4,6 +4,9 @@ class CrmController extends Controller
 {
     private $boardModel;
 
+    // Papéis com acesso à Captação de Leads (Apollo)
+    private $captureRoles = ['super_admin', 'comercial'];
+
     public function __construct()
     {
         $this->boardModel = new CrmBoard();
@@ -1318,6 +1321,403 @@ class CrmController extends Controller
                 $db->query("DELETE FROM settings WHERE setting_key = ?", [$lock['setting_key']]);
             }
         }
+    }
+
+    // =====================================================
+    // CAPTAÇÃO DE LEADS (Apollo.io)
+    // =====================================================
+
+    /**
+     * Página "Captação de Leads": painel de busca + resultados capturados.
+     */
+    public function capture()
+    {
+        $this->requireRole($this->captureRoles);
+        $user = $this->currentUser();
+
+        $apollo = new ApolloApi();
+        $this->view('crm/capture', [
+            'user' => $user,
+            'apolloConfigured' => $apollo->isConfigured(),
+        ]);
+    }
+
+    /**
+     * API: pesquisa de pessoas (prospects) no Apollo.
+     * POST crm/apolloSearchPeople
+     * Aceita todos os filtros documentados via $_POST.
+     */
+    public function apolloSearchPeople()
+    {
+        $this->requireRole($this->captureRoles);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+
+        $apollo = new ApolloApi();
+        if (!$apollo->isConfigured()) $this->json(['error' => 'Apollo não configurado. Informe a API key em Configurações.'], 400);
+
+        $filters = $this->collectPeopleFilters();
+        $res = $apollo->searchPeople($filters);
+        if (!$res['success']) $this->json(['error' => $res['error'] ?? 'Falha na busca.'], 502);
+
+        $data = $res['data'] ?? [];
+        $people = $data['people'] ?? ($data['contacts'] ?? []);
+        $pagination = $data['pagination'] ?? [];
+
+        // Persiste em staging para consulta/importação posterior
+        $leadModel = new ApolloLead();
+        $user = $this->currentUser();
+        $out = [];
+        foreach ($people as $p) {
+            $localId = $leadModel->upsertFromApollo($p, $user['id']);
+            $existing = $localId ? $leadModel->findById($localId) : null;
+            $out[] = $this->formatApolloPerson($p, $existing);
+        }
+
+        $this->json([
+            'success' => true,
+            'people' => $out,
+            'pagination' => [
+                'page' => $pagination['page'] ?? ($filters['page'] ?? 1),
+                'per_page' => $pagination['per_page'] ?? ($filters['per_page'] ?? 25),
+                'total_entries' => $pagination['total_entries'] ?? count($out),
+                'total_pages' => $pagination['total_pages'] ?? 1,
+            ],
+        ]);
+    }
+
+    /**
+     * API: pesquisa de organizações (empresas) no Apollo.
+     * POST crm/apolloSearchOrganizations
+     */
+    public function apolloSearchOrganizations()
+    {
+        $this->requireRole($this->captureRoles);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+
+        $apollo = new ApolloApi();
+        if (!$apollo->isConfigured()) $this->json(['error' => 'Apollo não configurado.'], 400);
+
+        $filters = $this->collectOrganizationFilters();
+        $res = $apollo->searchOrganizations($filters);
+        if (!$res['success']) $this->json(['error' => $res['error'] ?? 'Falha na busca.'], 502);
+
+        $data = $res['data'] ?? [];
+        $orgs = $data['organizations'] ?? ($data['accounts'] ?? []);
+        $pagination = $data['pagination'] ?? [];
+
+        $this->json([
+            'success' => true,
+            'organizations' => $orgs,
+            'pagination' => [
+                'page' => $pagination['page'] ?? ($filters['page'] ?? 1),
+                'per_page' => $pagination['per_page'] ?? ($filters['per_page'] ?? 25),
+                'total_entries' => $pagination['total_entries'] ?? count($orgs),
+                'total_pages' => $pagination['total_pages'] ?? 1,
+            ],
+        ]);
+    }
+
+    /**
+     * API: enriquece (revela e-mail/telefone) um lead capturado.
+     * POST crm/apolloEnrich/{apolloLeadId}
+     * Body opcional: reveal_personal_emails, reveal_phone_number, webhook_url
+     */
+    public function apolloEnrich($id = null)
+    {
+        $this->requireRole($this->captureRoles);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+
+        $leadModel = new ApolloLead();
+        $lead = $leadModel->findById($id);
+        if (!$lead) $this->json(['error' => 'Lead não encontrado'], 404);
+
+        $apollo = new ApolloApi();
+        if (!$apollo->isConfigured()) $this->json(['error' => 'Apollo não configurado.'], 400);
+
+        $params = ['id' => $lead['apollo_id']];
+        $params['reveal_personal_emails'] = !empty($_POST['reveal_personal_emails']);
+        // Telefone exige webhook_url configurado; só habilita se veio uma URL válida
+        $webhook = trim($_POST['webhook_url'] ?? '');
+        if (!empty($_POST['reveal_phone_number']) && $webhook !== '') {
+            $params['reveal_phone_number'] = true;
+            $params['webhook_url'] = $webhook;
+        }
+
+        $res = $apollo->enrichPerson($params);
+        if (!$res['success']) $this->json(['error' => $res['error'] ?? 'Falha ao enriquecer.'], 502);
+
+        $person = $res['data']['person'] ?? ($res['data']['people'][0] ?? null);
+        if (!$person) $this->json(['error' => 'Apollo não encontrou dados para este lead.'], 404);
+
+        $user = $this->currentUser();
+        $localId = $leadModel->upsertFromApollo($person, $user['id']);
+        $updated = $leadModel->findById($localId);
+
+        $this->json(['success' => true, 'lead' => $this->formatApolloPerson($person, $updated)]);
+    }
+
+    /**
+     * API: importa leads capturados para "Meus Leads" (whatsapp_contacts).
+     * POST crm/apolloImport  Body: ids[] (ids locais em apollo_leads)
+     */
+    public function apolloImport()
+    {
+        $this->requireRole($this->captureRoles);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+
+        $ids = $_POST['ids'] ?? [];
+        if (is_string($ids)) $ids = array_filter(explode(',', $ids));
+        if (empty($ids)) $this->json(['error' => 'Selecione ao menos um lead.'], 400);
+
+        $user = $this->currentUser();
+        $leadModel = new ApolloLead();
+        $contactModel = new WhatsappContact();
+
+        $imported = 0;
+        $skipped = 0;
+        foreach ($ids as $id) {
+            $lead = $leadModel->findById(intval($id));
+            if (!$lead) { $skipped++; continue; }
+            if (!empty($lead['contact_id'])) { $skipped++; continue; } // já importado
+
+            $name = $lead['full_name'] ?: trim(($lead['first_name'] ?? '') . ' ' . ($lead['last_name'] ?? ''));
+            $name = $name ?: ($lead['organization_name'] ?? 'Lead Apollo');
+
+            // Cria contato/lead no CRM (assigned ao comercial atual)
+            $contactId = $contactModel->createManualLead($name, $lead['phone'] ?? '', $user['id']);
+            if (!$contactId) {
+                // Sem instância de WhatsApp cadastrada não é possível criar o contato
+                $this->json(['error' => 'Não há uma instância de WhatsApp cadastrada para vincular os leads. Conecte o WhatsApp antes de importar.'], 400);
+            }
+
+            // Grava dados comerciais no briefing (origem, cargo, empresa, e-mail)
+            $notesParts = [];
+            if (!empty($lead['title'])) $notesParts[] = 'Cargo: ' . $lead['title'];
+            if (!empty($lead['organization_name'])) $notesParts[] = 'Empresa: ' . $lead['organization_name'];
+            if (!empty($lead['email'])) $notesParts[] = 'E-mail: ' . $lead['email'];
+            if (!empty($lead['linkedin_url'])) $notesParts[] = 'LinkedIn: ' . $lead['linkedin_url'];
+            $location = trim(implode(', ', array_filter([$lead['city'] ?? '', $lead['state'] ?? '', $lead['country'] ?? ''])));
+
+            $contactModel->saveBriefing($contactId, [
+                'lead_source' => 'apollo',
+                'need' => $lead['organization_industry'] ?? null,
+                'notes' => implode(' | ', $notesParts) ?: null,
+            ], $user['id']);
+
+            // Guarda o e-mail no contato (campo dedicado do módulo de prospecção, se existir)
+            if (!empty($lead['email'])) {
+                Database::getInstance()->update('whatsapp_contacts', ['lead_email' => $lead['email']], 'id = ?', [$contactId]);
+            }
+
+            $leadModel->markImported($lead['id'], $contactId, $user['id']);
+            $imported++;
+        }
+
+        $this->json(['success' => true, 'imported' => $imported, 'skipped' => $skipped]);
+    }
+
+    /**
+     * API: lista os leads capturados (staging) com filtros/paginação.
+     * GET crm/apolloLeads?search=&status=&page=
+     */
+    public function apolloLeads()
+    {
+        $this->requireRole($this->captureRoles);
+
+        $perPage = 25;
+        $page = max(1, intval($_GET['page'] ?? 1));
+        $filters = [
+            'search' => trim($_GET['search'] ?? ''),
+            'status' => $_GET['status'] ?? '',
+            'limit' => $perPage,
+            'offset' => ($page - 1) * $perPage,
+        ];
+
+        $leadModel = new ApolloLead();
+        $leads = $leadModel->getList($filters);
+        $total = $leadModel->countList($filters);
+
+        $out = array_map(fn($l) => $this->formatStoredLead($l), $leads);
+        $this->json([
+            'success' => true,
+            'leads' => $out,
+            'page' => $page,
+            'total' => $total,
+            'total_pages' => max(1, (int)ceil($total / $perPage)),
+        ]);
+    }
+
+    /**
+     * API: verifica a configuração/saúde da integração Apollo.
+     * GET crm/apolloStatus
+     */
+    public function apolloStatus()
+    {
+        $this->requireRole($this->captureRoles);
+        $apollo = new ApolloApi();
+        if (!$apollo->isConfigured()) {
+            $this->json(['configured' => false, 'healthy' => false, 'error' => 'API key não configurada.']);
+        }
+        $res = $apollo->health();
+        $healthy = $res['success'] && !empty($res['data']['is_logged_in'] ?? $res['success']);
+        $this->json(['configured' => true, 'healthy' => (bool)$healthy, 'status' => $res['status'] ?? null]);
+    }
+
+    /**
+     * API: executa o diagnóstico de todos os endpoints Apollo e retorna
+     * request/response/erro de cada um para depuração.
+     * POST crm/apolloDiagnostics  (restrito a super_admin)
+     */
+    public function apolloDiagnostics()
+    {
+        $this->requireRole(['super_admin']);
+
+        $apollo = new ApolloApi();
+        if (!$apollo->isConfigured()) {
+            $this->json(['error' => 'Apollo não configurado. Informe a API key em Configurações.'], 400);
+        }
+
+        $results = $apollo->runDiagnostics();
+
+        $total = count($results);
+        $ok = 0;
+        $failed = 0;
+        $skipped = 0;
+        foreach ($results as $r) {
+            if (!empty($r['skipped'])) { $skipped++; continue; }
+            if ($r['success']) $ok++; else $failed++;
+        }
+
+        $this->json([
+            'success' => true,
+            'summary' => [
+                'total' => $total,
+                'ok' => $ok,
+                'failed' => $failed,
+                'skipped' => $skipped,
+                'ran_at' => date('Y-m-d H:i:s'),
+            ],
+            'results' => $results,
+        ]);
+    }
+
+    // ===== Helpers Apollo =====
+
+    /** Coleta filtros de pessoas do $_POST no formato esperado pelo ApolloApi. */
+    private function collectPeopleFilters()
+    {
+        $f = [];
+        // Strings
+        foreach (['q_keywords', 'include_similar_titles'] as $k) {
+            if (isset($_POST[$k]) && $_POST[$k] !== '') $f[$k] = $_POST[$k];
+        }
+        // Arrays (aceitam string separada por vírgula OU array do form)
+        $arrayKeys = [
+            'person_titles', 'person_seniorities', 'person_locations', 'organization_locations',
+            'q_organization_domains_list', 'contact_email_status', 'organization_ids',
+            'organization_num_employees_ranges',
+            'currently_using_all_of_technology_uids', 'currently_using_any_of_technology_uids',
+            'currently_not_using_any_of_technology_uids',
+            'q_organization_job_titles', 'organization_job_locations',
+        ];
+        foreach ($arrayKeys as $k) {
+            if (isset($_POST[$k]) && $_POST[$k] !== '' && $_POST[$k] !== []) $f[$k] = $_POST[$k];
+        }
+        // Faixas min/max
+        $f['revenue_range'] = ['min' => $_POST['revenue_min'] ?? '', 'max' => $_POST['revenue_max'] ?? ''];
+        $f['organization_num_jobs_range'] = ['min' => $_POST['num_jobs_min'] ?? '', 'max' => $_POST['num_jobs_max'] ?? ''];
+        $f['organization_job_posted_at_range'] = ['min' => $_POST['job_posted_min'] ?? '', 'max' => $_POST['job_posted_max'] ?? ''];
+        // Paginação
+        $f['page'] = intval($_POST['page'] ?? 1);
+        $f['per_page'] = intval($_POST['per_page'] ?? 25);
+        return $f;
+    }
+
+    /** Coleta filtros de organizações do $_POST. */
+    private function collectOrganizationFilters()
+    {
+        $f = [];
+        if (isset($_POST['q_organization_name']) && $_POST['q_organization_name'] !== '') {
+            $f['q_organization_name'] = $_POST['q_organization_name'];
+        }
+        $arrayKeys = [
+            'q_organization_keyword_tags', 'q_organization_domains_list',
+            'organization_locations', 'organization_not_locations',
+            'organization_num_employees_ranges', 'currently_using_any_of_technology_uids',
+            'organization_ids', 'q_organization_job_titles', 'organization_job_locations',
+        ];
+        foreach ($arrayKeys as $k) {
+            if (isset($_POST[$k]) && $_POST[$k] !== '' && $_POST[$k] !== []) $f[$k] = $_POST[$k];
+        }
+        $f['revenue_range'] = ['min' => $_POST['revenue_min'] ?? '', 'max' => $_POST['revenue_max'] ?? ''];
+        $f['latest_funding_amount_range'] = ['min' => $_POST['latest_funding_min'] ?? '', 'max' => $_POST['latest_funding_max'] ?? ''];
+        $f['total_funding_range'] = ['min' => $_POST['total_funding_min'] ?? '', 'max' => $_POST['total_funding_max'] ?? ''];
+        $f['organization_num_jobs_range'] = ['min' => $_POST['num_jobs_min'] ?? '', 'max' => $_POST['num_jobs_max'] ?? ''];
+        $f['page'] = intval($_POST['page'] ?? 1);
+        $f['per_page'] = intval($_POST['per_page'] ?? 25);
+        return $f;
+    }
+
+    /**
+     * Formata um person do Apollo + registro local para exibição no painel.
+     * $stored é a linha em apollo_leads (pode conter o e-mail já revelado).
+     */
+    private function formatApolloPerson($person, $stored = null)
+    {
+        $org = $person['organization'] ?? ($person['account'] ?? []);
+        $email = $person['email'] ?? ($stored['email'] ?? null);
+        $hasRealEmail = !empty($email) && stripos($email, 'email_not_unlocked') === false;
+
+        return [
+            'local_id' => $stored['id'] ?? null,
+            'apollo_id' => $person['id'] ?? ($stored['apollo_id'] ?? null),
+            'name' => $person['name'] ?? ($stored['full_name'] ?? null),
+            'first_name' => $person['first_name'] ?? null,
+            'last_name' => $person['last_name'] ?? null,
+            'title' => $person['title'] ?? ($stored['title'] ?? null),
+            'seniority' => $person['seniority'] ?? null,
+            'email' => $hasRealEmail ? $email : null,
+            'email_locked' => !$hasRealEmail,
+            'email_status' => $person['email_status'] ?? ($stored['email_status'] ?? null),
+            'phone' => $stored['phone'] ?? null,
+            'linkedin_url' => $person['linkedin_url'] ?? ($stored['linkedin_url'] ?? null),
+            'organization_name' => $org['name'] ?? ($stored['organization_name'] ?? null),
+            'organization_domain' => $org['primary_domain'] ?? ($stored['organization_domain'] ?? null),
+            'organization_industry' => $org['industry'] ?? ($stored['organization_industry'] ?? null),
+            'city' => $person['city'] ?? ($stored['city'] ?? null),
+            'state' => $person['state'] ?? ($stored['state'] ?? null),
+            'country' => $person['country'] ?? ($stored['country'] ?? null),
+            'is_enriched' => (int)($stored['is_enriched'] ?? ($hasRealEmail ? 1 : 0)),
+            'imported' => !empty($stored['contact_id']),
+            'contact_id' => $stored['contact_id'] ?? null,
+        ];
+    }
+
+    /** Formata uma linha de apollo_leads (staging) para exibição. */
+    private function formatStoredLead($l)
+    {
+        return [
+            'local_id' => $l['id'],
+            'apollo_id' => $l['apollo_id'],
+            'name' => $l['full_name'],
+            'title' => $l['title'],
+            'seniority' => $l['seniority'],
+            'email' => $l['email'],
+            'email_locked' => empty($l['email']),
+            'email_status' => $l['email_status'],
+            'phone' => $l['phone'],
+            'linkedin_url' => $l['linkedin_url'],
+            'organization_name' => $l['organization_name'],
+            'organization_domain' => $l['organization_domain'],
+            'organization_industry' => $l['organization_industry'],
+            'city' => $l['city'],
+            'state' => $l['state'],
+            'country' => $l['country'],
+            'is_enriched' => (int)$l['is_enriched'],
+            'imported' => !empty($l['contact_id']),
+            'contact_id' => $l['contact_id'],
+            'imported_at' => $l['imported_at'],
+        ];
     }
 }
 
