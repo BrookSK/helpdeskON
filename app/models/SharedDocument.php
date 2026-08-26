@@ -149,9 +149,9 @@ class SharedDocument
             return ['error' => 'Tipo de arquivo não permitido.'];
         }
 
-        $maxSize = 20 * 1024 * 1024; // 20MB
+        $maxSize = 500 * 1024 * 1024; // 500MB
         if ($file['size'] > $maxSize) {
-            return ['error' => 'Arquivo muito grande. Máximo: 20MB'];
+            return ['error' => 'Arquivo muito grande. Máximo: 500MB'];
         }
 
         $ext = pathinfo($file['name'], PATHINFO_EXTENSION);
