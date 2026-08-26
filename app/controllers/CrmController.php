@@ -1200,15 +1200,26 @@ class CrmController extends Controller
             'manual' => 0, 'sequence' => 0, 'open_rate' => 0, 'click_rate' => 0, 'reply_rate' => 0, 'top_email' => null,
         ];
         $emailTrend = [];
-        $emailModuleReady = true;
+
+        // Detecta a existência da tabela de forma independente (não depende da query)
+        $emailModuleReady = false;
         try {
-            $seqModel = new EmailSequence();
-            $emailStats = $seqModel->emailDashboard();
-            $emailTrend = $seqModel->emailMonthlyTrend(6);
-        } catch (\Throwable $e) {
-            $emailModuleReady = false; // tabelas ainda não existem
+            $chk = Database::getInstance()->fetch(
+                "SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'email_messages'"
+            );
+            $emailModuleReady = (bool) $chk;
+        } catch (\Throwable $e) { $emailModuleReady = false; }
+
+        if ($emailModuleReady) {
+            try {
+                $seqModel = new EmailSequence();
+                $emailStats = $seqModel->emailDashboard();
+                $emailTrend = $seqModel->emailMonthlyTrend(6);
+            } catch (\Throwable $e) {
+                // Tabela existe mas a query falhou: loga e mantém zeros (não escondemos a seção)
+                Logger::error('emailDashboard falhou', ['error' => $e->getMessage()]);
+            }
         }
-        $this->_emailModuleReady = $emailModuleReady;
 
         $this->view('crm/dashboard', [
             'user' => $user, 'stats' => $stats, 'trend' => $trend,

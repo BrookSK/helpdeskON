@@ -100,7 +100,7 @@ class EmailSequence
         // Bounces (leads com bounce) e descadastros no período não têm data — contagem global
         $bounced = (int) ($this->db->fetch("SELECT COUNT(*) t FROM whatsapp_contacts WHERE email_bounced = 1")['t'] ?? 0);
 
-        // Melhor e-mail (maior taxa de abertura, com no mínimo relevância)
+        // Melhor e-mail (maior taxa de abertura). Evita aliases em expressão no ORDER BY.
         $top = $this->db->fetch(
             "SELECT subject,
                     COUNT(*) AS sent,
@@ -108,8 +108,9 @@ class EmailSequence
                     SUM(CASE WHEN replied_at IS NOT NULL THEN 1 ELSE 0 END) AS replied
              FROM email_messages m $where
              GROUP BY subject
-             HAVING sent >= 1
-             ORDER BY (opened / sent) DESC, replied DESC, sent DESC
+             ORDER BY (SUM(CASE WHEN first_open_at IS NOT NULL THEN 1 ELSE 0 END) / COUNT(*)) DESC,
+                      SUM(CASE WHEN replied_at IS NOT NULL THEN 1 ELSE 0 END) DESC,
+                      COUNT(*) DESC
              LIMIT 1",
             $params
         );
