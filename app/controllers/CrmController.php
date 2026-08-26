@@ -294,6 +294,38 @@ class CrmController extends Controller
     }
 
     /**
+     * API: salva o briefing comercial diretamente pelo card do board.
+     * POST crm/saveCardBriefing/{cardId}  body: bf_* (campos do briefing)
+     */
+    public function saveCardBriefing($cardId = null)
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$cardId) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+
+        $card = $this->boardModel->findCard($cardId);
+        if (!$card) $this->json(['error' => 'Card não encontrado'], 404);
+        if (empty($card['contact_id'])) {
+            $this->json(['error' => 'Este card não está vinculado a um contato do CRM.'], 400);
+        }
+
+        $user = $this->currentUser();
+        $bfKeys = ['need', 'main_pain', 'current_solution', 'expected_goal', 'urgency', 'investment_range',
+                   'decision_level', 'lead_temperature', 'lead_source', 'main_objection', 'next_step', 'next_contact_date', 'notes'];
+        $bf = [];
+        foreach ($bfKeys as $k) {
+            if (isset($_POST['bf_' . $k])) $bf[$k] = trim($_POST['bf_' . $k]) ?: null;
+        }
+        if (isset($bf['lead_temperature']) && !in_array($bf['lead_temperature'], ['frio', 'morno', 'quente'])) {
+            $bf['lead_temperature'] = null;
+        }
+
+        (new WhatsappContact())->saveBriefing($card['contact_id'], $bf, $user['id']);
+        $this->json(['success' => true, 'briefing' => (new WhatsappContact())->getBriefing($card['contact_id'])]);
+    }
+
+    /**
      * API: Mover card (drag-and-drop)
      * Se a coluna de destino for "Fechado", exige closed_by e marca como convertido.
      */
@@ -1587,14 +1619,13 @@ class CrmController extends Controller
         $apollo = new ApolloApi();
         if (!$apollo->isConfigured()) $this->json(['error' => 'Apollo não configurado.'], 400);
 
-        // Controle de crédito diário do usuário. O custo real é definido pelo
-        // Apollo (1 crédito p/ e-mail, +8 p/ celular); aqui exigimos ao menos 1
-        // crédito disponível para permitir a liberação.
+        // Controle de crédito diário. Liberar e-mail+telefone custa 8 créditos;
+        // exige esse saldo disponível antes de chamar o Apollo.
         $user = (new User())->findById($this->currentUser()['id']) ?: $this->currentUser();
         $credit = new ApolloCreditUsage();
-        $chk = $credit->check($user, 1);
+        $chk = $credit->check($user, ApolloCreditUsage::COST_MOBILE);
         if (!$chk['allowed']) {
-            $this->json(['error' => "Você atingiu o limite diário de {$chk['limit']} crédito(s) Apollo. Tente novamente amanhã."], 429);
+            $this->json(['error' => "Créditos insuficientes: liberar contato custa " . ApolloCreditUsage::COST_MOBILE . " créditos e você tem {$chk['remaining']} restante(s) hoje. Tente novamente amanhã."], 429);
         }
 
         // O /people/match revela o e-mail com mais confiabilidade quando recebe
@@ -1628,8 +1659,8 @@ class CrmController extends Controller
         $updated = $leadModel->findById($localId);
         $formatted = $this->formatApolloPerson($person, $updated);
 
-        // Cada liberação (consulta) consome exatamente 1 crédito do limite diário.
-        $credit->consume($user['id'], 1);
+        // Liberar dados (e-mail + telefone) consome 8 créditos do limite diário.
+        $credit->consume($user['id'], ApolloCreditUsage::COST_MOBILE);
 
         // Se pedimos o telefone, guarda o request_id para casar com o webhook.
         $phonePending = false;

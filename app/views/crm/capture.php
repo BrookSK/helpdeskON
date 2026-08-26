@@ -39,7 +39,7 @@
         <i class="bi bi-info-circle text-info mt-1"></i>
         <div>
             <strong>Como funcionam os créditos:</strong>
-            cada <strong>pesquisa</strong> (Pessoas ou Empresas) consome <strong>1 crédito</strong> e cada <strong>Liberar</strong> (revela e-mail e telefone do contato) consome <strong>mais 1 crédito</strong>.
+            cada <strong>pesquisa</strong> (Pessoas ou Empresas) consome <strong>1 crédito</strong> e cada <strong>Liberar</strong> (revela e-mail e telefone do contato) consome <strong>mais 8 créditos</strong>.
             <?php if (($creditLimit ?? 0) > 0): ?>
             Seu limite é de <strong><?= (int)$creditLimit ?> crédito(s) por dia</strong>. Ao atingir o limite, novas pesquisas e liberações só ficam disponíveis <strong>no dia seguinte</strong> (o contador reinicia automaticamente à meia-noite).
             <?php else: ?>
