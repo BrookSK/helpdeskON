@@ -15,3 +15,9 @@ RewriteRule ^ - [L]
 
 # Caso contrário, envia tudo para o front controller em /public com a URL
 RewriteRule ^(.*)$ public/index.php?url=$1 [QSA,L]
+
+# Aumentar limite de upload para 500MB
+php_value upload_max_filesize 500M
+php_value post_max_size 512M
+php_value max_execution_time 600
+php_value max_input_time 600

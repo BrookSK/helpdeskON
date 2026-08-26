@@ -566,8 +566,14 @@ function scheduleToBuffer() {
     const id = document.getElementById('item-id').value;
     const channels = Array.from(document.querySelectorAll('.buffer-channel-cb:checked')).map(cb => cb.value);
     const result = document.getElementById('item-buffer-result');
-    const btn = event.target.closest('button') || document.querySelector('[onclick="scheduleToBuffer()"]');
+    const btn = document.querySelector('[onclick="scheduleToBuffer()"]');
     if (!channels.length) { result.innerHTML = '<span class="text-danger">Selecione ao menos um canal.</span>'; return; }
+
+    // Se é nova demanda (sem ID), avisar que precisa salvar primeiro
+    if (!id) {
+        result.innerHTML = '<span class="text-danger">Salve a demanda primeiro antes de agendar no Buffer.</span>';
+        return;
+    }
 
     const text = document.getElementById('item-copy').value.trim() || document.getElementById('item-title').value.trim();
     const dueAt = document.getElementById('item-scheduled').value;
