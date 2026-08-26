@@ -100,6 +100,36 @@ class ImapReader
     }
 
     /**
+     * Busca mensagens recebidas de um remetente específico (por endereço).
+     * @return array Lista resumida (uid, subject, from, from_email, date)
+     */
+    public function searchFrom($email, $limit = 50)
+    {
+        if (!$this->connection) return [];
+
+        $uids = imap_search($this->connection, 'FROM "' . addslashes($email) . '"', SE_UID);
+        if (!$uids) return [];
+        rsort($uids);
+        $uids = array_slice($uids, 0, $limit);
+
+        $messages = [];
+        foreach ($uids as $uid) {
+            $headerInfo = @imap_headerinfo($this->connection, imap_msgno($this->connection, $uid));
+            $overview = @imap_fetch_overview($this->connection, (string)$uid, FT_UID);
+            if (!$headerInfo || empty($overview)) continue;
+            $ov = $overview[0];
+            $messages[] = [
+                'uid' => $uid,
+                'subject' => isset($ov->subject) ? $this->decodeMime($ov->subject) : '(Sem assunto)',
+                'from' => isset($headerInfo->from[0]) ? $this->formatAddress($headerInfo->from[0]) : '—',
+                'from_email' => isset($headerInfo->from[0]) ? ($headerInfo->from[0]->mailbox . '@' . $headerInfo->from[0]->host) : '',
+                'date' => isset($ov->date) ? date('Y-m-d H:i:s', strtotime($ov->date)) : null,
+            ];
+        }
+        return $messages;
+    }
+
+    /**
      * Retorna o total de e-mails na caixa.
      */
     public function getTotal($search = null)

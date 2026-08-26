@@ -86,8 +86,11 @@ class ProspectionController extends Controller
             }
         }
 
+        // Anexa a assinatura padrão da empresa ao corpo
+        $bodyWithSignature = $body . $this->buildSignature($user);
+
         // Enviar
-        $result = $this->prospectionModel->sendEmail($account, $recipientEmail, $subject, $body, $cc, $bcc, $attachments);
+        $result = $this->prospectionModel->sendEmail($account, $recipientEmail, $subject, $bodyWithSignature, $cc, $bcc, $attachments);
 
         // Registrar no histórico
         $data = [
@@ -306,6 +309,101 @@ class ProspectionController extends Controller
     }
 
     /**
+     * API: histórico de conversa (enviados + recebidos) com um endereço de e-mail.
+     * POST prospection/emailThread  body: account_id, email
+     */
+    public function emailThread()
+    {
+        $this->requireRole($this->accessRoles);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+
+        $accountId = intval($_POST['account_id'] ?? 0);
+        $email = trim($_POST['email'] ?? '');
+        if (!$accountId || !$email || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $this->json(['error' => 'Parâmetros inválidos'], 400);
+        }
+
+        $account = $this->requireImapAccount($accountId);
+        $items = [];
+
+        // 1) Enviados (registro local de prospecção) para/deste endereço
+        $db = Database::getInstance();
+        $sent = $db->fetchAll(
+            "SELECT id, subject, body, recipient_email, recipient_name, status, sent_at, created_at
+             FROM email_prospections
+             WHERE email_account_id = ? AND recipient_email = ?
+             ORDER BY COALESCE(sent_at, created_at) DESC
+             LIMIT 50",
+            [$accountId, $email]
+        );
+        foreach ($sent as $s) {
+            $items[] = [
+                'direction' => 'sent',
+                'subject' => $s['subject'],
+                'snippet' => mb_substr(trim(strip_tags($s['body'] ?? '')), 0, 160),
+                'party' => $s['recipient_email'],
+                'date' => $s['sent_at'] ?: $s['created_at'],
+                'status' => $s['status'],
+            ];
+        }
+
+        // 2) Recebidos deste endereço (via IMAP, busca por FROM)
+        $reader = new ImapReader($account);
+        if ($reader->connect() === true) {
+            $received = $reader->searchFrom($email, 50);
+            $reader->disconnect();
+            foreach ($received as $m) {
+                $items[] = [
+                    'direction' => 'received',
+                    'subject' => $m['subject'],
+                    'snippet' => '',
+                    'party' => $m['from_email'],
+                    'date' => $m['date'],
+                    'uid' => $m['uid'],
+                    'status' => 'received',
+                ];
+            }
+        }
+
+        // Ordena do mais recente para o mais antigo
+        usort($items, fn($a, $b) => strtotime($b['date'] ?? '0') <=> strtotime($a['date'] ?? '0'));
+
+        $this->json(['success' => true, 'thread' => $items]);
+    }
+
+    /**
+     * Monta a assinatura HTML padrão anexada a todos os e-mails enviados.
+     * Inclui a logo do sistema (se configurada) e o nome do usuário remetente.
+     */
+    private function buildSignature($user)
+    {
+        $userName = htmlspecialchars($user['name'] ?? '', ENT_QUOTES, 'UTF-8');
+
+        $logoHtml = '';
+        $logoPath = Config::get('app_logo');
+        if (!empty($logoPath)) {
+            $logoUrl = baseUrl($logoPath);
+            $logoHtml = '<img src="' . htmlspecialchars($logoUrl, ENT_QUOTES, 'UTF-8') . '" alt="ON Solutions Brasil" style="max-height:56px;margin-bottom:8px;">';
+        }
+
+        return '
+<div style="margin-top:28px;padding-top:16px;border-top:1px solid #e5e7eb;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#333;line-height:1.5;">
+    ' . $logoHtml . '
+    <div style="font-weight:600;color:#111;">' . $userName . '</div>
+    <div style="margin-top:6px;">Atenciosamente,<br><strong>Equipe ON Solutions Brasil</strong></div>
+    <div style="color:#666;margin-top:2px;">Tecnologia • Desenvolvimento • Automação</div>
+    <div style="margin-top:8px;">
+        📧 <a href="mailto:contato@onsolutionsbrasil.com.br" style="color:#00997D;text-decoration:none;">contato@onsolutionsbrasil.com.br</a><br>
+        🌐 <a href="https://www.onsolutionsbrasil.com.br" style="color:#00997D;text-decoration:none;">www.onsolutionsbrasil.com.br</a>
+    </div>
+    <div style="margin-top:8px;color:#888;font-size:12px;">
+        <strong>ON Solutions Brasil</strong><br>
+        Soluções inteligentes para transformar processos e negócios.
+    </div>
+</div>';
+    }
+
+    /**
      * Valida o acesso do usuário atual a uma conta IMAP e retorna a conta.
      * Em caso de falha, responde JSON de erro e encerra.
      */
@@ -402,7 +500,8 @@ class ProspectionController extends Controller
         $linkedUsers = $this->accountModel->getLinkedUserIds($accountId);
         if (!in_array($user['id'], $linkedUsers)) $this->json(['error' => 'Sem permissão.'], 403);
 
-        $result = $this->prospectionModel->sendEmail($account, $to, $subject, $body, $cc, null, []);
+        $bodyWithSignature = $body . $this->buildSignature($user);
+        $result = $this->prospectionModel->sendEmail($account, $to, $subject, $bodyWithSignature, $cc, null, []);
 
         // Registra no histórico de prospecção como envio
         $this->prospectionModel->create([
