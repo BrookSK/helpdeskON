@@ -210,8 +210,8 @@
                     </div>
                     <div class="mb-3">
                         <label class="form-label fw-medium small">Arquivo *</label>
-                        <input type="file" name="document" class="form-control form-control-sm" required accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt">
-                        <small class="text-muted">Máx. 20MB. PDF, DOC, XLS, imagens, etc.</small>
+                        <input type="file" name="document" class="form-control form-control-sm" required accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.zip,.sql,.rar,.7z">
+                        <small class="text-muted">Máx. 20MB. PDF, DOC, XLS, ZIP, SQL, imagens, etc.</small>
                     </div>
                     <?php if (in_array($user['role'], ['super_admin', 'attendant'])): ?>
                     <?php $preselectCompany = (!empty($currentCompany) && !empty($currentCompany['id'])) ? (int)$currentCompany['id'] : null; ?>
