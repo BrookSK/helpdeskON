@@ -91,14 +91,28 @@ function capSectionEnd() { echo '</div></div></div>'; }
 
 <!-- Localização -->
 <?php capSection('sec-local', 'bi-geo-alt', 'Localização'); ?>
-    <div class="mb-2">
-        <label class="cap-label">Localização da pessoa</label>
-        <input type="text" class="form-control form-control-sm f-people" data-key="person_locations" placeholder="ex: são paulo, brazil">
+    <label class="cap-label">Localização da pessoa</label>
+    <div class="cap-range mb-1">
+        <select class="form-select form-select-sm cap-state-select" data-target="person_locations" onchange="onStateChange(this)">
+            <option value="">Carregando estados…</option>
+        </select>
+        <select class="form-select form-select-sm cap-city-select" data-target="person_locations" onchange="onCityChange(this)">
+            <option value="">Cidade…</option>
+        </select>
     </div>
-    <div>
-        <label class="cap-label">Localização da empresa (HQ)</label>
-        <input type="text" class="form-control form-control-sm f-people" data-key="organization_locations" placeholder="ex: chicago, spain">
+    <div class="cap-chips mb-1" id="chips-person_locations"></div>
+
+    <hr class="my-2">
+    <label class="cap-label">Localização da empresa (HQ)</label>
+    <div class="cap-range mb-1">
+        <select class="form-select form-select-sm cap-state-select" data-target="organization_locations" onchange="onStateChange(this)">
+            <option value="">Carregando estados…</option>
+        </select>
+        <select class="form-select form-select-sm cap-city-select" data-target="organization_locations" onchange="onCityChange(this)">
+            <option value="">Cidade…</option>
+        </select>
     </div>
+    <div class="cap-chips mb-1" id="chips-organization_locations"></div>
 <?php capSectionEnd(); ?>
 
 <!-- Empresa -->
@@ -147,18 +161,31 @@ function capSectionEnd() { echo '</div></div></div>'; }
 
 <!-- Tecnologias -->
 <?php capSection('sec-tech', 'bi-cpu', 'Tecnologias'); ?>
-    <div class="mb-2">
-        <label class="cap-label">Usa todas estas</label>
-        <input type="text" class="form-control form-control-sm f-people" data-key="currently_using_all_of_technology_uids" placeholder="ex: salesforce, wordpress_org">
+    <label class="cap-label">Comportamento</label>
+    <select class="form-select form-select-sm mb-2 cap-tech-mode" data-scope="people">
+        <option value="currently_using_any_of_technology_uids">Usa qualquer uma das marcadas</option>
+        <option value="currently_using_all_of_technology_uids">Usa todas as marcadas</option>
+        <option value="currently_not_using_any_of_technology_uids">Não usa nenhuma das marcadas</option>
+    </select>
+    <label class="cap-label">Buscar tecnologia</label>
+    <input type="text" class="form-control form-control-sm mb-2 cap-tech-search" data-scope="people" placeholder="filtrar lista..." oninput="filterTech(this)">
+    <?php foreach ($apolloTech as $cat => $techs): ?>
+    <div class="cap-tech-group" data-scope="people">
+        <div class="cap-label mt-1" style="color:#889;"><?= escape($cat) ?></div>
+        <div class="cap-chips">
+            <?php foreach ($techs as $uid => $lbl): ?>
+            <label class="cap-chip cap-tech-chip" data-scope="people" data-label="<?= escape(mb_strtolower($lbl)) ?>">
+                <input type="checkbox" class="cap-tech-cb" data-scope="people" value="<?= $uid ?>" onchange="syncChip(this)">
+                <span><?= escape($lbl) ?></span>
+            </label>
+            <?php endforeach; ?>
+        </div>
     </div>
-    <div class="mb-2">
-        <label class="cap-label">Usa qualquer uma</label>
-        <input type="text" class="form-control form-control-sm f-people" data-key="currently_using_any_of_technology_uids" placeholder="ex: google_analytics">
-    </div>
-    <div>
-        <label class="cap-label">Não usa</label>
-        <input type="text" class="form-control form-control-sm f-people" data-key="currently_not_using_any_of_technology_uids" placeholder="ex: hubspot">
-    </div>
+    <?php endforeach; ?>
+    <!-- Campos ocultos preenchidos pelo JS conforme o modo -->
+    <input type="hidden" class="f-people" data-key="currently_using_any_of_technology_uids" id="val-people-tech-any">
+    <input type="hidden" class="f-people" data-key="currently_using_all_of_technology_uids" id="val-people-tech-all">
+    <input type="hidden" class="f-people" data-key="currently_not_using_any_of_technology_uids" id="val-people-tech-not">
 <?php capSectionEnd(); ?>
 
 <!-- Vagas ativas -->

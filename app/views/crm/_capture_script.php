@@ -68,6 +68,25 @@ function collectFilters() {
     document.querySelectorAll('.f-' + scope + '-raw').forEach(el => {
         if (el.value !== '') fd.append(el.dataset.key, el.value);
     });
+
+    // 4) Localizações escolhidas na cascata Estado>Cidade: enviadas como arrays
+    //    (evita que a vírgula de "Cidade, Estado" seja dividida no backend).
+    Object.keys(locSelections).forEach(target => {
+        // Mapeia o "target" da UI para a chave real da API
+        const keyMap = {
+            'person_locations': 'person_locations',
+            'organization_locations': 'organization_locations',
+            'organization_locations_org': 'organization_locations',
+            'organization_not_locations_org': 'organization_not_locations',
+        };
+        const key = keyMap[target];
+        if (!key) return;
+        // Só envia para o escopo atual
+        const isOrgTarget = target.endsWith('_org');
+        if ((scope === 'orgs') !== isOrgTarget) return;
+        Array.from(locSelections[target]).forEach(loc => fd.append(key + '[]', loc));
+    });
+
     return fd;
 }
 
@@ -78,7 +97,23 @@ function clearFilters() {
         else el.value = '';
     });
     document.querySelectorAll('.f-' + scope + '-multi').forEach(el => el.checked = false);
-    document.querySelectorAll('.f-' + scope + '-raw').forEach(el => { el.value = (el.tagName === 'SELECT') ? '' : ''; });
+    document.querySelectorAll('.f-' + scope + '-raw').forEach(el => { el.value = ''; });
+
+    // Tecnologias: desmarca checkboxes e limpa os campos ocultos
+    document.querySelectorAll('.cap-tech-cb[data-scope="' + scope + '"]').forEach(el => el.checked = false);
+    syncTech(scope);
+
+    // Localizações: limpa seleções e selects de estado/cidade do escopo
+    Object.keys(locSelections).forEach(target => {
+        const isOrgTarget = target.endsWith('_org');
+        if ((scope === 'orgs') === isOrgTarget) {
+            locSelections[target] = new Set();
+            renderLocations(target);
+        }
+    });
+    document.querySelectorAll('#' + (scope === 'orgs' ? 'orgs' : 'people') + '-filters .cap-state-select').forEach(s => s.value = '');
+    document.querySelectorAll('#' + (scope === 'orgs' ? 'orgs' : 'people') + '-filters .cap-city-select').forEach(s => s.innerHTML = '<option value="">Cidade…</option>');
+
     // Reaplica o estado visual dos chips
     document.querySelectorAll('.cap-chip').forEach(chip => {
         const cb = chip.querySelector('input[type=checkbox]');
@@ -90,6 +125,134 @@ function clearFilters() {
 function syncChip(cb) {
     const chip = cb.closest('.cap-chip');
     if (chip) chip.classList.toggle('checked', cb.checked);
+    // Tecnologias: recomputa os campos ocultos ao marcar/desmarcar
+    if (cb.classList.contains('cap-tech-cb')) syncTech(cb.dataset.scope);
+}
+
+// ===== Localização (cascata Estado > Cidade) via IBGE =====
+// Cada "target" mantém uma lista de locais escolhidos no formato "Cidade, Estado, Brazil".
+const locSelections = {}; // target -> Set de strings
+let ibgeStates = [];        // [{uf, name}]
+const ibgeCityCache = {};   // uf -> [cidades]
+
+// Carrega os estados do IBGE (uma vez) e popula todos os selects de estado.
+function loadIbgeStates() {
+    fetch(BASE + 'crm/ibgeStates', { headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json())
+        .then(d => {
+            if (!d.success) throw new Error();
+            ibgeStates = d.states || [];
+            document.querySelectorAll('.cap-state-select').forEach(sel => {
+                sel.innerHTML = '<option value="">Estado…</option>' +
+                    ibgeStates.map(s => `<option value="${s.uf}" data-name="${escapeAttr(s.name)}">${s.uf} — ${escapeHtml(s.name)}</option>`).join('');
+            });
+        })
+        .catch(() => {
+            document.querySelectorAll('.cap-state-select').forEach(sel => {
+                sel.innerHTML = '<option value="">Estados indisponíveis</option>';
+            });
+        });
+}
+
+function onStateChange(sel) {
+    const uf = sel.value;
+    const citySel = sel.parentElement.querySelector('.cap-city-select');
+    citySel.innerHTML = '<option value="">Carregando…</option>';
+    if (!uf) { citySel.innerHTML = '<option value="">Cidade…</option>'; return; }
+
+    const fill = (cities) => {
+        const opts = ['<option value="">Cidade…</option>', `<option value="__state__">Todo o estado (${uf})</option>`];
+        cities.forEach(c => opts.push(`<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`));
+        citySel.innerHTML = opts.join('');
+    };
+
+    if (ibgeCityCache[uf]) { fill(ibgeCityCache[uf]); return; }
+    fetch(BASE + 'crm/ibgeCities/' + uf, { headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json())
+        .then(d => {
+            if (!d.success) throw new Error();
+            ibgeCityCache[uf] = d.cities || [];
+            fill(ibgeCityCache[uf]);
+        })
+        .catch(() => { citySel.innerHTML = '<option value="">Cidades indisponíveis</option>'; });
+}
+
+function onCityChange(sel) {
+    const target = sel.dataset.target;
+    const stateSel = sel.parentElement.querySelector('.cap-state-select');
+    const uf = stateSel.value;
+    if (!uf) return;
+    const opt = stateSel.options[stateSel.selectedIndex];
+    const stateName = opt ? (opt.dataset.name || uf) : uf;
+    let label;
+    if (sel.value === '__state__' || sel.value === '') {
+        label = stateName + ', Brazil'; // estado inteiro + país (formato Apollo)
+    } else {
+        label = sel.value + ', ' + stateName + ', Brazil'; // Cidade, Estado, País
+    }
+    addLocation(target, label);
+    sel.value = '';
+}
+
+function addLocation(target, label) {
+    if (!locSelections[target]) locSelections[target] = new Set();
+    if (locSelections[target].has(label)) return;
+    locSelections[target].add(label);
+    renderLocations(target);
+}
+
+function removeLocation(target, label) {
+    if (locSelections[target]) locSelections[target].delete(label);
+    renderLocations(target);
+}
+
+function renderLocations(target) {
+    const box = document.getElementById('chips-' + target);
+    const set = locSelections[target] || new Set();
+    box.innerHTML = Array.from(set).map(l =>
+        `<span class="cap-chip checked" style="cursor:default;">${escapeHtml(l)}
+            <i class="bi bi-x-lg" style="cursor:pointer;" onclick="removeLocation('${escapeAttr(target)}', '${escapeAttr(l).replace(/'/g, "\\'")}')"></i>
+        </span>`
+    ).join('');
+    // O envio dos locais é feito em collectFilters (como arrays), não por hidden.
+}
+
+// ===== Tecnologias =====
+// Junta as tecnologias marcadas nos campos ocultos conforme o modo escolhido (pessoas).
+function syncTech(scope) {
+    const checked = Array.from(document.querySelectorAll('.cap-tech-cb[data-scope="' + scope + '"]:checked')).map(c => c.value);
+    if (scope === 'orgs') {
+        const h = document.getElementById('val-orgs-tech-any');
+        if (h) h.value = checked.join(',');
+        return;
+    }
+    // Pessoas: o modo define em qual campo as marcadas entram
+    const mode = (document.querySelector('.cap-tech-mode[data-scope="people"]') || {}).value || 'currently_using_any_of_technology_uids';
+    const any = document.getElementById('val-people-tech-any');
+    const all = document.getElementById('val-people-tech-all');
+    const not = document.getElementById('val-people-tech-not');
+    if (any) any.value = '';
+    if (all) all.value = '';
+    if (not) not.value = '';
+    const joined = checked.join(',');
+    if (mode === 'currently_using_all_of_technology_uids' && all) all.value = joined;
+    else if (mode === 'currently_not_using_any_of_technology_uids' && not) not.value = joined;
+    else if (any) any.value = joined;
+}
+
+// Filtra a lista de tecnologias pela busca
+function filterTech(input) {
+    const scope = input.dataset.scope;
+    const term = input.value.trim().toLowerCase();
+    document.querySelectorAll('.cap-tech-chip[data-scope="' + scope + '"]').forEach(chip => {
+        const match = !term || (chip.dataset.label || '').indexOf(term) !== -1;
+        chip.style.display = match ? '' : 'none';
+    });
+    // Esconde grupos vazios
+    document.querySelectorAll('.cap-tech-group[data-scope="' + scope + '"]').forEach(g => {
+        const anyVisible = Array.from(g.querySelectorAll('.cap-tech-chip')).some(c => c.style.display !== 'none');
+        g.style.display = anyVisible ? '' : 'none';
+    });
 }
 
 // ===== Busca =====
@@ -547,5 +710,10 @@ function initChips() {
 document.addEventListener('DOMContentLoaded', function () {
     checkApolloStatus();
     initChips();
+    loadIbgeStates();
+    // Recalcula os campos de tecnologia ao trocar o modo (pessoas)
+    document.querySelectorAll('.cap-tech-mode[data-scope="people"]').forEach(sel => {
+        sel.addEventListener('change', () => syncTech('people'));
+    });
 });
 </script>

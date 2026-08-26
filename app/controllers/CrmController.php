@@ -1601,6 +1601,83 @@ class CrmController extends Controller
         ]);
     }
 
+    /**
+     * API: lista de estados (UF) do Brasil via IBGE (proxy, evita CORS).
+     * GET crm/ibgeStates
+     */
+    public function ibgeStates()
+    {
+        $this->requireRole($this->captureRoles);
+        $cached = $this->ibgeGet('https://servicodados.ibge.gov.br/api/v1/localidades/estados?orderBy=nome');
+        if ($cached === null) $this->json(['error' => 'Não foi possível consultar o IBGE.'], 502);
+
+        $states = array_map(fn($s) => [
+            'id' => $s['id'],
+            'uf' => $s['sigla'],
+            'name' => $s['nome'],
+        ], $cached);
+        $this->json(['success' => true, 'states' => $states]);
+    }
+
+    /**
+     * API: municípios de uma UF via IBGE (proxy).
+     * GET crm/ibgeCities/{uf}
+     */
+    public function ibgeCities($uf = null)
+    {
+        $this->requireRole($this->captureRoles);
+        $uf = strtoupper(preg_replace('/[^A-Za-z]/', '', (string)$uf));
+        if (strlen($uf) !== 2) $this->json(['error' => 'UF inválida'], 400);
+
+        $data = $this->ibgeGet("https://servicodados.ibge.gov.br/api/v1/localidades/estados/{$uf}/municipios?orderBy=nome");
+        if ($data === null) $this->json(['error' => 'Não foi possível consultar o IBGE.'], 502);
+
+        $cities = array_map(fn($c) => $c['nome'], $data);
+        $this->json(['success' => true, 'uf' => $uf, 'cities' => $cities]);
+    }
+
+    /**
+     * GET simples ao IBGE com cache em arquivo (24h) para reduzir chamadas externas.
+     * @return array|null  Array decodificado ou null em falha.
+     */
+    private function ibgeGet($url)
+    {
+        $cacheDir = PUBLIC_PATH . '/uploads/ibge_cache';
+        if (!is_dir($cacheDir)) @mkdir($cacheDir, 0755, true);
+        $cacheFile = $cacheDir . '/' . md5($url) . '.json';
+
+        // Cache válido por 24h
+        if (is_file($cacheFile) && (time() - filemtime($cacheFile)) < 86400) {
+            $cached = json_decode(file_get_contents($cacheFile), true);
+            if (is_array($cached)) return $cached;
+        }
+
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 20,
+            CURLOPT_HTTPHEADER => ['Accept: application/json'],
+        ]);
+        $resp = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($resp === false || $code >= 400) {
+            // Fallback: usa o cache antigo se existir
+            if (is_file($cacheFile)) {
+                $old = json_decode(file_get_contents($cacheFile), true);
+                if (is_array($old)) return $old;
+            }
+            return null;
+        }
+
+        $data = json_decode($resp, true);
+        if (!is_array($data)) return null;
+
+        @file_put_contents($cacheFile, $resp);
+        return $data;
+    }
+
     // ===== Helpers Apollo =====
 
     /** Coleta filtros de pessoas do $_POST no formato esperado pelo ApolloApi. */

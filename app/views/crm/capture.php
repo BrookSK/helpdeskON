@@ -26,7 +26,7 @@
     <?php endif; ?>
 
     <!-- Abas: Pessoas / Empresas / Capturados / Diagnóstico -->
-    <ul class="nav nav-pills mb-3" style="font-size:0.85rem;" id="capture-tabs">
+    <ul class="nav nav-pills cap-tabs mb-3 flex-wrap" id="capture-tabs">
         <li class="nav-item"><button class="nav-link active" data-tab="people" onclick="switchTab('people')"><i class="bi bi-person"></i> Pessoas</button></li>
         <li class="nav-item"><button class="nav-link" data-tab="orgs" onclick="switchTab('orgs')"><i class="bi bi-building"></i> Empresas</button></li>
         <li class="nav-item"><button class="nav-link" data-tab="captured" onclick="switchTab('captured')"><i class="bi bi-collection"></i> Capturados</button></li>
@@ -34,6 +34,19 @@
         <li class="nav-item"><button class="nav-link" data-tab="diagnostic" onclick="switchTab('diagnostic')"><i class="bi bi-heart-pulse"></i> Diagnóstico</button></li>
         <?php endif; ?>
     </ul>
+
+    <style>
+    /* Abas no padrão da plataforma (igual ao módulo de Marketing) */
+    .cap-tabs .nav-link { color: #555; font-size: 0.85rem; border-radius: 8px; }
+    .cap-tabs .nav-link.active { background: var(--primary); color: #fff; }
+    /* Barra de resultados: rola só a lista, mantendo cabeçalho e paginação fixos */
+    #results-scroll { max-height: calc(100vh - 340px); min-height: 320px; overflow-y: auto; }
+    /* Coluna de filtros e de resultados com a mesma altura de referência */
+    #capture-main .card { min-height: 60vh; }
+    #results-empty, #results-loading { min-height: 320px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    /* A barra de ações em massa não deve quebrar o layout quando vazia */
+    #bulk-actions { flex-shrink: 0; }
+    </style>
 
     <!-- Painel de Diagnóstico -->
     <?php if (($user['role'] ?? '') === 'super_admin'): ?>
@@ -79,6 +92,8 @@
         </div>
     </div>
     <?php endif; ?>
+
+    <?php require APP_PATH . '/views/crm/_capture_data.php'; ?>
 
     <div class="row g-3" id="capture-main">
         <!-- Coluna de filtros -->
@@ -136,10 +151,12 @@
                         <p class="mb-0 mt-2">Configure os filtros e clique em Pesquisar.</p>
                     </div>
                     <div class="table-responsive" id="results-wrap" style="display:none;">
-                        <table class="table table-hover align-middle mb-0" style="font-size:0.83rem;">
-                            <thead class="table-light" id="results-head"></thead>
-                            <tbody id="results-body"></tbody>
-                        </table>
+                        <div id="results-scroll">
+                            <table class="table table-hover align-middle mb-0" style="font-size:0.83rem;">
+                                <thead class="table-light" id="results-head" style="position:sticky;top:0;z-index:2;"></thead>
+                                <tbody id="results-body"></tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
                 <div class="card-footer bg-white py-2 d-flex justify-content-between align-items-center" id="pagination-bar" style="display:none;">

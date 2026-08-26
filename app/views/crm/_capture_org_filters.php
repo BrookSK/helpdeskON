@@ -64,20 +64,48 @@ $fundingOptions = [
 
 <!-- Localização -->
 <?php capSection('org-local', 'bi-geo-alt', 'Localização'); ?>
-    <div class="mb-2">
-        <label class="cap-label">Localização (HQ)</label>
-        <input type="text" class="form-control form-control-sm f-orgs" data-key="organization_locations" placeholder="ex: texas, tokyo">
+    <label class="cap-label">Localização (HQ)</label>
+    <div class="cap-range mb-1">
+        <select class="form-select form-select-sm cap-state-select" data-target="organization_locations_org" onchange="onStateChange(this)">
+            <option value="">Carregando estados…</option>
+        </select>
+        <select class="form-select form-select-sm cap-city-select" data-target="organization_locations_org" onchange="onCityChange(this)">
+            <option value="">Cidade…</option>
+        </select>
     </div>
-    <div>
-        <label class="cap-label">Excluir localização</label>
-        <input type="text" class="form-control form-control-sm f-orgs" data-key="organization_not_locations" placeholder="ex: ireland, seoul">
+    <div class="cap-chips mb-1" id="chips-organization_locations_org"></div>
+
+    <hr class="my-2">
+    <label class="cap-label">Excluir localização</label>
+    <div class="cap-range mb-1">
+        <select class="form-select form-select-sm cap-state-select" data-target="organization_not_locations_org" onchange="onStateChange(this)">
+            <option value="">Carregando estados…</option>
+        </select>
+        <select class="form-select form-select-sm cap-city-select" data-target="organization_not_locations_org" onchange="onCityChange(this)">
+            <option value="">Cidade…</option>
+        </select>
     </div>
+    <div class="cap-chips mb-1" id="chips-organization_not_locations_org"></div>
 <?php capSectionEnd(); ?>
 
 <!-- Tecnologias -->
-<?php capSection('org-tech', 'bi-cpu', 'Tecnologias'); ?>
-    <label class="cap-label">Usa qualquer uma</label>
-    <input type="text" class="form-control form-control-sm f-orgs" data-key="currently_using_any_of_technology_uids" placeholder="ex: salesforce">
+<?php capSection('org-tech', 'bi-cpu', 'Tecnologias (usa qualquer uma)'); ?>
+    <label class="cap-label">Buscar tecnologia</label>
+    <input type="text" class="form-control form-control-sm mb-2 cap-tech-search" data-scope="orgs" placeholder="filtrar lista..." oninput="filterTech(this)">
+    <?php foreach ($apolloTech as $cat => $techs): ?>
+    <div class="cap-tech-group" data-scope="orgs">
+        <div class="cap-label mt-1" style="color:#889;"><?= escape($cat) ?></div>
+        <div class="cap-chips">
+            <?php foreach ($techs as $uid => $lbl): ?>
+            <label class="cap-chip cap-tech-chip" data-scope="orgs" data-label="<?= escape(mb_strtolower($lbl)) ?>">
+                <input type="checkbox" class="cap-tech-cb" data-scope="orgs" value="<?= $uid ?>" onchange="syncChip(this)">
+                <span><?= escape($lbl) ?></span>
+            </label>
+            <?php endforeach; ?>
+        </div>
+    </div>
+    <?php endforeach; ?>
+    <input type="hidden" class="f-orgs" data-key="currently_using_any_of_technology_uids" id="val-orgs-tech-any">
 <?php capSectionEnd(); ?>
 
 <!-- Funding -->
