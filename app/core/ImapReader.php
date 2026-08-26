@@ -152,6 +152,79 @@ class ImapReader
     }
 
     /**
+     * Exclui um e-mail (move para a lixeira quando possível, senão marca \Deleted e expunge).
+     * @return bool
+     */
+    public function deleteMessage($uid)
+    {
+        if (!$this->connection) return false;
+
+        // Tenta mover para a pasta de lixeira mais comum
+        $trash = $this->findMailbox(['Trash', 'Lixeira', 'Deleted', 'Deleted Items', 'Papeleira']);
+        if ($trash) {
+            $moved = @imap_mail_move($this->connection, (string)$uid, $trash, CP_UID);
+            if ($moved) {
+                imap_expunge($this->connection);
+                return true;
+            }
+        }
+
+        // Fallback: marca como apagado e expurga
+        $ok = @imap_delete($this->connection, (string)$uid, FT_UID);
+        if ($ok) imap_expunge($this->connection);
+        return (bool)$ok;
+    }
+
+    /**
+     * Arquiva um e-mail movendo-o para a pasta de arquivo.
+     * @return bool|string true, ou string de erro amigável.
+     */
+    public function archiveMessage($uid)
+    {
+        if (!$this->connection) return false;
+
+        $archive = $this->findMailbox(['Archive', 'Arquivo', 'Arquivados', 'All Mail', '[Gmail]/All Mail', 'Todos']);
+        if (!$archive) {
+            // Cria uma pasta "Archive" se não existir
+            $ref = '{' . $this->host . ':' . $this->port . '}';
+            if (@imap_createmailbox($this->connection, imap_utf7_encode($ref . 'Archive'))) {
+                @imap_subscribe($this->connection, imap_utf7_encode($ref . 'Archive'));
+                $archive = 'Archive';
+            }
+        }
+        if (!$archive) return 'Não foi possível localizar/criar a pasta de arquivo nesta conta.';
+
+        $moved = @imap_mail_move($this->connection, (string)$uid, $archive, CP_UID);
+        if ($moved) {
+            imap_expunge($this->connection);
+            return true;
+        }
+        return 'Falha ao arquivar o e-mail.';
+    }
+
+    /**
+     * Procura, entre as caixas existentes, a primeira cujo nome bata com a lista de candidatos.
+     * @return string|null nome da pasta (sem o prefixo do servidor) ou null
+     */
+    private function findMailbox(array $candidates)
+    {
+        $ref = '{' . $this->host . ':' . $this->port . '}';
+        $list = @imap_list($this->connection, $ref, '*');
+        if (!$list) return null;
+
+        foreach ($list as $box) {
+            $name = str_replace($ref, '', $box);
+            $decoded = imap_utf7_decode($name);
+            foreach ($candidates as $cand) {
+                if (strcasecmp($decoded, $cand) === 0 || strcasecmp($name, $cand) === 0) {
+                    return $name;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
      * Fecha a conexão IMAP.
      */
     public function disconnect()

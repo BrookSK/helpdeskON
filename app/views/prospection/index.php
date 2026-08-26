@@ -261,9 +261,21 @@ function onContactChange() {
         .then(d => {
             if (!d.contact) { infoDiv.style.display = 'none'; return; }
 
+            // Preenche automaticamente os dados de contato do destinatário
+            const nameField = document.getElementById('pf-recipient-name');
+            const emailField = document.getElementById('pf-recipient-email');
+            if (d.contact.name && !nameField.value.trim()) nameField.value = d.contact.name;
+            if (d.contact.email) {
+                emailField.value = d.contact.email;
+            } else if (!emailField.value.trim()) {
+                // Sem e-mail cadastrado: sinaliza para o usuário preencher
+                emailField.placeholder = 'Lead sem e-mail cadastrado — preencha aqui';
+            }
+
             let html = `<p><strong>${d.contact.name}</strong>`;
             if (d.contact.phone) html += ` — ${d.contact.phone}`;
             html += '</p>';
+            if (d.contact.email) html += `<p><strong>E-mail:</strong> ${d.contact.email}</p>`;
 
             if (d.briefing) {
                 const bf = d.briefing;

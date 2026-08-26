@@ -9,13 +9,17 @@
             <div class="modal-body">
                 <input type="hidden" id="ld-id">
                 <div class="row g-3">
-                    <div class="col-md-8">
+                    <div class="col-md-6">
                         <label class="form-label small fw-medium">Nome</label>
                         <input type="text" id="ld-contact_name" class="form-control form-control-sm">
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-md-3">
                         <label class="form-label small fw-medium">Telefone</label>
                         <input type="text" id="ld-phone" class="form-control form-control-sm" inputmode="numeric" oninput="this.value=this.value.replace(/\D/g,'')">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small fw-medium">E-mail</label>
+                        <input type="email" id="ld-lead_email" class="form-control form-control-sm" placeholder="email@empresa.com">
                     </div>
                 </div>
 
@@ -120,6 +124,7 @@ function openLead(id) {
     document.getElementById('ld-id').value = id;
     document.getElementById('ld-contact_name').value = '';
     document.getElementById('ld-phone').value = '';
+    document.getElementById('ld-lead_email').value = '';
     LD_BF_FIELDS.forEach(k => { const el = document.getElementById('ld-bf-' + k); if (el) el.value = ''; });
     document.getElementById('ld-chat-btn').href = BASE + 'whatsapp/chat/' + id;
 
@@ -129,6 +134,7 @@ function openLead(id) {
             const c = d.contact || {};
             document.getElementById('ld-contact_name').value = c.contact_name || c.push_name || '';
             document.getElementById('ld-phone').value = c.phone || '';
+            document.getElementById('ld-lead_email').value = c.lead_email || '';
             // Botão Telefonar só quando há telefone
             const callBtn = document.getElementById('ld-call-btn');
             if (c.phone) { callBtn.style.display = ''; callBtn.dataset.lead = id; }
@@ -150,6 +156,7 @@ function saveLead() {
     const fd = new FormData();
     fd.append('contact_name', document.getElementById('ld-contact_name').value.trim());
     fd.append('phone', document.getElementById('ld-phone').value.trim());
+    fd.append('lead_email', document.getElementById('ld-lead_email').value.trim());
     LD_BF_FIELDS.forEach(k => fd.append('bf_' + k, document.getElementById('ld-bf-' + k).value));
 
     fetch(BASE + 'crm/updateLead/' + id, { method:'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
