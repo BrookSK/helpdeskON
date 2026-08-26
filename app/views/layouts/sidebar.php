@@ -201,12 +201,13 @@
                     </a>
                 </li>
                 <?php $lcActive = in_array($currentPage ?? '', ['leadcapture_opps', 'leadcapture_config', 'leadcapture_health']); ?>
+                <?php $lcIsAdmin = ($user['role'] ?? '') === 'super_admin'; ?>
                 <li class="nav-item">
                     <a class="nav-link <?= $lcActive ? 'active' : '' ?>" href="<?= baseUrl('leadcapture/opportunities') ?>" style="padding-left:2.6rem;font-size:0.85rem;">
                         <i class="bi bi-binoculars"></i> Captação de Leads
                     </a>
                 </li>
-                <?php if ($lcActive): ?>
+                <?php if ($lcActive && $lcIsAdmin): ?>
                 <li class="nav-item">
                     <a class="nav-link <?= ($currentPage ?? '') === 'leadcapture_opps' ? 'active' : '' ?>" href="<?= baseUrl('leadcapture/opportunities') ?>" style="padding-left:3.4rem;font-size:0.82rem;">
                         <i class="bi bi-dot"></i> Oportunidades

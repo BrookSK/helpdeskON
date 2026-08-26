@@ -19,6 +19,8 @@
 class LeadcaptureController extends Controller
 {
     private $roles = ['super_admin', 'comercial'];
+    // Configurações de busca e saúde da integração: apenas administradores.
+    private $adminRoles = ['super_admin'];
     private $model;
 
     public function __construct()
@@ -50,7 +52,7 @@ class LeadcaptureController extends Controller
 
     public function configuracoes()
     {
-        $this->requireRole($this->roles);
+        $this->requireRole($this->adminRoles);
         $user = $this->currentUser();
         $this->view('leadcapture/configuracoes', [
             'user' => $user,
@@ -62,7 +64,7 @@ class LeadcaptureController extends Controller
 
     public function saude()
     {
-        $this->requireRole($this->roles);
+        $this->requireRole($this->adminRoles);
         $user = $this->currentUser();
         $this->view('leadcapture/saude', [
             'user' => $user,
@@ -243,11 +245,11 @@ class LeadcaptureController extends Controller
         $this->json(['success' => true] + $result);
     }
 
-    // ---- Configurações de busca ----
+    // ---- Configurações de busca (apenas administradores) ----
 
     public function saveTerm()
     {
-        $this->requireRole($this->roles);
+        $this->requireRole($this->adminRoles);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
 
         $id = intval($_POST['id'] ?? 0);
@@ -268,7 +270,7 @@ class LeadcaptureController extends Controller
 
     public function deleteTerm($id = null)
     {
-        $this->requireRole($this->roles);
+        $this->requireRole($this->adminRoles);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
         $this->model->deleteTerm($id);
         $this->json(['success' => true]);
@@ -277,7 +279,7 @@ class LeadcaptureController extends Controller
     /** Ativa/desativa uma categoria. POST leadcapture/toggleCategory/{id} body: active */
     public function toggleCategory($id = null)
     {
-        $this->requireRole($this->roles);
+        $this->requireRole($this->adminRoles);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
         $this->model->updateCategory($id, ['active' => !empty($_POST['active']) ? 1 : 0]);
         $this->json(['success' => true]);
@@ -286,7 +288,7 @@ class LeadcaptureController extends Controller
     /** Ativa/desativa todas as categorias de uma vez. POST leadcapture/setAllCategories body: active */
     public function setAllCategories()
     {
-        $this->requireRole($this->roles);
+        $this->requireRole($this->adminRoles);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
         $this->model->setAllCategories(!empty($_POST['active']));
         $this->json(['success' => true]);
@@ -294,7 +296,7 @@ class LeadcaptureController extends Controller
 
     public function saveSettings()
     {
-        $this->requireRole($this->roles);
+        $this->requireRole($this->adminRoles);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
 
         $data = [

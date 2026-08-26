@@ -20,8 +20,10 @@ $canCollect = !empty($settings['enabled']) && (!empty($terms) || !empty($setting
             </small>
         </div>
         <div class="d-flex gap-2">
+            <?php if (($user['role'] ?? '') === 'super_admin'): ?>
             <a href="<?= baseUrl('leadcapture/configuracoes') ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-gear"></i> Configurações</a>
             <a href="<?= baseUrl('leadcapture/saude') ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-activity"></i> Saúde</a>
+            <?php endif; ?>
             <button class="btn btn-sm btn-primary" id="collect-btn" onclick="runCollect()"
                 <?= $canCollect ? '' : 'disabled title="Habilite a fonte e cadastre ao menos um termo em Configurações"' ?>>
                 <i class="bi bi-cloud-download"></i> Buscar novos projetos agora
