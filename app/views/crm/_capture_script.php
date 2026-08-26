@@ -138,16 +138,23 @@ const ibgeCityCache = {};   // uf -> [cidades]
 // Carrega os estados do IBGE (uma vez) e popula todos os selects de estado.
 function loadIbgeStates() {
     fetch(BASE + 'crm/ibgeStates', { headers: {'X-Requested-With':'XMLHttpRequest'} })
-        .then(r => r.json())
-        .then(d => {
-            if (!d.success) throw new Error();
-            ibgeStates = d.states || [];
+        .then(r => r.text())
+        .then(txt => {
+            let d;
+            try { d = JSON.parse(txt); }
+            catch (e) { console.error('ibgeStates: resposta não-JSON', txt.slice(0, 300)); throw e; }
+            if (!d.success || !Array.isArray(d.states) || !d.states.length) {
+                console.error('ibgeStates: falha', d);
+                throw new Error(d.error || 'sem estados');
+            }
+            ibgeStates = d.states;
             document.querySelectorAll('.cap-state-select').forEach(sel => {
                 sel.innerHTML = '<option value="">Estado…</option>' +
                     ibgeStates.map(s => `<option value="${s.uf}" data-name="${escapeAttr(s.name)}">${s.uf} — ${escapeHtml(s.name)}</option>`).join('');
             });
         })
-        .catch(() => {
+        .catch((e) => {
+            console.error('ibgeStates erro:', e);
             document.querySelectorAll('.cap-state-select').forEach(sel => {
                 sel.innerHTML = '<option value="">Estados indisponíveis</option>';
             });
@@ -170,11 +177,16 @@ function onStateChange(sel) {
     fetch(BASE + 'crm/ibgeCities/' + uf, { headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json())
         .then(d => {
-            if (!d.success) throw new Error();
-            ibgeCityCache[uf] = d.cities || [];
+            if (!d.success || !Array.isArray(d.cities)) throw new Error(d.error || 'sem cidades');
+            ibgeCityCache[uf] = d.cities;
             fill(ibgeCityCache[uf]);
         })
-        .catch(() => { citySel.innerHTML = '<option value="">Cidades indisponíveis</option>'; });
+        .catch((e) => {
+            console.error('ibgeCities erro:', e);
+            // Sem cidades: ao menos permite selecionar o estado inteiro
+            citySel.innerHTML = '<option value="">Cidade…</option>' +
+                `<option value="__state__">Todo o estado (${uf})</option>`;
+        });
 }
 
 function onCityChange(sel) {

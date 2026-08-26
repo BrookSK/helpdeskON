@@ -1608,15 +1608,38 @@ class CrmController extends Controller
     public function ibgeStates()
     {
         $this->requireRole($this->captureRoles);
-        $cached = $this->ibgeGet('https://servicodados.ibge.gov.br/api/v1/localidades/estados?orderBy=nome');
-        if ($cached === null) $this->json(['error' => 'Não foi possível consultar o IBGE.'], 502);
+        $data = $this->ibgeGet('https://servicodados.ibge.gov.br/api/v1/localidades/estados?orderBy=nome');
 
-        $states = array_map(fn($s) => [
-            'id' => $s['id'],
-            'uf' => $s['sigla'],
-            'name' => $s['nome'],
-        ], $cached);
-        $this->json(['success' => true, 'states' => $states]);
+        if (is_array($data) && !empty($data)) {
+            $states = array_map(fn($s) => [
+                'id' => $s['id'],
+                'uf' => $s['sigla'],
+                'name' => $s['nome'],
+            ], $data);
+            $this->json(['success' => true, 'states' => $states, 'source' => 'ibge']);
+        }
+
+        // Fallback estático: os 27 estados são fixos. Garante o dropdown mesmo sem IBGE.
+        $this->json(['success' => true, 'states' => $this->staticStates(), 'source' => 'static']);
+    }
+
+    /** Lista fixa de UFs (fallback quando o IBGE está inacessível). */
+    private function staticStates()
+    {
+        $ufs = [
+            'AC' => 'Acre', 'AL' => 'Alagoas', 'AP' => 'Amapá', 'AM' => 'Amazonas',
+            'BA' => 'Bahia', 'CE' => 'Ceará', 'DF' => 'Distrito Federal', 'ES' => 'Espírito Santo',
+            'GO' => 'Goiás', 'MA' => 'Maranhão', 'MT' => 'Mato Grosso', 'MS' => 'Mato Grosso do Sul',
+            'MG' => 'Minas Gerais', 'PA' => 'Pará', 'PB' => 'Paraíba', 'PR' => 'Paraná',
+            'PE' => 'Pernambuco', 'PI' => 'Piauí', 'RJ' => 'Rio de Janeiro', 'RN' => 'Rio Grande do Norte',
+            'RS' => 'Rio Grande do Sul', 'RO' => 'Rondônia', 'RR' => 'Roraima', 'SC' => 'Santa Catarina',
+            'SP' => 'São Paulo', 'SE' => 'Sergipe', 'TO' => 'Tocantins',
+        ];
+        $out = [];
+        foreach ($ufs as $uf => $name) {
+            $out[] = ['id' => $uf, 'uf' => $uf, 'name' => $name];
+        }
+        return $out;
     }
 
     /**
@@ -1638,6 +1661,7 @@ class CrmController extends Controller
 
     /**
      * GET simples ao IBGE com cache em arquivo (24h) para reduzir chamadas externas.
+     * Tenta cURL e, se indisponível/falho, faz fallback para file_get_contents.
      * @return array|null  Array decodificado ou null em falha.
      */
     private function ibgeGet($url)
@@ -1652,27 +1676,55 @@ class CrmController extends Controller
             if (is_array($cached)) return $cached;
         }
 
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 20,
-            CURLOPT_HTTPHEADER => ['Accept: application/json'],
-        ]);
-        $resp = curl_exec($ch);
-        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
+        $resp = false;
+        $code = 0;
+        $curlErr = '';
 
-        if ($resp === false || $code >= 400) {
-            // Fallback: usa o cache antigo se existir
+        if (function_exists('curl_init')) {
+            $ch = curl_init($url);
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT => 20,
+                CURLOPT_FOLLOWLOCATION => true,
+                CURLOPT_SSL_VERIFYPEER => false, // alguns servidores não têm bundle de CA atualizado
+                CURLOPT_SSL_VERIFYHOST => false,
+                CURLOPT_USERAGENT => 'HelpdeskON/1.0',
+                CURLOPT_HTTPHEADER => ['Accept: application/json'],
+            ]);
+            $resp = curl_exec($ch);
+            $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $curlErr = curl_error($ch);
+            curl_close($ch);
+        }
+
+        // Fallback: file_get_contents (quando cURL não existe ou falhou)
+        if ($resp === false || $code >= 400 || $resp === '') {
+            Logger::error('IBGE via cURL falhou, tentando fallback', ['url' => $url, 'http' => $code, 'curl_error' => $curlErr]);
+            $ctx = stream_context_create([
+                'http' => ['timeout' => 20, 'header' => "Accept: application/json\r\nUser-Agent: HelpdeskON/1.0\r\n"],
+                'ssl' => ['verify_peer' => false, 'verify_peer_name' => false],
+            ]);
+            $alt = @file_get_contents($url, false, $ctx);
+            if ($alt !== false && $alt !== '') {
+                $resp = $alt;
+            }
+        }
+
+        if ($resp === false || $resp === '') {
+            // Último recurso: cache antigo
             if (is_file($cacheFile)) {
                 $old = json_decode(file_get_contents($cacheFile), true);
                 if (is_array($old)) return $old;
             }
+            Logger::error('IBGE indisponível', ['url' => $url, 'http' => $code, 'curl_error' => $curlErr]);
             return null;
         }
 
         $data = json_decode($resp, true);
-        if (!is_array($data)) return null;
+        if (!is_array($data)) {
+            Logger::error('IBGE resposta não-JSON', ['url' => $url, 'sample' => substr((string)$resp, 0, 200)]);
+            return null;
+        }
 
         @file_put_contents($cacheFile, $resp);
         return $data;
