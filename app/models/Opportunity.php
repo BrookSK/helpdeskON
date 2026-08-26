@@ -109,11 +109,12 @@ class Opportunity
             // Sem categoria específica: restringe às categorias ativas (se houver alguma).
             $activeCats = $this->getActiveCategoryNames();
             $allCats = $this->getCategories(false);
-            // Só aplica o recorte se nem todas estão ativas (evita filtro desnecessário)
+            // Só aplica o recorte se nem todas estão ativas (evita filtro desnecessário).
+            // Recorte estrito: mostra apenas as categorias ativas (não inclui sem categoria),
+            // alinhado com a coleta que só grava categorias selecionadas.
             if (!empty($activeCats) && count($activeCats) < count($allCats)) {
                 $ph = implode(',', array_fill(0, count($activeCats), '?'));
-                // Inclui projetos sem categoria (NULL) para não sumirem silenciosamente
-                $where[] = "(o.category IS NULL OR o.category IN ($ph))";
+                $where[] = "o.category IN ($ph)";
                 $params = array_merge($params, $activeCats);
             }
         }
@@ -217,19 +218,14 @@ class Opportunity
     }
 
     /**
-     * Registra uma categoria descoberta na coleta (nova entra ativa por padrão).
-     * Idempotente — ignora se já existe.
+     * DESATIVADO: não criamos mais categorias automaticamente durante a coleta.
+     * As categorias são um conjunto fixo (seed) que o usuário ativa/desativa nas
+     * Configurações. Mantido como no-op para compatibilidade de chamadas antigas.
      */
     public function registerCategory($name)
     {
-        $name = trim((string) $name);
-        if ($name === '') return;
-        try {
-            $this->db->query(
-                "INSERT IGNORE INTO search_categories (name, active) VALUES (?, 1)",
-                [$name]
-            );
-        } catch (\Throwable $e) { /* ignora */ }
+        // Intencionalmente não faz nada — evita poluir a lista com categorias novas.
+        return;
     }
 
     public function updateCategory($id, $data)

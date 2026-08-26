@@ -136,21 +136,22 @@ class CollectionRunner
                     // Página vazia interrompe a paginação deste termo
                     if ($parsedCount === 0) break;
 
-                    // Categorias ativas (para filtrar o que é gravado). Vazio = todas.
+                    // Categorias ativas (recorte definido pelo usuário nas Configurações).
+                    // NÃO criamos novas categorias automaticamente: apenas as ativas são gravadas.
                     $activeCats = $this->model->getActiveCategoryNames();
 
                     foreach ($res['raw'] as $rawProject) {
                         $norm = LeadNormalizer::normalize($rawProject, $terms);
                         if (!$norm) continue;
 
-                        // Registra a categoria descoberta (fica disponível nas Configurações)
-                        if (!empty($norm['category'])) {
-                            $this->model->registerCategory($norm['category']);
-                        }
-
-                        // Só grava projetos de categorias ativas (quando há categoria e há recorte)
-                        if (!empty($norm['category']) && !empty($activeCats) && !in_array($norm['category'], $activeCats, true)) {
-                            continue;
+                        // Filtro estrito por categoria ativa: só grava projetos cuja
+                        // categoria esteja marcada como ativa. Se há recorte definido,
+                        // projetos sem categoria ou de categorias não selecionadas são
+                        // descartados (evita "pegar tudo" e criar categorias novas).
+                        if (!empty($activeCats)) {
+                            if (empty($norm['category']) || !in_array($norm['category'], $activeCats, true)) {
+                                continue;
+                            }
                         }
 
                         $metrics['projects_found']++;
