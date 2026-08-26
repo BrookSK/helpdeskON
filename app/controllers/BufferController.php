@@ -897,13 +897,13 @@ class BufferController extends Controller
             // Buscar conta Instagram pelo nome/username do canal
             $channelName = $channel['username'] ?? $channel['name'] ?? '';
             $socialAccount = $db->fetch(
-                "SELECT * FROM social_accounts WHERE platform IN ('meta_instagram') AND (username = ? OR display_name LIKE ?) AND is_active = 1 LIMIT 1",
+                "SELECT * FROM social_accounts WHERE provider IN ('meta_instagram') AND (username = ? OR display_name LIKE ?) AND is_active = 1 LIMIT 1",
                 [$channelName, '%' . $channelName . '%']
             );
         } elseif ($service === 'facebook') {
             $channelName = $channel['username'] ?? $channel['name'] ?? '';
             $socialAccount = $db->fetch(
-                "SELECT * FROM social_accounts WHERE platform = 'facebook_page' AND (display_name LIKE ?) AND is_active = 1 LIMIT 1",
+                "SELECT * FROM social_accounts WHERE provider = 'facebook_page' AND (display_name LIKE ?) AND is_active = 1 LIMIT 1",
                 ['%' . $channelName . '%']
             );
         }
