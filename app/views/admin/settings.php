@@ -208,7 +208,14 @@
                 <small class="text-muted d-block mb-2">Gere em app.apollo.io → Settings → Integrations → API. Usada na aba CRM → Captação de Leads.</small>
                 <label class="form-label fw-medium small">Base URL</label>
                 <input type="text" name="apollo_base_url" class="form-control form-control-sm" value="<?= escape($settings['apollo_base_url'] ?? 'https://api.apollo.io/api/v1') ?>" placeholder="https://api.apollo.io/api/v1">
-                <small class="text-muted">Padrão: https://api.apollo.io/api/v1 (não altere sem necessidade).</small>
+                <small class="text-muted d-block mb-2">Padrão: https://api.apollo.io/api/v1 (não altere sem necessidade).</small>
+
+                <label class="form-label fw-medium small">Token do Webhook (telefone)</label>
+                <input type="text" name="apollo_webhook_token" class="form-control form-control-sm" value="<?= escape($settings['apollo_webhook_token'] ?? '') ?>" placeholder="Um token secreto qualquer (ex: gere aleatório)">
+                <small class="text-muted d-block">
+                    O telefone é revelado de forma assíncrona pelo Apollo via webhook. Defina um token e cadastre a URL abaixo na configuração de webhook do Apollo:
+                    <code><?= escape(rtrim(baseUrl(''), '/')) ?>/crm/apolloPhoneWebhook?token=SEU_TOKEN</code>
+                </small>
             </div>
         </div>
 

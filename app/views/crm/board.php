@@ -605,40 +605,95 @@ function openCardDetail(cardId) {
 function renderBriefing(b) {
     const container = document.getElementById('card-briefing-content');
     if (!container) return;
-    if (!b) {
-        container.innerHTML = '<div class="text-center text-muted py-4"><i class="bi bi-clipboard-x fs-3"></i><p class="mt-2 mb-0 small">Nenhum briefing comercial cadastrado para este contato.</p><p class="small text-muted">Preencha o briefing no chat do WhatsApp (Detalhes do contato).</p></div>';
-        return;
-    }
-    const tempLabels = { frio: '🔵 Frio', morno: '🟠 Morno', quente: '🔴 Quente' };
-    const fields = [
-        ['need', 'Necessidade do lead'],
-        ['main_pain', 'Principal dor/problema'],
-        ['current_solution', 'Solução atual utilizada'],
-        ['expected_goal', 'Objetivo esperado'],
-        ['urgency', 'Urgência/prazo'],
-        ['investment_range', 'Faixa de investimento'],
-        ['decision_level', 'Nível de decisão do contato'],
-        ['lead_temperature', 'Temperatura do lead'],
-        ['main_objection', 'Principal objeção'],
-        ['next_step', 'Próximo passo combinado'],
-        ['next_contact_date', 'Data do próximo contato'],
-        ['notes', 'Observações importantes'],
-    ];
-    let html = '';
-    fields.forEach(([key, label]) => {
-        let val = b[key];
-        if (!val) return;
-        if (key === 'lead_temperature') val = tempLabels[val] || val;
-        if (key === 'next_contact_date') val = String(val).split('-').reverse().join('/');
-        html += `<div class="briefing-view-item">
-            <div class="briefing-view-label">${label}</div>
-            <div class="briefing-view-value">${escapeHtmlSafe(val)}</div>
+    b = b || {};
+    const v = (k) => (b[k] != null ? String(b[k]) : '');
+    const sel = (k, opt) => v(k) === opt ? 'selected' : '';
+    // Formulário editável do briefing comercial (preenchível direto no card)
+    container.innerHTML = `
+        <div class="row g-2">
+            <div class="col-12">
+                <label class="form-label small mb-1">Necessidade do lead</label>
+                <textarea id="bf-need" class="form-control form-control-sm" rows="2">${escapeHtmlSafe(v('need'))}</textarea>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label small mb-1">Principal dor/problema</label>
+                <textarea id="bf-main_pain" class="form-control form-control-sm" rows="2">${escapeHtmlSafe(v('main_pain'))}</textarea>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label small mb-1">Objetivo esperado</label>
+                <textarea id="bf-expected_goal" class="form-control form-control-sm" rows="2">${escapeHtmlSafe(v('expected_goal'))}</textarea>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label small mb-1">Solução atual utilizada</label>
+                <input type="text" id="bf-current_solution" class="form-control form-control-sm" value="${escapeAttrSafe(v('current_solution'))}">
+            </div>
+            <div class="col-md-6">
+                <label class="form-label small mb-1">Faixa de investimento</label>
+                <input type="text" id="bf-investment_range" class="form-control form-control-sm" value="${escapeAttrSafe(v('investment_range'))}" placeholder="R$ 0,00">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label small mb-1">Urgência/prazo</label>
+                <input type="text" id="bf-urgency" class="form-control form-control-sm" value="${escapeAttrSafe(v('urgency'))}">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label small mb-1">Nível de decisão</label>
+                <input type="text" id="bf-decision_level" class="form-control form-control-sm" value="${escapeAttrSafe(v('decision_level'))}">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label small mb-1">Temperatura</label>
+                <select id="bf-lead_temperature" class="form-select form-select-sm">
+                    <option value="">—</option>
+                    <option value="frio" ${sel('lead_temperature','frio')}>🔵 Frio</option>
+                    <option value="morno" ${sel('lead_temperature','morno')}>🟠 Morno</option>
+                    <option value="quente" ${sel('lead_temperature','quente')}>🔴 Quente</option>
+                </select>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label small mb-1">Principal objeção</label>
+                <textarea id="bf-main_objection" class="form-control form-control-sm" rows="2">${escapeHtmlSafe(v('main_objection'))}</textarea>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label small mb-1">Próximo passo combinado</label>
+                <textarea id="bf-next_step" class="form-control form-control-sm" rows="2">${escapeHtmlSafe(v('next_step'))}</textarea>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label small mb-1">Data do próximo contato</label>
+                <input type="date" id="bf-next_contact_date" class="form-control form-control-sm" value="${escapeAttrSafe(v('next_contact_date'))}">
+            </div>
+            <div class="col-12">
+                <label class="form-label small mb-1">Observações importantes</label>
+                <textarea id="bf-notes" class="form-control form-control-sm" rows="2">${escapeHtmlSafe(v('notes'))}</textarea>
+            </div>
+            <div class="col-12 d-flex justify-content-end">
+                <button type="button" class="btn btn-sm btn-primary" onclick="saveCardBriefing(this)"><i class="bi bi-check-lg"></i> Salvar briefing</button>
+            </div>
         </div>`;
+}
+
+const CARD_BF_FIELDS = ['need','main_pain','current_solution','expected_goal','urgency','investment_range','decision_level','lead_temperature','main_objection','next_step','next_contact_date','notes'];
+
+function saveCardBriefing(btn) {
+    if (!currentCardId) return;
+    const fd = new FormData();
+    CARD_BF_FIELDS.forEach(k => {
+        const el = document.getElementById('bf-' + k);
+        if (el) fd.append('bf_' + k, el.value);
     });
-    if (!html) {
-        html = '<div class="text-center text-muted py-4">Briefing sem informações preenchidas.</div>';
-    }
-    container.innerHTML = html;
+    const original = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Salvando...';
+    fetch(BASE + 'crm/saveCardBriefing/' + currentCardId, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json())
+        .then(d => {
+            btn.disabled = false; btn.innerHTML = original;
+            if (d.error) { alert(d.error); return; }
+            btn.innerHTML = '<i class="bi bi-check-lg"></i> Salvo!';
+            setTimeout(() => { btn.innerHTML = original; }, 1500);
+        })
+        .catch(() => { btn.disabled = false; btn.innerHTML = original; alert('Erro ao salvar o briefing.'); });
+}
+
+function escapeAttrSafe(str) {
+    return escapeHtmlSafe(str).replace(/"/g, '&quot;');
 }
 
 function escapeHtmlSafe(str) {

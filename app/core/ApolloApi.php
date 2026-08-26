@@ -87,7 +87,8 @@ class ApolloApi
     public function searchPeople($filters = [])
     {
         $payload = $this->buildPeopleSearchPayload($filters);
-        return $this->request('POST', '/mixed_people/search', $payload);
+        // Endpoint atual (o antigo /mixed_people/search foi descontinuado para API).
+        return $this->request('POST', '/mixed_people/api_search', $payload);
     }
 
     /**
@@ -181,6 +182,16 @@ class ApolloApi
     public function enrichOrganization($domain)
     {
         return $this->request('GET', '/organizations/enrich?domain=' . rawurlencode($domain));
+    }
+
+    /**
+     * Get Complete Organization Info — detalhes completos de uma empresa por ID.
+     * GET /organizations/{id}
+     * https://docs.apollo.io/reference/get-complete-organization-info
+     */
+    public function getOrganization($organizationId)
+    {
+        return $this->request('GET', '/organizations/' . rawurlencode($organizationId));
     }
 
     /**
@@ -442,7 +453,7 @@ class ApolloApi
         // 3) People Search (0 créditos) — filtro mínimo, 1 resultado
         $peopleSearch = null;
         $steps[] = ['People Search', function () use (&$peopleSearch) {
-            $peopleSearch = $this->call('POST', '/mixed_people/search', [
+            $peopleSearch = $this->call('POST', '/mixed_people/api_search', [
                 'person_titles' => ['ceo'],
                 'page' => 1,
                 'per_page' => 1,

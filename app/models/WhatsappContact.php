@@ -47,7 +47,7 @@ class WhatsappContact
     public function getManagedLeads($filters = [])
     {
         $sql = "SELECT c.id, c.contact_name, c.push_name, c.phone, c.assigned_to,
-                       c.last_message_at, c.is_group,
+                       c.last_message_at, c.is_group, c.lead_source_url, c.lead_email,
                        u.name AS assigned_name,
                        b.lead_temperature, b.lead_source, b.need, b.investment_range,
                        b.urgency, b.main_pain, b.next_step,
@@ -235,6 +235,12 @@ class WhatsappContact
         // Filtro por tipo (contatos individuais vs grupos)
         if ($type === 'contacts') {
             $sql .= " AND c.is_group = 0";
+            // Só entram no chat contatos "conversáveis": com telefone real e JID não-sintético.
+            // Leads captados (99Freelas/Apollo sem telefone) usam remote_jid 'lead_...'/'manual_...'
+            // e não devem aparecer no chat até serem cadastrados com telefone.
+            $sql .= " AND c.phone IS NOT NULL AND c.phone <> ''
+                      AND c.remote_jid NOT LIKE 'lead[_]%'
+                      AND c.remote_jid NOT LIKE 'manual[_]%'";
         } elseif ($type === 'groups') {
             $sql .= " AND c.is_group = 1";
         }

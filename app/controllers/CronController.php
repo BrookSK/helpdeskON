@@ -278,6 +278,121 @@ class CronController extends Controller
     }
 
     /**
+     * GET /cron/captureLeads?token=XXX
+     * Coleta agendada de oportunidades (99Freelas). Respeita o intervalo configurado
+     * e o mesmo lock do botão manual (nunca duas coletas simultâneas).
+     */
+    public function captureLeads()
+    {
+        $this->validateToken();
+        @set_time_limit(360);
+
+        $model = new Opportunity();
+        $settings = $model->getSettings('freelas99');
+
+        if (empty($settings['enabled'])) {
+            $this->json(['skipped' => true, 'reason' => 'Fonte desabilitada']);
+        }
+
+        // Respeita o intervalo: só roda se passou schedule_minutes desde a última run
+        $health = $model->getHealth('freelas99');
+        $interval = max(15, (int) $settings['schedule_minutes']) * 60;
+        if (!empty($health['last_run_at'])) {
+            $elapsed = time() - strtotime($health['last_run_at']);
+            if ($elapsed < $interval) {
+                $this->json(['skipped' => true, 'reason' => 'Intervalo não atingido', 'next_in_seconds' => $interval - $elapsed]);
+            }
+        }
+
+        $runner = new CollectionRunner();
+        if ($runner->currentLock()) {
+            $this->json(['skipped' => true, 'reason' => 'Coleta já em andamento']);
+        }
+
+        $result = $runner->run('scheduled', null, 'scheduler');
+        $this->json(['success' => empty($result['error']), 'result' => $result]);
+    }
+
+    /**
+     * GET /cron/runSequences?token=XXX
+     * Worker das sequências de follow-up: processa participantes prontos (envio,
+     * espera, condições) e detecta respostas via IMAP para interromper follow-ups.
+     */
+    public function runSequences()
+    {
+        $this->validateToken();
+        @set_time_limit(300);
+
+        // 1) Detecta respostas recebidas (interrompe follow-ups) antes de disparar novos
+        $replies = $this->detectReplies();
+
+        // 2) Processa os participantes prontos
+        $engine = new SequenceEngine();
+        $stats = $engine->processDue(200);
+
+        $this->json(['success' => true, 'replies_detected' => $replies, 'engine' => $stats]);
+    }
+
+    /**
+     * Varre as contas IMAP em busca de respostas de leads que estão em sequência ativa,
+     * e registra a resposta (o que interrompe os follow-ups pendentes).
+     * @return int nº de respostas processadas
+     */
+    private function detectReplies()
+    {
+        $db = Database::getInstance();
+        // Leads com participação ativa e e-mail conhecido
+        $rows = $db->fetchAll(
+            "SELECT DISTINCT wc.id AS contact_id, wc.lead_email
+             FROM sequence_participants sp
+             JOIN whatsapp_contacts wc ON sp.contact_id = wc.id
+             WHERE sp.status = 'active' AND wc.lead_email IS NOT NULL AND wc.lead_email <> ''"
+        );
+        if (empty($rows)) return 0;
+
+        // Índice email->contact
+        $byEmail = [];
+        foreach ($rows as $r) $byEmail[mb_strtolower($r['lead_email'])] = (int) $r['contact_id'];
+        if (empty($byEmail)) return 0;
+
+        $processed = 0;
+        $emailSvc = new EmailMessageService();
+
+        // Para cada conta IMAP configurada, busca mensagens recentes desses remetentes
+        $accounts = $db->fetchAll("SELECT * FROM email_accounts WHERE is_active = 1 AND imap_host IS NOT NULL AND imap_host <> ''");
+        foreach ($accounts as $acc) {
+            try {
+                $reader = new ImapReader($acc);
+                if ($reader->connect() !== true) continue;
+                foreach ($byEmail as $email => $contactId) {
+                    $msgs = $reader->searchFrom($email, 5);
+                    if (!empty($msgs)) {
+                        // Considera resposta se houver mensagem recebida após o último envio
+                        $lastSent = $db->fetch(
+                            "SELECT sent_at FROM email_messages WHERE contact_id = ? AND direction='outbound' ORDER BY sent_at DESC LIMIT 1",
+                            [$contactId]
+                        );
+                        $lastSentTs = $lastSent && $lastSent['sent_at'] ? strtotime($lastSent['sent_at']) : 0;
+                        $hasReply = false;
+                        foreach ($msgs as $m) {
+                            if (!empty($m['date']) && strtotime($m['date']) >= $lastSentTs) { $hasReply = true; break; }
+                        }
+                        if ($hasReply) {
+                            $emailSvc->registerReply($contactId, $msgs[0]['subject'] ?? null);
+                            $processed++;
+                            unset($byEmail[$email]); // não reprocessa na próxima conta
+                        }
+                    }
+                }
+                $reader->disconnect();
+            } catch (\Throwable $e) {
+                Logger::error('detectReplies', ['account' => $acc['id'] ?? null, 'error' => $e->getMessage()]);
+            }
+        }
+        return $processed;
+    }
+
+    /**
      * GET /cron/index
      * Página de status/info sobre os crons disponíveis.
      */
@@ -286,6 +401,8 @@ class CronController extends Controller
         $this->json([
             'endpoints' => [
                 'GET /cron/syncAll?token=XXX' => 'Sincronização completa (Buffer + Meta + LinkedIn + Snapshot)',
+                'GET /cron/captureLeads?token=XXX' => 'Coleta agendada de oportunidades (99Freelas)',
+                'GET /cron/runSequences?token=XXX' => 'Worker de follow-up: sequências + detecção de respostas',
             ],
             'tip' => 'Configure cron_token em Configurações para proteger este endpoint.',
         ]);

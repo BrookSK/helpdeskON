@@ -24,6 +24,11 @@ class ApolloLead
         return $this->db->fetch("SELECT * FROM apollo_leads WHERE apollo_id = ?", [$apolloId]);
     }
 
+    public function update($id, array $data)
+    {
+        return $this->db->update('apollo_leads', $data, 'id = ?', [$id]);
+    }
+
     /**
      * Cria ou atualiza (upsert) um lead a partir do payload do Apollo.
      * Retorna o id local do registro.
@@ -41,7 +46,7 @@ class ApolloLead
             'full_name' => $person['name'] ?? trim(($person['first_name'] ?? '') . ' ' . ($person['last_name'] ?? '')) ?: null,
             'title' => $person['title'] ?? null,
             'seniority' => $person['seniority'] ?? null,
-            'email' => $person['email'] ?? null,
+            'email' => $this->extractEmail($person),
             'email_status' => $person['email_status'] ?? null,
             'phone' => $this->extractPhone($person),
             'linkedin_url' => $person['linkedin_url'] ?? null,
@@ -75,6 +80,35 @@ class ApolloLead
     }
 
     /**
+     * Extrai o e-mail real (revelado) do payload do Apollo, ignorando
+     * placeholders de e-mail bloqueado. Verifica os vários campos possíveis.
+     */
+    private function extractEmail(array $person)
+    {
+        $isReal = function ($e) {
+            return !empty($e)
+                && stripos($e, 'email_not_unlocked') === false
+                && stripos($e, 'domain.com') === false
+                && filter_var($e, FILTER_VALIDATE_EMAIL);
+        };
+        if ($isReal($person['email'] ?? null)) return $person['email'];
+        if (!empty($person['contact']) && $isReal($person['contact']['email'] ?? null)) {
+            return $person['contact']['email'];
+        }
+        foreach (['personal_emails', 'contact_emails'] as $key) {
+            if (!empty($person[$key]) && is_array($person[$key])) {
+                foreach ($person[$key] as $item) {
+                    $val = is_array($item) ? ($item['email'] ?? null) : $item;
+                    if ($isReal($val)) return $val;
+                }
+            }
+        }
+        // Mantém o placeholder original (ex.: email_not_unlocked) apenas se nada real veio,
+        // para o controller saber que ainda está bloqueado.
+        return $person['email'] ?? null;
+    }
+
+    /**
      * Extrai o primeiro telefone disponível do payload do Apollo.
      */
     private function extractPhone(array $person)
@@ -94,9 +128,12 @@ class ApolloLead
      */
     public function getList($filters = [])
     {
-        $sql = "SELECT a.*, u.name AS imported_by_name
+        $sql = "SELECT a.*, u.name AS imported_by_name,
+                       owner.id AS owner_id, owner.name AS owner_name
                 FROM apollo_leads a
                 LEFT JOIN users u ON a.imported_by = u.id
+                LEFT JOIN whatsapp_contacts wc ON a.contact_id = wc.id
+                LEFT JOIN users owner ON wc.assigned_to = owner.id
                 WHERE 1=1";
         $params = [];
 

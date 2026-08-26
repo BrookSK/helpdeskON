@@ -261,6 +261,7 @@ function runSearch(page) {
         .then(r => r.json())
         .then(d => {
             showLoading(false);
+            if (d.credits) updateCreditBadge(d.credits);
             if (d.error) { alert(d.error); return; }
             if (currentTab === 'orgs') renderOrganizations(d.organizations || [], d.pagination);
             else renderPeople(d.people || [], d.pagination);
@@ -290,6 +291,7 @@ function renderPeople(people, pagination) {
         <th>Local</th>
         <th>E-mail</th>
         <th>Telefone</th>
+        <th>Responsável</th>
         <th class="text-end">Ações</th>
     </tr>`;
     const body = document.getElementById('results-body');
@@ -313,24 +315,63 @@ function renderPeople(people, pagination) {
 
 function personRow(p) {
     const loc = [p.city, p.state, p.country].filter(Boolean).join(', ') || '—';
-    const email = p.email ? escapeHtml(p.email)
-        : (p.imported ? '<span class="text-muted">—</span>'
-        : '<span class="badge bg-light text-dark border"><i class="bi bi-lock"></i> oculto</span>');
-    const phone = p.phone ? escapeHtml(p.phone) : '<span class="text-muted">—</span>';
+    // Contato sigiloso: lead de outro responsável (para não-admin)
+    const maskedTag = '<span class="badge bg-light text-dark border" title="Dados sigilosos — lead de outro responsável"><i class="bi bi-eye-slash"></i> sigiloso</span>';
+    let email, phone;
+    if (p.contact_masked) {
+        email = maskedTag;
+        phone = maskedTag;
+    } else {
+        email = p.email ? escapeHtml(p.email)
+            : (p.imported ? '<span class="text-muted">—</span>'
+            : '<span class="badge bg-light text-dark border"><i class="bi bi-lock"></i> oculto</span>');
+        if (p.phone) phone = escapeHtml(p.phone);
+        else if (p.phone_status === 'pending' || p.phone_pending) phone = '<span class="badge bg-warning text-dark"><span class="spinner-border spinner-border-sm" style="width:.7rem;height:.7rem;"></span> aguardando</span>';
+        else phone = '<span class="text-muted">—</span>';
+    }
     const checkbox = p.imported
         ? '<span class="badge bg-success" title="Já em Meus Leads"><i class="bi bi-check"></i></span>'
         : `<input type="checkbox" class="form-check-input row-check" value="${p.local_id}" onclick="toggleSelect(${p.local_id}, this)">`;
     const linkedin = p.linkedin_url ? `<a href="${escapeAttr(p.linkedin_url)}" target="_blank" class="text-decoration-none" title="LinkedIn"><i class="bi bi-linkedin"></i></a>` : '';
 
-    let actions = '';
-    if (!p.imported) {
-        if (!p.email) {
-            actions += `<button class="btn btn-sm btn-outline-success" title="Revelar dados" onclick="enrichOne(${p.local_id}, this)"><i class="bi bi-unlock"></i></button> `;
+    // Considera "liberado" quando já há e-mail ou telefone revelado (ou solicitado)
+    const revealed = !!(p.email || p.phone || p.phone_status);
+
+    // Responsável: quem já puxou o lead para "Meus Leads"
+    const isMine = p.imported && p.owner_id && String(p.owner_id) === String(window.CAP_USER_ID);
+    const ownedByOther = p.imported && p.owner_id && !isMine;
+    let owner;
+    if (p.imported) {
+        const label = isMine
+            ? '<span class="badge bg-success"><i class="bi bi-person-check"></i> Meus Leads</span>'
+            : `<span class="badge bg-secondary" title="Este lead pertence a outro comercial"><i class="bi bi-person"></i> Lista de ${escapeHtml(p.owner_name || 'outro comercial')}</span>`;
+        // Super_admin pode reatribuir clicando no responsável
+        if (p.can_reassign) {
+            owner = `<a href="javascript:void(0)" onclick="openReassign(${p.local_id}, ${p.owner_id || 0})" title="Clique para reatribuir" style="text-decoration:none;">${label} <i class="bi bi-pencil-square text-primary"></i></a>`;
+        } else {
+            owner = label;
         }
-        actions += `<button class="btn btn-sm btn-success" title="Enviar p/ Meus Leads" onclick="importOne(${p.local_id}, this)"><i class="bi bi-download"></i></button>`;
     } else {
-        actions = '<span class="badge bg-success">Em Meus Leads</span>';
+        owner = '<span class="text-muted">—</span>';
     }
+
+    let actions = '<div class="btn-group btn-group-sm">';
+    if (ownedByOther) {
+        // Lead já puxado por outra pessoa: não permite reimportar
+        actions += `<span class="badge bg-light text-dark border" title="Na lista de ${escapeHtml(p.owner_name || 'outro comercial')}"><i class="bi bi-lock"></i> Indisponível</span>`;
+    } else if (!p.imported) {
+        if (!revealed) {
+            actions += `<button class="btn btn-outline-success" title="Liberar dados (e-mail e telefone)" onclick="revealOne(${p.local_id}, this)"><i class="bi bi-unlock"></i> Liberar</button>`;
+        }
+        actions += `<button class="btn btn-success" title="Enviar p/ Meus Leads" onclick="importOne(${p.local_id}, this)"><i class="bi bi-download"></i></button>`;
+    } else {
+        actions += '<span class="badge bg-success">Em Meus Leads</span>';
+    }
+    // Excluir (somente super_admin)
+    if (window.CAP_IS_ADMIN) {
+        actions += `<button class="btn btn-outline-danger" title="Excluir lead capturado" onclick="deleteLead(${p.local_id}, this)"><i class="bi bi-trash"></i></button>`;
+    }
+    actions += '</div>';
 
     return `<tr data-id="${p.local_id}">
         <td>${checkbox}</td>
@@ -342,6 +383,7 @@ function personRow(p) {
         <td class="small">${escapeHtml(loc)}</td>
         <td>${email}</td>
         <td>${phone}</td>
+        <td class="small">${owner}</td>
         <td class="text-end text-nowrap">${actions}</td>
     </tr>`;
 }
@@ -425,64 +467,235 @@ function updateBulkBar() {
     document.getElementById('sel-count').textContent = selected.size;
 }
 
-// ===== Enriquecimento =====
-function enrichOne(id, btn) {
+// ===== Liberar dados (revela e-mail; solicita telefone via webhook) =====
+function revealOne(id, btn) {
     if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>'; }
     const fd = new FormData();
-    fd.append('reveal_personal_emails', '1');
-    fetch(BASE + 'crm/apolloEnrich/' + id, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
+    fd.append('reveal_phone', '1');
+    fetch(BASE + 'crm/apolloReveal/' + id, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json())
         .then(d => {
-            if (d.error) { alert(d.error); if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-unlock"></i>'; } return; }
+            if (d.error) { alert(d.error); if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-unlock"></i> Liberar'; } return; }
             replaceRow(d.lead);
+            if (d.credits) updateCreditBadge(d.credits);
+            if (d.warning) alert(d.warning);
+            // Se o telefone foi solicitado, faz polling leve da lista para refletir o retorno do webhook
+            if (d.lead && (d.lead.phone_pending || d.lead.phone_status === 'pending')) schedulePhonePoll();
         })
-        .catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-unlock"></i>'; } alert('Erro ao revelar dados.'); });
+        .catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-unlock"></i> Liberar'; } alert('Erro ao liberar dados.'); });
 }
 
-function enrichSelected() {
+function revealSelected() {
     const ids = Array.from(selected);
     if (!ids.length) return;
-    if (!confirm(`Revelar dados de ${ids.length} lead(s)? Isso pode consumir créditos do Apollo.`)) return;
-    let done = 0;
+    if (!confirm(`Liberar dados de ${ids.length} lead(s)? Isso pode consumir créditos do Apollo.`)) return;
+    let done = 0, pending = false;
     ids.forEach(id => {
         const fd = new FormData();
-        fd.append('reveal_personal_emails', '1');
-        fetch(BASE + 'crm/apolloEnrich/' + id, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
-            .then(r => r.json()).then(d => { if (!d.error && d.lead) replaceRow(d.lead); })
-            .finally(() => { if (++done === ids.length) { /* concluído */ } });
+        fd.append('reveal_phone', '1');
+        fetch(BASE + 'crm/apolloReveal/' + id, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
+            .then(r => r.json()).then(d => {
+                if (!d.error && d.lead) { replaceRow(d.lead); if (d.lead.phone_pending) pending = true; }
+            })
+            .finally(() => { if (++done === ids.length && pending) schedulePhonePoll(); });
     });
 }
 
-// ===== Importação p/ Meus Leads =====
-function importOne(id, btn) {
-    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>'; }
-    const fd = new FormData();
-    fd.append('ids', id);
-    fetch(BASE + 'crm/apolloImport', { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
-        .then(r => r.json())
-        .then(d => {
-            if (d.error) { alert(d.error); if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-download"></i>'; } return; }
-            markRowImported(id);
-        })
-        .catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-download"></i>'; } alert('Erro ao importar.'); });
+// Recarrega a busca atual após alguns segundos para capturar telefones que
+// chegaram via webhook do Apollo (revelação assíncrona).
+let _phonePollTimer = null;
+function schedulePhonePoll() {
+    if (_phonePollTimer) clearTimeout(_phonePollTimer);
+    _phonePollTimer = setTimeout(() => { if (typeof runSearch === 'function') runSearch(currentPage || 1); }, 8000);
 }
 
+// Atualiza o badge de créditos restantes hoje
+function updateCreditBadge(credits) {
+    if (!credits || credits.limit <= 0) return;
+    const el = document.getElementById('credit-remaining');
+    if (el) el.textContent = credits.remaining;
+    // Recolore o badge conforme o saldo
+    const badge = document.getElementById('apollo-credit-badge');
+    if (badge) {
+        badge.classList.remove('bg-success', 'bg-warning', 'bg-danger', 'text-dark');
+        const threshold = Math.max(1, Math.floor(credits.limit * 0.2));
+        if (credits.remaining <= 0) badge.classList.add('bg-danger');
+        else if (credits.remaining <= threshold) badge.classList.add('bg-warning', 'text-dark');
+        else badge.classList.add('bg-success');
+    }
+}
+
+// Exclui um lead capturado (somente super_admin)
+function deleteLead(id, btn) {
+    if (!confirm('Excluir este lead capturado? Esta ação não pode ser desfeita.')) return;
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>'; }
+    fetch(BASE + 'crm/apolloDeleteLead/' + id, { method: 'POST', headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json())
+        .then(d => {
+            if (d.error) { alert(d.error); if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-trash"></i>'; } return; }
+            const row = document.querySelector(`#results-body tr[data-id="${id}"]`);
+            if (row) row.remove();
+            lastResults = lastResults.filter(x => x.local_id !== id);
+        })
+        .catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-trash"></i>'; } alert('Erro ao excluir.'); });
+}
+
+// ===== Reatribuição de responsável (somente super_admin) =====
+let reassignModalInstance = null;
+let _ownersCache = null;
+function getReassignModal() {
+    const el = document.getElementById('reassignModal');
+    if (!el) return null;
+    if (window.bootstrap && bootstrap.Modal) {
+        if (!reassignModalInstance) reassignModalInstance = new bootstrap.Modal(el);
+        return reassignModalInstance;
+    }
+    return { show(){el.classList.add('show');el.style.display='block';}, hide(){el.classList.remove('show');el.style.display='none';} };
+}
+
+function openReassign(leadId, currentOwnerId) {
+    const modal = getReassignModal();
+    if (!modal) return;
+    document.getElementById('ra-lead-id').value = leadId;
+    const sel = document.getElementById('ra-user');
+    const fill = () => {
+        sel.innerHTML = (_ownersCache || []).map(u =>
+            `<option value="${u.id}" ${String(u.id) === String(currentOwnerId) ? 'selected' : ''}>${escapeHtml(u.name)}${u.role === 'super_admin' ? ' (admin)' : ''}</option>`
+        ).join('');
+    };
+    modal.show();
+    if (_ownersCache) { fill(); return; }
+    fetch(BASE + 'crm/leadOwners', { headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json())
+        .then(d => { _ownersCache = (d && d.users) ? d.users : []; fill(); })
+        .catch(() => { sel.innerHTML = '<option value="">Erro ao carregar</option>'; });
+}
+
+function confirmReassign(btn) {
+    const leadId = document.getElementById('ra-lead-id').value;
+    const userId = document.getElementById('ra-user').value;
+    if (!userId) { alert('Selecione o novo responsável.'); return; }
+    const original = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    const fd = new FormData();
+    fd.append('user_id', userId);
+    fetch(BASE + 'crm/apolloReassign/' + leadId, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json())
+        .then(d => {
+            btn.disabled = false; btn.innerHTML = original;
+            if (d.error) { alert(d.error); return; }
+            const lead = lastResults.find(x => String(x.local_id) === String(leadId));
+            if (lead) { lead.owner_id = d.owner_id; lead.owner_name = d.owner_name; replaceRow(lead); }
+            getReassignModal().hide();
+        })
+        .catch(() => { btn.disabled = false; btn.innerHTML = original; alert('Erro ao reatribuir.'); });
+}
+
+// ===== Importação p/ Meus Leads (exige board + coluna) =====
+let importModalInstance = null;
+let _boardsCache = null;
+let _sequencesCache = null;
+
+function getImportModal() {
+    const el = document.getElementById('importModal');
+    if (window.bootstrap && bootstrap.Modal) {
+        if (!importModalInstance) importModalInstance = new bootstrap.Modal(el);
+        return importModalInstance;
+    }
+    // Fallback caso o Bootstrap JS ainda não tenha carregado
+    return {
+        show() { el.classList.add('show'); el.style.display = 'block'; document.body.classList.add('modal-open'); },
+        hide() { el.classList.remove('show'); el.style.display = 'none'; document.body.classList.remove('modal-open'); },
+    };
+}
+
+// Carrega boards (com colunas) e sequências uma vez e popula os selects
+function loadImportOptions() {
+    const boardSel = document.getElementById('imp-board');
+    if (_boardsCache) return Promise.resolve();
+    return Promise.all([
+        fetch(BASE + 'crm/listBoards', { headers: {'X-Requested-With':'XMLHttpRequest'} }).then(r => r.json()),
+        fetch(BASE + 'crm/sequencesList', { headers: {'X-Requested-With':'XMLHttpRequest'} }).then(r => r.json()).catch(() => ({sequences: []})),
+    ]).then(([boards, seqRes]) => {
+        _boardsCache = Array.isArray(boards) ? boards : [];
+        boardSel.innerHTML = '<option value="">Selecione um board...</option>'
+            + _boardsCache.map(b => `<option value="${b.id}">${escapeHtml(b.name || ('Board #' + b.id))}</option>`).join('');
+        _sequencesCache = (seqRes && seqRes.sequences) ? seqRes.sequences : [];
+        const seqSel = document.getElementById('imp-sequence');
+        seqSel.innerHTML = '<option value="">Nenhuma</option>'
+            + _sequencesCache.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('');
+    });
+}
+
+function onImportBoardChange() {
+    const boardId = document.getElementById('imp-board').value;
+    const colSel = document.getElementById('imp-column');
+    const board = (_boardsCache || []).find(b => String(b.id) === String(boardId));
+    if (!board || !board.columns || !board.columns.length) {
+        colSel.innerHTML = '<option value="">Nenhuma coluna disponível</option>';
+        colSel.disabled = true;
+        return;
+    }
+    colSel.innerHTML = '<option value="">Selecione a coluna...</option>'
+        + board.columns.map(c => `<option value="${c.id}">${escapeHtml(c.name || c.title || ('Coluna #' + c.id))}</option>`).join('');
+    colSel.disabled = false;
+}
+
+// Abre o modal para 1 lead
+function importOne(id, btn) {
+    openImportModal([id]);
+}
+
+// Abre o modal para os selecionados
 function importSelected() {
     const ids = Array.from(selected);
     if (!ids.length) return;
-    if (!confirm(`Enviar ${ids.length} lead(s) para Meus Leads?`)) return;
+    openImportModal(ids);
+}
+
+function openImportModal(ids) {
+    document.getElementById('imp-ids').value = ids.join(',');
+    document.getElementById('imp-board').value = '';
+    const colSel = document.getElementById('imp-column');
+    colSel.innerHTML = '<option value="">Selecione o board primeiro...</option>';
+    colSel.disabled = true;
+    document.getElementById('imp-sequence').value = '';
+    // Abre o modal imediatamente e carrega as opções em seguida
+    getImportModal().show();
+    loadImportOptions().catch(() => {
+        document.getElementById('imp-board').innerHTML = '<option value="">Erro ao carregar boards</option>';
+    });
+}
+
+function confirmImport(btn) {
+    const ids = (document.getElementById('imp-ids').value || '').split(',').filter(Boolean);
+    const columnId = document.getElementById('imp-column').value;
+    const boardId = document.getElementById('imp-board').value;
+    const sequenceId = document.getElementById('imp-sequence').value;
+    if (!boardId) { alert('Selecione um board do CRM.'); return; }
+    if (!columnId) { alert('Selecione uma coluna do board.'); return; }
+
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Enviando...';
+
     const fd = new FormData();
     ids.forEach(id => fd.append('ids[]', id));
+    fd.append('column_id', columnId);
+    if (sequenceId) fd.append('sequence_id', sequenceId);
+
     fetch(BASE + 'crm/apolloImport', { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json())
         .then(d => {
+            btn.disabled = false; btn.innerHTML = original;
             if (d.error) { alert(d.error); return; }
             ids.forEach(id => markRowImported(id));
             selected.clear();
             updateBulkBar();
-            alert(`${d.imported} lead(s) enviado(s) para Meus Leads.` + (d.skipped ? ` ${d.skipped} ignorado(s).` : ''));
+            getImportModal().hide();
+            alert(`${d.imported} lead(s) enviado(s) para Meus Leads e adicionado(s) ao board.` + (d.skipped ? ` ${d.skipped} ignorado(s).` : ''));
         })
-        .catch(() => alert('Erro ao importar.'));
+        .catch(() => { btn.disabled = false; btn.innerHTML = original; alert('Erro ao importar.'); });
 }
 
 // Substitui a linha após enriquecer (atualiza e-mail/telefone)

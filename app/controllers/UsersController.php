@@ -81,6 +81,7 @@ class UsersController extends Controller
             'commission_percent' => $commission,
             'commission_prospection_percent' => $commissionProspection,
             'commission_closing_percent' => $commissionClosing,
+            'apollo_daily_credits' => ($role === 'comercial') ? max(0, intval($_POST['apollo_daily_credits'] ?? 0)) : 0,
             'sip_user' => trim($_POST['sip_user'] ?? '') ?: null,
             'sip_password' => trim($_POST['sip_password'] ?? '') ?: null,
             'is_active' => 1,
@@ -185,6 +186,7 @@ class UsersController extends Controller
             'commission_percent' => ($role === 'comercial') ? floatval($_POST['commission_percent'] ?? 0) : 0,
             'commission_prospection_percent' => ($role === 'comercial') ? floatval($_POST['commission_prospection_percent'] ?? 0) : 0,
             'commission_closing_percent' => ($role === 'comercial') ? floatval($_POST['commission_closing_percent'] ?? 0) : 0,
+            'apollo_daily_credits' => ($role === 'comercial') ? max(0, intval($_POST['apollo_daily_credits'] ?? 0)) : 0,
             'sip_user' => trim($_POST['sip_user'] ?? '') ?: null,
         ];
 

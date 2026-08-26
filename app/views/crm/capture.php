@@ -9,8 +9,42 @@
             <small class="text-muted">Pesquise prospects no Apollo.io, revele os dados e envie para Meus Leads</small>
         </div>
         <div class="d-flex align-items-center gap-2">
+            <?php if (($creditLimit ?? 0) > 0): ?>
+            <?php
+                $rem = (int)($creditRemaining ?? 0);
+                $badgeClass = $rem <= 0 ? 'bg-danger' : ($rem <= max(1, (int)$creditLimit * 0.2) ? 'bg-warning text-dark' : 'bg-success');
+            ?>
+            <span id="apollo-credit-badge" class="badge <?= $badgeClass ?>" title="Créditos Apollo disponíveis hoje">
+                <i class="bi bi-coin"></i> <span id="credit-remaining"><?= $rem ?></span> de <?= (int)$creditLimit ?> crédito(s) restante(s) hoje
+            </span>
+            <?php else: ?>
+            <span id="apollo-credit-badge" class="badge bg-success" title="Créditos Apollo">
+                <i class="bi bi-infinity"></i> Créditos ilimitados
+            </span>
+            <?php endif; ?>
             <span id="apollo-status-badge" class="badge bg-secondary"><i class="bi bi-hourglass"></i> Verificando…</span>
             <a href="<?= baseUrl('crm/leads') ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-person-lines-fill"></i> Meus Leads</a>
+        </div>
+    </div>
+
+    <script>
+    // Flags de contexto para o script da captação
+    window.CAP_IS_ADMIN = <?= !empty($isAdmin) ? 'true' : 'false' ?>;
+    window.CAP_CREDIT_LIMIT = <?= (int)($creditLimit ?? 0) ?>;
+    window.CAP_USER_ID = <?= (int)($user['id'] ?? 0) ?>;
+    </script>
+
+    <!-- Legenda: como funcionam os créditos Apollo (conforme documentação oficial) -->
+    <div class="alert alert-light border d-flex align-items-start gap-2 py-2 px-3 mb-3" style="font-size:0.82rem;">
+        <i class="bi bi-info-circle text-info mt-1"></i>
+        <div>
+            <strong>Como funcionam os créditos:</strong>
+            cada <strong>pesquisa</strong> (Pessoas ou Empresas) consome <strong>1 crédito</strong> e cada <strong>Liberar</strong> (revela e-mail e telefone do contato) consome <strong>mais 8 créditos</strong>.
+            <?php if (($creditLimit ?? 0) > 0): ?>
+            Seu limite é de <strong><?= (int)$creditLimit ?> crédito(s) por dia</strong>. Ao atingir o limite, novas pesquisas e liberações só ficam disponíveis <strong>no dia seguinte</strong> (o contador reinicia automaticamente à meia-noite).
+            <?php else: ?>
+            Seu acesso está com <strong>créditos ilimitados</strong>. O administrador pode definir um limite diário no seu perfil.
+            <?php endif; ?>
         </div>
     </div>
 
@@ -133,8 +167,8 @@
                         <span class="text-muted small" id="result-count"></span>
                     </div>
                     <div class="d-flex gap-2" id="bulk-actions" style="display:none;">
-                        <button class="btn btn-sm btn-outline-success" onclick="enrichSelected()" title="Revelar e-mail dos selecionados">
-                            <i class="bi bi-unlock"></i> Revelar dados
+                        <button class="btn btn-sm btn-outline-success" onclick="revealSelected()" title="Liberar e-mail e telefone dos selecionados">
+                            <i class="bi bi-unlock"></i> Liberar dados
                         </button>
                         <button class="btn btn-sm btn-success" onclick="importSelected()">
                             <i class="bi bi-download"></i> Enviar p/ Meus Leads (<span id="sel-count">0</span>)
@@ -170,6 +204,77 @@
         </div>
     </div>
 </div>
+
+<!-- Modal: atribuir board + coluna ao(s) lead(s) antes de enviar p/ Meus Leads -->
+<div class="modal fade" id="importModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title"><i class="bi bi-kanban"></i> Enviar para Meus Leads</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="small text-muted mb-3">
+                    Todo lead puxado precisa ser atribuído a um board e uma coluna do CRM. Um card será criado automaticamente.
+                </p>
+                <input type="hidden" id="imp-ids">
+                <div class="mb-3">
+                    <label class="form-label small fw-medium">Board do CRM *</label>
+                    <select id="imp-board" class="form-select form-select-sm" onchange="onImportBoardChange()">
+                        <option value="">Selecione um board...</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small fw-medium">Coluna *</label>
+                    <select id="imp-column" class="form-select form-select-sm" disabled>
+                        <option value="">Selecione o board primeiro...</option>
+                    </select>
+                </div>
+                <div class="mb-1">
+                    <label class="form-label small fw-medium">Sequência (opcional)</label>
+                    <select id="imp-sequence" class="form-select form-select-sm">
+                        <option value="">Nenhuma</option>
+                    </select>
+                    <small class="text-muted">Inicia automaticamente uma sequência de follow-up para o lead.</small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-sm btn-success" id="imp-confirm" onclick="confirmImport(this)">
+                    <i class="bi bi-download"></i> Confirmar e enviar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<?php if (!empty($isAdmin)): ?>
+<!-- Modal: reatribuir lead a outro responsável (somente super_admin) -->
+<div class="modal fade" id="reassignModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title"><i class="bi bi-person-gear"></i> Reatribuir lead</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="ra-lead-id">
+                <label class="form-label small fw-medium">Novo responsável</label>
+                <select id="ra-user" class="form-select form-select-sm">
+                    <option value="">Carregando...</option>
+                </select>
+                <small class="text-muted d-block mt-1">O lead e os cards vinculados passam para o novo responsável.</small>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-sm btn-primary" id="ra-confirm" onclick="confirmReassign(this)">
+                    <i class="bi bi-check-lg"></i> Salvar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 
 <?php require APP_PATH . '/views/crm/_capture_script.php'; ?>
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>

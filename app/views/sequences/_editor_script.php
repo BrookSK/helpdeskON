@@ -1,0 +1,451 @@
+<style>
+#canvas-wrap { position:relative; overflow:auto; height:calc(100vh - 220px); min-height:420px; background:
+    linear-gradient(90deg, rgba(0,0,0,.03) 1px, transparent 1px) 0 0/24px 24px,
+    linear-gradient(rgba(0,0,0,.03) 1px, transparent 1px) 0 0/24px 24px, #f8f9fb; }
+/* Drawer flutuante de Propriedades */
+#inspector-drawer { position:fixed; top:0; right:0; width:340px; max-width:90vw; height:100vh;
+    background:#fff; box-shadow:-4px 0 20px rgba(0,0,0,.12); z-index:1200; transform:translateX(100%);
+    transition:transform .2s ease; display:flex; flex-direction:column; }
+#inspector-drawer.open { transform:translateX(0); }
+#inspector-drawer .drawer-hd { padding:12px 16px; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center; }
+#inspector-drawer .drawer-bd { padding:16px; overflow-y:auto; flex:1; }
+.seq-node { position:absolute; width:190px; background:#fff; border:2px solid #dee2e6; border-radius:10px;
+    box-shadow:0 2px 6px rgba(0,0,0,.08); cursor:grab; user-select:none; font-size:0.8rem;
+    will-change:transform; transition:box-shadow .1s, border-color .1s; }
+.seq-node.sel { border-color: var(--primary); box-shadow:0 0 0 3px rgba(0,191,166,.2); }
+.seq-node.linktarget { outline:2px dashed var(--primary); outline-offset:2px; }
+.seq-node .hd { padding:6px 10px; border-bottom:1px solid #eee; font-weight:600; display:flex; justify-content:space-between; align-items:center; border-radius:8px 8px 0 0; }
+.seq-node .hd .x { cursor:pointer; opacity:.4; } .seq-node .hd .x:hover { opacity:1; color:#dc3545; }
+.seq-node .bd { padding:6px 10px; color:#667; font-size:0.74rem; min-height:22px; }
+.seq-node .port { width:18px; height:18px; border-radius:50%; background:#fff; border:2px solid var(--primary); position:absolute; cursor:crosshair; z-index:3; }
+.seq-node .port:hover { background:var(--primary); }
+.seq-node .port.out { bottom:-10px; left:calc(50% - 9px); }
+.seq-node .port.out.yes { left:26%; background:#d4edda; border-color:#28a745; }
+.seq-node .port.out.no { left:66%; background:#f8d7da; border-color:#dc3545; }
+.seq-node .port.in { top:-10px; left:calc(50% - 9px); background:#e9ecef; }
+.n-send .hd{color:#0d6efd} .n-whatsapp .hd{color:#198754} .n-wait .hd{color:#fd7e14} .n-condition .hd{color:#6f42c1}
+.n-tag .hd{color:#20c997} .n-score .hd{color:#e0a800} .n-move .hd{color:#0dcaf0} .n-end .hd{color:#dc3545}
+#link-hint { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#1a1a2e; color:#fff;
+    padding:8px 16px; border-radius:20px; font-size:0.8rem; z-index:2000; display:none; box-shadow:0 4px 12px rgba(0,0,0,.3); }
+</style>
+
+<div id="link-hint"><i class="bi bi-info-circle"></i> Clique no bloco de destino para conectar · <span onclick="cancelLink()" style="cursor:pointer;text-decoration:underline;">cancelar</span></div>
+
+<script>
+const BASE = '<?= baseUrl('') ?>';
+const SEQ_ID = <?= $sequence ? (int)$sequence['id'] : 'null' ?>;
+const COLUMNS = <?= json_encode(array_map(fn($c) => ['id'=>$c['id'],'name'=>$c['name'],'board_id'=>$c['board_id'],'board_name'=>$c['board_name'],'label'=>$c['board_name'].' · '.$c['name']], $columns), JSON_UNESCAPED_UNICODE) ?>;
+// Lista de boards únicos (para o seletor encadeado do bloco "mover card")
+const BOARDS = (function(){ const m={}; COLUMNS.forEach(c=>{ if(!m[c.board_id]) m[c.board_id]={id:c.board_id,name:c.board_name}; }); return Object.values(m); })();
+const NODE_LABELS = { send:'Enviar e-mail', whatsapp:'Enviar WhatsApp', wait:'Aguardar', condition:'Condição', tag:'Tag', score:'Score', move:'Mover card', end:'Encerrar' };
+let EMAIL_TEMPLATES = [], WA_TEMPLATES = [];
+
+let nodes = [];       // {id, type, x, y, data, next, nextYes, nextNo, _el}
+let selectedId = null;
+let linkFrom = null;
+
+<?php if ($sequence && $sequence['graph']): ?>
+(function(){ const g = <?= $sequence['graph'] ?>; if (g && g.nodes) nodes = g.nodes.map(n => ({x:60,y:60,data:{},...n})); })();
+<?php endif; ?>
+
+const canvas = () => document.getElementById('canvas');
+const svg = () => document.getElementById('edges');
+function uid() { return 'n' + Math.random().toString(36).slice(2, 8); }
+
+// ================= Render (uma vez; depois updates pontuais) =================
+function buildAll() {
+    const c = canvas(); c.innerHTML = '';
+    nodes.forEach(n => { n._el = buildNodeEl(n); c.appendChild(n._el); });
+    drawEdges();
+}
+
+function buildNodeEl(n) {
+    const el = document.createElement('div');
+    el.className = 'seq-node n-' + n.type;
+    el.style.transform = `translate(${n.x}px, ${n.y}px)`;
+    el.dataset.id = n.id;
+
+    let ports = '<div class="port in"></div>';
+    if (n.type === 'condition') {
+        ports += `<div class="port out yes" title="Sim" data-port="yes"></div><div class="port out no" title="Não" data-port="no"></div>`;
+    } else if (n.type !== 'end') {
+        ports += `<div class="port out" data-port="next"></div>`;
+    }
+    el.innerHTML = `<div class="hd"><span>${NODE_LABELS[n.type]||n.type}</span><span class="x">&times;</span></div>
+        <div class="bd">${nodeSummary(n)}</div>${ports}`;
+
+    // Fechar
+    el.querySelector('.x').addEventListener('mousedown', (e)=>{ e.stopPropagation(); delNode(n.id); });
+    // Portas de saída → inicia ligação
+    el.querySelectorAll('.port.out').forEach(p => {
+        p.addEventListener('mousedown', (e)=>{ e.stopPropagation(); startLink(n.id, p.dataset.port); });
+    });
+    // Corpo: drag OU finalizar ligação OU selecionar
+    el.addEventListener('mousedown', (e)=>{
+        if (e.target.classList.contains('port') || e.target.classList.contains('x')) return;
+        if (linkFrom) { finishLink(n.id); return; }
+        selectNode(n.id);
+        startDrag(e, n);
+    });
+    if (n.id === selectedId) el.classList.add('sel');
+    return el;
+}
+
+// Atualiza só o corpo (summary) de um nó — sem recriar o DOM
+function refreshNodeBody(n) {
+    if (n._el) n._el.querySelector('.bd').innerHTML = nodeSummary(n);
+}
+
+function nodeSummary(n) {
+    const d = n.data || {};
+    switch (n.type) {
+        case 'send': return d.subject ? ('Assunto: ' + escapeHtml(d.subject)) : '<em>sem assunto</em>';
+        case 'whatsapp': return d.body ? escapeHtml(d.body.slice(0,50)) : '<em>sem mensagem</em>';
+        case 'wait': return 'Aguardar ' + (d.amount||0) + ' ' + ({minutes:'min',hours:'h',days:'dias'}[d.unit]||'dias');
+        case 'condition': return 'Se ' + ({replied:'respondeu',opened:'abriu',clicked:'clicou'}[d.kind]||'?') + '?';
+        case 'tag': return 'Tag: ' + escapeHtml(d.label||'');
+        case 'score': return 'Score ' + (d.delta>0?'+':'') + (d.delta||0);
+        case 'move': { const c = COLUMNS.find(x=>x.id==d.column_id); return c ? escapeHtml(c.label) : '<em>escolher coluna</em>'; }
+        case 'end': return 'Fim da sequência';
+    }
+    return '';
+}
+
+// ================= Arestas (SVG, redesenhadas via rAF) =================
+let edgeRaf = null;
+function drawEdges() {
+    if (edgeRaf) return;
+    edgeRaf = requestAnimationFrame(() => {
+        edgeRaf = null;
+        const s = svg(); let out = '';
+        nodes.forEach(n => {
+            const conns = [];
+            if (n.next) conns.push([n.next, '#00BFA6', 0.5]);
+            if (n.nextYes) conns.push([n.nextYes, '#28a745', 0.26]);
+            if (n.nextNo) conns.push([n.nextNo, '#dc3545', 0.66]);
+            conns.forEach(([to, color, fx]) => {
+                const t = nodes.find(x=>x.id===to); if (!t) return;
+                const x1 = n.x + 190*fx, y1 = n.y + 68, x2 = t.x + 95, y2 = t.y;
+                const mid = (y1+y2)/2;
+                out += `<path d="M${x1},${y1} C${x1},${mid} ${x2},${mid} ${x2},${y2}" stroke="${color}" fill="none" stroke-width="2"/>`;
+                out += `<circle cx="${x2}" cy="${y2}" r="3" fill="${color}"/>`;
+            });
+        });
+        s.innerHTML = out;
+    });
+}
+
+// ================= Drag fluido (sem recriar DOM) =================
+function startDrag(e, n) {
+    const el = n._el;
+    const startX = e.clientX, startY = e.clientY, ox = n.x, oy = n.y;
+    el.style.cursor = 'grabbing'; el.style.zIndex = 10;
+    let raf = null;
+    function move(ev) {
+        n.x = Math.max(0, ox + (ev.clientX - startX));
+        n.y = Math.max(0, oy + (ev.clientY - startY));
+        if (!raf) raf = requestAnimationFrame(() => {
+            raf = null;
+            el.style.transform = `translate(${n.x}px, ${n.y}px)`;
+            drawEdges();
+        });
+    }
+    function up() {
+        document.removeEventListener('mousemove', move);
+        document.removeEventListener('mouseup', up);
+        el.style.cursor = 'grab'; el.style.zIndex = '';
+    }
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+    e.preventDefault();
+}
+
+// ================= Adicionar / remover =================
+function addNode(type) {
+    const scroll = document.getElementById('canvas-wrap');
+    const n = { id: uid(), type,
+        x: 60 + (scroll ? scroll.scrollLeft : 0) + Math.random()*40,
+        y: 60 + (scroll ? scroll.scrollTop : 0) + nodes.length*10,
+        data: defaultData(type) };
+    nodes.push(n);
+    n._el = buildNodeEl(n);
+    canvas().appendChild(n._el);
+    selectNode(n.id);
+}
+function defaultData(type) {
+    if (type === 'send') return { subject:'', body:'' };
+    if (type === 'whatsapp') return { body:'' };
+    if (type === 'wait') return { amount:2, unit:'days' };
+    if (type === 'condition') return { kind:'replied' };
+    if (type === 'tag') return { label:'' };
+    if (type === 'score') return { delta:3 };
+    if (type === 'move') return { column_id:'' };
+    return {};
+}
+function delNode(id) {
+    const n = nodes.find(x=>x.id===id);
+    if (n && n._el) n._el.remove();
+    nodes = nodes.filter(x=>x.id!==id);
+    nodes.forEach(x=>{ if(x.next===id)delete x.next; if(x.nextYes===id)delete x.nextYes; if(x.nextNo===id)delete x.nextNo; });
+    if (selectedId===id) { selectedId=null; renderInspector(); }
+    drawEdges();
+}
+
+// ================= Seleção =================
+function selectNode(id) {
+    if (selectedId) { const p = nodes.find(x=>x.id===selectedId); if (p && p._el) p._el.classList.remove('sel'); }
+    selectedId = id;
+    const n = nodes.find(x=>x.id===id); if (n && n._el) n._el.classList.add('sel');
+    renderInspector();
+    openInspector();
+}
+function openInspector() { document.getElementById('inspector-drawer').classList.add('open'); }
+function closeInspector() {
+    document.getElementById('inspector-drawer').classList.remove('open');
+    if (selectedId) { const p = nodes.find(x=>x.id===selectedId); if (p && p._el) p._el.classList.remove('sel'); }
+    selectedId = null;
+}
+
+// ================= Ligações =================
+function startLink(nodeId, port) {
+    linkFrom = { id: nodeId, port };
+    document.getElementById('link-hint').style.display = 'block';
+    nodes.forEach(n => { if (n.id !== nodeId && n._el) n._el.classList.add('linktarget'); });
+}
+function finishLink(targetId) {
+    if (linkFrom && linkFrom.id !== targetId) {
+        const n = nodes.find(x=>x.id===linkFrom.id);
+        if (n) {
+            if (linkFrom.port === 'yes') n.nextYes = targetId;
+            else if (linkFrom.port === 'no') n.nextNo = targetId;
+            else n.next = targetId;
+        }
+    }
+    cancelLink(); drawEdges();
+    if (selectedId) renderInspector();
+}
+function cancelLink() {
+    linkFrom = null;
+    document.getElementById('link-hint').style.display = 'none';
+    nodes.forEach(n => { if (n._el) n._el.classList.remove('linktarget'); });
+}
+
+// ================= Inspector =================
+function renderInspector() {
+    const box = document.getElementById('inspector');
+    const n = nodes.find(x=>x.id===selectedId);
+    if (!n) { box.innerHTML = '<p class="text-muted small mb-0">Selecione um bloco para editar.</p>'; return; }
+    let h = `<div class="mb-2 fw-semibold small">${NODE_LABELS[n.type]}</div>`;
+    if (n.type==='send') {
+        h += templatePicker('email');
+        h += field('Assunto', `<input id="insp-subject" class="form-control form-control-sm" value="${escapeAttr(n.data.subject||'')}" oninput="setData('subject',this.value)">`);
+        h += `<label class="form-label small mb-1">Mensagem (HTML)</label>` + varChipsHtml() +
+             `<textarea id="insp-body" class="form-control form-control-sm" rows="6" oninput="setData('body',this.value)">${escapeHtml(n.data.body||'')}</textarea>`;
+        // Teste A/B
+        h += abBlock(n, 'email');
+    } else if (n.type==='whatsapp') {
+        h += templatePicker('whatsapp');
+        h += `<label class="form-label small mb-1">Mensagem</label>` + varChipsHtml() +
+             `<textarea id="insp-body" class="form-control form-control-sm" rows="6" oninput="setData('body',this.value)">${escapeHtml(n.data.body||'')}</textarea>`;
+        h += `<small class="text-muted d-block mt-1">Enviada pela conexão de WhatsApp.</small>`;
+        h += abBlock(n, 'whatsapp');
+    } else if (n.type==='wait') {
+        h += field('Quantidade', `<input type="number" min="1" class="form-control form-control-sm" value="${n.data.amount||1}" oninput="setData('amount',parseInt(this.value)||1)">`);
+        h += field('Unidade', `<select class="form-select form-select-sm" onchange="setData('unit',this.value)">
+            <option value="minutes" ${n.data.unit==='minutes'?'selected':''}>Minutos</option>
+            <option value="hours" ${n.data.unit==='hours'?'selected':''}>Horas</option>
+            <option value="days" ${(n.data.unit==='days'||!n.data.unit)?'selected':''}>Dias</option></select>`);
+    } else if (n.type==='condition') {
+        h += field('Condição', `<select class="form-select form-select-sm" onchange="setData('kind',this.value)">
+            <option value="replied" ${n.data.kind==='replied'?'selected':''}>Respondeu?</option>
+            <option value="opened" ${n.data.kind==='opened'?'selected':''}>Abriu?</option>
+            <option value="clicked" ${n.data.kind==='clicked'?'selected':''}>Clicou?</option></select>`);
+    } else if (n.type==='tag') {
+        h += field('Tag', `<input class="form-control form-control-sm" value="${escapeAttr(n.data.label||'')}" oninput="setData('label',this.value)">`);
+    } else if (n.type==='score') {
+        h += field('Pontos (+/-)', `<input type="number" class="form-control form-control-sm" value="${n.data.delta||0}" oninput="setData('delta',parseInt(this.value)||0)">`);
+    } else if (n.type==='move') {
+        // Descobre o board da coluna já escolhida (se houver)
+        const chosenCol = COLUMNS.find(c => c.id == n.data.column_id);
+        const boardId = n.data.board_id || (chosenCol ? chosenCol.board_id : '');
+        const boardOpts = '<option value="">Selecione o board</option>' +
+            BOARDS.map(b => `<option value="${b.id}" ${boardId==b.id?'selected':''}>${escapeHtml(b.name)}</option>`).join('');
+        h += field('Board', `<select class="form-select form-select-sm" id="insp-board" onchange="onMoveBoardChange(this.value)">${boardOpts}</select>`);
+
+        const cols = COLUMNS.filter(c => c.board_id == boardId);
+        const colOpts = '<option value="">Selecione a coluna</option>' +
+            cols.map(c => `<option value="${c.id}" ${n.data.column_id==c.id?'selected':''}>${escapeHtml(c.name)}</option>`).join('');
+        h += field('Coluna', `<select class="form-select form-select-sm" id="insp-column" ${boardId?'':'disabled'} onchange="setData('column_id',this.value)">${colOpts}</select>`);
+    } else if (n.type==='end') {
+        h += '<p class="text-muted small">Encerra a sequência para o lead.</p>';
+    }
+    // Conexões via dropdown (jeito fácil)
+    if (n.type !== 'end') {
+        h += '<hr><div class="fw-semibold small mb-2"><i class="bi bi-arrow-down-right-circle"></i> Próximo bloco</div>';
+        const others = nodes.filter(x => x.id !== n.id);
+        const optsFor = (sel) => '<option value="">— nenhum —</option>' +
+            others.map(o => `<option value="${o.id}" ${sel===o.id?'selected':''}>${NODE_LABELS[o.type]||o.type} · ${escapeHtml((nodeSummary(o)||'').replace(/<[^>]+>/g,'').slice(0,20))}</option>`).join('');
+        if (n.type === 'condition') {
+            h += field('Se SIM →', `<select class="form-select form-select-sm" onchange="setNext('nextYes',this.value)">${optsFor(n.nextYes)}</select>`);
+            h += field('Se NÃO →', `<select class="form-select form-select-sm" onchange="setNext('nextNo',this.value)">${optsFor(n.nextNo)}</select>`);
+        } else {
+            h += field('Vai para', `<select class="form-select form-select-sm" onchange="setNext('next',this.value)">${optsFor(n.next)}</select>`);
+        }
+    }
+    box.innerHTML = h;
+    bindInspectorVars();
+}
+function field(label, input) { return `<div class="mb-2"><label class="form-label small mb-1">${label}</label>${input}</div>`; }
+
+// Liga as barras de chips e o botão-direito aos textareas do inspector
+function bindInspectorVars() {
+    const box = document.getElementById('inspector');
+    const chipBars = box.querySelectorAll('.var-chips');
+    const bodyA = box.querySelector('#insp-body');
+    const bodyB = box.querySelector('#insp-body-b');
+    // 1ª barra → corpo A, 2ª barra → corpo B
+    if (chipBars[0] && bodyA) bindVarChips(chipBars[0], bodyA);
+    if (chipBars[1] && bodyB) bindVarChips(chipBars[1], bodyB);
+    // menu de contexto também no assunto
+    const subj = box.querySelector('#insp-subject'); if (subj) attachVarPicker(subj);
+}
+
+// Seletor de template para preencher o bloco
+function templatePicker(channel) {
+    const list = channel === 'whatsapp' ? WA_TEMPLATES : EMAIL_TEMPLATES;
+    if (!list.length) return '<div class="mb-2"><small class="text-muted">Nenhum template ' + (channel==='whatsapp'?'de WhatsApp':'de e-mail') + '. Crie em Sequências → Templates.</small></div>';
+    const opts = '<option value="">— usar template —</option>' + list.map(t=>`<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
+    return field('Template', `<select class="form-select form-select-sm" onchange="applyTemplate('${channel}', this.value)">${opts}</select>`);
+}
+function applyTemplate(channel, id) {
+    if (!id) return;
+    const list = channel === 'whatsapp' ? WA_TEMPLATES : EMAIL_TEMPLATES;
+    const t = list.find(x=>x.id==id); if (!t) return;
+    const n = nodes.find(x=>x.id===selectedId); if (!n) return;
+    if (channel === 'email' && t.subject) { n.data.subject = t.subject; const s=document.getElementById('insp-subject'); if(s)s.value=t.subject; }
+    n.data.body = t.body || '';
+    const b = document.getElementById('insp-body'); if (b) b.value = n.data.body;
+    refreshNodeBody(n);
+}
+// Bloco de teste A/B: quando ativado, envia aleatoriamente a variante A ou B
+function abBlock(n, channel) {
+    const on = !!n.data.ab_enabled;
+    let h = `<hr><div class="form-check form-switch mb-2">
+        <input class="form-check-input" type="checkbox" id="insp-ab" ${on?'checked':''} onchange="toggleAb(this.checked)">
+        <label class="form-check-label small fw-medium" for="insp-ab"><i class="bi bi-shuffle"></i> Teste A/B</label></div>`;
+    if (on) {
+        h += `<div class="small text-muted mb-1">Variante B (50% dos envios):</div>`;
+        if (channel === 'email') {
+            h += field('Assunto B', `<input class="form-control form-control-sm" value="${escapeAttr(n.data.subject_b||'')}" oninput="setData('subject_b',this.value)">`);
+        }
+        h += `<label class="form-label small mb-1">Mensagem B</label>` + varChipsHtml('b') +
+             `<textarea id="insp-body-b" class="form-control form-control-sm" rows="5" oninput="setData('body_b',this.value)">${escapeHtml(n.data.body_b||'')}</textarea>`;
+    }
+    return h;
+}
+function toggleAb(on) { setData('ab_enabled', on ? 1 : 0); renderInspector(); bindInspectorVars(); }
+
+function loadTemplatesForEditor() {
+    fetch(BASE + 'sequences/templates', {headers:{'X-Requested-With':'XMLHttpRequest'}})
+        .then(r=>r.json()).then(d=>{
+            (d.templates||[]).forEach(t => { if (t.channel==='whatsapp') WA_TEMPLATES.push(t); else EMAIL_TEMPLATES.push(t); });
+        }).catch(()=>{});
+}
+
+// Atualiza dado sem recriar o nó (mantém foco no input) — só refresca o summary
+function setData(key, val) {
+    const n = nodes.find(x=>x.id===selectedId);
+    if (n) { n.data[key] = val; refreshNodeBody(n); }
+}
+function setNext(port, targetId) {
+    const n = nodes.find(x=>x.id===selectedId);
+    if (!n) return;
+    if (targetId) n[port] = targetId; else delete n[port];
+    drawEdges();
+}
+
+// Bloco "mover card": ao trocar o board, limpa a coluna e mostra só as colunas daquele board
+function onMoveBoardChange(boardId) {
+    const n = nodes.find(x=>x.id===selectedId);
+    if (!n) return;
+    n.data.board_id = boardId;
+    n.data.column_id = ''; // reseta a coluna ao trocar de board
+    refreshNodeBody(n);
+    renderInspector();
+}
+
+// ================= Salvar / participantes =================
+function buildGraph() {
+    const start = nodes.length ? nodes[0].id : null;
+    return { start, nodes: nodes.map(n => ({ id:n.id, type:n.type, x:n.x, y:n.y, data:n.data, next:n.next, nextYes:n.nextYes, nextNo:n.nextNo })) };
+}
+function saveSeq() {
+    const name = document.getElementById('seq-name').value.trim();
+    if (!name) { alert('Informe o nome da sequência.'); return; }
+    const fd = new FormData();
+    if (SEQ_ID) fd.append('id', SEQ_ID);
+    fd.append('name', name);
+    fd.append('email_account_id', document.getElementById('seq-account').value);
+    fd.append('daily_limit', document.getElementById('seq-daily').value);
+    fd.append('window_start', document.getElementById('seq-wstart').value + ':00');
+    fd.append('window_end', document.getElementById('seq-wend').value + ':00');
+    fd.append('send_weekends', document.getElementById('seq-weekends').checked ? 1 : 0);
+    fd.append('is_active', document.getElementById('seq-active').checked ? 1 : 0);
+    fd.append('graph', JSON.stringify(buildGraph()));
+    fetch(BASE + 'sequences/save', { method:'POST', body:fd, headers:{'X-Requested-With':'XMLHttpRequest'} })
+        .then(r=>r.json()).then(d=>{
+            if (d.error) { alert(d.error); return; }
+            if (!SEQ_ID) { location.href = BASE + 'sequences/edit/' + d.id; return; }
+            const btn = document.querySelector('[onclick="saveSeq()"]');
+            if (btn) { const o=btn.innerHTML; btn.innerHTML='<i class="bi bi-check2"></i> Salvo!'; setTimeout(()=>btn.innerHTML=o,1500); }
+        });
+}
+
+let partModal = null;
+function openParticipants() {
+    if (!SEQ_ID) return;
+    if (!partModal) partModal = new bootstrap.Modal(document.getElementById('partModal'));
+    partModal.show(); loadLeadsSelect(); loadParticipants();
+}
+function loadLeadsSelect() {
+    fetch(BASE + 'sequences/leadsForSelect', {headers:{'X-Requested-With':'XMLHttpRequest'}})
+        .then(r=>r.json()).then(d=>{
+            document.getElementById('add-lead-select').innerHTML = '<option value="">Selecione um lead...</option>' +
+                (d.leads||[]).map(l=>`<option value="${l.id}">${escapeHtml(l.name||l.lead_email)} — ${escapeHtml(l.lead_email)}</option>`).join('');
+        });
+}
+function addSelectedLead() {
+    const cid = document.getElementById('add-lead-select').value; if (!cid) return;
+    const fd = new FormData(); fd.append('sequence_id', SEQ_ID); fd.append('contact_ids[]', cid);
+    fetch(BASE + 'sequences/addLeads', {method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest'}})
+        .then(r=>r.json()).then(d=>{ if(d.errors&&d.errors.length)alert(d.errors.join('\n')); loadParticipants(); });
+}
+function loadParticipants() {
+    fetch(BASE + 'sequences/detail/' + SEQ_ID, {headers:{'X-Requested-With':'XMLHttpRequest'}})
+        .then(r=>r.json()).then(d=>{
+            const box = document.getElementById('part-list'); const ps = d.participants||[];
+            if (!ps.length) { box.innerHTML = '<p class="text-muted small text-center py-3 mb-0">Nenhum lead nesta sequência.</p>'; return; }
+            const stMap = {active:['Ativo','success'],finished:['Concluído','secondary'],stopped:['Interrompido','warning'],failed:['Falha','danger'],paused:['Pausado','info']};
+            box.innerHTML = `<table class="table table-sm mb-0" style="font-size:0.82rem;"><tbody>` + ps.map(p=>{
+                const s = stMap[p.status]||[p.status,'secondary'];
+                return `<tr><td>${escapeHtml(p.lead_name||p.lead_email)}<br><small class="text-muted">${escapeHtml(p.lead_email||'')}</small></td>
+                    <td><span class="badge bg-${s[1]}">${s[0]}</span>${p.stop_reason?'<br><small class="text-muted">'+p.stop_reason+'</small>':''}</td>
+                    <td class="text-end"><button class="btn btn-sm btn-link text-danger p-0" onclick="removePart(${p.id})"><i class="bi bi-x-lg"></i></button></td></tr>`;
+            }).join('') + `</tbody></table>`;
+        });
+}
+function removePart(id) {
+    const fd = new FormData(); fd.append('participant_id', id);
+    fetch(BASE + 'sequences/removeLead', {method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest'}})
+        .then(r=>r.json()).then(()=>loadParticipants());
+}
+
+function escapeHtml(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function escapeAttr(s){return escapeHtml(s);}
+
+// ESC cancela ligação
+document.addEventListener('keydown', (e)=>{ if (e.key==='Escape' && linkFrom) cancelLink(); });
+
+loadTemplatesForEditor();
+buildAll();
+</script>
