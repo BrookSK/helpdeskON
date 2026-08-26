@@ -44,7 +44,7 @@
                         <label class="form-label small fw-medium">Data e horário da reunião</label>
                         <input type="datetime-local" id="mt-meeting-at" class="form-control form-control-sm">
                     </div>
-                    <div class="col-12 d-flex flex-wrap align-items-center gap-2 mt-commercial-only">
+                    <div class="col-12 d-flex flex-wrap align-items-center gap-2">
                         <button type="button" class="btn btn-sm btn-outline-primary" id="mt-gen-meet" onclick="generateMeet(this)">
                             <i class="bi bi-camera-video"></i> Gerar link do Meet
                         </button>
@@ -84,6 +84,18 @@
                             <option value="realizada">Realizada</option>
                             <option value="convertida">Convertida</option>
                             <option value="remarcada">Remarcada</option>
+                            <option value="cancelada">Cancelada</option>
+                        </select>
+                    </div>
+
+                    <!-- Status para reunião operacional (sem estados comerciais) -->
+                    <div class="col-md-6 mt-operational-only" style="display:none;">
+                        <label class="form-label small fw-medium">Status</label>
+                        <select id="mt-status-op" class="form-select form-select-sm">
+                            <option value="a_agendar">A agendar</option>
+                            <option value="agendada">Agendada</option>
+                            <option value="confirmada">Confirmada</option>
+                            <option value="realizada">Realizada</option>
                             <option value="cancelada">Cancelada</option>
                         </select>
                     </div>
@@ -235,6 +247,7 @@ function resetMeetingForm() {
     document.getElementById('mt-urgency').value = 'media';
     document.getElementById('mt-temperature').value = '';
     document.getElementById('mt-status').value = 'a_agendar';
+    document.getElementById('mt-status-op').value = 'a_agendar';
     document.getElementById('mt-closed-by').value = '';
     document.getElementById('closed-by-field').style.display = 'none';
     // Tipo de reunião padrão
@@ -257,6 +270,9 @@ function onMeetingTypeChange() {
     const isOperational = document.getElementById('mt-type').value === 'operacional';
     document.querySelectorAll('.mt-commercial-only').forEach(el => {
         el.style.display = isOperational ? 'none' : '';
+    });
+    document.querySelectorAll('.mt-operational-only').forEach(el => {
+        el.style.display = isOperational ? '' : 'none';
     });
     // Ao voltar para operacional, garante que os campos de "novo cliente" fiquem ocultos
     if (isOperational) {
@@ -341,6 +357,9 @@ function fillMeeting(m) {
     document.getElementById('mt-assigned').value = m.assigned_to || '';
     document.getElementById('mt-status').value = m.status || 'a_agendar';
     document.getElementById('mt-closed-by').value = m.closed_by || '';
+    // Status do seletor operacional (estados comerciais caem em "a_agendar")
+    const opStatus = ['a_agendar','agendada','confirmada','realizada','cancelada'].includes(m.status) ? m.status : 'a_agendar';
+    document.getElementById('mt-status-op').value = opStatus;
     onStatusChange();
     document.getElementById('mt-notes').value = m.notes || '';
     document.getElementById('mt-client-email').value = m.client_email || '';
@@ -404,7 +423,11 @@ function collectPayload() {
     const tempVal = bfTemp ? bfTemp.value : document.getElementById('mt-temperature').value;
     document.getElementById('mt-temperature').value = tempVal;
     fd.append('temperature', tempVal);
-    fd.append('status', document.getElementById('mt-status').value);
+    const isOperationalPayload = document.getElementById('mt-type').value === 'operacional';
+    const statusVal = isOperationalPayload
+        ? document.getElementById('mt-status-op').value
+        : document.getElementById('mt-status').value;
+    fd.append('status', statusVal);
     fd.append('closed_by', document.getElementById('mt-closed-by').value);
     fd.append('notes', document.getElementById('mt-notes').value);
     fd.append('client_email', document.getElementById('mt-client-email').value.trim());

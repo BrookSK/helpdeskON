@@ -148,8 +148,8 @@ class AgendaController extends Controller
             'notes' => trim($_POST['notes'] ?? '') ?: null,
         ];
 
-        // Reunião operacional: sem cliente CRM, briefing, e-mail do cliente ou Meet.
-        // Mantém apenas título, notas (descrição), data/horário e participantes.
+        // Reunião operacional: sem cliente CRM, briefing ou e-mail do cliente.
+        // Mantém título, notas (descrição), data/horário, participantes e o link do Meet (se gerado).
         if ($isOperational) {
             $data['contact_id'] = null;
             $data['client_name'] = null;
@@ -157,8 +157,11 @@ class AgendaController extends Controller
             $data['client_email'] = null;
             $data['temperature'] = null;
             $data['closed_by'] = null;
-            $preEventId = null;
-            $preMeetLink = null;
+            // Preserva o link do Meet gerado no modal, se houver
+            $preEventId = trim($_POST['google_event_id'] ?? '') ?: null;
+            $preMeetLink = trim($_POST['meet_link'] ?? '') ?: null;
+            if ($preEventId) $data['google_event_id'] = $preEventId;
+            if ($preMeetLink) $data['meet_link'] = $preMeetLink;
         } else {
             // Se convertida, salva quem fechou
             if ($data['status'] === 'convertida' && !empty($_POST['closed_by'])) {
@@ -219,6 +222,7 @@ class AgendaController extends Controller
             ? date('d/m/Y \à\s H:i', strtotime($meeting['meeting_at']))
             : 'a definir';
         $desc = trim($meeting['notes'] ?? '');
+        $meetLink = trim($meeting['meet_link'] ?? '');
 
         $sentEmail = 0;
         $sentWhats = 0;
@@ -233,6 +237,11 @@ class AgendaController extends Controller
                      <p style='margin:6px 0;'><strong>Assunto:</strong> " . htmlspecialchars($meeting['title']) . "</p>
                      <p style='margin:6px 0;'><strong>Data:</strong> {$whenFmt}</p>"
                      . ($desc !== '' ? "<p style='margin:6px 0;'><strong>Descrição:</strong> " . nl2br(htmlspecialchars($desc)) . "</p>" : "")
+                     . ($meetLink !== '' ? "<p style='text-align:center;margin:24px 0;'>
+                            <a href='{$meetLink}' style='background:#00BFA6;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;'>
+                                Entrar na reunião (Google Meet)
+                            </a></p>
+                            <p style='font-size:0.8rem;color:#888;word-break:break-all;'>Link: {$meetLink}</p>" : "")
                      . "<p>Nos vemos lá!</p>"
                 );
                 try {
@@ -246,6 +255,7 @@ class AgendaController extends Controller
                     . "*Assunto:* {$meeting['title']}\n"
                     . "*Data:* {$whenFmt}\n"
                     . ($desc !== '' ? "*Descrição:* {$desc}\n" : "")
+                    . ($meetLink !== '' ? "*Link da call:* {$meetLink}\n" : "")
                     . "\nAté breve!";
                 try {
                     if (WhatsappNotifier::sendToPhone($p['phone'], $waMsg, $p['name'])) $sentWhats++;
