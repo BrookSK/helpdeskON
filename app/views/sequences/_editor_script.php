@@ -34,7 +34,9 @@
 <script>
 const BASE = '<?= baseUrl('') ?>';
 const SEQ_ID = <?= $sequence ? (int)$sequence['id'] : 'null' ?>;
-const COLUMNS = <?= json_encode(array_map(fn($c) => ['id'=>$c['id'],'label'=>$c['board_name'].' · '.$c['name']], $columns), JSON_UNESCAPED_UNICODE) ?>;
+const COLUMNS = <?= json_encode(array_map(fn($c) => ['id'=>$c['id'],'name'=>$c['name'],'board_id'=>$c['board_id'],'board_name'=>$c['board_name'],'label'=>$c['board_name'].' · '.$c['name']], $columns), JSON_UNESCAPED_UNICODE) ?>;
+// Lista de boards únicos (para o seletor encadeado do bloco "mover card")
+const BOARDS = (function(){ const m={}; COLUMNS.forEach(c=>{ if(!m[c.board_id]) m[c.board_id]={id:c.board_id,name:c.board_name}; }); return Object.values(m); })();
 const NODE_LABELS = { send:'Enviar e-mail', whatsapp:'Enviar WhatsApp', wait:'Aguardar', condition:'Condição', tag:'Tag', score:'Score', move:'Mover card', end:'Encerrar' };
 let EMAIL_TEMPLATES = [], WA_TEMPLATES = [];
 
@@ -263,8 +265,17 @@ function renderInspector() {
     } else if (n.type==='score') {
         h += field('Pontos (+/-)', `<input type="number" class="form-control form-control-sm" value="${n.data.delta||0}" oninput="setData('delta',parseInt(this.value)||0)">`);
     } else if (n.type==='move') {
-        let opts = '<option value="">Selecione a coluna</option>' + COLUMNS.map(c=>`<option value="${c.id}" ${n.data.column_id==c.id?'selected':''}>${escapeHtml(c.label)}</option>`).join('');
-        h += field('Coluna do board', `<select class="form-select form-select-sm" onchange="setData('column_id',this.value)">${opts}</select>`);
+        // Descobre o board da coluna já escolhida (se houver)
+        const chosenCol = COLUMNS.find(c => c.id == n.data.column_id);
+        const boardId = n.data.board_id || (chosenCol ? chosenCol.board_id : '');
+        const boardOpts = '<option value="">Selecione o board</option>' +
+            BOARDS.map(b => `<option value="${b.id}" ${boardId==b.id?'selected':''}>${escapeHtml(b.name)}</option>`).join('');
+        h += field('Board', `<select class="form-select form-select-sm" id="insp-board" onchange="onMoveBoardChange(this.value)">${boardOpts}</select>`);
+
+        const cols = COLUMNS.filter(c => c.board_id == boardId);
+        const colOpts = '<option value="">Selecione a coluna</option>' +
+            cols.map(c => `<option value="${c.id}" ${n.data.column_id==c.id?'selected':''}>${escapeHtml(c.name)}</option>`).join('');
+        h += field('Coluna', `<select class="form-select form-select-sm" id="insp-column" ${boardId?'':'disabled'} onchange="setData('column_id',this.value)">${colOpts}</select>`);
     } else if (n.type==='end') {
         h += '<p class="text-muted small">Encerra a sequência para o lead.</p>';
     }
@@ -351,6 +362,16 @@ function setNext(port, targetId) {
     if (!n) return;
     if (targetId) n[port] = targetId; else delete n[port];
     drawEdges();
+}
+
+// Bloco "mover card": ao trocar o board, limpa a coluna e mostra só as colunas daquele board
+function onMoveBoardChange(boardId) {
+    const n = nodes.find(x=>x.id===selectedId);
+    if (!n) return;
+    n.data.board_id = boardId;
+    n.data.column_id = ''; // reseta a coluna ao trocar de board
+    refreshNodeBody(n);
+    renderInspector();
 }
 
 // ================= Salvar / participantes =================

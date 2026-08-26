@@ -42,9 +42,9 @@ class SequencesController extends Controller
 
         $db = Database::getInstance();
         $accounts = $db->fetchAll("SELECT id, email, display_name FROM email_accounts WHERE is_active = 1 ORDER BY email");
-        // Colunas de todos os boards (para o nó "mover card")
+        // Colunas de todos os boards (para o nó "mover card"), com board para agrupar
         $columns = $db->fetchAll(
-            "SELECT col.id, col.name, b.name AS board_name
+            "SELECT col.id, col.name, col.board_id, b.name AS board_name
              FROM crm_columns col JOIN crm_boards b ON col.board_id = b.id
              WHERE b.is_active = 1 ORDER BY b.name, col.position"
         );
