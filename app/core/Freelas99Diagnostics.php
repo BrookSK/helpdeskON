@@ -55,7 +55,11 @@ class Freelas99Diagnostics
             $tables = ['opportunities', 'search_terms', 'source_settings', 'collection_runs', 'source_health'];
             $missing = [];
             foreach ($tables as $t) {
-                $r = $db->fetch("SHOW TABLES LIKE ?", [$t]);
+                // information_schema aceita placeholder (SHOW TABLES LIKE ? não aceita bind)
+                $r = $db->fetch(
+                    "SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?",
+                    [$t]
+                );
                 if (!$r) $missing[] = $t;
             }
             if ($missing) {
