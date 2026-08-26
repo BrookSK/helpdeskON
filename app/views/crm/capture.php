@@ -122,7 +122,7 @@
         </div>
 
         <!-- Coluna de resultados -->
-        <div class="col-lg-9">
+        <div class="col-lg-9" id="results-col">
             <div class="card">
                 <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
                     <div class="d-flex align-items-center gap-2">
