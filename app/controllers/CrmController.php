@@ -1608,8 +1608,19 @@ class CrmController extends Controller
     public function ibgeStates()
     {
         $this->requireRole($this->captureRoles);
-        $data = $this->ibgeGet('https://servicodados.ibge.gov.br/api/v1/localidades/estados?orderBy=nome');
 
+        // 1) Fonte primária: arquivo local completo (app/data/br_states_cities.json)
+        $local = $this->loadBrLocalities();
+        if (!empty($local)) {
+            $states = [];
+            foreach ($local as $uf => $info) {
+                $states[] = ['id' => $uf, 'uf' => $uf, 'name' => $info['name'] ?? $uf];
+            }
+            $this->json(['success' => true, 'states' => $states, 'source' => 'local']);
+        }
+
+        // 2) Fallback: API do IBGE
+        $data = $this->ibgeGet('https://servicodados.ibge.gov.br/api/v1/localidades/estados?orderBy=nome');
         if (is_array($data) && !empty($data)) {
             $states = array_map(fn($s) => [
                 'id' => $s['id'],
@@ -1619,31 +1630,11 @@ class CrmController extends Controller
             $this->json(['success' => true, 'states' => $states, 'source' => 'ibge']);
         }
 
-        // Fallback estático: os 27 estados são fixos. Garante o dropdown mesmo sem IBGE.
-        $this->json(['success' => true, 'states' => $this->staticStates(), 'source' => 'static']);
-    }
-
-    /** Lista fixa de UFs (fallback quando o IBGE está inacessível). */
-    private function staticStates()
-    {
-        $ufs = [
-            'AC' => 'Acre', 'AL' => 'Alagoas', 'AP' => 'Amapá', 'AM' => 'Amazonas',
-            'BA' => 'Bahia', 'CE' => 'Ceará', 'DF' => 'Distrito Federal', 'ES' => 'Espírito Santo',
-            'GO' => 'Goiás', 'MA' => 'Maranhão', 'MT' => 'Mato Grosso', 'MS' => 'Mato Grosso do Sul',
-            'MG' => 'Minas Gerais', 'PA' => 'Pará', 'PB' => 'Paraíba', 'PR' => 'Paraná',
-            'PE' => 'Pernambuco', 'PI' => 'Piauí', 'RJ' => 'Rio de Janeiro', 'RN' => 'Rio Grande do Norte',
-            'RS' => 'Rio Grande do Sul', 'RO' => 'Rondônia', 'RR' => 'Roraima', 'SC' => 'Santa Catarina',
-            'SP' => 'São Paulo', 'SE' => 'Sergipe', 'TO' => 'Tocantins',
-        ];
-        $out = [];
-        foreach ($ufs as $uf => $name) {
-            $out[] = ['id' => $uf, 'uf' => $uf, 'name' => $name];
-        }
-        return $out;
+        $this->json(['error' => 'Não foi possível carregar os estados.'], 502);
     }
 
     /**
-     * API: municípios de uma UF via IBGE (proxy).
+     * API: municípios de uma UF. Usa o arquivo local; se ausente, consulta o IBGE.
      * GET crm/ibgeCities/{uf}
      */
     public function ibgeCities($uf = null)
@@ -1652,11 +1643,38 @@ class CrmController extends Controller
         $uf = strtoupper(preg_replace('/[^A-Za-z]/', '', (string)$uf));
         if (strlen($uf) !== 2) $this->json(['error' => 'UF inválida'], 400);
 
-        $data = $this->ibgeGet("https://servicodados.ibge.gov.br/api/v1/localidades/estados/{$uf}/municipios?orderBy=nome");
-        if ($data === null) $this->json(['error' => 'Não foi possível consultar o IBGE.'], 502);
+        // 1) Arquivo local
+        $local = $this->loadBrLocalities();
+        if (!empty($local[$uf]['cities'])) {
+            $this->json(['success' => true, 'uf' => $uf, 'cities' => $local[$uf]['cities'], 'source' => 'local']);
+        }
 
-        $cities = array_map(fn($c) => $c['nome'], $data);
-        $this->json(['success' => true, 'uf' => $uf, 'cities' => $cities]);
+        // 2) Fallback IBGE
+        $data = $this->ibgeGet("https://servicodados.ibge.gov.br/api/v1/localidades/estados/{$uf}/municipios?orderBy=nome");
+        if (is_array($data)) {
+            $cities = array_map(fn($c) => $c['nome'], $data);
+            $this->json(['success' => true, 'uf' => $uf, 'cities' => $cities, 'source' => 'ibge']);
+        }
+
+        $this->json(['error' => 'Não foi possível carregar as cidades.'], 502);
+    }
+
+    /**
+     * Carrega o dataset local de estados/cidades (cacheado em memória por request).
+     * @return array UF => ['name'=>..., 'cities'=>[...]]
+     */
+    private function loadBrLocalities()
+    {
+        static $cache = null;
+        if ($cache !== null) return $cache;
+
+        $file = APP_PATH . '/data/br_states_cities.json';
+        if (is_file($file)) {
+            $decoded = json_decode(file_get_contents($file), true);
+            if (is_array($decoded)) { $cache = $decoded; return $cache; }
+        }
+        $cache = [];
+        return $cache;
     }
 
     /**
