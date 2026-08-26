@@ -14,6 +14,59 @@
         <div class="alert alert-success alert-dismissible fade show"><?= escape($msg) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
     <?php endif; ?>
 
+    <?php
+        $env = $dbInfo['environment'] ?? 'production';
+        $isProd = $env === 'production';
+        $envColor = $isProd ? 'danger' : 'success';
+        $envLabel = $isProd ? 'PRODUÇÃO' : 'BETA / Homologação';
+        $envIcon  = $isProd ? 'bi-database-fill-lock' : 'bi-database-fill-gear';
+        $sourceLabel = [
+            'host'    => 'domínio da requisição',
+            'git'     => 'branch do Git (.git/HEAD)',
+            'default' => 'padrão (assumido produção)',
+        ][$dbInfo['source'] ?? 'default'] ?? 'padrão';
+    ?>
+    <!-- Ambiente / Banco de Dados em uso -->
+    <div class="card mb-4 border-<?= $envColor ?>">
+        <div class="card-header bg-<?= $envColor ?> text-white d-flex justify-content-between align-items-center">
+            <h6 class="mb-0" style="font-size:0.9rem"><i class="bi <?= $envIcon ?>"></i> Banco de Dados em uso</h6>
+            <span class="badge bg-white text-<?= $envColor ?> fw-bold"><?= $envLabel ?></span>
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-sm-4">
+                    <label class="form-label fw-medium small text-muted mb-1">Banco (database)</label>
+                    <div class="fw-bold"><i class="bi bi-hdd-stack"></i> <?= escape($dbInfo['database'] ?? '—') ?></div>
+                </div>
+                <div class="col-sm-4">
+                    <label class="form-label fw-medium small text-muted mb-1">Host</label>
+                    <div><?= escape($dbInfo['host'] ?? '—') ?></div>
+                </div>
+                <div class="col-sm-4">
+                    <label class="form-label fw-medium small text-muted mb-1">Usuário</label>
+                    <div><?= escape($dbInfo['username'] ?? '—') ?></div>
+                </div>
+                <div class="col-sm-4">
+                    <label class="form-label fw-medium small text-muted mb-1">Branch detectada</label>
+                    <div><code><?= escape($dbInfo['branch'] ?? '—') ?></code></div>
+                </div>
+                <div class="col-sm-8">
+                    <label class="form-label fw-medium small text-muted mb-1">Detectado por</label>
+                    <div class="small"><?= escape($sourceLabel) ?><?php if (!empty($dbInfo['http_host'])): ?> <span class="text-muted">(host: <?= escape($dbInfo['http_host']) ?>)</span><?php endif; ?></div>
+                </div>
+            </div>
+            <?php if ($isProd): ?>
+            <div class="alert alert-warning small mt-3 mb-0 py-2 px-3">
+                <i class="bi bi-exclamation-triangle-fill"></i> Você está conectado ao banco de <strong>PRODUÇÃO</strong>. Alterações afetam dados reais.
+            </div>
+            <?php else: ?>
+            <div class="alert alert-success small mt-3 mb-0 py-2 px-3">
+                <i class="bi bi-check-circle-fill"></i> Ambiente de <strong>homologação/beta</strong>. Seguro para testes.
+            </div>
+            <?php endif; ?>
+        </div>
+    </div>
+
     <form action="<?= baseUrl('settings/save') ?>" method="POST" enctype="multipart/form-data">
         <!-- Geral -->
         <div class="card mb-4">

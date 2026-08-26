@@ -8,7 +8,49 @@ class SettingsController extends Controller
         $user = $this->currentUser();
         $settings = Config::getAll();
         $whatsappGroups = (new WhatsappContact())->getAllGroups();
-        $this->view('admin/settings', ['user' => $user, 'settings' => $settings, 'whatsappGroups' => $whatsappGroups]);
+        $dbInfo = $this->detectDatabaseInfo();
+        $this->view('admin/settings', ['user' => $user, 'settings' => $settings, 'whatsappGroups' => $whatsappGroups, 'dbInfo' => $dbInfo]);
+    }
+
+    /**
+     * Detecta qual banco está em uso e o ambiente (produção/beta).
+     * Reflete a mesma lógica de detecção do config/database.php.
+     */
+    private function detectDatabaseInfo(): array
+    {
+        $configFile = BASE_PATH . '/config/database.php';
+        $config = file_exists($configFile) ? require $configFile : [];
+        $dbName = $config['database'] ?? '';
+
+        // Descobrir a branch detectada (mesmas duas camadas do config)
+        $branch = 'main';
+        $source = 'default';
+        $host = $_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? '';
+        if ($host !== '' && (str_contains($host, 'plesk.page') || str_contains($host, 'beta'))) {
+            $branch = 'beta';
+            $source = 'host';
+        } else {
+            $headFile = BASE_PATH . '/.git/HEAD';
+            if (file_exists($headFile)) {
+                $head = trim(file_get_contents($headFile));
+                if (str_starts_with($head, 'ref: refs/heads/')) {
+                    $branch = substr($head, strlen('ref: refs/heads/'));
+                    $source = 'git';
+                }
+            }
+        }
+
+        $isProduction = ($branch === 'main');
+
+        return [
+            'database'    => $dbName,
+            'host'        => $config['host'] ?? '',
+            'username'    => $config['username'] ?? '',
+            'environment' => $isProduction ? 'production' : 'beta',
+            'branch'      => $branch,
+            'source'      => $source, // host | git | default
+            'http_host'   => $host,
+        ];
     }
 
     public function save()
