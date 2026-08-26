@@ -24,6 +24,11 @@ class ApolloLead
         return $this->db->fetch("SELECT * FROM apollo_leads WHERE apollo_id = ?", [$apolloId]);
     }
 
+    public function update($id, array $data)
+    {
+        return $this->db->update('apollo_leads', $data, 'id = ?', [$id]);
+    }
+
     /**
      * Cria ou atualiza (upsert) um lead a partir do payload do Apollo.
      * Retorna o id local do registro.
@@ -41,7 +46,7 @@ class ApolloLead
             'full_name' => $person['name'] ?? trim(($person['first_name'] ?? '') . ' ' . ($person['last_name'] ?? '')) ?: null,
             'title' => $person['title'] ?? null,
             'seniority' => $person['seniority'] ?? null,
-            'email' => $person['email'] ?? null,
+            'email' => $this->extractEmail($person),
             'email_status' => $person['email_status'] ?? null,
             'phone' => $this->extractPhone($person),
             'linkedin_url' => $person['linkedin_url'] ?? null,
@@ -72,6 +77,35 @@ class ApolloLead
 
         $data['created_by'] = $userId;
         return $this->db->insert('apollo_leads', $data);
+    }
+
+    /**
+     * Extrai o e-mail real (revelado) do payload do Apollo, ignorando
+     * placeholders de e-mail bloqueado. Verifica os vários campos possíveis.
+     */
+    private function extractEmail(array $person)
+    {
+        $isReal = function ($e) {
+            return !empty($e)
+                && stripos($e, 'email_not_unlocked') === false
+                && stripos($e, 'domain.com') === false
+                && filter_var($e, FILTER_VALIDATE_EMAIL);
+        };
+        if ($isReal($person['email'] ?? null)) return $person['email'];
+        if (!empty($person['contact']) && $isReal($person['contact']['email'] ?? null)) {
+            return $person['contact']['email'];
+        }
+        foreach (['personal_emails', 'contact_emails'] as $key) {
+            if (!empty($person[$key]) && is_array($person[$key])) {
+                foreach ($person[$key] as $item) {
+                    $val = is_array($item) ? ($item['email'] ?? null) : $item;
+                    if ($isReal($val)) return $val;
+                }
+            }
+        }
+        // Mantém o placeholder original (ex.: email_not_unlocked) apenas se nada real veio,
+        // para o controller saber que ainda está bloqueado.
+        return $person['email'] ?? null;
     }
 
     /**

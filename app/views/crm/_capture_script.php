@@ -316,21 +316,34 @@ function personRow(p) {
     const email = p.email ? escapeHtml(p.email)
         : (p.imported ? '<span class="text-muted">—</span>'
         : '<span class="badge bg-light text-dark border"><i class="bi bi-lock"></i> oculto</span>');
-    const phone = p.phone ? escapeHtml(p.phone) : '<span class="text-muted">—</span>';
+    let phone;
+    if (p.phone) phone = escapeHtml(p.phone);
+    else if (p.phone_status === 'pending' || p.phone_pending) phone = '<span class="badge bg-warning text-dark"><span class="spinner-border spinner-border-sm" style="width:.7rem;height:.7rem;"></span> aguardando</span>';
+    else phone = '<span class="text-muted">—</span>';
     const checkbox = p.imported
         ? '<span class="badge bg-success" title="Já em Meus Leads"><i class="bi bi-check"></i></span>'
         : `<input type="checkbox" class="form-check-input row-check" value="${p.local_id}" onclick="toggleSelect(${p.local_id}, this)">`;
     const linkedin = p.linkedin_url ? `<a href="${escapeAttr(p.linkedin_url)}" target="_blank" class="text-decoration-none" title="LinkedIn"><i class="bi bi-linkedin"></i></a>` : '';
 
-    let actions = '';
+    // Considera "liberado" quando já há e-mail ou telefone revelado (ou solicitado)
+    const revealed = !!(p.email || p.phone || p.phone_status);
+
+    let actions = '<div class="btn-group btn-group-sm">';
     if (!p.imported) {
-        if (!p.email) {
-            actions += `<button class="btn btn-sm btn-outline-success" title="Revelar dados" onclick="enrichOne(${p.local_id}, this)"><i class="bi bi-unlock"></i></button> `;
+        if (!revealed) {
+            // 1º passo: LIBERAR dados (revela e-mail + solicita telefone)
+            actions += `<button class="btn btn-outline-success" title="Liberar dados (e-mail e telefone)" onclick="revealOne(${p.local_id}, this)"><i class="bi bi-unlock"></i> Liberar</button>`;
+        } else {
+            // 2º passo (opcional): ENRIQUECER perfil completo
+            const enrClass = p.is_full_enriched ? 'btn-outline-secondary' : 'btn-outline-primary';
+            const enrTitle = p.is_full_enriched ? 'Perfil já enriquecido' : 'Enriquecer perfil completo (pessoa + empresa)';
+            actions += `<button class="btn ${enrClass}" title="${enrTitle}" onclick="enrichOne(${p.local_id}, this)"><i class="bi bi-stars"></i> Enriquecer</button>`;
         }
-        actions += `<button class="btn btn-sm btn-success" title="Enviar p/ Meus Leads" onclick="importOne(${p.local_id}, this)"><i class="bi bi-download"></i></button>`;
+        actions += `<button class="btn btn-success" title="Enviar p/ Meus Leads" onclick="importOne(${p.local_id}, this)"><i class="bi bi-download"></i></button>`;
     } else {
-        actions = '<span class="badge bg-success">Em Meus Leads</span>';
+        actions += '<span class="badge bg-success">Em Meus Leads</span>';
     }
+    actions += '</div>';
 
     return `<tr data-id="${p.local_id}">
         <td>${checkbox}</td>
@@ -425,32 +438,57 @@ function updateBulkBar() {
     document.getElementById('sel-count').textContent = selected.size;
 }
 
-// ===== Enriquecimento =====
-function enrichOne(id, btn) {
+// ===== Liberar dados (revela e-mail; solicita telefone via webhook) =====
+function revealOne(id, btn) {
     if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>'; }
     const fd = new FormData();
-    fd.append('reveal_personal_emails', '1');
-    fetch(BASE + 'crm/apolloEnrich/' + id, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
+    fd.append('reveal_phone', '1');
+    fetch(BASE + 'crm/apolloReveal/' + id, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json())
         .then(d => {
-            if (d.error) { alert(d.error); if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-unlock"></i>'; } return; }
+            if (d.error) { alert(d.error); if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-unlock"></i> Liberar'; } return; }
             replaceRow(d.lead);
+            if (d.warning) alert(d.warning);
+            // Se o telefone foi solicitado, faz polling leve da lista para refletir o retorno do webhook
+            if (d.lead && (d.lead.phone_pending || d.lead.phone_status === 'pending')) schedulePhonePoll();
         })
-        .catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-unlock"></i>'; } alert('Erro ao revelar dados.'); });
+        .catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-unlock"></i> Liberar'; } alert('Erro ao liberar dados.'); });
 }
 
-function enrichSelected() {
+function revealSelected() {
     const ids = Array.from(selected);
     if (!ids.length) return;
-    if (!confirm(`Revelar dados de ${ids.length} lead(s)? Isso pode consumir créditos do Apollo.`)) return;
-    let done = 0;
+    if (!confirm(`Liberar dados de ${ids.length} lead(s)? Isso pode consumir créditos do Apollo.`)) return;
+    let done = 0, pending = false;
     ids.forEach(id => {
         const fd = new FormData();
-        fd.append('reveal_personal_emails', '1');
-        fetch(BASE + 'crm/apolloEnrich/' + id, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
-            .then(r => r.json()).then(d => { if (!d.error && d.lead) replaceRow(d.lead); })
-            .finally(() => { if (++done === ids.length) { /* concluído */ } });
+        fd.append('reveal_phone', '1');
+        fetch(BASE + 'crm/apolloReveal/' + id, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
+            .then(r => r.json()).then(d => {
+                if (!d.error && d.lead) { replaceRow(d.lead); if (d.lead.phone_pending) pending = true; }
+            })
+            .finally(() => { if (++done === ids.length && pending) schedulePhonePoll(); });
     });
+}
+
+// ===== Enriquecer perfil completo (pessoa + empresa) =====
+function enrichOne(id, btn) {
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>'; }
+    fetch(BASE + 'crm/apolloEnrich/' + id, { method: 'POST', headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json())
+        .then(d => {
+            if (d.error) { alert(d.error); if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-stars"></i> Enriquecer'; } return; }
+            replaceRow(d.lead);
+        })
+        .catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-stars"></i> Enriquecer'; } alert('Erro ao enriquecer.'); });
+}
+
+// Recarrega a busca atual após alguns segundos para capturar telefones que
+// chegaram via webhook do Apollo (revelação assíncrona).
+let _phonePollTimer = null;
+function schedulePhonePoll() {
+    if (_phonePollTimer) clearTimeout(_phonePollTimer);
+    _phonePollTimer = setTimeout(() => { if (typeof runSearch === 'function') runSearch(currentPage || 1); }, 8000);
 }
 
 // ===== Importação p/ Meus Leads =====

@@ -133,8 +133,8 @@
                         <span class="text-muted small" id="result-count"></span>
                     </div>
                     <div class="d-flex gap-2" id="bulk-actions" style="display:none;">
-                        <button class="btn btn-sm btn-outline-success" onclick="enrichSelected()" title="Revelar e-mail dos selecionados">
-                            <i class="bi bi-unlock"></i> Revelar dados
+                        <button class="btn btn-sm btn-outline-success" onclick="revealSelected()" title="Liberar e-mail e telefone dos selecionados">
+                            <i class="bi bi-unlock"></i> Liberar dados
                         </button>
                         <button class="btn btn-sm btn-success" onclick="importSelected()">
                             <i class="bi bi-download"></i> Enviar p/ Meus Leads (<span id="sel-count">0</span>)

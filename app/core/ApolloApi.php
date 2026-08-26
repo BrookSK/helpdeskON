@@ -185,6 +185,16 @@ class ApolloApi
     }
 
     /**
+     * Get Complete Organization Info — detalhes completos de uma empresa por ID.
+     * GET /organizations/{id}
+     * https://docs.apollo.io/reference/get-complete-organization-info
+     */
+    public function getOrganization($organizationId)
+    {
+        return $this->request('GET', '/organizations/' . rawurlencode($organizationId));
+    }
+
+    /**
      * Get a list of email accounts / opcional: usados por outras integrações.
      * Mantido para completude do módulo.
      * GET /organizations/{id}/job_postings

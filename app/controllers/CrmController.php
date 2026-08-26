@@ -1518,9 +1518,87 @@ class CrmController extends Controller
     }
 
     /**
-     * API: enriquece (revela e-mail/telefone) um lead capturado.
+     * API: LIBERAR DADOS — revela e-mail (síncrono) e solicita telefone (assíncrono
+     * via webhook) de um lead capturado. Consome créditos do Apollo.
+     * POST crm/apolloReveal/{apolloLeadId}
+     * Body opcional: reveal_phone (1 = também solicita o telefone)
+     */
+    public function apolloReveal($id = null)
+    {
+        $this->requireRole($this->captureRoles);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+
+        $leadModel = new ApolloLead();
+        $lead = $leadModel->findById($id);
+        if (!$lead) $this->json(['error' => 'Lead não encontrado'], 404);
+
+        $apollo = new ApolloApi();
+        if (!$apollo->isConfigured()) $this->json(['error' => 'Apollo não configurado.'], 400);
+
+        // O /people/match revela o e-mail com mais confiabilidade quando recebe
+        // os identificadores da pessoa (não apenas o apollo_id).
+        $params = [
+            'id' => $lead['apollo_id'],
+            'first_name' => $lead['first_name'] ?? null,
+            'last_name' => $lead['last_name'] ?? null,
+            'name' => $lead['full_name'] ?? null,
+            'organization_name' => $lead['organization_name'] ?? null,
+            'domain' => $lead['organization_domain'] ?? null,
+            'linkedin_url' => $lead['linkedin_url'] ?? null,
+            'reveal_personal_emails' => true,
+        ];
+
+        // Telefone: revelado de forma ASSÍNCRONA pela Apollo, exige webhook_url.
+        $wantPhone = !empty($_POST['reveal_phone']);
+        $webhookUrl = $this->apolloWebhookUrl();
+        if ($wantPhone && $webhookUrl) {
+            $params['reveal_phone_number'] = true;
+            $params['webhook_url'] = $webhookUrl;
+        }
+
+        $res = $apollo->enrichPerson($params);
+        if (!$res['success']) $this->json(['error' => $res['error'] ?? 'Falha ao liberar os dados.'], 502);
+
+        $person = $res['data']['person'] ?? ($res['data']['people'][0] ?? null);
+        if (!$person) $this->json(['error' => 'Apollo não encontrou dados para este lead.'], 404);
+
+        $user = $this->currentUser();
+        $localId = $leadModel->upsertFromApollo($person, $user['id']);
+
+        // Se pedimos o telefone, guarda o request_id para casar com o webhook.
+        $phonePending = false;
+        if ($wantPhone && $webhookUrl) {
+            $requestId = $person['id'] ?? ($res['data']['request_id'] ?? null);
+            $leadModel->update($localId, [
+                'phone_status' => 'pending',
+                'phone_request_id' => $requestId,
+            ]);
+            $phonePending = true;
+        }
+
+        $updated = $leadModel->findById($localId);
+        $formatted = $this->formatApolloPerson($person, $updated);
+        $formatted['phone_pending'] = $phonePending;
+
+        $warnings = [];
+        if (empty($formatted['email'])) {
+            $warnings[] = 'E-mail não retornado (indisponível no plano atual ou contato sem e-mail verificado).';
+        }
+        if ($wantPhone && !$webhookUrl) {
+            $warnings[] = 'Para revelar telefones, configure a URL de webhook do Apollo em Configurações.';
+        } elseif ($phonePending) {
+            $warnings[] = 'Telefone solicitado. O número chega em instantes via Apollo e a lista será atualizada automaticamente.';
+        }
+
+        $out = ['success' => true, 'lead' => $formatted];
+        if ($warnings) $out['warning'] = implode("\n", $warnings);
+        $this->json($out);
+    }
+
+    /**
+     * API: ENRIQUECER — busca o perfil COMPLETO da pessoa (/people/{id}) e da
+     * organização (/organizations/{id}). Deve ser usado APÓS liberar os dados.
      * POST crm/apolloEnrich/{apolloLeadId}
-     * Body opcional: reveal_personal_emails, reveal_phone_number, webhook_url
      */
     public function apolloEnrich($id = null)
     {
@@ -1534,26 +1612,98 @@ class CrmController extends Controller
         $apollo = new ApolloApi();
         if (!$apollo->isConfigured()) $this->json(['error' => 'Apollo não configurado.'], 400);
 
-        $params = ['id' => $lead['apollo_id']];
-        $params['reveal_personal_emails'] = !empty($_POST['reveal_personal_emails']);
-        // Telefone exige webhook_url configurado; só habilita se veio uma URL válida
-        $webhook = trim($_POST['webhook_url'] ?? '');
-        if (!empty($_POST['reveal_phone_number']) && $webhook !== '') {
-            $params['reveal_phone_number'] = true;
-            $params['webhook_url'] = $webhook;
+        // 1) Perfil completo da pessoa
+        $res = $apollo->getPerson($lead['apollo_id']);
+        if (!$res['success']) $this->json(['error' => $res['error'] ?? 'Falha ao enriquecer o contato.'], 502);
+
+        $person = $res['data']['person'] ?? ($res['data']['people'][0] ?? ($res['data'] ?? null));
+        if (!$person || !is_array($person)) $this->json(['error' => 'Apollo não retornou o perfil completo.'], 404);
+
+        // 2) Perfil completo da organização (quando houver ID)
+        $orgId = $person['organization_id'] ?? ($person['organization']['id'] ?? null);
+        if ($orgId) {
+            $orgRes = $apollo->getOrganization($orgId);
+            if (!empty($orgRes['success'])) {
+                $org = $orgRes['data']['organization'] ?? ($orgRes['data'] ?? null);
+                if (is_array($org)) $person['organization'] = array_merge($person['organization'] ?? [], $org);
+            }
         }
-
-        $res = $apollo->enrichPerson($params);
-        if (!$res['success']) $this->json(['error' => $res['error'] ?? 'Falha ao enriquecer.'], 502);
-
-        $person = $res['data']['person'] ?? ($res['data']['people'][0] ?? null);
-        if (!$person) $this->json(['error' => 'Apollo não encontrou dados para este lead.'], 404);
 
         $user = $this->currentUser();
         $localId = $leadModel->upsertFromApollo($person, $user['id']);
+        $leadModel->update($localId, ['is_full_enriched' => 1]);
         $updated = $leadModel->findById($localId);
 
         $this->json(['success' => true, 'lead' => $this->formatApolloPerson($person, $updated)]);
+    }
+
+    /**
+     * Monta a URL pública do webhook de telefone do Apollo, anexando o token
+     * de segurança configurado (se houver). Retorna null se o app não expõe URL.
+     */
+    private function apolloWebhookUrl()
+    {
+        $base = rtrim(baseUrl(''), '/');
+        if ($base === '' || stripos($base, 'http') !== 0) return null;
+        $token = trim((string) Config::get('apollo_webhook_token'));
+        $url = $base . '/crm/apolloPhoneWebhook';
+        if ($token !== '') $url .= '?token=' . rawurlencode($token);
+        return $url;
+    }
+
+    /**
+     * Endpoint PÚBLICO (sem sessão): recebe o retorno assíncrono do Apollo com
+     * o telefone revelado e grava no lead correspondente.
+     * POST crm/apolloPhoneWebhook?token=...
+     */
+    public function apolloPhoneWebhook()
+    {
+        // Validação por token (se configurado)
+        $expected = trim((string) Config::get('apollo_webhook_token'));
+        if ($expected !== '' && ($_GET['token'] ?? '') !== $expected) {
+            $this->json(['error' => 'unauthorized'], 401);
+        }
+
+        $raw = file_get_contents('php://input');
+        $payload = json_decode($raw, true);
+        if (!is_array($payload)) { http_response_code(200); echo 'ignored'; exit; }
+
+        // O Apollo pode enviar people[] ou um person único, com request_id.
+        $people = $payload['people'] ?? (isset($payload['person']) ? [$payload['person']] : []);
+        if (empty($people) && isset($payload['id'])) $people = [$payload];
+        $requestId = $payload['request_id'] ?? null;
+
+        $leadModel = new ApolloLead();
+        $resolved = 0;
+        foreach ($people as $person) {
+            if (!is_array($person)) continue;
+            $phone = $this->extractApolloPhone($person);
+            $apolloId = $person['id'] ?? null;
+
+            // Localiza o lead por apollo_id ou por request_id salvo
+            $lead = null;
+            if ($apolloId) $lead = $leadModel->findByApolloId($apolloId);
+            if (!$lead && $requestId) {
+                $lead = Database::getInstance()->fetch(
+                    "SELECT * FROM apollo_leads WHERE phone_request_id = ? LIMIT 1", [$requestId]
+                );
+            }
+            if (!$lead) continue;
+
+            $update = ['phone_status' => 'received'];
+            if ($phone) { $update['phone'] = $phone; $update['is_enriched'] = 1; }
+            $leadModel->update($lead['id'], $update);
+
+            // Propaga para o contato do CRM já importado, se houver
+            if ($phone && !empty($lead['contact_id'])) {
+                try { Database::getInstance()->update('whatsapp_contacts', ['phone' => $phone], 'id = ?', [$lead['contact_id']]); } catch (\Throwable $e) {}
+            }
+            $resolved++;
+        }
+
+        http_response_code(200);
+        echo json_encode(['ok' => true, 'resolved' => $resolved]);
+        exit;
     }
 
     /**
@@ -1924,14 +2074,63 @@ class CrmController extends Controller
     }
 
     /**
+     * Extrai o melhor e-mail revelado de um person do Apollo, checando os
+     * vários campos onde o e-mail pode vir (email, personal_emails, contact_emails).
+     */
+    private function extractApolloEmail($person)
+    {
+        $isReal = function ($e) {
+            return !empty($e)
+                && stripos($e, 'email_not_unlocked') === false
+                && stripos($e, 'domain.com') === false
+                && filter_var($e, FILTER_VALIDATE_EMAIL);
+        };
+
+        // 1) Campo direto
+        if ($isReal($person['email'] ?? null)) return $person['email'];
+
+        // 2) contact.email (quando vem aninhado)
+        if (!empty($person['contact']) && $isReal($person['contact']['email'] ?? null)) {
+            return $person['contact']['email'];
+        }
+
+        // 3) Listas de e-mails pessoais/profissionais
+        foreach (['personal_emails', 'contact_emails'] as $key) {
+            if (!empty($person[$key]) && is_array($person[$key])) {
+                foreach ($person[$key] as $item) {
+                    $val = is_array($item) ? ($item['email'] ?? null) : $item;
+                    if ($isReal($val)) return $val;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Extrai o primeiro telefone disponível de um person do Apollo.
+     */
+    private function extractApolloPhone($person)
+    {
+        if (!empty($person['phone_numbers']) && is_array($person['phone_numbers'])) {
+            foreach ($person['phone_numbers'] as $ph) {
+                if (!empty($ph['sanitized_number'])) return $ph['sanitized_number'];
+                if (!empty($ph['raw_number'])) return $ph['raw_number'];
+            }
+        }
+        if (!empty($person['contact']['sanitized_phone'])) return $person['contact']['sanitized_phone'];
+        return $person['sanitized_phone'] ?? ($person['phone'] ?? null);
+    }
+
+    /**
      * Formata um person do Apollo + registro local para exibição no painel.
      * $stored é a linha em apollo_leads (pode conter o e-mail já revelado).
      */
     private function formatApolloPerson($person, $stored = null)
     {
         $org = $person['organization'] ?? ($person['account'] ?? []);
-        $email = $person['email'] ?? ($stored['email'] ?? null);
-        $hasRealEmail = !empty($email) && stripos($email, 'email_not_unlocked') === false;
+        $email = $this->extractApolloEmail($person) ?: ($stored['email'] ?? null);
+        $hasRealEmail = !empty($email) && stripos($email, 'email_not_unlocked') === false && stripos($email, 'domain.com') === false;
+        $phone = $this->extractApolloPhone($person) ?: ($stored['phone'] ?? null);
 
         return [
             'local_id' => $stored['id'] ?? null,
@@ -1944,7 +2143,9 @@ class CrmController extends Controller
             'email' => $hasRealEmail ? $email : null,
             'email_locked' => !$hasRealEmail,
             'email_status' => $person['email_status'] ?? ($stored['email_status'] ?? null),
-            'phone' => $stored['phone'] ?? null,
+            'phone' => $phone,
+            'phone_status' => $stored['phone_status'] ?? null,
+            'is_full_enriched' => (int)($stored['is_full_enriched'] ?? 0),
             'linkedin_url' => $person['linkedin_url'] ?? ($stored['linkedin_url'] ?? null),
             'organization_name' => $org['name'] ?? ($stored['organization_name'] ?? null),
             'organization_domain' => $org['primary_domain'] ?? ($stored['organization_domain'] ?? null),
@@ -1971,6 +2172,8 @@ class CrmController extends Controller
             'email_locked' => empty($l['email']),
             'email_status' => $l['email_status'],
             'phone' => $l['phone'],
+            'phone_status' => $l['phone_status'] ?? null,
+            'is_full_enriched' => (int)($l['is_full_enriched'] ?? 0),
             'linkedin_url' => $l['linkedin_url'],
             'organization_name' => $l['organization_name'],
             'organization_domain' => $l['organization_domain'],
