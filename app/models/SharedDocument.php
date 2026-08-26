@@ -136,9 +136,16 @@ class SharedDocument
             'application/vnd.ms-excel',
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             'text/plain', 'text/csv',
+            'application/zip', 'application/x-zip-compressed', 'application/x-zip',
+            'application/sql', 'text/x-sql', 'application/x-sql',
+            'application/octet-stream', // fallback para .zip e .sql que alguns browsers enviam assim
         ];
 
-        if (!in_array($file['type'], $allowedTypes)) {
+        // Permitir também pela extensão (browsers às vezes enviam mime errado)
+        $allowedExtensions = ['jpg','jpeg','png','gif','webp','pdf','doc','docx','xls','xlsx','txt','csv','zip','sql','rar','7z'];
+        $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+
+        if (!in_array($file['type'], $allowedTypes) && !in_array($ext, $allowedExtensions)) {
             return ['error' => 'Tipo de arquivo não permitido.'];
         }
 
