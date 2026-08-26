@@ -192,9 +192,32 @@
                 <?php if (in_array($user['role'] ?? '', ['super_admin', 'comercial'])): ?>
                 <li class="nav-item">
                     <a class="nav-link <?= ($currentPage ?? '') === 'crm_capture' ? 'active' : '' ?>" href="<?= baseUrl('crm/capture') ?>" style="padding-left:2.6rem;font-size:0.85rem;">
-                        <i class="bi bi-search"></i> Captação de Leads
+                        <i class="bi bi-search"></i> Apollo (Prospects)
                     </a>
                 </li>
+                <?php $lcActive = in_array($currentPage ?? '', ['leadcapture_opps', 'leadcapture_config', 'leadcapture_health']); ?>
+                <li class="nav-item">
+                    <a class="nav-link <?= $lcActive ? 'active' : '' ?>" href="<?= baseUrl('leadcapture/opportunities') ?>" style="padding-left:2.6rem;font-size:0.85rem;">
+                        <i class="bi bi-binoculars"></i> Captação de Leads
+                    </a>
+                </li>
+                <?php if ($lcActive): ?>
+                <li class="nav-item">
+                    <a class="nav-link <?= ($currentPage ?? '') === 'leadcapture_opps' ? 'active' : '' ?>" href="<?= baseUrl('leadcapture/opportunities') ?>" style="padding-left:3.4rem;font-size:0.82rem;">
+                        <i class="bi bi-dot"></i> Oportunidades
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link <?= ($currentPage ?? '') === 'leadcapture_config' ? 'active' : '' ?>" href="<?= baseUrl('leadcapture/configuracoes') ?>" style="padding-left:3.4rem;font-size:0.82rem;">
+                        <i class="bi bi-dot"></i> Configurações de Busca
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link <?= ($currentPage ?? '') === 'leadcapture_health' ? 'active' : '' ?>" href="<?= baseUrl('leadcapture/saude') ?>" style="padding-left:3.4rem;font-size:0.82rem;">
+                        <i class="bi bi-dot"></i> Saúde da Integração
+                    </a>
+                </li>
+                <?php endif; ?>
                 <li class="nav-item">
                     <a class="nav-link <?= ($currentPage ?? '') === 'crm_leads' ? 'active' : '' ?>" href="<?= baseUrl('crm/leads') ?>" style="padding-left:2.6rem;font-size:0.85rem;">
                         <i class="bi bi-person-lines-fill"></i> Meus leads

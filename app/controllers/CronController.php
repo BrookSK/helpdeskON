@@ -278,6 +278,42 @@ class CronController extends Controller
     }
 
     /**
+     * GET /cron/captureLeads?token=XXX
+     * Coleta agendada de oportunidades (99Freelas). Respeita o intervalo configurado
+     * e o mesmo lock do botão manual (nunca duas coletas simultâneas).
+     */
+    public function captureLeads()
+    {
+        $this->validateToken();
+        @set_time_limit(360);
+
+        $model = new Opportunity();
+        $settings = $model->getSettings('freelas99');
+
+        if (empty($settings['enabled'])) {
+            $this->json(['skipped' => true, 'reason' => 'Fonte desabilitada']);
+        }
+
+        // Respeita o intervalo: só roda se passou schedule_minutes desde a última run
+        $health = $model->getHealth('freelas99');
+        $interval = max(15, (int) $settings['schedule_minutes']) * 60;
+        if (!empty($health['last_run_at'])) {
+            $elapsed = time() - strtotime($health['last_run_at']);
+            if ($elapsed < $interval) {
+                $this->json(['skipped' => true, 'reason' => 'Intervalo não atingido', 'next_in_seconds' => $interval - $elapsed]);
+            }
+        }
+
+        $runner = new CollectionRunner();
+        if ($runner->currentLock()) {
+            $this->json(['skipped' => true, 'reason' => 'Coleta já em andamento']);
+        }
+
+        $result = $runner->run('scheduled', null, 'scheduler');
+        $this->json(['success' => empty($result['error']), 'result' => $result]);
+    }
+
+    /**
      * GET /cron/index
      * Página de status/info sobre os crons disponíveis.
      */
@@ -286,6 +322,7 @@ class CronController extends Controller
         $this->json([
             'endpoints' => [
                 'GET /cron/syncAll?token=XXX' => 'Sincronização completa (Buffer + Meta + LinkedIn + Snapshot)',
+                'GET /cron/captureLeads?token=XXX' => 'Coleta agendada de oportunidades (99Freelas)',
             ],
             'tip' => 'Configure cron_token em Configurações para proteger este endpoint.',
         ]);
