@@ -132,7 +132,7 @@ class Opportunity
         $perPage = min(100, max(25, (int) $perPage));
         $offset = (max(1, (int) $page) - 1) * $perPage;
         $items = $this->db->fetchAll(
-            "SELECT o.*, u.name AS lead_name
+            "SELECT o.*, COALESCE(u.contact_name, u.push_name) AS lead_name
              FROM opportunities o
              LEFT JOIN whatsapp_contacts u ON o.lead_id = u.id
              WHERE $whereSql ORDER BY $order LIMIT $perPage OFFSET $offset",
