@@ -121,6 +121,42 @@
                 </div>
             </div>
 
+            <!-- Sequência de Follow-up -->
+            <div class="card mt-3">
+                <div class="card-header bg-white">
+                    <h6 class="mb-0 fw-semibold" style="font-size:0.85rem;"><i class="bi bi-diagram-3"></i> Sequência de Follow-up</h6>
+                </div>
+                <div class="card-body">
+                    <?php if (empty($sequences)): ?>
+                    <p class="small text-muted mb-0">Nenhuma sequência ativa. <a href="<?= baseUrl('sequences/edit') ?>">Criar sequência</a>.</p>
+                    <?php else: ?>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="pf-enroll" onchange="toggleEnroll()">
+                        <label class="form-check-label small fw-medium" for="pf-enroll">Adicionar o lead a uma sequência</label>
+                    </div>
+                    <div id="pf-enroll-box" style="display:none;">
+                        <select id="pf-sequence" class="form-select form-select-sm mb-2">
+                            <?php foreach ($sequences as $s): ?>
+                            <option value="<?= $s['id'] ?>"><?= escape($s['name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="radio" name="enroll-when" id="enroll-now" value="now" checked>
+                            <label class="form-check-label small" for="enroll-now">Inscrever agora</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="enroll-when" id="enroll-send" value="on_send">
+                            <label class="form-check-label small" for="enroll-send">Inscrever ao enviar o e-mail</label>
+                        </div>
+                        <button class="btn btn-sm btn-outline-primary w-100 mt-2" id="pf-enroll-now-btn" onclick="enrollNow()">
+                            <i class="bi bi-play-circle"></i> Inscrever na sequência
+                        </button>
+                        <small class="text-muted d-block mt-1">Requer um lead vinculado (ou informe o e-mail no formulário).</small>
+                    </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+
             <!-- Últimos envios -->
             <div class="card mt-3">
                 <div class="card-header bg-white">
@@ -223,6 +259,15 @@ function sendEmail() {
         if (d.success) {
             statusEl.textContent = '✓ Enviado!';
             statusEl.className = 'badge bg-success';
+
+            // Inscrição na sequência ao enviar (se marcado e opção "ao enviar")
+            const enrollChk = document.getElementById('pf-enroll');
+            const enrollWhen = document.querySelector('input[name="enroll-when"]:checked');
+            if (enrollChk && enrollChk.checked && enrollWhen && enrollWhen.value === 'on_send') {
+                const cid = d.contact_id || document.getElementById('pf-contact').value;
+                if (cid) enrollInSequence(cid, true);
+            }
+
             // Limpar formulário
             document.getElementById('pf-recipient-email').value = '';
             document.getElementById('pf-recipient-name').value = '';
@@ -244,6 +289,32 @@ function sendEmail() {
         btn.innerHTML = '<i class="bi bi-send"></i> Enviar E-mail';
         alert('Erro de conexão.');
     });
+}
+
+function toggleEnroll() {
+    const box = document.getElementById('pf-enroll-box');
+    if (box) box.style.display = document.getElementById('pf-enroll').checked ? '' : 'none';
+}
+
+// Inscreve o lead vinculado na sequência selecionada.
+function enrollNow() {
+    const cid = document.getElementById('pf-contact').value;
+    if (!cid) { alert('Vincule um lead do CRM (campo "Contato") para inscrever na sequência.'); return; }
+    enrollInSequence(cid, false);
+}
+
+function enrollInSequence(contactId, silent) {
+    const seqId = document.getElementById('pf-sequence').value;
+    if (!seqId) return;
+    const fd = new FormData();
+    fd.append('contact_id', contactId);
+    fd.append('sequence_id', seqId);
+    fetch(`${BASE}prospection/followUp`, { method:'POST', body:fd, headers:{'X-Requested-With':'XMLHttpRequest'} })
+        .then(r=>r.json()).then(d=>{
+            if (d.error) { if (!silent) alert(d.error); return; }
+            if (!silent) alert('Lead inscrito na sequência!');
+        })
+        .catch(()=>{ if (!silent) alert('Erro ao inscrever na sequência.'); });
 }
 
 function onContactChange() {

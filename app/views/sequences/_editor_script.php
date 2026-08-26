@@ -4,11 +4,13 @@
 .seq-node.sel { border-color: var(--primary); box-shadow:0 0 0 3px rgba(0,191,166,.2); }
 .seq-node .hd { padding:6px 10px; border-bottom:1px solid #eee; font-weight:600; display:flex; justify-content:space-between; align-items:center; border-radius:8px 8px 0 0; }
 .seq-node .bd { padding:6px 10px; color:#667; font-size:0.74rem; min-height:24px; }
-.seq-node .port { width:14px; height:14px; border-radius:50%; background:#fff; border:2px solid var(--primary); position:absolute; cursor:crosshair; }
-.seq-node .port.out { bottom:-8px; left:50%; transform:translateX(-50%); }
-.seq-node .port.out.yes { left:30%; background:#d4edda; }
-.seq-node .port.out.no { left:70%; background:#f8d7da; }
-.seq-node .port.in { top:-8px; left:50%; transform:translateX(-50%); background:#e9ecef; }
+.seq-node .port { width:18px; height:18px; border-radius:50%; background:#fff; border:2px solid var(--primary); position:absolute; cursor:crosshair; z-index:3; transition:transform .1s; }
+.seq-node .port:hover { transform:scale(1.3); background:var(--primary); }
+.seq-node .port.out { bottom:-10px; left:50%; transform:translateX(-50%); }
+.seq-node .port.out:hover { transform:translateX(-50%) scale(1.3); }
+.seq-node .port.out.yes { left:30%; background:#d4edda; border-color:#28a745; }
+.seq-node .port.out.no { left:70%; background:#f8d7da; border-color:#dc3545; }
+.seq-node .port.in { top:-10px; left:50%; transform:translateX(-50%); background:#e9ecef; }
 .n-send .hd{color:#0d6efd} .n-wait .hd{color:#fd7e14} .n-condition .hd{color:#6f42c1}
 .n-tag .hd{color:#20c997} .n-score .hd{color:#ffc107} .n-move .hd{color:#0dcaf0} .n-end .hd{color:#dc3545}
 </style>
@@ -68,6 +70,11 @@ function renderNode(n) {
     } else if (n.type !== 'end') {
         el.innerHTML += `<div class="port out" onclick="startLink('${n.id}','next');event.stopPropagation();"></div>`;
     }
+    // Se estamos no modo de ligação, clicar em qualquer nó (que não seja a origem) conecta
+    if (linkFrom && linkFrom.id !== n.id) {
+        el.style.outline = '2px dashed var(--primary)';
+        el.style.cursor = 'crosshair';
+    }
     // seleção + conexão de destino (clicar no corpo enquanto liga)
     el.addEventListener('mousedown', (e) => {
         if (e.target.classList.contains('port')) return;
@@ -102,7 +109,11 @@ function startDrag(e, n, el) {
 }
 
 // ---- Conexões ----
-function startLink(nodeId, port) { linkFrom = { id: nodeId, port }; document.body.style.cursor = 'crosshair'; }
+function startLink(nodeId, port) {
+    linkFrom = { id: nodeId, port };
+    document.body.style.cursor = 'crosshair';
+    render(); // destaca os nós de destino possíveis
+}
 function finishLink(targetId) {
     if (!linkFrom || linkFrom.id === targetId) { cancelLink(); return; }
     const n = nodes.find(x=>x.id===linkFrom.id);
@@ -113,7 +124,7 @@ function finishLink(targetId) {
     }
     cancelLink(); render();
 }
-function cancelLink() { linkFrom = null; document.body.style.cursor = ''; }
+function cancelLink() { linkFrom = null; document.body.style.cursor = ''; render(); }
 document.addEventListener('click', (e)=>{ if (linkFrom && !e.target.closest('.seq-node')) cancelLink(); });
 
 function renderEdges() {
@@ -176,7 +187,30 @@ function renderInspector() {
     } else if (n.type==='end') {
         h += '<p class="text-muted small">Encerra a sequência para o lead.</p>';
     }
+
+    // ---- Conexões (forma confiável de ligar os blocos) ----
+    if (n.type !== 'end') {
+        h += '<hr><div class="fw-semibold small mb-2"><i class="bi bi-arrow-down-right-circle"></i> Próximo bloco</div>';
+        const others = nodes.filter(x => x.id !== n.id);
+        const optsFor = (sel) => '<option value="">— nenhum —</option>' +
+            others.map(o => `<option value="${o.id}" ${sel===o.id?'selected':''}>${NODE_LABELS[o.type]||o.type} · ${escapeHtml((nodeSummary(o)||'').replace(/<[^>]+>/g,'').slice(0,24))}</option>`).join('');
+        if (n.type === 'condition') {
+            h += field('Se SIM →', `<select class="form-select form-select-sm" onchange="setNext('nextYes',this.value)">${optsFor(n.nextYes)}</select>`);
+            h += field('Se NÃO →', `<select class="form-select form-select-sm" onchange="setNext('nextNo',this.value)">${optsFor(n.nextNo)}</select>`);
+        } else {
+            h += field('Vai para', `<select class="form-select form-select-sm" onchange="setNext('next',this.value)">${optsFor(n.next)}</select>`);
+        }
+    }
+
     box.innerHTML = h;
+}
+
+// Define a conexão do nó selecionado a partir do dropdown
+function setNext(port, targetId) {
+    const n = nodes.find(x=>x.id===selectedId);
+    if (!n) return;
+    if (targetId) n[port] = targetId; else delete n[port];
+    render();
 }
 function field(label, input) { return `<div class="mb-2"><label class="form-label small mb-1">${label}</label>${input}</div>`; }
 function setData(key, val) { const n = nodes.find(x=>x.id===selectedId); if(n){ n.data[key]=val; render(); } }

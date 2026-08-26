@@ -28,10 +28,16 @@ class ProspectionController extends Controller
         // Leads para seleção (contatos do CRM)
         $leads = $this->contactModel->getLeadsForSelect();
 
+        // Sequências de follow-up ativas (para inscrever o lead)
+        $sequences = Database::getInstance()->fetchAll(
+            "SELECT id, name FROM email_sequences WHERE is_active = 1 ORDER BY name ASC"
+        );
+
         $this->view('prospection/index', [
             'user' => $user,
             'accounts' => $accounts,
             'leads' => $leads,
+            'sequences' => $sequences,
         ]);
     }
 
