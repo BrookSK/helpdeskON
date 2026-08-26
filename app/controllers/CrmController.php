@@ -1482,9 +1482,20 @@ class CrmController extends Controller
         $apollo = new ApolloApi();
         if (!$apollo->isConfigured()) $this->json(['error' => 'Apollo não configurado. Informe a API key em Configurações.'], 400);
 
+        // Cada pesquisa consome 1 crédito do limite diário.
+        $user = (new User())->findById($this->currentUser()['id']) ?: $this->currentUser();
+        $credit = new ApolloCreditUsage();
+        $chk = $credit->check($user, 1);
+        if (!$chk['allowed']) {
+            $this->json(['error' => "Você atingiu o limite diário de {$chk['limit']} crédito(s) Apollo. Tente novamente amanhã.", 'credits' => ['limit' => $chk['limit'], 'used' => $chk['used'], 'remaining' => $chk['remaining']]], 429);
+        }
+
         $filters = $this->collectPeopleFilters();
         $res = $apollo->searchPeople($filters);
         if (!$res['success']) $this->json(['error' => $res['error'] ?? 'Falha na busca.'], 502);
+
+        // Pesquisa bem-sucedida: debita 1 crédito.
+        $credit->consume($user['id'], 1);
 
         $data = $res['data'] ?? [];
         $people = $data['people'] ?? ($data['contacts'] ?? []);
@@ -1492,7 +1503,6 @@ class CrmController extends Controller
 
         // Persiste em staging para consulta/importação posterior
         $leadModel = new ApolloLead();
-        $user = $this->currentUser();
         $out = [];
         foreach ($people as $p) {
             $localId = $leadModel->upsertFromApollo($p, $user['id']);
@@ -1500,6 +1510,7 @@ class CrmController extends Controller
             $out[] = $this->formatApolloPerson($p, $existing);
         }
 
+        $after = $credit->check($user, 0);
         $this->json([
             'success' => true,
             'people' => $out,
@@ -1509,6 +1520,7 @@ class CrmController extends Controller
                 'total_entries' => $pagination['total_entries'] ?? count($out),
                 'total_pages' => $pagination['total_pages'] ?? 1,
             ],
+            'credits' => ['limit' => $after['limit'], 'used' => $after['used'], 'remaining' => $after['remaining']],
         ]);
     }
 
@@ -1524,14 +1536,26 @@ class CrmController extends Controller
         $apollo = new ApolloApi();
         if (!$apollo->isConfigured()) $this->json(['error' => 'Apollo não configurado.'], 400);
 
+        // Cada pesquisa consome 1 crédito do limite diário.
+        $user = (new User())->findById($this->currentUser()['id']) ?: $this->currentUser();
+        $credit = new ApolloCreditUsage();
+        $chk = $credit->check($user, 1);
+        if (!$chk['allowed']) {
+            $this->json(['error' => "Você atingiu o limite diário de {$chk['limit']} crédito(s) Apollo. Tente novamente amanhã.", 'credits' => ['limit' => $chk['limit'], 'used' => $chk['used'], 'remaining' => $chk['remaining']]], 429);
+        }
+
         $filters = $this->collectOrganizationFilters();
         $res = $apollo->searchOrganizations($filters);
         if (!$res['success']) $this->json(['error' => $res['error'] ?? 'Falha na busca.'], 502);
+
+        // Pesquisa bem-sucedida: debita 1 crédito.
+        $credit->consume($user['id'], 1);
 
         $data = $res['data'] ?? [];
         $orgs = $data['organizations'] ?? ($data['accounts'] ?? []);
         $pagination = $data['pagination'] ?? [];
 
+        $after = $credit->check($user, 0);
         $this->json([
             'success' => true,
             'organizations' => $orgs,
@@ -1541,6 +1565,7 @@ class CrmController extends Controller
                 'total_entries' => $pagination['total_entries'] ?? count($orgs),
                 'total_pages' => $pagination['total_pages'] ?? 1,
             ],
+            'credits' => ['limit' => $after['limit'], 'used' => $after['used'], 'remaining' => $after['remaining']],
         ]);
     }
 
@@ -1705,6 +1730,52 @@ class CrmController extends Controller
         http_response_code(200);
         echo json_encode(['ok' => true, 'resolved' => $resolved]);
         exit;
+    }
+
+    /**
+     * API: lista usuários que podem ser responsáveis por leads (comercial + super_admin).
+     * GET crm/leadOwners
+     */
+    public function leadOwners()
+    {
+        $this->requireRole($this->captureRoles);
+        $rows = (new User())->getByRoles(['super_admin', 'comercial']);
+        $out = array_map(fn($u) => ['id' => (int)$u['id'], 'name' => $u['name'], 'role' => $u['role']], $rows);
+        $this->json(['success' => true, 'users' => $out]);
+    }
+
+    /**
+     * API: reatribui um lead capturado (já importado) a outro responsável.
+     * Somente super_admin. POST crm/apolloReassign/{apolloLeadId}  body: user_id
+     */
+    public function apolloReassign($id = null)
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+
+        $newUserId = !empty($_POST['user_id']) ? intval($_POST['user_id']) : 0;
+        if (!$newUserId) $this->json(['error' => 'Selecione o novo responsável.'], 400);
+
+        $leadModel = new ApolloLead();
+        $lead = $leadModel->findById($id);
+        if (!$lead) $this->json(['error' => 'Lead não encontrado'], 404);
+        if (empty($lead['contact_id'])) $this->json(['error' => 'Este lead ainda não foi enviado para Meus Leads.'], 400);
+
+        $newOwner = (new User())->findById($newUserId);
+        if (!$newOwner) $this->json(['error' => 'Usuário inválido.'], 400);
+
+        // Atualiza o dono do contato no CRM (whatsapp_contacts.assigned_to)
+        Database::getInstance()->update('whatsapp_contacts', ['assigned_to' => $newUserId], 'id = ?', [$lead['contact_id']]);
+
+        // Atualiza também os cards vinculados a esse contato (assigned_to)
+        try {
+            Database::getInstance()->query(
+                "UPDATE crm_cards SET assigned_to = ? WHERE contact_id = ?",
+                [$newUserId, $lead['contact_id']]
+            );
+        } catch (\Throwable $e) { /* ignora se schema difere */ }
+
+        $this->json(['success' => true, 'owner_id' => $newUserId, 'owner_name' => $newOwner['name']]);
     }
 
     /**
@@ -2159,6 +2230,13 @@ class CrmController extends Controller
         $hasRealEmail = !empty($email) && stripos($email, 'email_not_unlocked') === false && stripos($email, 'domain.com') === false;
         $phone = $this->extractApolloPhone($person) ?: ($stored['phone'] ?? null);
 
+        // Sigilo dos dados quando o lead pertence a outro responsável (não-admin).
+        $ownerId = $stored['owner_id'] ?? null;
+        $isImported = !empty($stored['contact_id']);
+        $curUser = $this->currentUser();
+        $isAdmin = in_array($curUser['role'] ?? '', ['super_admin', 'admin'], true);
+        $mask = $isImported && $ownerId && (int)$ownerId !== (int)($curUser['id'] ?? 0) && !$isAdmin;
+
         return [
             'local_id' => $stored['id'] ?? null,
             'apollo_id' => $person['id'] ?? ($stored['apollo_id'] ?? null),
@@ -2167,10 +2245,10 @@ class CrmController extends Controller
             'last_name' => $person['last_name'] ?? null,
             'title' => $person['title'] ?? ($stored['title'] ?? null),
             'seniority' => $person['seniority'] ?? null,
-            'email' => $hasRealEmail ? $email : null,
+            'email' => $mask ? null : ($hasRealEmail ? $email : null),
             'email_locked' => !$hasRealEmail,
             'email_status' => $person['email_status'] ?? ($stored['email_status'] ?? null),
-            'phone' => $phone,
+            'phone' => $mask ? null : $phone,
             'phone_status' => $stored['phone_status'] ?? null,
             'is_full_enriched' => (int)($stored['is_full_enriched'] ?? 0),
             'linkedin_url' => $person['linkedin_url'] ?? ($stored['linkedin_url'] ?? null),
@@ -2181,26 +2259,39 @@ class CrmController extends Controller
             'state' => $person['state'] ?? ($stored['state'] ?? null),
             'country' => $person['country'] ?? ($stored['country'] ?? null),
             'is_enriched' => (int)($stored['is_enriched'] ?? ($hasRealEmail ? 1 : 0)),
-            'imported' => !empty($stored['contact_id']),
+            'imported' => $isImported,
             'contact_id' => $stored['contact_id'] ?? null,
-            'owner_id' => $stored['owner_id'] ?? null,
+            'owner_id' => $ownerId,
             'owner_name' => $stored['owner_name'] ?? null,
+            'contact_masked' => $mask,
+            'can_reassign' => ($curUser['role'] ?? '') === 'super_admin' && $isImported,
         ];
     }
 
     /** Formata uma linha de apollo_leads (staging) para exibição. */
     private function formatStoredLead($l)
     {
+        $ownerId = $l['owner_id'] ?? null;
+        $ownerName = $l['owner_name'] ?? ($l['imported_by_name'] ?? null);
+
+        // Sigilo dos dados de contato: se o lead está atribuído a OUTRO usuário e
+        // o usuário atual não é admin/super_admin, oculta e-mail e telefone.
+        $user = $this->currentUser();
+        $isAdmin = in_array($user['role'] ?? '', ['super_admin', 'admin'], true);
+        $isImported = !empty($l['contact_id']);
+        $ownedByOther = $isImported && $ownerId && (int)$ownerId !== (int)($user['id'] ?? 0);
+        $mask = $ownedByOther && !$isAdmin;
+
         return [
             'local_id' => $l['id'],
             'apollo_id' => $l['apollo_id'],
             'name' => $l['full_name'],
             'title' => $l['title'],
             'seniority' => $l['seniority'],
-            'email' => $l['email'],
+            'email' => $mask ? null : $l['email'],
             'email_locked' => empty($l['email']),
             'email_status' => $l['email_status'],
-            'phone' => $l['phone'],
+            'phone' => $mask ? null : $l['phone'],
             'phone_status' => $l['phone_status'] ?? null,
             'is_full_enriched' => (int)($l['is_full_enriched'] ?? 0),
             'linkedin_url' => $l['linkedin_url'],
@@ -2211,12 +2302,16 @@ class CrmController extends Controller
             'state' => $l['state'],
             'country' => $l['country'],
             'is_enriched' => (int)$l['is_enriched'],
-            'imported' => !empty($l['contact_id']),
+            'imported' => $isImported,
             'contact_id' => $l['contact_id'],
             'imported_at' => $l['imported_at'],
             // Responsável: dono do lead no CRM (assigned_to) ou quem importou
-            'owner_id' => $l['owner_id'] ?? null,
-            'owner_name' => $l['owner_name'] ?? ($l['imported_by_name'] ?? null),
+            'owner_id' => $ownerId,
+            'owner_name' => $ownerName,
+            // Contato sigiloso (para a UI indicar bloqueio)
+            'contact_masked' => $mask,
+            // Permite reatribuição (só super_admin)
+            'can_reassign' => ($user['role'] ?? '') === 'super_admin' && $isImported,
         ];
     }
 }

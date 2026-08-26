@@ -261,6 +261,7 @@ function runSearch(page) {
         .then(r => r.json())
         .then(d => {
             showLoading(false);
+            if (d.credits) updateCreditBadge(d.credits);
             if (d.error) { alert(d.error); return; }
             if (currentTab === 'orgs') renderOrganizations(d.organizations || [], d.pagination);
             else renderPeople(d.people || [], d.pagination);
@@ -314,13 +315,20 @@ function renderPeople(people, pagination) {
 
 function personRow(p) {
     const loc = [p.city, p.state, p.country].filter(Boolean).join(', ') || '—';
-    const email = p.email ? escapeHtml(p.email)
-        : (p.imported ? '<span class="text-muted">—</span>'
-        : '<span class="badge bg-light text-dark border"><i class="bi bi-lock"></i> oculto</span>');
-    let phone;
-    if (p.phone) phone = escapeHtml(p.phone);
-    else if (p.phone_status === 'pending' || p.phone_pending) phone = '<span class="badge bg-warning text-dark"><span class="spinner-border spinner-border-sm" style="width:.7rem;height:.7rem;"></span> aguardando</span>';
-    else phone = '<span class="text-muted">—</span>';
+    // Contato sigiloso: lead de outro responsável (para não-admin)
+    const maskedTag = '<span class="badge bg-light text-dark border" title="Dados sigilosos — lead de outro responsável"><i class="bi bi-eye-slash"></i> sigiloso</span>';
+    let email, phone;
+    if (p.contact_masked) {
+        email = maskedTag;
+        phone = maskedTag;
+    } else {
+        email = p.email ? escapeHtml(p.email)
+            : (p.imported ? '<span class="text-muted">—</span>'
+            : '<span class="badge bg-light text-dark border"><i class="bi bi-lock"></i> oculto</span>');
+        if (p.phone) phone = escapeHtml(p.phone);
+        else if (p.phone_status === 'pending' || p.phone_pending) phone = '<span class="badge bg-warning text-dark"><span class="spinner-border spinner-border-sm" style="width:.7rem;height:.7rem;"></span> aguardando</span>';
+        else phone = '<span class="text-muted">—</span>';
+    }
     const checkbox = p.imported
         ? '<span class="badge bg-success" title="Já em Meus Leads"><i class="bi bi-check"></i></span>'
         : `<input type="checkbox" class="form-check-input row-check" value="${p.local_id}" onclick="toggleSelect(${p.local_id}, this)">`;
@@ -333,10 +341,16 @@ function personRow(p) {
     const isMine = p.imported && p.owner_id && String(p.owner_id) === String(window.CAP_USER_ID);
     const ownedByOther = p.imported && p.owner_id && !isMine;
     let owner;
-    if (isMine) {
-        owner = '<span class="badge bg-success"><i class="bi bi-person-check"></i> Meus Leads</span>';
-    } else if (p.imported) {
-        owner = `<span class="badge bg-secondary" title="Este lead já pertence a outro comercial"><i class="bi bi-person"></i> Lista de ${escapeHtml(p.owner_name || 'outro comercial')}</span>`;
+    if (p.imported) {
+        const label = isMine
+            ? '<span class="badge bg-success"><i class="bi bi-person-check"></i> Meus Leads</span>'
+            : `<span class="badge bg-secondary" title="Este lead pertence a outro comercial"><i class="bi bi-person"></i> Lista de ${escapeHtml(p.owner_name || 'outro comercial')}</span>`;
+        // Super_admin pode reatribuir clicando no responsável
+        if (p.can_reassign) {
+            owner = `<a href="javascript:void(0)" onclick="openReassign(${p.local_id}, ${p.owner_id || 0})" title="Clique para reatribuir" style="text-decoration:none;">${label} <i class="bi bi-pencil-square text-primary"></i></a>`;
+        } else {
+            owner = label;
+        }
     } else {
         owner = '<span class="text-muted">—</span>';
     }
@@ -526,14 +540,73 @@ function deleteLead(id, btn) {
         .catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-trash"></i>'; } alert('Erro ao excluir.'); });
 }
 
+// ===== Reatribuição de responsável (somente super_admin) =====
+let reassignModalInstance = null;
+let _ownersCache = null;
+function getReassignModal() {
+    const el = document.getElementById('reassignModal');
+    if (!el) return null;
+    if (window.bootstrap && bootstrap.Modal) {
+        if (!reassignModalInstance) reassignModalInstance = new bootstrap.Modal(el);
+        return reassignModalInstance;
+    }
+    return { show(){el.classList.add('show');el.style.display='block';}, hide(){el.classList.remove('show');el.style.display='none';} };
+}
+
+function openReassign(leadId, currentOwnerId) {
+    const modal = getReassignModal();
+    if (!modal) return;
+    document.getElementById('ra-lead-id').value = leadId;
+    const sel = document.getElementById('ra-user');
+    const fill = () => {
+        sel.innerHTML = (_ownersCache || []).map(u =>
+            `<option value="${u.id}" ${String(u.id) === String(currentOwnerId) ? 'selected' : ''}>${escapeHtml(u.name)}${u.role === 'super_admin' ? ' (admin)' : ''}</option>`
+        ).join('');
+    };
+    modal.show();
+    if (_ownersCache) { fill(); return; }
+    fetch(BASE + 'crm/leadOwners', { headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json())
+        .then(d => { _ownersCache = (d && d.users) ? d.users : []; fill(); })
+        .catch(() => { sel.innerHTML = '<option value="">Erro ao carregar</option>'; });
+}
+
+function confirmReassign(btn) {
+    const leadId = document.getElementById('ra-lead-id').value;
+    const userId = document.getElementById('ra-user').value;
+    if (!userId) { alert('Selecione o novo responsável.'); return; }
+    const original = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    const fd = new FormData();
+    fd.append('user_id', userId);
+    fetch(BASE + 'crm/apolloReassign/' + leadId, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json())
+        .then(d => {
+            btn.disabled = false; btn.innerHTML = original;
+            if (d.error) { alert(d.error); return; }
+            const lead = lastResults.find(x => String(x.local_id) === String(leadId));
+            if (lead) { lead.owner_id = d.owner_id; lead.owner_name = d.owner_name; replaceRow(lead); }
+            getReassignModal().hide();
+        })
+        .catch(() => { btn.disabled = false; btn.innerHTML = original; alert('Erro ao reatribuir.'); });
+}
+
 // ===== Importação p/ Meus Leads (exige board + coluna) =====
 let importModalInstance = null;
 let _boardsCache = null;
 let _sequencesCache = null;
 
 function getImportModal() {
-    if (!importModalInstance) importModalInstance = new bootstrap.Modal(document.getElementById('importModal'));
-    return importModalInstance;
+    const el = document.getElementById('importModal');
+    if (window.bootstrap && bootstrap.Modal) {
+        if (!importModalInstance) importModalInstance = new bootstrap.Modal(el);
+        return importModalInstance;
+    }
+    // Fallback caso o Bootstrap JS ainda não tenha carregado
+    return {
+        show() { el.classList.add('show'); el.style.display = 'block'; document.body.classList.add('modal-open'); },
+        hide() { el.classList.remove('show'); el.style.display = 'none'; document.body.classList.remove('modal-open'); },
+    };
 }
 
 // Carrega boards (com colunas) e sequências uma vez e popula os selects
@@ -587,7 +660,11 @@ function openImportModal(ids) {
     colSel.innerHTML = '<option value="">Selecione o board primeiro...</option>';
     colSel.disabled = true;
     document.getElementById('imp-sequence').value = '';
-    loadImportOptions().finally(() => getImportModal().show());
+    // Abre o modal imediatamente e carrega as opções em seguida
+    getImportModal().show();
+    loadImportOptions().catch(() => {
+        document.getElementById('imp-board').innerHTML = '<option value="">Erro ao carregar boards</option>';
+    });
 }
 
 function confirmImport(btn) {

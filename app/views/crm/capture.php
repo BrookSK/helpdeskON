@@ -39,10 +39,9 @@
         <i class="bi bi-info-circle text-info mt-1"></i>
         <div>
             <strong>Como funcionam os créditos:</strong>
-            pesquisar e ver dados básicos (nome, cargo, empresa) é <strong>gratuito</strong>.
-            Cada <strong>Liberar</strong> (revela e-mail e telefone do contato) consome <strong>1 crédito</strong>.
+            cada <strong>pesquisa</strong> (Pessoas ou Empresas) consome <strong>1 crédito</strong> e cada <strong>Liberar</strong> (revela e-mail e telefone do contato) consome <strong>mais 1 crédito</strong>.
             <?php if (($creditLimit ?? 0) > 0): ?>
-            Seu limite é de <strong><?= (int)$creditLimit ?> consulta(s) por dia</strong>. Ao atingir o limite, novas liberações só ficam disponíveis <strong>no dia seguinte</strong> (o contador reinicia automaticamente à meia-noite).
+            Seu limite é de <strong><?= (int)$creditLimit ?> crédito(s) por dia</strong>. Ao atingir o limite, novas pesquisas e liberações só ficam disponíveis <strong>no dia seguinte</strong> (o contador reinicia automaticamente à meia-noite).
             <?php else: ?>
             Seu acesso está com <strong>créditos ilimitados</strong>. O administrador pode definir um limite diário no seu perfil.
             <?php endif; ?>
@@ -248,6 +247,34 @@
         </div>
     </div>
 </div>
+
+<?php if (!empty($isAdmin)): ?>
+<!-- Modal: reatribuir lead a outro responsável (somente super_admin) -->
+<div class="modal fade" id="reassignModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title"><i class="bi bi-person-gear"></i> Reatribuir lead</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="ra-lead-id">
+                <label class="form-label small fw-medium">Novo responsável</label>
+                <select id="ra-user" class="form-select form-select-sm">
+                    <option value="">Carregando...</option>
+                </select>
+                <small class="text-muted d-block mt-1">O lead e os cards vinculados passam para o novo responsável.</small>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-sm btn-primary" id="ra-confirm" onclick="confirmReassign(this)">
+                    <i class="bi bi-check-lg"></i> Salvar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 
 <?php require APP_PATH . '/views/crm/_capture_script.php'; ?>
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>
