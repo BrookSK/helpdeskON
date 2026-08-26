@@ -378,7 +378,7 @@ class BufferController extends Controller
         if (empty($assets) && $marketingItemId) {
             $db = Database::getInstance();
             $attachment = $db->fetch(
-                "SELECT file_path, file_type FROM marketing_attachments WHERE marketing_item_id = ? AND file_type LIKE 'image/%' ORDER BY id DESC LIMIT 1",
+                "SELECT file_path, file_type FROM marketing_attachments WHERE item_id = ? AND file_type LIKE 'image/%' ORDER BY id DESC LIMIT 1",
                 [$marketingItemId]
             );
             if ($attachment && !empty($attachment['file_path'])) {
