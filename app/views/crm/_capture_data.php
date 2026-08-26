@@ -51,3 +51,14 @@ $apolloTech = [
     ],
 ];
 
+// Estados e cidades (Brasil) — lidos do arquivo local e injetados direto no JS.
+// Evita qualquer dependência de rede/rota em runtime.
+$brLocalitiesFile = APP_PATH . '/data/br_states_cities.json';
+$brLocalitiesJson = is_file($brLocalitiesFile) ? file_get_contents($brLocalitiesFile) : '{}';
+?>
+<script>
+// window.BR_LOC = { "SP": { "name": "São Paulo", "cities": [...] }, ... }
+window.BR_LOC = <?= $brLocalitiesJson ?: '{}' ?>;
+</script>
+<?php
+

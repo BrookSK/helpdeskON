@@ -135,58 +135,31 @@ const locSelections = {}; // target -> Set de strings
 let ibgeStates = [];        // [{uf, name}]
 const ibgeCityCache = {};   // uf -> [cidades]
 
-// Carrega os estados do IBGE (uma vez) e popula todos os selects de estado.
+// Popula todos os selects de estado a partir do dataset local (window.BR_LOC).
 function loadIbgeStates() {
-    fetch(BASE + 'crm/ibgeStates', { headers: {'X-Requested-With':'XMLHttpRequest'} })
-        .then(r => r.text())
-        .then(txt => {
-            let d;
-            try { d = JSON.parse(txt); }
-            catch (e) { console.error('ibgeStates: resposta não-JSON', txt.slice(0, 300)); throw e; }
-            if (!d.success || !Array.isArray(d.states) || !d.states.length) {
-                console.error('ibgeStates: falha', d);
-                throw new Error(d.error || 'sem estados');
-            }
-            ibgeStates = d.states;
-            document.querySelectorAll('.cap-state-select').forEach(sel => {
-                sel.innerHTML = '<option value="">Estado…</option>' +
-                    ibgeStates.map(s => `<option value="${s.uf}" data-name="${escapeAttr(s.name)}">${s.uf} — ${escapeHtml(s.name)}</option>`).join('');
-            });
-        })
-        .catch((e) => {
-            console.error('ibgeStates erro:', e);
-            document.querySelectorAll('.cap-state-select').forEach(sel => {
-                sel.innerHTML = '<option value="">Estados indisponíveis</option>';
-            });
+    const loc = window.BR_LOC || {};
+    const ufs = Object.keys(loc).sort((a, b) => (loc[a].name || a).localeCompare(loc[b].name || b, 'pt-BR'));
+    if (!ufs.length) {
+        console.error('BR_LOC vazio — dataset de localidades não carregou.');
+        document.querySelectorAll('.cap-state-select').forEach(sel => {
+            sel.innerHTML = '<option value="">Estados indisponíveis</option>';
         });
+        return;
+    }
+    const optionsHtml = '<option value="">Estado…</option>' +
+        ufs.map(uf => `<option value="${uf}" data-name="${escapeAttr(loc[uf].name || uf)}">${uf} — ${escapeHtml(loc[uf].name || uf)}</option>`).join('');
+    document.querySelectorAll('.cap-state-select').forEach(sel => { sel.innerHTML = optionsHtml; });
 }
 
 function onStateChange(sel) {
     const uf = sel.value;
     const citySel = sel.parentElement.querySelector('.cap-city-select');
-    citySel.innerHTML = '<option value="">Carregando…</option>';
     if (!uf) { citySel.innerHTML = '<option value="">Cidade…</option>'; return; }
 
-    const fill = (cities) => {
-        const opts = ['<option value="">Cidade…</option>', `<option value="__state__">Todo o estado (${uf})</option>`];
-        cities.forEach(c => opts.push(`<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`));
-        citySel.innerHTML = opts.join('');
-    };
-
-    if (ibgeCityCache[uf]) { fill(ibgeCityCache[uf]); return; }
-    fetch(BASE + 'crm/ibgeCities/' + uf, { headers: {'X-Requested-With':'XMLHttpRequest'} })
-        .then(r => r.json())
-        .then(d => {
-            if (!d.success || !Array.isArray(d.cities)) throw new Error(d.error || 'sem cidades');
-            ibgeCityCache[uf] = d.cities;
-            fill(ibgeCityCache[uf]);
-        })
-        .catch((e) => {
-            console.error('ibgeCities erro:', e);
-            // Sem cidades: ao menos permite selecionar o estado inteiro
-            citySel.innerHTML = '<option value="">Cidade…</option>' +
-                `<option value="__state__">Todo o estado (${uf})</option>`;
-        });
+    const cities = (window.BR_LOC && window.BR_LOC[uf] && window.BR_LOC[uf].cities) ? window.BR_LOC[uf].cities : [];
+    const opts = ['<option value="">Cidade…</option>', `<option value="__state__">Todo o estado (${uf})</option>`];
+    cities.forEach(c => opts.push(`<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`));
+    citySel.innerHTML = opts.join('');
 }
 
 function onCityChange(sel) {
