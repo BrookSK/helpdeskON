@@ -116,6 +116,23 @@ class Opportunity
             $params[] = (float) $filters['budget_min'];
         }
 
+        // Filtros de exibição vindos das Configurações de Busca (aplicados sempre).
+        $settings = $this->getSettings('freelas99');
+        if (!empty($settings['max_proposals']) && (int)$settings['max_proposals'] > 0) {
+            // Mantém também os projetos sem contagem de propostas (NULL)
+            $where[] = '(o.proposal_count IS NULL OR o.proposal_count <= ?)';
+            $params[] = (int) $settings['max_proposals'];
+        }
+        if (!empty($settings['min_budget']) && (float)$settings['min_budget'] > 0) {
+            $where[] = 'o.budget_min >= ?';
+            $params[] = (float) $settings['min_budget'];
+        }
+        if (!empty($settings['max_age_days']) && (int)$settings['max_age_days'] > 0) {
+            // Usa published_at quando existe; senão, first_seen_at (data de descoberta)
+            $where[] = 'COALESCE(o.published_at, o.first_seen_at) >= (NOW() - INTERVAL ? DAY)';
+            $params[] = (int) $settings['max_age_days'];
+        }
+
         $whereSql = implode(' AND ', $where);
 
         // Ordenação

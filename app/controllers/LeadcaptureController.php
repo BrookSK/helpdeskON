@@ -278,6 +278,10 @@ class LeadcaptureController extends Controller
             'max_pages' => max(1, min(10, intval($_POST['max_pages'] ?? 2))),
             'collect_general' => !empty($_POST['collect_general']) ? 1 : 0,
             'schedule_minutes' => max(15, intval($_POST['schedule_minutes'] ?? 60)),
+            // Filtros de exibição (0 = sem limite)
+            'max_proposals' => max(0, intval($_POST['max_proposals'] ?? 0)),
+            'min_budget' => max(0, floatval($_POST['min_budget'] ?? 0)),
+            'max_age_days' => max(0, intval($_POST['max_age_days'] ?? 0)),
         ];
         $this->model->saveSettings('freelas99', $data);
         $this->json(['success' => true]);

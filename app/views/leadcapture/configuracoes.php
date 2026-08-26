@@ -40,6 +40,27 @@
                         <input type="number" id="cfg-schedule" class="form-control form-control-sm" min="15" value="<?= (int)$settings['schedule_minutes'] ?>">
                         <small class="text-muted">Usado pela coleta automática (cron). Mínimo 15.</small>
                     </div>
+
+                    <hr>
+                    <h6 class="small fw-semibold text-muted mb-2"><i class="bi bi-funnel"></i> Filtros de exibição</h6>
+                    <p class="small text-muted">Controlam quais oportunidades aparecem na tela. Use 0 para não limitar.</p>
+
+                    <div class="mb-3">
+                        <label class="form-label small fw-medium">Máximo de propostas enviadas</label>
+                        <input type="number" id="cfg-max-proposals" class="form-control form-control-sm" min="0" value="<?= (int)($settings['max_proposals'] ?? 0) ?>">
+                        <small class="text-muted">Só mostra projetos com até este nº de propostas (menos concorrência). 0 = todos.</small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-medium">Faixa mínima de valor (R$)</label>
+                        <input type="number" id="cfg-min-budget" class="form-control form-control-sm" min="0" step="100" value="<?= (int)($settings['min_budget'] ?? 0) ?>">
+                        <small class="text-muted">Só mostra projetos com orçamento a partir deste valor. 0 = todos. (Projetos sem orçamento informado não são filtrados por este campo.)</small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-medium">Idade máxima da publicação (dias)</label>
+                        <input type="number" id="cfg-max-age" class="form-control form-control-sm" min="0" value="<?= (int)($settings['max_age_days'] ?? 0) ?>">
+                        <small class="text-muted">Só mostra projetos publicados/descobertos nos últimos X dias. 0 = qualquer data.</small>
+                    </div>
+
                     <button class="btn btn-sm btn-primary" onclick="saveCfg()"><i class="bi bi-check-lg"></i> Salvar configurações</button>
                 </div>
             </div>
@@ -91,6 +112,9 @@ function saveCfg() {
     fd.append('max_pages', document.getElementById('cfg-max-pages').value);
     fd.append('collect_general', document.getElementById('cfg-general').checked ? 1 : 0);
     fd.append('schedule_minutes', document.getElementById('cfg-schedule').value);
+    fd.append('max_proposals', document.getElementById('cfg-max-proposals').value);
+    fd.append('min_budget', document.getElementById('cfg-min-budget').value);
+    fd.append('max_age_days', document.getElementById('cfg-max-age').value);
     fetch(BASE + 'leadcapture/saveSettings', { method:'POST', body:fd, headers:{'X-Requested-With':'XMLHttpRequest'} })
         .then(r=>r.json()).then(d=>{ showAlert(d.error ? 'danger' : 'success', d.error || 'Configurações salvas.'); });
 }
