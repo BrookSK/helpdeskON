@@ -533,6 +533,49 @@ class CrmController extends Controller
     }
 
     /**
+     * API: timeline unificada + score de um lead.
+     * GET crm/leadTimeline/{contactId}
+     */
+    public function leadTimeline($contactId = null)
+    {
+        $this->requireRole(['super_admin', 'comercial']);
+        if (!$contactId) $this->json(['error' => 'ID obrigatório'], 400);
+        $this->json([
+            'timeline' => (new LeadTimelineService())->forContact($contactId, 100),
+            'score' => (new LeadScoreService())->get($contactId),
+        ]);
+    }
+
+    /**
+     * API: sequências disponíveis (para inscrever um lead a partir do modal).
+     * GET crm/sequencesForSelect
+     */
+    public function sequencesForSelect()
+    {
+        $this->requireRole(['super_admin', 'comercial']);
+        $rows = Database::getInstance()->fetchAll(
+            "SELECT id, name FROM email_sequences WHERE is_active = 1 ORDER BY name ASC"
+        );
+        $this->json(['sequences' => $rows]);
+    }
+
+    /**
+     * API: inscreve um lead numa sequência a partir do CRM.
+     * POST crm/enrollLead/{contactId}  body: sequence_id
+     */
+    public function enrollLead($contactId = null)
+    {
+        $this->requireRole(['super_admin', 'comercial']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$contactId) $this->json(['error' => 'Requisição inválida'], 400);
+        $sequenceId = intval($_POST['sequence_id'] ?? 0);
+        if (!$sequenceId) $this->json(['error' => 'Selecione a sequência.'], 400);
+        $user = $this->currentUser();
+        $r = (new SequenceEngine())->enroll($sequenceId, $contactId, $user['id']);
+        if (empty($r['success'])) $this->json(['error' => $r['error'] ?? 'Falha ao inscrever.'], 400);
+        $this->json(['success' => true]);
+    }
+
+    /**
      * API: dados de um lead (para o modal de gerenciamento).
      */
     public function leadDetail($contactId = null)
@@ -1477,6 +1520,11 @@ class CrmController extends Controller
         $leadModel = new ApolloLead();
         $contactModel = new WhatsappContact();
 
+        // Opções extras: adicionar ao board (coluna) e/ou iniciar sequência
+        $columnId = !empty($_POST['column_id']) ? intval($_POST['column_id']) : null;
+        $sequenceId = !empty($_POST['sequence_id']) ? intval($_POST['sequence_id']) : null;
+
+        $resolver = new LeadResolver();
         $imported = 0;
         $skipped = 0;
         foreach ($ids as $id) {
@@ -1487,30 +1535,43 @@ class CrmController extends Controller
             $name = $lead['full_name'] ?: trim(($lead['first_name'] ?? '') . ' ' . ($lead['last_name'] ?? ''));
             $name = $name ?: ($lead['organization_name'] ?? 'Lead Apollo');
 
-            // Cria contato/lead no CRM (assigned ao comercial atual)
-            $contactId = $contactModel->createManualLead($name, $lead['phone'] ?? '', $user['id']);
-            if (!$contactId) {
-                // Sem instância de WhatsApp cadastrada não é possível criar o contato
-                $this->json(['error' => 'Não há uma instância de WhatsApp cadastrada para vincular os leads. Conecte o WhatsApp antes de importar.'], 400);
-            }
-
-            // Grava dados comerciais no briefing (origem, cargo, empresa, e-mail)
             $notesParts = [];
             if (!empty($lead['title'])) $notesParts[] = 'Cargo: ' . $lead['title'];
             if (!empty($lead['organization_name'])) $notesParts[] = 'Empresa: ' . $lead['organization_name'];
-            if (!empty($lead['email'])) $notesParts[] = 'E-mail: ' . $lead['email'];
             if (!empty($lead['linkedin_url'])) $notesParts[] = 'LinkedIn: ' . $lead['linkedin_url'];
-            $location = trim(implode(', ', array_filter([$lead['city'] ?? '', $lead['state'] ?? '', $lead['country'] ?? ''])));
 
-            $contactModel->saveBriefing($contactId, [
-                'lead_source' => 'apollo',
-                'need' => $lead['organization_industry'] ?? null,
-                'notes' => implode(' | ', $notesParts) ?: null,
+            // Identidade única via LeadResolver (dedup por e-mail/telefone)
+            $contactId = $resolver->resolve([
+                'name' => $name,
+                'email' => $lead['email'] ?? null,
+                'phone' => $lead['phone'] ?? null,
+                'company' => $lead['organization_name'] ?? null,
+                'source' => 'apollo',
+                'assigned_to' => $user['id'],
+                'briefing' => [
+                    'need' => $lead['organization_industry'] ?? null,
+                    'notes' => implode(' | ', $notesParts) ?: null,
+                ],
             ], $user['id']);
 
-            // Guarda o e-mail no contato (campo dedicado do módulo de prospecção, se existir)
-            if (!empty($lead['email'])) {
-                Database::getInstance()->update('whatsapp_contacts', ['lead_email' => $lead['email']], 'id = ?', [$contactId]);
+            if (!$contactId) {
+                $this->json(['error' => 'Não há uma instância de WhatsApp cadastrada para vincular os leads. Conecte o WhatsApp antes de importar.'], 400);
+            }
+
+            // Board opcional: cria card na coluna escolhida
+            if ($columnId) {
+                $this->boardModel->createCard([
+                    'column_id' => $columnId,
+                    'title' => $name,
+                    'contact_id' => $contactId,
+                    'created_by' => $user['id'],
+                    'assigned_to' => $user['id'],
+                ]);
+            }
+
+            // Sequência opcional
+            if ($sequenceId) {
+                (new SequenceEngine())->enroll($sequenceId, $contactId, $user['id']);
             }
 
             $leadModel->markImported($lead['id'], $contactId, $user['id']);

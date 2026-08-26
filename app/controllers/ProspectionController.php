@@ -86,36 +86,104 @@ class ProspectionController extends Controller
             }
         }
 
+        // Identidade única: se não veio contact_id, resolve/cria o lead pelo e-mail (origem manual_email)
+        if (!$contactId) {
+            $resolver = new LeadResolver();
+            $contactId = $resolver->findByEmail($recipientEmail);
+            if (!$contactId) {
+                $contactId = $resolver->resolve([
+                    'name' => $recipientName ?: $recipientEmail,
+                    'email' => $recipientEmail,
+                    'source' => 'manual_email',
+                    'assigned_to' => $user['id'],
+                ], $user['id']);
+            }
+        }
+
         // Anexa a assinatura padrão da empresa ao corpo
         $bodyWithSignature = $body . $this->buildSignature($user);
 
-        // Enviar
-        $result = $this->prospectionModel->sendEmail($account, $recipientEmail, $subject, $bodyWithSignature, $cc, $bcc, $attachments);
+        // Envio + registro unificado (email_messages) com tracking, quando há lead resolvido.
+        if ($contactId) {
+            $emailSvc = new EmailMessageService();
+            $res = $emailSvc->send([
+                'contact_id' => $contactId,
+                'account' => $account,
+                'to' => $recipientEmail,
+                'subject' => $subject,
+                'body_html' => $bodyWithSignature,
+                'origin' => 'manual',
+                'sent_by' => $user['id'],
+                'cc' => $cc,
+                'bcc' => $bcc,
+            ]);
+            // Mantém compatibilidade com o histórico antigo (email_prospections + métricas)
+            $this->prospectionModel->create([
+                'user_id' => $user['id'], 'email_account_id' => $accountId, 'contact_id' => $contactId,
+                'recipient_email' => $recipientEmail, 'recipient_name' => $recipientName,
+                'cc' => $cc, 'bcc' => $bcc, 'subject' => $subject, 'body' => $body,
+                'attachments_json' => !empty($attachmentsJson) ? json_encode($attachmentsJson) : null,
+                'status' => !empty($res['success']) ? 'sent' : 'failed',
+                'error_message' => empty($res['success']) ? ($res['error'] ?? null) : null,
+                'sent_at' => !empty($res['success']) ? date('Y-m-d H:i:s') : null,
+            ]);
+            if (!empty($res['success'])) {
+                $this->json(['success' => true, 'message' => 'E-mail enviado com sucesso!', 'contact_id' => $contactId, 'email_message_id' => $res['message_id']]);
+            }
+            $this->json(['error' => $res['error'] ?? 'Falha no envio'], 500);
+        }
 
-        // Registrar no histórico
-        $data = [
-            'user_id' => $user['id'],
-            'email_account_id' => $accountId,
-            'contact_id' => $contactId,
-            'recipient_email' => $recipientEmail,
-            'recipient_name' => $recipientName,
-            'cc' => $cc,
-            'bcc' => $bcc,
-            'subject' => $subject,
-            'body' => $body,
+        // Sem lead (sem instância WhatsApp): fallback ao envio antigo, sem tracking
+        $result = $this->prospectionModel->sendEmail($account, $recipientEmail, $subject, $bodyWithSignature, $cc, $bcc, $attachments);
+        $this->prospectionModel->create([
+            'user_id' => $user['id'], 'email_account_id' => $accountId, 'contact_id' => null,
+            'recipient_email' => $recipientEmail, 'recipient_name' => $recipientName,
+            'cc' => $cc, 'bcc' => $bcc, 'subject' => $subject, 'body' => $body,
             'attachments_json' => !empty($attachmentsJson) ? json_encode($attachmentsJson) : null,
             'status' => ($result === true) ? 'sent' : 'failed',
             'error_message' => ($result !== true) ? $result : null,
             'sent_at' => ($result === true) ? date('Y-m-d H:i:s') : null,
-        ];
-
-        $this->prospectionModel->create($data);
-
+        ]);
         if ($result === true) {
             $this->json(['success' => true, 'message' => 'E-mail enviado com sucesso!']);
-        } else {
-            $this->json(['error' => $result], 500);
         }
+        $this->json(['error' => $result], 500);
+    }
+
+    /**
+     * API: cria um follow-up automático após um envio manual.
+     * POST prospection/followUp  body: contact_id, wait_amount, wait_unit, subject, body
+     *   OU: contact_id, sequence_id (inscreve numa sequência existente)
+     */
+    public function followUp()
+    {
+        $this->requireRole($this->accessRoles);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+
+        $user = $this->currentUser();
+        $contactId = intval($_POST['contact_id'] ?? 0);
+        if (!$contactId) $this->json(['error' => 'Lead não informado.'], 400);
+
+        $engine = new SequenceEngine();
+
+        // Opção A: inscrever em sequência existente
+        $sequenceId = !empty($_POST['sequence_id']) ? intval($_POST['sequence_id']) : null;
+        if ($sequenceId) {
+            $r = $engine->enroll($sequenceId, $contactId, $user['id']);
+            if (empty($r['success'])) $this->json(['error' => $r['error'] ?? 'Falha ao inscrever.'], 400);
+            $this->json(['success' => true, 'mode' => 'sequence']);
+        }
+
+        // Opção B: follow-up simples (mesma engine)
+        $amount = max(1, intval($_POST['wait_amount'] ?? 2));
+        $unit = in_array($_POST['wait_unit'] ?? '', ['minutes','hours','days']) ? $_POST['wait_unit'] : 'days';
+        $subject = trim($_POST['subject'] ?? '');
+        $body = $_POST['body'] ?? '';
+        if ($subject === '' || $body === '') $this->json(['error' => 'Informe assunto e mensagem do follow-up.'], 400);
+
+        $r = $engine->createSimpleFollowUp($contactId, $amount, $unit, $subject, $body, $user['id']);
+        if (empty($r['success'])) $this->json(['error' => $r['error'] ?? 'Falha ao criar follow-up.'], 400);
+        $this->json(['success' => true, 'mode' => 'simple']);
     }
 
     /**
@@ -502,6 +570,13 @@ class ProspectionController extends Controller
 
         $bodyWithSignature = $body . $this->buildSignature($user);
         $result = $this->prospectionModel->sendEmail($account, $to, $subject, $bodyWithSignature, $cc, null, []);
+
+        // Registra a resposta manual no histórico unificado do lead (se houver lead)
+        if (!empty($_POST['contact_id'])) {
+            try {
+                (new LeadTimelineService())->add(intval($_POST['contact_id']), 'email_sent', 'Resposta enviada: ' . $subject, ['to' => $to], $user['id']);
+            } catch (\Throwable $e) { /* silencioso */ }
+        }
 
         // Registra no histórico de prospecção como envio
         $this->prospectionModel->create([
