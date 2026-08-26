@@ -42,7 +42,7 @@ class LeadcaptureController extends Controller
             'user' => $user,
             'settings' => $this->model->getSettings('freelas99'),
             'health' => $this->model->getHealth('freelas99'),
-            'categories' => $this->model->distinctCategories(),
+            'categories' => $this->model->getActiveCategoryNames(),
             'terms' => $this->model->getTerms(true),
             'counts' => $this->model->counts(),
         ]);
@@ -56,6 +56,7 @@ class LeadcaptureController extends Controller
             'user' => $user,
             'settings' => $this->model->getSettings('freelas99'),
             'terms' => $this->model->getTerms(false),
+            'categories' => $this->model->getCategories(false),
         ]);
     }
 
@@ -265,6 +266,24 @@ class LeadcaptureController extends Controller
         $this->requireRole($this->roles);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
         $this->model->deleteTerm($id);
+        $this->json(['success' => true]);
+    }
+
+    /** Ativa/desativa uma categoria. POST leadcapture/toggleCategory/{id} body: active */
+    public function toggleCategory($id = null)
+    {
+        $this->requireRole($this->roles);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+        $this->model->updateCategory($id, ['active' => !empty($_POST['active']) ? 1 : 0]);
+        $this->json(['success' => true]);
+    }
+
+    /** Ativa/desativa todas as categorias de uma vez. POST leadcapture/setAllCategories body: active */
+    public function setAllCategories()
+    {
+        $this->requireRole($this->roles);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $this->model->setAllCategories(!empty($_POST['active']));
         $this->json(['success' => true]);
     }
 

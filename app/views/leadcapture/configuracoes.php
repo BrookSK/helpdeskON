@@ -99,6 +99,33 @@
                     <?php endif; ?>
                 </div>
             </div>
+
+            <!-- Categorias -->
+            <div class="card mt-3">
+                <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0" style="font-size:0.9rem;">Categorias monitoradas</h6>
+                    <div class="d-flex gap-1">
+                        <button class="btn btn-sm btn-outline-secondary" onclick="setAllCats(1)">Ativar todas</button>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="setAllCats(0)">Desativar todas</button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <p class="small text-muted mb-2">Só as categorias ativas são coletadas e aparecem no filtro de Oportunidades. Novas categorias encontradas nas coletas entram aqui automaticamente.</p>
+                    <div class="row g-1" id="cats-list">
+                        <?php foreach ($categories as $c): ?>
+                        <div class="col-md-6">
+                            <label class="d-flex align-items-center gap-2 border rounded px-2 py-1" style="font-size:0.82rem;cursor:pointer;">
+                                <input type="checkbox" class="form-check-input mt-0" <?= $c['active'] ? 'checked' : '' ?> onchange="toggleCat(<?= $c['id'] ?>, this.checked)">
+                                <span><?= escape($c['name']) ?></span>
+                            </label>
+                        </div>
+                        <?php endforeach; ?>
+                    </div>
+                    <?php if (empty($categories)): ?>
+                    <p class="text-muted small mb-0">Nenhuma categoria ainda. Rode uma coleta para descobri-las.</p>
+                    <?php endif; ?>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -158,6 +185,21 @@ function runCollect2() {
             showAlert(d.status==='success'?'success':'warning',
                 `Coleta concluída · ${d.projects_found} encontrados · ${d.projects_new} novos · ${d.projects_known} já conhecidos`);
         }).catch(()=>{ btn.disabled=false; btn.innerHTML='<i class="bi bi-cloud-download"></i> Buscar novos projetos agora'; showAlert('danger','Erro na coleta.'); });
+}
+
+function toggleCat(id, active) {
+    const fd = new FormData(); fd.append('active', active ? 1 : 0);
+    fetch(BASE + 'leadcapture/toggleCategory/' + id, { method:'POST', body:fd, headers:{'X-Requested-With':'XMLHttpRequest'} });
+}
+
+function setAllCats(active) {
+    const fd = new FormData(); fd.append('active', active ? 1 : 0);
+    fetch(BASE + 'leadcapture/setAllCategories', { method:'POST', body:fd, headers:{'X-Requested-With':'XMLHttpRequest'} })
+        .then(r=>r.json()).then(d=>{
+            if (d.error) { alert(d.error); return; }
+            document.querySelectorAll('#cats-list input[type=checkbox]').forEach(cb => cb.checked = !!active);
+            showAlert('success', 'Categorias atualizadas.');
+        });
 }
 
 function showAlert(type, msg) {

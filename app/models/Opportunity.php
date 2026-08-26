@@ -105,6 +105,17 @@ class Opportunity
         if (!empty($filters['category'])) {
             $where[] = 'o.category = ?';
             $params[] = $filters['category'];
+        } else {
+            // Sem categoria específica: restringe às categorias ativas (se houver alguma).
+            $activeCats = $this->getActiveCategoryNames();
+            $allCats = $this->getCategories(false);
+            // Só aplica o recorte se nem todas estão ativas (evita filtro desnecessário)
+            if (!empty($activeCats) && count($activeCats) < count($allCats)) {
+                $ph = implode(',', array_fill(0, count($activeCats), '?'));
+                // Inclui projetos sem categoria (NULL) para não sumirem silenciosamente
+                $where[] = "(o.category IS NULL OR o.category IN ($ph))";
+                $params = array_merge($params, $activeCats);
+            }
         }
         if (!empty($filters['search'])) {
             $where[] = '(o.title LIKE ? OR o.description LIKE ?)';
@@ -187,6 +198,48 @@ class Opportunity
     {
         $rows = $this->db->fetchAll("SELECT DISTINCT category FROM opportunities WHERE category IS NOT NULL AND category <> '' ORDER BY category");
         return array_column($rows, 'category');
+    }
+
+    // ============ Categorias monitoradas ============
+
+    public function getCategories($onlyActive = false)
+    {
+        $sql = "SELECT * FROM search_categories";
+        if ($onlyActive) $sql .= " WHERE active = 1";
+        $sql .= " ORDER BY name ASC";
+        return $this->db->fetchAll($sql);
+    }
+
+    public function getActiveCategoryNames()
+    {
+        $rows = $this->db->fetchAll("SELECT name FROM search_categories WHERE active = 1 ORDER BY name ASC");
+        return array_column($rows, 'name');
+    }
+
+    /**
+     * Registra uma categoria descoberta na coleta (nova entra ativa por padrão).
+     * Idempotente — ignora se já existe.
+     */
+    public function registerCategory($name)
+    {
+        $name = trim((string) $name);
+        if ($name === '') return;
+        try {
+            $this->db->query(
+                "INSERT IGNORE INTO search_categories (name, active) VALUES (?, 1)",
+                [$name]
+            );
+        } catch (\Throwable $e) { /* ignora */ }
+    }
+
+    public function updateCategory($id, $data)
+    {
+        return $this->db->update('search_categories', $data, 'id = ?', [$id]);
+    }
+
+    public function setAllCategories($active)
+    {
+        return $this->db->query("UPDATE search_categories SET active = ?", [$active ? 1 : 0]);
     }
 
     // ============ Termos de busca ============
