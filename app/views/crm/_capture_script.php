@@ -343,6 +343,10 @@ function personRow(p) {
     } else {
         actions += '<span class="badge bg-success">Em Meus Leads</span>';
     }
+    // Excluir (somente super_admin)
+    if (window.CAP_IS_ADMIN) {
+        actions += `<button class="btn btn-outline-danger" title="Excluir lead capturado" onclick="deleteLead(${p.local_id}, this)"><i class="bi bi-trash"></i></button>`;
+    }
     actions += '</div>';
 
     return `<tr data-id="${p.local_id}">
@@ -448,6 +452,7 @@ function revealOne(id, btn) {
         .then(d => {
             if (d.error) { alert(d.error); if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-unlock"></i> Liberar'; } return; }
             replaceRow(d.lead);
+            if (d.credits) updateCreditBadge(d.credits);
             if (d.warning) alert(d.warning);
             // Se o telefone foi solicitado, faz polling leve da lista para refletir o retorno do webhook
             if (d.lead && (d.lead.phone_pending || d.lead.phone_status === 'pending')) schedulePhonePoll();
@@ -479,6 +484,7 @@ function enrichOne(id, btn) {
         .then(d => {
             if (d.error) { alert(d.error); if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-stars"></i> Enriquecer'; } return; }
             replaceRow(d.lead);
+            if (d.credits) updateCreditBadge(d.credits);
         })
         .catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-stars"></i> Enriquecer'; } alert('Erro ao enriquecer.'); });
 }
@@ -489,6 +495,37 @@ let _phonePollTimer = null;
 function schedulePhonePoll() {
     if (_phonePollTimer) clearTimeout(_phonePollTimer);
     _phonePollTimer = setTimeout(() => { if (typeof runSearch === 'function') runSearch(currentPage || 1); }, 8000);
+}
+
+// Atualiza o badge de créditos restantes hoje
+function updateCreditBadge(credits) {
+    if (!credits || credits.limit <= 0) return;
+    const el = document.getElementById('credit-remaining');
+    if (el) el.textContent = credits.remaining;
+    // Recolore o badge conforme o saldo
+    const badge = document.getElementById('apollo-credit-badge');
+    if (badge) {
+        badge.classList.remove('bg-success', 'bg-warning', 'bg-danger', 'text-dark');
+        const threshold = Math.max(1, Math.floor(credits.limit * 0.2));
+        if (credits.remaining <= 0) badge.classList.add('bg-danger');
+        else if (credits.remaining <= threshold) badge.classList.add('bg-warning', 'text-dark');
+        else badge.classList.add('bg-success');
+    }
+}
+
+// Exclui um lead capturado (somente super_admin)
+function deleteLead(id, btn) {
+    if (!confirm('Excluir este lead capturado? Esta ação não pode ser desfeita.')) return;
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>'; }
+    fetch(BASE + 'crm/apolloDeleteLead/' + id, { method: 'POST', headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json())
+        .then(d => {
+            if (d.error) { alert(d.error); if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-trash"></i>'; } return; }
+            const row = document.querySelector(`#results-body tr[data-id="${id}"]`);
+            if (row) row.remove();
+            lastResults = lastResults.filter(x => x.local_id !== id);
+        })
+        .catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-trash"></i>'; } alert('Erro ao excluir.'); });
 }
 
 // ===== Importação p/ Meus Leads =====

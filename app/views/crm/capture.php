@@ -9,8 +9,42 @@
             <small class="text-muted">Pesquise prospects no Apollo.io, revele os dados e envie para Meus Leads</small>
         </div>
         <div class="d-flex align-items-center gap-2">
+            <?php if (($creditLimit ?? 0) > 0): ?>
+            <?php
+                $rem = (int)($creditRemaining ?? 0);
+                $badgeClass = $rem <= 0 ? 'bg-danger' : ($rem <= max(1, (int)$creditLimit * 0.2) ? 'bg-warning text-dark' : 'bg-success');
+            ?>
+            <span id="apollo-credit-badge" class="badge <?= $badgeClass ?>" title="Créditos Apollo disponíveis hoje">
+                <i class="bi bi-coin"></i> <span id="credit-remaining"><?= $rem ?></span> de <?= (int)$creditLimit ?> crédito(s) restante(s) hoje
+            </span>
+            <?php else: ?>
+            <span id="apollo-credit-badge" class="badge bg-success" title="Créditos Apollo">
+                <i class="bi bi-infinity"></i> Créditos ilimitados
+            </span>
+            <?php endif; ?>
             <span id="apollo-status-badge" class="badge bg-secondary"><i class="bi bi-hourglass"></i> Verificando…</span>
             <a href="<?= baseUrl('crm/leads') ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-person-lines-fill"></i> Meus Leads</a>
+        </div>
+    </div>
+
+    <script>
+    // Flags de contexto para o script da captação
+    window.CAP_IS_ADMIN = <?= !empty($isAdmin) ? 'true' : 'false' ?>;
+    window.CAP_CREDIT_LIMIT = <?= (int)($creditLimit ?? 0) ?>;
+    </script>
+
+    <!-- Legenda: como funcionam os créditos Apollo -->
+    <div class="alert alert-light border d-flex align-items-start gap-2 py-2 px-3 mb-3" style="font-size:0.82rem;">
+        <i class="bi bi-info-circle text-info mt-1"></i>
+        <div>
+            <strong>Como funcionam os créditos:</strong>
+            cada <strong>Liberar dados</strong> (revela e-mail/telefone) ou <strong>Enriquecer</strong> (perfil completo) consome <strong>1 crédito</strong>.
+            <?php if (($creditLimit ?? 0) > 0): ?>
+            Você tem um limite de <strong><?= (int)$creditLimit ?> crédito(s) por dia</strong>. Ao atingir o limite, novas liberações só serão liberadas <strong>no dia seguinte</strong> (o contador reinicia automaticamente à meia-noite).
+            <?php else: ?>
+            Seu acesso está com <strong>créditos ilimitados</strong>. O administrador pode definir um limite diário no seu perfil.
+            <?php endif; ?>
+            Apenas ações concluídas com sucesso consomem crédito — buscas na lista são gratuitas.
         </div>
     </div>
 

@@ -1436,9 +1436,15 @@ class CrmController extends Controller
         $user = $this->currentUser();
 
         $apollo = new ApolloApi();
+        $credit = new ApolloCreditUsage();
+        $chk = $credit->check($user, 0);
         $this->view('crm/capture', [
             'user' => $user,
             'apolloConfigured' => $apollo->isConfigured(),
+            'isAdmin' => $user['role'] === 'super_admin',
+            'creditLimit' => $chk['limit'],
+            'creditUsed' => $chk['used'],
+            'creditRemaining' => $chk['remaining'],
         ]);
     }
 
@@ -1535,6 +1541,14 @@ class CrmController extends Controller
         $apollo = new ApolloApi();
         if (!$apollo->isConfigured()) $this->json(['error' => 'Apollo não configurado.'], 400);
 
+        // Controle de crédito diário do usuário
+        $user = $this->currentUser();
+        $credit = new ApolloCreditUsage();
+        $chk = $credit->check($user, 1);
+        if (!$chk['allowed']) {
+            $this->json(['error' => "Você atingiu o limite diário de {$chk['limit']} crédito(s) Apollo. Tente novamente amanhã."], 429);
+        }
+
         // O /people/match revela o e-mail com mais confiabilidade quando recebe
         // os identificadores da pessoa (não apenas o apollo_id).
         $params = [
@@ -1562,7 +1576,9 @@ class CrmController extends Controller
         $person = $res['data']['person'] ?? ($res['data']['people'][0] ?? null);
         if (!$person) $this->json(['error' => 'Apollo não encontrou dados para este lead.'], 404);
 
-        $user = $this->currentUser();
+        // Contabiliza o consumo do crédito diário (liberação bem-sucedida)
+        $credit->consume($user['id'], 1);
+
         $localId = $leadModel->upsertFromApollo($person, $user['id']);
 
         // Se pedimos o telefone, guarda o request_id para casar com o webhook.
@@ -1592,6 +1608,9 @@ class CrmController extends Controller
 
         $out = ['success' => true, 'lead' => $formatted];
         if ($warnings) $out['warning'] = implode("\n", $warnings);
+        // Créditos restantes hoje (-1 = ilimitado)
+        $after = $credit->check($user, 0);
+        $out['credits'] = ['limit' => $after['limit'], 'used' => $after['used'], 'remaining' => $after['remaining']];
         $this->json($out);
     }
 
@@ -1612,12 +1631,23 @@ class CrmController extends Controller
         $apollo = new ApolloApi();
         if (!$apollo->isConfigured()) $this->json(['error' => 'Apollo não configurado.'], 400);
 
+        // Controle de crédito diário do usuário
+        $user = $this->currentUser();
+        $credit = new ApolloCreditUsage();
+        $chk = $credit->check($user, 1);
+        if (!$chk['allowed']) {
+            $this->json(['error' => "Você atingiu o limite diário de {$chk['limit']} crédito(s) Apollo. Tente novamente amanhã."], 429);
+        }
+
         // 1) Perfil completo da pessoa
         $res = $apollo->getPerson($lead['apollo_id']);
         if (!$res['success']) $this->json(['error' => $res['error'] ?? 'Falha ao enriquecer o contato.'], 502);
 
         $person = $res['data']['person'] ?? ($res['data']['people'][0] ?? ($res['data'] ?? null));
         if (!$person || !is_array($person)) $this->json(['error' => 'Apollo não retornou o perfil completo.'], 404);
+
+        // Contabiliza o consumo do crédito diário (enriquecimento bem-sucedido)
+        $credit->consume($user['id'], 1);
 
         // 2) Perfil completo da organização (quando houver ID)
         $orgId = $person['organization_id'] ?? ($person['organization']['id'] ?? null);
@@ -1629,12 +1659,16 @@ class CrmController extends Controller
             }
         }
 
-        $user = $this->currentUser();
         $localId = $leadModel->upsertFromApollo($person, $user['id']);
         $leadModel->update($localId, ['is_full_enriched' => 1]);
         $updated = $leadModel->findById($localId);
 
-        $this->json(['success' => true, 'lead' => $this->formatApolloPerson($person, $updated)]);
+        $after = $credit->check($user, 0);
+        $this->json([
+            'success' => true,
+            'lead' => $this->formatApolloPerson($person, $updated),
+            'credits' => ['limit' => $after['limit'], 'used' => $after['used'], 'remaining' => $after['remaining']],
+        ]);
     }
 
     /**
@@ -1704,6 +1738,23 @@ class CrmController extends Controller
         http_response_code(200);
         echo json_encode(['ok' => true, 'resolved' => $resolved]);
         exit;
+    }
+
+    /**
+     * API: exclui um lead capturado (staging Apollo). Somente super_admin.
+     * POST crm/apolloDeleteLead/{id}
+     */
+    public function apolloDeleteLead($id = null)
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+
+        $leadModel = new ApolloLead();
+        $lead = $leadModel->findById($id);
+        if (!$lead) $this->json(['error' => 'Lead não encontrado'], 404);
+
+        Database::getInstance()->delete('apollo_leads', 'id = ?', [$id]);
+        $this->json(['success' => true]);
     }
 
     /**

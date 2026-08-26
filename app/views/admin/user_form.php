@@ -96,6 +96,14 @@
                                 </div>
                                 <small class="text-muted">Percentual geral (usado em cálculos anteriores).</small>
                             </div>
+                            <div class="col-sm-4">
+                                <label class="form-label fw-medium small">Créditos Apollo por dia</label>
+                                <div class="input-group input-group-sm">
+                                    <input type="number" step="1" min="0" name="apollo_daily_credits" class="form-control" value="<?= escape($editUser['apollo_daily_credits'] ?? '0') ?>">
+                                    <span class="input-group-text"><i class="bi bi-coin"></i></span>
+                                </div>
+                                <small class="text-muted">Máximo de liberações/enriquecimentos por dia. 0 = ilimitado. Reinicia no dia seguinte.</small>
+                            </div>
                         </div>
                     </div>
 
