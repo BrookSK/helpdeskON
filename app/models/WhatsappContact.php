@@ -235,6 +235,12 @@ class WhatsappContact
         // Filtro por tipo (contatos individuais vs grupos)
         if ($type === 'contacts') {
             $sql .= " AND c.is_group = 0";
+            // Só entram no chat contatos "conversáveis": com telefone real e JID não-sintético.
+            // Leads captados (99Freelas/Apollo sem telefone) usam remote_jid 'lead_...'/'manual_...'
+            // e não devem aparecer no chat até serem cadastrados com telefone.
+            $sql .= " AND c.phone IS NOT NULL AND c.phone <> ''
+                      AND c.remote_jid NOT LIKE 'lead[_]%'
+                      AND c.remote_jid NOT LIKE 'manual[_]%'";
         } elseif ($type === 'groups') {
             $sql .= " AND c.is_group = 1";
         }

@@ -619,11 +619,29 @@ class CrmController extends Controller
         // Dados do contato
         $data = [];
         if (isset($_POST['contact_name'])) $data['contact_name'] = trim($_POST['contact_name']) ?: null;
-        if (isset($_POST['phone'])) $data['phone'] = preg_replace('/\D/', '', $_POST['phone']) ?: null;
+        $newPhone = null;
+        if (isset($_POST['phone'])) {
+            $newPhone = preg_replace('/\D/', '', $_POST['phone']) ?: null;
+            $data['phone'] = $newPhone;
+        }
         if (isset($_POST['lead_email'])) {
             $em = trim($_POST['lead_email']);
             $data['lead_email'] = ($em && filter_var($em, FILTER_VALIDATE_EMAIL)) ? $em : null;
         }
+
+        // Ao cadastrar um telefone real num lead captado (JID sintético lead_/manual_),
+        // regenera o remote_jid para o JID real — assim ele passa a aparecer no chat.
+        $isSynthetic = preg_match('/^(lead_|manual_)/', (string) $contact['remote_jid']);
+        if ($newPhone && $isSynthetic) {
+            $realJid = $newPhone . '@s.whatsapp.net';
+            // Evita colidir com um contato já existente com esse JID na mesma instância
+            $dup = Database::getInstance()->fetch(
+                "SELECT id FROM whatsapp_contacts WHERE instance_id = ? AND remote_jid = ? AND id <> ?",
+                [$contact['instance_id'], $realJid, $contactId]
+            );
+            if (!$dup) $data['remote_jid'] = $realJid;
+        }
+
         if (!empty($data)) {
             Database::getInstance()->update('whatsapp_contacts', $data, 'id = ?', [$contactId]);
         }
