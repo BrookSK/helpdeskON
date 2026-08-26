@@ -1541,7 +1541,9 @@ class CrmController extends Controller
         $apollo = new ApolloApi();
         if (!$apollo->isConfigured()) $this->json(['error' => 'Apollo não configurado.'], 400);
 
-        // Controle de crédito diário do usuário
+        // Controle de crédito diário do usuário. O custo real é definido pelo
+        // Apollo (1 crédito p/ e-mail, +8 p/ celular); aqui exigimos ao menos 1
+        // crédito disponível para permitir a liberação.
         $user = $this->currentUser();
         $credit = new ApolloCreditUsage();
         $chk = $credit->check($user, 1);
@@ -1576,24 +1578,29 @@ class CrmController extends Controller
         $person = $res['data']['person'] ?? ($res['data']['people'][0] ?? null);
         if (!$person) $this->json(['error' => 'Apollo não encontrou dados para este lead.'], 404);
 
-        // Contabiliza o consumo do crédito diário (liberação bem-sucedida)
-        $credit->consume($user['id'], 1);
-
         $localId = $leadModel->upsertFromApollo($person, $user['id']);
+        $updated = $leadModel->findById($localId);
+        $formatted = $this->formatApolloPerson($person, $updated);
 
-        // Se pedimos o telefone, guarda o request_id para casar com o webhook.
+        // Contabiliza créditos conforme a documentação oficial do Apollo:
+        // 1 crédito quando há e-mail/dados demográficos; +8 se um celular for
+        // retornado. Como o telefone chega depois (webhook), os 8 créditos do
+        // telefone são debitados no retorno assíncrono. Se nada vier, 0 créditos.
+        $emailCost = !empty($formatted['email']) ? ApolloCreditUsage::COST_EMAIL : 0;
+        if ($emailCost > 0) $credit->consume($user['id'], $emailCost);
+
+        // Se pedimos o telefone, guarda o request_id/solicitante para casar com o webhook.
         $phonePending = false;
         if ($wantPhone && $webhookUrl) {
             $requestId = $person['id'] ?? ($res['data']['request_id'] ?? null);
             $leadModel->update($localId, [
                 'phone_status' => 'pending',
                 'phone_request_id' => $requestId,
+                'phone_requested_by' => $user['id'],
             ]);
             $phonePending = true;
         }
 
-        $updated = $leadModel->findById($localId);
-        $formatted = $this->formatApolloPerson($person, $updated);
         $formatted['phone_pending'] = $phonePending;
 
         $warnings = [];
@@ -1612,63 +1619,6 @@ class CrmController extends Controller
         $after = $credit->check($user, 0);
         $out['credits'] = ['limit' => $after['limit'], 'used' => $after['used'], 'remaining' => $after['remaining']];
         $this->json($out);
-    }
-
-    /**
-     * API: ENRIQUECER — busca o perfil COMPLETO da pessoa (/people/{id}) e da
-     * organização (/organizations/{id}). Deve ser usado APÓS liberar os dados.
-     * POST crm/apolloEnrich/{apolloLeadId}
-     */
-    public function apolloEnrich($id = null)
-    {
-        $this->requireRole($this->captureRoles);
-        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
-
-        $leadModel = new ApolloLead();
-        $lead = $leadModel->findById($id);
-        if (!$lead) $this->json(['error' => 'Lead não encontrado'], 404);
-
-        $apollo = new ApolloApi();
-        if (!$apollo->isConfigured()) $this->json(['error' => 'Apollo não configurado.'], 400);
-
-        // Controle de crédito diário do usuário
-        $user = $this->currentUser();
-        $credit = new ApolloCreditUsage();
-        $chk = $credit->check($user, 1);
-        if (!$chk['allowed']) {
-            $this->json(['error' => "Você atingiu o limite diário de {$chk['limit']} crédito(s) Apollo. Tente novamente amanhã."], 429);
-        }
-
-        // 1) Perfil completo da pessoa
-        $res = $apollo->getPerson($lead['apollo_id']);
-        if (!$res['success']) $this->json(['error' => $res['error'] ?? 'Falha ao enriquecer o contato.'], 502);
-
-        $person = $res['data']['person'] ?? ($res['data']['people'][0] ?? ($res['data'] ?? null));
-        if (!$person || !is_array($person)) $this->json(['error' => 'Apollo não retornou o perfil completo.'], 404);
-
-        // Contabiliza o consumo do crédito diário (enriquecimento bem-sucedido)
-        $credit->consume($user['id'], 1);
-
-        // 2) Perfil completo da organização (quando houver ID)
-        $orgId = $person['organization_id'] ?? ($person['organization']['id'] ?? null);
-        if ($orgId) {
-            $orgRes = $apollo->getOrganization($orgId);
-            if (!empty($orgRes['success'])) {
-                $org = $orgRes['data']['organization'] ?? ($orgRes['data'] ?? null);
-                if (is_array($org)) $person['organization'] = array_merge($person['organization'] ?? [], $org);
-            }
-        }
-
-        $localId = $leadModel->upsertFromApollo($person, $user['id']);
-        $leadModel->update($localId, ['is_full_enriched' => 1]);
-        $updated = $leadModel->findById($localId);
-
-        $after = $credit->check($user, 0);
-        $this->json([
-            'success' => true,
-            'lead' => $this->formatApolloPerson($person, $updated),
-            'credits' => ['limit' => $after['limit'], 'used' => $after['used'], 'remaining' => $after['remaining']],
-        ]);
     }
 
     /**
@@ -1727,6 +1677,12 @@ class CrmController extends Controller
             $update = ['phone_status' => 'received'];
             if ($phone) { $update['phone'] = $phone; $update['is_enriched'] = 1; }
             $leadModel->update($lead['id'], $update);
+
+            // Debita os créditos do telefone (Apollo cobra +8 quando um celular é
+            // retornado) do usuário que solicitou a revelação.
+            if ($phone && !empty($lead['phone_requested_by'])) {
+                try { (new ApolloCreditUsage())->consume($lead['phone_requested_by'], ApolloCreditUsage::COST_MOBILE); } catch (\Throwable $e) {}
+            }
 
             // Propaga para o contato do CRM já importado, se houver
             if ($phone && !empty($lead['contact_id'])) {

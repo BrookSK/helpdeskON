@@ -331,13 +331,8 @@ function personRow(p) {
     let actions = '<div class="btn-group btn-group-sm">';
     if (!p.imported) {
         if (!revealed) {
-            // 1º passo: LIBERAR dados (revela e-mail + solicita telefone)
+            // LIBERAR dados (revela e-mail + solicita telefone)
             actions += `<button class="btn btn-outline-success" title="Liberar dados (e-mail e telefone)" onclick="revealOne(${p.local_id}, this)"><i class="bi bi-unlock"></i> Liberar</button>`;
-        } else {
-            // 2º passo (opcional): ENRIQUECER perfil completo
-            const enrClass = p.is_full_enriched ? 'btn-outline-secondary' : 'btn-outline-primary';
-            const enrTitle = p.is_full_enriched ? 'Perfil já enriquecido' : 'Enriquecer perfil completo (pessoa + empresa)';
-            actions += `<button class="btn ${enrClass}" title="${enrTitle}" onclick="enrichOne(${p.local_id}, this)"><i class="bi bi-stars"></i> Enriquecer</button>`;
         }
         actions += `<button class="btn btn-success" title="Enviar p/ Meus Leads" onclick="importOne(${p.local_id}, this)"><i class="bi bi-download"></i></button>`;
     } else {
@@ -474,19 +469,6 @@ function revealSelected() {
             })
             .finally(() => { if (++done === ids.length && pending) schedulePhonePoll(); });
     });
-}
-
-// ===== Enriquecer perfil completo (pessoa + empresa) =====
-function enrichOne(id, btn) {
-    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>'; }
-    fetch(BASE + 'crm/apolloEnrich/' + id, { method: 'POST', headers: {'X-Requested-With':'XMLHttpRequest'} })
-        .then(r => r.json())
-        .then(d => {
-            if (d.error) { alert(d.error); if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-stars"></i> Enriquecer'; } return; }
-            replaceRow(d.lead);
-            if (d.credits) updateCreditBadge(d.credits);
-        })
-        .catch(() => { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-stars"></i> Enriquecer'; } alert('Erro ao enriquecer.'); });
 }
 
 // Recarrega a busca atual após alguns segundos para capturar telefones que

@@ -7,6 +7,11 @@
  */
 class ApolloCreditUsage
 {
+    // Custos conforme a documentação oficial do Apollo (People Enrichment):
+    // 1 crédito para e-mail/dados demográficos; +8 créditos se um celular for retornado.
+    const COST_EMAIL = 1;
+    const COST_MOBILE = 8;
+
     private $db;
 
     public function __construct()
