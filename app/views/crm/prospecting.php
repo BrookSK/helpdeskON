@@ -24,15 +24,16 @@
     <?php endif; ?>
 
     <!-- Instruções do cron -->
+    <?php $cronQs = !empty($cronToken) ? ('?token=' . rawurlencode($cronToken)) : ''; ?>
     <div class="alert alert-light border d-flex align-items-start gap-2 py-2 px-3 mb-3" style="font-size:0.82rem;">
         <i class="bi bi-clock-history text-info mt-1"></i>
         <div>
             <strong>Agendamento automático:</strong> configure no servidor um cron chamando a URL abaixo (a cada 30 min em horário comercial).
             A cada execução, cada campanha ativa capta até a meta diária restante, respeitando a janela de dias/horário.
-            <div class="mt-1"><code id="cron-url"><?= escape($baseUrl) ?>/cron/runProspecting?token=<?= escape($cronToken ?: 'DEFINA_UM_TOKEN') ?></code>
+            <div class="mt-1"><code id="cron-url"><?= escape($baseUrl) ?>/cron/runProspecting<?= escape($cronQs) ?></code>
             <button class="btn btn-sm btn-outline-secondary py-0 px-1 ms-1" onclick="copyCron()"><i class="bi bi-clipboard"></i></button></div>
-            <div class="mt-1 text-muted"><code>*/30 8-18 * * 1-5 curl -s "<?= escape($baseUrl) ?>/cron/runProspecting?token=SEU_TOKEN" &gt; /dev/null</code></div>
-            <?php if (empty($cronToken)): ?><div class="text-danger mt-1">Defina o <strong>cron_token</strong> em Configurações para proteger o endpoint.</div><?php endif; ?>
+            <div class="mt-1 text-muted"><code>*/30 8-18 * * 1-5 curl -s "<?= escape($baseUrl) ?>/cron/runProspecting<?= escape($cronQs) ?>" &gt; /dev/null</code></div>
+            <div class="mt-1 text-muted">Também mantenha o worker das sequências: <code>*/5 * * * * curl -s "<?= escape($baseUrl) ?>/cron/runSequences<?= escape($cronQs) ?>" &gt; /dev/null</code></div>
         </div>
     </div>
 
