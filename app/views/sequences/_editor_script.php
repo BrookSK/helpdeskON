@@ -37,7 +37,7 @@ const SEQ_ID = <?= $sequence ? (int)$sequence['id'] : 'null' ?>;
 const COLUMNS = <?= json_encode(array_map(fn($c) => ['id'=>$c['id'],'name'=>$c['name'],'board_id'=>$c['board_id'],'board_name'=>$c['board_name'],'label'=>$c['board_name'].' · '.$c['name']], $columns), JSON_UNESCAPED_UNICODE) ?>;
 // Lista de boards únicos (para o seletor encadeado do bloco "mover card")
 const BOARDS = (function(){ const m={}; COLUMNS.forEach(c=>{ if(!m[c.board_id]) m[c.board_id]={id:c.board_id,name:c.board_name}; }); return Object.values(m); })();
-const NODE_LABELS = { send:'Enviar e-mail', whatsapp:'Enviar WhatsApp', wait:'Aguardar', condition:'Condição', tag:'Tag', score:'Score', move:'Mover card', end:'Encerrar' };
+const NODE_LABELS = { send:'Enviar e-mail', whatsapp:'Enviar WhatsApp', wait:'Aguardar', condition:'Condição', tag:'Tag', score:'Score', move:'Mover card', reveal_phone:'Revelar telefone', end:'Encerrar' };
 let EMAIL_TEMPLATES = [], WA_TEMPLATES = [];
 
 let nodes = [];       // {id, type, x, y, data, next, nextYes, nextNo, _el}
@@ -45,7 +45,33 @@ let selectedId = null;
 let linkFrom = null;
 
 <?php if ($sequence && $sequence['graph']): ?>
-(function(){ const g = <?= $sequence['graph'] ?>; if (g && g.nodes) nodes = g.nodes.map(n => ({x:60,y:60,data:{},...n})); })();
+(function(){
+    const g = <?= $sequence['graph'] ?>;
+    if (g && g.nodes) {
+        nodes = g.nodes.map(n => ({data:{}, ...n}));
+        // Auto-layout: se algum nó não tiver coordenadas válidas, distribui em coluna
+        // vertical seguindo a ordem do fluxo. Evita todos os blocos sobrepostos.
+        const needsLayout = nodes.some(n => !Number.isFinite(n.x) || !Number.isFinite(n.y));
+        if (needsLayout) autoLayoutNodes(g.start);
+    }
+})();
+
+// Distribui os nós verticalmente a partir do start, seguindo o caminho principal.
+function autoLayoutNodes(startId) {
+    const byId = {}; nodes.forEach(n => byId[n.id] = n);
+    const COL_X = 360, BRANCH_X = 700, STEP_Y = 120;
+    let y = 20;
+    const visited = new Set();
+    let cur = startId || (nodes[0] && nodes[0].id);
+    while (cur && byId[cur] && !visited.has(cur)) {
+        visited.add(cur);
+        const n = byId[cur];
+        n.x = COL_X; n.y = y; y += STEP_Y;
+        cur = n.nextNo || n.next || null;
+    }
+    let by = 20;
+    nodes.forEach(n => { if (!visited.has(n.id)) { n.x = BRANCH_X; n.y = by; by += STEP_Y; } });
+}
 <?php endif; ?>
 
 const canvas = () => document.getElementById('canvas');
