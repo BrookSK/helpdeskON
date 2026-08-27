@@ -1763,6 +1763,219 @@ class CrmController extends Controller
         exit;
     }
 
+    // =====================================================
+    // Automação de Prospecção Apollo (campanhas)
+    // =====================================================
+
+    /**
+     * Tela de configuração das campanhas de prospecção automática (Apollo).
+     * Somente super_admin.
+     */
+    public function prospecting()
+    {
+        $this->requireRole(['super_admin']);
+        $user = $this->currentUser();
+        $db = Database::getInstance();
+
+        $campaigns = [];
+        try {
+            $campaigns = $db->fetchAll(
+                "SELECT c.*, s.name AS sequence_name, b.name AS board_name, col.name AS column_name, u.name AS assigned_name,
+                        (SELECT COUNT(*) FROM apollo_prospecting_log l WHERE l.campaign_id = c.id AND l.action='enrolled' AND DATE(l.created_at)=CURDATE()) AS captured_today,
+                        (SELECT COUNT(*) FROM apollo_prospecting_log l WHERE l.campaign_id = c.id AND l.action='enrolled') AS captured_total
+                 FROM apollo_campaigns c
+                 LEFT JOIN email_sequences s ON c.sequence_id = s.id
+                 LEFT JOIN crm_boards b ON c.board_id = b.id
+                 LEFT JOIN crm_columns col ON c.column_id = col.id
+                 LEFT JOIN users u ON c.assigned_to = u.id
+                 ORDER BY c.id ASC"
+            );
+        } catch (\Throwable $e) {
+            // Tabela ainda não criada — orienta rodar a migration
+            $campaigns = null;
+        }
+
+        $boards = $this->boardModel->getAll();
+        foreach ($boards as &$b) $b['columns'] = $this->boardModel->getColumns($b['id']);
+        unset($b);
+
+        $sequences = [];
+        try { $sequences = (new EmailSequence())->all(); } catch (\Throwable $e) {}
+        $team = (new User())->getByRoles(['super_admin', 'comercial']);
+        $apollo = new ApolloApi();
+
+        $this->view('crm/prospecting', [
+            'user' => $user,
+            'campaigns' => $campaigns,
+            'boards' => $boards,
+            'sequences' => $sequences,
+            'team' => $team,
+            'apolloConfigured' => $apollo->isConfigured(),
+            'cronToken' => (string) Config::get('cron_token'),
+            'baseUrl' => rtrim(baseUrl(''), '/'),
+        ]);
+    }
+
+    /** Salva (cria/atualiza) uma campanha de prospecção. POST crm/saveCampaign */
+    public function saveCampaign()
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+
+        $user = $this->currentUser();
+        $db = Database::getInstance();
+        $id = !empty($_POST['id']) ? intval($_POST['id']) : 0;
+
+        $name = trim($_POST['name'] ?? '');
+        if ($name === '') $this->json(['error' => 'Informe o nome da campanha.'], 400);
+
+        // Filtros de busca: aceita JSON direto ou campos simples
+        $searchFilters = $this->buildCampaignFilters();
+        $icpRules = $this->buildCampaignIcp();
+
+        $data = [
+            'name' => $name,
+            'is_active' => !empty($_POST['is_active']) ? 1 : 0,
+            'sequence_id' => !empty($_POST['sequence_id']) ? intval($_POST['sequence_id']) : null,
+            'board_id' => !empty($_POST['board_id']) ? intval($_POST['board_id']) : null,
+            'column_id' => !empty($_POST['column_id']) ? intval($_POST['column_id']) : null,
+            'assigned_to' => !empty($_POST['assigned_to']) ? intval($_POST['assigned_to']) : null,
+            'search_filters' => json_encode($searchFilters, JSON_UNESCAPED_UNICODE),
+            'icp_rules' => json_encode($icpRules, JSON_UNESCAPED_UNICODE),
+            'min_score' => max(0, intval($_POST['min_score'] ?? 70)),
+            'daily_target' => max(1, intval($_POST['daily_target'] ?? 12)),
+            'search_per_page' => min(100, max(10, intval($_POST['search_per_page'] ?? 50))),
+            'days_of_week' => trim($_POST['days_of_week'] ?? '1,2,3,4,5'),
+            'window_start' => $this->normalizeTime($_POST['window_start'] ?? '08:00', '08:00:00'),
+            'window_end' => $this->normalizeTime($_POST['window_end'] ?? '18:00', '18:00:00'),
+            'reveal_email' => !empty($_POST['reveal_email']) ? 1 : 0,
+            'reveal_phone' => !empty($_POST['reveal_phone']) ? 1 : 0,
+        ];
+
+        if ($id) {
+            $db->update('apollo_campaigns', $data, 'id = ?', [$id]);
+        } else {
+            $data['created_by'] = $user['id'];
+            $data['search_page'] = 1;
+            $id = $db->insert('apollo_campaigns', $data);
+        }
+        $this->json(['success' => true, 'id' => $id]);
+    }
+
+    /** Ativa/desativa uma campanha. POST crm/toggleCampaign/{id} */
+    public function toggleCampaign($id = null)
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+        $db = Database::getInstance();
+        $c = $db->fetch("SELECT is_active FROM apollo_campaigns WHERE id = ?", [$id]);
+        if (!$c) $this->json(['error' => 'Campanha não encontrada'], 404);
+        $db->update('apollo_campaigns', ['is_active' => $c['is_active'] ? 0 : 1], 'id = ?', [$id]);
+        $this->json(['success' => true, 'is_active' => $c['is_active'] ? 0 : 1]);
+    }
+
+    /** Exclui uma campanha. POST crm/deleteCampaign/{id} */
+    public function deleteCampaign($id = null)
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+        Database::getInstance()->delete('apollo_campaigns', 'id = ?', [$id]);
+        $this->json(['success' => true]);
+    }
+
+    /** Executa uma campanha agora (manual). POST crm/runCampaign/{id} */
+    public function runCampaign($id = null)
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+        @set_time_limit(300);
+
+        $db = Database::getInstance();
+        $camp = $db->fetch("SELECT * FROM apollo_campaigns WHERE id = ?", [$id]);
+        if (!$camp) $this->json(['error' => 'Campanha não encontrada'], 404);
+
+        $apollo = new ApolloApi();
+        if (!$apollo->isConfigured()) $this->json(['error' => 'Apollo não configurado.'], 400);
+
+        $already = 0;
+        try {
+            $r = $db->fetch("SELECT COUNT(*) t FROM apollo_prospecting_log WHERE campaign_id=? AND action='enrolled' AND DATE(created_at)=CURDATE()", [$id]);
+            $already = (int)($r['t'] ?? 0);
+        } catch (\Throwable $e) {}
+        $target = max(1, (int)$camp['daily_target'] - $already);
+
+        $service = new ApolloProspectingService();
+        $result = $service->runCampaign($camp, $target);
+        $this->json(['success' => empty($result['error']), 'result' => $result]);
+    }
+
+    /** Log recente de uma campanha (para acompanhar). GET crm/campaignLog/{id} */
+    public function campaignLog($id = null)
+    {
+        $this->requireRole(['super_admin']);
+        if (!$id) $this->json(['error' => 'ID obrigatório'], 400);
+        $rows = Database::getInstance()->fetchAll(
+            "SELECT action, detail, credits, created_at FROM apollo_prospecting_log WHERE campaign_id = ? ORDER BY id DESC LIMIT 50",
+            [$id]
+        );
+        $this->json(['success' => true, 'log' => $rows]);
+    }
+
+    // Helpers de campanha
+    private function normalizeTime($v, $default)
+    {
+        $v = trim((string)$v);
+        if (preg_match('/^\d{1,2}:\d{2}$/', $v)) return $v . ':00';
+        if (preg_match('/^\d{1,2}:\d{2}:\d{2}$/', $v)) return $v;
+        return $default;
+    }
+
+    private function buildCampaignFilters()
+    {
+        // Se veio JSON bruto (campo avançado), usa-o; senão monta dos campos simples.
+        $raw = trim($_POST['search_filters_json'] ?? '');
+        if ($raw !== '') {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) return $decoded;
+        }
+        $toArr = fn($k) => array_values(array_filter(array_map('trim', explode(',', $_POST[$k] ?? ''))));
+        $f = [];
+        if (!empty($_POST['f_titles'])) $f['person_titles'] = $toArr('f_titles');
+        if (!empty($_POST['f_seniorities'])) $f['person_seniorities'] = $toArr('f_seniorities');
+        if (!empty($_POST['f_person_locations'])) $f['person_locations'] = $toArr('f_person_locations');
+        if (!empty($_POST['f_org_locations'])) $f['organization_locations'] = $toArr('f_org_locations');
+        if (!empty($_POST['f_domains'])) $f['q_organization_domains_list'] = $toArr('f_domains');
+        if (!empty($_POST['f_keywords'])) $f['q_keywords'] = trim($_POST['f_keywords']);
+        if (!empty($_POST['f_employee_ranges'])) $f['organization_num_employees_ranges'] = $toArr('f_employee_ranges');
+        return $f;
+    }
+
+    private function buildCampaignIcp()
+    {
+        $raw = trim($_POST['icp_rules_json'] ?? '');
+        if ($raw !== '') {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) return $decoded;
+        }
+        $toArr = fn($k) => array_values(array_filter(array_map('trim', explode(',', $_POST[$k] ?? ''))));
+        $icp = [
+            'score' => [
+                'decisor' => intval($_POST['w_decisor'] ?? 30),
+                'title' => intval($_POST['w_title'] ?? 20),
+                'size' => intval($_POST['w_size'] ?? 15),
+                'region' => intval($_POST['w_region'] ?? 10),
+                'website' => intval($_POST['w_website'] ?? 5),
+                'technology' => intval($_POST['w_technology'] ?? 10),
+            ],
+        ];
+        if (!empty($_POST['icp_seniorities'])) $icp['seniorities'] = $toArr('icp_seniorities');
+        if (!empty($_POST['icp_titles'])) $icp['titles_any'] = $toArr('icp_titles');
+        if (!empty($_POST['icp_employee_min'])) $icp['employee_min'] = intval($_POST['icp_employee_min']);
+        if (!empty($_POST['icp_employee_max'])) $icp['employee_max'] = intval($_POST['icp_employee_max']);
+        if (!empty($_POST['icp_require_website'])) $icp['require_website'] = true;
+        return $icp;
+    }
+
     /**
      * API: lista usuários que podem ser responsáveis por leads (comercial + super_admin).
      * GET crm/leadOwners

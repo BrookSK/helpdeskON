@@ -168,6 +168,14 @@ class SequenceEngine
                 $this->logExec($participant['id'], $nodeId, $type, 'done');
                 return 'sent';
 
+            case 'reveal_phone':
+                // Reveal PROGRESSIVO: só solicita o telefone se o lead ainda não tem número.
+                // Economiza créditos — telefone só é revelado quando o fluxo precisa (WhatsApp/ligação).
+                $this->doRevealPhone($participant);
+                $this->advance($participant, $node['next'] ?? null, $nodes);
+                $this->logExec($participant['id'], $nodeId, $type, 'done');
+                return 'skipped';
+
             case 'whatsapp':
                 $this->doWhatsapp($participant, $node);
                 $this->advance($participant, $node['next'] ?? null, $nodes);
@@ -233,17 +241,33 @@ class SequenceEngine
 
         $data = $node['data'] ?? [];
 
-        // Teste A/B: escolhe aleatoriamente a variante B (50%) quando habilitado
-        $variant = null;
+        // Fontes de conteúdo: texto inline OU template cadastrado (template_id / template_id_b).
         $subjectSrc = $data['subject'] ?? '(sem assunto)';
         $bodySrc = $data['body'] ?? '';
-        if (!empty($data['ab_enabled']) && (!empty($data['body_b']) || !empty($data['subject_b']))) {
-            if (random_int(0, 1) === 1) {
-                $variant = 'B';
-                if (!empty($data['subject_b'])) $subjectSrc = $data['subject_b'];
-                if (!empty($data['body_b'])) $bodySrc = $data['body_b'];
-            } else {
-                $variant = 'A';
+        if (!empty($data['template_id'])) {
+            $tpl = $this->db->fetch("SELECT subject, body FROM message_templates WHERE id = ?", [(int)$data['template_id']]);
+            if ($tpl) { $subjectSrc = $tpl['subject'] ?: $subjectSrc; $bodySrc = $tpl['body']; }
+        }
+
+        // Teste A/B PERSISTENTE por participante: a variante é sorteada uma única vez
+        // (na primeira mensagem A/B) e gravada em sequence_participants.ab_variant.
+        $variant = null;
+        $abEnabled = !empty($data['ab_enabled']) || !empty($data['template_id_b']) || !empty($data['body_b']) || !empty($data['subject_b']);
+        if ($abEnabled) {
+            $variant = $participant['ab_variant'] ?? null;
+            if (!$variant) {
+                $variant = (random_int(0, 1) === 1) ? 'B' : 'A';
+                $this->db->update('sequence_participants', ['ab_variant' => $variant], 'id = ?', [$participant['id']]);
+                (new LeadTimelineService())->add($contactId, 'tag', 'Variante A/B atribuída: ' . $variant, ['ab_variant' => $variant]);
+            }
+            if ($variant === 'B') {
+                if (!empty($data['template_id_b'])) {
+                    $tplB = $this->db->fetch("SELECT subject, body FROM message_templates WHERE id = ?", [(int)$data['template_id_b']]);
+                    if ($tplB) { $subjectSrc = $tplB['subject'] ?: $subjectSrc; $bodySrc = $tplB['body']; }
+                } else {
+                    if (!empty($data['subject_b'])) $subjectSrc = $data['subject_b'];
+                    if (!empty($data['body_b'])) $bodySrc = $data['body_b'];
+                }
             }
         }
 
@@ -271,7 +295,13 @@ class SequenceEngine
             (new LeadTimelineService())->add($contactId, 'note', 'WhatsApp da sequência não enviado: lead sem telefone.');
             return;
         }
-        $msg = $this->render($node['data']['body'] ?? '', $contact);
+        $data = $node['data'] ?? [];
+        $bodySrc = $data['body'] ?? '';
+        if (!empty($data['template_id'])) {
+            $tpl = $this->db->fetch("SELECT body FROM message_templates WHERE id = ?", [(int)$data['template_id']]);
+            if ($tpl) $bodySrc = $tpl['body'];
+        }
+        $msg = $this->render($bodySrc, $contact);
         if (trim($msg) === '') return;
 
         try {
@@ -279,6 +309,53 @@ class SequenceEngine
             (new LeadTimelineService())->add($contactId, 'note', 'WhatsApp enviado pela sequência.', ['channel' => 'whatsapp']);
         } catch (\Throwable $e) {
             Logger::error('SequenceEngine whatsapp', ['contact' => $contactId, 'error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Reveal progressivo de telefone: só consome crédito Apollo se o lead ainda
+     * não tem telefone e possui um apollo_leads vinculado. O número chega de forma
+     * assíncrona via webhook (crm/apolloPhoneWebhook) e atualiza o mesmo registro.
+     */
+    private function doRevealPhone($participant)
+    {
+        $contactId = $participant['contact_id'];
+        $contact = $this->db->fetch("SELECT phone FROM whatsapp_contacts WHERE id = ?", [$contactId]);
+        // Já tem telefone válido? Não gasta crédito.
+        if ($contact && !empty($contact['phone'])) return;
+
+        // Localiza o staging Apollo vinculado a este lead
+        $lead = $this->db->fetch("SELECT * FROM apollo_leads WHERE contact_id = ? ORDER BY id DESC LIMIT 1", [$contactId]);
+        if (!$lead || empty($lead['apollo_id'])) return;
+        // Já solicitado antes? evita duplicar chamada
+        if (($lead['phone_status'] ?? null) === 'pending') return;
+
+        try {
+            $apollo = new ApolloApi();
+            if (!$apollo->isConfigured()) return;
+
+            $webhookToken = trim((string) Config::get('apollo_webhook_token'));
+            $base = rtrim(baseUrl(''), '/');
+            if ($base === '' || stripos($base, 'http') !== 0) return; // sem URL pública, não dá para receber o retorno
+            $webhookUrl = $base . '/crm/apolloPhoneWebhook' . ($webhookToken !== '' ? '?token=' . rawurlencode($webhookToken) : '');
+
+            $res = $apollo->enrichPerson([
+                'id' => $lead['apollo_id'],
+                'reveal_phone_number' => true,
+                'webhook_url' => $webhookUrl,
+            ]);
+            if (!empty($res['success'])) {
+                $person = $res['data']['person'] ?? null;
+                $requestId = $person['id'] ?? ($res['data']['request_id'] ?? null);
+                $this->db->update('apollo_leads', [
+                    'phone_status' => 'pending',
+                    'phone_request_id' => $requestId,
+                    'phone_requested_by' => $participant['added_by'] ?? null,
+                ], 'id = ?', [$lead['id']]);
+                (new LeadTimelineService())->add($contactId, 'note', 'Reveal de telefone solicitado ao Apollo (progressivo).', ['channel' => 'apollo']);
+            }
+        } catch (\Throwable $e) {
+            Logger::error('SequenceEngine reveal_phone', ['contact' => $contactId, 'error' => $e->getMessage()]);
         }
     }
 
