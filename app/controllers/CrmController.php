@@ -20,7 +20,7 @@ class CrmController extends Controller
         $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
         $user = $this->currentUser();
 
-        $boards = $this->boardModel->getAll();
+        $boards = $this->boardModel->getAll($user['role'] ?? null);
 
         $this->view('crm/index', [
             'user' => $user,
@@ -1386,7 +1386,8 @@ class CrmController extends Controller
     public function listBoards()
     {
         $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
-        $boards = $this->boardModel->getAll();
+        $user = $this->currentUser();
+        $boards = $this->boardModel->getAll($user['role'] ?? null);
 
         // Incluir colunas de cada board
         foreach ($boards as &$board) {

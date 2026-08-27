@@ -27,6 +27,7 @@
                 <button class="btn btn-sm btn-outline-secondary" onclick="addNode('tag')"><i class="bi bi-tag"></i> Tag</button>
                 <button class="btn btn-sm btn-outline-secondary" onclick="addNode('score')"><i class="bi bi-star"></i> Score</button>
                 <button class="btn btn-sm btn-outline-info" onclick="addNode('move')"><i class="bi bi-kanban"></i> Mover card</button>
+                <button class="btn btn-sm btn-outline-dark" onclick="addNode('reveal_phone')"><i class="bi bi-telephone-plus"></i> Revelar telefone (Apollo)</button>
                 <button class="btn btn-sm btn-outline-danger" onclick="addNode('end')"><i class="bi bi-stop-circle"></i> Encerrar</button>
                 <div class="ms-auto">
                     <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#seq-config">

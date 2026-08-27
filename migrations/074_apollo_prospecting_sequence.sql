@@ -86,33 +86,44 @@ SELECT
     JSON_OBJECT(
         'start', 'send1',
         'nodes', JSON_ARRAY(
-            -- Coluna principal centralizada (x=360); ramos "respondeu" saem à direita (x=680).
+            -- Coluna principal centralizada (x=360). Cada nó de envio traz o conteúdo
+            -- inline (subject/body) E o template_id — assim o bloco aparece preenchido
+            -- no editor e o engine usa o template ao renderizar.
             JSON_OBJECT('id','send1','type','send','x',360,'y',20,'next','wait1','data', JSON_OBJECT(
                 'ab_enabled', true,
                 'template_id',   (SELECT id FROM message_templates WHERE name='Apollo · 1º Contato A (Dor)'),
-                'template_id_b', (SELECT id FROM message_templates WHERE name='Apollo · 1º Contato B (Resultado)')
+                'template_id_b', (SELECT id FROM message_templates WHERE name='Apollo · 1º Contato B (Resultado)'),
+                'subject',   (SELECT subject FROM message_templates WHERE name='Apollo · 1º Contato A (Dor)'),
+                'body',      (SELECT body FROM message_templates WHERE name='Apollo · 1º Contato A (Dor)'),
+                'subject_b', (SELECT subject FROM message_templates WHERE name='Apollo · 1º Contato B (Resultado)'),
+                'body_b',    (SELECT body FROM message_templates WHERE name='Apollo · 1º Contato B (Resultado)')
             )),
             JSON_OBJECT('id','wait1','type','wait','x',360,'y',140,'next','cond1','data', JSON_OBJECT('amount',3,'unit','days')),
             JSON_OBJECT('id','cond1','type','condition','x',360,'y',260,'nextYes','done','nextNo','send2','data', JSON_OBJECT('kind','replied')),
             JSON_OBJECT('id','send2','type','send','x',360,'y',380,'next','wait2','data', JSON_OBJECT(
-                'template_id', (SELECT id FROM message_templates WHERE name='Apollo · Follow-up 1')
+                'template_id', (SELECT id FROM message_templates WHERE name='Apollo · Follow-up 1'),
+                'subject',     (SELECT subject FROM message_templates WHERE name='Apollo · Follow-up 1'),
+                'body',        (SELECT body FROM message_templates WHERE name='Apollo · Follow-up 1')
             )),
             JSON_OBJECT('id','wait2','type','wait','x',360,'y',500,'next','cond2','data', JSON_OBJECT('amount',3,'unit','days')),
             JSON_OBJECT('id','cond2','type','condition','x',360,'y',620,'nextYes','done','nextNo','revealph','data', JSON_OBJECT('kind','replied')),
             JSON_OBJECT('id','revealph','type','reveal_phone','x',360,'y',740,'next','waitph','data', JSON_OBJECT()),
             JSON_OBJECT('id','waitph','type','wait','x',360,'y',860,'next','wa1','data', JSON_OBJECT('amount',1,'unit','days')),
             JSON_OBJECT('id','wa1','type','whatsapp','x',360,'y',980,'next','wait3','data', JSON_OBJECT(
-                'template_id', (SELECT id FROM message_templates WHERE name='Apollo · WhatsApp 1º Contato')
+                'template_id', (SELECT id FROM message_templates WHERE name='Apollo · WhatsApp 1º Contato'),
+                'body',        (SELECT body FROM message_templates WHERE name='Apollo · WhatsApp 1º Contato')
             )),
             JSON_OBJECT('id','wait3','type','wait','x',360,'y',1100,'next','cond3','data', JSON_OBJECT('amount',2,'unit','days')),
             JSON_OBJECT('id','cond3','type','condition','x',360,'y',1220,'nextYes','done','nextNo','task1','data', JSON_OBJECT('kind','replied')),
-            JSON_OBJECT('id','task1','type','tag','x',360,'y',1340,'next','send3','data', JSON_OBJECT('label','call_task_sem_resposta')),
+            JSON_OBJECT('id','task1','type','tag','x',360,'y',1340,'next','send3','data', JSON_OBJECT('label','prospecao apollo - Sem Resposta','color','#f5a623')),
             JSON_OBJECT('id','send3','type','send','x',360,'y',1460,'next','wait4','data', JSON_OBJECT(
-                'template_id', (SELECT id FROM message_templates WHERE name='Apollo · Follow-up Final')
+                'template_id', (SELECT id FROM message_templates WHERE name='Apollo · Follow-up Final'),
+                'subject',     (SELECT subject FROM message_templates WHERE name='Apollo · Follow-up Final'),
+                'body',        (SELECT body FROM message_templates WHERE name='Apollo · Follow-up Final')
             )),
             JSON_OBJECT('id','wait4','type','wait','x',360,'y',1580,'next','cond4','data', JSON_OBJECT('amount',3,'unit','days')),
             JSON_OBJECT('id','cond4','type','condition','x',360,'y',1700,'nextYes','done','nextNo','cold','data', JSON_OBJECT('kind','replied')),
-            JSON_OBJECT('id','cold','type','tag','x',360,'y',1820,'next','done','data', JSON_OBJECT('label','cold_no_response')),
+            JSON_OBJECT('id','cold','type','tag','x',360,'y',1820,'next','done','data', JSON_OBJECT('label','prospecao apollo - Perdida','color','#d32f2f')),
             -- "Encerrar" à direita, ponto de convergência de todos os ramos "respondeu".
             JSON_OBJECT('id','done','type','end','x',720,'y',1940,'data', JSON_OBJECT())
         )

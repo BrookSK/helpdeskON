@@ -25,6 +25,7 @@
 .seq-node .port.in { top:-10px; left:calc(50% - 9px); background:#e9ecef; }
 .n-send .hd{color:#0d6efd} .n-whatsapp .hd{color:#198754} .n-wait .hd{color:#fd7e14} .n-condition .hd{color:#6f42c1}
 .n-tag .hd{color:#20c997} .n-score .hd{color:#e0a800} .n-move .hd{color:#0dcaf0} .n-end .hd{color:#dc3545}
+.n-reveal_phone .hd{color:#212529}
 #link-hint { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#1a1a2e; color:#fff;
     padding:8px 16px; border-radius:20px; font-size:0.8rem; z-index:2000; display:none; box-shadow:0 4px 12px rgba(0,0,0,.3); }
 </style>
@@ -132,6 +133,7 @@ function nodeSummary(n) {
         case 'tag': return 'Tag: ' + escapeHtml(d.label||'');
         case 'score': return 'Score ' + (d.delta>0?'+':'') + (d.delta||0);
         case 'move': { const c = COLUMNS.find(x=>x.id==d.column_id); return c ? escapeHtml(c.label) : '<em>escolher coluna</em>'; }
+        case 'reveal_phone': return 'Revela telefone no Apollo (se faltar)';
         case 'end': return 'Fim da sequência';
     }
     return '';
@@ -203,9 +205,10 @@ function defaultData(type) {
     if (type === 'whatsapp') return { body:'' };
     if (type === 'wait') return { amount:2, unit:'days' };
     if (type === 'condition') return { kind:'replied' };
-    if (type === 'tag') return { label:'' };
+    if (type === 'tag') return { label:'', color:'#00BFA6' };
     if (type === 'score') return { delta:3 };
     if (type === 'move') return { column_id:'' };
+    if (type === 'reveal_phone') return {};
     return {};
 }
 function delNode(id) {
@@ -287,7 +290,11 @@ function renderInspector() {
             <option value="opened" ${n.data.kind==='opened'?'selected':''}>Abriu?</option>
             <option value="clicked" ${n.data.kind==='clicked'?'selected':''}>Clicou?</option></select>`);
     } else if (n.type==='tag') {
-        h += field('Tag', `<input class="form-control form-control-sm" value="${escapeAttr(n.data.label||'')}" oninput="setData('label',this.value)">`);
+        h += field('Etiqueta (CRM)', `<input class="form-control form-control-sm" value="${escapeAttr(n.data.label||'')}" oninput="setData('label',this.value)" placeholder="Ex: Prospecção Apollo">`);
+        h += field('Cor', `<input type="color" class="form-control form-control-sm form-control-color" value="${escapeAttr(n.data.color||'#00BFA6')}" oninput="setData('color',this.value)">`);
+        h += `<small class="text-muted d-block">A etiqueta é criada no CRM (se não existir) e vinculada ao contato.</small>`;
+    } else if (n.type==='reveal_phone') {
+        h += `<p class="text-muted small mb-0">Solicita o telefone do lead à API do Apollo (reveal progressivo). Só consome crédito se o lead ainda não tiver telefone e possuir vínculo com o Apollo. O número chega via webhook e atualiza o contato.</p>`;
     } else if (n.type==='score') {
         h += field('Pontos (+/-)', `<input type="number" class="form-control form-control-sm" value="${n.data.delta||0}" oninput="setData('delta',parseInt(this.value)||0)">`);
     } else if (n.type==='move') {

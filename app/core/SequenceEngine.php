@@ -85,8 +85,55 @@ class SequenceEngine
         }
         if (!empty($parts)) {
             (new LeadTimelineService())->add($contactId, 'sequence_stop', 'Sequência(s) interrompida(s) — ' . $reason, ['reason' => $reason]);
+            // Ao RESPONDER, move o card para a coluna "Respondeu" (quando definida na
+            // campanha de prospecção que originou este lead). Aplica também etiqueta.
+            if ($reason === 'replied') {
+                $this->onReplyMoveCard($contactId);
+            }
         }
         return count($parts);
+    }
+
+    /**
+     * Move o card do lead para a coluna "Respondeu" da campanha de prospecção
+     * associada (se houver) e aplica a etiqueta correspondente. Silencioso se não
+     * houver campanha/coluna configurada.
+     */
+    private function onReplyMoveCard($contactId)
+    {
+        try {
+            // Coluna "Respondeu" do board da campanha que captou este lead.
+            $col = $this->db->fetch(
+                "SELECT col.id
+                 FROM apollo_leads al
+                 JOIN apollo_campaigns c ON c.id = (
+                     SELECT campaign_id FROM apollo_prospecting_log l
+                     WHERE l.contact_id = ? AND l.campaign_id IS NOT NULL
+                     ORDER BY l.id DESC LIMIT 1
+                 )
+                 JOIN crm_columns col ON col.board_id = c.board_id AND col.name = 'Respondeu'
+                 WHERE al.contact_id = ?
+                 LIMIT 1",
+                [$contactId, $contactId]
+            );
+            // Fallback: qualquer coluna 'Respondeu' de board de prospecção do lead
+            if (!$col) {
+                $col = $this->db->fetch(
+                    "SELECT col.id
+                     FROM crm_cards cc
+                     JOIN crm_columns cur ON cc.column_id = cur.id
+                     JOIN crm_columns col ON col.board_id = cur.board_id AND col.name = 'Respondeu'
+                     WHERE cc.contact_id = ?
+                     ORDER BY cc.id DESC LIMIT 1",
+                    [$contactId]
+                );
+            }
+            if ($col && !empty($col['id'])) {
+                $this->moveCard($contactId, (int)$col['id']);
+            }
+        } catch (\Throwable $e) {
+            Logger::error('onReplyMoveCard', ['contact' => $contactId, 'error' => $e->getMessage()]);
+        }
     }
 
     // ============ Execução (chamada pelo cron) ============
@@ -199,8 +246,11 @@ class SequenceEngine
                 return 'skipped';
 
             case 'tag':
-                $label = $node['data']['label'] ?? '';
-                if ($label) (new LeadTimelineService())->add($contactId, 'tag', 'Tag: ' . $label, ['tag' => $label]);
+                $label = trim($node['data']['label'] ?? '');
+                if ($label) {
+                    $this->applyLabel($contactId, $label, $node['data']['color'] ?? null);
+                    (new LeadTimelineService())->add($contactId, 'tag', 'Etiqueta aplicada: ' . $label, ['tag' => $label]);
+                }
                 $this->advance($participant, $node['next'] ?? null, $nodes);
                 $this->logExec($participant['id'], $nodeId, $type, 'done');
                 return 'skipped';
@@ -374,6 +424,29 @@ class SequenceEngine
             case 'replied':
             default: return !empty($msg['replied_at']);
         }
+    }
+
+    /**
+     * Cria (se necessário) uma etiqueta no CRM e a vincula ao contato.
+     * Usa as tabelas reais whatsapp_labels + whatsapp_contact_labels.
+     */
+    private function applyLabel($contactId, $label, $color = null)
+    {
+        $color = $color ?: '#00BFA6';
+        $row = $this->db->fetch("SELECT id FROM whatsapp_labels WHERE name = ? LIMIT 1", [$label]);
+        if ($row) {
+            $labelId = (int) $row['id'];
+        } else {
+            $labelId = $this->db->insert('whatsapp_labels', ['name' => $label, 'color' => $color]);
+        }
+        if (!$labelId) return;
+        try {
+            // UNIQUE (contact_id, label_id) evita duplicar
+            $this->db->query(
+                "INSERT IGNORE INTO whatsapp_contact_labels (contact_id, label_id) VALUES (?, ?)",
+                [$contactId, $labelId]
+            );
+        } catch (\Throwable $e) { /* silencioso */ }
     }
 
     private function moveCard($contactId, $columnId)
