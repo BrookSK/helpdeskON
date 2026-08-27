@@ -1942,7 +1942,7 @@ class CrmController extends Controller
                  JOIN sequence_participants sp ON e.participant_id = sp.id
                  JOIN email_sequences s ON sp.sequence_id = s.id
                  JOIN whatsapp_contacts wc ON sp.contact_id = wc.id
-                 WHERE s.name LIKE 'Prospecção Apollo%'
+                 WHERE s.name LIKE '%Apollo%'
                  ORDER BY e.id DESC
                  LIMIT 200"
             );
@@ -1958,7 +1958,7 @@ class CrmController extends Controller
                  FROM sequence_participants sp
                  JOIN email_sequences s ON sp.sequence_id = s.id
                  JOIN whatsapp_contacts wc ON sp.contact_id = wc.id
-                 WHERE s.name LIKE 'Prospecção Apollo%'
+                 WHERE s.name LIKE '%Apollo%'
                  ORDER BY sp.updated_at DESC
                  LIMIT 50"
             );
@@ -1981,7 +1981,18 @@ class CrmController extends Controller
             }
         } catch (\Throwable $e) { $errors = []; }
 
-        $this->json(['success' => true, 'steps' => $steps, 'participants' => $participants, 'errors' => $errors]);
+        // Log geral de prospecção (buscas, reveals, enrolls, testes)
+        $prospectLog = [];
+        try {
+            $prospectLog = $db->fetchAll(
+                "SELECT l.action, l.detail, l.credits, l.created_at, wc.contact_name, wc.lead_email
+                 FROM apollo_prospecting_log l
+                 LEFT JOIN whatsapp_contacts wc ON l.contact_id = wc.id
+                 ORDER BY l.id DESC LIMIT 100"
+            );
+        } catch (\Throwable $e) { $prospectLog = []; }
+
+        $this->json(['success' => true, 'steps' => $steps, 'participants' => $participants, 'prospect_log' => $prospectLog, 'errors' => $errors]);
     }
 
     // Helpers de campanha

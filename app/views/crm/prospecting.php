@@ -115,6 +115,18 @@
         </div>
 
         <div class="card mb-3">
+            <div class="card-header bg-white py-2 fw-semibold small"><i class="bi bi-journal-text"></i> Registro de prospecção</div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0" style="font-size:0.8rem;">
+                        <thead class="table-light"><tr><th>Quando</th><th>Ação</th><th>Lead</th><th>Detalhe</th><th>Créditos</th></tr></thead>
+                        <tbody id="exec-prospectlog"><tr><td colspan="5" class="text-center text-muted py-3">Carregando...</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-3">
             <div class="card-header bg-white py-2 fw-semibold small"><i class="bi bi-check2-square"></i> Etapas executadas</div>
             <div class="card-body p-0">
                 <div class="table-responsive">
@@ -347,6 +359,17 @@ function loadExecLog() {
                     <td class="text-muted">${escapeH(s.detail||'')}</td>
                 </tr>`;
             }).join('') : '<tr><td colspan="6" class="text-center text-muted py-3">Nenhuma etapa executada ainda.</td></tr>';
+
+            // Registro de prospecção
+            const plb = document.getElementById('exec-prospectlog');
+            const plog = d.prospect_log || [];
+            plb.innerHTML = plog.length ? plog.map(l => `<tr>
+                <td class="text-nowrap">${escapeH(l.created_at||'')}</td>
+                <td><span class="badge bg-light text-dark border">${escapeH(l.action||'')}</span></td>
+                <td>${escapeH(l.contact_name||l.lead_email||'—')}</td>
+                <td class="text-muted">${escapeH(l.detail||'')}</td>
+                <td>${escapeH(String(l.credits||0))}</td>
+            </tr>`).join('') : '<tr><td colspan="5" class="text-center text-muted py-3">Nenhum registro ainda.</td></tr>';
 
             // Erros
             const errs = d.errors || [];

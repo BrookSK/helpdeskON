@@ -96,6 +96,25 @@ class SequencesController extends Controller
         if (!$participant) $this->json(['error' => 'Nenhum lead nesta sequência. Adicione um lead antes de testar.'], 400);
 
         $result = $engine->runTest($participant['id']);
+
+        // Registra o teste no log de prospecção (aparece na aba "Logs de execução")
+        try {
+            $stepsTxt = [];
+            foreach (($result['steps'] ?? []) as $s) {
+                $stepsTxt[] = ($s['node'] ?? '?') . '→' . ($s['result'] ?? $s['error'] ?? '');
+            }
+            $final = $result['final'] ?? [];
+            Database::getInstance()->insert('apollo_prospecting_log', [
+                'campaign_id' => null,
+                'contact_id' => $participant['contact_id'],
+                'action' => 'test_run',
+                'detail' => 'Teste manual da sequência "' . $seq['name'] . '". Status final: '
+                    . ($final['status'] ?? '?') . ($final['stop_reason'] ? ' (' . $final['stop_reason'] . ')' : '')
+                    . ($final['ab_variant'] ? ' | A/B: ' . $final['ab_variant'] : '')
+                    . ' | Etapas: ' . implode(', ', $stepsTxt),
+            ]);
+        } catch (\Throwable $e) { /* silencioso */ }
+
         $this->json($result);
     }
 
