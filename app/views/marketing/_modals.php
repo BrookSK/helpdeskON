@@ -395,8 +395,10 @@ function fillItemForm(it) {
     const notifyBtn = document.getElementById('item-notify-btn');
     if (notifyBtn) notifyBtn.style.display = (canManage && it.assigned_to) ? '' : 'none';
 
-    // Ações de aprovação (admin, item aguardando aprovação)
-    if (IS_ADMIN && it.status === 'aguardando_aprovacao') {
+    // Ações de aprovação (admin): disponíveis enquanto a demanda estiver em andamento
+    // (qualquer status que não seja aprovado/publicado/rejeitado).
+    const approvableStatuses = ['ideia', 'em_producao', 'aguardando_aprovacao', 'agendado'];
+    if (IS_ADMIN && approvableStatuses.includes(it.status)) {
         document.querySelectorAll('.mkt-approval-action').forEach(b => b.style.display = '');
     }
 
