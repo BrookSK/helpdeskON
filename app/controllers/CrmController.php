@@ -1922,6 +1922,68 @@ class CrmController extends Controller
         $this->json(['success' => true, 'log' => $rows]);
     }
 
+    /**
+     * Logs de execução das sequências de prospecção (etapas concluídas) + erros.
+     * GET crm/prospectingExecLog
+     */
+    public function prospectingExecLog()
+    {
+        $this->requireRole(['super_admin']);
+        $db = Database::getInstance();
+
+        // Etapas executadas por participante das sequências de prospecção (Apollo).
+        $steps = [];
+        try {
+            $steps = $db->fetchAll(
+                "SELECT e.executed_at, e.node_id, e.node_type, e.result, e.detail,
+                        s.name AS sequence_name, wc.contact_name, wc.lead_email, wc.phone,
+                        sp.status AS participant_status, sp.stop_reason, sp.ab_variant
+                 FROM sequence_executions e
+                 JOIN sequence_participants sp ON e.participant_id = sp.id
+                 JOIN email_sequences s ON sp.sequence_id = s.id
+                 JOIN whatsapp_contacts wc ON sp.contact_id = wc.id
+                 WHERE s.name LIKE 'Prospecção Apollo%'
+                 ORDER BY e.id DESC
+                 LIMIT 200"
+            );
+        } catch (\Throwable $e) { $steps = []; }
+
+        // Participantes ativos/recentes das sequências de prospecção
+        $participants = [];
+        try {
+            $participants = $db->fetchAll(
+                "SELECT sp.id, sp.status, sp.current_node, sp.next_run_at, sp.stop_reason, sp.ab_variant,
+                        sp.started_at, sp.finished_at, s.name AS sequence_name,
+                        wc.contact_name, wc.lead_email, wc.phone
+                 FROM sequence_participants sp
+                 JOIN email_sequences s ON sp.sequence_id = s.id
+                 JOIN whatsapp_contacts wc ON sp.contact_id = wc.id
+                 WHERE s.name LIKE 'Prospecção Apollo%'
+                 ORDER BY sp.updated_at DESC
+                 LIMIT 50"
+            );
+        } catch (\Throwable $e) { $participants = []; }
+
+        // Erros recentes do arquivo de log da aplicação (só linhas de sequência/apollo)
+        $errors = [];
+        try {
+            $file = (defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__, 2)) . '/logs/app-error.log';
+            if (is_file($file)) {
+                $lines = @file($file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+                $lines = array_slice($lines, -400);
+                foreach (array_reverse($lines) as $ln) {
+                    if (stripos($ln, 'Sequence') !== false || stripos($ln, 'Apollo') !== false
+                        || stripos($ln, 'reveal') !== false || stripos($ln, 'runProspecting') !== false) {
+                        $errors[] = $ln;
+                        if (count($errors) >= 80) break;
+                    }
+                }
+            }
+        } catch (\Throwable $e) { $errors = []; }
+
+        $this->json(['success' => true, 'steps' => $steps, 'participants' => $participants, 'errors' => $errors]);
+    }
+
     // Helpers de campanha
     private function normalizeTime($v, $default)
     {

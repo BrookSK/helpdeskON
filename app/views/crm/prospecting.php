@@ -36,8 +36,14 @@
         </div>
     </div>
 
+    <!-- Abas -->
+    <ul class="nav nav-pills mb-3" id="prospect-tabs">
+        <li class="nav-item"><button class="nav-link active" data-tab="campaigns" onclick="switchProspectTab('campaigns')"><i class="bi bi-collection"></i> Campanhas</button></li>
+        <li class="nav-item"><button class="nav-link" data-tab="logs" onclick="switchProspectTab('logs')"><i class="bi bi-clock-history"></i> Logs de execução</button></li>
+    </ul>
+
     <!-- Lista de campanhas -->
-    <div class="card">
+    <div class="card" id="tab-campaigns">
         <div class="card-body p-0">
             <div class="table-responsive">
                 <table class="table table-hover align-middle mb-0" style="font-size:0.85rem;">
@@ -87,6 +93,45 @@
         </div>
     </div>
 </div>
+
+    <!-- Aba de logs de execução -->
+    <div id="tab-logs" style="display:none;">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <small class="text-muted">Etapas concluídas por cada lead nas sequências de prospecção, participantes e erros.</small>
+            <button class="btn btn-sm btn-outline-secondary" onclick="loadExecLog()"><i class="bi bi-arrow-clockwise"></i> Atualizar</button>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-header bg-white py-2 fw-semibold small"><i class="bi bi-people"></i> Participantes</div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0" style="font-size:0.8rem;">
+                        <thead class="table-light"><tr><th>Lead</th><th>E-mail</th><th>Telefone</th><th>Status</th><th>Nó atual</th><th>A/B</th><th>Próx. execução</th><th>Motivo</th></tr></thead>
+                        <tbody id="exec-participants"><tr><td colspan="8" class="text-center text-muted py-3">Carregando...</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-header bg-white py-2 fw-semibold small"><i class="bi bi-check2-square"></i> Etapas executadas</div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0" style="font-size:0.8rem;">
+                        <thead class="table-light"><tr><th>Quando</th><th>Lead</th><th>Etapa</th><th>Tipo</th><th>Resultado</th><th>Detalhe</th></tr></thead>
+                        <tbody id="exec-steps"><tr><td colspan="6" class="text-center text-muted py-3">Carregando...</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header bg-white py-2 fw-semibold small text-danger"><i class="bi bi-exclamation-triangle"></i> Erros recentes</div>
+            <div class="card-body">
+                <pre id="exec-errors" class="small mb-0" style="max-height:280px;overflow:auto;white-space:pre-wrap;background:#f8f9fa;padding:10px;border-radius:8px;">Carregando...</pre>
+            </div>
+        </div>
+    </div>
 
 <!-- Modal Campanha -->
 <div class="modal fade" id="campaignModal" tabindex="-1">
@@ -256,6 +301,58 @@ const CAMP_BOARDS = <?= json_encode(array_map(fn($b) => ['id' => $b['id'], 'colu
 let campModal, logModal;
 
 function copyCron() { navigator.clipboard.writeText(document.getElementById('cron-url').textContent); }
+
+// ===== Abas =====
+function switchProspectTab(tab) {
+    document.querySelectorAll('#prospect-tabs .nav-link').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+    document.getElementById('tab-campaigns').style.display = tab === 'campaigns' ? '' : 'none';
+    document.getElementById('tab-logs').style.display = tab === 'logs' ? '' : 'none';
+    if (tab === 'logs') loadExecLog();
+}
+
+const STEP_LABELS = { send:'E-mail', whatsapp:'WhatsApp', wait:'Aguardar', condition:'Condição', tag:'Etiqueta', score:'Score', move:'Mover card', reveal_phone:'Revelar (Apollo)', end:'Encerrar' };
+
+function loadExecLog() {
+    fetch(BASE + 'crm/prospectingExecLog', { headers:{'X-Requested-With':'XMLHttpRequest'} })
+        .then(r=>r.json()).then(d=>{
+            // Participantes
+            const pt = document.getElementById('exec-participants');
+            const parts = d.participants || [];
+            pt.innerHTML = parts.length ? parts.map(p => {
+                const st = { active:'success', paused:'warning', finished:'secondary', stopped:'info', failed:'danger' }[p.status] || 'secondary';
+                return `<tr>
+                    <td>${escapeH(p.contact_name||'—')}</td>
+                    <td>${escapeH(p.lead_email||'—')}</td>
+                    <td>${escapeH(p.phone||'—')}</td>
+                    <td><span class="badge bg-${st}">${escapeH(p.status)}</span></td>
+                    <td>${escapeH(p.current_node||'—')}</td>
+                    <td>${escapeH(p.ab_variant||'—')}</td>
+                    <td>${escapeH(p.next_run_at||'—')}</td>
+                    <td>${escapeH(p.stop_reason||'—')}</td>
+                </tr>`;
+            }).join('') : '<tr><td colspan="8" class="text-center text-muted py-3">Nenhum participante ainda.</td></tr>';
+
+            // Etapas
+            const stb = document.getElementById('exec-steps');
+            const steps = d.steps || [];
+            stb.innerHTML = steps.length ? steps.map(s => {
+                const rc = { done:'success', waiting:'warning', skipped:'secondary', failed:'danger' }[s.result] || 'secondary';
+                return `<tr>
+                    <td class="text-nowrap">${escapeH(s.executed_at||'')}</td>
+                    <td>${escapeH(s.contact_name||s.lead_email||'—')}</td>
+                    <td>${escapeH(s.node_id||'')}</td>
+                    <td>${escapeH(STEP_LABELS[s.node_type]||s.node_type)}</td>
+                    <td><span class="badge bg-${rc}">${escapeH(s.result||'')}</span></td>
+                    <td class="text-muted">${escapeH(s.detail||'')}</td>
+                </tr>`;
+            }).join('') : '<tr><td colspan="6" class="text-center text-muted py-3">Nenhuma etapa executada ainda.</td></tr>';
+
+            // Erros
+            const errs = d.errors || [];
+            document.getElementById('exec-errors').textContent = errs.length ? errs.join('\n') : 'Sem erros registrados.';
+        })
+        .catch(()=>{ document.getElementById('exec-errors').textContent = 'Erro ao carregar os logs.'; });
+}
 
 function onCampBoardChange() {
     const bid = document.getElementById('camp-board').value;
