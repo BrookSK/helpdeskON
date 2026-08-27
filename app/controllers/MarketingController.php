@@ -49,10 +49,13 @@ class MarketingController extends Controller
         $userModel = new User();
         // Responsáveis possíveis: marketing + super_admin
         $team = $userModel->getByRoles(['super_admin', 'marketing']);
+        // Aprovadores: sempre administradores
+        $approvers = $userModel->getByRoles(['super_admin']);
 
         $this->view('marketing/index', [
             'user' => $user,
             'team' => $team,
+            'approvers' => $approvers,
             'isAdmin' => $this->isAdmin(),
         ]);
     }
@@ -166,7 +169,7 @@ class MarketingController extends Controller
             'title' => $title,
             'scheduled_at' => !empty($_POST['scheduled_at']) ? $_POST['scheduled_at'] : null,
             'assigned_to' => $assignedTo,
-            'approver_id' => !empty($_POST['approver_id']) ? intval($_POST['approver_id']) : null,
+            'approver_id' => $this->validApproverId($_POST['approver_id'] ?? null),
             'created_by' => $user['id'],
             'social_network' => trim($_POST['social_network'] ?? '') ?: null,
             'briefing' => trim($_POST['briefing'] ?? '') ?: null,
@@ -228,7 +231,11 @@ class MarketingController extends Controller
         if ($isAdmin) {
             if (isset($_POST['scheduled_at'])) $data['scheduled_at'] = $_POST['scheduled_at'] ?: null;
             if (isset($_POST['assigned_to'])) $data['assigned_to'] = $_POST['assigned_to'] ?: null;
-            if (isset($_POST['approver_id'])) $data['approver_id'] = $_POST['approver_id'] ?: null;
+        }
+        // Aprovador: quem gerencia a demanda (marketing responsável ou admin) pode definir.
+        // Validado no helper para garantir que é um administrador.
+        if (isset($_POST['approver_id'])) {
+            $data['approver_id'] = $this->validApproverId($_POST['approver_id']);
         }
 
         // Status: marketing pode mudar entre os status de produção, mas não pode "aprovar".
@@ -301,6 +308,19 @@ class MarketingController extends Controller
             }
         }
         return false;
+    }
+
+    /**
+     * Valida que o aprovador informado é um administrador ativo.
+     * Retorna o id (int) ou null se inválido/vazio.
+     */
+    private function validApproverId($id)
+    {
+        $id = intval($id);
+        if (!$id) return null;
+        $u = (new User())->findById($id);
+        if ($u && ($u['role'] ?? '') === 'super_admin') return $id;
+        return null;
     }
 
     /**

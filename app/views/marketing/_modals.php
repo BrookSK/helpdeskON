@@ -46,12 +46,12 @@
                     <div class="col-sm-6" id="item-approver-wrap">
                         <label class="form-label small fw-medium">Aprovador</label>
                         <select id="item-approver" class="form-select form-select-sm">
-                            <option value="">Sem aprovador</option>
-                            <?php foreach ($team as $t): ?>
-                            <option value="<?= $t['id'] ?>"><?= escape($t['name']) ?> (<?= roleLabel($t['role']) ?>)</option>
+                            <option value="">Selecione o aprovador...</option>
+                            <?php foreach ($approvers as $ap): ?>
+                            <option value="<?= $ap['id'] ?>"><?= escape($ap['name']) ?></option>
                             <?php endforeach; ?>
                         </select>
-                        <small class="text-muted">Recebe notificação de envio e de ajustes.</small>
+                        <small class="text-muted">Escolha um administrador. Ele recebe notificação de envio e de ajustes.</small>
                     </div>
                     <div class="col-sm-6">
                         <label class="form-label small fw-medium">Status</label>
@@ -115,13 +115,17 @@
                     <button class="btn btn-sm btn-outline-danger" id="item-delete-btn" onclick="deleteItem()" style="display:none;"><i class="bi bi-trash"></i> Excluir</button>
                     <button class="btn btn-sm btn-outline-success" id="item-notify-btn" onclick="notifyResponsible()" style="display:none;" title="Reenviar a notificação ao responsável via WhatsApp"><i class="bi bi-whatsapp"></i> Notificar responsável</button>
                 </div>
-                <div class="d-flex gap-2">
+                <div class="d-flex gap-2 flex-wrap">
                     <!-- Ações de aprovação (admin) -->
                     <button class="btn btn-sm mkt-btn-warning mkt-approval-action" onclick="requestChanges()" style="display:none;"><i class="bi bi-arrow-counterclockwise"></i> Solicitar ajustes</button>
                     <button class="btn btn-sm mkt-btn-danger mkt-approval-action" onclick="rejectItem()" style="display:none;"><i class="bi bi-x-lg"></i> Rejeitar</button>
                     <button class="btn btn-sm btn-success mkt-approval-action" onclick="approveItem()" style="display:none;"><i class="bi bi-check-lg"></i> Aprovar</button>
                     <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Fechar</button>
+                    <!-- Salvar padrão (admin) -->
                     <button class="btn btn-sm btn-primary" id="item-save-btn" onclick="saveItem()"><i class="bi bi-check-lg"></i> Salvar</button>
+                    <!-- Salvar (marketing): rascunho ou enviar para revisão -->
+                    <button class="btn btn-sm btn-outline-secondary" id="item-save-draft-btn" onclick="saveItemAs('rascunho')" style="display:none;"><i class="bi bi-file-earmark"></i> Salvar como rascunho</button>
+                    <button class="btn btn-sm btn-primary" id="item-save-review-btn" onclick="saveItemAs('aguardando_aprovacao')" style="display:none;"><i class="bi bi-send"></i> Salvar e enviar para revisão</button>
                 </div>
             </div>
         </div>
@@ -230,6 +234,9 @@ function resetItemForm() {
     const bw = document.getElementById('item-buffer-wrap');
     if (bw) bw.style.display = 'none';
     document.getElementById('item-delete-btn').style.display = 'none';
+    const dbtn = document.getElementById('item-save-draft-btn'); if (dbtn) dbtn.style.display = 'none';
+    const rbtn = document.getElementById('item-save-review-btn'); if (rbtn) rbtn.style.display = 'none';
+    const sbtn = document.getElementById('item-save-btn'); if (sbtn) sbtn.style.display = '';
     const nbtn = document.getElementById('item-notify-btn');
     if (nbtn) nbtn.style.display = 'none';
     document.querySelectorAll('.mkt-approval-action').forEach(b => b.style.display = 'none');
@@ -285,10 +292,25 @@ function applyRoleUiForNew() {
         assignedWrap.style.display = 'none';
         document.querySelector('.mkt-marketing-only').style.display = '';
     }
-    // Aprovador: só admin define
+    // Aprovador (sempre um admin): marketing e admin podem escolher.
     if (approverWrap) {
-        approverWrap.style.display = IS_ADMIN ? '' : 'none';
-        document.getElementById('item-approver').disabled = !IS_ADMIN;
+        approverWrap.style.display = '';
+        document.getElementById('item-approver').disabled = false;
+    }
+    // Status: marketing usa os botões dedicados; select só habilitado p/ admin
+    document.getElementById('item-status').disabled = !IS_ADMIN;
+    // Botões de salvar por papel
+    const saveBtn = document.getElementById('item-save-btn');
+    const draftBtn = document.getElementById('item-save-draft-btn');
+    const reviewBtn = document.getElementById('item-save-review-btn');
+    if (IS_ADMIN) {
+        saveBtn.style.display = '';
+        if (draftBtn) draftBtn.style.display = 'none';
+        if (reviewBtn) reviewBtn.style.display = 'none';
+    } else {
+        saveBtn.style.display = 'none';
+        if (draftBtn) draftBtn.style.display = '';
+        if (reviewBtn) reviewBtn.style.display = '';
     }
     toggleApproveOption();
 }
@@ -334,9 +356,25 @@ function fillItemForm(it) {
     // Data: só admin altera
     document.getElementById('item-scheduled').disabled = !IS_ADMIN;
 
-    // Campos editáveis apenas por quem gerencia
-    ['item-title','item-social','item-briefing','item-copy','item-status'].forEach(f => document.getElementById(f).disabled = !canManage);
-    document.getElementById('item-save-btn').style.display = canManage ? '' : 'none';
+    // Campos de conteúdo: editáveis por quem gerencia (marketing responsável ou admin).
+    ['item-title','item-social','item-briefing','item-copy'].forEach(f => document.getElementById(f).disabled = !canManage);
+    // Status: admin edita livremente; marketing usa os botões (rascunho/revisão), então o select fica somente leitura.
+    document.getElementById('item-status').disabled = !IS_ADMIN;
+
+    // Botões de salvar conforme o papel
+    const saveBtn = document.getElementById('item-save-btn');
+    const draftBtn = document.getElementById('item-save-draft-btn');
+    const reviewBtn = document.getElementById('item-save-review-btn');
+    if (IS_ADMIN) {
+        saveBtn.style.display = canManage ? '' : 'none';
+        if (draftBtn) draftBtn.style.display = 'none';
+        if (reviewBtn) reviewBtn.style.display = 'none';
+    } else {
+        // Marketing: esconde o "Salvar" genérico e usa os dois botões dedicados
+        saveBtn.style.display = 'none';
+        if (draftBtn) draftBtn.style.display = canManage ? '' : 'none';
+        if (reviewBtn) reviewBtn.style.display = canManage ? '' : 'none';
+    }
     document.getElementById('item-delete-btn').style.display = canManage ? '' : 'none';
 
     // Alerta de ajustes
@@ -373,11 +411,11 @@ function fillItemForm(it) {
     document.getElementById('item-file').parentElement.style.display = canManage ? '' : 'none';
     renderAttachments(it.attachments || []);
 
-    // Aprovador: só admin edita; demais veem desabilitado
+    // Aprovador (sempre um admin): quem gerencia a demanda pode escolher.
     const apprWrap = document.getElementById('item-approver-wrap');
     if (apprWrap) {
         apprWrap.style.display = '';
-        document.getElementById('item-approver').disabled = !IS_ADMIN;
+        document.getElementById('item-approver').disabled = !canManage;
     }
 
     // Histórico da demanda
@@ -436,19 +474,43 @@ function collectItemPayload() {
     fd.append('status', document.getElementById('item-status').value);
     if (IS_ADMIN) {
         fd.append('assigned_to', document.getElementById('item-assigned').value);
-        fd.append('approver_id', document.getElementById('item-approver').value);
     }
+    // Aprovador pode ser definido por quem gerencia (marketing ou admin)
+    fd.append('approver_id', document.getElementById('item-approver').value);
     const hid = document.getElementById('item-holiday-id').value;
     if (hid) fd.append('holiday_id', hid);
     return fd;
 }
 
-function saveItem() {
+// Salvar do marketing com destino explícito: 'rascunho' ou 'aguardando_aprovacao'.
+function saveItemAs(targetStatus) {
+    const title = document.getElementById('item-title').value.trim();
+    if (!title) { alert('Informe o título.'); return; }
+
+    // Para enviar à revisão é obrigatório ter imagem (existente ou nova).
+    if (targetStatus === 'aguardando_aprovacao') {
+        const hasExisting = currentItem && currentItem.has_image;
+        const hasNewImg = pendingFiles.some(f => /\.(jpe?g|png|gif|webp|bmp|svg)$/i.test(f.name));
+        if (!hasExisting && !hasNewImg) {
+            alert('Anexe ao menos uma imagem para enviar à revisão. Sem imagem, salve como rascunho.');
+            return;
+        }
+    }
+    // Define o status desejado e reaproveita o fluxo de salvamento
+    document.getElementById('item-status').value = targetStatus;
+    saveItem(true);
+}
+
+function saveItem(skipDraftGuard) {
     const title = document.getElementById('item-title').value.trim();
     if (!title) { alert('Informe o título.'); return; }
     const id = document.getElementById('item-id').value;
     const statusSel = document.getElementById('item-status');
     const status = statusSel.value;
+    if (skipDraftGuard === true) {
+        // Chamado por saveItemAs — validação de imagem já feita; segue direto.
+        return doSaveItem(id);
+    }
 
     // Regra (marketing): sem imagem, só pode salvar como rascunho.
     const needsImage = ['em_producao','aguardando_aprovacao','aprovado','agendado','publicado'].includes(status);
@@ -461,6 +523,11 @@ function saveItem() {
         }
     }
 
+    doSaveItem(id);
+}
+
+// Executa o salvamento (create/update) + upload dos anexos pendentes.
+function doSaveItem(id) {
     const url = id ? `${BASE}marketing/update/${id}` : `${BASE}marketing/create`;
 
     fetch(url, { method: 'POST', body: collectItemPayload(), headers: {'X-Requested-With':'XMLHttpRequest'} })
