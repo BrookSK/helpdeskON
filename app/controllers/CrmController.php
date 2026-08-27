@@ -1924,6 +1924,30 @@ class CrmController extends Controller
     }
 
     /**
+     * Diagnóstico: simula a abertura do último e-mail de sequência enviado,
+     * registrando via o mesmo caminho do pixel. Confirma se o tracking grava.
+     * POST crm/testEmailOpen
+     */
+    public function testEmailOpen()
+    {
+        $this->requireRole(['super_admin']);
+        $db = Database::getInstance();
+        $msg = $db->fetch("SELECT track_token, recipient_email FROM email_messages WHERE origin='sequence' AND track_token IS NOT NULL ORDER BY id DESC LIMIT 1");
+        if (!$msg) $this->json(['error' => 'Nenhum e-mail de sequência enviado ainda.'], 404);
+        try {
+            (new EmailMessageService())->registerOpen($msg['track_token'], '127.0.0.1', 'DiagnosticoAberturaManual');
+        } catch (\Throwable $e) {
+            $this->json(['error' => 'Falha ao registrar: ' . $e->getMessage()], 500);
+        }
+        $base = trim((string) Config::get('app_public_url')) ?: rtrim(baseUrl(''), '/');
+        $this->json([
+            'success' => true,
+            'message' => 'Abertura simulada registrada para ' . $msg['recipient_email'] . '. Atualize os logs/dashboard.',
+            'pixel_url' => rtrim($base, '/') . '/track/open/' . $msg['track_token'],
+        ]);
+    }
+
+    /**
      * Logs de execução das sequências de prospecção (etapas concluídas) + erros.
      * GET crm/prospectingExecLog
      */

@@ -98,7 +98,10 @@
     <div id="tab-logs" style="display:none;">
         <div class="d-flex justify-content-between align-items-center mb-2">
             <small class="text-muted">Etapas concluídas por cada lead nas sequências de prospecção, participantes e erros.</small>
-            <button class="btn btn-sm btn-outline-secondary" onclick="loadExecLog()"><i class="bi bi-arrow-clockwise"></i> Atualizar</button>
+            <div class="d-flex gap-2">
+                <button class="btn btn-sm btn-outline-info" onclick="testEmailOpen(this)" title="Simula a abertura do último e-mail enviado para conferir se o tracking grava"><i class="bi bi-bug"></i> Testar registro de abertura</button>
+                <button class="btn btn-sm btn-outline-secondary" onclick="loadExecLog()"><i class="bi bi-arrow-clockwise"></i> Atualizar</button>
+            </div>
         </div>
 
         <div class="card mb-3">
@@ -551,6 +554,19 @@ function showLog(id) {
         });
 }
 function escapeH(s){ const d=document.createElement('div'); d.textContent=String(s??''); return d.innerHTML; }
+
+// Diagnóstico: simula a abertura do último e-mail e recarrega os logs
+function testEmailOpen(btn) {
+    const orig = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    fetch(BASE + 'crm/testEmailOpen', { method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'} })
+        .then(r=>r.json()).then(d=>{
+            btn.disabled = false; btn.innerHTML = orig;
+            if (d.error) { alert(d.error); return; }
+            alert((d.message||'Registrado.') + '\n\nURL do pixel:\n' + (d.pixel_url||''));
+            loadExecLog();
+        })
+        .catch(()=>{ btn.disabled=false; btn.innerHTML=orig; alert('Erro no diagnóstico.'); });
+}
 </script>
 
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>
