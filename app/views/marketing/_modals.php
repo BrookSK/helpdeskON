@@ -244,6 +244,11 @@ function resetItemForm() {
     document.getElementById('item-file').disabled = false;
     document.getElementById('item-file-btn').style.display = 'none';
     document.getElementById('item-file-hint').style.display = '';
+    // Reabilita todos os campos (podem ter sido desabilitados numa edição anterior)
+    ['item-title','item-scheduled','item-social','item-assigned','item-approver','item-briefing','item-copy','item-status'].forEach(f => {
+        const el = document.getElementById(f); if (el) el.disabled = false;
+    });
+    document.getElementById('item-file').parentElement.style.display = '';
 }
 
 // Seleção de arquivos: se item novo, acumula em pendingFiles; se edição, mostra botão de upload
