@@ -221,14 +221,24 @@ class SequenceEngine
             'stop_reason' => null, 'finished_at' => null, 'ab_variant' => null,
         ], 'id = ?', [$participantId]);
 
+        // Modo teste: remove bloqueios de descadastro/bounce do contato para não
+        // interromper o teste logo no início (dado real de opt-out é preservado em produção).
+        $this->db->update('whatsapp_contacts', ['unsubscribed' => 0, 'email_bounced' => 0], 'id = ?', [$p['contact_id']]);
+
         $steps = [];
         $sentByAccount = [];
+        // Resolve o start do grafo para rotular o primeiro passo corretamente
+        $seqRow = $this->db->fetch("SELECT graph FROM email_sequences WHERE id = ?", [$p['sequence_id']]);
+        $graph0 = json_decode($seqRow['graph'] ?? '{}', true);
+        $startNode = $graph0['start'] ?? ($graph0['nodes'][0]['id'] ?? null);
+
         for ($i = 0; $i < $maxSteps; $i++) {
             $p = $this->db->fetch("SELECT * FROM sequence_participants WHERE id = ?", [$participantId]);
             if (!$p || $p['status'] !== 'active') break;
+            $nodeBefore = $p['current_node'] ?: $startNode;
             try {
                 $r = $this->step($p, $sentByAccount, true); // testMode = true
-                $steps[] = ['node' => $p['current_node'], 'result' => $r];
+                $steps[] = ['node' => $nodeBefore, 'result' => $r];
                 if ($r === 'finished') break;
             } catch (\Throwable $e) {
                 Logger::error('SequenceEngine runTest', ['participant' => $participantId, 'error' => $e->getMessage()]);
