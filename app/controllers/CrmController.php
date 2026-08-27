@@ -1932,7 +1932,11 @@ class CrmController extends Controller
     {
         $this->requireRole(['super_admin']);
         $db = Database::getInstance();
-        $msg = $db->fetch("SELECT track_token, recipient_email FROM email_messages WHERE origin='sequence' AND track_token IS NOT NULL ORDER BY id DESC LIMIT 1");
+        // Prioriza uma mensagem COM variante A/B (para a taxa A/B refletir); senão, a última.
+        $msg = $db->fetch("SELECT track_token, recipient_email FROM email_messages WHERE origin='sequence' AND track_token IS NOT NULL AND ab_variant IS NOT NULL ORDER BY id DESC LIMIT 1");
+        if (!$msg) {
+            $msg = $db->fetch("SELECT track_token, recipient_email FROM email_messages WHERE origin='sequence' AND track_token IS NOT NULL ORDER BY id DESC LIMIT 1");
+        }
         if (!$msg) $this->json(['error' => 'Nenhum e-mail de sequência enviado ainda.'], 404);
         try {
             (new EmailMessageService())->registerOpen($msg['track_token'], '127.0.0.1', 'DiagnosticoAberturaManual');
