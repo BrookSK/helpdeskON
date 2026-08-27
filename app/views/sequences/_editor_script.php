@@ -36,6 +36,7 @@
 const BASE = '<?= baseUrl('') ?>';
 const SEQ_ID = <?= $sequence ? (int)$sequence['id'] : 'null' ?>;
 const COLUMNS = <?= json_encode(array_map(fn($c) => ['id'=>$c['id'],'name'=>$c['name'],'board_id'=>$c['board_id'],'board_name'=>$c['board_name'],'label'=>$c['board_name'].' · '.$c['name']], $columns), JSON_UNESCAPED_UNICODE) ?>;
+const LABELS = <?= json_encode(array_map(fn($l) => ['id'=>$l['id'],'name'=>$l['name'],'color'=>$l['color']], $labels ?? []), JSON_UNESCAPED_UNICODE) ?>;
 // Lista de boards únicos (para o seletor encadeado do bloco "mover card")
 const BOARDS = (function(){ const m={}; COLUMNS.forEach(c=>{ if(!m[c.board_id]) m[c.board_id]={id:c.board_id,name:c.board_name}; }); return Object.values(m); })();
 const NODE_LABELS = { send:'Enviar e-mail', whatsapp:'Enviar WhatsApp', wait:'Aguardar', condition:'Condição', tag:'Tag', score:'Score', move:'Mover card', reveal_phone:'Revelar telefone', end:'Encerrar' };
@@ -290,11 +291,33 @@ function renderInspector() {
             <option value="opened" ${n.data.kind==='opened'?'selected':''}>Abriu?</option>
             <option value="clicked" ${n.data.kind==='clicked'?'selected':''}>Clicou?</option></select>`);
     } else if (n.type==='tag') {
-        h += field('Etiqueta (CRM)', `<input class="form-control form-control-sm" value="${escapeAttr(n.data.label||'')}" oninput="setData('label',this.value)" placeholder="Ex: Prospecção Apollo">`);
-        h += field('Cor', `<input type="color" class="form-control form-control-sm form-control-color" value="${escapeAttr(n.data.color||'#00BFA6')}" oninput="setData('color',this.value)">`);
+        // Dropdown das etiquetas existentes + opção de criar nova
+        const cur = n.data.label || '';
+        const known = LABELS.some(l => l.name === cur);
+        let opts = '<option value="">— selecione uma etiqueta —</option>';
+        opts += LABELS.map(l => `<option value="${escapeAttr(l.name)}" data-color="${escapeAttr(l.color||'#00BFA6')}" ${l.name===cur?'selected':''}>${escapeHtml(l.name)}</option>`).join('');
+        opts += `<option value="__new__" ${(cur && !known)?'selected':''}>➕ Criar nova etiqueta…</option>`;
+        h += field('Etiqueta (CRM)', `<select class="form-select form-select-sm" id="insp-tag-select" onchange="onTagSelect(this)">${opts}</select>`);
+        // Campo para nome da nova etiqueta (aparece quando "criar nova")
+        const showNew = (cur && !known);
+        h += `<div id="insp-tag-new-wrap" class="mb-2" style="${showNew?'':'display:none;'}">
+            <label class="form-label small mb-1">Nome da nova etiqueta</label>
+            <input class="form-control form-control-sm" id="insp-tag-new" value="${showNew?escapeAttr(cur):''}" oninput="setData('label',this.value)" placeholder="Ex: prospecao apollo - Ativa">
+        </div>`;
+        h += field('Cor', `<input type="color" class="form-control form-control-sm form-control-color" id="insp-tag-color" value="${escapeAttr(n.data.color||'#00BFA6')}" oninput="setData('color',this.value)">`);
         h += `<small class="text-muted d-block">A etiqueta é criada no CRM (se não existir) e vinculada ao contato.</small>`;
     } else if (n.type==='reveal_phone') {
-        h += `<p class="text-muted small mb-0">Solicita o telefone do lead à API do Apollo (reveal progressivo). Só consome crédito se o lead ainda não tiver telefone e possuir vínculo com o Apollo. O número chega via webhook e atualiza o contato.</p>`;
+        const rp = (n.data.reveal_phone === undefined) ? true : !!n.data.reveal_phone;
+        const re = !!n.data.reveal_email;
+        h += `<div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" id="insp-rv-phone" ${rp?'checked':''} onchange="setData('reveal_phone', this.checked?1:0)">
+            <label class="form-check-label small" for="insp-rv-phone"><i class="bi bi-telephone"></i> Revelar telefone (existente)</label>
+        </div>
+        <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" id="insp-rv-email" ${re?'checked':''} onchange="setData('reveal_email', this.checked?1:0)">
+            <label class="form-check-label small" for="insp-rv-email"><i class="bi bi-envelope"></i> Revelar e-mail</label>
+        </div>
+        <p class="text-muted small mb-0">Solicita ao Apollo apenas os dados marcados que ainda faltarem no lead (reveal progressivo). Só consome crédito quando o dado não existe e há vínculo com o Apollo. O telefone chega via webhook.</p>`;
     } else if (n.type==='score') {
         h += field('Pontos (+/-)', `<input type="number" class="form-control form-control-sm" value="${n.data.delta||0}" oninput="setData('delta',parseInt(this.value)||0)">`);
     } else if (n.type==='move') {
@@ -377,6 +400,30 @@ function abBlock(n, channel) {
     return h;
 }
 function toggleAb(on) { setData('ab_enabled', on ? 1 : 0); renderInspector(); bindInspectorVars(); }
+
+// Dropdown de etiqueta: escolhe existente (preenche cor) ou abre campo de nova
+function onTagSelect(sel) {
+    const val = sel.value;
+    const newWrap = document.getElementById('insp-tag-new-wrap');
+    if (val === '__new__') {
+        if (newWrap) newWrap.style.display = '';
+        const inp = document.getElementById('insp-tag-new');
+        setData('label', inp ? inp.value : '');
+        if (inp) inp.focus();
+        return;
+    }
+    if (newWrap) newWrap.style.display = 'none';
+    setData('label', val);
+    // Preenche a cor da etiqueta escolhida
+    const opt = sel.options[sel.selectedIndex];
+    const color = opt ? opt.getAttribute('data-color') : null;
+    if (color) {
+        setData('color', color);
+        const c = document.getElementById('insp-tag-color'); if (c) c.value = color;
+    }
+    // Atualiza o resumo do bloco
+    const n = nodes.find(x=>x.id===selectedId); if (n) refreshNodeBody(n);
+}
 
 function loadTemplatesForEditor() {
     fetch(BASE + 'sequences/templates', {headers:{'X-Requested-With':'XMLHttpRequest'}})

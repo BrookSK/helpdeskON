@@ -86,7 +86,7 @@ SET graph = JSON_OBJECT(
         )),
         JSON_OBJECT('id','wait2','type','wait','x',360,'y',500,'next','cond2','data', JSON_OBJECT('amount',3,'unit','days')),
         JSON_OBJECT('id','cond2','type','condition','x',360,'y',620,'nextYes','moved','nextNo','revealph','data', JSON_OBJECT('kind','replied')),
-        JSON_OBJECT('id','revealph','type','reveal_phone','x',360,'y',740,'next','waitph','data', JSON_OBJECT()),
+        JSON_OBJECT('id','revealph','type','reveal_phone','x',360,'y',740,'next','waitph','data', JSON_OBJECT('reveal_phone',1,'reveal_email',0)),
         JSON_OBJECT('id','waitph','type','wait','x',360,'y',860,'next','wa1','data', JSON_OBJECT('amount',1,'unit','days')),
         JSON_OBJECT('id','wa1','type','whatsapp','x',360,'y',980,'next','wait3','data', JSON_OBJECT(
             'template_id', (SELECT id FROM message_templates WHERE name='Apollo · WhatsApp 1º Contato'),

@@ -216,9 +216,9 @@ class SequenceEngine
                 return 'sent';
 
             case 'reveal_phone':
-                // Reveal PROGRESSIVO: só solicita o telefone se o lead ainda não tem número.
-                // Economiza créditos — telefone só é revelado quando o fluxo precisa (WhatsApp/ligação).
-                $this->doRevealPhone($participant);
+                // Reveal PROGRESSIVO: revela só os dados marcados (telefone e/ou e-mail)
+                // que ainda faltam no lead. Economiza créditos.
+                $this->doReveal($participant, $node['data'] ?? []);
                 $this->advance($participant, $node['next'] ?? null, $nodes);
                 $this->logExec($participant['id'], $nodeId, $type, 'done');
                 return 'skipped';
@@ -363,39 +363,74 @@ class SequenceEngine
     }
 
     /**
-     * Reveal progressivo de telefone: só consome crédito Apollo se o lead ainda
-     * não tem telefone e possui um apollo_leads vinculado. O número chega de forma
-     * assíncrona via webhook (crm/apolloPhoneWebhook) e atualiza o mesmo registro.
+     * Reveal progressivo: revela ao Apollo apenas os dados marcados no bloco
+     * (telefone e/ou e-mail) que AINDA FALTAM no lead. Não gasta crédito com o que
+     * já existe. Telefone chega de forma assíncrona via webhook.
+     * $data: ['reveal_phone'=>0/1 (default 1), 'reveal_email'=>0/1]
      */
-    private function doRevealPhone($participant)
+    private function doReveal($participant, $data = [])
     {
         $contactId = $participant['contact_id'];
-        $contact = $this->db->fetch("SELECT phone FROM whatsapp_contacts WHERE id = ?", [$contactId]);
-        // Já tem telefone válido? Não gasta crédito.
-        if ($contact && !empty($contact['phone'])) return;
+        // Por padrão o bloco revela telefone; e-mail só se marcado.
+        $wantPhone = array_key_exists('reveal_phone', $data) ? !empty($data['reveal_phone']) : true;
+        $wantEmail = !empty($data['reveal_email']);
+
+        $contact = $this->db->fetch("SELECT phone, lead_email FROM whatsapp_contacts WHERE id = ?", [$contactId]);
+        $hasPhone = $contact && !empty($contact['phone']);
+        $hasEmail = $contact && !empty($contact['lead_email']);
+
+        // Nada a revelar (já tem tudo o que foi pedido)? sai sem gastar crédito.
+        $needPhone = $wantPhone && !$hasPhone;
+        $needEmail = $wantEmail && !$hasEmail;
+        if (!$needPhone && !$needEmail) return;
 
         // Localiza o staging Apollo vinculado a este lead
         $lead = $this->db->fetch("SELECT * FROM apollo_leads WHERE contact_id = ? ORDER BY id DESC LIMIT 1", [$contactId]);
         if (!$lead || empty($lead['apollo_id'])) return;
-        // Já solicitado antes? evita duplicar chamada
-        if (($lead['phone_status'] ?? null) === 'pending') return;
 
         try {
             $apollo = new ApolloApi();
             if (!$apollo->isConfigured()) return;
 
-            $webhookToken = trim((string) Config::get('apollo_webhook_token'));
-            $base = rtrim(baseUrl(''), '/');
-            if ($base === '' || stripos($base, 'http') !== 0) return; // sem URL pública, não dá para receber o retorno
-            $webhookUrl = $base . '/crm/apolloPhoneWebhook' . ($webhookToken !== '' ? '?token=' . rawurlencode($webhookToken) : '');
+            $params = ['id' => $lead['apollo_id']];
 
-            $res = $apollo->enrichPerson([
-                'id' => $lead['apollo_id'],
-                'reveal_phone_number' => true,
-                'webhook_url' => $webhookUrl,
-            ]);
-            if (!empty($res['success'])) {
-                $person = $res['data']['person'] ?? null;
+            // E-mail: síncrono. Revela e grava se ainda faltava.
+            if ($needEmail) {
+                $params['reveal_personal_emails'] = true;
+            }
+            // Telefone: assíncrono via webhook (evita duplicar se já pendente).
+            $phonePending = ($lead['phone_status'] ?? null) === 'pending';
+            $doPhone = $needPhone && !$phonePending;
+            if ($doPhone) {
+                $webhookToken = trim((string) Config::get('apollo_webhook_token'));
+                $base = rtrim(baseUrl(''), '/');
+                if ($base !== '' && stripos($base, 'http') === 0) {
+                    $params['reveal_phone_number'] = true;
+                    $params['webhook_url'] = $base . '/crm/apolloPhoneWebhook' . ($webhookToken !== '' ? '?token=' . rawurlencode($webhookToken) : '');
+                } else {
+                    $doPhone = false; // sem URL pública não há como receber o telefone
+                }
+            }
+
+            if (empty($params['reveal_personal_emails']) && empty($params['reveal_phone_number'])) return;
+
+            $res = $apollo->enrichPerson($params);
+            if (empty($res['success'])) return;
+
+            $person = $res['data']['person'] ?? null;
+
+            // Grava e-mail revelado (síncrono)
+            if ($needEmail && $person) {
+                $email = $this->extractRevealedEmail($person);
+                if ($email) {
+                    $this->db->update('whatsapp_contacts', ['lead_email' => $email], 'id = ?', [$contactId]);
+                    $this->db->update('apollo_leads', ['email' => $email, 'is_enriched' => 1], 'id = ?', [$lead['id']]);
+                    (new LeadTimelineService())->add($contactId, 'note', 'E-mail revelado pelo Apollo (progressivo).', ['channel' => 'apollo']);
+                }
+            }
+
+            // Marca telefone como pendente (chega via webhook)
+            if ($doPhone) {
                 $requestId = $person['id'] ?? ($res['data']['request_id'] ?? null);
                 $this->db->update('apollo_leads', [
                     'phone_status' => 'pending',
@@ -405,8 +440,24 @@ class SequenceEngine
                 (new LeadTimelineService())->add($contactId, 'note', 'Reveal de telefone solicitado ao Apollo (progressivo).', ['channel' => 'apollo']);
             }
         } catch (\Throwable $e) {
-            Logger::error('SequenceEngine reveal_phone', ['contact' => $contactId, 'error' => $e->getMessage()]);
+            Logger::error('SequenceEngine reveal', ['contact' => $contactId, 'error' => $e->getMessage()]);
         }
+    }
+
+    /** Extrai o e-mail real do payload do Apollo (ignora placeholders bloqueados). */
+    private function extractRevealedEmail($person)
+    {
+        $isReal = fn($e) => !empty($e) && stripos($e, 'email_not_unlocked') === false && stripos($e, 'domain.com') === false && filter_var($e, FILTER_VALIDATE_EMAIL);
+        if ($isReal($person['email'] ?? null)) return $person['email'];
+        foreach (['personal_emails', 'contact_emails'] as $k) {
+            if (!empty($person[$k]) && is_array($person[$k])) {
+                foreach ($person[$k] as $item) {
+                    $v = is_array($item) ? ($item['email'] ?? null) : $item;
+                    if ($isReal($v)) return $v;
+                }
+            }
+        }
+        return null;
     }
 
     private function evalCondition($kind, $contactId)

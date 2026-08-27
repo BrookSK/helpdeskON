@@ -48,12 +48,15 @@ class SequencesController extends Controller
              FROM crm_columns col JOIN crm_boards b ON col.board_id = b.id
              WHERE b.is_active = 1 ORDER BY b.name, col.position"
         );
+        // Etiquetas existentes no CRM (para o dropdown do bloco "tag")
+        $labels = $db->fetchAll("SELECT id, name, color FROM whatsapp_labels ORDER BY name");
 
         $this->view('sequences/edit', [
             'user' => $user,
             'sequence' => $seq,
             'accounts' => $accounts,
             'columns' => $columns,
+            'labels' => $labels,
         ]);
     }
 
