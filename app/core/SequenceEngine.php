@@ -174,8 +174,43 @@ class SequenceEngine
         return $stats;
     }
 
-    /** Executa um passo do participante (um nó). */
-    private function step($participant, &$sentByAccount)
+    /**
+     * MODO TESTE: executa o fluxo inteiro do participante de uma vez, pulando as
+     * esperas (wait) e ignorando janela/limite de envio. Registra cada etapa nos
+     * logs (sequence_executions). Retorna as etapas executadas.
+     */
+    public function runTest($participantId, $maxSteps = 40)
+    {
+        $p = $this->db->fetch("SELECT * FROM sequence_participants WHERE id = ?", [$participantId]);
+        if (!$p) return ['error' => 'Participante não encontrado.'];
+
+        // Reativa e volta ao início para um teste limpo
+        $this->db->update('sequence_participants', [
+            'status' => 'active', 'current_node' => null, 'next_run_at' => date('Y-m-d H:i:s'),
+            'stop_reason' => null, 'finished_at' => null, 'ab_variant' => null,
+        ], 'id = ?', [$participantId]);
+
+        $steps = [];
+        $sentByAccount = [];
+        for ($i = 0; $i < $maxSteps; $i++) {
+            $p = $this->db->fetch("SELECT * FROM sequence_participants WHERE id = ?", [$participantId]);
+            if (!$p || $p['status'] !== 'active') break;
+            try {
+                $r = $this->step($p, $sentByAccount, true); // testMode = true
+                $steps[] = ['node' => $p['current_node'], 'result' => $r];
+                if ($r === 'finished') break;
+            } catch (\Throwable $e) {
+                Logger::error('SequenceEngine runTest', ['participant' => $participantId, 'error' => $e->getMessage()]);
+                $steps[] = ['error' => $e->getMessage()];
+                break;
+            }
+        }
+        $final = $this->db->fetch("SELECT status, stop_reason, ab_variant FROM sequence_participants WHERE id = ?", [$participantId]);
+        return ['success' => true, 'steps' => $steps, 'final' => $final];
+    }
+
+    /** Executa um passo do participante (um nó). $testMode pula esperas/janela. */
+    private function step($participant, &$sentByAccount, $testMode = false)
     {
         $seq = $this->db->fetch("SELECT * FROM email_sequences WHERE id = ?", [$participant['sequence_id']]);
         $graph = json_decode($seq['graph'] ?? '{}', true);
@@ -201,16 +236,18 @@ class SequenceEngine
 
         switch ($type) {
             case 'send':
-                // Respeita janela de horário e limite diário
-                if (!$this->withinWindow($seq)) { $this->reschedule($participant, $this->nextWindowStart($seq)); return 'skipped'; }
-                $key = $seq['id'];
-                $sentByAccount[$key] = ($sentByAccount[$key] ?? 0);
-                if ($this->sentToday($seq['id']) + $sentByAccount[$key] >= (int) $seq['daily_limit']) {
-                    $this->reschedule($participant, date('Y-m-d H:i:s', strtotime('+1 hour')));
-                    return 'skipped';
+                // Respeita janela de horário e limite diário (ignorado no modo teste)
+                if (!$testMode) {
+                    if (!$this->withinWindow($seq)) { $this->reschedule($participant, $this->nextWindowStart($seq)); return 'skipped'; }
+                    $key = $seq['id'];
+                    $sentByAccount[$key] = ($sentByAccount[$key] ?? 0);
+                    if ($this->sentToday($seq['id']) + $sentByAccount[$key] >= (int) $seq['daily_limit']) {
+                        $this->reschedule($participant, date('Y-m-d H:i:s', strtotime('+1 hour')));
+                        return 'skipped';
+                    }
+                    $sentByAccount[$key] = ($sentByAccount[$key] ?? 0) + 1;
                 }
                 $this->doSend($participant, $seq, $node);
-                $sentByAccount[$key]++;
                 $this->advance($participant, $node['next'] ?? null, $nodes);
                 $this->logExec($participant['id'], $nodeId, $type, 'done');
                 return 'sent';
@@ -230,7 +267,8 @@ class SequenceEngine
                 return 'sent';
 
             case 'wait':
-                $secs = $this->waitSeconds($node['data'] ?? []);
+                // Modo teste: pula a espera e segue imediatamente
+                $secs = $testMode ? 0 : $this->waitSeconds($node['data'] ?? []);
                 $this->db->update('sequence_participants', [
                     'current_node' => $node['next'] ?? null,
                     'next_run_at' => date('Y-m-d H:i:s', time() + $secs),

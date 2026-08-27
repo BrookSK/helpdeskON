@@ -492,6 +492,22 @@ function saveSeq() {
         });
 }
 
+// Testa a sequência inteira agora (fluxo completo, pulando esperas) e mostra o resultado.
+function testSequence(btn) {
+    if (!SEQ_ID) { alert('Salve a sequência antes de testar.'); return; }
+    if (!confirm('Executar a sequência inteira AGORA em modo teste?\n\nRoda o fluxo completo pulando as esperas. Usa o lead já inscrito (ou o primeiro da sequência). E-mails/WhatsApp reais serão enviados se houver conta configurada.')) return;
+    const orig = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Testando...';
+    fetch(BASE + 'sequences/runTest/' + SEQ_ID, { method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'} })
+        .then(r=>r.json()).then(d=>{
+            btn.disabled = false; btn.innerHTML = orig;
+            if (d.error) { alert(d.error); return; }
+            const steps = (d.steps||[]).map(s => '• ' + (s.node||'?') + ' → ' + (s.result||s.error||'')).join('\n');
+            const f = d.final || {};
+            alert('Teste concluído.\n\nStatus final: ' + (f.status||'?') + (f.stop_reason?(' ('+f.stop_reason+')'):'') + (f.ab_variant?('\nVariante A/B: '+f.ab_variant):'') + '\n\nEtapas:\n' + (steps||'nenhuma') + '\n\nVeja detalhes em CRM → Prospecção Automática → Logs de execução.');
+        })
+        .catch(()=>{ btn.disabled=false; btn.innerHTML=orig; alert('Erro ao testar.'); });
+}
+
 let partModal = null;
 function openParticipants() {
     if (!SEQ_ID) return;

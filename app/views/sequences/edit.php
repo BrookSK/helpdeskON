@@ -11,6 +11,7 @@
         </div>
         <div class="d-flex gap-2">
             <button class="btn btn-sm btn-outline-primary" onclick="openParticipants()" <?= $sequence ? '' : 'disabled title="Salve primeiro"' ?>><i class="bi bi-people"></i> Leads</button>
+            <button class="btn btn-sm btn-outline-success" onclick="testSequence(this)" <?= $sequence ? '' : 'disabled title="Salve primeiro"' ?>><i class="bi bi-play-circle"></i> Testar agora</button>
             <button class="btn btn-sm btn-primary" onclick="saveSeq()"><i class="bi bi-check-lg"></i> Salvar</button>
         </div>
     </div>
