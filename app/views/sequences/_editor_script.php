@@ -78,6 +78,17 @@ function autoLayoutNodes(startId) {
 
 const canvas = () => document.getElementById('canvas');
 const svg = () => document.getElementById('edges');
+
+// ================= Zoom =================
+let ZOOM = 1;
+function applyZoom() {
+    const z = document.getElementById('canvas-zoom');
+    if (z) z.style.transform = `scale(${ZOOM})`;
+    const lbl = document.getElementById('zoom-label');
+    if (lbl) lbl.textContent = Math.round(ZOOM * 100) + '%';
+}
+function zoomStep(delta) { ZOOM = Math.min(1.6, Math.max(0.4, Math.round((ZOOM + delta) * 10) / 10)); applyZoom(); }
+function zoomReset() { ZOOM = 1; applyZoom(); }
 function uid() { return 'n' + Math.random().toString(36).slice(2, 8); }
 
 // ================= Render (uma vez; depois updates pontuais) =================
@@ -171,8 +182,8 @@ function startDrag(e, n) {
     el.style.cursor = 'grabbing'; el.style.zIndex = 10;
     let raf = null;
     function move(ev) {
-        n.x = Math.max(0, ox + (ev.clientX - startX));
-        n.y = Math.max(0, oy + (ev.clientY - startY));
+        n.x = Math.max(0, ox + (ev.clientX - startX) / ZOOM);
+        n.y = Math.max(0, oy + (ev.clientY - startY) / ZOOM);
         if (!raf) raf = requestAnimationFrame(() => {
             raf = null;
             el.style.transform = `translate(${n.x}px, ${n.y}px)`;
@@ -528,4 +539,5 @@ document.addEventListener('keydown', (e)=>{ if (e.key==='Escape' && linkFrom) ca
 
 loadTemplatesForEditor();
 buildAll();
+applyZoom();
 </script>

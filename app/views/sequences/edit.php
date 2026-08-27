@@ -76,12 +76,25 @@
     </div>
 
     <!-- Canvas em largura total -->
-    <div class="card">
+    <div class="card position-relative">
+        <!-- Controles de zoom -->
+        <div class="seq-zoom-ctrl">
+            <button type="button" class="btn btn-sm btn-light border" onclick="zoomStep(0.1)" title="Aproximar"><i class="bi bi-zoom-in"></i></button>
+            <button type="button" class="btn btn-sm btn-light border" onclick="zoomReset()" title="Redefinir zoom"><span id="zoom-label">100%</span></button>
+            <button type="button" class="btn btn-sm btn-light border" onclick="zoomStep(-0.1)" title="Afastar"><i class="bi bi-zoom-out"></i></button>
+        </div>
         <div class="card-body p-0" id="canvas-wrap">
-            <svg id="edges" style="position:absolute;top:0;left:0;width:3000px;height:3000px;pointer-events:none;"></svg>
-            <div id="canvas" style="position:relative;width:3000px;height:3000px;"></div>
+            <div id="canvas-zoom" style="transform-origin:0 0;width:3000px;height:3000px;position:relative;">
+                <svg id="edges" style="position:absolute;top:0;left:0;width:3000px;height:3000px;pointer-events:none;"></svg>
+                <div id="canvas" style="position:relative;width:3000px;height:3000px;"></div>
+            </div>
         </div>
     </div>
+    <style>
+    .seq-zoom-ctrl { position:absolute; top:8px; right:8px; z-index:50; display:flex; flex-direction:column; gap:4px; }
+    .seq-zoom-ctrl .btn { width:38px; padding:4px 0; }
+    #zoom-label { font-size:0.7rem; }
+    </style>
 
     <!-- Propriedades: drawer flutuante (não ocupa espaço do canvas) -->
     <div id="inspector-drawer">

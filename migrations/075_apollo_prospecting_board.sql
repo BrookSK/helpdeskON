@@ -66,9 +66,9 @@ UPDATE email_sequences
 SET graph = JSON_OBJECT(
     'start', 'tagativa',
     'nodes', JSON_ARRAY(
-        -- Marca o lead como "Ativa" ao entrar na sequência
-        JSON_OBJECT('id','tagativa','type','tag','x',360,'y',-100,'next','send1','data', JSON_OBJECT('label','prospecao apollo - Ativa','color','#0d6efd')),
-        JSON_OBJECT('id','send1','type','send','x',360,'y',20,'next','wait1','data', JSON_OBJECT(
+        -- Marca o lead como "Ativa" ao entrar na sequência (posicionado à esquerda)
+        JSON_OBJECT('id','tagativa','type','tag','x',40,'y',40,'next','send1','data', JSON_OBJECT('label','prospecao apollo - Ativa','color','#0d6efd')),
+        JSON_OBJECT('id','send1','type','send','x',360,'y',40,'next','wait1','data', JSON_OBJECT(
             'ab_enabled', true,
             'template_id',   (SELECT id FROM message_templates WHERE name='Apollo · 1º Contato A (Dor)'),
             'template_id_b', (SELECT id FROM message_templates WHERE name='Apollo · 1º Contato B (Resultado)'),
