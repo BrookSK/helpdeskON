@@ -224,8 +224,11 @@ class EmailMessageService
             return 'href="' . $url . '"';
         }, $html);
 
-        // 2) Pixel de abertura + link de descadastro no rodapé
-        $pixel = '<img src="' . $base . '/track/open/' . $token . '" width="1" height="1" style="display:none" alt="">';
+        // 2) Pixel de abertura + link de descadastro no rodapé.
+        // Evita display:none (Gmail/Outlook costumam não carregar imagens ocultas).
+        // Usa 1x1 visível com cache-buster para forçar o carregamento a cada abertura.
+        $pixelUrl = $base . '/track/open/' . $token . '?t=' . time();
+        $pixel = '<img src="' . $pixelUrl . '" width="1" height="1" border="0" alt="" style="width:1px;height:1px;border:0;margin:0;padding:0;">';
         $unsub = '<div style="margin-top:16px;font-size:11px;color:#999;">Se não deseja mais receber e-mails, <a href="' . $base . '/track/unsub/' . $token . '">clique aqui para descadastrar</a>.</div>';
         return $html . $unsub . $pixel;
     }
