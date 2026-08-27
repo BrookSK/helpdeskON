@@ -68,7 +68,38 @@ class SequenceEngine
         }
 
         (new LeadTimelineService())->add($contactId, 'sequence_start', 'Adicionado à sequência: ' . $seq['name'], ['sequence_id' => $sequenceId], $userId);
+
+        // Sequências de prospecção Apollo: garante que o lead tenha um card no board
+        // "Prospecção Automática" (coluna "Novo"), se ainda não tiver nenhum card.
+        if (stripos($seq['name'] ?? '', 'Apollo') !== false) {
+            $this->ensureProspectingCard($contactId, $userId);
+        }
+
         return ['success' => true, 'participant_id' => $participantId];
+    }
+
+    /** Cria o card do lead na coluna "Novo" do board de Prospecção Automática, se faltar. */
+    private function ensureProspectingCard($contactId, $userId = null)
+    {
+        try {
+            $exists = $this->db->fetch("SELECT id FROM crm_cards WHERE contact_id = ? LIMIT 1", [$contactId]);
+            if ($exists) return;
+            $col = $this->db->fetch(
+                "SELECT col.id FROM crm_columns col
+                 JOIN crm_boards b ON col.board_id = b.id
+                 WHERE b.name = 'Prospecção Automática' AND col.name = 'Novo'
+                 ORDER BY col.position ASC LIMIT 1"
+            );
+            if (!$col) return;
+            $c = $this->db->fetch("SELECT contact_name, assigned_to FROM whatsapp_contacts WHERE id = ?", [$contactId]);
+            (new CrmBoard())->createCard([
+                'column_id' => (int)$col['id'],
+                'title' => $c['contact_name'] ?: ('Lead #' . $contactId),
+                'contact_id' => $contactId,
+                'created_by' => $userId,
+                'assigned_to' => $c['assigned_to'] ?? $userId,
+            ]);
+        } catch (\Throwable $e) { /* silencioso */ }
     }
 
     /** Interrompe todas as sequências ativas de um lead (resposta, bounce, unsub, manual). */

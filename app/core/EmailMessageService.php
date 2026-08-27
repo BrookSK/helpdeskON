@@ -86,19 +86,29 @@ class EmailMessageService
 
             // Espelha na caixa de enviados (email_prospections) para aparecer no
             // Histórico de Prospecção — inclusive envios automáticos das sequências.
+            // user_id e email_account_id são NOT NULL: usa fallbacks quando o envio
+            // veio de uma sequência (sem usuário logado).
             try {
                 $cName = $this->db->fetch("SELECT contact_name FROM whatsapp_contacts WHERE id = ?", [$contactId]);
-                $this->prospection->create([
-                    'user_id' => $params['sent_by'] ?? null,
-                    'email_account_id' => $account['id'] ?? null,
-                    'contact_id' => $contactId,
-                    'recipient_email' => $to,
-                    'recipient_name' => $cName['contact_name'] ?? null,
-                    'subject' => $subject,
-                    'body' => $body,
-                    'status' => 'sent',
-                    'sent_at' => date('Y-m-d H:i:s'),
-                ]);
+                $uid = $params['sent_by'] ?? null;
+                if (!$uid) {
+                    $adm = $this->db->fetch("SELECT id FROM users WHERE role='super_admin' AND is_active=1 ORDER BY id ASC LIMIT 1");
+                    $uid = $adm['id'] ?? null;
+                }
+                $accId = $account['id'] ?? null;
+                if ($uid && $accId) {
+                    $this->prospection->create([
+                        'user_id' => $uid,
+                        'email_account_id' => $accId,
+                        'contact_id' => $contactId,
+                        'recipient_email' => $to,
+                        'recipient_name' => $cName['contact_name'] ?? null,
+                        'subject' => $subject,
+                        'body' => $body,
+                        'status' => 'sent',
+                        'sent_at' => date('Y-m-d H:i:s'),
+                    ]);
+                }
             } catch (\Throwable $e) { /* não bloqueia o envio se o espelho falhar */ }
 
             return ['success' => true, 'message_id' => $messageId];
