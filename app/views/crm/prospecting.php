@@ -93,7 +93,6 @@
             </div>
         </div>
     </div>
-</div>
 
     <!-- Aba de logs de execução -->
     <div id="tab-logs" style="display:none;">
@@ -145,6 +144,7 @@
             </div>
         </div>
     </div>
+</div><!-- /.main-content -->
 
 <!-- Modal Campanha -->
 <div class="modal fade" id="campaignModal" tabindex="-1">

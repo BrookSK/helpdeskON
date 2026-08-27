@@ -84,6 +84,23 @@ class EmailMessageService
                 ['message_id' => $messageId, 'to' => $to, 'origin' => $origin],
                 $params['sent_by'] ?? null);
 
+            // Espelha na caixa de enviados (email_prospections) para aparecer no
+            // Histórico de Prospecção — inclusive envios automáticos das sequências.
+            try {
+                $cName = $this->db->fetch("SELECT contact_name FROM whatsapp_contacts WHERE id = ?", [$contactId]);
+                $this->prospection->create([
+                    'user_id' => $params['sent_by'] ?? null,
+                    'email_account_id' => $account['id'] ?? null,
+                    'contact_id' => $contactId,
+                    'recipient_email' => $to,
+                    'recipient_name' => $cName['contact_name'] ?? null,
+                    'subject' => $subject,
+                    'body' => $body,
+                    'status' => 'sent',
+                    'sent_at' => date('Y-m-d H:i:s'),
+                ]);
+            } catch (\Throwable $e) { /* não bloqueia o envio se o espelho falhar */ }
+
             return ['success' => true, 'message_id' => $messageId];
         }
 

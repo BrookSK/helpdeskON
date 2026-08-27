@@ -247,9 +247,11 @@ class SequenceEngine
                     }
                     $sentByAccount[$key] = ($sentByAccount[$key] ?? 0) + 1;
                 }
-                $this->doSend($participant, $seq, $node);
+                $sendResult = $this->doSend($participant, $seq, $node, $testMode);
+                // Se o envio abortou por config (sem conta/e-mail) fora do teste, o
+                // participante já foi finalizado; no teste seguimos para ver o fluxo.
                 $this->advance($participant, $node['next'] ?? null, $nodes);
-                $this->logExec($participant['id'], $nodeId, $type, 'done');
+                $this->logExec($participant['id'], $nodeId, $type, $sendResult === true ? 'done' : 'failed', is_string($sendResult) ? $sendResult : null);
                 return 'sent';
 
             case 'reveal_phone':
@@ -261,9 +263,9 @@ class SequenceEngine
                 return 'skipped';
 
             case 'whatsapp':
-                $this->doWhatsapp($participant, $node);
+                $waResult = $this->doWhatsapp($participant, $node);
                 $this->advance($participant, $node['next'] ?? null, $nodes);
-                $this->logExec($participant['id'], $nodeId, $type, 'done');
+                $this->logExec($participant['id'], $nodeId, $type, $waResult === true ? 'done' : 'failed', is_string($waResult) ? $waResult : null);
                 return 'sent';
 
             case 'wait':
@@ -317,15 +319,21 @@ class SequenceEngine
 
     // ---- Ações de nó ----
 
-    private function doSend($participant, $seq, $node)
+    private function doSend($participant, $seq, $node, $testMode = false)
     {
         $contactId = $participant['contact_id'];
         $contact = $this->db->fetch("SELECT id, lead_email, contact_name, push_name, phone FROM whatsapp_contacts WHERE id = ?", [$contactId]);
-        if (empty($contact['lead_email'])) { $this->finish($participant, 'no_email'); return; }
+        if (empty($contact['lead_email'])) {
+            if (!$testMode) $this->finish($participant, 'no_email');
+            return 'Lead sem e-mail cadastrado';
+        }
 
         // Conta de envio: da sequência ou a primeira ativa
         $account = $this->resolveAccount($seq['email_account_id']);
-        if (!$account) { $this->finish($participant, 'no_account'); return; }
+        if (!$account) {
+            if (!$testMode) $this->finish($participant, 'no_account');
+            return 'Nenhuma conta de e-mail ativa configurada';
+        }
 
         $data = $node['data'] ?? [];
 
@@ -362,7 +370,7 @@ class SequenceEngine
         $subject = $this->render($subjectSrc, $contact);
         $body = $this->render($bodySrc, $contact);
 
-        (new EmailMessageService())->send([
+        $res = (new EmailMessageService())->send([
             'contact_id' => $contactId,
             'account' => $account,
             'to' => $contact['lead_email'],
@@ -373,6 +381,7 @@ class SequenceEngine
             'node_id' => $node['id'],
             'ab_variant' => $variant,
         ]);
+        return !empty($res['success']) ? true : ('Falha no envio: ' . ($res['error'] ?? 'desconhecida'));
     }
 
     private function doWhatsapp($participant, $node)
@@ -381,7 +390,7 @@ class SequenceEngine
         $contact = $this->db->fetch("SELECT id, phone, contact_name, push_name, lead_email FROM whatsapp_contacts WHERE id = ?", [$contactId]);
         if (empty($contact['phone'])) {
             (new LeadTimelineService())->add($contactId, 'note', 'WhatsApp da sequência não enviado: lead sem telefone.');
-            return;
+            return 'Lead sem telefone';
         }
         $data = $node['data'] ?? [];
         $bodySrc = $data['body'] ?? '';
@@ -390,13 +399,54 @@ class SequenceEngine
             if ($tpl) $bodySrc = $tpl['body'];
         }
         $msg = $this->render($bodySrc, $contact);
-        if (trim($msg) === '') return;
+        if (trim($msg) === '') return 'Mensagem vazia';
+
+        // Descobre a instância do próprio contato do lead (mesma do chat dele)
+        $ctxRow = $this->db->fetch("SELECT instance_id, remote_jid FROM whatsapp_contacts WHERE id = ?", [$contactId]);
+        $instanceId = $ctxRow['instance_id'] ?? null;
+        if (!$instanceId) {
+            $anyInst = $this->db->fetch("SELECT id FROM whatsapp_instances WHERE is_default = 1 LIMIT 1")
+                ?: $this->db->fetch("SELECT id FROM whatsapp_instances LIMIT 1");
+            $instanceId = $anyInst['id'] ?? null;
+        }
+        if (!$instanceId) return 'Nenhuma instância de WhatsApp cadastrada';
 
         try {
-            WhatsappNotifier::sendToPhone($contact['phone'], $msg, $contact['contact_name'] ?? null);
+            $api = EvolutionApi::fromInstance($instanceId);
+            if (!$api) $api = EvolutionApi::getDefault();
+            if (!$api) return 'Instância de WhatsApp indisponível';
+
+            // Envia usando o número do lead
+            $jid = $api->normalizeJid($api->normalizeNumber($contact['phone']));
+            $result = $api->sendText($jid, $msg);
+            if (is_array($result) && !empty($result['error'])) {
+                return 'Falha ao enviar via Evolution: ' . (is_string($result['error']) ? $result['error'] : 'erro');
+            }
+
+            // Grava a mensagem NO PRÓPRIO contato do lead (para aparecer no chat dele)
+            $this->db->insert('whatsapp_messages', [
+                'instance_id' => $instanceId,
+                'contact_id' => $contactId,
+                'remote_jid' => $ctxRow['remote_jid'] ?: $jid,
+                'message_id' => $result['key']['id'] ?? uniqid('seq_'),
+                'from_me' => 1,
+                'message_type' => 'text',
+                'message_text' => $msg,
+                'sender_name' => 'Prospecção',
+                'timestamp' => date('Y-m-d H:i:s'),
+                'is_read' => 1,
+            ]);
+            // Desarquiva e atualiza o "última mensagem" para subir no chat
+            $this->db->update('whatsapp_contacts', [
+                'is_archived' => 0,
+                'last_message_at' => date('Y-m-d H:i:s'),
+            ], 'id = ?', [$contactId]);
+
             (new LeadTimelineService())->add($contactId, 'note', 'WhatsApp enviado pela sequência.', ['channel' => 'whatsapp']);
+            return true;
         } catch (\Throwable $e) {
             Logger::error('SequenceEngine whatsapp', ['contact' => $contactId, 'error' => $e->getMessage()]);
+            return 'Erro: ' . $e->getMessage();
         }
     }
 
@@ -577,7 +627,7 @@ class SequenceEngine
         ], 'id = ?', [$participant['id']]);
     }
 
-    private function logExec($participantId, $nodeId, $type, $result)
+    private function logExec($participantId, $nodeId, $type, $result, $detail = null)
     {
         // Idempotência: attempt incremental por (participant, node)
         $prev = $this->db->fetch("SELECT MAX(attempt) a FROM sequence_executions WHERE participant_id = ? AND node_id = ?", [$participantId, $nodeId]);
@@ -585,7 +635,7 @@ class SequenceEngine
         try {
             $this->db->insert('sequence_executions', [
                 'participant_id' => $participantId, 'node_id' => $nodeId,
-                'node_type' => $type, 'attempt' => $attempt, 'result' => $result,
+                'node_type' => $type, 'attempt' => $attempt, 'result' => $result, 'detail' => $detail,
             ]);
         } catch (\Throwable $e) { /* corrida — ignora duplicado */ }
     }
