@@ -302,8 +302,10 @@ function applyRoleUiForNew() {
         approverWrap.style.display = '';
         document.getElementById('item-approver').disabled = false;
     }
-    // Status: marketing usa os botões dedicados; select só habilitado p/ admin
-    document.getElementById('item-status').disabled = !IS_ADMIN;
+    // Status: liberado para todos (admin e marketing). Os botões de salvar do
+    // marketing definem o destino, mas o select fica editável.
+    document.getElementById('item-status').disabled = false;
+    toggleApproveOption();
     // Botões de salvar por papel
     const saveBtn = document.getElementById('item-save-btn');
     const draftBtn = document.getElementById('item-save-draft-btn');
@@ -363,8 +365,8 @@ function fillItemForm(it) {
 
     // Campos de conteúdo: editáveis por quem gerencia (marketing responsável ou admin).
     ['item-title','item-social','item-briefing','item-copy'].forEach(f => document.getElementById(f).disabled = !canManage);
-    // Status: admin edita livremente; marketing usa os botões (rascunho/revisão), então o select fica somente leitura.
-    document.getElementById('item-status').disabled = !IS_ADMIN;
+    // Status: liberado para quem gerencia a demanda (marketing responsável ou admin).
+    document.getElementById('item-status').disabled = !canManage;
 
     // Botões de salvar conforme o papel
     const saveBtn = document.getElementById('item-save-btn');
