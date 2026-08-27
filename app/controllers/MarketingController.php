@@ -85,6 +85,8 @@ class MarketingController extends Controller
                 'status' => $it['status'],
                 'social_network' => $it['social_network'],
                 'assigned_name' => $it['assigned_name'] ?? 'Sem responsável',
+                // Sinaliza ajustes solicitados (em produção com observação de revisão)
+                'has_changes' => ($it['status'] === 'em_producao' && !empty($it['review_notes'])) ? 1 : 0,
             ];
         }, $items);
 
@@ -253,6 +255,10 @@ class MarketingController extends Controller
                 $this->json(['error' => 'Anexe ao menos uma imagem para enviar a demanda. Sem imagem, só é possível salvar como rascunho.'], 422);
             }
             $data['status'] = $newStatus;
+            // Ao reenviar para aprovação, limpa a observação de ajustes (some o destaque amarelo).
+            if ($newStatus === 'aguardando_aprovacao') {
+                $data['review_notes'] = null;
+            }
         }
 
         if (empty($data)) $this->json(['error' => 'Nenhum campo para atualizar'], 400);

@@ -256,8 +256,10 @@ function renderDayContent(dayStr) {
         out += `<div class="cal-holiday" onclick="event.stopPropagation();openHolidayCreate(${h.id}, '${escapeAttr(h.title)}', '${dayStr}')" title="${escapeAttr(h.title)} — clique para criar conteúdo"><i class="bi bi-star-fill"></i> ${escapeHtml(h.title)}</div>`;
     });
     eventsForDay(dayStr).forEach(e => {
-        const color = (STATUS_META[e.status] || ['', '#888'])[1];
-        out += `<div class="cal-event" style="background:${color}" onclick="event.stopPropagation();openItemModal(${e.id})" title="${escapeAttr(e.title)}">${escapeHtml(e.title)}</div>`;
+        // Ajustes solicitados: destaque amarelo (texto escuro) até ser reenviado
+        const color = e.has_changes ? '#f5a623' : (STATUS_META[e.status] || ['', '#888'])[1];
+        const txt = e.has_changes ? 'color:#3d2c00;' : '';
+        out += `<div class="cal-event" style="background:${color};${txt}" onclick="event.stopPropagation();openItemModal(${e.id})" title="${escapeAttr(e.title)}${e.has_changes ? ' — Ajustes solicitados' : ''}">${e.has_changes ? '⚠️ ' : ''}${escapeHtml(e.title)}</div>`;
     });
     return out;
 }
@@ -337,11 +339,16 @@ function renderHolidayCard(h) {
 
 function renderCardHtml(it) {
     const meta = STATUS_META[it.status] || ['', '#888'];
+    const hasChanges = (it.status === 'em_producao' && it.review_notes && String(it.review_notes).trim() !== '');
+    const badgeColor = hasChanges ? '#f5a623' : meta[1];
+    const badgeText = hasChanges ? 'Ajustes solicitados' : meta[0];
+    const badgeStyle = hasChanges ? `background:${badgeColor};color:#3d2c00;` : `background:${badgeColor}`;
+    const cardStyle = hasChanges ? 'style="border-left:4px solid #f5a623;background:#fffbea;"' : '';
     const when = it.scheduled_at ? new Date(it.scheduled_at.replace(' ', 'T')).toLocaleString('pt-BR', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : 'Sem data';
-    return `<div class="mkt-card" onclick="openItemModal(${it.id})">
+    return `<div class="mkt-card" ${cardStyle} onclick="openItemModal(${it.id})">
         <div class="d-flex justify-content-between align-items-start gap-2">
-            <h6 class="fw-semibold mb-0">${escapeHtml(it.title)}</h6>
-            <span class="mkt-badge" style="background:${meta[1]}">${meta[0]}</span>
+            <h6 class="fw-semibold mb-0">${hasChanges ? '⚠️ ' : ''}${escapeHtml(it.title)}</h6>
+            <span class="mkt-badge" style="${badgeStyle}">${badgeText}</span>
         </div>
         <div class="mkt-meta">
             <span><i class="bi bi-calendar-event"></i> ${when}</span>
