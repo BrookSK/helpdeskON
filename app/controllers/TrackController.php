@@ -10,7 +10,10 @@ class TrackController extends Controller
 {
     public function open($token = null)
     {
+        // Aceita token com extensão de imagem (ex.: /track/open/TOKEN.png) — vários
+        // clientes/proxies só carregam URLs que "parecem" imagem.
         if ($token) {
+            $token = preg_replace('/\.(png|gif|jpg|jpeg)$/i', '', $token);
             try {
                 (new EmailMessageService())->registerOpen($token, $this->ip(), $_SERVER['HTTP_USER_AGENT'] ?? null);
             } catch (\Throwable $e) { /* nunca quebra o pixel */ }

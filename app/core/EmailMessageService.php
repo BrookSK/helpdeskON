@@ -230,13 +230,13 @@ class EmailMessageService
         }, $html);
 
         // 2) Pixel de abertura + link de descadastro no rodapé.
-        // Sem cache-buster (evita proxies reescreverem/ignorarem a query) e sem
-        // display:none (Gmail/Outlook não carregam imagens ocultas). Extensão .png
-        // no fim ajuda alguns clientes a tratarem como imagem.
-        $pixelUrl = $base . '/track/open/' . $token;
-        $pixel = '<img src="' . $pixelUrl . '" width="1" height="1" border="0" alt=" " style="width:1px;height:1px;max-height:1px;max-width:1px;border:0;">';
+        // Extensão .png no fim ajuda clientes/proxies a tratarem como imagem e
+        // carregarem. Sem display:none (Gmail/Outlook ignoram imagens ocultas).
+        $pixelUrl = $base . '/track/open/' . $token . '.png';
+        $pixel = '<img src="' . $pixelUrl . '" width="1" height="1" border="0" alt="" style="width:1px;height:1px;max-height:1px;max-width:1px;border:0;overflow:hidden;">';
         $unsub = '<div style="margin-top:16px;font-size:11px;color:#999;">Se não deseja mais receber e-mails, <a href="' . $base . '/track/unsub/' . $token . '">clique aqui para descadastrar</a>.</div>';
-        return $html . $unsub . $pixel;
+        // Insere o pixel no topo E no rodapé (alguns clientes só carregam o início do corpo).
+        return $pixel . $html . $unsub . $pixel;
     }
 
     private function normalize($email)
