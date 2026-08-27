@@ -200,6 +200,7 @@ class TicketsController extends Controller
         // Determinar o client_id: se super_admin pode selecionar um cliente
         $clientId = $user['id'];
         $attendantId = null;
+        $attendantIds = [];
         $technicalId = null;
         if ($user['role'] === 'super_admin') {
             $selectedClient = $_POST['client_id'] ?? '';
@@ -208,8 +209,13 @@ class TicketsController extends Controller
             }
             // Se não selecionou, o ticket fica vinculado ao próprio admin
 
-            // Atribuições opcionais na criação
-            $attendantId = !empty($_POST['attendant_id']) ? (int)$_POST['attendant_id'] : null;
+            // Atribuições opcionais na criação — múltiplos atendentes via checkbox
+            $attendantIds = array_values(array_unique(array_filter(array_map(
+                'intval',
+                (array)($_POST['attendant_ids'] ?? [])
+            ))));
+            // O primeiro marcado é o atendente principal (compatibilidade)
+            $attendantId = $attendantIds[0] ?? null;
             $technicalId = !empty($_POST['technical_responsible_id']) ? (int)$_POST['technical_responsible_id'] : null;
         }
 
@@ -259,13 +265,23 @@ class TicketsController extends Controller
             }
         }
 
+        // Registrar todos os atendentes selecionados na tabela de junção
+        if (!empty($attendantIds)) {
+            foreach ($attendantIds as $aId) {
+                $db->query(
+                    "INSERT IGNORE INTO ticket_attendants (ticket_id, user_id) VALUES (?, ?)",
+                    [$ticketId, $aId]
+                );
+            }
+        }
+
         // Enviar notificação
         $this->sendNewTicketNotification($ticketId);
 
-        // Na criação, notificar apenas o atendente atribuído.
+        // Na criação, notificar todos os atendentes atribuídos.
         // O responsável técnico só é notificado quando a demanda entra em Revisão Interna.
-        if ($attendantId) {
-            $this->notifyAssignment($ticketId, $attendantId, 'atendente');
+        foreach ($attendantIds as $aId) {
+            $this->notifyAssignment($ticketId, $aId, 'atendente');
         }
 
         // Criar card automático no Planejamento
@@ -375,12 +391,22 @@ class TicketsController extends Controller
             );
         }
 
+        // Atendentes atualmente vinculados a esta demanda (para marcar os checkboxes)
+        $assignedAttendants = $this->ticketModel->getAttendants($id);
+        $assignedAttendantIds = array_map(function ($a) { return (int)$a['id']; }, $assignedAttendants);
+        // Fallback para o campo legado, caso a junção ainda não tenha registros
+        if (empty($assignedAttendantIds) && !empty($ticket['attendant_id'])) {
+            $assignedAttendantIds = [(int)$ticket['attendant_id']];
+        }
+
         $this->view('tickets/view', [
             'user' => $user,
             'ticket' => $ticket,
             'messages' => $messages,
             'attachments' => $attachments,
             'attendants' => $attendants,
+            'assignedAttendants' => $assignedAttendants,
+            'assignedAttendantIds' => $assignedAttendantIds,
             'technicalGrouped' => $technicalGrouped,
             'internalNotes' => $internalNotes,
         ]);
@@ -514,23 +540,46 @@ class TicketsController extends Controller
             $this->redirect('tickets');
         }
 
-        $attendantId = $_POST['attendant_id'] ?? null;
-        if ($attendantId) {
-            $this->ticketModel->assignAttendant($id, $attendantId);
-
-            // Sincronizar card do planejamento
-            $planningCard = new PlanningCard();
-            $card = Database::getInstance()->fetch("SELECT id FROM planning_cards WHERE ticket_id = ?", [$id]);
-            if ($card) {
-                $planningCard->update($card['id'], ['assigned_to' => $attendantId]);
-            }
-
-            // Notificar atendente atribuído
-            $this->notifyAssignment($id, (int)$attendantId, 'atendente');
-
-            flash('success', 'Atendente atribuído com sucesso!');
+        // Suporte a múltiplos atendentes (checkbox) com fallback ao campo único
+        if (isset($_POST['attendant_ids'])) {
+            $attendantIds = array_values(array_unique(array_filter(array_map(
+                'intval',
+                (array)$_POST['attendant_ids']
+            ))));
+        } elseif (!empty($_POST['attendant_id'])) {
+            $attendantIds = [(int)$_POST['attendant_id']];
+        } else {
+            $attendantIds = [];
         }
 
+        // Atendentes que já estavam atribuídos (para notificar apenas os novos)
+        $previousIds = array_map(function ($a) { return (int)$a['id']; }, $this->ticketModel->getAttendants($id));
+
+        // Persiste o conjunto de atendentes e sincroniza o principal
+        $this->ticketModel->setAttendants($id, $attendantIds);
+
+        // Ao atribuir, mover para em andamento (mantém comportamento anterior)
+        if (!empty($attendantIds)) {
+            $this->ticketModel->update($id, ['status' => 'in_progress']);
+        }
+
+        $primaryId = $attendantIds[0] ?? null;
+
+        // Sincronizar card do planejamento com o atendente principal
+        $planningCard = new PlanningCard();
+        $card = Database::getInstance()->fetch("SELECT id FROM planning_cards WHERE ticket_id = ?", [$id]);
+        if ($card) {
+            $planningCard->update($card['id'], ['assigned_to' => $primaryId]);
+        }
+
+        // Notificar apenas os atendentes recém-adicionados
+        foreach ($attendantIds as $aId) {
+            if (!in_array($aId, $previousIds, true)) {
+                $this->notifyAssignment($id, $aId, 'atendente');
+            }
+        }
+
+        flash('success', 'Atendentes atualizados com sucesso!');
         $this->redirect('tickets/show/' . $id);
     }
 

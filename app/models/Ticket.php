@@ -179,6 +179,40 @@ class Ticket
         return $this->db->update('tickets', ['attendant_id' => $attendantId, 'status' => 'in_progress'], 'id = ?', [$ticketId]);
     }
 
+    /**
+     * Retorna todos os atendentes vinculados a uma demanda (tabela de junção).
+     */
+    public function getAttendants($ticketId)
+    {
+        return $this->db->fetchAll(
+            "SELECT u.id, u.name, u.email, u.role
+             FROM ticket_attendants ta
+             INNER JOIN users u ON ta.user_id = u.id
+             WHERE ta.ticket_id = ?
+             ORDER BY u.name ASC",
+            [$ticketId]
+        );
+    }
+
+    /**
+     * Define o conjunto de atendentes de uma demanda, sincronizando também o
+     * atendente principal (attendant_id) para manter compatibilidade.
+     */
+    public function setAttendants($ticketId, array $userIds)
+    {
+        $userIds = array_values(array_unique(array_filter(array_map('intval', $userIds))));
+        $this->db->query("DELETE FROM ticket_attendants WHERE ticket_id = ?", [$ticketId]);
+        foreach ($userIds as $uid) {
+            $this->db->query(
+                "INSERT IGNORE INTO ticket_attendants (ticket_id, user_id) VALUES (?, ?)",
+                [$ticketId, $uid]
+            );
+        }
+        $primary = $userIds[0] ?? null;
+        $this->db->update('tickets', ['attendant_id' => $primary], 'id = ?', [$ticketId]);
+        return $userIds;
+    }
+
     public function assignTechnical($ticketId, $technicalId)
     {
         return $this->db->update('tickets', ['technical_responsible_id' => $technicalId ?: null], 'id = ?', [$ticketId]);
