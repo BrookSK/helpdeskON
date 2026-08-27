@@ -4,6 +4,7 @@
 
 <?php
 $statusMeta = [
+    'rascunho' => ['Rascunho', '#9e9e9e'],
     'ideia' => ['Ideia', '#607d8b'],
     'em_producao' => ['Em produção', '#e65100'],
     'aguardando_aprovacao' => ['Aguardando aprovação', '#7b1fa2'],

@@ -43,9 +43,20 @@
                         </select>
                         <small class="text-muted mkt-marketing-only" style="display:none;">Você será o responsável por esta demanda.</small>
                     </div>
+                    <div class="col-sm-6" id="item-approver-wrap">
+                        <label class="form-label small fw-medium">Aprovador</label>
+                        <select id="item-approver" class="form-select form-select-sm">
+                            <option value="">Sem aprovador</option>
+                            <?php foreach ($team as $t): ?>
+                            <option value="<?= $t['id'] ?>"><?= escape($t['name']) ?> (<?= roleLabel($t['role']) ?>)</option>
+                            <?php endforeach; ?>
+                        </select>
+                        <small class="text-muted">Recebe notificação de envio e de ajustes.</small>
+                    </div>
                     <div class="col-sm-6">
                         <label class="form-label small fw-medium">Status</label>
                         <select id="item-status" class="form-select form-select-sm">
+                            <option value="rascunho">Rascunho</option>
                             <option value="ideia">Ideia</option>
                             <option value="em_producao">Em produção</option>
                             <option value="aguardando_aprovacao">Aguardando aprovação</option>
@@ -89,6 +100,13 @@
                             <button class="btn btn-sm btn-outline-primary" id="item-file-btn" onclick="uploadItemFile()" style="display:none;"><i class="bi bi-upload"></i></button>
                         </div>
                         <small class="text-muted" id="item-file-hint">Os anexos serão enviados ao salvar a demanda.</small>
+                    </div>
+
+                    <!-- Histórico da demanda -->
+                    <div class="col-12" id="item-history-wrap" style="display:none;">
+                        <hr>
+                        <label class="form-label small fw-medium"><i class="bi bi-clock-history"></i> Histórico</label>
+                        <div id="item-history" class="small" style="max-height:200px;overflow-y:auto;"></div>
                     </div>
                 </div>
             </div>
@@ -202,8 +220,9 @@ function openHolidayCreate(holidayId, title, dateStr) {
 function resetItemForm() {
     currentItem = null;
     pendingFiles = [];
-    ['item-id','item-holiday-id','item-title','item-scheduled','item-social','item-assigned','item-briefing','item-copy'].forEach(f => document.getElementById(f).value = '');
+    ['item-id','item-holiday-id','item-title','item-scheduled','item-social','item-assigned','item-approver','item-briefing','item-copy'].forEach(f => { const el = document.getElementById(f); if (el) el.value = ''; });
     document.getElementById('item-status').value = 'ideia';
+    const hw = document.getElementById('item-history-wrap'); if (hw) hw.style.display = 'none';
     document.getElementById('item-review-alert').style.display = 'none';
     document.getElementById('item-attachments-wrap').style.display = '';
     document.getElementById('item-attachments').innerHTML = '';
@@ -257,6 +276,7 @@ function removePendingFile(i) {
 // UI para novo item conforme papel
 function applyRoleUiForNew() {
     const assignedWrap = document.getElementById('item-assigned-wrap');
+    const approverWrap = document.getElementById('item-approver-wrap');
     if (IS_ADMIN) {
         assignedWrap.style.display = '';
         document.querySelector('.mkt-marketing-only').style.display = 'none';
@@ -264,6 +284,11 @@ function applyRoleUiForNew() {
         // marketing: sempre responsável; oculta seletor
         assignedWrap.style.display = 'none';
         document.querySelector('.mkt-marketing-only').style.display = '';
+    }
+    // Aprovador: só admin define
+    if (approverWrap) {
+        approverWrap.style.display = IS_ADMIN ? '' : 'none';
+        document.getElementById('item-approver').disabled = !IS_ADMIN;
     }
     toggleApproveOption();
 }
@@ -296,6 +321,7 @@ function fillItemForm(it) {
     document.getElementById('item-scheduled').value = it.scheduled_at ? it.scheduled_at.replace(' ', 'T').slice(0,16) : '';
     document.getElementById('item-social').value = it.social_network || '';
     document.getElementById('item-assigned').value = it.assigned_to || '';
+    const apprEl = document.getElementById('item-approver'); if (apprEl) apprEl.value = it.approver_id || '';
     document.getElementById('item-briefing').value = it.briefing || '';
     document.getElementById('item-copy').value = it.copy || '';
     document.getElementById('item-status').value = it.status || 'ideia';
@@ -346,6 +372,41 @@ function fillItemForm(it) {
     document.getElementById('item-file').disabled = !canManage;
     document.getElementById('item-file').parentElement.style.display = canManage ? '' : 'none';
     renderAttachments(it.attachments || []);
+
+    // Aprovador: só admin edita; demais veem desabilitado
+    const apprWrap = document.getElementById('item-approver-wrap');
+    if (apprWrap) {
+        apprWrap.style.display = '';
+        document.getElementById('item-approver').disabled = !IS_ADMIN;
+    }
+
+    // Histórico da demanda
+    renderHistory(it.history || []);
+}
+
+const MKT_HISTORY_LABELS = {
+    created: '📝 Criada', updated: '✏️ Atualizada', submitted: '📤 Enviada p/ aprovação',
+    changes_requested: '🔄 Ajustes solicitados', approved: '✅ Aprovada', rejected: '❌ Rejeitada',
+    adjusted: '🛠️ Ajustes realizados'
+};
+
+function renderHistory(history) {
+    const wrap = document.getElementById('item-history-wrap');
+    const box = document.getElementById('item-history');
+    if (!wrap || !box) return;
+    if (!history.length) { wrap.style.display = 'none'; return; }
+    wrap.style.display = '';
+    box.innerHTML = history.map(h => {
+        const label = MKT_HISTORY_LABELS[h.action] || h.action;
+        const when = h.created_at ? new Date(h.created_at.replace(' ', 'T')).toLocaleString('pt-BR') : '';
+        const who = h.user_name ? ` — ${escapeHtml(h.user_name)}` : '';
+        const notes = h.notes ? `<div class="text-muted" style="white-space:pre-wrap;">${escapeHtml(h.notes)}</div>` : '';
+        return `<div class="border-start ps-2 mb-2" style="border-width:3px !important;border-color:#00997D !important;">
+            <div class="fw-medium">${label}${who}</div>
+            <div class="text-muted" style="font-size:0.72rem;">${when}</div>
+            ${notes}
+        </div>`;
+    }).join('');
 }
 
 function renderAttachments(atts) {
@@ -373,7 +434,10 @@ function collectItemPayload() {
     fd.append('briefing', document.getElementById('item-briefing').value);
     fd.append('copy', document.getElementById('item-copy').value);
     fd.append('status', document.getElementById('item-status').value);
-    if (IS_ADMIN) fd.append('assigned_to', document.getElementById('item-assigned').value);
+    if (IS_ADMIN) {
+        fd.append('assigned_to', document.getElementById('item-assigned').value);
+        fd.append('approver_id', document.getElementById('item-approver').value);
+    }
     const hid = document.getElementById('item-holiday-id').value;
     if (hid) fd.append('holiday_id', hid);
     return fd;
@@ -383,6 +447,20 @@ function saveItem() {
     const title = document.getElementById('item-title').value.trim();
     if (!title) { alert('Informe o título.'); return; }
     const id = document.getElementById('item-id').value;
+    const statusSel = document.getElementById('item-status');
+    const status = statusSel.value;
+
+    // Regra (marketing): sem imagem, só pode salvar como rascunho.
+    const needsImage = ['em_producao','aguardando_aprovacao','aprovado','agendado','publicado'].includes(status);
+    if (!IS_ADMIN && needsImage) {
+        const hasExisting = currentItem && currentItem.has_image;
+        const hasNewImg = pendingFiles.some(f => /\.(jpe?g|png|gif|webp|bmp|svg)$/i.test(f.name));
+        if (!hasExisting && !hasNewImg) {
+            if (!confirm('Esta demanda ainda não tem imagem. Sem imagem só é possível salvar como RASCUNHO. Deseja salvar como rascunho?')) return;
+            statusSel.value = 'rascunho';
+        }
+    }
+
     const url = id ? `${BASE}marketing/update/${id}` : `${BASE}marketing/create`;
 
     fetch(url, { method: 'POST', body: collectItemPayload(), headers: {'X-Requested-With':'XMLHttpRequest'} })

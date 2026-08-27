@@ -12,13 +12,38 @@ class MarketingItem
     public function findById($id)
     {
         return $this->db->fetch(
-            "SELECT mi.*, u.name AS assigned_name, c.name AS created_by_name, h.title AS holiday_title
+            "SELECT mi.*, u.name AS assigned_name, c.name AS created_by_name, h.title AS holiday_title,
+                    ap.name AS approver_name
              FROM marketing_items mi
              LEFT JOIN users u ON mi.assigned_to = u.id
              LEFT JOIN users c ON mi.created_by = c.id
+             LEFT JOIN users ap ON mi.approver_id = ap.id
              LEFT JOIN marketing_holidays h ON mi.holiday_id = h.id
              WHERE mi.id = ?",
             [$id]
+        );
+    }
+
+    // ===== Histórico da demanda =====
+    public function addHistory($itemId, $userId, $action, $notes = null)
+    {
+        return $this->db->insert('marketing_item_history', [
+            'item_id' => (int)$itemId,
+            'user_id' => $userId ? (int)$userId : null,
+            'action' => $action,
+            'notes' => $notes ?: null,
+        ]);
+    }
+
+    public function getHistory($itemId)
+    {
+        return $this->db->fetchAll(
+            "SELECT h.*, u.name AS user_name
+             FROM marketing_item_history h
+             LEFT JOIN users u ON h.user_id = u.id
+             WHERE h.item_id = ?
+             ORDER BY h.created_at DESC, h.id DESC",
+            [$itemId]
         );
     }
 
@@ -86,6 +111,7 @@ class MarketingItem
                 LEFT JOIN users u ON mi.assigned_to = u.id
                 LEFT JOIN users c ON mi.created_by = c.id
                 WHERE (mi.status = 'ideia'
+                       OR mi.status = 'rascunho'
                        OR (mi.status = 'em_producao' AND mi.review_notes IS NOT NULL AND mi.review_notes <> ''))";
         $params = [];
         if (!empty($filters['assigned_to'])) {

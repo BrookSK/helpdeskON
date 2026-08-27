@@ -8,10 +8,11 @@ class MarketingController extends Controller
     private $accessRoles = ['super_admin', 'marketing'];
 
     // Status válidos, em ordem de fluxo
-    public static $statuses = ['ideia', 'em_producao', 'aguardando_aprovacao', 'aprovado', 'agendado', 'publicado', 'rejeitado'];
+    public static $statuses = ['rascunho', 'ideia', 'em_producao', 'aguardando_aprovacao', 'aprovado', 'agendado', 'publicado', 'rejeitado'];
 
     // Rótulos amigáveis dos status (para mensagens de notificação)
     public static $statusLabels = [
+        'rascunho' => 'Rascunho',
         'ideia' => 'Ideia',
         'em_producao' => 'Em produção',
         'aguardando_aprovacao' => 'Aguardando aprovação',
@@ -132,6 +133,8 @@ class MarketingController extends Controller
         if (!$item) $this->json(['error' => 'Item não encontrado'], 404);
 
         $item['attachments'] = $this->itemModel->getAttachments($id);
+        $item['history'] = $this->itemModel->getHistory($id);
+        $item['has_image'] = $this->hasImageAttachment($id);
         $item['can_manage'] = $this->canManage($item);
         $item['is_admin'] = $this->isAdmin();
         $this->json(['item' => $item]);
@@ -157,19 +160,23 @@ class MarketingController extends Controller
             $assignedTo = !empty($_POST['assigned_to']) ? intval($_POST['assigned_to']) : null;
         }
 
+        $status = in_array($_POST['status'] ?? '', self::$statuses) ? $_POST['status'] : 'ideia';
+
         $data = [
             'title' => $title,
             'scheduled_at' => !empty($_POST['scheduled_at']) ? $_POST['scheduled_at'] : null,
             'assigned_to' => $assignedTo,
+            'approver_id' => !empty($_POST['approver_id']) ? intval($_POST['approver_id']) : null,
             'created_by' => $user['id'],
             'social_network' => trim($_POST['social_network'] ?? '') ?: null,
             'briefing' => trim($_POST['briefing'] ?? '') ?: null,
             'copy' => trim($_POST['copy'] ?? '') ?: null,
-            'status' => in_array($_POST['status'] ?? '', self::$statuses) ? $_POST['status'] : 'ideia',
+            'status' => $status,
             'holiday_id' => !empty($_POST['holiday_id']) ? intval($_POST['holiday_id']) : null,
         ];
 
         $id = $this->itemModel->create($data);
+        $this->itemModel->addHistory($id, $user['id'], 'created', 'Demanda criada' . ($status === 'rascunho' ? ' como rascunho.' : '.'));
         $item = $this->itemModel->findById($id);
 
         // Notificar responsável, se houver e for diferente de quem criou
@@ -181,6 +188,17 @@ class MarketingController extends Controller
 
         // Notificar o Grupo Padrão de Notificações sobre a nova demanda no calendário
         $this->notifyGroupNewItem($item, $user);
+
+        // Notificar que há uma nova demanda disponível para avaliação.
+        // (Rascunhos ainda não vão para avaliação — só demandas em fluxo.)
+        if ($item['status'] !== 'rascunho') {
+            if (!empty($item['approver_id'])) {
+                $this->notifyApprover($item, 'nova_demanda', $user);
+            } else {
+                // Sem aprovador designado: avisa os admins (fila de avaliação).
+                $this->notifyAdmins('Nova demanda de marketing', "{$user['name']} criou \"{$title}\" e está disponível para avaliação.");
+            }
+        }
 
         $this->json(['success' => true, 'item' => $item]);
     }
@@ -210,14 +228,22 @@ class MarketingController extends Controller
         if ($isAdmin) {
             if (isset($_POST['scheduled_at'])) $data['scheduled_at'] = $_POST['scheduled_at'] ?: null;
             if (isset($_POST['assigned_to'])) $data['assigned_to'] = $_POST['assigned_to'] ?: null;
+            if (isset($_POST['approver_id'])) $data['approver_id'] = $_POST['approver_id'] ?: null;
         }
 
         // Status: marketing pode mudar entre os status de produção, mas não pode "aprovar".
+        $hasImage = $this->hasImageAttachment($id);
         if (isset($_POST['status']) && in_array($_POST['status'], self::$statuses)) {
             $newStatus = $_POST['status'];
             $forbiddenForMarketing = ['aprovado', 'rejeitado'];
             if (!$isAdmin && in_array($newStatus, $forbiddenForMarketing)) {
                 $this->json(['error' => 'Somente o administrador pode aprovar ou rejeitar o conteúdo.'], 403);
+            }
+            // Regra: para sair de rascunho e seguir no fluxo (produção/aprovação) é
+            // obrigatório ter ao menos uma imagem anexada. Sem imagem, fica em rascunho.
+            $needsImageStatuses = ['em_producao', 'aguardando_aprovacao', 'aprovado', 'agendado', 'publicado'];
+            if (!$isAdmin && in_array($newStatus, $needsImageStatuses) && !$hasImage) {
+                $this->json(['error' => 'Anexe ao menos uma imagem para enviar a demanda. Sem imagem, só é possível salvar como rascunho.'], 422);
             }
             $data['status'] = $newStatus;
         }
@@ -228,9 +254,27 @@ class MarketingController extends Controller
         $this->itemModel->update($id, $data);
         $updatedItem = $this->itemModel->findById($id);
 
+        // Registra no histórico: alteração de conteúdo e/ou mudança de status.
+        if ($statusChanged) {
+            $label = self::$statusLabels[$data['status']] ?? $data['status'];
+            $this->itemModel->addHistory($id, $user['id'], 'updated', "Status alterado para \"{$label}\".");
+        } else {
+            $this->itemModel->addHistory($id, $user['id'], 'updated', 'Conteúdo da demanda atualizado.');
+        }
+
+        // Se o item estava com ajustes solicitados e o responsável mexeu, avisa o aprovador.
+        $wasInReview = !empty($item['review_notes']);
+        if ($wasInReview && !$isAdmin) {
+            $this->itemModel->addHistory($id, $user['id'], 'adjusted', 'Ajustes realizados pelo responsável.');
+            $this->notifyApprover($updatedItem, 'ajustes_feitos', $user);
+        }
+
         // Notificar admins quando enviado para aprovação
         if (($data['status'] ?? '') === 'aguardando_aprovacao') {
             $this->notifyAdmins('Conteúdo aguardando aprovação', "{$user['name']} enviou \"{$item['title']}\" para aprovação.");
+            $this->itemModel->addHistory($id, $user['id'], 'submitted', 'Enviado para aprovação.');
+            // Notifica o aprovador designado, se houver
+            $this->notifyApprover($updatedItem, 'aguardando', $user);
         }
 
         // Sempre que o status mudar, avisar o responsável no chat WhatsApp.
@@ -247,6 +291,65 @@ class MarketingController extends Controller
         $this->json(['success' => true, 'item' => $updatedItem]);
     }
 
+    /** Verifica se o item possui ao menos um anexo de imagem. */
+    private function hasImageAttachment($itemId)
+    {
+        foreach ($this->itemModel->getAttachments($itemId) as $att) {
+            if (preg_match('/\.(jpe?g|png|gif|webp|bmp|svg)$/i', $att['file_name'])
+                || strpos((string)$att['file_type'], 'image/') === 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Notifica o aprovador designado da demanda via WhatsApp (e notificação interna).
+     * $context: 'aguardando' (enviado p/ aprovação) | 'ajustes_feitos' (responsável ajustou).
+     */
+    private function notifyApprover($item, $context, $actor)
+    {
+        if (empty($item['approver_id'])) return;
+        // Não notifica se o próprio aprovador é quem agiu
+        if ((int)$item['approver_id'] === (int)($actor['id'] ?? 0)) return;
+
+        $approver = (new User())->findById($item['approver_id']);
+        if (!$approver) return;
+
+        if ($context === 'ajustes_feitos') {
+            $sysTitle = 'Ajustes realizados';
+            $sysMsg = "{$actor['name']} realizou ajustes na demanda \"{$item['title']}\". Revise novamente.";
+            $waHeader = "✏️ *Ajustes Realizados — Marketing*";
+            $waBody = "{$actor['name']} atualizou a demanda após a solicitação de ajustes.\nRevise novamente para aprovar.";
+        } elseif ($context === 'nova_demanda') {
+            $sysTitle = 'Nova demanda de marketing';
+            $sysMsg = "{$actor['name']} criou a demanda \"{$item['title']}\" e ela está disponível para avaliação.";
+            $waHeader = "🆕 *Nova Demanda — Marketing*";
+            $waBody = "{$actor['name']} criou uma nova demanda, disponível para sua avaliação.";
+        } else {
+            $sysTitle = 'Demanda aguardando sua aprovação';
+            $sysMsg = "{$actor['name']} enviou \"{$item['title']}\" para sua aprovação.";
+            $waHeader = "🔔 *Demanda para Aprovação — Marketing*";
+            $waBody = "{$actor['name']} enviou esta demanda para a sua aprovação.";
+        }
+
+        $this->notify($item['approver_id'], $sysTitle, $sysMsg);
+
+        // WhatsApp para o aprovador
+        if (!empty($approver['phone'])) {
+            try {
+                $rede = $item['social_network'] ?? 'Não definida';
+                $dataAgendamento = !empty($item['scheduled_at']) ? date('d/m/Y H:i', strtotime($item['scheduled_at'])) : 'A definir';
+                $msg = $waHeader . "\n\n"
+                    . "*Título:* {$item['title']}\n"
+                    . "*Rede social:* {$rede}\n"
+                    . "*Agendamento:* {$dataAgendamento}\n\n"
+                    . $waBody;
+                WhatsappNotifier::sendToPhone($approver['phone'], $msg, $approver['name']);
+            } catch (\Throwable $e) { /* silencioso */ }
+        }
+    }
+
     // API: aprovar (somente admin)
     public function approve($id = null)
     {
@@ -258,6 +361,7 @@ class MarketingController extends Controller
         if (!$item) $this->json(['error' => 'Item não encontrado'], 404);
 
         $this->itemModel->update($id, ['status' => 'aprovado', 'review_notes' => null]);
+        $this->itemModel->addHistory($id, $this->currentUser()['id'], 'approved', 'Demanda aprovada.');
 
         if ($item['assigned_to']) {
             $this->notify($item['assigned_to'], 'Conteúdo aprovado', "Sua demanda \"{$item['title']}\" foi aprovada. Já pode ser agendada.");
@@ -280,6 +384,7 @@ class MarketingController extends Controller
 
         $notes = trim($_POST['review_notes'] ?? '');
         $this->itemModel->update($id, ['status' => 'em_producao', 'review_notes' => $notes ?: null]);
+        $this->itemModel->addHistory($id, $this->currentUser()['id'], 'changes_requested', $notes ?: 'Ajustes solicitados.');
 
         if ($item['assigned_to']) {
             $this->notify($item['assigned_to'], 'Ajustes solicitados', "O admin solicitou ajustes em \"{$item['title']}\"." . ($notes ? " Observação: {$notes}" : ''));
@@ -387,6 +492,7 @@ class MarketingController extends Controller
 
         $notes = trim($_POST['review_notes'] ?? '');
         $this->itemModel->update($id, ['status' => 'rejeitado', 'review_notes' => $notes ?: null]);
+        $this->itemModel->addHistory($id, $this->currentUser()['id'], 'rejected', $notes ?: 'Demanda rejeitada.');
 
         if ($item['assigned_to']) {
             $this->notify($item['assigned_to'], 'Conteúdo rejeitado', "Sua demanda \"{$item['title']}\" foi rejeitada." . ($notes ? " Motivo: {$notes}" : ''));
@@ -456,6 +562,8 @@ class MarketingController extends Controller
             'file_type' => $file['type'],
             'file_size' => $file['size'],
         ]);
+
+        $this->itemModel->addHistory($id, $this->currentUser()['id'], 'updated', 'Anexo adicionado: ' . $file['name']);
 
         $this->json([
             'success' => true,
