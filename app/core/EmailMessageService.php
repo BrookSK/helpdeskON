@@ -214,7 +214,12 @@ class EmailMessageService
 
     private function injectTracking($html, $token)
     {
-        $base = rtrim(baseUrl(''), '/');
+        // Usa a URL pública configurada (confiável mesmo quando roda via cron/CLI,
+        // onde não há HTTP_HOST). Fallback para baseUrl() no contexto HTTP.
+        $configured = trim((string) Config::get('app_public_url'));
+        $base = $configured !== '' ? rtrim($configured, '/') : rtrim(baseUrl(''), '/');
+        // Garante https (clientes de e-mail bloqueiam pixel http/misto)
+        $base = preg_replace('#^http://#i', 'https://', $base);
         // 1) Reescreve links http(s) para passar pelo redirect de rastreio
         $html = preg_replace_callback('/href="(https?:\/\/[^"]+)"/i', function ($m) use ($base, $token) {
             $target = $m[1];

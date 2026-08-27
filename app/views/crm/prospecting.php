@@ -137,6 +137,18 @@
             </div>
         </div>
 
+        <div class="card mb-3">
+            <div class="card-header bg-white py-2 fw-semibold small"><i class="bi bi-envelope-open"></i> E-mails enviados (abertura / clique / resposta)</div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0" style="font-size:0.8rem;">
+                        <thead class="table-light"><tr><th>Enviado em</th><th>Destinatário</th><th>Assunto</th><th>A/B</th><th class="text-center">Aberturas</th><th class="text-center">1ª abertura</th><th class="text-center">Cliques</th><th class="text-center">Respondeu</th></tr></thead>
+                        <tbody id="exec-emails"><tr><td colspan="8" class="text-center text-muted py-3">Carregando...</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
         <div class="card">
             <div class="card-header bg-white py-2 fw-semibold small text-danger"><i class="bi bi-exclamation-triangle"></i> Erros recentes</div>
             <div class="card-body">
@@ -370,6 +382,20 @@ function loadExecLog() {
                 <td class="text-muted">${escapeH(l.detail||'')}</td>
                 <td>${escapeH(String(l.credits||0))}</td>
             </tr>`).join('') : '<tr><td colspan="5" class="text-center text-muted py-3">Nenhum registro ainda.</td></tr>';
+
+            // E-mails enviados (abertura/clique/resposta)
+            const emb = document.getElementById('exec-emails');
+            const emails = d.emails || [];
+            emb.innerHTML = emails.length ? emails.map(m => `<tr>
+                <td class="text-nowrap">${escapeH(m.sent_at||'—')}</td>
+                <td>${escapeH(m.contact_name||m.recipient_email||'—')}</td>
+                <td>${escapeH(m.subject||'')}</td>
+                <td>${escapeH(m.ab_variant||'—')}</td>
+                <td class="text-center">${(Number(m.open_count)>0)?('<span class="badge bg-success">'+m.open_count+'</span>'):'<span class="text-muted">0</span>'}</td>
+                <td class="text-center small">${escapeH(m.first_open_at||'—')}</td>
+                <td class="text-center">${escapeH(String(m.click_count||0))}</td>
+                <td class="text-center">${m.replied_at?'<span class="badge bg-primary">sim</span>':'<span class="text-muted">não</span>'}</td>
+            </tr>`).join('') : '<tr><td colspan="8" class="text-center text-muted py-3">Nenhum e-mail enviado ainda.</td></tr>';
 
             // Erros
             const errs = d.errors || [];

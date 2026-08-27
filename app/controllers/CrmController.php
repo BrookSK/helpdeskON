@@ -1701,7 +1701,8 @@ class CrmController extends Controller
      */
     private function apolloWebhookUrl()
     {
-        $base = rtrim(baseUrl(''), '/');
+        $configured = trim((string) Config::get('app_public_url'));
+        $base = $configured !== '' ? rtrim($configured, '/') : rtrim(baseUrl(''), '/');
         if ($base === '' || stripos($base, 'http') !== 0) return null;
         $token = trim((string) Config::get('apollo_webhook_token'));
         $url = $base . '/crm/apolloPhoneWebhook';
@@ -1992,7 +1993,21 @@ class CrmController extends Controller
             );
         } catch (\Throwable $e) { $prospectLog = []; }
 
-        $this->json(['success' => true, 'steps' => $steps, 'participants' => $participants, 'prospect_log' => $prospectLog, 'errors' => $errors]);
+        // E-mails enviados pelas sequências: status de abertura/clique/resposta por mensagem
+        $emails = [];
+        try {
+            $emails = $db->fetchAll(
+                "SELECT m.subject, m.recipient_email, m.ab_variant, m.status,
+                        m.open_count, m.first_open_at, m.click_count, m.first_click_at, m.replied_at, m.sent_at,
+                        wc.contact_name
+                 FROM email_messages m
+                 LEFT JOIN whatsapp_contacts wc ON m.contact_id = wc.id
+                 WHERE m.origin = 'sequence'
+                 ORDER BY m.id DESC LIMIT 100"
+            );
+        } catch (\Throwable $e) { $emails = []; }
+
+        $this->json(['success' => true, 'steps' => $steps, 'participants' => $participants, 'prospect_log' => $prospectLog, 'emails' => $emails, 'errors' => $errors]);
     }
 
     // Helpers de campanha

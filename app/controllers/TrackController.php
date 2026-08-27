@@ -83,7 +83,7 @@ class TrackController extends Controller
             . 'h2{margin:0 0 8px;font-size:1.3rem}p{color:#667;line-height:1.5}</style></head><body>'
             . '<div class="card">'
             . ($done
-                ? '<div class="ico ok">&#10003;</div><h2>Descadastro confirmado</h2><p>Você foi removido da nossa lista e <strong>não receberá mais e-mails</strong> desta prospecção.</p><p style="font-size:0.82rem;color:#999;">Se foi um engano, entre em contato conosco para voltar a receber.</p>'
+                ? '<div class="ico ok">&#10003;</div><h2>Descadastro confirmado</h2><p>Você foi removido da nossa lista e <strong>não receberá mais e-mails</strong>.</p><p style="font-size:0.82rem;color:#999;">Se foi um engano, entre em contato conosco para voltar a receber.</p>'
                 : '<div class="ico err">&times;</div><h2>Link inválido ou expirado</h2><p>Não foi possível processar o descadastro. O link pode ter expirado.</p>')
             . '</div></body></html>';
         exit;
