@@ -1183,6 +1183,45 @@ class WhatsappController extends Controller
     }
 
     /**
+     * DIAGNÓSTICO: envia uma mensagem de teste por uma instância específica.
+     * Serve para confirmar qual instância realmente consegue enviar.
+     *
+     * Uso: /whatsapp/testSend/4/5517991253062
+     *   (instância 4, número com DDI/DDD)
+     */
+    public function testSend($instanceId = null, $phone = null)
+    {
+        $this->requireRole(['super_admin']);
+        if (!$instanceId || !$phone) {
+            $this->json(['error' => 'Uso: /whatsapp/testSend/{instanceId}/{telefone}'], 400);
+        }
+
+        $db = Database::getInstance();
+        $inst = $db->fetch("SELECT * FROM whatsapp_instances WHERE id = ?", [$instanceId]);
+        if (!$inst) $this->json(['error' => 'Instância não encontrada'], 404);
+
+        $api = new EvolutionApi($inst['api_url'], $inst['api_key'], $inst['instance_name']);
+        $msg = 'Teste de envio ' . date('H:i:s') . ' via ' . $inst['instance_name'];
+        $result = $api->sendText($phone, $msg);
+
+        $ok = empty($result['error']) && !empty($result['key']);
+        Logger::info('[Whatsapp/testSend] resultado', [
+            'instance_id' => $instanceId,
+            'instance_name' => $inst['instance_name'],
+            'phone' => $phone,
+            'ok' => $ok,
+            'result' => $result,
+        ]);
+
+        $this->json([
+            'enviado' => $ok,
+            'instance_name' => $inst['instance_name'],
+            'phone' => $phone,
+            'resposta_evolution' => $result,
+        ]);
+    }
+
+    /**
      * API: Verificar status da conexão
      */
     public function status($instanceId = null)
