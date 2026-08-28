@@ -188,18 +188,36 @@ class SequenceEngine
 
         $stats = ['processed' => 0, 'sent' => 0, 'finished' => 0, 'skipped' => 0, 'errors' => 0];
         $sentByAccount = []; // controle de limite diário por sequência
+        $maxStepsPerParticipant = 50; // trava de segurança contra loops no grafo
 
         foreach ($due as $p) {
-            try {
-                $r = $this->step($p, $sentByAccount);
-                $stats['processed']++;
-                if ($r === 'sent') $stats['sent']++;
-                elseif ($r === 'finished') $stats['finished']++;
-                elseif ($r === 'skipped') $stats['skipped']++;
-            } catch (\Throwable $e) {
-                $stats['errors']++;
-                Logger::error('SequenceEngine step', ['participant' => $p['id'], 'error' => $e->getMessage()]);
-                $this->db->update('sequence_participants', ['status' => 'failed', 'stop_reason' => 'error'], 'id = ?', [$p['id']]);
+            // Drena os nós INSTANTÂNEOS do participante numa mesma passada:
+            // reveal/condição/tag/score/move/whatsapp/send avançam para "agora",
+            // então continuamos executando até bater num 'wait' (agenda futuro),
+            // finalizar, pular por janela/limite, ou atingir a trava de segurança.
+            $current = $p;
+            for ($i = 0; $i < $maxStepsPerParticipant; $i++) {
+                try {
+                    $r = $this->step($current, $sentByAccount);
+                    $stats['processed']++;
+                    if ($r === 'sent') $stats['sent']++;
+                    elseif ($r === 'finished') $stats['finished']++;
+                    elseif ($r === 'skipped') $stats['skipped']++;
+                } catch (\Throwable $e) {
+                    $stats['errors']++;
+                    Logger::error('SequenceEngine step', ['participant' => $current['id'], 'error' => $e->getMessage()]);
+                    $this->db->update('sequence_participants', ['status' => 'failed', 'stop_reason' => 'error'], 'id = ?', [$current['id']]);
+                    break;
+                }
+
+                if ($r === 'finished') break;
+
+                // Recarrega o participante para ver o estado após o passo
+                $current = $this->db->fetch("SELECT * FROM sequence_participants WHERE id = ?", [$p['id']]);
+                if (!$current || $current['status'] !== 'active') break;
+                // Se o próximo passo está agendado para o futuro (wait) ou foi
+                // reagendado (fora de janela / limite diário), para por aqui.
+                if (empty($current['next_run_at']) || strtotime($current['next_run_at']) > time()) break;
             }
         }
         return $stats;
