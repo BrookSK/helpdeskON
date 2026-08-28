@@ -2291,8 +2291,12 @@ function sendMessage() {
             reflectAutoAssign();
             renderedMessageIds.add(data.message.id);
             lastMessageId = Math.max(lastMessageId, data.message.id);
-            // Substitui a bolha otimista pela definitiva (troca o reloginho pelo check)
-            if (temp) {
+            // Se o polling já inseriu esta mensagem (corrida), descarta a bolha otimista
+            const already = area.querySelector(`.wpp-msg[data-msg-id="${data.message.id}"]`);
+            if (already) {
+                if (temp) temp.remove();
+            } else if (temp) {
+                // Substitui a bolha otimista pela definitiva (troca o reloginho pelo check)
                 temp.outerHTML = renderSingleMessage(data.message);
             } else {
                 area.insertAdjacentHTML('beforeend', renderSingleMessage(data.message));
@@ -2416,8 +2420,9 @@ function startPolling() {
             if (messages && messages.length) {
                 const area = document.getElementById('messages-area');
                 messages.forEach(m => {
-                    // Ignorar mensagens já renderizadas (evita duplicação)
+                    // Ignorar mensagens já renderizadas (evita duplicação) — checa memória e DOM
                     if (renderedMessageIds.has(m.id)) return;
+                    if (area.querySelector(`.wpp-msg[data-msg-id="${m.id}"]`)) { renderedMessageIds.add(m.id); return; }
                     renderedMessageIds.add(m.id);
 
                     // Popular cache de menções
