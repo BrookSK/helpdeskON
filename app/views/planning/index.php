@@ -35,24 +35,66 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
     <!-- Filtros -->
     <div class="card mb-3">
         <div class="card-body py-2 px-3">
+            <?php
+            // Valores selecionados (arrays) para marcar os checkboxes
+            $selCompanies = array_map('intval', (array)($filters['company_id'] ?? []));
+            $selAssigned  = array_map('intval', (array)($filters['assigned_to'] ?? []));
+            $selStatuses  = (array)($filters['statuses'] ?? []);
+            ?>
             <form method="GET" class="row g-2 align-items-center" id="filters-form">
-                <input type="hidden" name="show_all" id="show_all_input" value="0">
+                <input type="hidden" name="show_all" id="show_all_input" value="1">
+
+                <!-- Empresas (múltipla escolha) -->
                 <div class="col-6 col-md-auto">
-                    <select name="company_id" class="form-select form-select-sm">
-                        <option value="">Todas Empresas</option>
-                        <?php foreach ($companies as $c): ?>
-                        <option value="<?= $c['id'] ?>" <?= ($filters['company_id'] ?? '') == $c['id'] ? 'selected' : '' ?>><?= escape($c['name']) ?></option>
-                        <?php endforeach; ?>
-                    </select>
+                    <div class="dropdown multi-filter">
+                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle w-100 text-start" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside">
+                            <span data-ph="Todas Empresas" data-single="empresa" data-plural="empresas">Todas Empresas</span>
+                        </button>
+                        <div class="dropdown-menu p-2" style="max-height:280px;overflow-y:auto;min-width:220px;">
+                            <?php foreach ($companies as $c): ?>
+                            <label class="dropdown-item d-flex align-items-center gap-2 px-2 py-1" style="cursor:pointer;">
+                                <input class="form-check-input mt-0 mf-check" type="checkbox" name="company_id[]" value="<?= $c['id'] ?>" <?= in_array((int)$c['id'], $selCompanies, true) ? 'checked' : '' ?>>
+                                <span class="small"><?= escape($c['name']) ?></span>
+                            </label>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
                 </div>
+
+                <!-- Responsáveis (múltipla escolha) -->
                 <div class="col-6 col-md-auto">
-                    <select name="assigned_to" class="form-select form-select-sm">
-                        <option value="">Todos Responsáveis</option>
-                        <?php foreach ($teamMembers as $m): ?>
-                        <option value="<?= $m['id'] ?>" <?= ($filters['assigned_to'] ?? '') == $m['id'] ? 'selected' : '' ?>><?= escape($m['name']) ?></option>
-                        <?php endforeach; ?>
-                    </select>
+                    <div class="dropdown multi-filter">
+                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle w-100 text-start" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside">
+                            <span data-ph="Todos Responsáveis" data-single="responsável" data-plural="responsáveis">Todos Responsáveis</span>
+                        </button>
+                        <div class="dropdown-menu p-2" style="max-height:280px;overflow-y:auto;min-width:220px;">
+                            <?php foreach ($teamMembers as $m): ?>
+                            <label class="dropdown-item d-flex align-items-center gap-2 px-2 py-1" style="cursor:pointer;">
+                                <input class="form-check-input mt-0 mf-check" type="checkbox" name="assigned_to[]" value="<?= $m['id'] ?>" <?= in_array((int)$m['id'], $selAssigned, true) ? 'checked' : '' ?>>
+                                <span class="small"><?= escape($m['name']) ?></span>
+                            </label>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
                 </div>
+
+                <!-- Status (múltipla escolha) -->
+                <div class="col-6 col-md-auto">
+                    <div class="dropdown multi-filter">
+                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle w-100 text-start" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside">
+                            <span data-ph="Todos os Status" data-single="status" data-plural="status">Todos os Status</span>
+                        </button>
+                        <div class="dropdown-menu p-2" style="max-height:280px;overflow-y:auto;min-width:220px;">
+                            <?php foreach ($statusLabels as $s => $info): ?>
+                            <label class="dropdown-item d-flex align-items-center gap-2 px-2 py-1" style="cursor:pointer;">
+                                <input class="form-check-input mt-0 mf-check" type="checkbox" name="statuses[]" value="<?= $s ?>" <?= in_array($s, $selStatuses, true) ? 'checked' : '' ?>>
+                                <span class="small" style="color:<?= $info[1] ?>;"><?= $info[0] ?></span>
+                            </label>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="col-6 col-md-auto">
                     <select name="order" class="form-select form-select-sm">
                         <option value="" <?= empty($_GET['order']) ? 'selected' : '' ?>>Ordenação padrão</option>
@@ -73,7 +115,12 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
     <div id="kanban-view">
         <div class="kanban-scroll" style="overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:10px;">
             <div class="d-flex gap-3" style="min-width:max-content;">
+                <?php
+                // Se o usuário filtrou status específicos, mostra apenas essas colunas.
+                $visibleStatuses = !empty($selStatuses) ? array_intersect(array_keys($statusLabels), $selStatuses) : array_keys($statusLabels);
+                ?>
                 <?php foreach ($statusLabels as $status => $info): ?>
+                <?php if (!in_array($status, $visibleStatuses, true)) continue; ?>
                 <div style="width:260px;flex-shrink:0;">
                     <div class="kanban-column">
                         <div class="d-flex justify-content-between align-items-center mb-3">
@@ -623,13 +670,9 @@ let calMode = 'month';
 const priorityColors = {low:'#6b7280',medium:'#f59e0b',high:'#ef4444',urgent:'#dc2626'};
 const statusColors = {open:'#1565c0',in_progress:'#e65100',em_revisao_interna:'#5c6bc0',waiting_client:'#7b1fa2',em_homologacao:'#0097a7',aprovado_producao:'#8bc34a',completed:'#2e7d32',denied:'#d84315',archived:'#546e7a'};
 
-// === FILTER FORM: marcar show_all quando responsável está vazio ===
-document.getElementById('filters-form').addEventListener('submit', function() {
-    const assignedSelect = this.querySelector('[name="assigned_to"]');
-    if (!assignedSelect.value) {
-        document.getElementById('show_all_input').value = '1';
-    }
-});
+// === FILTER FORM ===
+// show_all fica sempre em 1: sem responsáveis marcados = ver todos os cards
+// (o pré-filtro pelo usuário logado só ocorre no primeiro acesso, sem parâmetros).
 
 // === VIEW TOGGLE ===
 document.querySelectorAll('#view-toggle button').forEach(btn => {
@@ -1692,6 +1735,40 @@ document.getElementById('cardDetailModal').addEventListener('shown.bs.modal', fu
         delete window._pendingDescription;
     }
 });
+</script>
+
+<!-- Filtros de múltipla escolha -->
+<style>
+.multi-filter .dropdown-toggle { min-width: 160px; }
+.multi-filter .dropdown-item:active { background: #e9ecef; color: inherit; }
+.multi-filter .dropdown-menu label:hover { background: #f5f7fa; border-radius: 4px; }
+</style>
+<script>
+(function () {
+    // Atualiza o texto do botão de cada filtro de múltipla escolha.
+    function updateLabel(dropdown) {
+        var span = dropdown.querySelector('.dropdown-toggle span');
+        var checks = dropdown.querySelectorAll('.mf-check');
+        var selected = Array.prototype.filter.call(checks, function (c) { return c.checked; });
+        var count = selected.length;
+        if (count === 0) {
+            span.textContent = span.getAttribute('data-ph');
+        } else if (count === 1) {
+            // Mostra o próprio nome quando só há um selecionado
+            var lbl = selected[0].parentElement.querySelector('span');
+            span.textContent = lbl ? lbl.textContent.trim() : ('1 ' + span.getAttribute('data-single'));
+        } else {
+            span.textContent = count + ' ' + span.getAttribute('data-plural');
+        }
+    }
+
+    document.querySelectorAll('.multi-filter').forEach(function (dropdown) {
+        updateLabel(dropdown);
+        dropdown.querySelectorAll('.mf-check').forEach(function (chk) {
+            chk.addEventListener('change', function () { updateLabel(dropdown); });
+        });
+    });
+})();
 </script>
 
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>

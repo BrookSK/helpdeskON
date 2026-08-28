@@ -24,20 +24,22 @@ class PlanningController extends Controller
         $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']);
 
         $filters = [];
-        if (!empty($_GET['company_id'])) $filters['company_id'] = $_GET['company_id'];
-        if (!empty($_GET['assigned_to'])) $filters['assigned_to'] = $_GET['assigned_to'];
+        // Filtros de múltipla escolha (arrays). Aceita valores únicos por compatibilidade.
+        if (!empty($_GET['company_id'])) $filters['company_id'] = array_filter((array)$_GET['company_id'], fn($v) => $v !== '');
+        if (!empty($_GET['assigned_to'])) $filters['assigned_to'] = array_filter((array)$_GET['assigned_to'], fn($v) => $v !== '');
+        if (!empty($_GET['statuses'])) $filters['statuses'] = array_filter((array)$_GET['statuses'], fn($v) => $v !== '');
         if (!empty($_GET['order'])) $filters['order'] = $_GET['order'];
 
         // whatsapp_agent, developer e analyst só veem cards atribuídos a eles (forçar filtro)
         if (in_array($user['role'], ['whatsapp_agent', 'developer', 'analyst', 'comercial'])) {
-            $filters['assigned_to'] = $user['id'];
+            $filters['assigned_to'] = [$user['id']];
         }
 
         // Para super_admin e attendant: pré-filtrar pelo usuário logado por padrão
         // a menos que o usuário explicitamente escolha "Todos" (via parâmetro show_all=1)
         if (in_array($user['role'], ['super_admin', 'attendant'])) {
             if (empty($_GET['show_all']) && empty($_GET['assigned_to'])) {
-                $filters['assigned_to'] = $user['id'];
+                $filters['assigned_to'] = [$user['id']];
             }
         }
 
@@ -97,9 +99,15 @@ class PlanningController extends Controller
         $end = $_GET['end'] ?? date('Y-m-t 23:59:59');
 
         $filters = [];
-        if (!empty($_GET['company_id'])) $filters['company_id'] = $_GET['company_id'];
-        if (!empty($_GET['assigned_to'])) $filters['assigned_to'] = $_GET['assigned_to'];
+        if (!empty($_GET['company_id'])) $filters['company_id'] = array_filter((array)$_GET['company_id'], fn($v) => $v !== '');
+        if (!empty($_GET['assigned_to'])) $filters['assigned_to'] = array_filter((array)$_GET['assigned_to'], fn($v) => $v !== '');
+        if (!empty($_GET['statuses'])) $filters['statuses'] = array_filter((array)$_GET['statuses'], fn($v) => $v !== '');
         if (!empty($_GET['hide_completed'])) $filters['hide_completed'] = true;
+
+        // whatsapp_agent/developer/analyst/comercial só veem os próprios cards
+        if (in_array($user['role'], ['whatsapp_agent', 'developer', 'analyst', 'comercial'])) {
+            $filters['assigned_to'] = [$user['id']];
+        }
 
         // Controle de acesso por empresa
         $allowedCompanies = PlanningCard::getUserAllowedCompanies($user['id'], $user['role']);
