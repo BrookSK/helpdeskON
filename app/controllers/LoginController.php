@@ -35,6 +35,10 @@ class LoginController extends Controller
             $_SESSION['user_avatar'] = $user['avatar'];
             $_SESSION['user_company_id'] = $user['company_id'] ?? null;
             $_SESSION['user_is_company_owner'] = $user['is_company_owner'] ?? 0;
+
+            // Auditoria: registrar o login
+            ActivityLogger::logLogin($user['id'], 'password');
+
             $this->redirect('dashboard');
         } else {
             flash('error', 'Email ou senha inválidos.');
@@ -91,6 +95,9 @@ class LoginController extends Controller
         $_SESSION['user_avatar'] = $target['avatar'] ?? null;
         $_SESSION['user_company_id'] = $target['company_id'] ?? null;
         $_SESSION['user_is_company_owner'] = $target['is_company_owner'] ?? 0;
+
+        // Auditoria: registrar o acesso via impersonação
+        ActivityLogger::logLogin($target['id'], 'impersonation', $_SESSION['impersonator']['user_id'] ?? null);
 
         $this->redirect('dashboard');
     }

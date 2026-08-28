@@ -38,6 +38,16 @@ class Router
 
         $this->params = array_slice($this->url, 2);
 
+        // Auditoria: registrar a ação do usuário logado (antes de executar).
+        if (!empty($_SESSION['user_id'])) {
+            ActivityLogger::logAction(
+                $_SESSION['user_id'],
+                $this->url[0],
+                $this->method,
+                $this->params
+            );
+        }
+
         call_user_func_array([$this->controller, $this->method], $this->params);
     }
 }

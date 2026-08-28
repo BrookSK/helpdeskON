@@ -127,3 +127,71 @@ function technicalRoles()
 {
     return ['developer', 'analyst', 'attendant'];
 }
+
+/**
+ * Nome amigável para um controller registrado na auditoria de ações.
+ */
+function activityModuleLabel($controller)
+{
+    $labels = [
+        'dashboard' => 'Painel',
+        'tickets' => 'Demandas',
+        'planning' => 'Planejamento',
+        'crm' => 'CRM',
+        'leadcapture' => 'Captura de Leads',
+        'prospection' => 'Prospecção',
+        'sequences' => 'Sequências',
+        'marketing' => 'Marketing',
+        'agenda' => 'Agenda',
+        'documents' => 'Documentos',
+        'whatsapp' => 'WhatsApp',
+        'social' => 'Social',
+        'buffer' => 'Buffer',
+        'notifications' => 'Notificações',
+        'users' => 'Usuários',
+        'companies' => 'Empresas',
+        'subusers' => 'Sub-usuários',
+        'settings' => 'Configurações',
+        'account' => 'Conta',
+        'tickets_attendants' => 'Demandas',
+        'login' => 'Autenticação',
+        'password' => 'Senha',
+        'api' => 'API',
+        'callback' => 'Integrações',
+    ];
+    $key = strtolower((string)$controller);
+    return $labels[$key] ?? ucfirst($key);
+}
+
+/**
+ * Nome amigável para a ação (método do controller) registrada na auditoria.
+ */
+function activityActionLabel($action)
+{
+    $labels = [
+        'index' => 'Acessou a listagem',
+        'show' => 'Visualizou',
+        'showcard' => 'Visualizou card',
+        'create' => 'Abriu criação',
+        'store' => 'Criou registro',
+        'edit' => 'Abriu edição',
+        'update' => 'Atualizou',
+        'updatestatus' => 'Alterou status',
+        'updatepriority' => 'Alterou prioridade',
+        'delete' => 'Removeu',
+        'deletepermanent' => 'Excluiu permanentemente',
+        'assign' => 'Atribuiu atendente',
+        'assigntechnical' => 'Atribuiu responsável técnico',
+        'sendmessage' => 'Enviou mensagem',
+        'comment' => 'Comentou',
+        'upload' => 'Enviou anexo',
+        'uploadattachment' => 'Enviou anexo',
+        'authenticate' => 'Fez login',
+        'logout' => 'Saiu',
+        'loginas' => 'Entrou como usuário',
+        'togglestatus' => 'Alterou status',
+        'activity' => 'Consultou auditoria',
+    ];
+    $key = strtolower((string)$action);
+    return $labels[$key] ?? ucfirst($key);
+}

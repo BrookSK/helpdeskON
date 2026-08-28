@@ -136,6 +136,44 @@ class UsersController extends Controller
         $this->view('admin/user_form', ['user' => $user, 'editUser' => $editUser]);
     }
 
+    /**
+     * Auditoria de um usuário: todos os logins e todas as ações executadas.
+     * Acessível apenas pelo super_admin, a partir do perfil do usuário.
+     */
+    public function activity($id = null)
+    {
+        $this->requireRole(['super_admin']);
+        if (!$id) $this->redirect('users');
+
+        $user = $this->currentUser();
+        $targetUser = $this->userModel->findById($id);
+        if (!$targetUser) {
+            flash('error', 'Usuário não encontrado.');
+            $this->redirect('users');
+        }
+
+        $activityModel = new ActivityLog();
+
+        // Paginação simples das ações
+        $perPage = 100;
+        $page = max(1, (int)($_GET['page'] ?? 1));
+        $offset = ($page - 1) * $perPage;
+
+        $totalActions = $activityModel->countActions($id);
+        $totalPages = max(1, (int)ceil($totalActions / $perPage));
+
+        $this->view('admin/user_activity', [
+            'user' => $user,
+            'targetUser' => $targetUser,
+            'logins' => $activityModel->getLogins($id, 100),
+            'actions' => $activityModel->getActions($id, $perPage, $offset),
+            'totalActions' => $totalActions,
+            'totalLogins' => $activityModel->countLogins($id),
+            'page' => $page,
+            'totalPages' => $totalPages,
+        ]);
+    }
+
     public function update($id = null)
     {
         $this->requireRole(['super_admin']);
