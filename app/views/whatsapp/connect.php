@@ -82,7 +82,7 @@ $defaultApiKey = $defaultInstance['api_key'] ?? '';
                         </button>
                         <?php endif; ?>
 
-                        <button class="btn btn-sm btn-outline-secondary" onclick="checkStatus(<?= $inst['id'] ?>)">
+                        <button class="btn btn-sm btn-outline-secondary" onclick="restartInstance(<?= $inst['id'] ?>, this)" title="Renovar conexão (reiniciar socket)">
                             <i class="bi bi-arrow-repeat"></i>
                         </button>
 
@@ -359,12 +359,37 @@ function startStatusPolling(id) {
     }, 5000);
 }
 
+// Apenas consulta o status (sem reiniciar)
 function checkStatus(id) {
     fetch(BASE + 'whatsapp/status/' + id, { headers: {'X-Requested-With': 'XMLHttpRequest'} })
     .then(r => r.json())
     .then(data => {
         alert('Status: ' + (data.state || 'Desconhecido'));
         location.reload();
+    });
+}
+
+// Botão de refresh (setas): reinicia a instância para renovar o socket travado
+// do Baileys. Resolve o caso "Conectado" no painel mas com "Connection Closed"
+// no envio, sem precisar ler o QR Code de novo.
+function restartInstance(id, btn) {
+    const original = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>'; }
+    fetch(BASE + 'whatsapp/restart/' + id, { method: 'POST', headers: {'X-Requested-With': 'XMLHttpRequest'} })
+    .then(r => r.json())
+    .then(data => {
+        if (data.connected) {
+            alert('Conexão renovada com sucesso. A instância está pronta para enviar.');
+        } else if (data.success) {
+            alert('Instância reiniciada. Estado atual: ' + (data.state || 'connecting') + '.\nAguarde alguns segundos e verifique novamente. Se não conectar, use "Conectar" para ler o QR Code.');
+        } else {
+            alert('Não foi possível reiniciar a instância. Tente "Desconectar" e "Conectar" novamente.');
+        }
+        location.reload();
+    })
+    .catch(() => {
+        alert('Erro ao reiniciar a instância.');
+        if (btn) { btn.disabled = false; btn.innerHTML = original; }
     });
 }
 

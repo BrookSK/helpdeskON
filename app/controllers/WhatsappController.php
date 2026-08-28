@@ -1034,6 +1034,44 @@ class WhatsappController extends Controller
     }
 
     /**
+     * API: Reiniciar a instância para renovar o socket travado do Baileys.
+     *
+     * Usado pelo botão de refresh (setas) na tela de conexões. Quando o painel
+     * mostra "Conectado" mas o envio falha com "Connection Closed", o socket do
+     * WhatsApp está travado sem a sessão real ter caído. O restart recria o
+     * socket sem exigir novo QR Code (a sessão continua válida).
+     */
+    public function restart($instanceId = null)
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
+        if (!$instanceId) $this->json(['error' => 'ID obrigatório'], 400);
+
+        $db = Database::getInstance();
+        $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE id = ?", [$instanceId]);
+        if (!$instance) $this->json(['error' => 'Instância não encontrada'], 404);
+
+        $api = new EvolutionApi($instance['api_url'], $instance['api_key'], $instance['instance_name']);
+
+        // 1) Reinicia a instância (renova o socket do Baileys)
+        $restart = $api->restartInstance();
+
+        // 2) Dá um pequeno tempo para o socket subir e consulta o estado real
+        usleep(1500000); // 1,5s
+        $stateResult = $api->connectionState();
+        $state = $stateResult['instance']['state'] ?? $stateResult['state'] ?? 'connecting';
+
+        $db->update('whatsapp_instances', ['connection_status' => $state], 'id = ?', [$instanceId]);
+
+        $connected = in_array($state, ['open', 'connected'], true);
+        $this->json([
+            'success' => empty($restart['error']),
+            'state' => $state,
+            'connected' => $connected,
+            'restart' => $restart,
+        ]);
+    }
+
+    /**
      * API: Desconectar instância
      */
     public function disconnect($instanceId = null)

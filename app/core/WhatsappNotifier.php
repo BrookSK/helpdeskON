@@ -114,168 +114,107 @@ class WhatsappNotifier
 
         $db = Database::getInstance();
 
-        // Seleciona uma instância REALMENTE conectada. A coluna connection_status
-        // pode estar desatualizada (o Baileys derruba a sessão sem avisar o banco),
-        // então verificamos o estado ao vivo na Evolution (connectionState) e
-        // sincronizamos o banco. Assim evitamos o erro "Connection Closed".
-        $instance = self::pickConnectedInstance($db);
+        // Cada instância é específica (ex.: Prospecção x Atendimento). As
+        // notificações do sistema saem SEMPRE pela instância padrão compartilhada
+        // (is_default = 1, sem vínculo de usuário). Não trocamos de instância
+        // automaticamente para não enviar pela conexão errada.
+        $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE is_default = 1 AND user_id IS NULL LIMIT 1");
         if (!$instance) {
-            self::log("NENHUMA INSTANCIA CONECTADA para phone={$phone}. Reconecte o WhatsApp em /whatsapp.");
+            $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE is_default = 1 LIMIT 1");
+        }
+        if (!$instance) {
+            self::log("NENHUMA INSTANCIA PADRAO configurada para phone={$phone}. Defina uma instância padrão em /whatsapp.");
             return false;
         }
 
         $api = EvolutionApi::fromInstance($instance['id']);
         if (!$api) {
-            self::log("SEM API/INSTANCIA para phone={$phone}");
+            self::log("SEM API para instancia padrao={$instance['id']} phone={$phone}");
             return false;
         }
 
         // Normalizar o número para JID individual
         $jid = $api->normalizeJid($api->normalizeNumber($phone));
-        $phoneOnly = $api->extractPhone($jid);
 
-        // Enviar a mensagem
-        $result = [];
         try {
             $result = $api->sendText($jid, $message);
         } catch (Exception $e) {
-            self::log("EXCECAO sendText phone={$phone} jid={$jid}: " . $e->getMessage());
+            self::log("EXCECAO sendText phone={$phone} jid={$jid} instance={$instance['id']}: " . $e->getMessage());
             return false;
         }
 
-        // Validar a resposta da Evolution: se veio erro, NÃO grava no chat e retorna false.
-        // Antes o código gravava a mensagem no chat mesmo com falha de envio, dando a
-        // falsa impressão de que a notificação tinha sido entregue.
+        // Falha reportada pela Evolution (ex.: Connection Closed): NÃO grava no chat.
+        // A instância padrão está desconectada/instável — precisa reconectar em /whatsapp.
         if (!empty($result['error'])) {
-            self::log("FALHA ENVIO phone={$phone} jid={$jid} instance=" . ($instance['id'] ?? 'global')
+            self::log("FALHA ENVIO phone={$phone} jid={$jid} instance={$instance['id']}"
                 . " http=" . ($result['http_code'] ?? '?')
                 . " msg=" . ($result['message'] ?? '')
                 . " resp=" . json_encode($result['response'] ?? null));
             return false;
         }
 
-        // Envio aceito exige uma chave de mensagem (result.key). Sem ela, tratamos como
-        // não confirmado para não registrar algo que não saiu de fato.
+        // Envio aceito exige a chave da mensagem (result.key). Sem ela, não confirma.
         if (empty($result['key'])) {
-            self::log("ENVIO NAO CONFIRMADO (sem key) phone={$phone} jid={$jid} resp=" . json_encode($result));
+            self::log("ENVIO NAO CONFIRMADO (sem key) phone={$phone} jid={$jid} instance={$instance['id']} resp=" . json_encode($result));
             return false;
         }
 
-        // Usar o JID real retornado pela Evolution (pode diferir do normalizado por causa do 9º dígito)
+        // JID real retornado pela Evolution (pode diferir por causa do 9º dígito)
         $realJid = $result['key']['remoteJid'] ?? $jid;
         if (strpos($realJid, '@') === false) {
             $realJid = $api->normalizeJid($realJid);
         }
         $realPhone = $api->extractPhone($realJid);
 
-        // Registrar no chat apenas quando o envio foi confirmado pela Evolution,
-        // usando os mesmos models do fluxo de mensagens recebidas.
-        if ($instance) {
-            try {
-                $contactModel = new WhatsappContact();
-                $messageModel = new WhatsappMessage();
-
-                // upsert cria o contato se não existir (mesma função usada pelo webhook)
-                $contactId = $contactModel->upsert($instance['id'], $realJid, [
-                    'phone' => $realPhone,
-                    'is_group' => 0,
-                    'last_message_at' => date('Y-m-d H:i:s'),
-                ], $contactName);
-
-                // Garantir que o contato fique visível no chat (desarquivado) e com nome
-                $updateContact = ['is_archived' => 0];
-                if (!empty($contactName)) {
-                    $existing = $contactModel->findById($contactId);
-                    if ($existing && empty($existing['contact_name'])) {
-                        $updateContact['contact_name'] = $contactName;
-                    }
-                }
-                $db->update('whatsapp_contacts', $updateContact, 'id = ?', [$contactId]);
-
-                $messageModel->create([
-                    'instance_id' => $instance['id'],
-                    'contact_id' => $contactId,
-                    'remote_jid' => $realJid,
-                    'message_id' => $result['key']['id'] ?? uniqid('notif_'),
-                    'from_me' => 1,
-                    'message_type' => 'text',
-                    'message_text' => $message,
-                    'sender_name' => 'Sistema',
-                    'timestamp' => date('Y-m-d H:i:s'),
-                    'is_read' => 1,
-                ]);
-
-                $contactModel->updateLastMessage($contactId, date('Y-m-d H:i:s'));
-
-                // Diagnóstico: linha real do contato + quantos o chat enxerga nesta instância
-                $row = $db->fetch("SELECT id, instance_id, remote_jid, phone, contact_name, is_group, is_archived, service_status FROM whatsapp_contacts WHERE id = ?", [$contactId]);
-                $visible = $db->fetch("SELECT COUNT(*) as t FROM whatsapp_contacts WHERE instance_id = ? AND is_group = 0 AND is_archived = 0", [$instance['id']]);
-                self::log("OK phone={$phone} jid={$realJid} instance={$instance['id']} contact={$contactId} row=" . json_encode($row) . " visiveis={$visible['t']}");
-            } catch (Exception $e) {
-                self::log("ERRO persistencia phone={$phone} jid={$realJid}: " . $e->getMessage());
-            }
-        } else {
-            self::log("SEM INSTANCIA para phone={$phone}");
-        }
+        self::persistChatMessage($db, $instance, $realJid, $realPhone, $message, $result, $contactName, $phone);
 
         return true;
     }
 
     /**
-     * Escolhe uma instância compartilhada (sem vínculo de usuário) que esteja
-     * REALMENTE conectada, verificando o estado ao vivo na Evolution API e
-     * sincronizando a coluna connection_status no banco.
-     *
-     * Ordem de preferência dos candidatos:
-     *  1) Padrão + sem vínculo de usuário;
-     *  2) Sem vínculo de usuário;
-     *  3) Padrão;
-     *  4) Qualquer.
-     *
-     * @return array|null linha da instância conectada, ou null se nenhuma estiver.
+     * Registra no histórico do chat a mensagem enviada com sucesso.
      */
-    private static function pickConnectedInstance($db)
-    {
-        $candidates = $db->fetchAll(
-            "SELECT * FROM whatsapp_instances
-             ORDER BY (is_default = 1 AND user_id IS NULL) DESC,
-                      (user_id IS NULL) DESC,
-                      is_default DESC,
-                      id ASC"
-        );
-
-        foreach ($candidates as $inst) {
-            if (self::isInstanceConnected($db, $inst)) {
-                return $inst;
-            }
-        }
-        return null;
-    }
-
-    /**
-     * Consulta o estado real da instância na Evolution API e atualiza a coluna
-     * connection_status. Retorna true se estiver 'open'/'connected'.
-     */
-    private static function isInstanceConnected($db, $instance)
+    private static function persistChatMessage($db, $instance, $realJid, $realPhone, $message, $result, $contactName, $phone)
     {
         try {
-            $api = EvolutionApi::fromInstance($instance['id']);
-            if (!$api) return false;
+            $contactModel = new WhatsappContact();
+            $messageModel = new WhatsappMessage();
 
-            $result = $api->connectionState();
-            $state = $result['instance']['state'] ?? $result['state'] ?? 'close';
+            // upsert cria o contato se não existir (mesma função usada pelo webhook)
+            $contactId = $contactModel->upsert($instance['id'], $realJid, [
+                'phone' => $realPhone,
+                'is_group' => 0,
+                'last_message_at' => date('Y-m-d H:i:s'),
+            ], $contactName);
 
-            // Sincroniza o banco se o estado divergir do registrado
-            if (($instance['connection_status'] ?? null) !== $state) {
-                try {
-                    $db->update('whatsapp_instances', ['connection_status' => $state], 'id = ?', [$instance['id']]);
-                } catch (\Throwable $e) { /* ignora */ }
+            // Garantir que o contato fique visível no chat (desarquivado) e com nome
+            $updateContact = ['is_archived' => 0];
+            if (!empty($contactName)) {
+                $existing = $contactModel->findById($contactId);
+                if ($existing && empty($existing['contact_name'])) {
+                    $updateContact['contact_name'] = $contactName;
+                }
             }
+            $db->update('whatsapp_contacts', $updateContact, 'id = ?', [$contactId]);
 
-            return in_array($state, ['open', 'connected'], true);
-        } catch (\Throwable $e) {
-            self::log("ERRO connectionState instancia={$instance['id']}: " . $e->getMessage());
-            return false;
+            $messageModel->create([
+                'instance_id' => $instance['id'],
+                'contact_id' => $contactId,
+                'remote_jid' => $realJid,
+                'message_id' => $result['key']['id'] ?? uniqid('notif_'),
+                'from_me' => 1,
+                'message_type' => 'text',
+                'message_text' => $message,
+                'sender_name' => 'Sistema',
+                'timestamp' => date('Y-m-d H:i:s'),
+                'is_read' => 1,
+            ]);
+
+            $contactModel->updateLastMessage($contactId, date('Y-m-d H:i:s'));
+
+            self::log("OK phone={$phone} jid={$realJid} instance={$instance['id']} contact={$contactId}");
+        } catch (Exception $e) {
+            self::log("ERRO persistencia phone={$phone} jid={$realJid}: " . $e->getMessage());
         }
     }
 
