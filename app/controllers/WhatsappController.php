@@ -1003,10 +1003,42 @@ class WhatsappController extends Controller
         if (!$instance) $this->json(['error' => 'Instância não encontrada'], 404);
 
         $api = new EvolutionApi($instance['api_url'], $instance['api_key'], $instance['instance_name']);
+
+        // 1) Verifica o estado atual. Se já está conectada, a Evolution NÃO gera QR
+        //    (por isso aparecia "QR Code não disponível"). Avisamos o front.
+        $stateResult = $api->connectionState();
+        $state = $stateResult['instance']['state'] ?? $stateResult['state'] ?? 'close';
+        if (in_array($state, ['open', 'connected'], true)) {
+            $db->update('whatsapp_instances', ['connection_status' => $state], 'id = ?', [$instanceId]);
+            $this->json([
+                'already_connected' => true,
+                'state' => $state,
+                'message' => 'A instância já está conectada. Desconecte antes de gerar um novo QR Code.',
+            ]);
+        }
+
+        // 2) Instância fechada: pede o QR. Em algumas versões da Evolution o QR
+        //    demora 1-2s para ficar pronto, então tentamos algumas vezes.
         $result = $api->connectInstance();
+        $attempts = 0;
+        while ($attempts < 3
+            && empty($result['base64']) && empty($result['code']) && empty($result['pairingCode'])) {
+            usleep(1200000); // 1,2s
+            $result = $api->connectInstance();
+            $attempts++;
+        }
 
         // Atualizar status
         $db->update('whatsapp_instances', ['connection_status' => 'connecting'], 'id = ?', [$instanceId]);
+
+        // Log de diagnóstico caso o QR ainda não venha (ajuda a ver o formato da resposta)
+        if (empty($result['base64']) && empty($result['code']) && empty($result['pairingCode'])) {
+            Logger::warning('[Whatsapp] connect sem QR', [
+                'instance_id' => $instanceId,
+                'state' => $state,
+                'keys' => is_array($result) ? array_keys($result) : gettype($result),
+            ]);
+        }
 
         $this->json($result);
     }
@@ -1084,10 +1116,32 @@ class WhatsappController extends Controller
         if (!$instance) $this->json(['error' => 'Instância não encontrada'], 404);
 
         $api = new EvolutionApi($instance['api_url'], $instance['api_key'], $instance['instance_name']);
-        $api->logoutInstance();
+        $logout = $api->logoutInstance();
 
-        $db->update('whatsapp_instances', ['connection_status' => 'close'], 'id = ?', [$instanceId]);
-        $this->json(['success' => true]);
+        // Confirma o estado real após o logout. Em alguns casos a Evolution
+        // demora a encerrar a sessão e reconecta sozinha (voltando a "Conectado").
+        usleep(1000000); // 1s
+        $stateResult = $api->connectionState();
+        $state = $stateResult['instance']['state'] ?? $stateResult['state'] ?? 'close';
+
+        $db->update('whatsapp_instances', ['connection_status' => $state], 'id = ?', [$instanceId]);
+
+        $reallyClosed = !in_array($state, ['open', 'connected'], true);
+        if (!$reallyClosed) {
+            Logger::warning('[Whatsapp] logout nao encerrou a sessao', [
+                'instance_id' => $instanceId,
+                'state' => $state,
+                'logout' => is_array($logout) ? ($logout['error'] ?? null) : null,
+            ]);
+        }
+
+        $this->json([
+            'success' => $reallyClosed,
+            'state' => $state,
+            'message' => $reallyClosed
+                ? 'Instância desconectada.'
+                : 'A Evolution ainda reporta a sessão como ativa. Tente novamente ou reinicie a instância.',
+        ]);
     }
 
     /**

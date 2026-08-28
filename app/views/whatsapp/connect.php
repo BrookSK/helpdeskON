@@ -327,16 +327,24 @@ function connectInstance(id) {
     .then(r => r.json())
     .then(data => {
         qrArea.querySelector('.qr-loading').style.display = 'none';
+        if (data.already_connected) {
+            // Já está conectada: a Evolution não gera QR nesse estado.
+            qrArea.querySelector('.qr-image').innerHTML = '<div class="alert alert-info small mb-0">' +
+                (data.message || 'A instância já está conectada. Desconecte antes de gerar um novo QR Code.') + '</div>';
+            return;
+        }
         if (data.base64) {
             qrArea.querySelector('.qr-image').innerHTML = '<img src="' + data.base64 + '"><br><small class="text-muted mt-2 d-block">Escaneie com seu WhatsApp</small>';
+            startStatusPolling(id);
         } else if (data.code) {
             qrArea.querySelector('.qr-image').innerHTML = '<img src="data:image/png;base64,' + data.code + '"><br><small class="text-muted mt-2 d-block">Escaneie com seu WhatsApp</small>';
+            startStatusPolling(id);
         } else if (data.pairingCode) {
             qrArea.querySelector('.qr-image').innerHTML = '<div class="alert alert-info small">Código de pareamento: <strong>' + data.pairingCode + '</strong></div>';
+            startStatusPolling(id);
         } else {
-            qrArea.querySelector('.qr-image').innerHTML = '<div class="alert alert-warning small">QR Code não disponível. Verifique o status.</div>';
+            qrArea.querySelector('.qr-image').innerHTML = '<div class="alert alert-warning small mb-0">QR Code não disponível. A sessão anterior pode não ter sido encerrada.<br>Clique em <strong>Desconectar</strong> novamente e depois em <strong>Conectar</strong>, ou use o botão de <strong>reiniciar</strong> (setas).</div>';
         }
-        startStatusPolling(id);
     })
     .catch(() => {
         qrArea.querySelector('.qr-loading').style.display = 'none';
@@ -419,7 +427,12 @@ function disconnectInstance(id) {
     if (!confirm('Deseja desconectar esta instância?')) return;
     fetch(BASE + 'whatsapp/disconnect/' + id, { headers: {'X-Requested-With': 'XMLHttpRequest'} })
     .then(r => r.json())
-    .then(() => location.reload());
+    .then(data => {
+        if (data && data.success === false) {
+            alert(data.message || 'Não foi possível encerrar a sessão. Tente reiniciar a instância (setas) e desconectar novamente.');
+        }
+        location.reload();
+    });
 }
 
 function setDefault(id) {
