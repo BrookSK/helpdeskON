@@ -39,6 +39,7 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
             // Valores selecionados (arrays) para marcar os checkboxes
             $selCompanies = array_map('intval', (array)($filters['company_id'] ?? []));
             $selAssigned  = array_map('intval', (array)($filters['assigned_to'] ?? []));
+            $selRequesters = array_map('intval', (array)($filters['created_by'] ?? []));
             $selStatuses  = (array)($filters['statuses'] ?? []);
             ?>
             <form method="GET" class="row g-2 align-items-center" id="filters-form">
@@ -72,6 +73,23 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                             <label class="dropdown-item d-flex align-items-center gap-2 px-2 py-1" style="cursor:pointer;">
                                 <input class="form-check-input mt-0 mf-check" type="checkbox" name="assigned_to[]" value="<?= $m['id'] ?>" <?= in_array((int)$m['id'], $selAssigned, true) ? 'checked' : '' ?>>
                                 <span class="small"><?= escape($m['name']) ?></span>
+                            </label>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Solicitantes (múltipla escolha) -->
+                <div class="col-6 col-md-auto">
+                    <div class="dropdown multi-filter">
+                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle w-100 text-start" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside">
+                            <span data-ph="Todos Solicitantes" data-single="solicitante" data-plural="solicitantes">Todos Solicitantes</span>
+                        </button>
+                        <div class="dropdown-menu p-2" style="max-height:280px;overflow-y:auto;min-width:220px;">
+                            <?php foreach (($requesters ?? []) as $r): ?>
+                            <label class="dropdown-item d-flex align-items-center gap-2 px-2 py-1" style="cursor:pointer;">
+                                <input class="form-check-input mt-0 mf-check" type="checkbox" name="created_by[]" value="<?= $r['id'] ?>" <?= in_array((int)$r['id'], $selRequesters, true) ? 'checked' : '' ?>>
+                                <span class="small"><?= escape($r['name']) ?></span>
                             </label>
                             <?php endforeach; ?>
                         </div>

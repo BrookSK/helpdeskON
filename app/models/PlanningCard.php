@@ -99,6 +99,12 @@ class PlanningCard
             $companyIds = array_values(array_unique(array_filter(array_map('intval', (array)$filters['company_id']))));
         }
 
+        // Filtro de solicitantes/criadores (múltipla escolha).
+        $createdByIds = [];
+        if (!empty($filters['created_by'])) {
+            $createdByIds = array_values(array_unique(array_filter(array_map('intval', (array)$filters['created_by']))));
+        }
+
         $result = [];
 
         foreach ($statuses as $status) {
@@ -123,6 +129,11 @@ class PlanningCard
                 $sql .= " AND pc.assigned_to IN ($ph)";
                 $params = array_merge($params, $assignedIds);
             }
+            if (!empty($createdByIds)) {
+                $ph = implode(',', array_fill(0, count($createdByIds), '?'));
+                $sql .= " AND pc.created_by IN ($ph)";
+                $params = array_merge($params, $createdByIds);
+            }
             if (!empty($filters['allowed_companies'])) {
                 $placeholders = implode(',', array_fill(0, count($filters['allowed_companies']), '?'));
                 $sql .= " AND (pc.company_id IS NULL OR pc.company_id IN ($placeholders))";
@@ -144,6 +155,29 @@ class PlanningCard
         }
 
         return $result;
+    }
+
+    /**
+     * Lista os solicitantes (usuários que criaram cards), para o filtro.
+     * Respeita o controle de acesso por empresa quando informado.
+     */
+    public function getRequesters($allowedCompanies = null)
+    {
+        $sql = "SELECT DISTINCT u.id, u.name
+                FROM planning_cards pc
+                INNER JOIN users u ON pc.created_by = u.id";
+        $params = [];
+
+        if ($allowedCompanies !== null && !in_array(0, $allowedCompanies, true)) {
+            if (!empty($allowedCompanies)) {
+                $ph = implode(',', array_fill(0, count($allowedCompanies), '?'));
+                $sql .= " WHERE (pc.company_id IS NULL OR pc.company_id IN ($ph))";
+                $params = array_merge($params, $allowedCompanies);
+            }
+        }
+
+        $sql .= " ORDER BY u.name ASC";
+        return $this->db->fetchAll($sql, $params);
     }
 
     public function getForCalendar($startDate, $endDate, $filters = [])

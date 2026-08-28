@@ -27,6 +27,7 @@ class PlanningController extends Controller
         // Filtros de múltipla escolha (arrays). Aceita valores únicos por compatibilidade.
         if (!empty($_GET['company_id'])) $filters['company_id'] = array_filter((array)$_GET['company_id'], fn($v) => $v !== '');
         if (!empty($_GET['assigned_to'])) $filters['assigned_to'] = array_filter((array)$_GET['assigned_to'], fn($v) => $v !== '');
+        if (!empty($_GET['created_by'])) $filters['created_by'] = array_filter((array)$_GET['created_by'], fn($v) => $v !== '');
         if (!empty($_GET['statuses'])) $filters['statuses'] = array_filter((array)$_GET['statuses'], fn($v) => $v !== '');
         if (!empty($_GET['order'])) $filters['order'] = $_GET['order'];
 
@@ -77,6 +78,9 @@ class PlanningController extends Controller
         $techniciansList = $userModel->getByRoles(['developer']);
         $analystsList = $userModel->getByRoles(['analyst']);
 
+        // Lista de solicitantes (criadores dos cards) para o filtro
+        $requesters = $this->cardModel->getRequesters($allowedCompanies);
+
         $this->view('planning/index', [
             'user' => $user,
             'grouped' => $grouped,
@@ -85,6 +89,7 @@ class PlanningController extends Controller
             'attendantsList' => $attendantsList,
             'techniciansList' => $techniciansList,
             'analystsList' => $analystsList,
+            'requesters' => $requesters,
             'filters' => $filters,
         ]);
     }
