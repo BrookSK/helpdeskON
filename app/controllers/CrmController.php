@@ -1845,6 +1845,7 @@ class CrmController extends Controller
             'lead_source' => $leadSource,
             'global_dedupe' => !empty($_POST['global_dedupe']) ? 1 : 0,
             'my_leads_filters' => json_encode($myLeadsFilters, JSON_UNESCAPED_UNICODE),
+            'my_leads_ids' => json_encode($this->buildMyLeadsIds(), JSON_UNESCAPED_UNICODE),
             'sequence_id' => !empty($_POST['sequence_id']) ? intval($_POST['sequence_id']) : null,
             'board_id' => !empty($_POST['board_id']) ? intval($_POST['board_id']) : null,
             'column_id' => !empty($_POST['column_id']) ? intval($_POST['column_id']) : null,
@@ -1903,8 +1904,11 @@ class CrmController extends Controller
         $camp = $db->fetch("SELECT * FROM apollo_campaigns WHERE id = ?", [$id]);
         if (!$camp) $this->json(['error' => 'Campanha não encontrada'], 404);
 
-        $apollo = new ApolloApi();
-        if (!$apollo->isConfigured()) $this->json(['error' => 'Apollo não configurado.'], 400);
+        // Apollo só é obrigatório quando a fonte é Apollo (Meus Leads não consome API).
+        if (($camp['lead_source'] ?? 'apollo') !== 'my_leads') {
+            $apollo = new ApolloApi();
+            if (!$apollo->isConfigured()) $this->json(['error' => 'Apollo não configurado.'], 400);
+        }
 
         $already = 0;
         try {
@@ -2108,6 +2112,50 @@ class CrmController extends Controller
         if (!empty($_POST['ml_source']))      $f['source'] = trim($_POST['ml_source']);
         if (!empty($_POST['ml_assigned_to'])) $f['assigned_to'] = intval($_POST['ml_assigned_to']);
         return $f;
+    }
+
+    /** IDs de leads selecionados manualmente para a campanha "Meus Leads". */
+    private function buildMyLeadsIds()
+    {
+        $raw = $_POST['my_leads_ids'] ?? '';
+        $ids = array_filter(array_map('intval', explode(',', (string)$raw)), fn($v) => $v > 0);
+        return array_values(array_unique($ids));
+    }
+
+    /**
+     * API: lista leads do CRM (com e-mail) para o modal de multiseleção da campanha
+     * "Meus Leads". Aceita filtros opcionais (search, temperature, source, assigned_to).
+     * GET crm/leadsForCampaign
+     */
+    public function leadsForCampaign()
+    {
+        $this->requireRole(['super_admin']);
+        $db = Database::getInstance();
+
+        $sql = "SELECT c.id, c.contact_name, c.lead_email, c.phone, u.name AS assigned_name,
+                       b.lead_temperature, b.lead_source
+                FROM whatsapp_contacts c
+                LEFT JOIN users u ON c.assigned_to = u.id
+                LEFT JOIN commercial_briefings b ON b.contact_id = c.id
+                WHERE COALESCE(c.is_group,0)=0
+                  AND c.lead_email IS NOT NULL AND c.lead_email <> ''
+                  AND COALESCE(c.unsubscribed,0)=0
+                  AND COALESCE(c.email_bounced,0)=0
+                  AND COALESCE(c.crm_archived,0)=0";
+        $params = [];
+
+        if (!empty($_GET['search'])) {
+            $sql .= " AND (c.contact_name LIKE ? OR c.lead_email LIKE ? OR c.phone LIKE ?)";
+            $s = '%' . trim($_GET['search']) . '%';
+            $params[] = $s; $params[] = $s; $params[] = $s;
+        }
+        if (!empty($_GET['temperature'])) { $sql .= " AND b.lead_temperature = ?"; $params[] = $_GET['temperature']; }
+        if (!empty($_GET['source']))      { $sql .= " AND b.lead_source = ?";      $params[] = $_GET['source']; }
+        if (!empty($_GET['assigned_to'])) { $sql .= " AND c.assigned_to = ?";       $params[] = intval($_GET['assigned_to']); }
+
+        $sql .= " ORDER BY c.contact_name IS NULL, c.contact_name ASC LIMIT 500";
+        $rows = $db->fetchAll($sql, $params);
+        $this->json(['success' => true, 'leads' => $rows]);
     }
 
     /**

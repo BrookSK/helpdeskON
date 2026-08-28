@@ -280,6 +280,19 @@
                                     <?php foreach ($team as $t): ?><option value="<?= $t['id'] ?>"><?= escape($t['name']) ?></option><?php endforeach; ?>
                                 </select>
                             </div>
+                            <div class="col-12">
+                                <div class="d-flex align-items-center justify-content-between border rounded p-2 bg-light">
+                                    <div class="small">
+                                        <strong><i class="bi bi-check2-square"></i> Leads específicos (opcional)</strong>
+                                        <div class="text-muted" id="camp-ml-selected-info">Nenhum lead específico selecionado — usa os filtros acima.</div>
+                                    </div>
+                                    <div class="text-nowrap">
+                                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="openLeadPicker()"><i class="bi bi-list-check"></i> Selecionar</button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearLeadSelection()" id="camp-ml-clear" style="display:none;"><i class="bi bi-x-lg"></i></button>
+                                    </div>
+                                </div>
+                                <input type="hidden" id="camp-ml-ids" value="">
+                            </div>
                         </div>
                     </div>
 
@@ -364,6 +377,43 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Fechar</button>
                 <button class="btn btn-sm btn-primary" id="camp-save" onclick="saveCampaign(this)"><i class="bi bi-check-lg"></i> Salvar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Seleção de Leads (multiseleção) -->
+<div class="modal fade" id="leadPickerModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title"><i class="bi bi-list-check"></i> Selecionar leads específicos</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="d-flex gap-2 mb-2">
+                    <input type="text" id="lp-search" class="form-control form-control-sm" placeholder="Buscar por nome, e-mail ou telefone...">
+                    <button class="btn btn-sm btn-outline-secondary text-nowrap" onclick="loadLeadPicker()"><i class="bi bi-search"></i></button>
+                </div>
+                <div class="d-flex justify-content-between align-items-center mb-2 small">
+                    <div>
+                        <a href="#" onclick="lpSelectAll(true);return false;">Selecionar todos</a> ·
+                        <a href="#" onclick="lpSelectAll(false);return false;">Limpar</a>
+                    </div>
+                    <span class="text-muted"><span id="lp-count">0</span> selecionado(s)</span>
+                </div>
+                <div class="table-responsive" style="max-height:420px;overflow:auto;">
+                    <table class="table table-sm table-hover mb-0" style="font-size:0.82rem;">
+                        <thead class="table-light sticky-top"><tr>
+                            <th style="width:36px;"></th><th>Nome</th><th>E-mail</th><th>Responsável</th><th>Temp.</th>
+                        </tr></thead>
+                        <tbody id="lp-body"><tr><td colspan="5" class="text-center text-muted py-3">Carregando...</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-sm btn-primary" onclick="applyLeadSelection()"><i class="bi bi-check-lg"></i> Aplicar seleção</button>
             </div>
         </div>
     </div>
@@ -470,6 +520,87 @@ function onCampSourceChange() {
     document.querySelectorAll('.myleads-section').forEach(el => el.style.display = isMy ? '' : 'none');
 }
 
+// ===== Seleção de leads específicos (multiseleção) =====
+let leadPickerModal;
+let selectedLeadIds = [];      // aplicados à campanha
+let lpTempSelected = new Set(); // seleção temporária no modal
+let lpLeadCache = {};           // id -> nome (para exibir contagem)
+
+function refreshLeadSelectionInfo() {
+    const info = document.getElementById('camp-ml-selected-info');
+    const clearBtn = document.getElementById('camp-ml-clear');
+    document.getElementById('camp-ml-ids').value = selectedLeadIds.join(',');
+    if (selectedLeadIds.length) {
+        info.innerHTML = '<span class="text-success fw-medium">' + selectedLeadIds.length + ' lead(s) selecionado(s)</span> — os filtros acima serão ignorados.';
+        clearBtn.style.display = '';
+    } else {
+        info.textContent = 'Nenhum lead específico selecionado — usa os filtros acima.';
+        clearBtn.style.display = 'none';
+    }
+}
+
+function clearLeadSelection() {
+    selectedLeadIds = [];
+    refreshLeadSelectionInfo();
+}
+
+function openLeadPicker() {
+    if (!leadPickerModal) leadPickerModal = new bootstrap.Modal(document.getElementById('leadPickerModal'));
+    lpTempSelected = new Set(selectedLeadIds.map(String));
+    document.getElementById('lp-search').value = '';
+    leadPickerModal.show();
+    loadLeadPicker();
+}
+
+function loadLeadPicker() {
+    const body = document.getElementById('lp-body');
+    body.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">Carregando...</td></tr>';
+    const qs = new URLSearchParams();
+    const s = document.getElementById('lp-search').value.trim();
+    if (s) qs.set('search', s);
+    const t = document.getElementById('camp-ml-temperature').value; if (t) qs.set('temperature', t);
+    const src = document.getElementById('camp-ml-source').value.trim(); if (src) qs.set('source', src);
+    const a = document.getElementById('camp-ml-assigned').value; if (a) qs.set('assigned_to', a);
+
+    fetch(BASE + 'crm/leadsForCampaign?' + qs.toString(), { headers:{'X-Requested-With':'XMLHttpRequest'} })
+        .then(r=>r.json()).then(d=>{
+            const leads = d.leads || [];
+            if (!leads.length) { body.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">Nenhum lead com e-mail encontrado.</td></tr>'; return; }
+            body.innerHTML = leads.map(l => {
+                lpLeadCache[l.id] = l.contact_name || l.lead_email;
+                const checked = lpTempSelected.has(String(l.id)) ? 'checked' : '';
+                return `<tr onclick="lpToggleRow(${l.id}, event)" style="cursor:pointer;">
+                    <td><input type="checkbox" class="form-check-input lp-check" value="${l.id}" ${checked} onclick="event.stopPropagation();lpToggle(${l.id}, this.checked)"></td>
+                    <td>${escapeH(l.contact_name||'—')}</td>
+                    <td>${escapeH(l.lead_email||'—')}</td>
+                    <td>${escapeH(l.assigned_name||'—')}</td>
+                    <td>${escapeH(l.lead_temperature||'—')}</td>
+                </tr>`;
+            }).join('');
+            lpUpdateCount();
+        })
+        .catch(()=>{ body.innerHTML = '<tr><td colspan="5" class="text-center text-danger py-3">Erro ao carregar leads.</td></tr>'; });
+}
+
+function lpToggle(id, on) {
+    if (on) lpTempSelected.add(String(id)); else lpTempSelected.delete(String(id));
+    lpUpdateCount();
+}
+function lpToggleRow(id, ev) {
+    const cb = ev.currentTarget.querySelector('.lp-check');
+    if (cb) { cb.checked = !cb.checked; lpToggle(id, cb.checked); }
+}
+function lpSelectAll(on) {
+    document.querySelectorAll('#lp-body .lp-check').forEach(cb => { cb.checked = on; lpToggle(parseInt(cb.value,10), on); });
+}
+function lpUpdateCount() { document.getElementById('lp-count').textContent = lpTempSelected.size; }
+
+function applyLeadSelection() {
+    selectedLeadIds = Array.from(lpTempSelected).map(v => parseInt(v,10)).filter(Boolean);
+    refreshLeadSelectionInfo();
+    leadPickerModal.hide();
+}
+
 function onCampBoardChange() {
     const bid = document.getElementById('camp-board').value;
     const sel = document.getElementById('camp-column');
@@ -500,6 +631,8 @@ function openCampaign() {
     document.getElementById('camp-ml-temperature').value = '';
     document.getElementById('camp-ml-source').value = '';
     document.getElementById('camp-ml-assigned').value = '';
+    selectedLeadIds = [];
+    refreshLeadSelectionInfo();
     onCampSourceChange();
     ['decisor:30','title:20','size:15','region:10','website:5','technology:10'].forEach(p => { const [k,v]=p.split(':'); document.getElementById('camp-w-'+k).value = v; });
     if (!campModal) campModal = new bootstrap.Modal(document.getElementById('campaignModal'));
@@ -535,6 +668,11 @@ function editCampaign(c) {
         document.getElementById('camp-ml-source').value = ml.source || '';
         document.getElementById('camp-ml-assigned').value = ml.assigned_to || '';
     } catch(e){}
+    try {
+        const ids = JSON.parse(c.my_leads_ids || '[]');
+        selectedLeadIds = Array.isArray(ids) ? ids.map(v => parseInt(v,10)).filter(Boolean) : [];
+    } catch(e){ selectedLeadIds = []; }
+    refreshLeadSelectionInfo();
 
     try {
         const f = JSON.parse(c.search_filters || '{}');
@@ -582,6 +720,7 @@ function saveCampaign(btn) {
     fd.append('ml_temperature', document.getElementById('camp-ml-temperature').value);
     fd.append('ml_source', document.getElementById('camp-ml-source').value);
     fd.append('ml_assigned_to', document.getElementById('camp-ml-assigned').value);
+    fd.append('my_leads_ids', selectedLeadIds.join(','));
     fd.append('f_titles', document.getElementById('camp-f-titles').value);
     fd.append('f_seniorities', document.getElementById('camp-f-seniorities').value);
     fd.append('f_person_locations', document.getElementById('camp-f-ploc').value);

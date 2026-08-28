@@ -210,9 +210,19 @@ class ApolloProspectingService
             return $m;
         }
 
-        $filters = json_decode($camp['my_leads_filters'] ?? '{}', true) ?: [];
-        // Candidatos: leads do CRM com e-mail, não descadastrados, elegíveis pelos filtros.
-        $rows = $this->fetchMyLeadsCandidates($filters, max(1, $target) * 5);
+        // Seleção manual tem prioridade: se há IDs escolhidos, usa apenas eles
+        // (ignora meta/filtros — o operador decidiu exatamente quem inscrever).
+        $selectedIds = json_decode($camp['my_leads_ids'] ?? '[]', true);
+        $selectedIds = is_array($selectedIds) ? array_values(array_filter(array_map('intval', $selectedIds))) : [];
+
+        if (!empty($selectedIds)) {
+            $rows = $this->fetchMyLeadsByIds($selectedIds);
+            $target = count($rows); // inscreve todos os selecionados
+        } else {
+            $filters = json_decode($camp['my_leads_filters'] ?? '{}', true) ?: [];
+            // Candidatos: leads do CRM com e-mail, não descadastrados, elegíveis pelos filtros.
+            $rows = $this->fetchMyLeadsCandidates($filters, max(1, $target) * 5);
+        }
         $m['searched'] = count($rows);
 
         $engine = new SequenceEngine();
@@ -487,6 +497,25 @@ class ApolloProspectingService
 
         $sql .= " ORDER BY c.last_message_at IS NULL, c.last_message_at DESC LIMIT " . (int)$limit;
         return $this->db->fetchAll($sql, $params);
+    }
+
+    /**
+     * Busca leads específicos por ID (seleção manual), mantendo os mesmos critérios
+     * de elegibilidade (e-mail válido, não descadastrado, não bounce, não arquivado).
+     */
+    private function fetchMyLeadsByIds(array $ids)
+    {
+        $ids = array_values(array_filter(array_map('intval', $ids)));
+        if (empty($ids)) return [];
+        $ph = implode(',', array_fill(0, count($ids), '?'));
+        $sql = "SELECT c.id, c.contact_name, c.lead_email
+                FROM whatsapp_contacts c
+                WHERE c.id IN ($ph)
+                  AND COALESCE(c.is_group,0)=0
+                  AND c.lead_email IS NOT NULL AND c.lead_email <> ''
+                  AND COALESCE(c.unsubscribed,0)=0
+                  AND COALESCE(c.email_bounced,0)=0";
+        return $this->db->fetchAll($sql, $ids);
     }
 
     // ============ ICP + Score ============
