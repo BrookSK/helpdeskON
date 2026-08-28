@@ -1116,22 +1116,29 @@ class WhatsappController extends Controller
         if (!$instance) $this->json(['error' => 'Instância não encontrada'], 404);
 
         $api = new EvolutionApi($instance['api_url'], $instance['api_key'], $instance['instance_name']);
-        $logout = $api->logoutInstance();
 
-        // Confirma o estado real após o logout. Em alguns casos a Evolution
-        // demora a encerrar a sessão e reconecta sozinha (voltando a "Conectado").
-        usleep(1000000); // 1s
-        $stateResult = $api->connectionState();
-        $state = $stateResult['instance']['state'] ?? $stateResult['state'] ?? 'close';
+        // A Evolution frequentemente aceita o logout (retorna sucesso) mas o socket
+        // do Baileys se reconecta com as credenciais salvas, mantendo state=open.
+        // Fazemos até 3 ciclos de logout + espera, confirmando o estado real, para
+        // encerrar a sessão de fato antes de liberar um novo QR Code.
+        $state = 'open';
+        for ($i = 0; $i < 3; $i++) {
+            $api->logoutInstance();
+            usleep(1500000); // 1,5s para a Evolution processar
+            $stateResult = $api->connectionState();
+            $state = $stateResult['instance']['state'] ?? $stateResult['state'] ?? 'close';
+            if (!in_array($state, ['open', 'connected'], true)) {
+                break; // sessão encerrada
+            }
+        }
 
         $db->update('whatsapp_instances', ['connection_status' => $state], 'id = ?', [$instanceId]);
 
         $reallyClosed = !in_array($state, ['open', 'connected'], true);
         if (!$reallyClosed) {
-            Logger::warning('[Whatsapp] logout nao encerrou a sessao', [
+            Logger::warning('[Whatsapp] logout nao encerrou a sessao apos retries', [
                 'instance_id' => $instanceId,
                 'state' => $state,
-                'logout' => is_array($logout) ? ($logout['error'] ?? null) : null,
             ]);
         }
 
@@ -1140,7 +1147,7 @@ class WhatsappController extends Controller
             'state' => $state,
             'message' => $reallyClosed
                 ? 'Instância desconectada.'
-                : 'A Evolution ainda reporta a sessão como ativa. Tente novamente ou reinicie a instância.',
+                : 'A Evolution mantém a sessão ativa mesmo após o logout. Isso costuma ser socket travado: use o botão de reiniciar (setas) para renovar a conexão sem precisar de QR Code.',
         ]);
     }
 

@@ -76,8 +76,9 @@ class EvolutionApi
      */
     public function restartInstance($instanceName = null)
     {
+        // Evolution API v2 usa POST para reiniciar a instância.
         $name = $instanceName ?? $this->instanceName;
-        return $this->request('PUT', "/instance/restart/{$name}");
+        return $this->request('POST', "/instance/restart/{$name}");
     }
 
     /**
