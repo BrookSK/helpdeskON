@@ -475,11 +475,19 @@ class SequenceEngine
             if (!$api) $api = EvolutionApi::getDefault();
             if (!$api) return 'Instância de WhatsApp indisponível';
 
-            // Envia usando o número do lead
-            $jid = $api->normalizeJid($api->normalizeNumber($contact['phone']));
+            // Mesmo caminho do envio manual (que funciona): usa o remote_jid do lead
+            // quando for um JID válido; caso contrário monta a partir do telefone.
+            $existingJid = $ctxRow['remote_jid'] ?? '';
+            $isRealJid = $existingJid && stripos($existingJid, 'lead_') === false && strpos($existingJid, '@') !== false;
+            $jid = $isRealJid ? $existingJid : $api->normalizeJid($api->normalizeNumber($contact['phone']));
+
             $result = $api->sendText($jid, $msg);
+            // A Evolution retorna erro tanto em ['error'=>true] quanto em HTTP >= 400.
             if (is_array($result) && !empty($result['error'])) {
-                return 'Falha ao enviar via Evolution: ' . (is_string($result['error']) ? $result['error'] : 'erro');
+                $detail = $result['message'] ?? (is_string($result['error']) ? $result['error'] : 'erro');
+                $httpCode = $result['http_code'] ?? '';
+                (new LeadTimelineService())->add($contactId, 'note', 'WhatsApp da sequência falhou: ' . $detail . ($httpCode ? " (HTTP $httpCode)" : ''), ['channel' => 'whatsapp']);
+                return 'Falha ao enviar via Evolution: ' . $detail . ($httpCode ? " (HTTP $httpCode)" : '');
             }
 
             // Grava a mensagem NO PRÓPRIO contato do lead (para aparecer no chat dele)
