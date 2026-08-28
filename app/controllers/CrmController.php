@@ -1831,13 +1831,20 @@ class CrmController extends Controller
         $name = trim($_POST['name'] ?? '');
         if ($name === '') $this->json(['error' => 'Informe o nome da campanha.'], 400);
 
+        // Origem dos leads: apollo (busca/reveal) ou my_leads (CRM existente)
+        $leadSource = ($_POST['lead_source'] ?? 'apollo') === 'my_leads' ? 'my_leads' : 'apollo';
+
         // Filtros de busca: aceita JSON direto ou campos simples
         $searchFilters = $this->buildCampaignFilters();
         $icpRules = $this->buildCampaignIcp();
+        $myLeadsFilters = $this->buildMyLeadsFilters();
 
         $data = [
             'name' => $name,
             'is_active' => !empty($_POST['is_active']) ? 1 : 0,
+            'lead_source' => $leadSource,
+            'global_dedupe' => !empty($_POST['global_dedupe']) ? 1 : 0,
+            'my_leads_filters' => json_encode($myLeadsFilters, JSON_UNESCAPED_UNICODE),
             'sequence_id' => !empty($_POST['sequence_id']) ? intval($_POST['sequence_id']) : null,
             'board_id' => !empty($_POST['board_id']) ? intval($_POST['board_id']) : null,
             'column_id' => !empty($_POST['column_id']) ? intval($_POST['column_id']) : null,
@@ -2091,6 +2098,16 @@ class CrmController extends Controller
         if (!empty($_POST['icp_employee_max'])) $icp['employee_max'] = intval($_POST['icp_employee_max']);
         if (!empty($_POST['icp_require_website'])) $icp['require_website'] = true;
         return $icp;
+    }
+
+    /** Filtros aplicados quando a origem da campanha é "Meus Leads". */
+    private function buildMyLeadsFilters()
+    {
+        $f = [];
+        if (!empty($_POST['ml_temperature'])) $f['temperature'] = trim($_POST['ml_temperature']);
+        if (!empty($_POST['ml_source']))      $f['source'] = trim($_POST['ml_source']);
+        if (!empty($_POST['ml_assigned_to'])) $f['assigned_to'] = intval($_POST['ml_assigned_to']);
+        return $f;
     }
 
     /**

@@ -51,6 +51,7 @@
                     <thead class="table-light">
                         <tr>
                             <th>Campanha</th>
+                            <th>Fonte</th>
                             <th>Sequência</th>
                             <th>Board / Coluna</th>
                             <th>Meta/dia</th>
@@ -65,6 +66,13 @@
                         <?php foreach (($campaigns ?: []) as $c): ?>
                         <tr data-id="<?= $c['id'] ?>">
                             <td class="fw-semibold"><?= escape($c['name']) ?><br><small class="text-muted"><?= escape($c['assigned_name'] ?? 'Sem responsável') ?></small></td>
+                            <td class="small">
+                                <?php if (($c['lead_source'] ?? 'apollo') === 'my_leads'): ?>
+                                    <span class="badge bg-secondary"><i class="bi bi-people"></i> Meus Leads</span>
+                                <?php else: ?>
+                                    <span class="badge bg-dark"><i class="bi bi-robot"></i> Apollo.io</span>
+                                <?php endif; ?>
+                            </td>
                             <td class="small"><?= escape($c['sequence_name'] ?? '—') ?></td>
                             <td class="small"><?= escape($c['board_name'] ?? '—') ?><?= $c['column_name'] ? ' / ' . escape($c['column_name']) : '' ?></td>
                             <td><?= (int)$c['daily_target'] ?></td>
@@ -86,7 +94,7 @@
                         </tr>
                         <?php endforeach; ?>
                         <?php if (empty($campaigns)): ?>
-                        <tr><td colspan="9" class="text-center text-muted py-4">Nenhuma campanha. Clique em "Nova campanha".</td></tr>
+                        <tr><td colspan="10" class="text-center text-muted py-4">Nenhuma campanha. Clique em "Nova campanha".</td></tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
@@ -172,9 +180,16 @@
             <div class="modal-body">
                 <input type="hidden" id="camp-id">
                 <div class="row g-3">
-                    <div class="col-12">
+                    <div class="col-md-8">
                         <label class="form-label small fw-medium">Nome da campanha *</label>
                         <input type="text" id="camp-name" class="form-control form-control-sm" placeholder="Ex: Captação SaaS SP">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small fw-medium">Fonte dos leads *</label>
+                        <select id="camp-source" class="form-select form-select-sm" onchange="onCampSourceChange()">
+                            <option value="apollo">Apollo.io</option>
+                            <option value="my_leads">Meus Leads</option>
+                        </select>
                     </div>
                     <div class="col-md-4">
                         <label class="form-label small fw-medium">Sequência</label>
@@ -232,6 +247,45 @@
                         <label class="form-label small fw-medium">Fim</label>
                         <input type="time" id="camp-wend" class="form-control form-control-sm" value="18:00">
                     </div>
+                    <div class="col-12">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="camp-global-dedupe" checked>
+                            <label class="form-check-label small" for="camp-global-dedupe">Deduplicação global — nunca prospectar novamente quem já foi captado por qualquer campanha automática</label>
+                        </div>
+                    </div>
+
+                    <!-- ===== Origem: Meus Leads ===== -->
+                    <div class="col-12 myleads-section" style="display:none;">
+                        <div class="row g-3">
+                            <div class="col-12"><hr class="my-1"><strong class="small"><i class="bi bi-people"></i> Filtros de Meus Leads</strong>
+                                <div class="text-muted small">Inscreve leads já existentes no CRM. Não busca nem revela na Apollo, e não altera o responsável do lead.</div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small">Temperatura</label>
+                                <select id="camp-ml-temperature" class="form-select form-select-sm">
+                                    <option value="">Qualquer</option>
+                                    <option value="frio">Frio</option>
+                                    <option value="morno">Morno</option>
+                                    <option value="quente">Quente</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small">Fonte do lead</label>
+                                <input type="text" id="camp-ml-source" class="form-control form-control-sm" placeholder="ex: apollo, manual_email, form">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small">Responsável</label>
+                                <select id="camp-ml-assigned" class="form-select form-select-sm">
+                                    <option value="">Qualquer</option>
+                                    <?php foreach ($team as $t): ?><option value="<?= $t['id'] ?>"><?= escape($t['name']) ?></option><?php endforeach; ?>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ===== Origem: Apollo ===== -->
+                    <div class="col-12 apollo-section">
+                        <div class="row g-3">
                     <div class="col-12">
                         <div class="form-check form-check-inline">
                             <input class="form-check-input" type="checkbox" id="camp-reveal-email" checked>
@@ -303,6 +357,8 @@
                             <span class="input-group input-group-sm" style="width:auto;"><span class="input-group-text">Tec.</span><input type="number" id="camp-w-technology" class="form-control" value="10" style="width:70px;"></span>
                         </div>
                     </div>
+                        </div><!-- /.row (apollo-section) -->
+                    </div><!-- /.apollo-section -->
                 </div>
             </div>
             <div class="modal-footer">
@@ -407,6 +463,13 @@ function loadExecLog() {
         .catch(()=>{ document.getElementById('exec-errors').textContent = 'Erro ao carregar os logs.'; });
 }
 
+function onCampSourceChange() {
+    const src = document.getElementById('camp-source').value;
+    const isMy = src === 'my_leads';
+    document.querySelectorAll('.apollo-section').forEach(el => el.style.display = isMy ? 'none' : '');
+    document.querySelectorAll('.myleads-section').forEach(el => el.style.display = isMy ? '' : 'none');
+}
+
 function onCampBoardChange() {
     const bid = document.getElementById('camp-board').value;
     const sel = document.getElementById('camp-column');
@@ -432,6 +495,12 @@ function openCampaign() {
     document.getElementById('camp-reveal-email').checked = true;
     document.getElementById('camp-reveal-phone').checked = false;
     document.getElementById('camp-icp-website').checked = true;
+    document.getElementById('camp-source').value = 'apollo';
+    document.getElementById('camp-global-dedupe').checked = true;
+    document.getElementById('camp-ml-temperature').value = '';
+    document.getElementById('camp-ml-source').value = '';
+    document.getElementById('camp-ml-assigned').value = '';
+    onCampSourceChange();
     ['decisor:30','title:20','size:15','region:10','website:5','technology:10'].forEach(p => { const [k,v]=p.split(':'); document.getElementById('camp-w-'+k).value = v; });
     if (!campModal) campModal = new bootstrap.Modal(document.getElementById('campaignModal'));
     campModal.show();
@@ -456,6 +525,16 @@ function editCampaign(c) {
     document.getElementById('camp-active').checked = !!Number(c.is_active);
     document.getElementById('camp-reveal-email').checked = !!Number(c.reveal_email);
     document.getElementById('camp-reveal-phone').checked = !!Number(c.reveal_phone);
+    document.getElementById('camp-source').value = c.lead_source || 'apollo';
+    document.getElementById('camp-global-dedupe').checked = c.global_dedupe == null ? true : !!Number(c.global_dedupe);
+    onCampSourceChange();
+
+    try {
+        const ml = JSON.parse(c.my_leads_filters || '{}');
+        document.getElementById('camp-ml-temperature').value = ml.temperature || '';
+        document.getElementById('camp-ml-source').value = ml.source || '';
+        document.getElementById('camp-ml-assigned').value = ml.assigned_to || '';
+    } catch(e){}
 
     try {
         const f = JSON.parse(c.search_filters || '{}');
@@ -498,6 +577,11 @@ function saveCampaign(btn) {
     if (document.getElementById('camp-active').checked) fd.append('is_active', '1');
     if (document.getElementById('camp-reveal-email').checked) fd.append('reveal_email', '1');
     if (document.getElementById('camp-reveal-phone').checked) fd.append('reveal_phone', '1');
+    fd.append('lead_source', document.getElementById('camp-source').value);
+    if (document.getElementById('camp-global-dedupe').checked) fd.append('global_dedupe', '1');
+    fd.append('ml_temperature', document.getElementById('camp-ml-temperature').value);
+    fd.append('ml_source', document.getElementById('camp-ml-source').value);
+    fd.append('ml_assigned_to', document.getElementById('camp-ml-assigned').value);
     fd.append('f_titles', document.getElementById('camp-f-titles').value);
     fd.append('f_seniorities', document.getElementById('camp-f-seniorities').value);
     fd.append('f_person_locations', document.getElementById('camp-f-ploc').value);
