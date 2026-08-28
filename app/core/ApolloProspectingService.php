@@ -449,12 +449,16 @@ class ApolloProspectingService
         return (bool)$r;
     }
 
-    /** Verifica se o contato já é participante ativo/pausado/finalizado da sequência. */
+    /**
+     * Verifica se o contato JÁ ESTÁ RODANDO a sequência (active/paused).
+     * Participantes 'finished'/'stopped' NÃO bloqueiam: o enroll os reativa,
+     * permitindo reenviar um lead que já passou pela sequência.
+     */
     private function alreadyInSequence($contactId, $sequenceId)
     {
         if (!$contactId || !$sequenceId) return false;
         $r = $this->db->fetch(
-            "SELECT id FROM sequence_participants WHERE sequence_id = ? AND contact_id = ? LIMIT 1",
+            "SELECT id FROM sequence_participants WHERE sequence_id = ? AND contact_id = ? AND status IN ('active','paused') LIMIT 1",
             [$sequenceId, $contactId]
         );
         return (bool)$r;
