@@ -114,49 +114,20 @@ class WhatsappNotifier
 
         $db = Database::getInstance();
 
-        // Selecionar a instância seguindo a MESMA lógica da tela de chat (getUserInstance),
-        // porém para uma instância compartilhada (sem vínculo de usuário), já que a
-        // notificação é disparada pelo sistema. Prioriza instâncias CONECTADAS
-        // (connection_status open/connected), pois só elas conseguem enviar:
-        //  1) Padrão + conectada + sem vínculo de usuário;
-        //  2) Conectada + sem vínculo de usuário;
-        //  3) Padrão + sem vínculo de usuário;
-        //  4) Qualquer sem vínculo de usuário;
-        //  5) Padrão / qualquer (fallback).
-        $connected = "connection_status IN ('open','connected')";
-        $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE is_default = 1 AND user_id IS NULL AND $connected LIMIT 1");
+        // Seleciona uma instância REALMENTE conectada. A coluna connection_status
+        // pode estar desatualizada (o Baileys derruba a sessão sem avisar o banco),
+        // então verificamos o estado ao vivo na Evolution (connectionState) e
+        // sincronizamos o banco. Assim evitamos o erro "Connection Closed".
+        $instance = self::pickConnectedInstance($db);
         if (!$instance) {
-            $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE user_id IS NULL AND $connected LIMIT 1");
-        }
-        if (!$instance) {
-            $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE $connected LIMIT 1");
-        }
-        // Fallbacks sem exigir conexão (permite tentar, mas registra o aviso adiante)
-        if (!$instance) {
-            $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE is_default = 1 AND user_id IS NULL LIMIT 1");
-        }
-        if (!$instance) {
-            $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE user_id IS NULL LIMIT 1");
-        }
-        if (!$instance) {
-            $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE is_default = 1 LIMIT 1");
-        }
-        if (!$instance) {
-            $instance = $db->fetch("SELECT * FROM whatsapp_instances LIMIT 1");
-        }
-
-        // API para envio (usa a instância encontrada, ou fallback global)
-        $api = $instance
-            ? EvolutionApi::fromInstance($instance['id'])
-            : EvolutionApi::getDefault();
-        if (!$api) {
-            self::log("SEM API/INSTANCIA para phone={$phone}");
+            self::log("NENHUMA INSTANCIA CONECTADA para phone={$phone}. Reconecte o WhatsApp em /whatsapp.");
             return false;
         }
 
-        // Aviso se a instância escolhida não está conectada (envio provavelmente falhará)
-        if ($instance && !in_array($instance['connection_status'] ?? '', ['open', 'connected'], true)) {
-            self::log("AVISO instancia={$instance['id']} status={$instance['connection_status']} (nao conectada) phone={$phone}");
+        $api = EvolutionApi::fromInstance($instance['id']);
+        if (!$api) {
+            self::log("SEM API/INSTANCIA para phone={$phone}");
+            return false;
         }
 
         // Normalizar o número para JID individual
@@ -248,6 +219,64 @@ class WhatsappNotifier
         }
 
         return true;
+    }
+
+    /**
+     * Escolhe uma instância compartilhada (sem vínculo de usuário) que esteja
+     * REALMENTE conectada, verificando o estado ao vivo na Evolution API e
+     * sincronizando a coluna connection_status no banco.
+     *
+     * Ordem de preferência dos candidatos:
+     *  1) Padrão + sem vínculo de usuário;
+     *  2) Sem vínculo de usuário;
+     *  3) Padrão;
+     *  4) Qualquer.
+     *
+     * @return array|null linha da instância conectada, ou null se nenhuma estiver.
+     */
+    private static function pickConnectedInstance($db)
+    {
+        $candidates = $db->fetchAll(
+            "SELECT * FROM whatsapp_instances
+             ORDER BY (is_default = 1 AND user_id IS NULL) DESC,
+                      (user_id IS NULL) DESC,
+                      is_default DESC,
+                      id ASC"
+        );
+
+        foreach ($candidates as $inst) {
+            if (self::isInstanceConnected($db, $inst)) {
+                return $inst;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Consulta o estado real da instância na Evolution API e atualiza a coluna
+     * connection_status. Retorna true se estiver 'open'/'connected'.
+     */
+    private static function isInstanceConnected($db, $instance)
+    {
+        try {
+            $api = EvolutionApi::fromInstance($instance['id']);
+            if (!$api) return false;
+
+            $result = $api->connectionState();
+            $state = $result['instance']['state'] ?? $result['state'] ?? 'close';
+
+            // Sincroniza o banco se o estado divergir do registrado
+            if (($instance['connection_status'] ?? null) !== $state) {
+                try {
+                    $db->update('whatsapp_instances', ['connection_status' => $state], 'id = ?', [$instance['id']]);
+                } catch (\Throwable $e) { /* ignora */ }
+            }
+
+            return in_array($state, ['open', 'connected'], true);
+        } catch (\Throwable $e) {
+            self::log("ERRO connectionState instancia={$instance['id']}: " . $e->getMessage());
+            return false;
+        }
     }
 
     /**
