@@ -286,6 +286,23 @@ class EvolutionApi
     {
         $url = $this->baseUrl . $endpoint;
 
+        // Diagnóstico: validar configuração ANTES de chamar. Falhas comuns:
+        //  - URL da instância vazia/errada
+        //  - API key ausente
+        //  - instanceName vazio (endpoint fica /message/sendText/ sem nome)
+        $configProblems = [];
+        if (empty($this->baseUrl))      $configProblems[] = 'api_url vazio';
+        if (empty($this->apiKey))       $configProblems[] = 'api_key vazio';
+        if (empty($this->instanceName)) $configProblems[] = 'instance_name vazio';
+        if (!empty($configProblems) && class_exists('Logger')) {
+            Logger::error('[EvolutionApi] Configuracao invalida', [
+                'problemas' => $configProblems,
+                'endpoint' => $endpoint,
+                'url' => $url,
+                'instance_name' => $this->instanceName,
+            ]);
+        }
+
         $headers = [
             'apikey: ' . $this->apiKey,
             'Content-Type: application/json',
@@ -323,13 +340,34 @@ class EvolutionApi
         $error = curl_error($ch);
         curl_close($ch);
 
+        // Só logamos endpoints de ENVIO/estado para não poluir (evita findMessages etc.)
+        $isRelevant = strpos($endpoint, '/message/') !== false
+            || strpos($endpoint, '/instance/') !== false;
+
         if ($error) {
+            if ($isRelevant && class_exists('Logger')) {
+                Logger::error('[EvolutionApi] cURL falhou', [
+                    'endpoint' => $endpoint,
+                    'url' => $url,
+                    'curl_error' => $error,
+                ]);
+            }
             return ['error' => true, 'message' => 'cURL Error: ' . $error, 'http_code' => 0];
         }
 
         $decoded = json_decode($response, true);
 
         if ($httpCode >= 400) {
+            if ($isRelevant && class_exists('Logger')) {
+                Logger::error('[EvolutionApi] Resposta de erro da Evolution', [
+                    'endpoint' => $endpoint,
+                    'url' => $url,
+                    'instance_name' => $this->instanceName,
+                    'http_code' => $httpCode,
+                    'evolution_message' => $decoded['message'] ?? null,
+                    'evolution_response' => $decoded,
+                ]);
+            }
             return [
                 'error' => true,
                 'message' => $decoded['message'] ?? 'HTTP Error ' . $httpCode,

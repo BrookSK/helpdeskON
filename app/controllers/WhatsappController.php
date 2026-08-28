@@ -620,14 +620,84 @@ class WhatsappController extends Controller
         // Atribui o contato ao usuário atual se estiver sem dono
         $this->autoAssignContact($contact);
 
+        // Diagnóstico: instância usada para este envio
+        $instRow = Database::getInstance()->fetch(
+            "SELECT id, instance_name, connection_status, api_url FROM whatsapp_instances WHERE id = ?",
+            [$contact['instance_id']]
+        );
+        Logger::info('[Whatsapp/send] iniciando envio', [
+            'contact_id' => $contactId,
+            'remote_jid' => $contact['remote_jid'],
+            'instance_id' => $contact['instance_id'],
+            'instance_name' => $instRow['instance_name'] ?? null,
+            'connection_status' => $instRow['connection_status'] ?? null,
+        ]);
+
         $api = EvolutionApi::fromInstance($contact['instance_id']);
-        if (!$api) $this->json(['error' => 'Instância não encontrada'], 400);
+        if (!$api) {
+            Logger::error('[Whatsapp/send] instancia nao encontrada', ['instance_id' => $contact['instance_id']]);
+            $this->json(['error' => 'Instância não encontrada'], 400);
+        }
 
         // Enviar via Evolution API
         $result = $api->sendText($contact['remote_jid'], $text);
 
-        if (isset($result['error']) && $result['error']) {
-            $this->json(['error' => $result['message'] ?? 'Erro ao enviar'], 500);
+        // Se a Evolution recusou o envio, gravamos a mensagem como FALHA (não some
+        // mais da conversa) e retornamos um erro claro com o motivo real.
+        if (!empty($result['error'])) {
+            $motivo = $result['message'] ?? 'Erro desconhecido';
+            $evoResp = $result['response'] ?? null;
+
+            Logger::error('[Whatsapp/send] FALHA no envio (Evolution recusou)', [
+                'contact_id' => $contactId,
+                'remote_jid' => $contact['remote_jid'],
+                'instance_id' => $contact['instance_id'],
+                'instance_name' => $instRow['instance_name'] ?? null,
+                'http_code' => $result['http_code'] ?? null,
+                'motivo' => $motivo,
+                'evolution_response' => $evoResp,
+            ]);
+
+            // Registrar a mensagem como falha para o usuário ver que tentou enviar
+            $failedId = null;
+            try {
+                $failedId = $this->messageModel->create([
+                    'instance_id' => $contact['instance_id'],
+                    'contact_id' => $contactId,
+                    'remote_jid' => $contact['remote_jid'],
+                    'message_id' => uniqid('failed_'),
+                    'from_me' => 1,
+                    'message_type' => 'text',
+                    'message_text' => $text,
+                    'sender_name' => $this->currentUser()['name'],
+                    'timestamp' => date('Y-m-d H:i:s'),
+                    'is_read' => 1,
+                ]);
+                $this->setAckStatusSafe($failedId, 'failed');
+                $this->contactModel->updateLastMessage($contactId, date('Y-m-d H:i:s'));
+            } catch (\Throwable $e) {
+                Logger::error('[Whatsapp/send] falha ao registrar msg de erro', ['erro' => $e->getMessage()]);
+            }
+
+            // Mensagem amigável explicando a causa provável
+            $friendly = $motivo;
+            if (stripos($motivo, 'Connection Closed') !== false) {
+                $friendly = 'A conexão do WhatsApp está instável (Connection Closed). Reinicie a instância em Conexões e tente novamente.';
+            }
+
+            $this->json([
+                'error' => $friendly,
+                'detail' => $motivo,
+                'http_code' => $result['http_code'] ?? null,
+                'message' => $failedId ? [
+                    'id' => $failedId,
+                    'from_me' => 1,
+                    'message_type' => 'text',
+                    'message_text' => $text,
+                    'timestamp' => date('Y-m-d H:i:s'),
+                    'ack_status' => 'failed',
+                ] : null,
+            ], 502);
         }
 
         // Salvar no banco
@@ -648,6 +718,12 @@ class WhatsappController extends Controller
 
         // Atualizar última mensagem do contato
         $this->contactModel->updateLastMessage($contactId, date('Y-m-d H:i:s'));
+
+        Logger::info('[Whatsapp/send] enviado com sucesso', [
+            'contact_id' => $contactId,
+            'message_id' => $sentMsgId,
+            'instance_id' => $contact['instance_id'],
+        ]);
 
         $this->json([
             'success' => true,
