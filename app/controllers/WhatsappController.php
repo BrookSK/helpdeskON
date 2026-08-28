@@ -1120,6 +1120,69 @@ class WhatsappController extends Controller
     }
 
     /**
+     * DIAGNÓSTICO: compara o que está no banco com o estado real na Evolution.
+     * Mostra, para cada instância: nome, api_url, status salvo, status ao vivo
+     * (connectionState) e a lista de instâncias que a Evolution realmente conhece
+     * (fetchInstances). Ajuda a detectar instância antiga/renomeada ou credenciais
+     * apontando para conexão errada.
+     *
+     * Acesse: /whatsapp/diag
+     */
+    public function diag()
+    {
+        $this->requireRole(['super_admin']);
+        $db = Database::getInstance();
+
+        $rows = $db->fetchAll("SELECT * FROM whatsapp_instances ORDER BY id ASC");
+        $out = [];
+
+        foreach ($rows as $inst) {
+            $api = new EvolutionApi($inst['api_url'], $inst['api_key'], $inst['instance_name']);
+
+            // Estado ao vivo desta instância
+            $stateRes = $api->connectionState();
+            $liveState = $stateRes['instance']['state'] ?? $stateRes['state'] ?? ($stateRes['error'] ?? 'desconhecido');
+
+            // O que a Evolution conhece nesse servidor (nomes reais das instâncias)
+            $fetch = $api->fetchInstances();
+            $knownNames = [];
+            if (is_array($fetch)) {
+                foreach ($fetch as $f) {
+                    $name = $f['instance']['instanceName'] ?? $f['name'] ?? $f['instanceName'] ?? null;
+                    $st = $f['instance']['state'] ?? $f['connectionStatus'] ?? $f['status'] ?? null;
+                    if ($name) $knownNames[] = $name . ($st ? " ({$st})" : '');
+                }
+            }
+
+            $out[] = [
+                'id' => $inst['id'],
+                'display_name' => $inst['display_name'],
+                'instance_name' => $inst['instance_name'],
+                'api_url' => $inst['api_url'],
+                'is_default' => (int)$inst['is_default'],
+                'user_id' => $inst['user_id'],
+                'status_no_banco' => $inst['connection_status'],
+                'status_ao_vivo' => $liveState,
+                'instancias_conhecidas_pela_evolution' => $knownNames,
+                'nome_bate_com_evolution' => in_array($inst['instance_name'], array_map(function ($n) {
+                    return trim(preg_replace('/\(.*\)$/', '', $n));
+                }, $knownNames), true),
+            ];
+        }
+
+        // Quais contatos apontam para cada instância (pra ver se o chat usa a instância certa)
+        $contatosPorInstancia = $db->fetchAll(
+            "SELECT instance_id, COUNT(*) as total FROM whatsapp_contacts GROUP BY instance_id"
+        );
+
+        $this->json([
+            'instancias' => $out,
+            'contatos_por_instancia' => $contatosPorInstancia,
+            'dica' => 'Se status_ao_vivo=open mas o envio falha com Connection Closed, o socket do Baileys esta travado no servidor da Evolution. Se nome_bate_com_evolution=false, o banco aponta para uma instancia que nao existe mais.',
+        ]);
+    }
+
+    /**
      * API: Verificar status da conexão
      */
     public function status($instanceId = null)
