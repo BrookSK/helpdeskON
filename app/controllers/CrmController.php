@@ -1937,6 +1937,26 @@ class CrmController extends Controller
         $this->json(['success' => true, 'engine' => $stats, 'replies_detected' => 0]);
     }
 
+    /**
+     * Reexecuta uma etapa específica de um participante (para testar/forçar o erro
+     * sem refazer o fluxo inteiro). POST crm/runSequenceNode
+     * body: participant_id, node_id
+     */
+    public function runSequenceNode()
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+
+        $participantId = intval($_POST['participant_id'] ?? 0);
+        $nodeId = trim($_POST['node_id'] ?? '');
+        if (!$participantId || $nodeId === '') $this->json(['error' => 'Participante e etapa são obrigatórios.'], 400);
+
+        @set_time_limit(120);
+        $res = (new SequenceEngine())->runSingleNode($participantId, $nodeId);
+        if (empty($res['success'])) $this->json(['error' => $res['error'] ?? 'Falha ao reexecutar etapa.'], 400);
+        $this->json($res);
+    }
+
     /** Log recente de uma campanha (para acompanhar). GET crm/campaignLog/{id} */
     public function campaignLog($id = null)
     {
@@ -1990,7 +2010,7 @@ class CrmController extends Controller
         $steps = [];
         try {
             $steps = $db->fetchAll(
-                "SELECT e.executed_at, e.node_id, e.node_type, e.result, e.detail,
+                "SELECT e.executed_at, e.participant_id, e.node_id, e.node_type, e.result, e.detail,
                         s.name AS sequence_name, wc.contact_name, wc.lead_email, wc.phone,
                         sp.status AS participant_status, sp.stop_reason, sp.ab_variant
                  FROM sequence_executions e

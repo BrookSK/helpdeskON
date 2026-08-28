@@ -157,8 +157,8 @@
             <div class="card-body p-0">
                 <div class="table-responsive">
                     <table class="table table-sm table-hover mb-0" style="font-size:0.8rem;">
-                        <thead class="table-light"><tr><th>Quando</th><th>Lead</th><th>Etapa</th><th>Tipo</th><th>Resultado</th><th>Detalhe</th></tr></thead>
-                        <tbody id="exec-steps"><tr><td colspan="6" class="text-center text-muted py-3">Carregando...</td></tr></tbody>
+                        <thead class="table-light"><tr><th>Quando</th><th>Lead</th><th>Etapa</th><th>Tipo</th><th>Resultado</th><th>Detalhe</th><th class="text-end">Ação</th></tr></thead>
+                        <tbody id="exec-steps"><tr><td colspan="7" class="text-center text-muted py-3">Carregando...</td></tr></tbody>
                     </table>
                 </div>
             </div>
@@ -643,6 +643,10 @@ function loadExecLog() {
             const steps = d.steps || [];
             stb.innerHTML = steps.length ? steps.map(s => {
                 const rc = { done:'success', waiting:'warning', skipped:'secondary', failed:'danger' }[s.result] || 'secondary';
+                const canRetry = s.participant_id && s.node_id;
+                const retryBtn = canRetry
+                    ? `<button class="btn btn-sm btn-outline-primary py-0 px-1" title="Reexecutar esta etapa isoladamente" onclick="retryNode(${s.participant_id}, '${escapeAttr(s.node_id)}', this)"><i class="bi bi-arrow-repeat"></i> Testar</button>`
+                    : '';
                 return `<tr>
                     <td class="text-nowrap">${escapeH(s.executed_at||'')}</td>
                     <td>${escapeH(s.contact_name||s.lead_email||'—')}</td>
@@ -650,8 +654,9 @@ function loadExecLog() {
                     <td>${escapeH(STEP_LABELS[s.node_type]||s.node_type)}</td>
                     <td><span class="badge bg-${rc}">${escapeH(s.result||'')}</span></td>
                     <td class="text-muted">${escapeH(s.detail||'')}</td>
+                    <td class="text-end text-nowrap">${retryBtn}</td>
                 </tr>`;
-            }).join('') : '<tr><td colspan="6" class="text-center text-muted py-3">Nenhuma etapa executada ainda.</td></tr>';
+            }).join('') : '<tr><td colspan="7" class="text-center text-muted py-3">Nenhuma etapa executada ainda.</td></tr>';
 
             // Registro de prospecção
             const plb = document.getElementById('exec-prospectlog');
@@ -968,6 +973,23 @@ function runSequencesNow(btn) {
             loadExecLog();
         })
         .catch(()=>{ btn.disabled=false; btn.innerHTML=orig; alert('Erro ao processar sequências.'); });
+}
+
+// Reexecuta UMA etapa específica de um participante (testar/forçar sem refazer o fluxo)
+function retryNode(participantId, nodeId, btn) {
+    const orig = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    const fd = new FormData();
+    fd.append('participant_id', participantId);
+    fd.append('node_id', nodeId);
+    fetch(BASE + 'crm/runSequenceNode', { method:'POST', body:fd, headers:{'X-Requested-With':'XMLHttpRequest'} })
+        .then(r=>r.json()).then(d=>{
+            btn.disabled = false; btn.innerHTML = orig;
+            if (d.error) { alert(d.error); return; }
+            const ok = d.result === 'done';
+            alert('Etapa "' + (STEP_LABELS[d.node_type]||d.node_type) + '": ' + (ok ? 'sucesso' : 'falhou') + (d.detail ? '\n\n' + d.detail : ''));
+            loadExecLog();
+        })
+        .catch(()=>{ btn.disabled=false; btn.innerHTML=orig; alert('Erro ao reexecutar a etapa.'); });
 }
 
 // Diagnóstico: simula a abertura do último e-mail e recarrega os logs

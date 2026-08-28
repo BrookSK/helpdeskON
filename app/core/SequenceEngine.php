@@ -268,6 +268,84 @@ class SequenceEngine
         return ['success' => true, 'steps' => $steps, 'final' => $final];
     }
 
+    /**
+     * Reexecuta APENAS um nó específico de um participante, isoladamente, sem
+     * alterar o current_node/next_run_at nem avançar o fluxo. Serve para
+     * testar/forçar uma etapa (ex: reenviar o WhatsApp que falhou) sem refazer
+     * a sequência inteira. Ignora janela/limite diário.
+     * @return array {success, result, detail}
+     */
+    public function runSingleNode($participantId, $nodeId)
+    {
+        $participant = $this->db->fetch("SELECT * FROM sequence_participants WHERE id = ?", [$participantId]);
+        if (!$participant) return ['success' => false, 'error' => 'Participante não encontrado.'];
+
+        $seq = $this->db->fetch("SELECT * FROM email_sequences WHERE id = ?", [$participant['sequence_id']]);
+        $graph = json_decode($seq['graph'] ?? '{}', true);
+        $nodes = [];
+        foreach (($graph['nodes'] ?? []) as $n) $nodes[$n['id']] = $n;
+        if (!isset($nodes[$nodeId])) return ['success' => false, 'error' => 'Etapa não existe mais no fluxo.'];
+
+        $node = $nodes[$nodeId];
+        $type = $node['type'];
+        $contactId = $participant['contact_id'];
+        $result = 'done';
+        $detail = null;
+
+        try {
+            switch ($type) {
+                case 'send':
+                    $r = $this->doSend($participant, $seq, $node, true); // testMode: ignora janela/limite
+                    $result = ($r === true) ? 'done' : 'failed';
+                    $detail = is_string($r) ? $r : null;
+                    break;
+                case 'whatsapp':
+                    $r = $this->doWhatsapp($participant, $node);
+                    $result = ($r === true) ? 'done' : 'failed';
+                    $detail = is_string($r) ? $r : null;
+                    break;
+                case 'reveal_phone':
+                    $this->doReveal($participant, $node['data'] ?? []);
+                    $detail = 'Reveal solicitado/verificado.';
+                    break;
+                case 'condition':
+                    $ok = $this->evalCondition($node['data']['kind'] ?? 'replied', $contactId);
+                    $detail = 'Condição avaliada: ' . ($ok ? 'SIM' : 'NÃO');
+                    break;
+                case 'tag':
+                    $label = trim($node['data']['label'] ?? '');
+                    if ($label) { $this->applyLabel($contactId, $label, $node['data']['color'] ?? null); $detail = 'Etiqueta: ' . $label; }
+                    break;
+                case 'score':
+                    $delta = (int) ($node['data']['delta'] ?? 0);
+                    if ($delta) (new LeadScoreService())->add($contactId, $delta, 'sequência (teste)');
+                    $detail = 'Score ' . ($delta > 0 ? '+' : '') . $delta;
+                    break;
+                case 'move':
+                    $columnId = (int) ($node['data']['column_id'] ?? 0);
+                    if ($columnId) $this->moveCard($contactId, $columnId);
+                    $detail = 'Card movido.';
+                    break;
+                case 'wait':
+                    $detail = 'Aguardar (sem efeito no teste isolado).';
+                    break;
+                case 'end':
+                    $detail = 'Encerrar (sem efeito no teste isolado).';
+                    break;
+                default:
+                    $detail = 'Tipo sem ação de teste.';
+            }
+        } catch (\Throwable $e) {
+            $result = 'failed';
+            $detail = 'Erro: ' . $e->getMessage();
+            Logger::error('SequenceEngine runSingleNode', ['participant' => $participantId, 'node' => $nodeId, 'error' => $e->getMessage()]);
+        }
+
+        // Registra a reexecução no log (aparece na aba "Etapas executadas")
+        $this->logExec($participantId, $nodeId, $type, $result, $detail);
+        return ['success' => true, 'result' => $result, 'detail' => $detail, 'node_type' => $type];
+    }
+
     /** Executa um passo do participante (um nó). $testMode pula esperas/janela. */
     private function step($participant, &$sentByAccount, $testMode = false)
     {
@@ -481,20 +559,49 @@ class SequenceEngine
             $isRealJid = $existingJid && stripos($existingJid, 'lead_') === false && strpos($existingJid, '@') !== false;
             $jid = $isRealJid ? $existingJid : $api->normalizeJid($api->normalizeNumber($contact['phone']));
 
+            // Resolve o JID REAL no WhatsApp (corrige o 9º dígito de números BR e
+            // evita HTTP 400 ao enviar para um JID que o WhatsApp não reconhece).
+            // Igual ao fluxo de "nova conversa" que funciona.
+            try {
+                $phoneOnly = $api->extractPhone($jid);
+                $check = $api->checkIsWhatsapp([$phoneOnly]);
+                if (is_array($check)) {
+                    foreach ($check as $item) {
+                        if (!empty($item['exists']) && !empty($item['jid'])) {
+                            $jid = $api->normalizeJid($item['jid']);
+                            break;
+                        }
+                    }
+                }
+            } catch (\Throwable $e) { /* segue com o jid normalizado */ }
+
             $result = $api->sendText($jid, $msg);
             // A Evolution retorna erro tanto em ['error'=>true] quanto em HTTP >= 400.
             if (is_array($result) && !empty($result['error'])) {
                 $detail = $result['message'] ?? (is_string($result['error']) ? $result['error'] : 'erro');
                 $httpCode = $result['http_code'] ?? '';
-                (new LeadTimelineService())->add($contactId, 'note', 'WhatsApp da sequência falhou: ' . $detail . ($httpCode ? " (HTTP $httpCode)" : ''), ['channel' => 'whatsapp']);
-                return 'Falha ao enviar via Evolution: ' . $detail . ($httpCode ? " (HTTP $httpCode)" : '');
+                // Inclui o corpo da resposta da Evolution (motivo real do 400)
+                $bodyDetail = '';
+                if (!empty($result['response'])) {
+                    $resp = $result['response'];
+                    if (is_array($resp)) {
+                        $inner = $resp['response']['message'] ?? ($resp['message'] ?? null);
+                        $bodyDetail = is_array($inner) ? json_encode($inner, JSON_UNESCAPED_UNICODE) : (string)($inner ?? json_encode($resp, JSON_UNESCAPED_UNICODE));
+                    } else {
+                        $bodyDetail = (string)$resp;
+                    }
+                }
+                $full = 'Falha ao enviar via Evolution: ' . $detail . ($httpCode ? " (HTTP $httpCode)" : '') . ($bodyDetail !== '' ? ' — ' . mb_substr($bodyDetail, 0, 500) : '') . ' [jid: ' . $jid . ']';
+                (new LeadTimelineService())->add($contactId, 'note', 'WhatsApp da sequência falhou: ' . $full, ['channel' => 'whatsapp']);
+                Logger::error('SequenceEngine whatsapp 400', ['contact' => $contactId, 'jid' => $jid, 'response' => $result['response'] ?? null]);
+                return $full;
             }
 
             // Grava a mensagem NO PRÓPRIO contato do lead (para aparecer no chat dele)
             $this->db->insert('whatsapp_messages', [
                 'instance_id' => $instanceId,
                 'contact_id' => $contactId,
-                'remote_jid' => $ctxRow['remote_jid'] ?: $jid,
+                'remote_jid' => $isRealJid ? $ctxRow['remote_jid'] : $jid,
                 'message_id' => $result['key']['id'] ?? uniqid('seq_'),
                 'from_me' => 1,
                 'message_type' => 'text',
@@ -503,11 +610,11 @@ class SequenceEngine
                 'timestamp' => date('Y-m-d H:i:s'),
                 'is_read' => 1,
             ]);
-            // Desarquiva e atualiza o "última mensagem" para subir no chat
-            $this->db->update('whatsapp_contacts', [
-                'is_archived' => 0,
-                'last_message_at' => date('Y-m-d H:i:s'),
-            ], 'id = ?', [$contactId]);
+            // Desarquiva, atualiza "última mensagem" e corrige o JID do lead se estava
+            // com placeholder/errado (para o chat e futuros envios usarem o JID real).
+            $contactUpdate = ['is_archived' => 0, 'last_message_at' => date('Y-m-d H:i:s')];
+            if (!$isRealJid) $contactUpdate['remote_jid'] = $jid;
+            $this->db->update('whatsapp_contacts', $contactUpdate, 'id = ?', [$contactId]);
 
             (new LeadTimelineService())->add($contactId, 'note', 'WhatsApp enviado pela sequência.', ['channel' => 'whatsapp']);
             return true;
