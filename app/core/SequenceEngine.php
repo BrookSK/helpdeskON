@@ -538,20 +538,20 @@ class SequenceEngine
         $msg = $this->render($bodySrc, $contact);
         if (trim($msg) === '') return 'Mensagem vazia';
 
-        // Descobre a instância do próprio contato do lead (mesma do chat dele)
-        $ctxRow = $this->db->fetch("SELECT instance_id, remote_jid FROM whatsapp_contacts WHERE id = ?", [$contactId]);
-        $instanceId = $ctxRow['instance_id'] ?? null;
-        if (!$instanceId) {
-            $anyInst = $this->db->fetch("SELECT id FROM whatsapp_instances WHERE is_default = 1 LIMIT 1")
-                ?: $this->db->fetch("SELECT id FROM whatsapp_instances LIMIT 1");
-            $instanceId = $anyInst['id'] ?? null;
+        // SEMPRE usa a instância PADRÃO para envios de sequência.
+        $ctxRow = $this->db->fetch("SELECT remote_jid FROM whatsapp_contacts WHERE id = ?", [$contactId]);
+        $default = $this->db->fetch("SELECT id, connection_status FROM whatsapp_instances WHERE is_default = 1 LIMIT 1");
+        if (!$default) return 'Nenhuma instância padrão de WhatsApp definida. Defina uma instância como padrão em WhatsApp.';
+        $instanceId = (int)$default['id'];
+
+        // A instância padrão precisa estar conectada (senão a Evolution retorna "Connection Closed").
+        if (!$this->isInstanceConnected($instanceId)) {
+            return 'A instância padrão de WhatsApp não está conectada. Conecte-a em WhatsApp.';
         }
-        if (!$instanceId) return 'Nenhuma instância de WhatsApp cadastrada';
 
         try {
             $api = EvolutionApi::fromInstance($instanceId);
-            if (!$api) $api = EvolutionApi::getDefault();
-            if (!$api) return 'Instância de WhatsApp indisponível';
+            if (!$api) return 'Instância padrão de WhatsApp indisponível';
 
             // Mesmo caminho do envio manual (que funciona): usa o remote_jid do lead
             // quando for um JID válido; caso contrário monta a partir do telefone.
@@ -622,6 +622,26 @@ class SequenceEngine
             Logger::error('SequenceEngine whatsapp', ['contact' => $contactId, 'error' => $e->getMessage()]);
             return 'Erro: ' . $e->getMessage();
         }
+    }
+
+    /** Confirma (ao vivo) se a instância está conectada; atualiza o cache. */
+    private function isInstanceConnected($instanceId)
+    {
+        $inst = $this->db->fetch("SELECT * FROM whatsapp_instances WHERE id = ?", [$instanceId]);
+        if (!$inst) return false;
+        try {
+            $api = EvolutionApi::fromInstance($instanceId);
+            if (!$api) return false;
+            $state = $api->connectionState();
+            // Formato Evolution: { instance: { state: 'open'|'connecting'|'close' } }
+            $st = $state['instance']['state'] ?? ($state['state'] ?? null);
+            if ($st) {
+                $this->db->update('whatsapp_instances', ['connection_status' => $st], 'id = ?', [$instanceId]);
+                return in_array($st, ['open', 'connected'], true);
+            }
+        } catch (\Throwable $e) { /* rede/instância indisponível */ }
+        // Sem resposta ao vivo: confia no cache
+        return in_array($inst['connection_status'] ?? '', ['open', 'connected'], true);
     }
 
     /**
