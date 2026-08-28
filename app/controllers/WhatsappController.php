@@ -435,6 +435,25 @@ class WhatsappController extends Controller
         // Atribui o contato ao usuário atual se estiver sem dono
         $this->autoAssignContact($contact);
 
+        // Resolve a instância de envio (contato pode estar sem instância vinculada)
+        $sendInstanceId = $contact['instance_id'];
+        if (empty($sendInstanceId)) {
+            $fallback = $this->getUserInstance();
+            if ($fallback) {
+                $sendInstanceId = $fallback['id'];
+                $clash = Database::getInstance()->fetch(
+                    "SELECT id FROM whatsapp_contacts WHERE instance_id = ? AND remote_jid = ? AND id <> ?",
+                    [$sendInstanceId, $contact['remote_jid'], $contactId]
+                );
+                if (!$clash) {
+                    $this->contactModel->assignInstance($contactId, $sendInstanceId);
+                }
+            }
+        }
+        if (empty($sendInstanceId)) {
+            $this->json(['error' => 'Nenhuma instância disponível para enviar. Conecte uma instância em /whatsapp.'], 400);
+        }
+
         $reply = Database::getInstance()->fetch("SELECT * FROM whatsapp_quick_replies WHERE id = ?", [$replyId]);
         if (!$reply || empty($reply['attachment_path'])) {
             $this->json(['error' => 'Resposta rápida sem anexo'], 400);
@@ -472,7 +491,7 @@ class WhatsappController extends Controller
         $tempMsgId = uniqid('sending_');
         try {
             $messageId = $this->messageModel->create([
-                'instance_id' => $contact['instance_id'],
+                'instance_id' => $sendInstanceId,
                 'contact_id' => $contactId,
                 'remote_jid' => $contact['remote_jid'],
                 'message_id' => $tempMsgId,
@@ -494,7 +513,7 @@ class WhatsappController extends Controller
 
         $result = null;
         try {
-            $api = EvolutionApi::fromInstance($contact['instance_id']);
+            $api = EvolutionApi::fromInstance($sendInstanceId);
             if (!$api) $this->json(['error' => 'Instância não encontrada'], 400);
 
             if ($mediaType === 'audio') {
@@ -620,23 +639,42 @@ class WhatsappController extends Controller
         // Atribui o contato ao usuário atual se estiver sem dono
         $this->autoAssignContact($contact);
 
+        // Resolve a instância que vai enviar. O contato pertence à PLATAFORMA e pode
+        // estar sem instância (instance_id NULL) — nesse caso, usamos a instância do
+        // usuário/padrão e amarramos o contato a ela para os próximos envios.
+        $sendInstanceId = $contact['instance_id'];
+        if (empty($sendInstanceId)) {
+            $fallback = $this->getUserInstance();
+            if ($fallback) {
+                $sendInstanceId = $fallback['id'];
+                // Vincula o contato à instância usada (evita colidir com UNIQUE remote_jid)
+                $clash = Database::getInstance()->fetch(
+                    "SELECT id FROM whatsapp_contacts WHERE instance_id = ? AND remote_jid = ? AND id <> ?",
+                    [$sendInstanceId, $contact['remote_jid'], $contactId]
+                );
+                if (!$clash) {
+                    $this->contactModel->assignInstance($contactId, $sendInstanceId);
+                }
+            }
+        }
+
         // Diagnóstico: instância usada para este envio
         $instRow = Database::getInstance()->fetch(
             "SELECT id, instance_name, connection_status, api_url FROM whatsapp_instances WHERE id = ?",
-            [$contact['instance_id']]
+            [$sendInstanceId]
         );
         Logger::info('[Whatsapp/send] iniciando envio', [
             'contact_id' => $contactId,
             'remote_jid' => $contact['remote_jid'],
-            'instance_id' => $contact['instance_id'],
+            'instance_id' => $sendInstanceId,
             'instance_name' => $instRow['instance_name'] ?? null,
             'connection_status' => $instRow['connection_status'] ?? null,
         ]);
 
-        $api = EvolutionApi::fromInstance($contact['instance_id']);
+        $api = $sendInstanceId ? EvolutionApi::fromInstance($sendInstanceId) : null;
         if (!$api) {
-            Logger::error('[Whatsapp/send] instancia nao encontrada', ['instance_id' => $contact['instance_id']]);
-            $this->json(['error' => 'Instância não encontrada'], 400);
+            Logger::error('[Whatsapp/send] instancia nao encontrada', ['instance_id' => $sendInstanceId]);
+            $this->json(['error' => 'Nenhuma instância disponível para enviar. Conecte uma instância em /whatsapp.'], 400);
         }
 
         // Enviar via Evolution API
@@ -651,7 +689,7 @@ class WhatsappController extends Controller
             Logger::error('[Whatsapp/send] FALHA no envio (Evolution recusou)', [
                 'contact_id' => $contactId,
                 'remote_jid' => $contact['remote_jid'],
-                'instance_id' => $contact['instance_id'],
+                'instance_id' => $sendInstanceId,
                 'instance_name' => $instRow['instance_name'] ?? null,
                 'http_code' => $result['http_code'] ?? null,
                 'motivo' => $motivo,
@@ -662,7 +700,7 @@ class WhatsappController extends Controller
             $failedId = null;
             try {
                 $failedId = $this->messageModel->create([
-                    'instance_id' => $contact['instance_id'],
+                    'instance_id' => $sendInstanceId,
                     'contact_id' => $contactId,
                     'remote_jid' => $contact['remote_jid'],
                     'message_id' => uniqid('failed_'),
@@ -703,7 +741,7 @@ class WhatsappController extends Controller
         // Salvar no banco
         $sentMsgId = $result['key']['id'] ?? uniqid('sent_');
         $messageId = $this->messageModel->create([
-            'instance_id' => $contact['instance_id'],
+            'instance_id' => $sendInstanceId,
             'contact_id' => $contactId,
             'remote_jid' => $contact['remote_jid'],
             'message_id' => $sentMsgId,
@@ -722,7 +760,7 @@ class WhatsappController extends Controller
         Logger::info('[Whatsapp/send] enviado com sucesso', [
             'contact_id' => $contactId,
             'message_id' => $sentMsgId,
-            'instance_id' => $contact['instance_id'],
+            'instance_id' => $sendInstanceId,
         ]);
 
         $this->json([
@@ -760,6 +798,25 @@ class WhatsappController extends Controller
         // Atribui o contato ao usuário atual se estiver sem dono
         $this->autoAssignContact($contact);
 
+        // Resolve a instância de envio (contato pode estar sem instância vinculada)
+        $sendInstanceId = $contact['instance_id'];
+        if (empty($sendInstanceId)) {
+            $fallback = $this->getUserInstance();
+            if ($fallback) {
+                $sendInstanceId = $fallback['id'];
+                $clash = Database::getInstance()->fetch(
+                    "SELECT id FROM whatsapp_contacts WHERE instance_id = ? AND remote_jid = ? AND id <> ?",
+                    [$sendInstanceId, $contact['remote_jid'], $contactId]
+                );
+                if (!$clash) {
+                    $this->contactModel->assignInstance($contactId, $sendInstanceId);
+                }
+            }
+        }
+        if (empty($sendInstanceId)) {
+            $this->json(['error' => 'Nenhuma instância disponível para enviar. Conecte uma instância em /whatsapp.'], 400);
+        }
+
         if (empty($_FILES['file']['name']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
             $this->json(['error' => 'Nenhum arquivo enviado'], 400);
         }
@@ -796,7 +853,7 @@ class WhatsappController extends Controller
         $tempMsgId = uniqid('sending_');
         try {
             $messageId = $this->messageModel->create([
-                'instance_id' => $contact['instance_id'],
+                'instance_id' => $sendInstanceId,
                 'contact_id' => $contactId,
                 'remote_jid' => $contact['remote_jid'],
                 'message_id' => $tempMsgId,
@@ -820,7 +877,7 @@ class WhatsappController extends Controller
         // 2) Enviar via Evolution API
         $result = null;
         try {
-            $api = EvolutionApi::fromInstance($contact['instance_id']);
+            $api = EvolutionApi::fromInstance($sendInstanceId);
             if (!$api) {
                 $this->json(['error' => 'Instância não encontrada'], 400);
             }
@@ -1222,6 +1279,137 @@ class WhatsappController extends Controller
     }
 
     /**
+     * MIGRAÇÃO: move contatos e mensagens de uma instância antiga para outra
+     * (ex.: da instância travada para a conexão nova). Reaponta o vínculo para
+     * que o chat passe a enviar pela instância que realmente conecta.
+     *
+     * Uso: /whatsapp/migrateInstance/{origem}/{destino}
+     *   ex.: /whatsapp/migrateInstance/3/4   (move da 3 para a 4)
+     *
+     * Idempotente e seguro: só altera o instance_id dos registros.
+     */
+    public function migrateInstance($fromId = null, $toId = null)
+    {
+        $this->requireRole(['super_admin']);
+        if (!$fromId || !$toId || $fromId == $toId) {
+            $this->json(['error' => 'Uso: /whatsapp/migrateInstance/{origem}/{destino} (ids diferentes)'], 400);
+        }
+
+        $db = Database::getInstance();
+        $from = $db->fetch("SELECT * FROM whatsapp_instances WHERE id = ?", [$fromId]);
+        $to = $db->fetch("SELECT * FROM whatsapp_instances WHERE id = ?", [$toId]);
+        if (!$from || !$to) $this->json(['error' => 'Instância de origem ou destino não encontrada'], 404);
+
+        $res = $this->migrateInstanceData($fromId, $toId);
+
+        $this->json([
+            'success' => true,
+            'de' => $from['instance_name'],
+            'para' => $to['instance_name'],
+            'contatos_movidos' => $res['moved_contacts'],
+            'contatos_remapeados_por_duplicata' => $res['remapped'],
+            'mensagens_movidas' => $res['moved_messages'],
+        ]);
+    }
+
+    /**
+     * Move contatos e mensagens de uma instância para outra, tratando duplicatas
+     * de remote_jid no destino. Reutilizado por migrateInstance() e deleteInstance().
+     *
+     * @return array ['moved_contacts'=>int, 'remapped'=>int, 'moved_messages'=>int]
+     */
+    private function migrateInstanceData($fromId, $toId)
+    {
+        $db = Database::getInstance();
+
+        // Evita colisão do UNIQUE (instance_id, remote_jid): se um mesmo remote_jid
+        // já existir no destino, o contato da origem é fundido no do destino.
+        $dupContacts = $db->fetchAll(
+            "SELECT o.id AS old_id, n.id AS new_id, o.remote_jid
+             FROM whatsapp_contacts o
+             JOIN whatsapp_contacts n ON n.remote_jid = o.remote_jid AND n.instance_id = ?
+             WHERE o.instance_id = ?",
+            [$toId, $fromId]
+        );
+        $remapped = 0;
+        foreach ($dupContacts as $d) {
+            $db->query("UPDATE whatsapp_messages SET contact_id = ?, instance_id = ? WHERE contact_id = ?",
+                [$d['new_id'], $toId, $d['old_id']]);
+            $db->query("DELETE FROM whatsapp_contacts WHERE id = ?", [$d['old_id']]);
+            $remapped++;
+        }
+
+        $movedContacts = $db->query("UPDATE whatsapp_contacts SET instance_id = ? WHERE instance_id = ?",
+            [$toId, $fromId])->rowCount();
+        $movedMessages = $db->query("UPDATE whatsapp_messages SET instance_id = ? WHERE instance_id = ?",
+            [$toId, $fromId])->rowCount();
+
+        Logger::info('[Whatsapp/migrateInstanceData] concluida', [
+            'from' => $fromId, 'to' => $toId,
+            'contatos_movidos' => $movedContacts,
+            'contatos_remapeados' => $remapped,
+            'mensagens_movidas' => $movedMessages,
+        ]);
+
+        return [
+            'moved_contacts' => $movedContacts,
+            'remapped' => $remapped,
+            'moved_messages' => $movedMessages,
+        ];
+    }
+
+    /**
+     * API: Reatribui os contatos/conversas SEM instância (instance_id NULL) ou de
+     * uma instância específica para outra instância. Usado para "adotar" as
+     * conversas órfãs após excluir uma instância.
+     *
+     * Uso: /whatsapp/adoptContacts/{destino}            (adota os órfãos)
+     *      /whatsapp/adoptContacts/{destino}/{origem}   (move de uma instância)
+     */
+    public function adoptContacts($toId = null, $fromId = null)
+    {
+        $this->requireRole(['super_admin']);
+        if (!$toId) $this->json(['error' => 'Instância de destino obrigatória'], 400);
+
+        $db = Database::getInstance();
+        $to = $db->fetch("SELECT * FROM whatsapp_instances WHERE id = ?", [$toId]);
+        if (!$to) $this->json(['error' => 'Instância de destino não encontrada'], 404);
+
+        if ($fromId) {
+            $res = $this->migrateInstanceData($fromId, $toId);
+            $this->json(['success' => true] + $res);
+        }
+
+        // Adota os contatos/mensagens órfãos (instance_id NULL), tratando duplicatas.
+        $dupContacts = $db->fetchAll(
+            "SELECT o.id AS old_id, n.id AS new_id
+             FROM whatsapp_contacts o
+             JOIN whatsapp_contacts n ON n.remote_jid = o.remote_jid AND n.instance_id = ?
+             WHERE o.instance_id IS NULL",
+            [$toId]
+        );
+        $remapped = 0;
+        foreach ($dupContacts as $d) {
+            $db->query("UPDATE whatsapp_messages SET contact_id = ?, instance_id = ? WHERE contact_id = ?",
+                [$d['new_id'], $toId, $d['old_id']]);
+            $db->query("DELETE FROM whatsapp_contacts WHERE id = ?", [$d['old_id']]);
+            $remapped++;
+        }
+        $movedContacts = $db->query("UPDATE whatsapp_contacts SET instance_id = ? WHERE instance_id IS NULL",
+            [$toId])->rowCount();
+        $movedMessages = $db->query("UPDATE whatsapp_messages SET instance_id = ? WHERE instance_id IS NULL",
+            [$toId])->rowCount();
+
+        $this->json([
+            'success' => true,
+            'adotados_para' => $to['instance_name'],
+            'contatos_movidos' => $movedContacts,
+            'contatos_remapeados_por_duplicata' => $remapped,
+            'mensagens_movidas' => $movedMessages,
+        ]);
+    }
+
+    /**
      * API: Verificar status da conexão
      */
     public function status($instanceId = null)
@@ -1358,14 +1546,43 @@ class WhatsappController extends Controller
         $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE id = ?", [$instanceId]);
         if (!$instance) $this->json(['error' => 'Instância não encontrada'], 404);
 
+        // Opcional: reatribuir os contatos/mensagens a outra instância antes de excluir.
+        // Ex.: POST reassign_to=4 move tudo para a instância 4. Sem esse parâmetro,
+        // o vínculo vira NULL (contatos e conversas ficam preservados na plataforma).
+        $reassignTo = !empty($_POST['reassign_to']) ? intval($_POST['reassign_to']) : null;
+        $reassigned = null;
+        if ($reassignTo && $reassignTo != $instanceId) {
+            $target = $db->fetch("SELECT id FROM whatsapp_instances WHERE id = ?", [$reassignTo]);
+            if ($target) {
+                // Reaproveita a migração (trata duplicatas de remote_jid no destino)
+                $this->migrateInstanceData($instanceId, $reassignTo);
+                $reassigned = $reassignTo;
+            }
+        }
+
         // Deletar na Evolution API
         $api = new EvolutionApi($instance['api_url'], $instance['api_key'], $instance['instance_name']);
         $api->deleteInstance();
 
-        // Deletar do banco (cascade remove contatos e mensagens)
+        // Deletar do banco. A FK agora é ON DELETE SET NULL, então contatos e
+        // mensagens NÃO são apagados: apenas ficam sem instância (instance_id = NULL)
+        // e podem ser reatribuídos a outra instância depois.
         $db->delete('whatsapp_instances', 'id = ?', [$instanceId]);
 
-        $this->json(['success' => true]);
+        Logger::info('[Whatsapp/deleteInstance] instancia removida', [
+            'instance_id' => $instanceId,
+            'instance_name' => $instance['instance_name'],
+            'reatribuido_para' => $reassigned,
+        ]);
+
+        $this->json([
+            'success' => true,
+            'preserved_contacts' => true,
+            'reassigned_to' => $reassigned,
+            'message' => $reassigned
+                ? 'Instância excluída. Contatos e conversas foram reatribuídos.'
+                : 'Instância excluída. Contatos e conversas foram preservados (sem instância). Reatribua a outra instância quando quiser.',
+        ]);
     }
 
     /**
