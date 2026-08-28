@@ -2,6 +2,21 @@
 <?php require APP_PATH . '/views/layouts/header.php'; ?>
 <?php require APP_PATH . '/views/layouts/sidebar.php'; ?>
 
+<style>
+.chips-group { display:flex; flex-wrap:wrap; gap:6px; }
+.chips-group .chip { position:relative; }
+.chips-group .chip input { position:absolute; opacity:0; width:0; height:0; }
+.chips-group .chip label {
+    display:inline-block; padding:4px 10px; border:1px solid #ced4da; border-radius:16px;
+    font-size:0.78rem; cursor:pointer; user-select:none; background:#fff; color:#495057; margin:0;
+    transition:all .12s ease;
+}
+.chips-group .chip input:checked + label { background:#00997D; border-color:#00997D; color:#fff; }
+.chips-group .chip label:hover { border-color:#00997D; }
+.chip-addbox { display:flex; gap:6px; margin-top:6px; }
+.chip-hint { font-size:0.72rem; color:#8a8f98; }
+</style>
+
 <div class="main-content">
     <div class="top-bar">
         <div>
@@ -107,6 +122,7 @@
         <div class="d-flex justify-content-between align-items-center mb-2">
             <small class="text-muted">Etapas concluídas por cada lead nas sequências de prospecção, participantes e erros.</small>
             <div class="d-flex gap-2">
+                <button class="btn btn-sm btn-success" onclick="runSequencesNow(this)" title="Executa agora os passos pendentes das sequências (mesmo que o cron runSequences)"><i class="bi bi-play-circle"></i> Processar sequências agora</button>
                 <button class="btn btn-sm btn-outline-info" onclick="testEmailOpen(this)" title="Simula a abertura do último e-mail enviado para conferir se o tracking grava"><i class="bi bi-bug"></i> Testar registro de abertura</button>
                 <button class="btn btn-sm btn-outline-secondary" onclick="loadExecLog()"><i class="bi bi-arrow-clockwise"></i> Atualizar</button>
             </div>
@@ -237,7 +253,16 @@
 
                     <div class="col-md-6">
                         <label class="form-label small fw-medium">Dias da semana</label>
-                        <input type="text" id="camp-days" class="form-control form-control-sm" value="1,2,3,4,5" placeholder="1,2,3,4,5 (1=seg)">
+                        <div class="chips-group" id="camp-days-chips">
+                            <span class="chip"><input type="checkbox" id="day-1" value="1" checked><label for="day-1">Seg</label></span>
+                            <span class="chip"><input type="checkbox" id="day-2" value="2" checked><label for="day-2">Ter</label></span>
+                            <span class="chip"><input type="checkbox" id="day-3" value="3" checked><label for="day-3">Qua</label></span>
+                            <span class="chip"><input type="checkbox" id="day-4" value="4" checked><label for="day-4">Qui</label></span>
+                            <span class="chip"><input type="checkbox" id="day-5" value="5" checked><label for="day-5">Sex</label></span>
+                            <span class="chip"><input type="checkbox" id="day-6" value="6"><label for="day-6">Sáb</label></span>
+                            <span class="chip"><input type="checkbox" id="day-7" value="7"><label for="day-7">Dom</label></span>
+                        </div>
+                        <input type="hidden" id="camp-days" value="1,2,3,4,5">
                     </div>
                     <div class="col-md-3">
                         <label class="form-label small fw-medium">Início</label>
@@ -310,40 +335,73 @@
                         </div>
                     </div>
 
-                    <div class="col-12"><hr class="my-1"><strong class="small"><i class="bi bi-funnel"></i> Filtros da busca (Apollo)</strong></div>
+                    <div class="col-12"><hr class="my-1"><strong class="small"><i class="bi bi-funnel"></i> Filtros da busca (Apollo)</strong>
+                        <div class="chip-hint">Marque as opções desejadas. Você pode adicionar valores personalizados nos campos com "+".</div>
+                    </div>
+
                     <div class="col-md-6">
                         <label class="form-label small">Cargos (person_titles)</label>
-                        <input type="text" id="camp-f-titles" class="form-control form-control-sm" placeholder="ceo, diretor, gerente">
+                        <div class="chips-group" data-chipset="f-titles"></div>
+                        <div class="chip-addbox">
+                            <input type="text" class="form-control form-control-sm" id="add-f-titles" placeholder="Adicionar cargo (ex: head de vendas)">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="chipAdd('f-titles','add-f-titles')">+</button>
+                        </div>
+                        <input type="hidden" id="camp-f-titles">
                     </div>
+
                     <div class="col-md-6">
                         <label class="form-label small">Senioridades</label>
-                        <input type="text" id="camp-f-seniorities" class="form-control form-control-sm" placeholder="owner, founder, c_suite, vp, head, director">
+                        <div class="chips-group" data-chipset="f-seniorities"></div>
+                        <input type="hidden" id="camp-f-seniorities">
                     </div>
+
                     <div class="col-md-6">
                         <label class="form-label small">Localização da pessoa</label>
-                        <input type="text" id="camp-f-ploc" class="form-control form-control-sm" placeholder="Brazil">
+                        <div class="chips-group" data-chipset="f-ploc"></div>
+                        <div class="chip-addbox">
+                            <input type="text" class="form-control form-control-sm" id="add-f-ploc" placeholder="Adicionar local (ex: São Paulo, Brazil)">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="chipAdd('f-ploc','add-f-ploc')">+</button>
+                        </div>
+                        <input type="hidden" id="camp-f-ploc">
                     </div>
+
                     <div class="col-md-6">
                         <label class="form-label small">Faixas de funcionários</label>
-                        <input type="text" id="camp-f-emp" class="form-control form-control-sm" placeholder="11,50, 51,200, 201,500">
+                        <div class="chips-group" data-chipset="f-emp"></div>
+                        <input type="hidden" id="camp-f-emp">
                     </div>
+
                     <div class="col-md-6">
-                        <label class="form-label small">Palavras-chave</label>
-                        <input type="text" id="camp-f-keywords" class="form-control form-control-sm" placeholder="ex: logística">
+                        <label class="form-label small">Nicho / termos (palavras-chave)</label>
+                        <div class="chips-group" data-chipset="f-keywords"></div>
+                        <div class="chip-addbox">
+                            <input type="text" class="form-control form-control-sm" id="add-f-keywords" placeholder="Adicionar termo (ex: logística)">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="chipAdd('f-keywords','add-f-keywords')">+</button>
+                        </div>
+                        <input type="hidden" id="camp-f-keywords">
                     </div>
+
                     <div class="col-md-6">
                         <label class="form-label small">Domínios (opcional)</label>
                         <input type="text" id="camp-f-domains" class="form-control form-control-sm" placeholder="empresa.com, outra.com">
                     </div>
 
-                    <div class="col-12"><hr class="my-1"><strong class="small"><i class="bi bi-sliders"></i> ICP e pesos do score</strong></div>
+                    <div class="col-12"><hr class="my-1"><strong class="small"><i class="bi bi-sliders"></i> ICP e pesos do score</strong>
+                        <div class="chip-hint">O ICP qualifica os candidatos após a busca. Marque as senioridades/cargos que caracterizam seu cliente ideal.</div>
+                    </div>
                     <div class="col-md-6">
                         <label class="form-label small">ICP — senioridades aceitas</label>
-                        <input type="text" id="camp-icp-sen" class="form-control form-control-sm" placeholder="owner, founder, c_suite, vp, head, director">
+                        <div class="chips-group" data-chipset="icp-sen"></div>
+                        <input type="hidden" id="camp-icp-sen">
                     </div>
                     <div class="col-md-6">
                         <label class="form-label small">ICP — cargos (contém)</label>
-                        <input type="text" id="camp-icp-titles" class="form-control form-control-sm" placeholder="ceo, diretor, gerente">
+                        <div class="chips-group" data-chipset="icp-titles"></div>
+                        <div class="chip-addbox">
+                            <input type="text" class="form-control form-control-sm" id="add-icp-titles" placeholder="Adicionar cargo (ex: gerente comercial)">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="chipAdd('icp-titles','add-icp-titles')">+</button>
+                        </div>
+                        <input type="hidden" id="camp-icp-titles">
                     </div>
                     <div class="col-md-3">
                         <label class="form-label small">Funcionários mín.</label>
@@ -435,6 +493,120 @@ const CAMP_BOARDS = <?= json_encode(array_map(fn($b) => ['id' => $b['id'], 'colu
 let campModal, logModal;
 
 function copyCron() { navigator.clipboard.writeText(document.getElementById('cron-url').textContent); }
+
+// ===== Chips de multiseleção =====
+// Opções pré-definidas por conjunto. { value: enviado à Apollo, label: exibido }
+const CHIP_OPTIONS = {
+    'f-seniorities': [
+        {value:'owner', label:'Owner (Dono)'}, {value:'founder', label:'Founder (Fundador)'},
+        {value:'c_suite', label:'C-Level (CEO/CFO/CTO)'}, {value:'partner', label:'Partner (Sócio)'},
+        {value:'vp', label:'VP'}, {value:'head', label:'Head'}, {value:'director', label:'Diretor'},
+        {value:'manager', label:'Gerente'}, {value:'senior', label:'Sênior'},
+        {value:'entry', label:'Júnior/Analista'}, {value:'intern', label:'Estagiário'}
+    ],
+    'f-titles': [
+        {value:'ceo', label:'CEO'}, {value:'cfo', label:'CFO'}, {value:'cto', label:'CTO'},
+        {value:'diretor', label:'Diretor'}, {value:'gerente', label:'Gerente'},
+        {value:'gerente comercial', label:'Gerente Comercial'}, {value:'gerente de marketing', label:'Gerente de Marketing'},
+        {value:'sócio', label:'Sócio'}, {value:'proprietário', label:'Proprietário'},
+        {value:'coordenador', label:'Coordenador'}, {value:'head de vendas', label:'Head de Vendas'}
+    ],
+    'f-ploc': [
+        {value:'Brazil', label:'Brasil'}, {value:'São Paulo, Brazil', label:'São Paulo'},
+        {value:'Rio de Janeiro, Brazil', label:'Rio de Janeiro'}, {value:'Minas Gerais, Brazil', label:'Minas Gerais'},
+        {value:'Paraná, Brazil', label:'Paraná'}, {value:'Santa Catarina, Brazil', label:'Santa Catarina'},
+        {value:'Rio Grande do Sul, Brazil', label:'Rio Grande do Sul'}, {value:'Bahia, Brazil', label:'Bahia'}
+    ],
+    'f-emp': [
+        {value:'1,10', label:'1–10'}, {value:'11,50', label:'11–50'}, {value:'51,200', label:'51–200'},
+        {value:'201,500', label:'201–500'}, {value:'501,1000', label:'501–1000'},
+        {value:'1001,5000', label:'1001–5000'}, {value:'5001,10000', label:'5001–10000'}
+    ],
+    'f-keywords': [
+        {value:'logística', label:'Logística'}, {value:'saúde', label:'Saúde'}, {value:'educação', label:'Educação'},
+        {value:'varejo', label:'Varejo'}, {value:'indústria', label:'Indústria'}, {value:'tecnologia', label:'Tecnologia'},
+        {value:'construção civil', label:'Construção Civil'}, {value:'financeiro', label:'Financeiro'},
+        {value:'agronegócio', label:'Agronegócio'}, {value:'e-commerce', label:'E-commerce'}, {value:'serviços', label:'Serviços'}
+    ],
+    'icp-sen': [
+        {value:'owner', label:'Owner (Dono)'}, {value:'founder', label:'Founder (Fundador)'},
+        {value:'c_suite', label:'C-Level'}, {value:'partner', label:'Partner (Sócio)'},
+        {value:'vp', label:'VP'}, {value:'head', label:'Head'}, {value:'director', label:'Diretor'}, {value:'manager', label:'Gerente'}
+    ],
+    'icp-titles': [
+        {value:'ceo', label:'CEO'}, {value:'diretor', label:'Diretor'}, {value:'gerente', label:'Gerente'},
+        {value:'sócio', label:'Sócio'}, {value:'proprietário', label:'Proprietário'}, {value:'head', label:'Head'}
+    ]
+};
+// Conjuntos que aceitam valores personalizados adicionados pelo usuário
+const CHIP_CUSTOM_STORE = {}; // chipset -> [{value,label}] extras
+
+function chipRender(chipset, selectedValues) {
+    const box = document.querySelector('.chips-group[data-chipset="'+chipset+'"]');
+    if (!box) return;
+    selectedValues = (selectedValues || []).map(v => String(v).trim()).filter(Boolean);
+    const base = CHIP_OPTIONS[chipset] ? CHIP_OPTIONS[chipset].slice() : [];
+    // Injeta valores selecionados que não existem nas opções (personalizados salvos)
+    const known = new Set(base.map(o => o.value.toLowerCase()));
+    (CHIP_CUSTOM_STORE[chipset] || []).forEach(o => { if (!known.has(o.value.toLowerCase())) { base.push(o); known.add(o.value.toLowerCase()); } });
+    selectedValues.forEach(v => { if (!known.has(v.toLowerCase())) { base.push({value:v, label:v}); known.add(v.toLowerCase()); } });
+
+    const sel = new Set(selectedValues.map(v => v.toLowerCase()));
+    box.innerHTML = base.map((o, i) => {
+        const id = 'chip-' + chipset + '-' + i;
+        const checked = sel.has(o.value.toLowerCase()) ? 'checked' : '';
+        return `<span class="chip"><input type="checkbox" id="${id}" value="${escapeAttr(o.value)}" ${checked} onchange="chipSync('${chipset}')"><label for="${id}">${escapeH(o.label)}</label></span>`;
+    }).join('');
+    chipSync(chipset);
+}
+
+function chipSync(chipset) {
+    const box = document.querySelector('.chips-group[data-chipset="'+chipset+'"]');
+    const hidden = document.getElementById('camp-' + chipset);
+    if (!box || !hidden) return;
+    const vals = Array.from(box.querySelectorAll('input:checked')).map(cb => cb.value);
+    hidden.value = vals.join(', ');
+}
+
+function chipAdd(chipset, inputId) {
+    const inp = document.getElementById(inputId);
+    const val = (inp.value || '').trim();
+    if (!val) return;
+    CHIP_CUSTOM_STORE[chipset] = CHIP_CUSTOM_STORE[chipset] || [];
+    if (!CHIP_CUSTOM_STORE[chipset].some(o => o.value.toLowerCase() === val.toLowerCase())) {
+        CHIP_CUSTOM_STORE[chipset].push({value:val, label:val});
+    }
+    // Mantém a seleção atual e marca o novo
+    const current = (document.getElementById('camp-' + chipset).value || '').split(',').map(s=>s.trim()).filter(Boolean);
+    current.push(val);
+    chipRender(chipset, current);
+    inp.value = '';
+}
+
+function escapeAttr(s){ return String(s??'').replace(/"/g,'&quot;'); }
+
+// Lê os dias marcados e grava no hidden camp-days
+function syncDays() {
+    const days = [];
+    document.querySelectorAll('#camp-days-chips input:checked').forEach(cb => days.push(cb.value));
+    document.getElementById('camp-days').value = days.join(',');
+}
+function setDays(csv) {
+    const set = new Set(String(csv||'').split(',').map(s=>s.trim()).filter(Boolean));
+    for (let d=1; d<=7; d++) { const cb = document.getElementById('day-'+d); if (cb) cb.checked = set.has(String(d)); }
+    syncDays();
+}
+// liga o onchange dos dias
+document.addEventListener('change', function(e){ if (e.target && e.target.closest && e.target.closest('#camp-days-chips')) syncDays(); });
+
+// Renderiza todos os chipsets com os valores informados (csv). Usado em open/edit.
+function chipRenderAll(values) {
+    Object.keys(CHIP_OPTIONS).forEach(cs => {
+        const csv = values && values[cs] != null ? values[cs] : '';
+        const arr = String(csv).split(',').map(s=>s.trim()).filter(Boolean);
+        chipRender(cs, arr);
+    });
+}
 
 // ===== Abas =====
 function switchProspectTab(tab) {
@@ -619,13 +791,16 @@ function openCampaign() {
     document.getElementById('camp-daily').value = 12;
     document.getElementById('camp-minscore').value = 70;
     document.getElementById('camp-perpage').value = 50;
-    document.getElementById('camp-days').value = '1,2,3,4,5';
+    setDays('1,2,3,4,5');
     document.getElementById('camp-wstart').value = '08:00';
     document.getElementById('camp-wend').value = '18:00';
     document.getElementById('camp-active').checked = true;
     document.getElementById('camp-reveal-email').checked = true;
     document.getElementById('camp-reveal-phone').checked = false;
     document.getElementById('camp-icp-website').checked = true;
+    // Reseta chips (limpa personalizados e desmarca tudo)
+    Object.keys(CHIP_CUSTOM_STORE).forEach(k => delete CHIP_CUSTOM_STORE[k]);
+    chipRenderAll({});
     document.getElementById('camp-source').value = 'apollo';
     document.getElementById('camp-global-dedupe').checked = true;
     document.getElementById('camp-ml-temperature').value = '';
@@ -652,7 +827,7 @@ function editCampaign(c) {
     document.getElementById('camp-daily').value = c.daily_target;
     document.getElementById('camp-minscore').value = c.min_score;
     document.getElementById('camp-perpage').value = c.search_per_page;
-    document.getElementById('camp-days').value = c.days_of_week || '1,2,3,4,5';
+    setDays(c.days_of_week || '1,2,3,4,5');
     document.getElementById('camp-wstart').value = (c.window_start||'08:00:00').slice(0,5);
     document.getElementById('camp-wend').value = (c.window_end||'18:00:00').slice(0,5);
     document.getElementById('camp-active').checked = !!Number(c.is_active);
@@ -674,25 +849,28 @@ function editCampaign(c) {
     } catch(e){ selectedLeadIds = []; }
     refreshLeadSelectionInfo();
 
+    // Monta os valores dos chips a partir do que está salvo e renderiza
+    const chipVals = {};
     try {
         const f = JSON.parse(c.search_filters || '{}');
-        document.getElementById('camp-f-titles').value = (f.person_titles||[]).join(', ');
-        document.getElementById('camp-f-seniorities').value = (f.person_seniorities||[]).join(', ');
-        document.getElementById('camp-f-ploc').value = (f.person_locations||[]).join(', ');
-        document.getElementById('camp-f-emp').value = (f.organization_num_employees_ranges||[]).join(', ');
-        document.getElementById('camp-f-keywords').value = f.q_keywords || '';
+        chipVals['f-titles'] = (f.person_titles||[]).join(', ');
+        chipVals['f-seniorities'] = (f.person_seniorities||[]).join(', ');
+        chipVals['f-ploc'] = (f.person_locations||[]).join(', ');
+        chipVals['f-emp'] = (f.organization_num_employees_ranges||[]).join(', ');
+        chipVals['f-keywords'] = f.q_keywords || '';
         document.getElementById('camp-f-domains').value = (f.q_organization_domains_list||[]).join(', ');
     } catch(e){}
     try {
         const icp = JSON.parse(c.icp_rules || '{}');
-        document.getElementById('camp-icp-sen').value = (icp.seniorities||[]).join(', ');
-        document.getElementById('camp-icp-titles').value = (icp.titles_any||[]).join(', ');
+        chipVals['icp-sen'] = (icp.seniorities||[]).join(', ');
+        chipVals['icp-titles'] = (icp.titles_any||[]).join(', ');
         document.getElementById('camp-icp-empmin').value = icp.employee_min || '';
         document.getElementById('camp-icp-empmax').value = icp.employee_max || '';
         document.getElementById('camp-icp-website').checked = !!icp.require_website;
         const w = icp.score || {};
         ['decisor','title','size','region','website','technology'].forEach(k => { if (w[k]!=null) document.getElementById('camp-w-'+k).value = w[k]; });
     } catch(e){}
+    chipRenderAll(chipVals);
 }
 
 function saveCampaign(btn) {
@@ -777,6 +955,20 @@ function showLog(id) {
         });
 }
 function escapeH(s){ const d=document.createElement('div'); d.textContent=String(s??''); return d.innerHTML; }
+
+// Executa os passos pendentes das sequências agora (equivalente ao cron runSequences)
+function runSequencesNow(btn) {
+    const orig = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Processando...';
+    fetch(BASE + 'crm/runSequencesNow', { method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'} })
+        .then(r=>r.json()).then(d=>{
+            btn.disabled = false; btn.innerHTML = orig;
+            if (d.error) { alert(d.error); return; }
+            const e = d.engine || {};
+            alert(`Sequências processadas.\n\nProcessados: ${e.processed||0}\nEnviados: ${e.sent||0}\nFinalizados: ${e.finished||0}\nPulados: ${e.skipped||0}\nErros: ${e.errors||0}\nRespostas detectadas: ${d.replies_detected||0}`);
+            loadExecLog();
+        })
+        .catch(()=>{ btn.disabled=false; btn.innerHTML=orig; alert('Erro ao processar sequências.'); });
+}
 
 // Diagnóstico: simula a abertura do último e-mail e recarrega os logs
 function testEmailOpen(btn) {

@@ -1922,6 +1922,21 @@ class CrmController extends Controller
         $this->json(['success' => empty($result['error']), 'result' => $result]);
     }
 
+    /**
+     * Executa os passos pendentes das sequências agora (mesmo motor do cron
+     * /cron/runSequences), sem depender do agendamento no servidor.
+     * Protegido por login super_admin. POST crm/runSequencesNow
+     */
+    public function runSequencesNow()
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        @set_time_limit(300);
+
+        $stats = (new SequenceEngine())->processDue(200);
+        $this->json(['success' => true, 'engine' => $stats, 'replies_detected' => 0]);
+    }
+
     /** Log recente de uma campanha (para acompanhar). GET crm/campaignLog/{id} */
     public function campaignLog($id = null)
     {
@@ -2073,7 +2088,7 @@ class CrmController extends Controller
         if (!empty($_POST['f_person_locations'])) $f['person_locations'] = $toArr('f_person_locations');
         if (!empty($_POST['f_org_locations'])) $f['organization_locations'] = $toArr('f_org_locations');
         if (!empty($_POST['f_domains'])) $f['q_organization_domains_list'] = $toArr('f_domains');
-        if (!empty($_POST['f_keywords'])) $f['q_keywords'] = trim($_POST['f_keywords']);
+        if (!empty($_POST['f_keywords'])) $f['q_keywords'] = implode(' ', $toArr('f_keywords'));
         if (!empty($_POST['f_employee_ranges'])) $f['organization_num_employees_ranges'] = $toArr('f_employee_ranges');
         return $f;
     }
