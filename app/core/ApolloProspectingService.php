@@ -129,7 +129,11 @@ class ApolloProspectingService
                 $this->logCampaign($camp['id'], 'search_failed', $m['error'] . ' (página ' . $page . ')');
                 break;
             }
-            $people = $res['data']['people'] ?? ($res['data']['contacts'] ?? []);
+            // A Apollo pode devolver resultados em "people" e/ou "contacts" (já na conta).
+            // Usar "??" esconde os que estão na outra lista quando a primeira vem vazia.
+            $rp = is_array($res['data']['people'] ?? null) ? $res['data']['people'] : [];
+            $rc = is_array($res['data']['contacts'] ?? null) ? $res['data']['contacts'] : [];
+            $people = array_merge($rp, $rc);
             $pagination = $res['data']['pagination'] ?? [];
             $totalPages = (int)($pagination['total_pages'] ?? ($totalPages ?? 1));
             $m['pages']++;

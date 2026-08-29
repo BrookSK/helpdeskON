@@ -1531,7 +1531,8 @@ class CrmController extends Controller
         $credit->consume($user['id'], 1);
 
         $data = $res['data'] ?? [];
-        $people = $data['people'] ?? ($data['contacts'] ?? []);
+        // A Apollo separa resultados "fora da conta" (people) dos "salvos na conta" (contacts).
+        $people = $this->mergeApolloLists($data, 'people', 'contacts');
         $pagination = $data['pagination'] ?? [];
 
         // Persiste em staging para consulta/importação posterior
@@ -1585,7 +1586,8 @@ class CrmController extends Controller
         $credit->consume($user['id'], 1);
 
         $data = $res['data'] ?? [];
-        $orgs = $data['organizations'] ?? ($data['accounts'] ?? []);
+        // Empresas já salvas na conta Apollo voltam em "accounts" (não em "organizations").
+        $orgs = $this->mergeApolloLists($data, 'organizations', 'accounts');
         $pagination = $data['pagination'] ?? [];
 
         $after = $credit->check($user, 0);
@@ -2461,17 +2463,23 @@ class CrmController extends Controller
             if (!$res['success']) $this->json(['error' => $res['error'] ?? 'Falha na busca.', 'stages' => $stages], 502);
 
             $data = $res['data'] ?? [];
-            $orgs = $data['organizations'] ?? ($data['accounts'] ?? []);
+            $rawOrgs = is_array($data['organizations'] ?? null) ? $data['organizations'] : [];
+            $rawAccounts = is_array($data['accounts'] ?? null) ? $data['accounts'] : [];
+            $orgs = $this->mergeApolloLists($data, 'organizations', 'accounts');
             $pagination = $data['pagination'] ?? [];
 
-            $stages[] = ['stage' => 'Resposta bruta da API (organizations[])', 'count' => count($orgs)];
+            $stages[] = ['stage' => 'Resposta bruta da API — organizations[]', 'count' => count($rawOrgs)];
+            $stages[] = ['stage' => 'Resposta bruta da API — accounts[] (já na sua conta Apollo)', 'count' => count($rawAccounts)];
+            $stages[] = ['stage' => 'Após mesclar organizations + accounts', 'count' => count($orgs)];
             $stages[] = ['stage' => 'total_entries informado pela API', 'count' => $pagination['total_entries'] ?? null];
             $stages[] = ['stage' => 'Exibido na tela (sem formatação/filtro no backend)', 'count' => count($orgs)];
 
-            if (count($orgs) === 0) {
-                $notes[] = 'A API retornou 0 empresas para este termo. O filtro está na própria consulta ao Apollo, não no código de exibição.';
+            if (count($rawOrgs) === 0 && count($rawAccounts) > 0) {
+                $notes[] = 'A empresa voltou em "accounts[]" (já está salva na sua conta Apollo) e não em "organizations[]". Antes da correção, o código usava "??" e ignorava a lista "accounts", por isso a empresa "sumia". Agora as duas listas são mescladas e ela aparece.';
+            } elseif (count($orgs) === 0) {
+                $notes[] = 'A API retornou 0 empresas para este termo, tanto em "organizations[]" quanto em "accounts[]". O filtro está na própria consulta ao Apollo, não no código de exibição.';
             } else {
-                $notes[] = 'Empresas não passam por formatação nem máscara no backend: o que a API retorna é exibido integralmente. Se some algo, o filtro está no payload enviado ao Apollo (veja a etapa 1).';
+                $notes[] = 'Empresas não passam por máscara no backend: o que a API retorna (organizations + accounts) é exibido integralmente.';
             }
 
             $sample = array_map(fn($o) => [
@@ -2492,10 +2500,14 @@ class CrmController extends Controller
         if (!$res['success']) $this->json(['error' => $res['error'] ?? 'Falha na busca.', 'stages' => $stages], 502);
 
         $data = $res['data'] ?? [];
-        $people = $data['people'] ?? ($data['contacts'] ?? []);
+        $rawPeople = is_array($data['people'] ?? null) ? $data['people'] : [];
+        $rawContacts = is_array($data['contacts'] ?? null) ? $data['contacts'] : [];
+        $people = $this->mergeApolloLists($data, 'people', 'contacts');
         $pagination = $data['pagination'] ?? [];
 
-        $stages[] = ['stage' => 'Resposta bruta da API (people[] + contacts[])', 'count' => count($people)];
+        $stages[] = ['stage' => 'Resposta bruta da API — people[]', 'count' => count($rawPeople)];
+        $stages[] = ['stage' => 'Resposta bruta da API — contacts[] (já na sua conta Apollo)', 'count' => count($rawContacts)];
+        $stages[] = ['stage' => 'Após mesclar people + contacts', 'count' => count($people)];
         $stages[] = ['stage' => 'total_entries informado pela API', 'count' => $pagination['total_entries'] ?? null];
 
         // Reproduz exatamente o que apolloSearchPeople faz: upsert + format
@@ -2530,6 +2542,9 @@ class CrmController extends Controller
         $stages[] = ['stage' => '↳ de outro responsável (bloqueados p/ importar)', 'count' => $ownedByOther];
         $stages[] = ['stage' => '↳ sem local_id (não puderam ser gravados)', 'count' => $noLocalId];
 
+        if (count($rawPeople) === 0 && count($rawContacts) > 0) {
+            $notes[] = 'A API trouxe resultados apenas em "contacts[]" (pessoas já salvas na sua conta Apollo) e nada em "people[]". Antes da correção, o código usava "??" e descartava esses contatos, fazendo o resultado sumir. Agora as duas listas são mescladas.';
+        }
         if (count($people) > 0 && count($out) === count($people)) {
             $notes[] = 'O backend NÃO descarta nenhuma pessoa: todas as ' . count($people) . ' retornadas pela API são enviadas ao navegador. Se você vê menos na tela, a redução é (a) no filtro enviado ao Apollo, (b) na paginação (per_page), ou (c) na renderização do front-end.';
         }
@@ -2808,6 +2823,29 @@ class CrmController extends Controller
      * Formata um person do Apollo + registro local para exibição no painel.
      * $stored é a linha em apollo_leads (pode conter o e-mail já revelado).
      */
+    /**
+     * Mescla as duas listas que a Apollo pode retornar para o mesmo tipo de
+     * resultado. Ex.: pessoas vêm em "people" (fora da sua conta) E/OU "contacts"
+     * (já salvas na sua conta); empresas vêm em "organizations" E/OU "accounts".
+     * Usar "??" é errado porque a Apollo devolve um array VAZIO (não nulo) para a
+     * lista sem itens, escondendo os resultados que estão na outra lista.
+     */
+    private function mergeApolloLists($data, $primaryKey, $secondaryKey)
+    {
+        $primary = is_array($data[$primaryKey] ?? null) ? $data[$primaryKey] : [];
+        $secondary = is_array($data[$secondaryKey] ?? null) ? $data[$secondaryKey] : [];
+        if (empty($secondary)) return $primary;
+        if (empty($primary)) return $secondary;
+
+        // Evita duplicar quando a mesma entidade vier nas duas listas (mesmo id).
+        $byId = [];
+        foreach (array_merge($primary, $secondary) as $item) {
+            $id = $item['id'] ?? spl_object_hash((object)$item);
+            if (!isset($byId[$id])) $byId[$id] = $item;
+        }
+        return array_values($byId);
+    }
+
     private function formatApolloPerson($person, $stored = null)
     {
         $org = $person['organization'] ?? ($person['account'] ?? []);
