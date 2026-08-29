@@ -562,18 +562,31 @@ class SequenceEngine
             // Resolve o JID REAL no WhatsApp (corrige o 9º dígito de números BR e
             // evita HTTP 400 ao enviar para um JID que o WhatsApp não reconhece).
             // Igual ao fluxo de "nova conversa" que funciona.
+            $checkedExists = null; // null = não foi possível checar; true/false = resultado
             try {
                 $phoneOnly = $api->extractPhone($jid);
                 $check = $api->checkIsWhatsapp([$phoneOnly]);
                 if (is_array($check)) {
                     foreach ($check as $item) {
+                        // Casa o retorno com o número consultado (quando informado)
+                        if (array_key_exists('exists', $item)) $checkedExists = !empty($item['exists']);
                         if (!empty($item['exists']) && !empty($item['jid'])) {
                             $jid = $api->normalizeJid($item['jid']);
+                            $checkedExists = true;
                             break;
                         }
                     }
                 }
             } catch (\Throwable $e) { /* segue com o jid normalizado */ }
+
+            // Número não tem WhatsApp: não adianta enviar (a Evolution devolve HTTP 400).
+            // Registra e falha com mensagem clara, sem gerar erro cru de API.
+            if ($checkedExists === false) {
+                $onlyDigits = preg_replace('/\D/', '', (string) $contact['phone']);
+                $msgFail = 'Número sem WhatsApp: ' . $onlyDigits . ' não possui conta no WhatsApp.';
+                (new LeadTimelineService())->add($contactId, 'note', 'WhatsApp da sequência não enviado: ' . $msgFail, ['channel' => 'whatsapp']);
+                return $msgFail;
+            }
 
             $result = $api->sendText($jid, $msg);
             // A Evolution retorna erro tanto em ['error'=>true] quanto em HTTP >= 400.
