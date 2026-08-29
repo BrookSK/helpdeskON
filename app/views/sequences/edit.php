@@ -11,6 +11,7 @@
         </div>
         <div class="d-flex gap-2">
             <button class="btn btn-sm btn-outline-primary" onclick="openParticipants()" <?= $sequence ? '' : 'disabled title="Salve primeiro"' ?>><i class="bi bi-people"></i> Leads</button>
+            <button class="btn btn-sm btn-outline-success" onclick="testSequence(this)" <?= $sequence ? '' : 'disabled title="Salve primeiro"' ?>><i class="bi bi-play-circle"></i> Testar agora</button>
             <button class="btn btn-sm btn-primary" onclick="saveSeq()"><i class="bi bi-check-lg"></i> Salvar</button>
         </div>
     </div>
@@ -27,6 +28,7 @@
                 <button class="btn btn-sm btn-outline-secondary" onclick="addNode('tag')"><i class="bi bi-tag"></i> Tag</button>
                 <button class="btn btn-sm btn-outline-secondary" onclick="addNode('score')"><i class="bi bi-star"></i> Score</button>
                 <button class="btn btn-sm btn-outline-info" onclick="addNode('move')"><i class="bi bi-kanban"></i> Mover card</button>
+                <button class="btn btn-sm btn-outline-dark" onclick="addNode('reveal_phone')"><i class="bi bi-telephone-plus"></i> Revelar telefone (Apollo)</button>
                 <button class="btn btn-sm btn-outline-danger" onclick="addNode('end')"><i class="bi bi-stop-circle"></i> Encerrar</button>
                 <div class="ms-auto">
                     <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#seq-config">
@@ -75,12 +77,25 @@
     </div>
 
     <!-- Canvas em largura total -->
-    <div class="card">
+    <div class="card position-relative">
+        <!-- Controles de zoom -->
+        <div class="seq-zoom-ctrl">
+            <button type="button" class="btn btn-sm btn-light border" onclick="zoomStep(0.1)" title="Aproximar"><i class="bi bi-zoom-in"></i></button>
+            <button type="button" class="btn btn-sm btn-light border" onclick="zoomReset()" title="Redefinir zoom"><span id="zoom-label">100%</span></button>
+            <button type="button" class="btn btn-sm btn-light border" onclick="zoomStep(-0.1)" title="Afastar"><i class="bi bi-zoom-out"></i></button>
+        </div>
         <div class="card-body p-0" id="canvas-wrap">
-            <svg id="edges" style="position:absolute;top:0;left:0;width:3000px;height:3000px;pointer-events:none;"></svg>
-            <div id="canvas" style="position:relative;width:3000px;height:3000px;"></div>
+            <div id="canvas-zoom" style="transform-origin:0 0;width:3000px;height:3000px;position:relative;">
+                <svg id="edges" style="position:absolute;top:0;left:0;width:3000px;height:3000px;pointer-events:none;"></svg>
+                <div id="canvas" style="position:relative;width:3000px;height:3000px;"></div>
+            </div>
         </div>
     </div>
+    <style>
+    .seq-zoom-ctrl { position:absolute; top:8px; right:8px; z-index:50; display:flex; flex-direction:column; gap:4px; }
+    .seq-zoom-ctrl .btn { width:38px; padding:4px 0; }
+    #zoom-label { font-size:0.7rem; }
+    </style>
 
     <!-- Propriedades: drawer flutuante (não ocupa espaço do canvas) -->
     <div id="inspector-drawer">

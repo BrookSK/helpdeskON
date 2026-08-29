@@ -25,6 +25,7 @@
 .seq-node .port.in { top:-10px; left:calc(50% - 9px); background:#e9ecef; }
 .n-send .hd{color:#0d6efd} .n-whatsapp .hd{color:#198754} .n-wait .hd{color:#fd7e14} .n-condition .hd{color:#6f42c1}
 .n-tag .hd{color:#20c997} .n-score .hd{color:#e0a800} .n-move .hd{color:#0dcaf0} .n-end .hd{color:#dc3545}
+.n-reveal_phone .hd{color:#212529}
 #link-hint { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#1a1a2e; color:#fff;
     padding:8px 16px; border-radius:20px; font-size:0.8rem; z-index:2000; display:none; box-shadow:0 4px 12px rgba(0,0,0,.3); }
 </style>
@@ -35,9 +36,10 @@
 const BASE = '<?= baseUrl('') ?>';
 const SEQ_ID = <?= $sequence ? (int)$sequence['id'] : 'null' ?>;
 const COLUMNS = <?= json_encode(array_map(fn($c) => ['id'=>$c['id'],'name'=>$c['name'],'board_id'=>$c['board_id'],'board_name'=>$c['board_name'],'label'=>$c['board_name'].' · '.$c['name']], $columns), JSON_UNESCAPED_UNICODE) ?>;
+const LABELS = <?= json_encode(array_map(fn($l) => ['id'=>$l['id'],'name'=>$l['name'],'color'=>$l['color']], $labels ?? []), JSON_UNESCAPED_UNICODE) ?>;
 // Lista de boards únicos (para o seletor encadeado do bloco "mover card")
 const BOARDS = (function(){ const m={}; COLUMNS.forEach(c=>{ if(!m[c.board_id]) m[c.board_id]={id:c.board_id,name:c.board_name}; }); return Object.values(m); })();
-const NODE_LABELS = { send:'Enviar e-mail', whatsapp:'Enviar WhatsApp', wait:'Aguardar', condition:'Condição', tag:'Tag', score:'Score', move:'Mover card', end:'Encerrar' };
+const NODE_LABELS = { send:'Enviar e-mail', whatsapp:'Enviar WhatsApp', wait:'Aguardar', condition:'Condição', tag:'Tag', score:'Score', move:'Mover card', reveal_phone:'Revelar telefone', end:'Encerrar' };
 let EMAIL_TEMPLATES = [], WA_TEMPLATES = [];
 
 let nodes = [];       // {id, type, x, y, data, next, nextYes, nextNo, _el}
@@ -45,11 +47,48 @@ let selectedId = null;
 let linkFrom = null;
 
 <?php if ($sequence && $sequence['graph']): ?>
-(function(){ const g = <?= $sequence['graph'] ?>; if (g && g.nodes) nodes = g.nodes.map(n => ({x:60,y:60,data:{},...n})); })();
+(function(){
+    const g = <?= $sequence['graph'] ?>;
+    if (g && g.nodes) {
+        nodes = g.nodes.map(n => ({data:{}, ...n}));
+        // Auto-layout: se algum nó não tiver coordenadas válidas, distribui em coluna
+        // vertical seguindo a ordem do fluxo. Evita todos os blocos sobrepostos.
+        const needsLayout = nodes.some(n => !Number.isFinite(n.x) || !Number.isFinite(n.y));
+        if (needsLayout) autoLayoutNodes(g.start);
+    }
+})();
+
+// Distribui os nós verticalmente a partir do start, seguindo o caminho principal.
+function autoLayoutNodes(startId) {
+    const byId = {}; nodes.forEach(n => byId[n.id] = n);
+    const COL_X = 360, BRANCH_X = 700, STEP_Y = 120;
+    let y = 20;
+    const visited = new Set();
+    let cur = startId || (nodes[0] && nodes[0].id);
+    while (cur && byId[cur] && !visited.has(cur)) {
+        visited.add(cur);
+        const n = byId[cur];
+        n.x = COL_X; n.y = y; y += STEP_Y;
+        cur = n.nextNo || n.next || null;
+    }
+    let by = 20;
+    nodes.forEach(n => { if (!visited.has(n.id)) { n.x = BRANCH_X; n.y = by; by += STEP_Y; } });
+}
 <?php endif; ?>
 
 const canvas = () => document.getElementById('canvas');
 const svg = () => document.getElementById('edges');
+
+// ================= Zoom =================
+let ZOOM = 1;
+function applyZoom() {
+    const z = document.getElementById('canvas-zoom');
+    if (z) z.style.transform = `scale(${ZOOM})`;
+    const lbl = document.getElementById('zoom-label');
+    if (lbl) lbl.textContent = Math.round(ZOOM * 100) + '%';
+}
+function zoomStep(delta) { ZOOM = Math.min(1.6, Math.max(0.4, Math.round((ZOOM + delta) * 10) / 10)); applyZoom(); }
+function zoomReset() { ZOOM = 1; applyZoom(); }
 function uid() { return 'n' + Math.random().toString(36).slice(2, 8); }
 
 // ================= Render (uma vez; depois updates pontuais) =================
@@ -106,6 +145,7 @@ function nodeSummary(n) {
         case 'tag': return 'Tag: ' + escapeHtml(d.label||'');
         case 'score': return 'Score ' + (d.delta>0?'+':'') + (d.delta||0);
         case 'move': { const c = COLUMNS.find(x=>x.id==d.column_id); return c ? escapeHtml(c.label) : '<em>escolher coluna</em>'; }
+        case 'reveal_phone': return 'Revela telefone no Apollo (se faltar)';
         case 'end': return 'Fim da sequência';
     }
     return '';
@@ -142,8 +182,8 @@ function startDrag(e, n) {
     el.style.cursor = 'grabbing'; el.style.zIndex = 10;
     let raf = null;
     function move(ev) {
-        n.x = Math.max(0, ox + (ev.clientX - startX));
-        n.y = Math.max(0, oy + (ev.clientY - startY));
+        n.x = Math.max(0, ox + (ev.clientX - startX) / ZOOM);
+        n.y = Math.max(0, oy + (ev.clientY - startY) / ZOOM);
         if (!raf) raf = requestAnimationFrame(() => {
             raf = null;
             el.style.transform = `translate(${n.x}px, ${n.y}px)`;
@@ -177,9 +217,10 @@ function defaultData(type) {
     if (type === 'whatsapp') return { body:'' };
     if (type === 'wait') return { amount:2, unit:'days' };
     if (type === 'condition') return { kind:'replied' };
-    if (type === 'tag') return { label:'' };
+    if (type === 'tag') return { label:'', color:'#00BFA6' };
     if (type === 'score') return { delta:3 };
     if (type === 'move') return { column_id:'' };
+    if (type === 'reveal_phone') return {};
     return {};
 }
 function delNode(id) {
@@ -261,7 +302,33 @@ function renderInspector() {
             <option value="opened" ${n.data.kind==='opened'?'selected':''}>Abriu?</option>
             <option value="clicked" ${n.data.kind==='clicked'?'selected':''}>Clicou?</option></select>`);
     } else if (n.type==='tag') {
-        h += field('Tag', `<input class="form-control form-control-sm" value="${escapeAttr(n.data.label||'')}" oninput="setData('label',this.value)">`);
+        // Dropdown das etiquetas existentes + opção de criar nova
+        const cur = n.data.label || '';
+        const known = LABELS.some(l => l.name === cur);
+        let opts = '<option value="">— selecione uma etiqueta —</option>';
+        opts += LABELS.map(l => `<option value="${escapeAttr(l.name)}" data-color="${escapeAttr(l.color||'#00BFA6')}" ${l.name===cur?'selected':''}>${escapeHtml(l.name)}</option>`).join('');
+        opts += `<option value="__new__" ${(cur && !known)?'selected':''}>➕ Criar nova etiqueta…</option>`;
+        h += field('Etiqueta (CRM)', `<select class="form-select form-select-sm" id="insp-tag-select" onchange="onTagSelect(this)">${opts}</select>`);
+        // Campo para nome da nova etiqueta (aparece quando "criar nova")
+        const showNew = (cur && !known);
+        h += `<div id="insp-tag-new-wrap" class="mb-2" style="${showNew?'':'display:none;'}">
+            <label class="form-label small mb-1">Nome da nova etiqueta</label>
+            <input class="form-control form-control-sm" id="insp-tag-new" value="${showNew?escapeAttr(cur):''}" oninput="setData('label',this.value)" placeholder="Ex: prospecao apollo - Ativa">
+        </div>`;
+        h += field('Cor', `<input type="color" class="form-control form-control-sm form-control-color" id="insp-tag-color" value="${escapeAttr(n.data.color||'#00BFA6')}" oninput="setData('color',this.value)">`);
+        h += `<small class="text-muted d-block">A etiqueta é criada no CRM (se não existir) e vinculada ao contato.</small>`;
+    } else if (n.type==='reveal_phone') {
+        const rp = (n.data.reveal_phone === undefined) ? true : !!n.data.reveal_phone;
+        const re = !!n.data.reveal_email;
+        h += `<div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" id="insp-rv-phone" ${rp?'checked':''} onchange="setData('reveal_phone', this.checked?1:0)">
+            <label class="form-check-label small" for="insp-rv-phone"><i class="bi bi-telephone"></i> Revelar telefone (existente)</label>
+        </div>
+        <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" id="insp-rv-email" ${re?'checked':''} onchange="setData('reveal_email', this.checked?1:0)">
+            <label class="form-check-label small" for="insp-rv-email"><i class="bi bi-envelope"></i> Revelar e-mail</label>
+        </div>
+        <p class="text-muted small mb-0">Solicita ao Apollo apenas os dados marcados que ainda faltarem no lead (reveal progressivo). Só consome crédito quando o dado não existe e há vínculo com o Apollo. O telefone chega via webhook.</p>`;
     } else if (n.type==='score') {
         h += field('Pontos (+/-)', `<input type="number" class="form-control form-control-sm" value="${n.data.delta||0}" oninput="setData('delta',parseInt(this.value)||0)">`);
     } else if (n.type==='move') {
@@ -345,6 +412,30 @@ function abBlock(n, channel) {
 }
 function toggleAb(on) { setData('ab_enabled', on ? 1 : 0); renderInspector(); bindInspectorVars(); }
 
+// Dropdown de etiqueta: escolhe existente (preenche cor) ou abre campo de nova
+function onTagSelect(sel) {
+    const val = sel.value;
+    const newWrap = document.getElementById('insp-tag-new-wrap');
+    if (val === '__new__') {
+        if (newWrap) newWrap.style.display = '';
+        const inp = document.getElementById('insp-tag-new');
+        setData('label', inp ? inp.value : '');
+        if (inp) inp.focus();
+        return;
+    }
+    if (newWrap) newWrap.style.display = 'none';
+    setData('label', val);
+    // Preenche a cor da etiqueta escolhida
+    const opt = sel.options[sel.selectedIndex];
+    const color = opt ? opt.getAttribute('data-color') : null;
+    if (color) {
+        setData('color', color);
+        const c = document.getElementById('insp-tag-color'); if (c) c.value = color;
+    }
+    // Atualiza o resumo do bloco
+    const n = nodes.find(x=>x.id===selectedId); if (n) refreshNodeBody(n);
+}
+
 function loadTemplatesForEditor() {
     fetch(BASE + 'sequences/templates', {headers:{'X-Requested-With':'XMLHttpRequest'}})
         .then(r=>r.json()).then(d=>{
@@ -401,6 +492,22 @@ function saveSeq() {
         });
 }
 
+// Testa a sequência inteira agora (fluxo completo, pulando esperas) e mostra o resultado.
+function testSequence(btn) {
+    if (!SEQ_ID) { alert('Salve a sequência antes de testar.'); return; }
+    if (!confirm('Executar a sequência inteira AGORA em modo teste?\n\nRoda o fluxo completo pulando as esperas. Usa o lead já inscrito (ou o primeiro da sequência). E-mails/WhatsApp reais serão enviados se houver conta configurada.')) return;
+    const orig = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Testando...';
+    fetch(BASE + 'sequences/runTest/' + SEQ_ID, { method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'} })
+        .then(r=>r.json()).then(d=>{
+            btn.disabled = false; btn.innerHTML = orig;
+            if (d.error) { alert(d.error); return; }
+            const steps = (d.steps||[]).map(s => '• ' + (s.node||'?') + ' → ' + (s.result||s.error||'')).join('\n');
+            const f = d.final || {};
+            alert('Teste concluído.\n\nStatus final: ' + (f.status||'?') + (f.stop_reason?(' ('+f.stop_reason+')'):'') + (f.ab_variant?('\nVariante A/B: '+f.ab_variant):'') + '\n\nEtapas:\n' + (steps||'nenhuma') + '\n\nVeja detalhes em CRM → Prospecção Automática → Logs de execução.');
+        })
+        .catch(()=>{ btn.disabled=false; btn.innerHTML=orig; alert('Erro ao testar.'); });
+}
+
 let partModal = null;
 function openParticipants() {
     if (!SEQ_ID) return;
@@ -448,4 +555,5 @@ document.addEventListener('keydown', (e)=>{ if (e.key==='Escape' && linkFrom) ca
 
 loadTemplatesForEditor();
 buildAll();
+applyZoom();
 </script>

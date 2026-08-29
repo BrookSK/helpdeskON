@@ -20,7 +20,7 @@ class CrmController extends Controller
         $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
         $user = $this->currentUser();
 
-        $boards = $this->boardModel->getAll();
+        $boards = $this->boardModel->getAll($user['role'] ?? null);
 
         $this->view('crm/index', [
             'user' => $user,
@@ -1386,7 +1386,8 @@ class CrmController extends Controller
     public function listBoards()
     {
         $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
-        $boards = $this->boardModel->getAll();
+        $user = $this->currentUser();
+        $boards = $this->boardModel->getAll($user['role'] ?? null);
 
         // Incluir colunas de cada board
         foreach ($boards as &$board) {
@@ -1700,7 +1701,8 @@ class CrmController extends Controller
      */
     private function apolloWebhookUrl()
     {
-        $base = rtrim(baseUrl(''), '/');
+        $configured = trim((string) Config::get('app_public_url'));
+        $base = $configured !== '' ? rtrim($configured, '/') : rtrim(baseUrl(''), '/');
         if ($base === '' || stripos($base, 'http') !== 0) return null;
         $token = trim((string) Config::get('apollo_webhook_token'));
         $url = $base . '/crm/apolloPhoneWebhook';
@@ -1761,6 +1763,434 @@ class CrmController extends Controller
         http_response_code(200);
         echo json_encode(['ok' => true, 'resolved' => $resolved]);
         exit;
+    }
+
+    // =====================================================
+    // Automação de Prospecção Apollo (campanhas)
+    // =====================================================
+
+    /**
+     * Tela de configuração das campanhas de prospecção automática (Apollo).
+     * Somente super_admin.
+     */
+    public function prospecting()
+    {
+        $this->requireRole(['super_admin']);
+        $user = $this->currentUser();
+        $db = Database::getInstance();
+
+        $campaigns = [];
+        try {
+            $campaigns = $db->fetchAll(
+                "SELECT c.*, s.name AS sequence_name, b.name AS board_name, col.name AS column_name, u.name AS assigned_name,
+                        (SELECT COUNT(*) FROM apollo_prospecting_log l WHERE l.campaign_id = c.id AND l.action='enrolled' AND DATE(l.created_at)=CURDATE()) AS captured_today,
+                        (SELECT COUNT(*) FROM apollo_prospecting_log l WHERE l.campaign_id = c.id AND l.action='enrolled') AS captured_total
+                 FROM apollo_campaigns c
+                 LEFT JOIN email_sequences s ON c.sequence_id = s.id
+                 LEFT JOIN crm_boards b ON c.board_id = b.id
+                 LEFT JOIN crm_columns col ON c.column_id = col.id
+                 LEFT JOIN users u ON c.assigned_to = u.id
+                 ORDER BY c.id ASC"
+            );
+        } catch (\Throwable $e) {
+            // Tabela ainda não criada — orienta rodar a migration
+            $campaigns = null;
+        }
+
+        $boards = $this->boardModel->getAll();
+        foreach ($boards as &$b) $b['columns'] = $this->boardModel->getColumns($b['id']);
+        unset($b);
+
+        $sequences = [];
+        try { $sequences = (new EmailSequence())->all(); } catch (\Throwable $e) {}
+        $team = (new User())->getByRoles(['super_admin', 'comercial']);
+        $apollo = new ApolloApi();
+
+        $this->view('crm/prospecting', [
+            'user' => $user,
+            'campaigns' => $campaigns,
+            'boards' => $boards,
+            'sequences' => $sequences,
+            'team' => $team,
+            'apolloConfigured' => $apollo->isConfigured(),
+            'cronToken' => (string) Config::get('cron_token'),
+            'baseUrl' => rtrim(baseUrl(''), '/'),
+        ]);
+    }
+
+    /** Salva (cria/atualiza) uma campanha de prospecção. POST crm/saveCampaign */
+    public function saveCampaign()
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+
+        $user = $this->currentUser();
+        $db = Database::getInstance();
+        $id = !empty($_POST['id']) ? intval($_POST['id']) : 0;
+
+        $name = trim($_POST['name'] ?? '');
+        if ($name === '') $this->json(['error' => 'Informe o nome da campanha.'], 400);
+
+        // Origem dos leads: apollo (busca/reveal) ou my_leads (CRM existente)
+        $leadSource = ($_POST['lead_source'] ?? 'apollo') === 'my_leads' ? 'my_leads' : 'apollo';
+
+        // Filtros de busca: aceita JSON direto ou campos simples
+        $searchFilters = $this->buildCampaignFilters();
+        $icpRules = $this->buildCampaignIcp();
+        $myLeadsFilters = $this->buildMyLeadsFilters();
+
+        $data = [
+            'name' => $name,
+            'is_active' => !empty($_POST['is_active']) ? 1 : 0,
+            'lead_source' => $leadSource,
+            'global_dedupe' => !empty($_POST['global_dedupe']) ? 1 : 0,
+            'my_leads_filters' => json_encode($myLeadsFilters, JSON_UNESCAPED_UNICODE),
+            'my_leads_ids' => json_encode($this->buildMyLeadsIds(), JSON_UNESCAPED_UNICODE),
+            'sequence_id' => !empty($_POST['sequence_id']) ? intval($_POST['sequence_id']) : null,
+            'board_id' => !empty($_POST['board_id']) ? intval($_POST['board_id']) : null,
+            'column_id' => !empty($_POST['column_id']) ? intval($_POST['column_id']) : null,
+            'assigned_to' => !empty($_POST['assigned_to']) ? intval($_POST['assigned_to']) : null,
+            'search_filters' => json_encode($searchFilters, JSON_UNESCAPED_UNICODE),
+            'icp_rules' => json_encode($icpRules, JSON_UNESCAPED_UNICODE),
+            'min_score' => max(0, intval($_POST['min_score'] ?? 70)),
+            'daily_target' => max(1, intval($_POST['daily_target'] ?? 12)),
+            'search_per_page' => min(100, max(10, intval($_POST['search_per_page'] ?? 50))),
+            'days_of_week' => trim($_POST['days_of_week'] ?? '1,2,3,4,5'),
+            'window_start' => $this->normalizeTime($_POST['window_start'] ?? '08:00', '08:00:00'),
+            'window_end' => $this->normalizeTime($_POST['window_end'] ?? '18:00', '18:00:00'),
+            'reveal_email' => !empty($_POST['reveal_email']) ? 1 : 0,
+            'reveal_phone' => !empty($_POST['reveal_phone']) ? 1 : 0,
+        ];
+
+        if ($id) {
+            $db->update('apollo_campaigns', $data, 'id = ?', [$id]);
+        } else {
+            $data['created_by'] = $user['id'];
+            $data['search_page'] = 1;
+            $id = $db->insert('apollo_campaigns', $data);
+        }
+        $this->json(['success' => true, 'id' => $id]);
+    }
+
+    /** Ativa/desativa uma campanha. POST crm/toggleCampaign/{id} */
+    public function toggleCampaign($id = null)
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+        $db = Database::getInstance();
+        $c = $db->fetch("SELECT is_active FROM apollo_campaigns WHERE id = ?", [$id]);
+        if (!$c) $this->json(['error' => 'Campanha não encontrada'], 404);
+        $db->update('apollo_campaigns', ['is_active' => $c['is_active'] ? 0 : 1], 'id = ?', [$id]);
+        $this->json(['success' => true, 'is_active' => $c['is_active'] ? 0 : 1]);
+    }
+
+    /** Exclui uma campanha. POST crm/deleteCampaign/{id} */
+    public function deleteCampaign($id = null)
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+        Database::getInstance()->delete('apollo_campaigns', 'id = ?', [$id]);
+        $this->json(['success' => true]);
+    }
+
+    /** Executa uma campanha agora (manual). POST crm/runCampaign/{id} */
+    public function runCampaign($id = null)
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+        @set_time_limit(300);
+
+        $db = Database::getInstance();
+        $camp = $db->fetch("SELECT * FROM apollo_campaigns WHERE id = ?", [$id]);
+        if (!$camp) $this->json(['error' => 'Campanha não encontrada'], 404);
+
+        // Apollo só é obrigatório quando a fonte é Apollo (Meus Leads não consome API).
+        if (($camp['lead_source'] ?? 'apollo') !== 'my_leads') {
+            $apollo = new ApolloApi();
+            if (!$apollo->isConfigured()) $this->json(['error' => 'Apollo não configurado.'], 400);
+        }
+
+        $already = 0;
+        try {
+            $r = $db->fetch("SELECT COUNT(*) t FROM apollo_prospecting_log WHERE campaign_id=? AND action='enrolled' AND DATE(created_at)=CURDATE()", [$id]);
+            $already = (int)($r['t'] ?? 0);
+        } catch (\Throwable $e) {}
+        $target = max(1, (int)$camp['daily_target'] - $already);
+
+        $service = new ApolloProspectingService();
+        $result = $service->runCampaign($camp, $target);
+        $this->json(['success' => empty($result['error']), 'result' => $result]);
+    }
+
+    /**
+     * Executa os passos pendentes das sequências agora (mesmo motor do cron
+     * /cron/runSequences), sem depender do agendamento no servidor.
+     * Protegido por login super_admin. POST crm/runSequencesNow
+     */
+    public function runSequencesNow()
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        @set_time_limit(300);
+
+        $stats = (new SequenceEngine())->processDue(200);
+        $this->json(['success' => true, 'engine' => $stats, 'replies_detected' => 0]);
+    }
+
+    /**
+     * Reexecuta uma etapa específica de um participante (para testar/forçar o erro
+     * sem refazer o fluxo inteiro). POST crm/runSequenceNode
+     * body: participant_id, node_id
+     */
+    public function runSequenceNode()
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+
+        $participantId = intval($_POST['participant_id'] ?? 0);
+        $nodeId = trim($_POST['node_id'] ?? '');
+        if (!$participantId || $nodeId === '') $this->json(['error' => 'Participante e etapa são obrigatórios.'], 400);
+
+        @set_time_limit(120);
+        $res = (new SequenceEngine())->runSingleNode($participantId, $nodeId);
+        if (empty($res['success'])) $this->json(['error' => $res['error'] ?? 'Falha ao reexecutar etapa.'], 400);
+        $this->json($res);
+    }
+
+    /** Log recente de uma campanha (para acompanhar). GET crm/campaignLog/{id} */
+    public function campaignLog($id = null)
+    {
+        $this->requireRole(['super_admin']);
+        if (!$id) $this->json(['error' => 'ID obrigatório'], 400);
+        $rows = Database::getInstance()->fetchAll(
+            "SELECT action, detail, credits, created_at FROM apollo_prospecting_log WHERE campaign_id = ? ORDER BY id DESC LIMIT 50",
+            [$id]
+        );
+        $this->json(['success' => true, 'log' => $rows]);
+    }
+
+    /**
+     * Diagnóstico: simula a abertura do último e-mail de sequência enviado,
+     * registrando via o mesmo caminho do pixel. Confirma se o tracking grava.
+     * POST crm/testEmailOpen
+     */
+    public function testEmailOpen()
+    {
+        $this->requireRole(['super_admin']);
+        $db = Database::getInstance();
+        // Prioriza uma mensagem COM variante A/B (para a taxa A/B refletir); senão, a última.
+        $msg = $db->fetch("SELECT track_token, recipient_email FROM email_messages WHERE origin='sequence' AND track_token IS NOT NULL AND ab_variant IS NOT NULL ORDER BY id DESC LIMIT 1");
+        if (!$msg) {
+            $msg = $db->fetch("SELECT track_token, recipient_email FROM email_messages WHERE origin='sequence' AND track_token IS NOT NULL ORDER BY id DESC LIMIT 1");
+        }
+        if (!$msg) $this->json(['error' => 'Nenhum e-mail de sequência enviado ainda.'], 404);
+        try {
+            (new EmailMessageService())->registerOpen($msg['track_token'], '127.0.0.1', 'DiagnosticoAberturaManual');
+        } catch (\Throwable $e) {
+            $this->json(['error' => 'Falha ao registrar: ' . $e->getMessage()], 500);
+        }
+        $base = trim((string) Config::get('app_public_url')) ?: rtrim(baseUrl(''), '/');
+        $this->json([
+            'success' => true,
+            'message' => 'Abertura simulada registrada para ' . $msg['recipient_email'] . '. Atualize os logs/dashboard.',
+            'pixel_url' => rtrim($base, '/') . '/track/open/' . $msg['track_token'],
+        ]);
+    }
+
+    /**
+     * Logs de execução das sequências de prospecção (etapas concluídas) + erros.
+     * GET crm/prospectingExecLog
+     */
+    public function prospectingExecLog()
+    {
+        $this->requireRole(['super_admin']);
+        $db = Database::getInstance();
+
+        // Etapas executadas por participante das sequências de prospecção (Apollo).
+        $steps = [];
+        try {
+            $steps = $db->fetchAll(
+                "SELECT e.executed_at, e.participant_id, e.node_id, e.node_type, e.result, e.detail,
+                        s.name AS sequence_name, wc.contact_name, wc.lead_email, wc.phone,
+                        sp.status AS participant_status, sp.stop_reason, sp.ab_variant
+                 FROM sequence_executions e
+                 JOIN sequence_participants sp ON e.participant_id = sp.id
+                 JOIN email_sequences s ON sp.sequence_id = s.id
+                 JOIN whatsapp_contacts wc ON sp.contact_id = wc.id
+                 WHERE s.name LIKE '%Apollo%'
+                 ORDER BY e.id DESC
+                 LIMIT 200"
+            );
+        } catch (\Throwable $e) { $steps = []; }
+
+        // Participantes ativos/recentes das sequências de prospecção
+        $participants = [];
+        try {
+            $participants = $db->fetchAll(
+                "SELECT sp.id, sp.status, sp.current_node, sp.next_run_at, sp.stop_reason, sp.ab_variant,
+                        sp.started_at, sp.finished_at, s.name AS sequence_name,
+                        wc.contact_name, wc.lead_email, wc.phone
+                 FROM sequence_participants sp
+                 JOIN email_sequences s ON sp.sequence_id = s.id
+                 JOIN whatsapp_contacts wc ON sp.contact_id = wc.id
+                 WHERE s.name LIKE '%Apollo%'
+                 ORDER BY sp.updated_at DESC
+                 LIMIT 50"
+            );
+        } catch (\Throwable $e) { $participants = []; }
+
+        // Erros recentes do arquivo de log da aplicação (só linhas de sequência/apollo)
+        $errors = [];
+        try {
+            $file = (defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__, 2)) . '/logs/app-error.log';
+            if (is_file($file)) {
+                $lines = @file($file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+                $lines = array_slice($lines, -400);
+                foreach (array_reverse($lines) as $ln) {
+                    if (stripos($ln, 'Sequence') !== false || stripos($ln, 'Apollo') !== false
+                        || stripos($ln, 'reveal') !== false || stripos($ln, 'runProspecting') !== false) {
+                        $errors[] = $ln;
+                        if (count($errors) >= 80) break;
+                    }
+                }
+            }
+        } catch (\Throwable $e) { $errors = []; }
+
+        // Log geral de prospecção (buscas, reveals, enrolls, testes)
+        $prospectLog = [];
+        try {
+            $prospectLog = $db->fetchAll(
+                "SELECT l.action, l.detail, l.credits, l.created_at, wc.contact_name, wc.lead_email
+                 FROM apollo_prospecting_log l
+                 LEFT JOIN whatsapp_contacts wc ON l.contact_id = wc.id
+                 ORDER BY l.id DESC LIMIT 100"
+            );
+        } catch (\Throwable $e) { $prospectLog = []; }
+
+        // E-mails enviados pelas sequências: status de abertura/clique/resposta por mensagem
+        $emails = [];
+        try {
+            $emails = $db->fetchAll(
+                "SELECT m.subject, m.recipient_email, m.ab_variant, m.status,
+                        m.open_count, m.first_open_at, m.click_count, m.first_click_at, m.replied_at, m.sent_at,
+                        wc.contact_name
+                 FROM email_messages m
+                 LEFT JOIN whatsapp_contacts wc ON m.contact_id = wc.id
+                 WHERE m.origin = 'sequence'
+                 ORDER BY m.id DESC LIMIT 100"
+            );
+        } catch (\Throwable $e) { $emails = []; }
+
+        $this->json(['success' => true, 'steps' => $steps, 'participants' => $participants, 'prospect_log' => $prospectLog, 'emails' => $emails, 'errors' => $errors]);
+    }
+
+    // Helpers de campanha
+    private function normalizeTime($v, $default)
+    {
+        $v = trim((string)$v);
+        if (preg_match('/^\d{1,2}:\d{2}$/', $v)) return $v . ':00';
+        if (preg_match('/^\d{1,2}:\d{2}:\d{2}$/', $v)) return $v;
+        return $default;
+    }
+
+    private function buildCampaignFilters()
+    {
+        // Se veio JSON bruto (campo avançado), usa-o; senão monta dos campos simples.
+        $raw = trim($_POST['search_filters_json'] ?? '');
+        if ($raw !== '') {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) return $decoded;
+        }
+        $toArr = fn($k) => array_values(array_filter(array_map('trim', explode(',', $_POST[$k] ?? ''))));
+        $f = [];
+        if (!empty($_POST['f_titles'])) $f['person_titles'] = $toArr('f_titles');
+        if (!empty($_POST['f_seniorities'])) $f['person_seniorities'] = $toArr('f_seniorities');
+        if (!empty($_POST['f_person_locations'])) $f['person_locations'] = $toArr('f_person_locations');
+        if (!empty($_POST['f_org_locations'])) $f['organization_locations'] = $toArr('f_org_locations');
+        if (!empty($_POST['f_domains'])) $f['q_organization_domains_list'] = $toArr('f_domains');
+        if (!empty($_POST['f_keywords'])) $f['q_keywords'] = implode(' ', $toArr('f_keywords'));
+        if (!empty($_POST['f_employee_ranges'])) $f['organization_num_employees_ranges'] = $toArr('f_employee_ranges');
+        return $f;
+    }
+
+    private function buildCampaignIcp()
+    {
+        $raw = trim($_POST['icp_rules_json'] ?? '');
+        if ($raw !== '') {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) return $decoded;
+        }
+        $toArr = fn($k) => array_values(array_filter(array_map('trim', explode(',', $_POST[$k] ?? ''))));
+        $icp = [
+            'score' => [
+                'decisor' => intval($_POST['w_decisor'] ?? 30),
+                'title' => intval($_POST['w_title'] ?? 20),
+                'size' => intval($_POST['w_size'] ?? 15),
+                'region' => intval($_POST['w_region'] ?? 10),
+                'website' => intval($_POST['w_website'] ?? 5),
+                'technology' => intval($_POST['w_technology'] ?? 10),
+            ],
+        ];
+        if (!empty($_POST['icp_seniorities'])) $icp['seniorities'] = $toArr('icp_seniorities');
+        if (!empty($_POST['icp_titles'])) $icp['titles_any'] = $toArr('icp_titles');
+        if (!empty($_POST['icp_employee_min'])) $icp['employee_min'] = intval($_POST['icp_employee_min']);
+        if (!empty($_POST['icp_employee_max'])) $icp['employee_max'] = intval($_POST['icp_employee_max']);
+        if (!empty($_POST['icp_require_website'])) $icp['require_website'] = true;
+        return $icp;
+    }
+
+    /** Filtros aplicados quando a origem da campanha é "Meus Leads". */
+    private function buildMyLeadsFilters()
+    {
+        $f = [];
+        if (!empty($_POST['ml_temperature'])) $f['temperature'] = trim($_POST['ml_temperature']);
+        if (!empty($_POST['ml_source']))      $f['source'] = trim($_POST['ml_source']);
+        if (!empty($_POST['ml_assigned_to'])) $f['assigned_to'] = intval($_POST['ml_assigned_to']);
+        return $f;
+    }
+
+    /** IDs de leads selecionados manualmente para a campanha "Meus Leads". */
+    private function buildMyLeadsIds()
+    {
+        $raw = $_POST['my_leads_ids'] ?? '';
+        $ids = array_filter(array_map('intval', explode(',', (string)$raw)), fn($v) => $v > 0);
+        return array_values(array_unique($ids));
+    }
+
+    /**
+     * API: lista leads do CRM (com e-mail) para o modal de multiseleção da campanha
+     * "Meus Leads". Aceita filtros opcionais (search, temperature, source, assigned_to).
+     * GET crm/leadsForCampaign
+     */
+    public function leadsForCampaign()
+    {
+        $this->requireRole(['super_admin']);
+        $db = Database::getInstance();
+
+        $sql = "SELECT c.id, c.contact_name, c.lead_email, c.phone, u.name AS assigned_name,
+                       b.lead_temperature, b.lead_source
+                FROM whatsapp_contacts c
+                LEFT JOIN users u ON c.assigned_to = u.id
+                LEFT JOIN commercial_briefings b ON b.contact_id = c.id
+                WHERE COALESCE(c.is_group,0)=0
+                  AND c.lead_email IS NOT NULL AND c.lead_email <> ''
+                  AND COALESCE(c.unsubscribed,0)=0
+                  AND COALESCE(c.email_bounced,0)=0
+                  AND COALESCE(c.crm_archived,0)=0";
+        $params = [];
+
+        if (!empty($_GET['search'])) {
+            $sql .= " AND (c.contact_name LIKE ? OR c.lead_email LIKE ? OR c.phone LIKE ?)";
+            $s = '%' . trim($_GET['search']) . '%';
+            $params[] = $s; $params[] = $s; $params[] = $s;
+        }
+        if (!empty($_GET['temperature'])) { $sql .= " AND b.lead_temperature = ?"; $params[] = $_GET['temperature']; }
+        if (!empty($_GET['source']))      { $sql .= " AND b.lead_source = ?";      $params[] = $_GET['source']; }
+        if (!empty($_GET['assigned_to'])) { $sql .= " AND c.assigned_to = ?";       $params[] = intval($_GET['assigned_to']); }
+
+        $sql .= " ORDER BY c.contact_name IS NULL, c.contact_name ASC LIMIT 500";
+        $rows = $db->fetchAll($sql, $params);
+        $this->json(['success' => true, 'leads' => $rows]);
     }
 
     /**

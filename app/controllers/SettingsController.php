@@ -67,6 +67,7 @@ class SettingsController extends Controller
             'openai_api_key',
             'buffer_api_key',
             'apollo_api_key', 'apollo_base_url', 'apollo_webhook_token',
+            'app_public_url',
             'google_client_id', 'google_client_secret', 'google_refresh_token', 'google_calendar_id',
             'webhook_url', 'webhook_phones', 'webhook_names', 'webhook_enabled',
             'webhook_message_template',

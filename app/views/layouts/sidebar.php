@@ -176,7 +176,7 @@
                     <i class="bi bi-whatsapp"></i> WhatsApp Chat
                 </a>
             </li>
-            <?php $crmSectionActive = in_array($currentPage ?? '', ['crm', 'crm_dashboard', 'crm_commissions', 'crm_leads', 'crm_calls', 'crm_capture', 'sequences', 'leadcapture_opps', 'leadcapture_config', 'leadcapture_health']); ?>
+            <?php $crmSectionActive = in_array($currentPage ?? '', ['crm', 'crm_dashboard', 'crm_commissions', 'crm_leads', 'crm_calls', 'crm_capture', 'crm_prospecting', 'sequences', 'leadcapture_opps', 'leadcapture_config', 'leadcapture_health']); ?>
             <li class="nav-item">
                 <a class="nav-link d-flex align-items-center justify-content-between <?= ($currentPage ?? '') === 'crm' ? 'active' : '' ?>" href="<?= baseUrl('crm') ?>">
                     <span class="nav-link-body"><i class="bi bi-kanban"></i> <span class="nav-text">CRM</span></span>
@@ -195,6 +195,13 @@
                         <i class="bi bi-search"></i> Apollo (Prospects)
                     </a>
                 </li>
+                <?php if (($user['role'] ?? '') === 'super_admin'): ?>
+                <li class="nav-item">
+                    <a class="nav-link <?= ($currentPage ?? '') === 'crm_prospecting' ? 'active' : '' ?>" href="<?= baseUrl('crm/prospecting') ?>" style="padding-left:2.6rem;font-size:0.85rem;">
+                        <i class="bi bi-robot"></i> Prospecção Automática
+                    </a>
+                </li>
+                <?php endif; ?>
                 <li class="nav-item">
                     <a class="nav-link <?= ($currentPage ?? '') === 'sequences' ? 'active' : '' ?>" href="<?= baseUrl('sequences') ?>" style="padding-left:2.6rem;font-size:0.85rem;">
                         <i class="bi bi-diagram-3"></i> Sequências

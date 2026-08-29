@@ -199,6 +199,20 @@
             </div>
         </div>
 
+        <!-- URL pública do sistema (tracking de e-mail, webhooks) -->
+        <div class="card mb-4">
+            <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-link-45deg"></i> URL pública do sistema</h6></div>
+            <div class="card-body">
+                <label class="form-label fw-medium small">URL base pública (HTTPS)</label>
+                <input type="text" name="app_public_url" class="form-control form-control-sm" value="<?= escape($settings['app_public_url'] ?? '') ?>" placeholder="https://<?= escape($_SERVER['HTTP_HOST'] ?? 'seudominio.com.br') ?>">
+                <small class="text-muted d-block">
+                    Usada no <strong>pixel de rastreio de abertura de e-mails</strong> e nos webhooks. Precisa ser o domínio acessível pela internet.
+                    Se ficar em branco, o sistema tenta detectar automaticamente (pode falhar em envios pelo cron).
+                    Detectado agora: <code><?= escape(rtrim(baseUrl(''), '/')) ?></code>
+                </small>
+            </div>
+        </div>
+
         <!-- Apollo.io (Captação de Leads) -->
         <div class="card mb-4">
             <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-search"></i> Apollo.io (Captação de Leads)</h6></div>
