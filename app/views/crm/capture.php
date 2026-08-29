@@ -159,10 +159,15 @@
         <div class="col-lg-9" id="results-col">
             <div class="card">
                 <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
-                    <div class="d-flex align-items-center gap-2">
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
                         <div class="form-check mb-0" id="select-all-wrap" style="display:none;">
                             <input class="form-check-input" type="checkbox" id="select-all" onclick="toggleSelectAll(this)">
                             <label class="form-check-label small" for="select-all">Selecionar todos</label>
+                        </div>
+                        <div class="input-group input-group-sm" id="captured-search-wrap" style="display:none;width:280px;">
+                            <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+                            <input type="text" class="form-control" id="captured-search" placeholder="Pesquisar por nome, cargo, empresa ou e-mail…" oninput="onCapturedSearchInput()">
+                            <button class="btn btn-outline-secondary" type="button" id="captured-search-clear" onclick="clearCapturedSearch()" title="Limpar" style="display:none;"><i class="bi bi-x-lg"></i></button>
                         </div>
                         <span class="text-muted small" id="result-count"></span>
                     </div>

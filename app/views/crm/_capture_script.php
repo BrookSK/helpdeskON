@@ -31,6 +31,11 @@ function switchTab(tab) {
     resultsCol.classList.toggle('col-lg-9', !hideFilters);
     resultsCol.classList.toggle('col-lg-12', hideFilters);
     document.getElementById('search-btn').closest('.card-footer').style.display = hideFilters ? 'none' : '';
+
+    // Campo de pesquisa por nome: só na aba Capturados
+    const capSearchWrap = document.getElementById('captured-search-wrap');
+    if (capSearchWrap) capSearchWrap.style.display = (tab === 'captured') ? '' : 'none';
+
     selected.clear();
     updateBulkBar();
     if (tab === 'captured') { loadCaptured(1); }
@@ -734,10 +739,15 @@ function changePage(delta) {
 }
 
 // ===== Aba Capturados =====
+let _capturedSearchTimer = null;
+
 function loadCaptured(page) {
     currentPage = page || 1;
     showLoading(true);
-    const qs = new URLSearchParams({ page: currentPage }).toString();
+    const params = { page: currentPage };
+    const term = (document.getElementById('captured-search') || {}).value || '';
+    if (term.trim() !== '') params.search = term.trim();
+    const qs = new URLSearchParams(params).toString();
     fetch(BASE + 'crm/apolloLeads?' + qs, { headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json())
         .then(d => {
@@ -746,6 +756,23 @@ function loadCaptured(page) {
             renderPeople(d.leads || [], { page: d.page, total_pages: d.total_pages, total_entries: d.total });
         })
         .catch(() => { showLoading(false); alert('Erro ao carregar capturados.'); });
+}
+
+// Pesquisa por nome na aba Capturados (com debounce)
+function onCapturedSearchInput() {
+    const input = document.getElementById('captured-search');
+    const clearBtn = document.getElementById('captured-search-clear');
+    if (clearBtn) clearBtn.style.display = (input && input.value.trim() !== '') ? '' : 'none';
+    if (_capturedSearchTimer) clearTimeout(_capturedSearchTimer);
+    _capturedSearchTimer = setTimeout(() => loadCaptured(1), 350);
+}
+
+function clearCapturedSearch() {
+    const input = document.getElementById('captured-search');
+    if (input) input.value = '';
+    const clearBtn = document.getElementById('captured-search-clear');
+    if (clearBtn) clearBtn.style.display = 'none';
+    loadCaptured(1);
 }
 
 // ===== Status da integração =====
