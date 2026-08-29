@@ -81,6 +81,10 @@
                             <option value="linkedin">LinkedIn</option>
                             <option value="instagram">Instagram</option>
                             <option value="facebook">Facebook</option>
+                            <option value="apollo">Apollo.io</option>
+                            <option value="manual_email">E-mail manual</option>
+                            <option value="form">Formulário</option>
+                            <option value="freelas99">99Freelas</option>
                         </select>
                     </div>
                     <div class="col-md-8">

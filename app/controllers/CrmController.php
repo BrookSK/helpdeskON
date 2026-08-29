@@ -1662,6 +1662,13 @@ class CrmController extends Controller
         $updated = $leadModel->findById($localId);
         $formatted = $this->formatApolloPerson($person, $updated);
 
+        // Se o lead JÁ foi enviado para Meus Leads, propaga o e-mail/telefone revelado
+        // para o contato do CRM. Sem isso, o lead importado ficaria sem e-mail e nunca
+        // entraria na captação automática (que exige lead_email).
+        if (!empty($updated['contact_id'])) {
+            $this->propagateRevealToContact((int)$updated['contact_id'], $updated);
+        }
+
         // Liberar dados (e-mail + telefone) consome 8 créditos do limite diário.
         $credit->consume($user['id'], ApolloCreditUsage::COST_MOBILE);
 
@@ -1695,6 +1702,49 @@ class CrmController extends Controller
         $after = $credit->check($user, 0);
         $out['credits'] = ['limit' => $after['limit'], 'used' => $after['used'], 'remaining' => $after['remaining']];
         $this->json($out);
+    }
+
+    /**
+     * Propaga e-mail/telefone revelados no Apollo para o contato do CRM já
+     * importado (whatsapp_contacts), sem sobrescrever dados já preenchidos.
+     * Garante que o lead fique elegível à captação automática (que exige e-mail).
+     */
+    private function propagateRevealToContact($contactId, $lead)
+    {
+        $db = Database::getInstance();
+        $contact = $db->fetch("SELECT * FROM whatsapp_contacts WHERE id = ? LIMIT 1", [$contactId]);
+        if (!$contact) return;
+
+        $update = [];
+
+        // E-mail real (ignora placeholders de e-mail bloqueado)
+        $email = $lead['email'] ?? null;
+        $isRealEmail = $email && stripos($email, 'email_not_unlocked') === false
+            && filter_var($email, FILTER_VALIDATE_EMAIL);
+        if ($isRealEmail && empty($contact['lead_email'])) {
+            $update['lead_email'] = mb_strtolower($email);
+        }
+
+        // Telefone (só preenche se o contato ainda não tem)
+        if (!empty($lead['phone']) && empty($contact['phone'])) {
+            $digits = preg_replace('/\D/', '', (string) $lead['phone']) ?: null;
+            if ($digits) {
+                $update['phone'] = $digits;
+                // Se o JID é sintético, regenera para o número real (aparece no chat)
+                if (preg_match('/^(lead_|manual_)/', (string) $contact['remote_jid'])) {
+                    $realJid = $digits . '@s.whatsapp.net';
+                    $dup = $db->fetch(
+                        "SELECT id FROM whatsapp_contacts WHERE instance_id = ? AND remote_jid = ? AND id <> ?",
+                        [$contact['instance_id'], $realJid, $contactId]
+                    );
+                    if (!$dup) $update['remote_jid'] = $realJid;
+                }
+            }
+        }
+
+        if (!empty($update)) {
+            $db->update('whatsapp_contacts', $update, 'id = ?', [$contactId]);
+        }
     }
 
     /**

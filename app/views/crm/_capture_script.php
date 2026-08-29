@@ -370,7 +370,12 @@ function personRow(p) {
         }
         actions += `<button class="btn btn-success" title="Enviar p/ Meus Leads" onclick="importOne(${p.local_id}, this)"><i class="bi bi-download"></i></button>`;
     } else {
-        actions += '<span class="badge bg-success">Em Meus Leads</span>';
+        // Já em Meus Leads: se ainda não tem e-mail revelado, permite liberar agora
+        // (o e-mail/telefone é propagado ao lead do CRM e o habilita p/ captação automática).
+        if (!p.email && !revealed) {
+            actions += `<button class="btn btn-outline-success" title="Liberar e-mail/telefone e habilitar captação automática" onclick="revealOne(${p.local_id}, this)"><i class="bi bi-unlock"></i> Liberar</button>`;
+        }
+        actions += '<span class="badge bg-success align-self-center"><i class="bi bi-check"></i> Em Meus Leads</span>';
     }
     // Excluir (somente super_admin)
     if (window.CAP_IS_ADMIN) {

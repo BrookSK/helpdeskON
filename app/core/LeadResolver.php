@@ -140,6 +140,22 @@ class LeadResolver
         if (!empty($update)) {
             $this->db->update('whatsapp_contacts', $update, 'id = ?', [$contactId]);
         }
+
+        // Garante que a fonte do lead fique registrada mesmo quando o contato já
+        // existia (dedup). Só grava se ainda não houver fonte definida — não
+        // sobrescreve a origem original.
+        if (!empty($data['source'])) {
+            $briefing = $this->db->fetch(
+                "SELECT id, lead_source FROM commercial_briefings WHERE contact_id = ? LIMIT 1",
+                [$contactId]
+            );
+            if (!$briefing || empty($briefing['lead_source'])) {
+                $bf = ['lead_source' => $data['source']];
+                if (!empty($data['briefing']['notes'])) $bf['notes'] = $data['briefing']['notes'];
+                if (!empty($data['briefing']['need'])) $bf['need'] = $data['briefing']['need'];
+                $this->saveBriefing($contactId, $bf, null);
+            }
+        }
     }
 
     // ---- Helpers ----

@@ -11,7 +11,8 @@ $tempMeta = [
 $sourceLabels = [
     'telefonema' => 'Telefonema', 'email' => 'E-mail', 'whatsapp' => 'WhatsApp',
     'linkedin' => 'LinkedIn', 'instagram' => 'Instagram', 'facebook' => 'Facebook',
-    'apollo' => 'Apollo.io',
+    'apollo' => 'Apollo.io', 'manual_email' => 'E-mail manual', 'form' => 'Formulário',
+    'freelas99' => '99Freelas', 'manual' => 'Manual', 'import' => 'Importação',
 ];
 ?>
 
