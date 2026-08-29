@@ -927,6 +927,72 @@ function copyDiagnostics() {
     }
 }
 
+// ===== Rastreador de pipeline (diagnóstico) =====
+function runSearchTrace() {
+    const btn = document.getElementById('trace-run-btn');
+    const out = document.getElementById('trace-output');
+    const loading = document.getElementById('trace-loading');
+    btn.disabled = true;
+    out.style.display = 'none';
+    loading.style.display = '';
+
+    const fd = new FormData();
+    fd.append('scope', document.getElementById('trace-scope').value);
+    fd.append('q', document.getElementById('trace-q').value.trim());
+    fd.append('per_page', document.getElementById('trace-perpage').value || 10);
+
+    fetch(BASE + 'crm/apolloSearchTrace', { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json())
+        .then(d => {
+            btn.disabled = false;
+            loading.style.display = 'none';
+            if (d.error) {
+                out.style.display = '';
+                document.getElementById('trace-stages').innerHTML = '';
+                document.getElementById('trace-notes').innerHTML =
+                    `<div class="alert alert-danger py-2 px-3 small mb-0"><i class="bi bi-exclamation-octagon"></i> ${escapeHtml(d.error)}</div>`;
+                document.getElementById('trace-sample').textContent = '';
+                return;
+            }
+            renderSearchTrace(d);
+        })
+        .catch(() => {
+            btn.disabled = false;
+            loading.style.display = 'none';
+            alert('Erro ao rastrear o pipeline.');
+        });
+}
+
+function renderSearchTrace(d) {
+    const out = document.getElementById('trace-output');
+    const stagesEl = document.getElementById('trace-stages');
+    stagesEl.innerHTML = (d.stages || []).map(s => {
+        // Etapa com payload (mostra o JSON enviado)
+        if (s.payload !== undefined) {
+            return `<tr>
+                <td>${escapeHtml(s.stage)}
+                    <pre class="bg-light p-2 rounded mt-1 mb-0" style="font-size:0.7rem;">${escapeHtml(JSON.stringify(s.payload, null, 2))}</pre>
+                </td>
+                <td class="text-end text-muted">—</td>
+            </tr>`;
+        }
+        const isSub = s.stage.trim().startsWith('↳');
+        const val = (s.count === null || s.count === undefined) ? '—' : s.count;
+        return `<tr>
+            <td class="${isSub ? 'ps-4 text-muted' : 'fw-medium'}">${escapeHtml(s.stage)}</td>
+            <td class="text-end ${isSub ? 'text-muted' : 'fw-semibold'}">${escapeHtml(String(val))}</td>
+        </tr>`;
+    }).join('');
+
+    const notes = d.notes || [];
+    document.getElementById('trace-notes').innerHTML = notes.length
+        ? notes.map(n => `<div class="alert alert-info py-2 px-3 small mb-2"><i class="bi bi-info-circle"></i> ${escapeHtml(n)}</div>`).join('')
+        : '';
+
+    document.getElementById('trace-sample').textContent = JSON.stringify(d.sample || [], null, 2);
+    out.style.display = '';
+}
+
 // ===== Utils =====
 function escapeHtml(s) {
     return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));

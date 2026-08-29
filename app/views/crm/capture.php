@@ -98,6 +98,52 @@
             </div>
         </div>
 
+        <!-- Rastreador de pipeline: por que um resultado da API não aparece na tela -->
+        <div class="card mb-3">
+            <div class="card-header bg-white py-2">
+                <h6 class="mb-1"><i class="bi bi-diagram-3"></i> Rastrear pipeline de resultados</h6>
+                <small class="text-muted">Faz uma busca real e mostra a contagem de itens em cada etapa (resposta da API → staging → o que é enviado à tela). Use para descobrir onde os resultados são filtrados antes de aparecer.</small>
+            </div>
+            <div class="card-body">
+                <div class="row g-2 align-items-end">
+                    <div class="col-sm-3">
+                        <label class="form-label small mb-1">Tipo</label>
+                        <select class="form-select form-select-sm" id="trace-scope">
+                            <option value="people">Pessoas</option>
+                            <option value="orgs">Empresas</option>
+                        </select>
+                    </div>
+                    <div class="col-sm-5">
+                        <label class="form-label small mb-1">Termo de busca (opcional)</label>
+                        <input type="text" class="form-control form-control-sm" id="trace-q" placeholder="ex.: engenheiro, nubank, on solutions…">
+                    </div>
+                    <div class="col-sm-2">
+                        <label class="form-label small mb-1">Qtd.</label>
+                        <input type="number" class="form-control form-control-sm" id="trace-perpage" value="10" min="1" max="25">
+                    </div>
+                    <div class="col-sm-2">
+                        <button class="btn btn-sm btn-primary w-100" id="trace-run-btn" onclick="runSearchTrace()"><i class="bi bi-play-fill"></i> Rastrear</button>
+                    </div>
+                </div>
+                <div id="trace-loading" class="text-center text-muted py-4" style="display:none;">
+                    <div class="spinner-border spinner-border-sm text-primary"></div> Executando busca…
+                </div>
+                <div id="trace-output" class="mt-3" style="display:none;">
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-2" style="font-size:0.8rem;">
+                            <thead class="table-light"><tr><th>Etapa do pipeline</th><th class="text-end" style="width:120px;">Itens</th></tr></thead>
+                            <tbody id="trace-stages"></tbody>
+                        </table>
+                    </div>
+                    <div id="trace-notes"></div>
+                    <details class="mt-2">
+                        <summary class="small text-muted" style="cursor:pointer;">Amostra dos primeiros itens</summary>
+                        <pre class="bg-light p-2 rounded mt-2 mb-0" id="trace-sample" style="font-size:0.72rem;max-height:260px;overflow:auto;"></pre>
+                    </details>
+                </div>
+            </div>
+        </div>
+
         <div id="diag-loading" class="text-center text-muted py-5" style="display:none;">
             <div class="spinner-border text-primary"></div>
             <p class="mb-0 mt-2">Executando chamadas aos endpoints…</p>

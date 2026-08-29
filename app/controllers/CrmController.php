@@ -2429,6 +2429,130 @@ class CrmController extends Controller
     }
 
     /**
+     * API (diagnóstico): rastreia o PIPELINE de uma busca de Pessoas, mostrando
+     * quantos itens existem em cada etapa entre a resposta bruta do Apollo e o que
+     * é efetivamente exibido na tela. Serve para identificar onde os resultados
+     * "somem" (filtragem/formatação/máscara), sem depender do que a UI mostra.
+     *
+     * POST crm/apolloSearchTrace  (restrito a super_admin)
+     * Body: scope=people|orgs, q=<termo livre>, per_page=<int>
+     */
+    public function apolloSearchTrace()
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+
+        $apollo = new ApolloApi();
+        if (!$apollo->isConfigured()) $this->json(['error' => 'Apollo não configurado. Informe a API key em Configurações.'], 400);
+
+        $scope = ($_POST['scope'] ?? 'people') === 'orgs' ? 'orgs' : 'people';
+        $q = trim($_POST['q'] ?? '');
+        $perPage = min(25, max(1, intval($_POST['per_page'] ?? 10)));
+
+        $stages = [];   // etapas do pipeline, na ordem
+        $notes = [];    // observações/alertas encontrados
+
+        if ($scope === 'orgs') {
+            $filters = ['page' => 1, 'per_page' => $perPage];
+            if ($q !== '') $filters['q_organization_name'] = $q;
+            $res = $apollo->searchOrganizations($filters);
+
+            $stages[] = ['stage' => 'Payload enviado ao Apollo', 'payload' => $filters];
+            if (!$res['success']) $this->json(['error' => $res['error'] ?? 'Falha na busca.', 'stages' => $stages], 502);
+
+            $data = $res['data'] ?? [];
+            $orgs = $data['organizations'] ?? ($data['accounts'] ?? []);
+            $pagination = $data['pagination'] ?? [];
+
+            $stages[] = ['stage' => 'Resposta bruta da API (organizations[])', 'count' => count($orgs)];
+            $stages[] = ['stage' => 'total_entries informado pela API', 'count' => $pagination['total_entries'] ?? null];
+            $stages[] = ['stage' => 'Exibido na tela (sem formatação/filtro no backend)', 'count' => count($orgs)];
+
+            if (count($orgs) === 0) {
+                $notes[] = 'A API retornou 0 empresas para este termo. O filtro está na própria consulta ao Apollo, não no código de exibição.';
+            } else {
+                $notes[] = 'Empresas não passam por formatação nem máscara no backend: o que a API retorna é exibido integralmente. Se some algo, o filtro está no payload enviado ao Apollo (veja a etapa 1).';
+            }
+
+            $sample = array_map(fn($o) => [
+                'name' => $o['name'] ?? null,
+                'domain' => $o['primary_domain'] ?? null,
+                'id' => $o['id'] ?? null,
+            ], array_slice($orgs, 0, 10));
+
+            $this->json(['success' => true, 'scope' => $scope, 'q' => $q, 'stages' => $stages, 'notes' => $notes, 'sample' => $sample]);
+        }
+
+        // scope = people
+        $filters = ['page' => 1, 'per_page' => $perPage];
+        if ($q !== '') $filters['q_keywords'] = $q;
+        $res = $apollo->searchPeople($filters);
+
+        $stages[] = ['stage' => 'Payload enviado ao Apollo', 'payload' => $filters];
+        if (!$res['success']) $this->json(['error' => $res['error'] ?? 'Falha na busca.', 'stages' => $stages], 502);
+
+        $data = $res['data'] ?? [];
+        $people = $data['people'] ?? ($data['contacts'] ?? []);
+        $pagination = $data['pagination'] ?? [];
+
+        $stages[] = ['stage' => 'Resposta bruta da API (people[] + contacts[])', 'count' => count($people)];
+        $stages[] = ['stage' => 'total_entries informado pela API', 'count' => $pagination['total_entries'] ?? null];
+
+        // Reproduz exatamente o que apolloSearchPeople faz: upsert + format
+        $leadModel = new ApolloLead();
+        $out = [];
+        $upsertNulls = 0;
+        foreach ($people as $p) {
+            $localId = $leadModel->upsertFromApollo($p, $this->currentUser()['id']);
+            if (!$localId) { $upsertNulls++; }
+            $existing = $localId ? $leadModel->findById($localId) : null;
+            $out[] = $this->formatApolloPerson($p, $existing);
+        }
+
+        $stages[] = ['stage' => 'Após upsert em apollo_leads (staging)', 'count' => count($out)];
+        if ($upsertNulls > 0) {
+            $notes[] = "{$upsertNulls} pessoa(s) sem apollo_id foram ignoradas no upsert (upsertFromApollo retorna null quando falta 'id'). Elas ainda aparecem na tela, mas sem local_id não podem ser liberadas/importadas.";
+        }
+
+        // Contagens de estados que afetam a exibição
+        $masked = 0; $ownedByOther = 0; $imported = 0; $noLocalId = 0;
+        foreach ($out as $row) {
+            if (!empty($row['contact_masked'])) $masked++;
+            if (!empty($row['imported'])) $imported++;
+            if (empty($row['local_id'])) $noLocalId++;
+            if (!empty($row['imported']) && !empty($row['owner_id'])
+                && (int)$row['owner_id'] !== (int)$this->currentUser()['id']) $ownedByOther++;
+        }
+
+        $stages[] = ['stage' => 'Enviado ao navegador (people[])', 'count' => count($out)];
+        $stages[] = ['stage' => '↳ marcados como sigilosos (contact_masked)', 'count' => $masked];
+        $stages[] = ['stage' => '↳ já importados (imported)', 'count' => $imported];
+        $stages[] = ['stage' => '↳ de outro responsável (bloqueados p/ importar)', 'count' => $ownedByOther];
+        $stages[] = ['stage' => '↳ sem local_id (não puderam ser gravados)', 'count' => $noLocalId];
+
+        if (count($people) > 0 && count($out) === count($people)) {
+            $notes[] = 'O backend NÃO descarta nenhuma pessoa: todas as ' . count($people) . ' retornadas pela API são enviadas ao navegador. Se você vê menos na tela, a redução é (a) no filtro enviado ao Apollo, (b) na paginação (per_page), ou (c) na renderização do front-end.';
+        }
+        if ($masked > 0) {
+            $notes[] = "{$masked} contato(s) aparecem, mas com e-mail/telefone ocultos por pertencerem a outro responsável (regra de sigilo em formatApolloPerson). Isso oculta DADOS, não a linha inteira.";
+        }
+        if (count($people) === 0) {
+            $notes[] = 'A API retornou 0 pessoas. Como a busca da UI usa filtros específicos (cargos, localização, tecnologias etc.), verifique se algum filtro está restringindo demais — o "sumiço" ocorre na consulta ao Apollo, não na exibição.';
+        }
+
+        $sample = array_map(fn($r) => [
+            'name' => $r['name'] ?? null,
+            'title' => $r['title'] ?? null,
+            'organization_name' => $r['organization_name'] ?? null,
+            'imported' => (bool)($r['imported'] ?? false),
+            'masked' => (bool)($r['contact_masked'] ?? false),
+            'local_id' => $r['local_id'] ?? null,
+        ], array_slice($out, 0, 10));
+
+        $this->json(['success' => true, 'scope' => $scope, 'q' => $q, 'stages' => $stages, 'notes' => $notes, 'sample' => $sample]);
+    }
+
+    /**
      * API: lista de estados (UF) do Brasil via IBGE (proxy, evita CORS).
      * GET crm/ibgeStates
      */
