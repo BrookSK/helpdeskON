@@ -393,6 +393,22 @@ class CronController extends Controller
     }
 
     /**
+     * GET /cron/runProspecting?token=XXX
+     * Automação de prospecção Apollo: Search → dedup → ICP → score → seleção →
+     * reveal de e-mail → cria Lead → Board → inscreve na sequência.
+     * Respeita janela/dias e meta diária de cada campanha (tabela apollo_campaigns).
+     */
+    public function runProspecting()
+    {
+        $this->validateToken();
+        @set_time_limit(300);
+
+        $service = new ApolloProspectingService();
+        $result = $service->runDue();
+        $this->json(['success' => empty($result['error']), 'result' => $result]);
+    }
+
+    /**
      * GET /cron/index
      * Página de status/info sobre os crons disponíveis.
      */
@@ -403,6 +419,7 @@ class CronController extends Controller
                 'GET /cron/syncAll?token=XXX' => 'Sincronização completa (Buffer + Meta + LinkedIn + Snapshot)',
                 'GET /cron/captureLeads?token=XXX' => 'Coleta agendada de oportunidades (99Freelas)',
                 'GET /cron/runSequences?token=XXX' => 'Worker de follow-up: sequências + detecção de respostas',
+                'GET /cron/runProspecting?token=XXX' => 'Automação de prospecção Apollo (Search→reveal→CRM→sequência)',
             ],
             'tip' => 'Configure cron_token em Configurações para proteger este endpoint.',
         ]);

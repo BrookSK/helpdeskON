@@ -48,13 +48,74 @@ class SequencesController extends Controller
              FROM crm_columns col JOIN crm_boards b ON col.board_id = b.id
              WHERE b.is_active = 1 ORDER BY b.name, col.position"
         );
+        // Etiquetas existentes no CRM (para o dropdown do bloco "tag")
+        $labels = $db->fetchAll("SELECT id, name, color FROM whatsapp_labels ORDER BY name");
 
         $this->view('sequences/edit', [
             'user' => $user,
             'sequence' => $seq,
             'accounts' => $accounts,
             'columns' => $columns,
+            'labels' => $labels,
         ]);
+    }
+
+    /**
+     * Executa a sequência em MODO TESTE para um lead: roda o fluxo inteiro na hora
+     * (pula esperas, ignora janela/limite) e registra as etapas nos logs.
+     * POST sequences/runTest/{sequenceId}  body: contact_id (opcional; usa o 1º participante ativo se ausente)
+     */
+    public function runTest($sequenceId = null)
+    {
+        $this->requireRole($this->roles);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$sequenceId) $this->json(['error' => 'Requisição inválida'], 400);
+        @set_time_limit(120);
+
+        $db = Database::getInstance();
+        $seq = $this->model->findById($sequenceId);
+        if (!$seq) $this->json(['error' => 'Sequência não encontrada'], 404);
+
+        $engine = new SequenceEngine();
+        $user = $this->currentUser();
+
+        // Descobre o participante alvo: contact_id informado, ou o 1º da sequência.
+        $contactId = !empty($_POST['contact_id']) ? intval($_POST['contact_id']) : null;
+        $participant = null;
+        if ($contactId) {
+            $participant = $db->fetch("SELECT * FROM sequence_participants WHERE sequence_id = ? AND contact_id = ?", [$sequenceId, $contactId]);
+            if (!$participant) {
+                // Inscreve o contato para o teste
+                $enroll = $engine->enroll($sequenceId, $contactId, $user['id']);
+                if (empty($enroll['success'])) $this->json(['error' => $enroll['error'] ?? 'Não foi possível inscrever o lead.'], 400);
+                $participant = $db->fetch("SELECT * FROM sequence_participants WHERE id = ?", [$enroll['participant_id']]);
+            }
+        } else {
+            $participant = $db->fetch("SELECT * FROM sequence_participants WHERE sequence_id = ? ORDER BY id ASC LIMIT 1", [$sequenceId]);
+        }
+
+        if (!$participant) $this->json(['error' => 'Nenhum lead nesta sequência. Adicione um lead antes de testar.'], 400);
+
+        $result = $engine->runTest($participant['id']);
+
+        // Registra o teste no log de prospecção (aparece na aba "Logs de execução")
+        try {
+            $stepsTxt = [];
+            foreach (($result['steps'] ?? []) as $s) {
+                $stepsTxt[] = ($s['node'] ?? '?') . '→' . ($s['result'] ?? $s['error'] ?? '');
+            }
+            $final = $result['final'] ?? [];
+            Database::getInstance()->insert('apollo_prospecting_log', [
+                'campaign_id' => null,
+                'contact_id' => $participant['contact_id'],
+                'action' => 'test_run',
+                'detail' => 'Teste manual da sequência "' . $seq['name'] . '". Status final: '
+                    . ($final['status'] ?? '?') . ($final['stop_reason'] ? ' (' . $final['stop_reason'] . ')' : '')
+                    . ($final['ab_variant'] ? ' | A/B: ' . $final['ab_variant'] : '')
+                    . ' | Etapas: ' . implode(', ', $stepsTxt),
+            ]);
+        } catch (\Throwable $e) { /* silencioso */ }
+
+        $this->json($result);
     }
 
     public function save()

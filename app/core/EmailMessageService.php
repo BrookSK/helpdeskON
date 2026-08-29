@@ -84,6 +84,33 @@ class EmailMessageService
                 ['message_id' => $messageId, 'to' => $to, 'origin' => $origin],
                 $params['sent_by'] ?? null);
 
+            // Espelha na caixa de enviados (email_prospections) para aparecer no
+            // Histórico de Prospecção — inclusive envios automáticos das sequências.
+            // user_id e email_account_id são NOT NULL: usa fallbacks quando o envio
+            // veio de uma sequência (sem usuário logado).
+            try {
+                $cName = $this->db->fetch("SELECT contact_name FROM whatsapp_contacts WHERE id = ?", [$contactId]);
+                $uid = $params['sent_by'] ?? null;
+                if (!$uid) {
+                    $adm = $this->db->fetch("SELECT id FROM users WHERE role='super_admin' AND is_active=1 ORDER BY id ASC LIMIT 1");
+                    $uid = $adm['id'] ?? null;
+                }
+                $accId = $account['id'] ?? null;
+                if ($uid && $accId) {
+                    $this->prospection->create([
+                        'user_id' => $uid,
+                        'email_account_id' => $accId,
+                        'contact_id' => $contactId,
+                        'recipient_email' => $to,
+                        'recipient_name' => $cName['contact_name'] ?? null,
+                        'subject' => $subject,
+                        'body' => $body,
+                        'status' => 'sent',
+                        'sent_at' => date('Y-m-d H:i:s'),
+                    ]);
+                }
+            } catch (\Throwable $e) { /* não bloqueia o envio se o espelho falhar */ }
+
             return ['success' => true, 'message_id' => $messageId];
         }
 
@@ -187,7 +214,12 @@ class EmailMessageService
 
     private function injectTracking($html, $token)
     {
-        $base = rtrim(baseUrl(''), '/');
+        // Usa a URL pública configurada (confiável mesmo quando roda via cron/CLI,
+        // onde não há HTTP_HOST). Fallback para baseUrl() no contexto HTTP.
+        $configured = trim((string) Config::get('app_public_url'));
+        $base = $configured !== '' ? rtrim($configured, '/') : rtrim(baseUrl(''), '/');
+        // Garante https (clientes de e-mail bloqueiam pixel http/misto)
+        $base = preg_replace('#^http://#i', 'https://', $base);
         // 1) Reescreve links http(s) para passar pelo redirect de rastreio
         $html = preg_replace_callback('/href="(https?:\/\/[^"]+)"/i', function ($m) use ($base, $token) {
             $target = $m[1];
@@ -197,10 +229,14 @@ class EmailMessageService
             return 'href="' . $url . '"';
         }, $html);
 
-        // 2) Pixel de abertura + link de descadastro no rodapé
-        $pixel = '<img src="' . $base . '/track/open/' . $token . '" width="1" height="1" style="display:none" alt="">';
+        // 2) Pixel de abertura + link de descadastro no rodapé.
+        // Extensão .png no fim ajuda clientes/proxies a tratarem como imagem e
+        // carregarem. Sem display:none (Gmail/Outlook ignoram imagens ocultas).
+        $pixelUrl = $base . '/track/open/' . $token . '.png';
+        $pixel = '<img src="' . $pixelUrl . '" width="1" height="1" border="0" alt="" style="width:1px;height:1px;max-height:1px;max-width:1px;border:0;overflow:hidden;">';
         $unsub = '<div style="margin-top:16px;font-size:11px;color:#999;">Se não deseja mais receber e-mails, <a href="' . $base . '/track/unsub/' . $token . '">clique aqui para descadastrar</a>.</div>';
-        return $html . $unsub . $pixel;
+        // Insere o pixel no topo E no rodapé (alguns clientes só carregam o início do corpo).
+        return $pixel . $html . $unsub . $pixel;
     }
 
     private function normalize($email)

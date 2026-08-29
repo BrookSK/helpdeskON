@@ -18,8 +18,28 @@ class CrmBoard
         return $this->db->fetch("SELECT * FROM crm_boards WHERE id = ?", [$id]);
     }
 
-    public function getAll()
+    /**
+     * Lista os boards ativos. Boards com visibility='admin' só aparecem para
+     * super_admin (usado pela Prospecção Automática).
+     * @param string|null $role papel do usuário atual (para filtrar visibilidade)
+     */
+    public function getAll($role = null)
     {
+        // Detecta se a coluna visibility existe (migration pode não ter rodado ainda)
+        $hasVisibility = false;
+        try {
+            $col = $this->db->fetch(
+                "SELECT COUNT(*) c FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'crm_boards' AND COLUMN_NAME = 'visibility'"
+            );
+            $hasVisibility = ((int)($col['c'] ?? 0) > 0);
+        } catch (\Throwable $e) { $hasVisibility = false; }
+
+        $where = "b.is_active = 1";
+        if ($hasVisibility && $role !== 'super_admin') {
+            $where .= " AND (b.visibility IS NULL OR b.visibility <> 'admin')";
+        }
+
         return $this->db->fetchAll(
             "SELECT b.*, u.name as created_by_name,
                     (SELECT COUNT(*) FROM crm_cards c 
@@ -27,7 +47,7 @@ class CrmBoard
                      WHERE col.board_id = b.id) as total_cards
              FROM crm_boards b
              LEFT JOIN users u ON b.created_by = u.id
-             WHERE b.is_active = 1
+             WHERE {$where}
              ORDER BY b.created_at DESC"
         );
     }
