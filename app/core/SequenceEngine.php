@@ -241,16 +241,28 @@ class SequenceEngine
             );
             if (empty($parts)) return 0;
 
+            $listenMin = max(0, (int)(Config::get('sequence_reply_listen_minutes') ?? 2));
             $seen = [];
             $routed = 0;
             foreach ($parts as $p) {
                 $contactId = (int)$p['contact_id'];
                 if (isset($seen[$contactId])) continue;
-                // Já triado ou já escutando? não reprocessa.
+                // Já triado → não reprocessa.
                 if ($hasTriaged && !empty($p['triaged_at'])) { $seen[$contactId] = true; continue; }
-                if ($hasListen && !empty($p['reply_listen_until']) && strtotime($p['reply_listen_until']) > time()) { $seen[$contactId] = true; continue; }
 
-                if ($this->contactRepliedSinceLastTouch($contactId, $p['started_at'] ?? null)) {
+                // Instante em que a janela de escuta atual começou (reply_listen_until
+                // menos o tempo da janela). Se o lead mandou mensagem DEPOIS disso,
+                // reiniciamos a janela para reunir as mensagens picadas antes de triar.
+                $windowStartedAt = null;
+                if ($hasListen && !empty($p['reply_listen_until'])) {
+                    // +3s de tolerância para NÃO reabrir a janela por causa da mesma
+                    // mensagem que a abriu (evita loop). Só mensagens realmente novas contam.
+                    $windowStartedAt = date('Y-m-d H:i:s', strtotime($p['reply_listen_until']) - $listenMin * 60 + 3);
+                }
+
+                $ref = $windowStartedAt ?? ($p['started_at'] ?? null);
+                if ($this->contactRepliedSinceLastTouch($contactId, $ref)) {
+                    // Reabre/estende a janela (routeReplyToTriage reinicia para agora+2min).
                     $this->routeReplyToTriage($contactId, 'replied');
                     $routed++;
                     $seen[$contactId] = true;
@@ -322,21 +334,21 @@ class SequenceEngine
         foreach ($parts as $p) {
             // Anti-duplicação: já triado → ignora respostas subsequentes.
             if ($hasTriaged && !empty($p['triaged_at'])) continue;
-            // Já está escutando (janela aberta no futuro) → não reinicia nem duplica.
-            if ($hasListen && !empty($p['reply_listen_until']) && strtotime($p['reply_listen_until']) > $now) continue;
 
             if ($canListen) {
-                // Abre a janela de escuta: aguarda novas mensagens do lead (respostas
-                // picadas) antes de interpretar. Ao fim da janela, o processDue chama
-                // finishListening() para rotear à triagem uma única vez.
+                // Abre OU REINICIA a janela de escuta a cada nova mensagem do lead:
+                // a triagem só acontece 2 min APÓS A ÚLTIMA mensagem. Assim, quando o
+                // lead responde picado ("Sim, tenho interesse" / "Como funciona?" /
+                // "Tem material?"), reunimos tudo antes de classificar — evitando a
+                // interpretação errada por ler só a primeira mensagem.
                 $until = date('Y-m-d H:i:s', $now + $listenMin * 60);
                 $this->db->update('sequence_participants', [
                     'status' => 'active',
                     'reply_listen_until' => $until,
-                    'next_run_at' => $until, // acorda no fim da janela
+                    'next_run_at' => $until, // acorda no fim da janela (recontada)
                 ], 'id = ?', [$p['id']]);
             } else {
-                // Sem janela de escuta: roteia imediatamente para a triagem por IA.
+                // Sem janela de escuta configurada: roteia imediatamente à triagem.
                 $this->finishListening($p);
             }
             $opened++;
@@ -1820,18 +1832,27 @@ class SequenceEngine
             }
         } catch (\Throwable $e) { /* ignore */ }
 
-        // Últimas mensagens de WhatsApp (texto + direção)
+        // Últimas mensagens de WhatsApp (texto + direção), em ordem cronológica.
+        $lastLeadMsgs = [];
         try {
             $msgs = $this->db->fetchAll(
                 "SELECT from_me, message_text FROM whatsapp_messages
                  WHERE contact_id = ? AND message_text IS NOT NULL AND message_text <> ''
-                 ORDER BY id DESC LIMIT 10", [$contactId]);
+                 ORDER BY id DESC LIMIT 12", [$contactId]);
             $msgs = array_reverse($msgs);
             foreach ($msgs as $m) {
                 $who = $m['from_me'] ? 'Nós' : 'Lead';
                 $lines[] = 'WhatsApp ' . $who . ': ' . mb_substr($m['message_text'], 0, 300);
+                if (!$m['from_me']) $lastLeadMsgs[] = mb_substr($m['message_text'], 0, 300);
             }
         } catch (\Throwable $e) { /* ignore */ }
+
+        // Destaca as ÚLTIMAS mensagens do lead (respostas picadas) para a IA
+        // considerar todas juntas ao classificar a intenção.
+        if (!empty($lastLeadMsgs)) {
+            $recent = array_slice($lastLeadMsgs, -4);
+            $lines[] = 'ÚLTIMAS MENSAGENS DO LEAD (considere TODAS ao interpretar a intenção): "' . implode('" | "', $recent) . '"';
+        }
 
         if (empty($lines)) return '(sem histórico registrado para este lead)';
         return implode("\n", $lines);
