@@ -51,12 +51,18 @@ class SequencesController extends Controller
         // Etiquetas existentes no CRM (para o dropdown do bloco "tag")
         $labels = $db->fetchAll("SELECT id, name, color FROM whatsapp_labels ORDER BY name");
 
+        // Outras sequências (para o bloco "Conexão de sequência")
+        $otherSeqs = $db->fetchAll(
+            "SELECT id, name FROM email_sequences" . ($id ? " WHERE id <> " . (int)$id : "") . " ORDER BY name"
+        );
+
         $this->view('sequences/edit', [
             'user' => $user,
             'sequence' => $seq,
             'accounts' => $accounts,
             'columns' => $columns,
             'labels' => $labels,
+            'sequencesList' => $otherSeqs,
         ]);
     }
 

@@ -297,11 +297,13 @@ class BookingController extends Controller
 
         // WhatsApp para o lead
         if ($phone !== '') {
-            $waMsg = "✅ *Reunião confirmada*\n\n"
-                . "*Assunto:* {$title}\n"
-                . "*Data:* {$whenFmt}\n"
-                . ($meetLink ? "*Link da call:* {$meetLink}\n" : "")
-                . "\nAté breve!";
+            $first = trim(explode(' ', trim($name))[0] ?? $name);
+            $waMsg = "✅ *Reunião confirmada!*\n\n"
+                . "Olá, {$first}! Seu horário com a ON Solutions Brasil está confirmado.\n\n"
+                . "🗓️ *Assunto:* {$title}\n"
+                . "🕒 *Data:* {$whenFmt}\n"
+                . ($meetLink ? "🔗 *Link da reunião (Google Meet):*\n{$meetLink}\n" : "")
+                . "\nVocê receberá um lembrete antes do horário. Até breve!";
             try { WhatsappNotifier::sendToPhone($phone, $waMsg, $name); } catch (\Throwable $e) {}
         }
 

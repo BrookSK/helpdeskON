@@ -32,6 +32,8 @@
                 <button class="btn btn-sm btn-outline-danger" onclick="addNode('unsubscribe')"><i class="bi bi-person-dash"></i> Remover da lista</button>
                 <button class="btn btn-sm btn-outline-dark" onclick="addNode('reveal_phone')"><i class="bi bi-telephone-plus"></i> Revelar telefone (Apollo)</button>
                 <button class="btn btn-sm btn-outline-success" onclick="addNode('schedule')"><i class="bi bi-calendar2-check"></i> Agendamento</button>
+                <button class="btn btn-sm btn-outline-primary" onclick="addNode('connect')"><i class="bi bi-diagram-2"></i> Conexão de sequência</button>
+                <button class="btn btn-sm btn-outline-info" onclick="addNode('reply')"><i class="bi bi-reply"></i> Responder ao lead</button>
                 <button class="btn btn-sm btn-outline-danger" onclick="addNode('end')"><i class="bi bi-stop-circle"></i> Encerrar</button>
                 <div class="ms-auto">
                     <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#seq-config">

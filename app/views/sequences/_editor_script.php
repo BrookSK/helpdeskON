@@ -22,10 +22,11 @@
 .seq-node .port.out { bottom:-10px; left:calc(50% - 9px); }
 .seq-node .port.out.yes { left:26%; background:#d4edda; border-color:#28a745; }
 .seq-node .port.out.no { left:66%; background:#f8d7da; border-color:#dc3545; }
+.seq-node .port.out.reply { right:-10px; left:auto; top:calc(50% - 9px); bottom:auto; background:#cfe2ff; border-color:#0d6efd; }
 .seq-node .port.in { top:-10px; left:calc(50% - 9px); background:#e9ecef; }
 .n-send .hd{color:#0d6efd} .n-whatsapp .hd{color:#198754} .n-wait .hd{color:#fd7e14} .n-condition .hd{color:#6f42c1}
 .n-tag .hd{color:#20c997} .n-score .hd{color:#e0a800} .n-move .hd{color:#0dcaf0} .n-end .hd{color:#dc3545}
-.n-reveal_phone .hd{color:#212529} .n-ai .hd{color:#0d6efd} .n-unsubscribe .hd{color:#dc3545} .n-schedule .hd{color:#198754}
+.n-reveal_phone .hd{color:#212529} .n-ai .hd{color:#0d6efd} .n-unsubscribe .hd{color:#dc3545} .n-schedule .hd{color:#198754} .n-connect .hd{color:#0d6efd} .n-reply .hd{color:#0dcaf0}
 #link-hint { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#1a1a2e; color:#fff;
     padding:8px 16px; border-radius:20px; font-size:0.8rem; z-index:2000; display:none; box-shadow:0 4px 12px rgba(0,0,0,.3); }
 </style>
@@ -39,7 +40,8 @@ const COLUMNS = <?= json_encode(array_map(fn($c) => ['id'=>$c['id'],'name'=>$c['
 const LABELS = <?= json_encode(array_map(fn($l) => ['id'=>$l['id'],'name'=>$l['name'],'color'=>$l['color']], $labels ?? []), JSON_UNESCAPED_UNICODE) ?>;
 // Lista de boards únicos (para o seletor encadeado do bloco "mover card")
 const BOARDS = (function(){ const m={}; COLUMNS.forEach(c=>{ if(!m[c.board_id]) m[c.board_id]={id:c.board_id,name:c.board_name}; }); return Object.values(m); })();
-const NODE_LABELS = { send:'Enviar e-mail', whatsapp:'Enviar WhatsApp', wait:'Aguardar', condition:'Condição', ai:'IA (ChatGPT)', schedule:'Agendamento', tag:'Tag', score:'Score', move:'Mover card', unsubscribe:'Remover da lista', reveal_phone:'Revelar telefone', end:'Encerrar' };
+const NODE_LABELS = { send:'Enviar e-mail', whatsapp:'Enviar WhatsApp', wait:'Aguardar', condition:'Condição', ai:'IA (ChatGPT)', schedule:'Agendamento', connect:'Conexão de sequência', reply:'Responder ao lead', tag:'Tag', score:'Score', move:'Mover card', unsubscribe:'Remover da lista', reveal_phone:'Revelar telefone', end:'Encerrar' };
+const SEQUENCES = <?= json_encode(array_map(fn($s) => ['id'=>$s['id'],'name'=>$s['name']], $sequencesList ?? []), JSON_UNESCAPED_UNICODE) ?>;
 let EMAIL_TEMPLATES = [], WA_TEMPLATES = [];
 
 let nodes = [];       // {id, type, x, y, data, next, nextYes, nextNo, _el}
@@ -111,6 +113,11 @@ function buildNodeEl(n) {
     } else if (n.type !== 'end') {
         ports += `<div class="port out" data-port="next"></div>`;
     }
+    // Blocos de mensagem ganham uma saída extra "Resposta recebida" (à direita),
+    // para conectar ao bloco de Conexão de sequência (triagem por IA).
+    if (n.type === 'send' || n.type === 'whatsapp') {
+        ports += `<div class="port out reply" title="Resposta recebida" data-port="reply"></div>`;
+    }
     el.innerHTML = `<div class="hd"><span>${NODE_LABELS[n.type]||n.type}</span><span class="x">&times;</span></div>
         <div class="bd">${nodeSummary(n)}</div>${ports}`;
 
@@ -154,6 +161,8 @@ function nodeSummary(n) {
         case 'reveal_phone': return 'Revela telefone no Apollo (se faltar)';
         case 'unsubscribe': return 'Remove o lead da lista (descadastra)';
         case 'schedule': return 'Envia link de agendamento (' + (d.channel||'auto') + ')';
+        case 'connect': { const s=(SEQUENCES||[]).find(x=>String(x.id)===String(d.sequence_id)); return s ? ('→ ' + escapeHtml(s.name)) : '<em>escolher sequência</em>'; }
+        case 'reply': return 'Responde no mesmo canal do lead' + (d.body ? (': ' + escapeHtml(d.body.slice(0,30))) : '');
         case 'end': return 'Fim da sequência';
     }
     return '';
@@ -168,14 +177,18 @@ function drawEdges() {
         const s = svg(); let out = '';
         nodes.forEach(n => {
             const conns = [];
-            if (n.next) conns.push([n.next, '#00BFA6', 0.5]);
-            if (n.nextYes) conns.push([n.nextYes, '#28a745', 0.26]);
-            if (n.nextNo) conns.push([n.nextNo, '#dc3545', 0.66]);
-            conns.forEach(([to, color, fx]) => {
+            if (n.next) conns.push([n.next, '#00BFA6', 0.5, 'bottom']);
+            if (n.nextYes) conns.push([n.nextYes, '#28a745', 0.26, 'bottom']);
+            if (n.nextNo) conns.push([n.nextNo, '#dc3545', 0.66, 'bottom']);
+            if (n.nextReply) conns.push([n.nextReply, '#0d6efd', 1, 'right']);
+            conns.forEach(([to, color, fx, side]) => {
                 const t = nodes.find(x=>x.id===to); if (!t) return;
-                const x1 = n.x + 190*fx, y1 = n.y + 68, x2 = t.x + 95, y2 = t.y;
+                let x1, y1;
+                if (side === 'right') { x1 = n.x + 190; y1 = n.y + 34; }
+                else { x1 = n.x + 190*fx; y1 = n.y + 68; }
+                const x2 = t.x + 95, y2 = t.y;
                 const mid = (y1+y2)/2;
-                out += `<path d="M${x1},${y1} C${x1},${mid} ${x2},${mid} ${x2},${y2}" stroke="${color}" fill="none" stroke-width="2"/>`;
+                out += `<path d="M${x1},${y1} C${x1},${mid} ${x2},${mid} ${x2},${y2}" stroke="${color}" fill="none" stroke-width="2" ${side==='right'?'stroke-dasharray="4,3"':''}/>`;
                 out += `<circle cx="${x2}" cy="${y2}" r="3" fill="${color}"/>`;
             });
         });
@@ -231,6 +244,8 @@ function defaultData(type) {
     if (type === 'move') return { column_id:'' };
     if (type === 'unsubscribe') return { reason:'Sem interesse (sequência)' };
     if (type === 'schedule') return { channel:'auto', duration:45, title:'Reunião com a ON Solutions Brasil', message:'' };
+    if (type === 'connect') return { sequence_id:'', stop_current:1 };
+    if (type === 'reply') return { subject:'ON Solutions Brasil', body:'' };
     if (type === 'reveal_phone') return {};
     return {};
 }
@@ -238,7 +253,7 @@ function delNode(id) {
     const n = nodes.find(x=>x.id===id);
     if (n && n._el) n._el.remove();
     nodes = nodes.filter(x=>x.id!==id);
-    nodes.forEach(x=>{ if(x.next===id)delete x.next; if(x.nextYes===id)delete x.nextYes; if(x.nextNo===id)delete x.nextNo; });
+    nodes.forEach(x=>{ if(x.next===id)delete x.next; if(x.nextYes===id)delete x.nextYes; if(x.nextNo===id)delete x.nextNo; if(x.nextReply===id)delete x.nextReply; });
     if (selectedId===id) { selectedId=null; renderInspector(); }
     drawEdges();
 }
@@ -270,6 +285,7 @@ function finishLink(targetId) {
         if (n) {
             if (linkFrom.port === 'yes') n.nextYes = targetId;
             else if (linkFrom.port === 'no') n.nextNo = targetId;
+            else if (linkFrom.port === 'reply') n.nextReply = targetId;
             else n.next = targetId;
         }
     }
@@ -381,6 +397,7 @@ function renderInspector() {
     } else if (n.type==='schedule') {
         const ch = n.data.channel || 'auto';
         h += field('Canal do convite', `<select class="form-select form-select-sm" onchange="setData('channel',this.value)">
+            <option value="reply" ${ch==='reply'?'selected':''}>Mesmo canal da resposta do lead</option>
             <option value="auto" ${ch==='auto'?'selected':''}>Automático (e-mail e/ou WhatsApp)</option>
             <option value="email" ${ch==='email'?'selected':''}>E-mail</option>
             <option value="whatsapp" ${ch==='whatsapp'?'selected':''}>WhatsApp</option></select>`);
@@ -389,6 +406,19 @@ function renderInspector() {
         h += `<label class="form-label small mb-1">Mensagem do convite (opcional)</label>` + varChipsHtml() +
              `<textarea id="insp-body" class="form-control form-control-sm" rows="4" placeholder="Ex.: {{primeiro_nome}}, que tal conversarmos? Escolha o melhor horário no link abaixo." oninput="setData('message',this.value)">${escapeHtml(n.data.message||'')}</textarea>`;
         h += `<small class="text-muted d-block mt-1">Gera um link público com os dados do lead pré-preenchidos. Ao agendar, cria o evento no Google Meet e notifica por e-mail e WhatsApp. O link é inserido automaticamente ({{link_agendamento}}).</small>`;
+    } else if (n.type==='reply') {
+        h += `<div class="alert alert-light border py-2 px-2 small mb-2"><i class="bi bi-reply text-info"></i> Envia pelo <strong>mesmo canal</strong> em que o lead respondeu por último (e-mail ou WhatsApp).</div>`;
+        h += field('Assunto (só e-mail)', `<input class="form-control form-control-sm" value="${escapeAttr(n.data.subject||'ON Solutions Brasil')}" oninput="setData('subject',this.value)">`);
+        h += `<label class="form-label small mb-1">Mensagem</label>` + varChipsHtml() +
+             `<textarea id="insp-body" class="form-control form-control-sm" rows="5" oninput="setData('body',this.value)">${escapeHtml(n.data.body||'')}</textarea>`;
+    } else if (n.type==='connect') {
+        const opts = '<option value="">— selecione a sequência —</option>' +
+            (SEQUENCES||[]).map(s => `<option value="${s.id}" ${String(n.data.sequence_id)===String(s.id)?'selected':''}>${escapeHtml(s.name)}</option>`).join('');
+        h += field('Sequência de destino', `<select class="form-select form-select-sm" onchange="setData('sequence_id',this.value)">${opts}</select>`);
+        h += field('Ao conectar', `<select class="form-select form-select-sm" onchange="setData('stop_current',parseInt(this.value))">
+            <option value="1" ${(n.data.stop_current??1)==1?'selected':''}>Encerrar esta sequência e seguir na nova</option>
+            <option value="0" ${(n.data.stop_current??1)==0?'selected':''}>Manter esta ativa (inscreve em paralelo)</option></select>`);
+        h += `<small class="text-muted d-block mt-1">Inscreve o lead na sequência escolhida (respeitando o canal dela). Útil para encadear fluxos — ex.: da cadência principal para a triagem por IA.</small>`;
     } else if (n.type==='unsubscribe') {
         h += field('Motivo (registro interno)', `<input class="form-control form-control-sm" value="${escapeAttr(n.data.reason||'Sem interesse (sequência)')}" oninput="setData('reason',this.value)">`);
         h += `<p class="text-muted small mb-0">Marca o lead como descadastrado (bloqueia novos envios), aplica a etiqueta "sem interesse" e registra na timeline. Coloque este bloco <strong>depois</strong> do e-mail/WhatsApp de confirmação.</p>`;
@@ -407,6 +437,11 @@ function renderInspector() {
             h += field('Se NÃO →', `<select class="form-select form-select-sm" onchange="setNext('nextNo',this.value)">${optsFor(n.nextNo)}</select>`);
         } else {
             h += field('Vai para', `<select class="form-select form-select-sm" onchange="setNext('next',this.value)">${optsFor(n.next)}</select>`);
+        }
+        // Saída extra "Resposta recebida" para blocos de mensagem
+        if (n.type === 'send' || n.type === 'whatsapp') {
+            h += field('<i class="bi bi-reply"></i> Resposta recebida →', `<select class="form-select form-select-sm" onchange="setNext('nextReply',this.value)">${optsFor(n.nextReply)}</select>`);
+            h += `<small class="text-muted d-block">Para onde ir se o lead responder após este envio (ex.: Conexão → Triagem IA). O sistema detecta a resposta automaticamente por e-mail e WhatsApp.</small>`;
         }
     }
     box.innerHTML = h;
@@ -538,7 +573,7 @@ function onMoveBoardChange(boardId) {
 // ================= Salvar / participantes =================
 function buildGraph() {
     const start = nodes.length ? nodes[0].id : null;
-    return { start, nodes: nodes.map(n => ({ id:n.id, type:n.type, x:n.x, y:n.y, data:n.data, next:n.next, nextYes:n.nextYes, nextNo:n.nextNo })) };
+    return { start, nodes: nodes.map(n => ({ id:n.id, type:n.type, x:n.x, y:n.y, data:n.data, next:n.next, nextYes:n.nextYes, nextNo:n.nextNo, nextReply:n.nextReply })) };
 }
 function saveSeq() {
     const name = document.getElementById('seq-name').value.trim();

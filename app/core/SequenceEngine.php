@@ -148,19 +148,37 @@ class SequenceEngine
         $stopIds = [];
         foreach ($parts as $p) {
             $graph = json_decode($p['graph'] ?? '{}', true);
-            $aiNodeId = null;
-            foreach ($graph['nodes'] ?? [] as $n) {
-                if (($n['type'] ?? '') === 'ai') { $aiNodeId = $n['id']; break; }
+            $nodesById = [];
+            foreach ($graph['nodes'] ?? [] as $n) $nodesById[$n['id']] = $n;
+
+            // 1) Destino preferido: a saída "Resposta recebida" (nextReply) do nó
+            //    atual do participante — respeita o que o operador desenhou.
+            $target = null;
+            $curId = $p['current_node'] ?? ($graph['start'] ?? null);
+            if ($curId && isset($nodesById[$curId]) && !empty($nodesById[$curId]['nextReply'])) {
+                $target = $nodesById[$curId]['nextReply'];
             }
-            if (!$aiNodeId) { $stopIds[] = $p; continue; }
+            // 2) Senão, qualquer nextReply definido no grafo (primeiro encontrado).
+            if (!$target) {
+                foreach ($nodesById as $n) {
+                    if (!empty($n['nextReply'])) { $target = $n['nextReply']; break; }
+                }
+            }
+            // 3) Fallback: primeiro nó de IA (triagem embutida).
+            if (!$target) {
+                foreach ($nodesById as $n) {
+                    if (($n['type'] ?? '') === 'ai') { $target = $n['id']; break; }
+                }
+            }
+            if (!$target || !isset($nodesById[$target])) { $stopIds[] = $p; continue; }
 
-            // Evita reprocessar se já está no nó de IA ou já passou por ele
-            if (($p['current_node'] ?? null) === $aiNodeId) { continue; }
+            // Evita reprocessar se já está no destino
+            if (($p['current_node'] ?? null) === $target) { continue; }
 
-            // Salta para a triagem por IA agora (ignora esperas restantes)
+            // Salta para o destino agora (ignora esperas restantes)
             $this->db->update('sequence_participants', [
                 'status' => 'active',
-                'current_node' => $aiNodeId,
+                'current_node' => $target,
                 'next_run_at' => date('Y-m-d H:i:s'),
             ], 'id = ?', [$p['id']]);
             $routed++;
@@ -427,6 +445,16 @@ class SequenceEngine
                     $detail = $sch['detail'] ?? 'Link de agendamento enviado.';
                     if (!empty($sch['error'])) $result = 'failed';
                     break;
+                case 'connect':
+                    $conn = $this->doConnect($participant, $node);
+                    $detail = $conn['detail'] ?? 'Conectado à sequência.';
+                    if (!empty($conn['error'])) $result = 'failed';
+                    break;
+                case 'reply':
+                    $rep = $this->doReply($participant, $node);
+                    $detail = $rep['detail'] ?? 'Resposta enviada.';
+                    if (!empty($rep['error'])) $result = 'failed';
+                    break;
                 case 'wait':
                     $detail = 'Aguardar (sem efeito no teste isolado).';
                     break;
@@ -582,6 +610,23 @@ class SequenceEngine
                 $sch = $this->doSchedule($participant, $node);
                 $this->advance($participant, $node['next'] ?? null, $nodes);
                 $this->logExec($participant['id'], $nodeId, $type, empty($sch['error']) ? 'done' : 'failed', $sch['detail'] ?? null);
+                return 'sent';
+
+            case 'connect':
+                $conn = $this->doConnect($participant, $node);
+                $this->logExec($participant['id'], $nodeId, $type, empty($conn['error']) ? 'done' : 'failed', $conn['detail'] ?? null);
+                // Se configurado para encerrar a atual, finaliza aqui; senão avança.
+                if (!empty($node['data']['stop_current'])) {
+                    $this->finish($participant, 'connected');
+                    return 'finished';
+                }
+                $this->advance($participant, $node['next'] ?? null, $nodes);
+                return 'skipped';
+
+            case 'reply':
+                $rep = $this->doReply($participant, $node);
+                $this->advance($participant, $node['next'] ?? null, $nodes);
+                $this->logExec($participant['id'], $nodeId, $type, empty($rep['error']) ? 'done' : 'failed', $rep['detail'] ?? null);
                 return 'sent';
 
             case 'end':
@@ -1006,7 +1051,12 @@ class SequenceEngine
     {
         $contactId = $participant['contact_id'];
         $data = $node['data'] ?? [];
-        $channel = in_array($data['channel'] ?? 'auto', ['auto', 'email', 'whatsapp'], true) ? $data['channel'] : 'auto';
+        $channel = in_array($data['channel'] ?? 'auto', ['auto', 'email', 'whatsapp', 'reply'], true) ? $data['channel'] : 'auto';
+        // 'reply' = usa o mesmo canal em que o lead respondeu por último.
+        if ($channel === 'reply') {
+            $contactForCh = $this->db->fetch("SELECT lead_email, phone FROM whatsapp_contacts WHERE id = ?", [$contactId]);
+            $channel = $this->lastReplyChannel($contactId, $contactForCh);
+        }
         $duration = (int)($data['duration'] ?? 0) ?: max(15, (int)(Config::get('booking_duration_min') ?? 45));
         $expiryDays = max(1, (int)(Config::get('booking_link_expiry_days') ?? 30));
         $title = trim((string)($data['title'] ?? '')) ?: 'Reunião com a ON Solutions Brasil';
@@ -1082,6 +1132,109 @@ class SequenceEngine
             return ['detail' => 'Nenhum canal disponível para enviar o link (sem e-mail/telefone).', 'error' => 'no_channel'];
         }
         return ['detail' => 'Convite de agendamento enviado por ' . implode(' + ', $sent) . '.', 'error' => null];
+    }
+
+    /**
+     * Descobre o canal da ÚLTIMA resposta do lead: compara a mensagem recebida
+     * mais recente por e-mail (email_messages inbound / replied_at) com a mais
+     * recente por WhatsApp (whatsapp_messages from_me=0). Retorna 'email' ou
+     * 'whatsapp'. Fallback: e-mail se houver e-mail; senão WhatsApp.
+     */
+    private function lastReplyChannel($contactId, $contact = null)
+    {
+        $emailTs = 0; $waTs = 0;
+
+        // Última evidência de resposta por e-mail (reply registrado)
+        $em = $this->db->fetch(
+            "SELECT COALESCE(replied_at, created_at) AS t FROM email_messages
+             WHERE contact_id = ? AND (direction='inbound' OR replied_at IS NOT NULL)
+             ORDER BY t DESC LIMIT 1", [$contactId]);
+        if ($em && !empty($em['t'])) $emailTs = strtotime($em['t']);
+
+        // Última mensagem recebida no WhatsApp
+        $wa = $this->db->fetch(
+            "SELECT timestamp AS t FROM whatsapp_messages
+             WHERE contact_id = ? AND from_me = 0 ORDER BY id DESC LIMIT 1", [$contactId]);
+        if ($wa && !empty($wa['t'])) $waTs = strtotime($wa['t']);
+
+        if ($emailTs === 0 && $waTs === 0) {
+            if (!$contact) $contact = $this->db->fetch("SELECT lead_email, phone FROM whatsapp_contacts WHERE id = ?", [$contactId]);
+            if (!empty($contact['lead_email'])) return 'email';
+            if (!empty($contact['phone'])) return 'whatsapp';
+            return 'email';
+        }
+        return ($waTs >= $emailTs) ? 'whatsapp' : 'email';
+    }
+
+    /**
+     * Bloco "Responder ao lead": envia uma mensagem pelo MESMO canal em que o
+     * lead respondeu por último (e-mail ou WhatsApp). O conteúdo é o mesmo texto;
+     * no e-mail usa o assunto informado. Assim a resposta nunca sai por um canal
+     * aleatório.
+     * @return array ['detail'=>string, 'error'=>?string, 'channel'=>string]
+     */
+    private function doReply($participant, $node)
+    {
+        $contactId = $participant['contact_id'];
+        $data = $node['data'] ?? [];
+        $contact = $this->db->fetch("SELECT id, contact_name, push_name, lead_email, phone FROM whatsapp_contacts WHERE id = ?", [$contactId]);
+        if (!$contact) return ['detail' => 'Lead não encontrado', 'error' => 'no_contact', 'channel' => null];
+
+        $channel = $this->lastReplyChannel($contactId, $contact);
+        $subject = $this->render((string)($data['subject'] ?? 'ON Solutions Brasil'), $contact);
+        $bodyRaw = (string)($data['body'] ?? '');
+        $body = $this->render($bodyRaw, $contact);
+        if (trim($body) === '') return ['detail' => 'Mensagem vazia.', 'error' => 'empty', 'channel' => $channel];
+
+        // Canal e-mail: precisa de e-mail; se não tiver, tenta WhatsApp como alternativa.
+        if ($channel === 'email' && empty($contact['lead_email'])) $channel = 'whatsapp';
+        if ($channel === 'whatsapp' && empty($contact['phone'])) $channel = 'email';
+
+        if ($channel === 'email') {
+            if (empty($contact['lead_email'])) return ['detail' => 'Sem e-mail para responder.', 'error' => 'no_email', 'channel' => $channel];
+            $bodyHtml = '<p>' . nl2br(htmlspecialchars($body)) . '</p>';
+            $account = $this->resolveAccount($this->db->fetch("SELECT email_account_id FROM email_sequences WHERE id = ?", [$participant['sequence_id']])['email_account_id'] ?? null);
+            if (!$account) return ['detail' => 'Sem conta de e-mail ativa.', 'error' => 'no_account', 'channel' => $channel];
+            $res = (new EmailMessageService())->send([
+                'contact_id' => $contactId, 'account' => $account, 'to' => $contact['lead_email'],
+                'subject' => $subject, 'body_html' => $bodyHtml, 'origin' => 'sequence',
+                'sequence_participant_id' => $participant['id'], 'node_id' => $node['id'], 'add_signature' => true,
+            ]);
+            return !empty($res['success'])
+                ? ['detail' => 'Resposta enviada por e-mail.', 'error' => null, 'channel' => 'email']
+                : ['detail' => 'Falha no e-mail: ' . ($res['error'] ?? ''), 'error' => $res['error'] ?? 'send', 'channel' => 'email'];
+        }
+
+        // Canal WhatsApp
+        if (empty($contact['phone'])) return ['detail' => 'Sem telefone para responder.', 'error' => 'no_phone', 'channel' => $channel];
+        $ok = $this->sendWhatsappRaw($contactId, $contact, $body);
+        return ($ok === true)
+            ? ['detail' => 'Resposta enviada por WhatsApp.', 'error' => null, 'channel' => 'whatsapp']
+            : ['detail' => 'Falha no WhatsApp: ' . (is_string($ok) ? $ok : ''), 'error' => 'send', 'channel' => 'whatsapp'];
+    }
+
+    /**
+     * Bloco CONEXÃO DE SEQUÊNCIA: inscreve o lead na sequência de destino.
+     * Usa o próprio enroll (respeita canal/elegibilidade). Não encerra a atual
+     * aqui — o step decide encerrar/seguir conforme data.stop_current.
+     * @return array ['detail'=>string, 'error'=>?string]
+     */
+    private function doConnect($participant, $node)
+    {
+        $contactId = $participant['contact_id'];
+        $targetSeqId = (int)($node['data']['sequence_id'] ?? 0);
+        if (!$targetSeqId) return ['detail' => 'Sequência de destino não configurada.', 'error' => 'no_target'];
+
+        $seq = $this->db->fetch("SELECT id, name FROM email_sequences WHERE id = ?", [$targetSeqId]);
+        if (!$seq) return ['detail' => 'Sequência de destino não encontrada.', 'error' => 'not_found'];
+
+        $r = $this->enroll($targetSeqId, $contactId, $participant['added_by'] ?? null);
+        if (empty($r['success'])) {
+            (new LeadTimelineService())->add($contactId, 'note', 'Conexão de sequência falhou (' . $seq['name'] . '): ' . ($r['error'] ?? ''), ['channel' => 'sequence']);
+            return ['detail' => 'Falha ao conectar: ' . ($r['error'] ?? ''), 'error' => $r['error'] ?? 'enroll_failed'];
+        }
+        (new LeadTimelineService())->add($contactId, 'note', 'Conectado à sequência: ' . $seq['name'], ['channel' => 'sequence', 'sequence_id' => $targetSeqId]);
+        return ['detail' => 'Lead conectado à sequência "' . $seq['name'] . '".', 'error' => null];
     }
 
     /**
