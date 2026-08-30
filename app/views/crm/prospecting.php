@@ -248,10 +248,10 @@
                     <div class="table-responsive">
                         <table class="table table-sm table-hover mb-0" style="font-size:0.8rem;">
                             <thead class="table-light"><tr>
-                                <th>Mensagem</th><th class="text-center">Enviados</th><th class="text-center">Resp.</th>
+                                <th>Mensagem</th><th class="text-center">Copie</th><th class="text-center">Enviados</th><th class="text-center">Resp.</th>
                                 <th class="text-center text-success">Positiva</th><th class="text-center text-danger">Negativa</th><th class="text-center">Reuniões</th>
                             </tr></thead>
-                            <tbody id="perf-tpl-email"><tr><td colspan="6" class="text-center text-muted py-3">Carregando...</td></tr></tbody>
+                            <tbody id="perf-tpl-email"><tr><td colspan="7" class="text-center text-muted py-3">Carregando...</td></tr></tbody>
                         </table>
                     </div>
                 </div>
@@ -262,10 +262,10 @@
                     <div class="table-responsive">
                         <table class="table table-sm table-hover mb-0" style="font-size:0.8rem;">
                             <thead class="table-light"><tr>
-                                <th>Mensagem</th><th class="text-center">Enviados</th><th class="text-center">Resp.</th>
+                                <th>Mensagem</th><th class="text-center">Copie</th><th class="text-center">Enviados</th><th class="text-center">Resp.</th>
                                 <th class="text-center text-success">Positiva</th><th class="text-center text-danger">Negativa</th><th class="text-center">Reuniões</th>
                             </tr></thead>
-                            <tbody id="perf-tpl-whatsapp"><tr><td colspan="6" class="text-center text-muted py-3">Carregando...</td></tr></tbody>
+                            <tbody id="perf-tpl-whatsapp"><tr><td colspan="7" class="text-center text-muted py-3">Carregando...</td></tr></tbody>
                         </table>
                     </div>
                 </div>
@@ -822,11 +822,19 @@ function loadPerformance() {
 function renderTemplateRanking(elId, rows) {
     const box = document.getElementById(elId);
     if (!box) return;
-    if (!rows.length) { box.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">Sem dados neste canal ainda.</td></tr>'; return; }
+    if (!rows.length) { box.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">Sem dados neste canal ainda.</td></tr>'; return; }
     box.innerHTML = rows.map((r, i) => {
         const top = i === 0 && (r.positive > 0 || r.scheduled > 0) ? ' <i class="bi bi-star-fill text-warning"></i>' : '';
+        const variant = r.variant || 'A';
+        const vbadge = `<span class="badge bg-${variant==='B'?'info':'primary'}">${escapeH(variant)}</span>`;
+        // Nome clicável: abre o editor da sequência (com o template) em nova aba.
+        const title = escapeH((r.title||'—').slice(0,60));
+        const nameCell = r.sequence_id
+            ? `<a href="${BASE}sequences/edit/${r.sequence_id}" target="_blank" rel="noopener" title="Abrir template para editar — ${escapeH(r.sample||'')}">${title}</a>`
+            : `<span title="${escapeH(r.sample||'')}">${title}</span>`;
         return `<tr>
-            <td title="${escapeH(r.sample||'')}">${escapeH((r.title||'—').slice(0,60))}${top}</td>
+            <td>${nameCell}${top}</td>
+            <td class="text-center">${vbadge}</td>
             <td class="text-center">${r.sent}</td>
             <td class="text-center">${r.replied} <span class="text-muted">(${r.reply_rate}%)</span></td>
             <td class="text-center text-success fw-bold">${r.positive}</td>

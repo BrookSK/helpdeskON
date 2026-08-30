@@ -382,6 +382,8 @@ class ProspectingAnalytics
             $rows = $this->db->fetchAll(
                 "SELECT l.channel,
                         $tplKey AS tpl,
+                        MAX(l.ab_variant) AS ab_variant,
+                        MAX(l.sequence_id) AS sequence_id,
                         COUNT(*) AS sent,
                         SUM(CASE WHEN co.replied = 1 THEN 1 ELSE 0 END) AS replied,
                         SUM(CASE WHEN co.negative = 0 AND co.positive = 1 THEN 1 ELSE 0 END) AS positive,
@@ -400,7 +402,7 @@ class ProspectingAnalytics
                      GROUP BY contact_id
                  ) co ON co.contact_id = l.contact_id
                  WHERE l.sent_at >= ? $chSql
-                 GROUP BY l.channel, tpl
+                 GROUP BY l.channel, tpl, l.ab_variant
                  HAVING sent >= 1
                  ORDER BY negative DESC, positive DESC, scheduled DESC, replied DESC, sent DESC",
                 $params
@@ -410,6 +412,8 @@ class ProspectingAnalytics
                 $sent = (int)$r['sent'];
                 $out[] = [
                     'channel' => $r['channel'],
+                    'variant' => $r['ab_variant'] ?: 'A',
+                    'sequence_id' => (int)$r['sequence_id'],
                     'title' => ($r['channel'] === 'email' && $r['subject']) ? $r['subject'] : mb_substr((string)$r['body'], 0, 80),
                     'sample' => mb_substr((string)$r['body'], 0, 160),
                     'sent' => $sent,
