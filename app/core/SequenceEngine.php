@@ -1049,6 +1049,28 @@ class SequenceEngine
             $tpl = $this->db->fetch("SELECT body FROM message_templates WHERE id = ?", [(int)$data['template_id']]);
             if ($tpl) $bodySrc = $tpl['body'];
         }
+
+        // Teste A/B (WhatsApp): mesma variante persistente do participante. Sorteia
+        // uma vez (50/50) se ainda não houver variante e o bloco tiver B configurado.
+        $variant = null;
+        $abEnabled = !empty($data['ab_enabled']) || !empty($data['template_id_b']) || !empty($data['body_b']);
+        if ($abEnabled) {
+            $variant = $participant['ab_variant'] ?? null;
+            if (!$variant) {
+                $variant = (random_int(0, 1) === 1) ? 'B' : 'A';
+                $this->db->update('sequence_participants', ['ab_variant' => $variant], 'id = ?', [$participant['id']]);
+                (new LeadTimelineService())->add($contactId, 'tag', 'Variante A/B atribuída: ' . $variant, ['ab_variant' => $variant]);
+            }
+            if ($variant === 'B') {
+                if (!empty($data['template_id_b'])) {
+                    $tplB = $this->db->fetch("SELECT body FROM message_templates WHERE id = ?", [(int)$data['template_id_b']]);
+                    if ($tplB && $tplB['body']) $bodySrc = $tplB['body'];
+                } elseif (!empty($data['body_b'])) {
+                    $bodySrc = $data['body_b'];
+                }
+            }
+        }
+
         $msg = $this->render($bodySrc, $contact);
         if (trim($msg) === '') return 'Mensagem vazia';
 
@@ -1154,7 +1176,7 @@ class SequenceEngine
                     'participant_id' => $participant['id'] ?? null,
                     'node_id' => $node['id'] ?? null,
                     'channel' => 'whatsapp',
-                    'ab_variant' => $participant['ab_variant'] ?? null,
+                    'ab_variant' => $variant ?? ($participant['ab_variant'] ?? null),
                     'subject' => null,
                     'body' => $msg,
                 ]);
