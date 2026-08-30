@@ -1904,6 +1904,19 @@ class WhatsappController extends Controller
             if ($contact && $contact['service_status'] === 'concluido') {
                 $this->contactModel->updateServiceStatus($contactId, 'novo');
             }
+
+            // Resposta do lead por WhatsApp: se ele está numa sequência ativa,
+            // encaminha para a triagem por IA (interesse → agendamento; sem
+            // interesse → unsubscribe/encerramento). Não bloqueia o webhook.
+            try {
+                $hasActiveSeq = Database::getInstance()->fetch(
+                    "SELECT 1 FROM sequence_participants WHERE contact_id = ? AND status IN ('active','paused') LIMIT 1",
+                    [$contactId]
+                );
+                if ($hasActiveSeq) {
+                    (new SequenceEngine())->routeReplyToTriage($contactId, 'replied');
+                }
+            } catch (\Throwable $e) { /* nunca quebra o recebimento */ }
         }
     }
 

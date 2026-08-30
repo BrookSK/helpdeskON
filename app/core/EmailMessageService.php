@@ -238,8 +238,9 @@ class EmailMessageService
         (new LeadTimelineService())->add($contactId, 'email_reply', 'Lead respondeu' . ($subject ? ': ' . $subject : ''), null, $userId);
         (new LeadScoreService())->add($contactId, LeadScoreService::W_REPLY, 'resposta recebida');
 
-        // Interrompe sequências ativas do lead
-        (new SequenceEngine())->stopForContact($contactId, 'replied');
+        // Resposta do lead: encaminha para triagem por IA (se a sequência tiver o
+        // bloco de IA); senão, encerra. Antes o comportamento era sempre encerrar.
+        (new SequenceEngine())->routeReplyToTriage($contactId, 'replied');
 
         return true;
     }

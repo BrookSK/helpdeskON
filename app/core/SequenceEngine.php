@@ -123,6 +123,68 @@ class SequenceEngine
         } catch (\Throwable $e) { /* silencioso */ }
     }
 
+    /**
+     * Ao detectar RESPOSTA do lead (e-mail ou WhatsApp), em vez de simplesmente
+     * encerrar, redireciona cada sequência ativa para o nó de TRIAGEM POR IA
+     * (type=ai), pulando as esperas restantes. A IA então decide interesse →
+     * agendamento, ou sem interesse → unsubscribe/encerramento.
+     *
+     * Se a sequência não tiver nó de IA, cai no comportamento antigo (encerra).
+     * Idempotente: se já está no nó de IA (ou depois dele), não reprocessa.
+     *
+     * @return int nº de participantes roteados para triagem
+     */
+    public function routeReplyToTriage($contactId, $reason = 'replied')
+    {
+        $parts = $this->db->fetchAll(
+            "SELECT sp.*, s.graph FROM sequence_participants sp
+             JOIN email_sequences s ON s.id = sp.sequence_id
+             WHERE sp.contact_id = ? AND sp.status IN ('active','paused')",
+            [$contactId]
+        );
+        if (empty($parts)) return 0;
+
+        $routed = 0;
+        $stopIds = [];
+        foreach ($parts as $p) {
+            $graph = json_decode($p['graph'] ?? '{}', true);
+            $aiNodeId = null;
+            foreach ($graph['nodes'] ?? [] as $n) {
+                if (($n['type'] ?? '') === 'ai') { $aiNodeId = $n['id']; break; }
+            }
+            if (!$aiNodeId) { $stopIds[] = $p; continue; }
+
+            // Evita reprocessar se já está no nó de IA ou já passou por ele
+            if (($p['current_node'] ?? null) === $aiNodeId) { continue; }
+
+            // Salta para a triagem por IA agora (ignora esperas restantes)
+            $this->db->update('sequence_participants', [
+                'status' => 'active',
+                'current_node' => $aiNodeId,
+                'next_run_at' => date('Y-m-d H:i:s'),
+            ], 'id = ?', [$p['id']]);
+            $routed++;
+        }
+
+        if ($routed > 0) {
+            (new LeadTimelineService())->add($contactId, 'note', 'Resposta detectada — encaminhado para triagem por IA.', ['reason' => $reason]);
+            // Move para "Respondeu" e etiqueta (mesmo comportamento anterior de reply)
+            if ($reason === 'replied') $this->onReplyMoveCard($contactId);
+        }
+
+        // Participantes sem nó de IA: mantém o comportamento antigo (encerra).
+        foreach ($stopIds as $p) {
+            $this->db->update('sequence_participants', [
+                'status' => 'stopped', 'stop_reason' => $reason, 'finished_at' => date('Y-m-d H:i:s'), 'next_run_at' => null,
+            ], 'id = ?', [$p['id']]);
+        }
+        if (!empty($stopIds) && $reason === 'replied') {
+            $this->onReplyMoveCard($contactId);
+        }
+
+        return $routed;
+    }
+
     /** Interrompe todas as sequências ativas de um lead (resposta, bounce, unsub, manual). */
     public function stopForContact($contactId, $reason = 'manual')
     {
