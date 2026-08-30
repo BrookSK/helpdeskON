@@ -2305,6 +2305,46 @@ class CrmController extends Controller
     }
 
     /**
+     * Alterna o status do lead entre ativo/inativo para prospecção/sequências.
+     * Sincroniza a coluna sequence_status com unsubscribed (inativo = descadastrado).
+     * POST crm/toggleLeadStatus  body: contact_id
+     */
+    public function toggleLeadStatus()
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $contactId = !empty($_POST['contact_id']) ? intval($_POST['contact_id']) : 0;
+        if (!$contactId) $this->json(['error' => 'Lead inválido.'], 400);
+
+        $db = Database::getInstance();
+        $c = $db->fetch("SELECT id, COALESCE(unsubscribed,0) AS unsubscribed FROM whatsapp_contacts WHERE id = ?", [$contactId]);
+        if (!$c) $this->json(['error' => 'Lead não encontrado.'], 404);
+
+        // Alterna: se está inativo (unsubscribed=1) → ativa; senão → inativa.
+        $makeInactive = ((int)$c['unsubscribed'] === 0);
+        $data = ['unsubscribed' => $makeInactive ? 1 : 0];
+
+        // Mantém a coluna dedicada sincronizada, se existir.
+        try {
+            $has = $db->fetch("SELECT COUNT(*) t FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='whatsapp_contacts' AND COLUMN_NAME='sequence_status'");
+            if ($has && (int)$has['t'] > 0) $data['sequence_status'] = $makeInactive ? 'inactive' : 'active';
+        } catch (\Throwable $e) { /* ignora */ }
+
+        $db->update('whatsapp_contacts', $data, 'id = ?', [$contactId]);
+
+        // Ao ATIVAR, encerra participações antigas para permitir reinício limpo no teste.
+        if (!$makeInactive) {
+            try {
+                $db->query("UPDATE sequence_participants SET status='stopped', stop_reason='manual', finished_at=NOW(), next_run_at=NULL
+                            WHERE contact_id = ? AND status IN ('active','paused')", [$contactId]);
+            } catch (\Throwable $e) { /* ignora */ }
+        }
+
+        $this->json(['success' => true, 'unsubscribed' => $makeInactive ? 1 : 0, 'sequence_status' => $makeInactive ? 'inactive' : 'active']);
+    }
+
+    /**
      * API: lista usuários que podem ser responsáveis por leads (comercial + super_admin).
      * GET crm/leadOwners
      */

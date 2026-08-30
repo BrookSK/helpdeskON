@@ -496,9 +496,9 @@
                 <div class="table-responsive" style="max-height:420px;overflow:auto;">
                     <table class="table table-sm table-hover mb-0" style="font-size:0.82rem;">
                         <thead class="table-light sticky-top"><tr>
-                            <th style="width:36px;"></th><th>Nome</th><th>E-mail</th><th>Responsável</th><th>Temp.</th>
+                            <th style="width:36px;"></th><th>Nome</th><th>E-mail</th><th>Responsável</th><th>Temp.</th><th>Status</th>
                         </tr></thead>
-                        <tbody id="lp-body"><tr><td colspan="5" class="text-center text-muted py-3">Carregando...</td></tr></tbody>
+                        <tbody id="lp-body"><tr><td colspan="6" class="text-center text-muted py-3">Carregando...</td></tr></tbody>
                     </table>
                 </div>
             </div>
@@ -813,26 +813,50 @@ function loadLeadPicker() {
     fetch(BASE + 'crm/leadsForCampaign?' + qs.toString(), { headers:{'X-Requested-With':'XMLHttpRequest'} })
         .then(r=>r.json()).then(d=>{
             const leads = d.leads || [];
-            if (!leads.length) { body.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">Nenhum lead elegível para o canal desta sequência.</td></tr>'; return; }
+            if (!leads.length) { body.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">Nenhum lead elegível para o canal desta sequência.</td></tr>'; return; }
             body.innerHTML = leads.map(l => {
                 lpLeadCache[l.id] = l.contact_name || l.lead_email;
                 const checked = lpTempSelected.has(String(l.id)) ? 'checked' : '';
                 const inactive = Number(l.unsubscribed) === 1;
-                const badge = inactive
-                    ? ` <span class="badge bg-secondary" title="Lead descadastrado — será reativado ao inscrever">inativo</span>`
-                    : '';
-                const nameCell = escapeH(l.contact_name||'—') + badge;
-                return `<tr onclick="lpToggleRow(${l.id}, event)" style="cursor:pointer;${inactive?'opacity:.75;':''}">
+                const statusBtn = inactive
+                    ? `<button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" title="Inativo — clique para ativar" onclick="event.stopPropagation();lpToggleStatus(${l.id}, this)"><i class="bi bi-toggle-off"></i> Inativo</button>`
+                    : `<button type="button" class="btn btn-sm btn-outline-success py-0 px-2" title="Ativo — clique para inativar" onclick="event.stopPropagation();lpToggleStatus(${l.id}, this)"><i class="bi bi-toggle-on"></i> Ativo</button>`;
+                return `<tr onclick="lpToggleRow(${l.id}, event)" style="cursor:pointer;${inactive?'opacity:.7;':''}" data-lead-row="${l.id}">
                     <td><input type="checkbox" class="form-check-input lp-check" value="${l.id}" ${checked} onclick="event.stopPropagation();lpToggle(${l.id}, this.checked)"></td>
-                    <td>${nameCell}</td>
+                    <td>${escapeH(l.contact_name||'—')}</td>
                     <td>${escapeH(l.lead_email||'—')}</td>
                     <td>${escapeH(l.assigned_name||'—')}</td>
                     <td>${escapeH(l.lead_temperature||'—')}</td>
+                    <td>${statusBtn}</td>
                 </tr>`;
             }).join('');
             lpUpdateCount();
         })
-        .catch(()=>{ body.innerHTML = '<tr><td colspan="5" class="text-center text-danger py-3">Erro ao carregar leads.</td></tr>'; });
+        .catch(()=>{ body.innerHTML = '<tr><td colspan="6" class="text-center text-danger py-3">Erro ao carregar leads.</td></tr>'; });
+}
+
+// Alterna o status ativo/inativo do lead (grava na coluna sequence_status).
+function lpToggleStatus(id, btn) {
+    const orig = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    const fd = new FormData(); fd.append('contact_id', id);
+    fetch(BASE + 'crm/toggleLeadStatus', { method:'POST', body:fd, headers:{'X-Requested-With':'XMLHttpRequest'} })
+        .then(r=>r.json()).then(d=>{
+            btn.disabled = false;
+            if (d.error) { alert(d.error); btn.innerHTML = orig; return; }
+            const row = document.querySelector(`tr[data-lead-row="${id}"]`);
+            if (Number(d.unsubscribed) === 1) {
+                btn.className = 'btn btn-sm btn-outline-secondary py-0 px-2';
+                btn.title = 'Inativo — clique para ativar';
+                btn.innerHTML = '<i class="bi bi-toggle-off"></i> Inativo';
+                if (row) row.style.opacity = '.7';
+            } else {
+                btn.className = 'btn btn-sm btn-outline-success py-0 px-2';
+                btn.title = 'Ativo — clique para inativar';
+                btn.innerHTML = '<i class="bi bi-toggle-on"></i> Ativo';
+                if (row) row.style.opacity = '';
+            }
+        })
+        .catch(()=>{ btn.disabled=false; btn.innerHTML=orig; alert('Erro ao alterar o status.'); });
 }
 
 function lpToggle(id, on) {
