@@ -166,9 +166,9 @@ class EmailProspection
             return $body; // já assinado
         }
         try {
-            // Assinatura POR CONTA/DOMÍNIO quando a conta é conhecida; senão, padrão.
-            $sig = $account
-                ? EmailMessageService::signatureForAccount($account)
+            // Assinatura pelo DOMÍNIO do remetente quando a conta é conhecida; senão, padrão.
+            $sig = (is_array($account) && !empty($account['email']))
+                ? EmailMessageService::signatureForSender($account['email'])
                 : EmailMessageService::signatureHtml();
             return $body . $sig;
         } catch (\Throwable $e) {

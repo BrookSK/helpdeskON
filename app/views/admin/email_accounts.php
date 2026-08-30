@@ -124,7 +124,7 @@
 <div class="modal fade" id="accountModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
-            <form method="POST" action="<?= baseUrl('settings/saveEmailAccount') ?>" enctype="multipart/form-data">
+            <form method="POST" action="<?= baseUrl('settings/saveEmailAccount') ?>">
                 <input type="hidden" name="id" id="acc-id">
                 <div class="modal-header">
                     <h6 class="modal-title" id="acc-modal-title"><i class="bi bi-envelope-at"></i> Nova Conta de E-mail</h6>
@@ -187,58 +187,6 @@
                             </select>
                         </div>
 
-                        <div class="col-12"><hr class="my-1">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <small class="text-muted fw-medium"><i class="bi bi-pen"></i> Assinatura de e-mail (deste domínio)</small>
-                                <div class="form-check form-switch mb-0">
-                                    <input class="form-check-input" type="checkbox" name="signature_enabled" id="acc-sig-enabled" value="1" checked>
-                                    <label class="form-check-label small" for="acc-sig-enabled">Usar assinatura</label>
-                                </div>
-                            </div>
-                            <small class="text-muted">Se ficar vazio, usa a assinatura padrão do sistema. Preencha para o e-mail deste domínio sair com a assinatura própria (ex.: LRV Web).</small>
-                        </div>
-
-                        <div class="col-md-6">
-                            <label class="form-label small fw-medium">Nome na assinatura</label>
-                            <input type="text" name="signature_name" id="acc-sig-name" class="form-control form-control-sm" placeholder="Ex: Lucas Vacari">
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label small fw-medium">Cargo</label>
-                            <input type="text" name="signature_role" id="acc-sig-role" class="form-control form-control-sm" placeholder="Ex: Consultor comercial">
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label small fw-medium">Empresa</label>
-                            <input type="text" name="signature_company" id="acc-sig-company" class="form-control form-control-sm" placeholder="Ex: LRV Web">
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label small fw-medium">Site</label>
-                            <input type="text" name="signature_site" id="acc-sig-site" class="form-control form-control-sm" placeholder="www.lrvweb.com.br">
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label small fw-medium">E-mail de contato</label>
-                            <input type="text" name="signature_email" id="acc-sig-email" class="form-control form-control-sm" placeholder="contato@lrvweb.com.br">
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label small fw-medium">Telefone</label>
-                            <input type="text" name="signature_phone" id="acc-sig-phone" class="form-control form-control-sm" placeholder="(11) 90000-0000">
-                        </div>
-                        <div class="col-md-8">
-                            <label class="form-label small fw-medium">Linha final (tagline)</label>
-                            <input type="text" name="signature_tagline" id="acc-sig-tagline" class="form-control form-control-sm" placeholder="Ex: Sites, sistemas e soluções digitais.">
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label small fw-medium">Cor dos links</label>
-                            <input type="color" name="signature_color" id="acc-sig-color" class="form-control form-control-sm form-control-color" value="#00997D" style="height:31px;">
-                        </div>
-                        <div class="col-md-8">
-                            <label class="form-label small fw-medium">Logo da assinatura</label>
-                            <input type="file" name="signature_logo" id="acc-sig-logo" class="form-control form-control-sm" accept="image/*">
-                            <small class="text-muted">PNG/JPG/SVG até 2MB. Deixe vazio para manter a atual.</small>
-                        </div>
-                        <div class="col-md-4 d-flex align-items-end">
-                            <div id="acc-sig-logo-preview" class="small text-muted"></div>
-                        </div>
-
                         <div class="col-12"><hr class="my-1"><small class="text-muted fw-medium">Usuários que podem usar esta conta</small></div>
 
                         <div class="col-12">
@@ -283,12 +231,6 @@ function openAccountModal() {
     document.getElementById('acc-imap-port').value = '<?= escape($defaults['prospection_imap_port'] ?? '993') ?>';
     document.getElementById('acc-imap-encryption').value = '<?= escape($defaults['prospection_imap_encryption'] ?? 'ssl') ?>';
     Array.from(document.getElementById('acc-users').options).forEach(o => o.selected = false);
-    // Assinatura (novo: limpa)
-    document.getElementById('acc-sig-enabled').checked = true;
-    ['name','role','company','site','email','phone','tagline'].forEach(k => { const el = document.getElementById('acc-sig-'+k); if (el) el.value = ''; });
-    document.getElementById('acc-sig-color').value = '#00997D';
-    document.getElementById('acc-sig-logo').value = '';
-    document.getElementById('acc-sig-logo-preview').innerHTML = '';
     document.getElementById('acc-modal-title').textContent = 'Nova Conta de E-mail';
     getAccountModal().show();
 }
@@ -312,20 +254,6 @@ function editAccount(id) {
             document.getElementById('acc-imap-host').value = a.imap_host || '';
             document.getElementById('acc-imap-port').value = a.imap_port || '993';
             document.getElementById('acc-imap-encryption').value = a.imap_encryption || 'ssl';
-            // Assinatura da conta
-            document.getElementById('acc-sig-enabled').checked = Number(a.signature_enabled) !== 0;
-            document.getElementById('acc-sig-name').value = a.signature_name || '';
-            document.getElementById('acc-sig-role').value = a.signature_role || '';
-            document.getElementById('acc-sig-company').value = a.signature_company || '';
-            document.getElementById('acc-sig-site').value = a.signature_site || '';
-            document.getElementById('acc-sig-email').value = a.signature_email || '';
-            document.getElementById('acc-sig-phone').value = a.signature_phone || '';
-            document.getElementById('acc-sig-tagline').value = a.signature_tagline || '';
-            document.getElementById('acc-sig-color').value = a.signature_color || '#00997D';
-            document.getElementById('acc-sig-logo').value = '';
-            document.getElementById('acc-sig-logo-preview').innerHTML = a.signature_logo
-                ? ('<img src="' + BASE + a.signature_logo + '" style="max-height:40px;border:1px solid #eee;border-radius:6px;padding:2px;"> <span class="text-success">logo atual</span>')
-                : '<span class="text-muted">sem logo</span>';
             // Marcar usuários vinculados
             const ids = (a.linked_users || []).map(String);
             Array.from(document.getElementById('acc-users').options).forEach(o => o.selected = ids.includes(o.value));

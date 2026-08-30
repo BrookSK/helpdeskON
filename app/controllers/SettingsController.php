@@ -9,7 +9,14 @@ class SettingsController extends Controller
         $settings = Config::getAll();
         $whatsappGroups = (new WhatsappContact())->getAllGroups();
         $dbInfo = $this->detectDatabaseInfo();
-        $this->view('admin/settings', ['user' => $user, 'settings' => $settings, 'whatsappGroups' => $whatsappGroups, 'dbInfo' => $dbInfo]);
+
+        // Assinaturas de e-mail por domínio (tabela pode não existir ainda)
+        $emailSignatures = [];
+        try {
+            $emailSignatures = Database::getInstance()->fetchAll("SELECT * FROM email_signatures ORDER BY domain ASC");
+        } catch (\Throwable $e) { $emailSignatures = []; }
+
+        $this->view('admin/settings', ['user' => $user, 'settings' => $settings, 'whatsappGroups' => $whatsappGroups, 'dbInfo' => $dbInfo, 'emailSignatures' => $emailSignatures]);
     }
 
     /**
@@ -411,23 +418,7 @@ class SettingsController extends Controller
             'imap_host' => trim($_POST['imap_host'] ?? '') ?: null,
             'imap_port' => intval($_POST['imap_port'] ?? 993),
             'imap_encryption' => in_array($_POST['imap_encryption'] ?? '', ['ssl', 'tls', 'none']) ? $_POST['imap_encryption'] : 'ssl',
-            // Assinatura de e-mail por conta/domínio
-            'signature_enabled' => !empty($_POST['signature_enabled']) ? 1 : 0,
-            'signature_name' => trim($_POST['signature_name'] ?? '') ?: null,
-            'signature_role' => trim($_POST['signature_role'] ?? '') ?: null,
-            'signature_company' => trim($_POST['signature_company'] ?? '') ?: null,
-            'signature_site' => trim($_POST['signature_site'] ?? '') ?: null,
-            'signature_email' => trim($_POST['signature_email'] ?? '') ?: null,
-            'signature_phone' => trim($_POST['signature_phone'] ?? '') ?: null,
-            'signature_tagline' => trim($_POST['signature_tagline'] ?? '') ?: null,
-            'signature_color' => trim($_POST['signature_color'] ?? '') ?: '#00997D',
         ];
-
-        // Upload da logo da assinatura (opcional). Mantém a atual se nada for enviado.
-        if (!empty($_FILES['signature_logo']['name']) && $_FILES['signature_logo']['error'] === UPLOAD_ERR_OK) {
-            $logoPath = $this->uploadBrandFile($_FILES['signature_logo'], 'sig');
-            if ($logoPath) $data['signature_logo'] = $logoPath;
-        }
 
         if ($id) {
             // Atualiza — só manda senha se foi preenchida
@@ -447,6 +438,68 @@ class SettingsController extends Controller
 
         flash('success', 'Conta de e-mail salva com sucesso!');
         $this->redirect('settings/emailAccounts');
+    }
+
+    /**
+     * Salva (cria/atualiza) uma assinatura de e-mail por domínio.
+     * POST settings/saveEmailSignature  (multipart: logo opcional)
+     */
+    public function saveEmailSignature()
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->redirect('settings');
+
+        $db = Database::getInstance();
+        $id = !empty($_POST['sig_id']) ? intval($_POST['sig_id']) : null;
+        $domain = strtolower(trim($_POST['domain'] ?? ''));
+        // normaliza: se colaram um e-mail, extrai o domínio
+        if (strpos($domain, '@') !== false) $domain = substr(strrchr($domain, '@'), 1);
+        $domain = preg_replace('/^https?:\/\//', '', $domain);
+        $domain = trim($domain, '/ ');
+
+        if ($domain === '') { flash('error', 'Informe o domínio da assinatura.'); $this->redirect('settings'); }
+
+        $data = [
+            'domain' => $domain,
+            'company' => trim($_POST['company'] ?? '') ?: null,
+            'specialties' => trim($_POST['specialties'] ?? '') ?: null,
+            'contact_email' => trim($_POST['contact_email'] ?? '') ?: null,
+            'site' => trim($_POST['site'] ?? '') ?: null,
+            'tagline' => trim($_POST['tagline'] ?? '') ?: null,
+            'color' => trim($_POST['color'] ?? '') ?: '#00997D',
+            'is_active' => !empty($_POST['is_active']) ? 1 : 0,
+        ];
+
+        // Upload da logo (opcional). Vazio = mantém a atual / usa a logo do sistema.
+        if (!empty($_FILES['logo']['name']) && $_FILES['logo']['error'] === UPLOAD_ERR_OK) {
+            $logoPath = $this->uploadBrandFile($_FILES['logo'], 'sig');
+            if ($logoPath) $data['logo'] = $logoPath;
+        }
+
+        try {
+            if ($id) {
+                $db->update('email_signatures', $data, 'id = ?', [$id]);
+            } else {
+                // upsert por domínio
+                $exists = $db->fetch("SELECT id FROM email_signatures WHERE domain = ?", [$domain]);
+                if ($exists) $db->update('email_signatures', $data, 'id = ?', [$exists['id']]);
+                else $db->insert('email_signatures', $data);
+            }
+            flash('success', 'Assinatura do domínio salva!');
+        } catch (\Throwable $e) {
+            flash('error', 'Erro ao salvar assinatura: ' . $e->getMessage());
+        }
+        $this->redirect('settings');
+    }
+
+    /** Exclui uma assinatura de domínio. POST settings/deleteEmailSignature/{id} */
+    public function deleteEmailSignature($id = null)
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->redirect('settings');
+        try { Database::getInstance()->delete('email_signatures', 'id = ?', [$id]); flash('success', 'Assinatura removida.'); }
+        catch (\Throwable $e) { flash('error', 'Erro ao remover.'); }
+        $this->redirect('settings');
     }
 
     public function deleteEmailAccount($id = null)

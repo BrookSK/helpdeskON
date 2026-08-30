@@ -33,69 +33,61 @@ class EmailMessageService
      * Fonte única para e-mails manuais e de sequência.
      */
     /**
-     * Assinatura HTML específica de uma CONTA de e-mail (por domínio). Usa os
-     * campos signature_* da conta. Se a conta não tiver assinatura configurada
-     * (signature_enabled=0 ou sem dados), retorna a assinatura padrão do sistema.
+     * Assinatura HTML pelo DOMÍNIO do remetente. Casa o domínio de $fromEmail com
+     * uma assinatura cadastrada em email_signatures (configurada uma vez em
+     * Configurações). Mesmos campos da assinatura padrão: logo, empresa,
+     * especialidades, e-mail, site e tagline. Sem correspondência → padrão.
      *
-     * @param array|null $account linha de email_accounts
+     * @param string|null $fromEmail e-mail da conta que está enviando
      * @return string HTML com o marcador data-onsolu-signature
      */
-    public static function signatureForAccount($account, $userName = null)
+    public static function signatureForSender($fromEmail, $userName = null)
     {
-        if (!is_array($account)) return self::signatureHtml($userName);
+        $sig = null;
+        try {
+            $email = trim((string)$fromEmail);
+            $domain = (strpos($email, '@') !== false) ? strtolower(substr(strrchr($email, '@'), 1)) : '';
+            if ($domain !== '') {
+                $sig = Database::getInstance()->fetch(
+                    "SELECT * FROM email_signatures WHERE is_active = 1 AND domain = ? LIMIT 1",
+                    [$domain]
+                );
+            }
+        } catch (\Throwable $e) { $sig = null; }
 
-        // Conta com assinatura desativada explicitamente → sem assinatura.
-        if (array_key_exists('signature_enabled', $account) && (int)$account['signature_enabled'] === 0) {
-            return '<div data-onsolu-signature="1"></div>';
-        }
-
-        // Se a conta não tem NENHUM campo de assinatura preenchido, usa o padrão.
-        $hasCustom = false;
-        foreach (['signature_name','signature_company','signature_site','signature_email','signature_phone','signature_tagline','signature_logo','signature_role'] as $k) {
-            if (!empty($account[$k])) { $hasCustom = true; break; }
-        }
-        if (!$hasCustom) return self::signatureHtml($userName ?? ($account['display_name'] ?? null));
+        if (!$sig) return self::signatureHtml($userName); // fallback padrão
 
         $esc = fn($v) => htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
-        $color = $esc($account['signature_color'] ?? '#00997D');
+        $color = $esc($sig['color'] ?: '#00997D');
 
-        // Logo (upload da conta). Aceita caminho relativo (baseUrl) ou URL absoluta.
+        // Logo: usa a da assinatura (upload) ou, se vazia, a logo do sistema.
         $logoHtml = '';
-        if (!empty($account['signature_logo'])) {
-            $logo = $account['signature_logo'];
+        $logo = $sig['logo'] ?? '';
+        if (empty($logo)) { try { $logo = (string) Config::get('app_logo'); } catch (\Throwable $e) {} }
+        if (!empty($logo)) {
             $logoUrl = (stripos($logo, 'http') === 0) ? $logo : baseUrl($logo);
-            $logoHtml = '<img src="' . $esc($logoUrl) . '" alt="' . $esc($account['signature_company'] ?? '') . '" style="max-height:56px;margin-bottom:8px;">';
+            $logoHtml = '<img src="' . $esc($logoUrl) . '" alt="' . $esc($sig['company'] ?? '') . '" style="max-height:56px;margin-bottom:8px;">';
         }
 
-        $name = trim((string)($account['signature_name'] ?? $userName ?? ''));
-        $role = trim((string)($account['signature_role'] ?? ''));
-        $company = trim((string)($account['signature_company'] ?? ''));
-        $site = trim((string)($account['signature_site'] ?? ''));
-        $email = trim((string)($account['signature_email'] ?? $account['email'] ?? ''));
-        $phone = trim((string)($account['signature_phone'] ?? ''));
-        $tagline = trim((string)($account['signature_tagline'] ?? ''));
+        $company = trim((string)($sig['company'] ?? ''));
+        $spec = trim((string)($sig['specialties'] ?? ''));
+        $email = trim((string)($sig['contact_email'] ?? ''));
+        $site = trim((string)($sig['site'] ?? ''));
+        $tagline = trim((string)($sig['tagline'] ?? ''));
+        $siteUrl = ($site && stripos($site, 'http') === 0) ? $site : ('https://' . $site);
 
-        $nameBlock = $name !== '' ? '<div style="font-weight:600;color:#111;">' . $esc($name) . ($role !== '' ? ' <span style="font-weight:400;color:#666;">· ' . $esc($role) . '</span>' : '') . '</div>' : '';
-        $companyBlock = $company !== '' ? '<div style="margin-top:6px;"><strong>' . $esc($company) . '</strong></div>' : '';
+        $contact = [];
+        if ($email !== '') $contact[] = '📧 <a href="mailto:' . $esc($email) . '" style="color:' . $color . ';text-decoration:none;">' . $esc($email) . '</a>';
+        if ($site !== '')  $contact[] = '🌐 <a href="' . $esc($siteUrl) . '" style="color:' . $color . ';text-decoration:none;">' . $esc($site) . '</a>';
 
-        $contactLines = [];
-        if ($phone !== '') $contactLines[] = '📞 ' . $esc($phone);
-        if ($email !== '') $contactLines[] = '📧 <a href="mailto:' . $esc($email) . '" style="color:' . $color . ';text-decoration:none;">' . $esc($email) . '</a>';
-        if ($site !== '') {
-            $siteUrl = (stripos($site, 'http') === 0) ? $site : ('https://' . $site);
-            $contactLines[] = '🌐 <a href="' . $esc($siteUrl) . '" style="color:' . $color . ';text-decoration:none;">' . $esc($site) . '</a>';
-        }
-        $contactBlock = !empty($contactLines) ? '<div style="margin-top:8px;">' . implode('<br>', $contactLines) . '</div>' : '';
-        $taglineBlock = $tagline !== '' ? '<div style="margin-top:8px;color:#888;font-size:12px;">' . $esc($tagline) . '</div>' : '';
-
+        // Mesmo layout da assinatura padrão (imagem de referência).
         return '
 <div data-onsolu-signature="1" style="margin-top:28px;padding-top:16px;border-top:1px solid #e5e7eb;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#333;line-height:1.5;">
     ' . $logoHtml . '
-    ' . $nameBlock . '
-    <div style="margin-top:6px;">Atenciosamente,</div>
-    ' . $companyBlock . '
-    ' . $contactBlock . '
-    ' . $taglineBlock . '
+    <div style="margin-top:6px;">Atenciosamente,<br><strong>' . $esc($company) . '</strong></div>'
+    . ($spec !== '' ? '<div style="color:#666;margin-top:2px;">' . $esc($spec) . '</div>' : '') . '
+    ' . (!empty($contact) ? '<div style="margin-top:8px;">' . implode('<br>', $contact) . '</div>' : '') . '
+    ' . ($tagline !== '' ? '<div style="margin-top:8px;color:#888;font-size:12px;"><strong>' . $esc($company) . '</strong><br>' . $esc($tagline) . '</div>' : '') . '
 </div>';
     }
 
@@ -146,8 +138,8 @@ class EmailMessageService
         // sequência). O envio manual já concatena a assinatura antes de chamar aqui,
         // então não usa esse flag para evitar duplicidade.
         if (!empty($params['add_signature'])) {
-            // Assinatura da CONTA que está enviando (por domínio); fallback padrão.
-            $body .= self::signatureForAccount($account, $params['signature_name'] ?? null);
+            // Assinatura pelo DOMÍNIO do remetente; fallback padrão.
+            $body .= self::signatureForSender($account['email'] ?? null, $params['signature_name'] ?? null);
         }
 
         // Bloqueia envio a leads descadastrados / com bounce definitivo
