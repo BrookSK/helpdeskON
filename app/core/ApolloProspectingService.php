@@ -219,13 +219,16 @@ class ApolloProspectingService
         $selectedIds = json_decode($camp['my_leads_ids'] ?? '[]', true);
         $selectedIds = is_array($selectedIds) ? array_values(array_filter(array_map('intval', $selectedIds))) : [];
 
+        // Canal da sequência define a elegibilidade dos leads (email/whatsapp/mixed).
+        $channel = $this->sequenceChannel($sequenceId);
+
         if (!empty($selectedIds)) {
-            $rows = $this->fetchMyLeadsByIds($selectedIds);
+            $rows = $this->fetchMyLeadsByIds($selectedIds, $channel);
             $target = count($rows); // inscreve todos os selecionados
         } else {
             $filters = json_decode($camp['my_leads_filters'] ?? '{}', true) ?: [];
-            // Candidatos: leads do CRM com e-mail, não descadastrados, elegíveis pelos filtros.
-            $rows = $this->fetchMyLeadsCandidates($filters, max(1, $target) * 5);
+            // Candidatos: leads do CRM elegíveis ao canal, não descadastrados, pelos filtros.
+            $rows = $this->fetchMyLeadsCandidates($filters, max(1, $target) * 5, $channel);
         }
         $m['searched'] = count($rows);
 
@@ -260,12 +263,25 @@ class ApolloProspectingService
     {
         $leadModel = new ApolloLead();
 
+        // Roteamento automático: a campanha escolhe a sequência por canal conforme
+        // os dados encontrados. Para fins de reveal/elegibilidade, comporta-se como
+        // "mixed" (tenta e-mail, aceita e-mail OU telefone).
+        $autoRoute = !empty($camp['auto_route']);
+
+        // Canal da campanha (via sequência): define se o e-mail é obrigatório.
+        //   email → precisa de e-mail; whatsapp → precisa de telefone;
+        //   mixed → precisa de e-mail OU telefone.
+        $channel = $autoRoute ? 'mixed' : $this->sequenceChannel((int)($camp['sequence_id'] ?? 0));
+        $emailRequired = ($channel === 'email');
+
         // Reaproveita e-mail já revelado, se houver (não gasta crédito de novo)
         $stored = $leadModel->findById($localId);
         $email = $this->extractEmail($person) ?: ($stored['email'] ?? null);
         $emailIsReal = $email && stripos($email, 'email_not_unlocked') === false && filter_var($email, FILTER_VALIDATE_EMAIL);
 
-        if (!$emailIsReal) {
+        // Só revela e-mail quando o canal usa e-mail (email/mixed). Numa campanha
+        // exclusiva de WhatsApp não gasta crédito revelando e-mail.
+        if (!$emailIsReal && $channel !== 'whatsapp') {
             // REVEAL apenas do e-mail (economia — telefone é progressivo)
             try {
                 $res = $this->apollo->enrichPerson([
@@ -279,21 +295,39 @@ class ApolloProspectingService
                 ]);
             } catch (\Throwable $e) {
                 $this->logCampaign($camp['id'], 'reveal_error', $e->getMessage());
+                if ($emailRequired) return 'reveal_failed';
+                $res = null;
+            }
+            if (!empty($res['success'])) {
+                $revealed = $res['data']['person'] ?? null;
+                if ($revealed) {
+                    $leadModel->upsertFromApollo($revealed, null);
+                    $person = array_merge($person, $revealed);
+                    $email = $this->extractEmail($revealed) ?: $email;
+                }
+                // Registra consumo de crédito (1 crédito por reveal de e-mail)
+                $this->recordCredit($camp['id'], $localId, 'email', 1);
+            } elseif ($emailRequired) {
                 return 'reveal_failed';
             }
-            if (empty($res['success'])) return 'reveal_failed';
-            $revealed = $res['data']['person'] ?? null;
-            if ($revealed) {
-                $leadModel->upsertFromApollo($revealed, null);
-                $person = array_merge($person, $revealed);
-                $email = $this->extractEmail($revealed) ?: $email;
-            }
-            // Registra consumo de crédito (1 crédito por reveal de e-mail)
-            $this->recordCredit($camp['id'], $localId, 'email', 1);
         }
 
         $emailIsReal = $email && stripos($email, 'email_not_unlocked') === false && filter_var($email, FILTER_VALIDATE_EMAIL);
-        if (!$emailIsReal) return 'reveal_failed'; // sem e-mail não há como iniciar cold email
+
+        // Telefone da busca (sem custo). Serve para o canal WhatsApp/mixed.
+        // Obs.: a Apollo costuma NÃO trazer telefone na busca — ele é revelado
+        // depois, de forma assíncrona, pelo bloco "reveal_phone" da sequência.
+        $phone = $this->extractPhoneFromPerson($person) ?: ($stored['phone'] ?? null);
+        $hasPhone = !empty($phone);
+
+        // A sequência tem um bloco de reveal de telefone? Então leads sem telefone
+        // imediato ainda são elegíveis nos canais whatsapp/mixed (o número chega depois).
+        $seqRevealsPhone = $this->sequenceHasPhoneReveal((int)($camp['sequence_id'] ?? 0));
+
+        // Verifica elegibilidade final conforme o canal antes de criar o lead.
+        if ($channel === 'email' && !$emailIsReal) return 'reveal_failed';
+        if ($channel === 'whatsapp' && !$hasPhone && !$seqRevealsPhone) return 'reveal_failed';
+        if ($channel === 'mixed' && !$emailIsReal && !$hasPhone && !$seqRevealsPhone) return 'reveal_failed';
 
         // Monta as notas comerciais no padrão que o MessageTemplate lê (Cargo/Empresa/LinkedIn)
         $org = $person['organization'] ?? [];
@@ -311,13 +345,15 @@ class ApolloProspectingService
 
         // Existe? (dedup central por e-mail revelado) — para preservar dono de lead já existente.
         $resolver = new LeadResolver();
-        $preExistingId = $resolver->findByEmail($email);
+        $preExistingId = $emailIsReal ? $resolver->findByEmail($email) : null;
 
         // Cria/atualiza o Lead via LeadResolver (dedup central; nunca base paralela).
-        // Só define assigned_to (Super Admin) quando o lead é NOVO.
+        // Passa e-mail e/ou telefone conforme disponível — o resolver deduplica por
+        // ambos. Só define assigned_to (Super Admin) quando o lead é NOVO.
         $contactId = $resolver->resolve([
             'name' => $name,
-            'email' => $email,
+            'email' => $emailIsReal ? $email : null,
+            'phone' => $hasPhone ? $phone : null,
             'company' => $org['name'] ?? null,
             'source' => 'apollo',
             'assigned_to' => $preExistingId ? null : ($superAdminId ?: null),
@@ -359,10 +395,26 @@ class ApolloProspectingService
             }
         }
 
-        // Sequência: inscreve o lead (idempotente por sequence+contact)
-        if (!empty($camp['sequence_id'])) {
-            (new SequenceEngine())->enroll((int)$camp['sequence_id'], $contactId, $camp['created_by'] ?: null);
-            $this->logEnrolled($camp['id'], $contactId, 'Apollo → sequência');
+        // Sequência: inscreve o lead (idempotente por sequence+contact).
+        // Com auto_route, escolhe a sequência pelo canal conforme os dados encontrados:
+        //   e-mail + telefone → mixed | só e-mail → email | só telefone → whatsapp.
+        $targetSeq = (int)($camp['sequence_id'] ?? 0);
+        $routeLabel = 'Apollo → sequência';
+        if (!empty($camp['auto_route'])) {
+            if ($emailIsReal && $hasPhone) {
+                $targetSeq = (int)($camp['sequence_id_mixed'] ?? 0) ?: $targetSeq;
+                $routeLabel = 'Apollo → sequência mista (e-mail + telefone)';
+            } elseif ($emailIsReal) {
+                $targetSeq = (int)($camp['sequence_id_email'] ?? 0) ?: $targetSeq;
+                $routeLabel = 'Apollo → sequência de e-mail';
+            } elseif ($hasPhone) {
+                $targetSeq = (int)($camp['sequence_id_whatsapp'] ?? 0) ?: $targetSeq;
+                $routeLabel = 'Apollo → sequência de WhatsApp';
+            }
+        }
+        if ($targetSeq) {
+            (new SequenceEngine())->enroll($targetSeq, $contactId, $camp['created_by'] ?: null);
+            $this->logEnrolled($camp['id'], $contactId, $routeLabel);
         }
 
         return 'enrolled';
@@ -487,13 +539,13 @@ class ApolloProspectingService
      * Só retorna leads com e-mail válido e não descadastrados. Aplica filtros
      * opcionais: temperatura, fonte, responsável.
      */
-    private function fetchMyLeadsCandidates(array $filters, $limit)
+    private function fetchMyLeadsCandidates(array $filters, $limit, $channel = 'email')
     {
-        $sql = "SELECT c.id, c.contact_name, c.lead_email
+        $sql = "SELECT c.id, c.contact_name, c.lead_email, c.phone
                 FROM whatsapp_contacts c
                 LEFT JOIN commercial_briefings b ON b.contact_id = c.id
                 WHERE COALESCE(c.is_group,0)=0
-                  AND c.lead_email IS NOT NULL AND c.lead_email <> ''
+                  AND " . $this->channelEligibilitySql($channel) . "
                   AND COALESCE(c.unsubscribed,0)=0
                   AND COALESCE(c.email_bounced,0)=0
                   AND COALESCE(c.crm_archived,0)=0";
@@ -511,19 +563,60 @@ class ApolloProspectingService
      * Busca leads específicos por ID (seleção manual), mantendo os mesmos critérios
      * de elegibilidade (e-mail válido, não descadastrado, não bounce, não arquivado).
      */
-    private function fetchMyLeadsByIds(array $ids)
+    private function fetchMyLeadsByIds(array $ids, $channel = 'email')
     {
         $ids = array_values(array_filter(array_map('intval', $ids)));
         if (empty($ids)) return [];
         $ph = implode(',', array_fill(0, count($ids), '?'));
-        $sql = "SELECT c.id, c.contact_name, c.lead_email
+        $sql = "SELECT c.id, c.contact_name, c.lead_email, c.phone
                 FROM whatsapp_contacts c
                 WHERE c.id IN ($ph)
                   AND COALESCE(c.is_group,0)=0
-                  AND c.lead_email IS NOT NULL AND c.lead_email <> ''
+                  AND " . $this->channelEligibilitySql($channel) . "
                   AND COALESCE(c.unsubscribed,0)=0
                   AND COALESCE(c.email_bounced,0)=0";
         return $this->db->fetchAll($sql, $ids);
+    }
+
+    /**
+     * Cláusula SQL de elegibilidade por canal (sobre whatsapp_contacts c):
+     *   email    → precisa de e-mail
+     *   whatsapp → precisa de telefone
+     *   mixed    → e-mail OU telefone
+     */
+    private function channelEligibilitySql($channel)
+    {
+        $hasEmail = "(c.lead_email IS NOT NULL AND c.lead_email <> '')";
+        $hasPhone = "(c.phone IS NOT NULL AND c.phone <> '')";
+        if ($channel === 'whatsapp') return $hasPhone;
+        if ($channel === 'mixed') return "($hasEmail OR $hasPhone)";
+        return $hasEmail; // email (padrão)
+    }
+
+    /** Lê o canal (email/whatsapp/mixed) de uma sequência. */
+    private function sequenceChannel($sequenceId)
+    {
+        if (!$sequenceId) return 'email';
+        $r = $this->db->fetch("SELECT channel_type FROM email_sequences WHERE id = ?", [(int)$sequenceId]);
+        $ch = $r['channel_type'] ?? 'email';
+        return in_array($ch, ['email', 'whatsapp', 'mixed'], true) ? $ch : 'email';
+    }
+
+    /** Verifica se o grafo da sequência contém um bloco de reveal de telefone. */
+    private function sequenceHasPhoneReveal($sequenceId)
+    {
+        if (!$sequenceId) return false;
+        $r = $this->db->fetch("SELECT graph FROM email_sequences WHERE id = ?", [(int)$sequenceId]);
+        if (empty($r['graph'])) return false;
+        $graph = json_decode($r['graph'], true);
+        foreach ($graph['nodes'] ?? [] as $n) {
+            if (($n['type'] ?? '') === 'reveal_phone') {
+                // reveal_phone default revela telefone (a menos que explicitamente desligado)
+                $rp = $n['data']['reveal_phone'] ?? 1;
+                if (!empty($rp)) return true;
+            }
+        }
+        return false;
     }
 
     // ============ ICP + Score ============

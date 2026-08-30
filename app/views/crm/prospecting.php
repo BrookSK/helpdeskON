@@ -207,12 +207,44 @@
                             <option value="my_leads">Meus Leads</option>
                         </select>
                     </div>
-                    <div class="col-md-4">
+                    <?php
+                        // Monta as opções de sequência (com canal) uma vez para reaproveitar.
+                        $seqOptions = '';
+                        foreach ($sequences as $s) {
+                            $chLbl = ['email' => 'E-mail', 'whatsapp' => 'WhatsApp', 'mixed' => 'Mista'][$s['channel_type'] ?? 'email'] ?? 'E-mail';
+                            $seqOptions .= '<option value="' . $s['id'] . '" data-channel="' . escape($s['channel_type'] ?? 'email') . '">' . escape($s['name']) . ' · ' . $chLbl . '</option>';
+                        }
+                    ?>
+                    <div class="col-md-4" id="camp-single-seq-wrap">
                         <label class="form-label small fw-medium">Sequência</label>
-                        <select id="camp-sequence" class="form-select form-select-sm">
+                        <select id="camp-sequence" class="form-select form-select-sm" onchange="onCampSequenceChange()">
                             <option value="">Selecione...</option>
-                            <?php foreach ($sequences as $s): ?><option value="<?= $s['id'] ?>"><?= escape($s['name']) ?></option><?php endforeach; ?>
+                            <?= $seqOptions ?>
                         </select>
+                        <small id="camp-channel-hint" class="text-muted d-block mt-1" style="display:none;font-size:0.72rem;"></small>
+                    </div>
+                    <div class="col-md-8 apollo-section">
+                        <div class="form-check form-switch mb-1">
+                            <input class="form-check-input" type="checkbox" id="camp-auto-route" onchange="onAutoRouteChange()">
+                            <label class="form-check-label small fw-medium" for="camp-auto-route">
+                                <i class="bi bi-signpost-split"></i> Rotear por canal automaticamente
+                            </label>
+                        </div>
+                        <small class="text-muted d-block" style="font-size:0.72rem;">Escolhe a sequência conforme os dados que o Apollo encontrar: e-mail + telefone → mista; só e-mail → e-mail; só telefone → WhatsApp.</small>
+                        <div id="camp-route-slots" class="row g-2 mt-1" style="display:none;">
+                            <div class="col-md-4">
+                                <label class="form-label small mb-1">E-mail + telefone → mista</label>
+                                <select id="camp-seq-mixed" class="form-select form-select-sm"><option value="">Selecione...</option><?= $seqOptions ?></select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small mb-1">Só e-mail → e-mail</label>
+                                <select id="camp-seq-email" class="form-select form-select-sm"><option value="">Selecione...</option><?= $seqOptions ?></select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small mb-1">Só telefone → WhatsApp</label>
+                                <select id="camp-seq-whatsapp" class="form-select form-select-sm"><option value="">Selecione...</option><?= $seqOptions ?></select>
+                            </div>
+                        </div>
                     </div>
                     <div class="col-md-4">
                         <label class="form-label small fw-medium">Board</label>
@@ -697,6 +729,31 @@ function onCampSourceChange() {
     document.querySelectorAll('.myleads-section').forEach(el => el.style.display = isMy ? '' : 'none');
 }
 
+// Alterna entre "uma sequência" e "roteamento por canal" (3 slots).
+function onAutoRouteChange() {
+    const on = document.getElementById('camp-auto-route').checked;
+    const slots = document.getElementById('camp-route-slots');
+    const single = document.getElementById('camp-single-seq-wrap');
+    if (slots) slots.style.display = on ? '' : 'none';
+    if (single) single.style.display = on ? 'none' : '';
+}
+
+// Mostra o canal da sequência escolhida (define a elegibilidade dos leads).
+function onCampSequenceChange() {
+    const sel = document.getElementById('camp-sequence');
+    const hint = document.getElementById('camp-channel-hint');
+    if (!hint) return;
+    const opt = sel.options[sel.selectedIndex];
+    const ch = opt ? (opt.dataset.channel || '') : '';
+    const map = {
+        email:    'Canal E-mail: só entram leads COM e-mail.',
+        whatsapp: 'Canal WhatsApp: só entram leads COM telefone.',
+        mixed:    'Canal Misto: entram leads com e-mail e/ou telefone (blocos sem o canal do lead são pulados).',
+    };
+    hint.textContent = ch ? map[ch] || '' : '';
+    hint.style.display = ch ? '' : 'none';
+}
+
 // ===== Seleção de leads específicos (multiseleção) =====
 let leadPickerModal;
 let selectedLeadIds = [];      // aplicados à campanha
@@ -738,11 +795,15 @@ function loadLeadPicker() {
     const t = document.getElementById('camp-ml-temperature').value; if (t) qs.set('temperature', t);
     const src = document.getElementById('camp-ml-source').value.trim(); if (src) qs.set('source', src);
     const a = document.getElementById('camp-ml-assigned').value; if (a) qs.set('assigned_to', a);
+    // Canal da sequência escolhida define a elegibilidade dos leads listados.
+    const seqOpt = document.getElementById('camp-sequence');
+    const ch = seqOpt && seqOpt.options[seqOpt.selectedIndex] ? (seqOpt.options[seqOpt.selectedIndex].dataset.channel || '') : '';
+    if (ch) qs.set('channel', ch);
 
     fetch(BASE + 'crm/leadsForCampaign?' + qs.toString(), { headers:{'X-Requested-With':'XMLHttpRequest'} })
         .then(r=>r.json()).then(d=>{
             const leads = d.leads || [];
-            if (!leads.length) { body.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">Nenhum lead com e-mail encontrado.</td></tr>'; return; }
+            if (!leads.length) { body.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">Nenhum lead elegível para o canal desta sequência.</td></tr>'; return; }
             body.innerHTML = leads.map(l => {
                 lpLeadCache[l.id] = l.contact_name || l.lead_email;
                 const checked = lpTempSelected.has(String(l.id)) ? 'checked' : '';
@@ -807,6 +868,12 @@ function openCampaign() {
     Object.keys(CHIP_CUSTOM_STORE).forEach(k => delete CHIP_CUSTOM_STORE[k]);
     chipRenderAll({});
     document.getElementById('camp-source').value = 'apollo';
+    document.getElementById('camp-auto-route').checked = false;
+    document.getElementById('camp-seq-mixed').value = '';
+    document.getElementById('camp-seq-email').value = '';
+    document.getElementById('camp-seq-whatsapp').value = '';
+    onAutoRouteChange();
+    onCampSequenceChange();
     document.getElementById('camp-global-dedupe').checked = true;
     document.getElementById('camp-ml-temperature').value = '';
     document.getElementById('camp-ml-source').value = '';
@@ -825,6 +892,12 @@ function editCampaign(c) {
     document.getElementById('camp-id').value = c.id;
     document.getElementById('camp-name').value = c.name || '';
     document.getElementById('camp-sequence').value = c.sequence_id || '';
+    document.getElementById('camp-auto-route').checked = !!Number(c.auto_route);
+    document.getElementById('camp-seq-mixed').value = c.sequence_id_mixed || '';
+    document.getElementById('camp-seq-email').value = c.sequence_id_email || '';
+    document.getElementById('camp-seq-whatsapp').value = c.sequence_id_whatsapp || '';
+    onAutoRouteChange();
+    onCampSequenceChange();
     document.getElementById('camp-board').value = c.board_id || '';
     onCampBoardChange();
     document.getElementById('camp-column').value = c.column_id || '';
@@ -886,6 +959,12 @@ function saveCampaign(btn) {
     fd.append('id', document.getElementById('camp-id').value);
     fd.append('name', name);
     fd.append('sequence_id', document.getElementById('camp-sequence').value);
+    if (document.getElementById('camp-auto-route').checked) {
+        fd.append('auto_route', '1');
+        fd.append('sequence_id_mixed', document.getElementById('camp-seq-mixed').value);
+        fd.append('sequence_id_email', document.getElementById('camp-seq-email').value);
+        fd.append('sequence_id_whatsapp', document.getElementById('camp-seq-whatsapp').value);
+    }
     fd.append('board_id', document.getElementById('camp-board').value);
     fd.append('column_id', document.getElementById('camp-column').value);
     fd.append('assigned_to', document.getElementById('camp-assigned').value);

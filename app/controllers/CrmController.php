@@ -1899,6 +1899,10 @@ class CrmController extends Controller
             'my_leads_filters' => json_encode($myLeadsFilters, JSON_UNESCAPED_UNICODE),
             'my_leads_ids' => json_encode($this->buildMyLeadsIds(), JSON_UNESCAPED_UNICODE),
             'sequence_id' => !empty($_POST['sequence_id']) ? intval($_POST['sequence_id']) : null,
+            'auto_route' => !empty($_POST['auto_route']) ? 1 : 0,
+            'sequence_id_email' => !empty($_POST['sequence_id_email']) ? intval($_POST['sequence_id_email']) : null,
+            'sequence_id_whatsapp' => !empty($_POST['sequence_id_whatsapp']) ? intval($_POST['sequence_id_whatsapp']) : null,
+            'sequence_id_mixed' => !empty($_POST['sequence_id_mixed']) ? intval($_POST['sequence_id_mixed']) : null,
             'board_id' => !empty($_POST['board_id']) ? intval($_POST['board_id']) : null,
             'column_id' => !empty($_POST['column_id']) ? intval($_POST['column_id']) : null,
             'assigned_to' => !empty($_POST['assigned_to']) ? intval($_POST['assigned_to']) : null,
@@ -2219,13 +2223,23 @@ class CrmController extends Controller
         $this->requireRole(['super_admin']);
         $db = Database::getInstance();
 
+        // Canal de elegibilidade (email/whatsapp/mixed) — combina com o canal da sequência.
+        $channel = in_array($_GET['channel'] ?? '', ['email', 'whatsapp', 'mixed'], true) ? $_GET['channel'] : 'email';
+        if ($channel === 'whatsapp') {
+            $channelSql = "(c.phone IS NOT NULL AND c.phone <> '')";
+        } elseif ($channel === 'mixed') {
+            $channelSql = "((c.lead_email IS NOT NULL AND c.lead_email <> '') OR (c.phone IS NOT NULL AND c.phone <> ''))";
+        } else {
+            $channelSql = "(c.lead_email IS NOT NULL AND c.lead_email <> '')";
+        }
+
         $sql = "SELECT c.id, c.contact_name, c.lead_email, c.phone, u.name AS assigned_name,
                        b.lead_temperature, b.lead_source
                 FROM whatsapp_contacts c
                 LEFT JOIN users u ON c.assigned_to = u.id
                 LEFT JOIN commercial_briefings b ON b.contact_id = c.id
                 WHERE COALESCE(c.is_group,0)=0
-                  AND c.lead_email IS NOT NULL AND c.lead_email <> ''
+                  AND $channelSql
                   AND COALESCE(c.unsubscribed,0)=0
                   AND COALESCE(c.email_bounced,0)=0
                   AND COALESCE(c.crm_archived,0)=0";

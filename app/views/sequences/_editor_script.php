@@ -476,6 +476,7 @@ function saveSeq() {
     const fd = new FormData();
     if (SEQ_ID) fd.append('id', SEQ_ID);
     fd.append('name', name);
+    fd.append('channel_type', (document.getElementById('seq-channel') || {}).value || 'email');
     fd.append('email_account_id', document.getElementById('seq-account').value);
     fd.append('daily_limit', document.getElementById('seq-daily').value);
     fd.append('window_start', document.getElementById('seq-wstart').value + ':00');

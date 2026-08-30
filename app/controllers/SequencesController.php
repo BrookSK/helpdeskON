@@ -133,9 +133,13 @@ class SequencesController extends Controller
         $graph = json_decode($graphRaw, true);
         if ($graphRaw !== '' && $graph === null) $this->json(['error' => 'Grafo inválido.'], 400);
 
+        $channelType = in_array($_POST['channel_type'] ?? '', ['email', 'whatsapp', 'mixed'], true)
+            ? $_POST['channel_type'] : 'email';
+
         $data = [
             'name' => $name,
             'description' => trim($_POST['description'] ?? '') ?: null,
+            'channel_type' => $channelType,
             'email_account_id' => !empty($_POST['email_account_id']) ? intval($_POST['email_account_id']) : null,
             'graph' => $graphRaw !== '' ? json_encode($graph, JSON_UNESCAPED_UNICODE) : null,
             'is_active' => !empty($_POST['is_active']) ? 1 : 0,

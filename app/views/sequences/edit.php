@@ -39,6 +39,15 @@
             <!-- Configurações (collapse) -->
             <div class="collapse mt-2" id="seq-config">
                 <div class="row g-2 align-items-end border-top pt-2">
+                    <div class="col-6 col-md-2">
+                        <label class="form-label small mb-1">Canal</label>
+                        <select id="seq-channel" class="form-select form-select-sm" title="Define quais leads são elegíveis: e-mail exige e-mail; WhatsApp exige telefone; mista aceita e-mail e/ou telefone">
+                            <?php $chan = $sequence['channel_type'] ?? 'email'; ?>
+                            <option value="email" <?= $chan === 'email' ? 'selected' : '' ?>>E-mail</option>
+                            <option value="whatsapp" <?= $chan === 'whatsapp' ? 'selected' : '' ?>>WhatsApp</option>
+                            <option value="mixed" <?= $chan === 'mixed' ? 'selected' : '' ?>>Mista (e-mail + WhatsApp)</option>
+                        </select>
+                    </div>
                     <div class="col-6 col-md-3">
                         <label class="form-label small mb-1">Conta de envio</label>
                         <select id="seq-account" class="form-select form-select-sm">

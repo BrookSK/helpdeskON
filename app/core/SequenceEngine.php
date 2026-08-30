@@ -40,10 +40,29 @@ class SequenceEngine
         $seq = $this->db->fetch("SELECT * FROM email_sequences WHERE id = ?", [$sequenceId]);
         if (!$seq || !$seq['is_active']) return ['success' => false, 'error' => 'Sequência inválida ou inativa.'];
 
-        $contact = $this->db->fetch("SELECT unsubscribed, email_bounced, lead_email FROM whatsapp_contacts WHERE id = ?", [$contactId]);
+        $contact = $this->db->fetch("SELECT unsubscribed, email_bounced, lead_email, phone FROM whatsapp_contacts WHERE id = ?", [$contactId]);
         if (!$contact) return ['success' => false, 'error' => 'Lead não encontrado.'];
-        if (empty($contact['lead_email'])) return ['success' => false, 'error' => 'Lead sem e-mail cadastrado.'];
         if (!empty($contact['unsubscribed'])) return ['success' => false, 'error' => 'Lead descadastrado.'];
+
+        // Elegibilidade por CANAL da sequência (email / whatsapp / mixed).
+        // - email:    exige e-mail
+        // - whatsapp: exige telefone
+        // - mixed:    exige e-mail OU telefone
+        $channel = $seq['channel_type'] ?? 'email';
+        $hasEmail = !empty($contact['lead_email']);
+        $hasPhone = !empty($contact['phone']);
+        // A própria sequência pode revelar o telefone depois (bloco reveal_phone),
+        // então um lead sem telefone imediato ainda é elegível em whatsapp/mixed.
+        $willRevealPhone = $this->graphHasPhoneReveal($seq);
+        if ($channel === 'whatsapp' && !$hasPhone && !$willRevealPhone) {
+            return ['success' => false, 'error' => 'Lead sem telefone para sequência de WhatsApp.'];
+        }
+        if ($channel === 'mixed' && !$hasEmail && !$hasPhone && !$willRevealPhone) {
+            return ['success' => false, 'error' => 'Lead sem e-mail nem telefone.'];
+        }
+        if ($channel === 'email' && !$hasEmail) {
+            return ['success' => false, 'error' => 'Lead sem e-mail cadastrado.'];
+        }
 
         $existing = $this->db->fetch("SELECT * FROM sequence_participants WHERE sequence_id = ? AND contact_id = ?", [$sequenceId, $contactId]);
         if ($existing) {
@@ -309,7 +328,7 @@ class SequenceEngine
                     $detail = 'Reveal solicitado/verificado.';
                     break;
                 case 'condition':
-                    $ok = $this->evalCondition($node['data']['kind'] ?? 'replied', $contactId);
+                    $ok = $this->evalCondition($node['data']['kind'] ?? 'replied', $contactId, $participant);
                     $detail = 'Condição avaliada: ' . ($ok ? 'SIM' : 'NÃO');
                     break;
                 case 'tag':
@@ -373,6 +392,13 @@ class SequenceEngine
 
         switch ($type) {
             case 'send':
+                // Canal ausente no lead: pula o bloco (não finaliza a sequência).
+                // Ex.: sequência mista onde este lead só tem telefone → pula o e-mail.
+                if (!$this->contactHasChannel($contactId, 'email')) {
+                    $this->advance($participant, $node['next'] ?? null, $nodes);
+                    $this->logExec($participant['id'], $nodeId, $type, 'skipped', 'Lead sem e-mail: bloco de e-mail pulado.');
+                    return 'skipped';
+                }
                 // Respeita janela de horário e limite diário (ignorado no modo teste)
                 if (!$testMode) {
                     if (!$this->withinWindow($seq)) { $this->reschedule($participant, $this->nextWindowStart($seq)); return 'skipped'; }
@@ -400,6 +426,12 @@ class SequenceEngine
                 return 'skipped';
 
             case 'whatsapp':
+                // Canal ausente no lead: pula o bloco (não finaliza a sequência).
+                if (!$this->contactHasChannel($contactId, 'whatsapp')) {
+                    $this->advance($participant, $node['next'] ?? null, $nodes);
+                    $this->logExec($participant['id'], $nodeId, $type, 'skipped', 'Lead sem telefone: bloco de WhatsApp pulado.');
+                    return 'skipped';
+                }
                 $waResult = $this->doWhatsapp($participant, $node);
                 $this->advance($participant, $node['next'] ?? null, $nodes);
                 $this->logExec($participant['id'], $nodeId, $type, $waResult === true ? 'done' : 'failed', is_string($waResult) ? $waResult : null);
@@ -417,7 +449,7 @@ class SequenceEngine
                 return 'skipped';
 
             case 'condition':
-                $branch = $this->evalCondition($node['data']['kind'] ?? 'replied', $contactId) ? ($node['nextYes'] ?? null) : ($node['nextNo'] ?? null);
+                $branch = $this->evalCondition($node['data']['kind'] ?? 'replied', $contactId, $participant) ? ($node['nextYes'] ?? null) : ($node['nextNo'] ?? null);
                 $this->advance($participant, $branch, $nodes);
                 $this->logExec($participant['id'], $nodeId, $type, 'done');
                 return 'skipped';
@@ -517,6 +549,8 @@ class SequenceEngine
             'sequence_participant_id' => $participant['id'],
             'node_id' => $node['id'],
             'ab_variant' => $variant,
+            // Todos os e-mails de sequência recebem a assinatura padrão da empresa.
+            'add_signature' => true,
         ]);
         return !empty($res['success']) ? true : ('Falha no envio: ' . ($res['error'] ?? 'desconhecida'));
     }
@@ -755,7 +789,7 @@ class SequenceEngine
         return null;
     }
 
-    private function evalCondition($kind, $contactId)
+    private function evalCondition($kind, $contactId, $participant = null)
     {
         // Considera a última mensagem enviada ao lead
         $msg = $this->db->fetch(
@@ -763,12 +797,29 @@ class SequenceEngine
              WHERE contact_id = ? AND direction='outbound' ORDER BY sent_at DESC LIMIT 1",
             [$contactId]
         );
-        if (!$msg) return false;
         switch ($kind) {
-            case 'opened': return (int) $msg['open_count'] > 0;
-            case 'clicked': return (int) $msg['click_count'] > 0;
+            case 'opened': return $msg ? (int) $msg['open_count'] > 0 : false;
+            case 'clicked': return $msg ? (int) $msg['click_count'] > 0 : false;
             case 'replied':
-            default: return !empty($msg['replied_at']);
+            default:
+                // Respondeu por e-mail?
+                if ($msg && !empty($msg['replied_at'])) return true;
+                // Respondeu por WhatsApp? Qualquer mensagem recebida do lead
+                // (from_me=0) após o início da participação conta como resposta.
+                $since = $participant['started_at'] ?? null;
+                if ($since) {
+                    $wa = $this->db->fetch(
+                        "SELECT id FROM whatsapp_messages
+                         WHERE contact_id = ? AND from_me = 0 AND timestamp >= ? LIMIT 1",
+                        [$contactId, $since]
+                    );
+                } else {
+                    $wa = $this->db->fetch(
+                        "SELECT id FROM whatsapp_messages WHERE contact_id = ? AND from_me = 0 LIMIT 1",
+                        [$contactId]
+                    );
+                }
+                return (bool) $wa;
         }
     }
 
@@ -824,6 +875,34 @@ class SequenceEngine
     private function reschedule($participant, $when)
     {
         $this->db->update('sequence_participants', ['next_run_at' => $when], 'id = ?', [$participant['id']]);
+    }
+
+    /** Verifica se o grafo da sequência tem um bloco de reveal de telefone ativo. */
+    private function graphHasPhoneReveal($seq)
+    {
+        if (empty($seq['graph'])) return false;
+        $graph = json_decode($seq['graph'], true);
+        foreach ($graph['nodes'] ?? [] as $n) {
+            if (($n['type'] ?? '') === 'reveal_phone') {
+                $rp = $n['data']['reveal_phone'] ?? 1;
+                if (!empty($rp)) return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Verifica se o lead tem o canal necessário para um bloco:
+     *   'email'    → possui lead_email
+     *   'whatsapp' → possui telefone
+     * Usado para pular blocos cujo canal o lead não possui (sequências mistas).
+     */
+    private function contactHasChannel($contactId, $channel)
+    {
+        $c = $this->db->fetch("SELECT lead_email, phone FROM whatsapp_contacts WHERE id = ?", [$contactId]);
+        if (!$c) return false;
+        if ($channel === 'whatsapp') return !empty($c['phone']);
+        return !empty($c['lead_email']); // email (padrão)
     }
 
     private function finish($participant, $reason)

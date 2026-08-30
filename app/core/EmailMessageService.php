@@ -27,6 +27,43 @@ class EmailMessageService
      * }
      * @return array {success, message_id (local), error}
      */
+    /**
+     * Assinatura HTML padrão dos e-mails da ON Solutions Brasil.
+     * Mesma identidade usada nos envios manuais (logo, nome, contatos).
+     * Fonte única para e-mails manuais e de sequência.
+     */
+    public static function signatureHtml($userName = null)
+    {
+        $name = htmlspecialchars((string) ($userName ?? ''), ENT_QUOTES, 'UTF-8');
+
+        $logoHtml = '';
+        try {
+            $logoPath = Config::get('app_logo');
+            if (!empty($logoPath)) {
+                $logoUrl = baseUrl($logoPath);
+                $logoHtml = '<img src="' . htmlspecialchars($logoUrl, ENT_QUOTES, 'UTF-8') . '" alt="ON Solutions Brasil" style="max-height:56px;margin-bottom:8px;">';
+            }
+        } catch (\Throwable $e) { $logoHtml = ''; }
+
+        $nameBlock = $name !== '' ? '<div style="font-weight:600;color:#111;">' . $name . '</div>' : '';
+
+        return '
+<div style="margin-top:28px;padding-top:16px;border-top:1px solid #e5e7eb;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#333;line-height:1.5;">
+    ' . $logoHtml . '
+    ' . $nameBlock . '
+    <div style="margin-top:6px;">Atenciosamente,<br><strong>Equipe ON Solutions Brasil</strong></div>
+    <div style="color:#666;margin-top:2px;">Tecnologia • Desenvolvimento • Automação</div>
+    <div style="margin-top:8px;">
+        📧 <a href="mailto:contato@onsolutionsbrasil.com.br" style="color:#00997D;text-decoration:none;">contato@onsolutionsbrasil.com.br</a><br>
+        🌐 <a href="https://www.onsolutionsbrasil.com.br" style="color:#00997D;text-decoration:none;">www.onsolutionsbrasil.com.br</a>
+    </div>
+    <div style="margin-top:8px;color:#888;font-size:12px;">
+        <strong>ON Solutions Brasil</strong><br>
+        Soluções inteligentes para transformar processos e negócios.
+    </div>
+</div>';
+    }
+
     public function send(array $params)
     {
         $contactId = (int) $params['contact_id'];
@@ -35,6 +72,13 @@ class EmailMessageService
         $subject = trim($params['subject']);
         $body = $params['body_html'];
         $origin = $params['origin'] ?? 'manual';
+
+        // Assinatura padrão: anexada quando add_signature=true (ex.: e-mails de
+        // sequência). O envio manual já concatena a assinatura antes de chamar aqui,
+        // então não usa esse flag para evitar duplicidade.
+        if (!empty($params['add_signature'])) {
+            $body .= self::signatureHtml($params['signature_name'] ?? null);
+        }
 
         // Bloqueia envio a leads descadastrados / com bounce definitivo
         $contact = $this->db->fetch("SELECT unsubscribed, email_bounced FROM whatsapp_contacts WHERE id = ?", [$contactId]);
