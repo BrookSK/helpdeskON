@@ -228,21 +228,35 @@ class SequenceEngine
         $now = time();
         $opened = 0;
 
+        // A janela de escuta depende das colunas da migration 100. Se elas não
+        // existirem (ou o tempo for 0), roteamos DIRETO para a triagem — assim o
+        // recurso funciona mesmo sem a migration aplicada.
+        $canListen = $listenMin > 0
+            && $this->participantHasColumn('reply_listen_until')
+            && $this->participantHasColumn('triaged_at');
+        $hasTriaged = $this->participantHasColumn('triaged_at');
+        $hasListen = $this->participantHasColumn('reply_listen_until');
+
         foreach ($parts as $p) {
             // Anti-duplicação: já triado → ignora respostas subsequentes.
-            if (!empty($p['triaged_at'])) continue;
+            if ($hasTriaged && !empty($p['triaged_at'])) continue;
             // Já está escutando (janela aberta no futuro) → não reinicia nem duplica.
-            if (!empty($p['reply_listen_until']) && strtotime($p['reply_listen_until']) > $now) continue;
+            if ($hasListen && !empty($p['reply_listen_until']) && strtotime($p['reply_listen_until']) > $now) continue;
 
-            // Abre a janela de escuta: aguarda novas mensagens do lead (respostas
-            // picadas) antes de interpretar. Ao fim da janela, o processDue chama
-            // finishListening() para rotear à triagem uma única vez.
-            $until = date('Y-m-d H:i:s', $now + $listenMin * 60);
-            $this->db->update('sequence_participants', [
-                'status' => 'active',
-                'reply_listen_until' => $until,
-                'next_run_at' => $until, // acorda no fim da janela
-            ], 'id = ?', [$p['id']]);
+            if ($canListen) {
+                // Abre a janela de escuta: aguarda novas mensagens do lead (respostas
+                // picadas) antes de interpretar. Ao fim da janela, o processDue chama
+                // finishListening() para rotear à triagem uma única vez.
+                $until = date('Y-m-d H:i:s', $now + $listenMin * 60);
+                $this->db->update('sequence_participants', [
+                    'status' => 'active',
+                    'reply_listen_until' => $until,
+                    'next_run_at' => $until, // acorda no fim da janela
+                ], 'id = ?', [$p['id']]);
+            } else {
+                // Sem janela de escuta: roteia imediatamente para a triagem por IA.
+                $this->finishListening($p);
+            }
             $opened++;
         }
 
@@ -263,9 +277,12 @@ class SequenceEngine
      */
     private function finishListening($participant)
     {
+        $hasTriaged = $this->participantHasColumn('triaged_at');
+        $hasListen = $this->participantHasColumn('reply_listen_until');
+
         // Já triado? não repete.
-        if (!empty($participant['triaged_at'])) {
-            $this->db->update('sequence_participants', ['reply_listen_until' => null], 'id = ?', [$participant['id']]);
+        if ($hasTriaged && !empty($participant['triaged_at'])) {
+            if ($hasListen) $this->db->update('sequence_participants', ['reply_listen_until' => null], 'id = ?', [$participant['id']]);
             return false;
         }
 
@@ -283,12 +300,13 @@ class SequenceEngine
         $isFaqLoop = ($curType === 'ai_agent')
             || ($curType === 'ai' && ($nodesById[$curNode]['data']['mode'] ?? '') === 'decision' && !empty($nodesById[$curNode]['data']['faq_active']));
         if ($curNode && $isFaqLoop) {
-            $this->db->update('sequence_participants', [
+            $upd = [
                 'status' => 'active',
                 'current_node' => $curNode,
-                'reply_listen_until' => null,
                 'next_run_at' => date('Y-m-d H:i:s'),
-            ], 'id = ?', [$participant['id']]);
+            ];
+            if ($hasListen) $upd['reply_listen_until'] = null;
+            $this->db->update('sequence_participants', $upd, 'id = ?', [$participant['id']]);
             return true;
         }
 
@@ -303,23 +321,26 @@ class SequenceEngine
 
         // Marca como triado (lock anti-duplicação) e fecha a janela.
         if ($target && isset($nodesById[$target])) {
-            $this->db->update('sequence_participants', [
+            $upd = [
                 'status' => 'active',
                 'current_node' => $target,
-                'reply_listen_until' => null,
-                'triaged_at' => date('Y-m-d H:i:s'),
                 'next_run_at' => date('Y-m-d H:i:s'),
-            ], 'id = ?', [$participant['id']]);
+            ];
+            if ($hasListen) $upd['reply_listen_until'] = null;
+            if ($hasTriaged) $upd['triaged_at'] = date('Y-m-d H:i:s');
+            $this->db->update('sequence_participants', $upd, 'id = ?', [$participant['id']]);
             (new LeadTimelineService())->add($participant['contact_id'], 'note', 'Janela de escuta encerrada — encaminhado para triagem por IA.', []);
             return true;
         }
 
         // Sem destino de triagem: encerra a sequência (comportamento antigo).
-        $this->db->update('sequence_participants', [
+        $endUpd = [
             'status' => 'stopped', 'stop_reason' => 'replied',
-            'reply_listen_until' => null, 'triaged_at' => date('Y-m-d H:i:s'),
             'finished_at' => date('Y-m-d H:i:s'), 'next_run_at' => null,
-        ], 'id = ?', [$participant['id']]);
+        ];
+        if ($hasListen) $endUpd['reply_listen_until'] = null;
+        if ($hasTriaged) $endUpd['triaged_at'] = date('Y-m-d H:i:s');
+        $this->db->update('sequence_participants', $endUpd, 'id = ?', [$participant['id']]);
         return true;
     }
 
