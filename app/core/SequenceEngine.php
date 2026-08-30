@@ -204,70 +204,91 @@ class SequenceEngine
     public function routeReplyToTriage($contactId, $reason = 'replied')
     {
         $parts = $this->db->fetchAll(
-            "SELECT sp.*, s.graph FROM sequence_participants sp
-             JOIN email_sequences s ON s.id = sp.sequence_id
+            "SELECT sp.* FROM sequence_participants sp
              WHERE sp.contact_id = ? AND sp.status IN ('active','paused')",
             [$contactId]
         );
         if (empty($parts)) return 0;
 
-        $routed = 0;
-        $stopIds = [];
+        $listenMin = max(0, (int)(Config::get('sequence_reply_listen_minutes') ?? 2));
+        $now = time();
+        $opened = 0;
+
         foreach ($parts as $p) {
-            $graph = json_decode($p['graph'] ?? '{}', true);
-            $nodesById = [];
-            foreach ($graph['nodes'] ?? [] as $n) $nodesById[$n['id']] = $n;
+            // Anti-duplicação: já triado → ignora respostas subsequentes.
+            if (!empty($p['triaged_at'])) continue;
+            // Já está escutando (janela aberta no futuro) → não reinicia nem duplica.
+            if (!empty($p['reply_listen_until']) && strtotime($p['reply_listen_until']) > $now) continue;
 
-            // 1) Destino preferido: a saída "Resposta recebida" (nextReply) do nó
-            //    atual do participante — respeita o que o operador desenhou.
-            $target = null;
-            $curId = $p['current_node'] ?? ($graph['start'] ?? null);
-            if ($curId && isset($nodesById[$curId]) && !empty($nodesById[$curId]['nextReply'])) {
-                $target = $nodesById[$curId]['nextReply'];
-            }
-            // 2) Senão, qualquer nextReply definido no grafo (primeiro encontrado).
-            if (!$target) {
-                foreach ($nodesById as $n) {
-                    if (!empty($n['nextReply'])) { $target = $n['nextReply']; break; }
-                }
-            }
-            // 3) Fallback: primeiro nó de IA (triagem embutida).
-            if (!$target) {
-                foreach ($nodesById as $n) {
-                    if (($n['type'] ?? '') === 'ai') { $target = $n['id']; break; }
-                }
-            }
-            if (!$target || !isset($nodesById[$target])) { $stopIds[] = $p; continue; }
+            // Abre a janela de escuta: aguarda novas mensagens do lead (respostas
+            // picadas) antes de interpretar. Ao fim da janela, o processDue chama
+            // finishListening() para rotear à triagem uma única vez.
+            $until = date('Y-m-d H:i:s', $now + $listenMin * 60);
+            $this->db->update('sequence_participants', [
+                'status' => 'active',
+                'reply_listen_until' => $until,
+                'next_run_at' => $until, // acorda no fim da janela
+            ], 'id = ?', [$p['id']]);
+            $opened++;
+        }
 
-            // Evita reprocessar se já está no destino
-            if (($p['current_node'] ?? null) === $target) { continue; }
+        if ($opened > 0) {
+            (new LeadTimelineService())->add($contactId, 'note',
+                'Resposta detectada — escutando por ' . $listenMin . ' min para reunir a mensagem completa antes de triar.',
+                ['reason' => $reason]);
+            if ($reason === 'replied') $this->onReplyMoveCard($contactId);
+        }
+        return $opened;
+    }
 
-            // Salta para o destino agora (ignora esperas restantes)
+    /**
+     * Encerra a janela de escuta de um participante e o roteia para a triagem
+     * (saída "Resposta recebida"/nó de IA), UMA ÚNICA VEZ. Chamado pelo processDue
+     * quando reply_listen_until expira. Marca triaged_at para bloquear repetição.
+     * @return bool true se roteou/encerrou
+     */
+    private function finishListening($participant)
+    {
+        // Já triado? não repete.
+        if (!empty($participant['triaged_at'])) {
+            $this->db->update('sequence_participants', ['reply_listen_until' => null], 'id = ?', [$participant['id']]);
+            return false;
+        }
+
+        $seq = $this->db->fetch("SELECT graph FROM email_sequences WHERE id = ?", [$participant['sequence_id']]);
+        $graph = json_decode($seq['graph'] ?? '{}', true);
+        $nodesById = [];
+        foreach ($graph['nodes'] ?? [] as $n) $nodesById[$n['id']] = $n;
+
+        // Destino: nextReply do nó atual → qualquer nextReply → primeiro nó de IA.
+        $target = null;
+        $curId = $participant['current_node'] ?? ($graph['start'] ?? null);
+        if ($curId && isset($nodesById[$curId]) && !empty($nodesById[$curId]['nextReply'])) {
+            $target = $nodesById[$curId]['nextReply'];
+        }
+        if (!$target) { foreach ($nodesById as $n) { if (!empty($n['nextReply'])) { $target = $n['nextReply']; break; } } }
+        if (!$target) { foreach ($nodesById as $n) { if (($n['type'] ?? '') === 'ai') { $target = $n['id']; break; } } }
+
+        // Marca como triado (lock anti-duplicação) e fecha a janela.
+        if ($target && isset($nodesById[$target])) {
             $this->db->update('sequence_participants', [
                 'status' => 'active',
                 'current_node' => $target,
+                'reply_listen_until' => null,
+                'triaged_at' => date('Y-m-d H:i:s'),
                 'next_run_at' => date('Y-m-d H:i:s'),
-            ], 'id = ?', [$p['id']]);
-            $routed++;
+            ], 'id = ?', [$participant['id']]);
+            (new LeadTimelineService())->add($participant['contact_id'], 'note', 'Janela de escuta encerrada — encaminhado para triagem por IA.', []);
+            return true;
         }
 
-        if ($routed > 0) {
-            (new LeadTimelineService())->add($contactId, 'note', 'Resposta detectada — encaminhado para triagem por IA.', ['reason' => $reason]);
-            // Move para "Respondeu" e etiqueta (mesmo comportamento anterior de reply)
-            if ($reason === 'replied') $this->onReplyMoveCard($contactId);
-        }
-
-        // Participantes sem nó de IA: mantém o comportamento antigo (encerra).
-        foreach ($stopIds as $p) {
-            $this->db->update('sequence_participants', [
-                'status' => 'stopped', 'stop_reason' => $reason, 'finished_at' => date('Y-m-d H:i:s'), 'next_run_at' => null,
-            ], 'id = ?', [$p['id']]);
-        }
-        if (!empty($stopIds) && $reason === 'replied') {
-            $this->onReplyMoveCard($contactId);
-        }
-
-        return $routed;
+        // Sem destino de triagem: encerra a sequência (comportamento antigo).
+        $this->db->update('sequence_participants', [
+            'status' => 'stopped', 'stop_reason' => 'replied',
+            'reply_listen_until' => null, 'triaged_at' => date('Y-m-d H:i:s'),
+            'finished_at' => date('Y-m-d H:i:s'), 'next_run_at' => null,
+        ], 'id = ?', [$participant['id']]);
+        return true;
     }
 
     /** Interrompe todas as sequências ativas de um lead (resposta, bounce, unsub, manual). */
@@ -359,6 +380,14 @@ class SequenceEngine
         $maxStepsPerParticipant = 50; // trava de segurança contra loops no grafo
 
         foreach ($due as $p) {
+            // Janela de escuta expirada: encerra a escuta e roteia à triagem uma
+            // única vez (anti-duplicação via triaged_at). Depois segue o fluxo.
+            if (!empty($p['reply_listen_until']) && strtotime($p['reply_listen_until']) <= time()) {
+                $this->finishListening($p);
+                $p = $this->db->fetch("SELECT * FROM sequence_participants WHERE id = ?", [$p['id']]);
+                if (!$p || $p['status'] !== 'active') continue;
+            }
+
             // Drena os nós INSTANTÂNEOS do participante numa mesma passada:
             // reveal/condição/tag/score/move/whatsapp/send avançam para "agora",
             // então continuamos executando até bater num 'wait' (agenda futuro),
