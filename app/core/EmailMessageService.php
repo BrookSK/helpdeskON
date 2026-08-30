@@ -47,8 +47,10 @@ class EmailMessageService
 
         $nameBlock = $name !== '' ? '<div style="font-weight:600;color:#111;">' . $name . '</div>' : '';
 
+        // Marcador de idempotência: usado pelo EmailProspection::sendEmail para
+        // detectar que a assinatura já está presente e não duplicá-la.
         return '
-<div style="margin-top:28px;padding-top:16px;border-top:1px solid #e5e7eb;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#333;line-height:1.5;">
+<div data-onsolu-signature="1" style="margin-top:28px;padding-top:16px;border-top:1px solid #e5e7eb;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#333;line-height:1.5;">
     ' . $logoHtml . '
     ' . $nameBlock . '
     <div style="margin-top:6px;">Atenciosamente,<br><strong>Equipe ON Solutions Brasil</strong></div>

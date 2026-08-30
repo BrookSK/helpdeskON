@@ -342,6 +342,15 @@ class SequenceEngine
                     if ($delta) (new LeadScoreService())->add($contactId, $delta, 'sequência (teste)');
                     $detail = 'Score ' . ($delta > 0 ? '+' : '') . $delta;
                     break;
+                case 'ai':
+                    $ai = $this->doAi($participant, $node);
+                    if (($node['data']['mode'] ?? 'simple') === 'decision') {
+                        $detail = 'IA decidiu: ' . (!empty($ai['decision']) ? 'SIM' : 'NÃO') . '. ' . ($ai['detail'] ?? '');
+                    } else {
+                        $detail = 'IA: ' . ($ai['detail'] ?? '');
+                    }
+                    if (!empty($ai['error'])) $result = 'failed';
+                    break;
                 case 'move':
                     $columnId = $this->resolveMoveColumn($contactId, $node['data'] ?? []);
                     if ($columnId) $this->moveCard($contactId, $columnId);
@@ -454,6 +463,18 @@ class SequenceEngine
                 $branch = $this->evalCondition($node['data']['kind'] ?? 'replied', $contactId, $participant) ? ($node['nextYes'] ?? null) : ($node['nextNo'] ?? null);
                 $this->advance($participant, $branch, $nodes);
                 $this->logExec($participant['id'], $nodeId, $type, 'done');
+                return 'skipped';
+
+            case 'ai':
+                $ai = $this->doAi($participant, $node);
+                if (($node['data']['mode'] ?? 'simple') === 'decision') {
+                    // ramifica conforme a decisão SIM/NÃO da IA
+                    $branch = !empty($ai['decision']) ? ($node['nextYes'] ?? null) : ($node['nextNo'] ?? null);
+                    $this->advance($participant, $branch, $nodes);
+                } else {
+                    $this->advance($participant, $node['next'] ?? null, $nodes);
+                }
+                $this->logExec($participant['id'], $nodeId, $type, empty($ai['error']) ? 'done' : 'failed', $ai['detail'] ?? null);
                 return 'skipped';
 
             case 'tag':
@@ -773,6 +794,158 @@ class SequenceEngine
         } catch (\Throwable $e) {
             Logger::error('SequenceEngine reveal', ['contact' => $contactId, 'error' => $e->getMessage()]);
         }
+    }
+
+    /**
+     * Bloco IA (ChatGPT): monta o prompt do operador + contexto do lead (dados +
+     * histórico recente de mensagens) e consulta a OpenAI.
+     *  - mode='decision' → pede uma decisão SIM/NÃO; retorna ['decision'=>bool].
+     *  - mode='simple'   → retorna o texto e, se configurado, grava como nota.
+     * @return array ['decision'=>bool, 'text'=>string, 'detail'=>string, 'error'=>?string]
+     */
+    private function doAi($participant, $node)
+    {
+        $contactId = $participant['contact_id'];
+        $data = $node['data'] ?? [];
+        $mode = ($data['mode'] ?? 'simple') === 'decision' ? 'decision' : 'simple';
+        $model = trim((string)($data['model'] ?? 'gpt-4o-mini')) ?: 'gpt-4o-mini';
+        $promptTpl = (string)($data['prompt'] ?? '');
+
+        $apiKey = trim((string) Config::get('openai_api_key'));
+        if ($apiKey === '') {
+            $msg = 'Chave da OpenAI não configurada em Configurações.';
+            (new LeadTimelineService())->add($contactId, 'note', 'Bloco IA não executado: ' . $msg, ['channel' => 'ai']);
+            return ['decision' => false, 'text' => '', 'detail' => $msg, 'error' => $msg];
+        }
+
+        $contact = $this->db->fetch("SELECT id, contact_name, push_name, lead_email, phone FROM whatsapp_contacts WHERE id = ?", [$contactId]);
+        if (!$contact) return ['decision' => false, 'text' => '', 'detail' => 'Lead não encontrado', 'error' => 'no_contact'];
+
+        // Renderiza variáveis do prompt ({{primeiro_nome}}, {{empresa}}, etc.)
+        $prompt = $this->render($promptTpl, $contact);
+
+        // Contexto automático: dados do lead + histórico recente (e-mail + WhatsApp).
+        $context = $this->buildAiContext($contactId, $contact);
+
+        // Instrução de sistema conforme o modo
+        if ($mode === 'decision') {
+            $system = 'Você é um assistente de qualificação comercial. Analise o contexto do lead e a instrução. '
+                . 'Responda SOMENTE com JSON válido no formato {"decision": true|false, "reason": "curto"}. '
+                . 'decision=true significa SIM; decision=false significa NÃO.';
+            $responseFormat = ['type' => 'json_object'];
+        } else {
+            $system = 'Você é um assistente comercial da ON Solutions Brasil. Responda de forma objetiva e profissional, '
+                . 'em português do Brasil, apenas com o texto solicitado (sem markdown).';
+            $responseFormat = null;
+        }
+
+        $userContent = $prompt . "\n\n---\nCONTEXTO DO LEAD:\n" . $context;
+
+        $payload = [
+            'model' => $model,
+            'messages' => [
+                ['role' => 'system', 'content' => $system],
+                ['role' => 'user', 'content' => $userContent],
+            ],
+            'temperature' => $mode === 'decision' ? 0.0 : 0.4,
+            'max_tokens' => 800,
+        ];
+        if ($responseFormat) $payload['response_format'] = $responseFormat;
+
+        try {
+            $ch = curl_init('https://api.openai.com/v1/chat/completions');
+            curl_setopt_array($ch, [
+                CURLOPT_POST => true,
+                CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $apiKey, 'Content-Type: application/json'],
+                CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_UNICODE),
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT => 60,
+            ]);
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $curlErr = curl_error($ch);
+            curl_close($ch);
+
+            if ($httpCode >= 400 || !$response) {
+                $msg = 'Falha ao consultar a IA (HTTP ' . $httpCode . ')' . ($curlErr ? ': ' . $curlErr : '');
+                Logger::error('SequenceEngine ai', ['contact' => $contactId, 'http' => $httpCode, 'err' => $curlErr, 'body' => is_string($response) ? substr($response, 0, 300) : null]);
+                (new LeadTimelineService())->add($contactId, 'note', 'Bloco IA falhou: ' . $msg, ['channel' => 'ai']);
+                return ['decision' => false, 'text' => '', 'detail' => $msg, 'error' => $msg];
+            }
+
+            $body = json_decode($response, true);
+            $content = trim((string)($body['choices'][0]['message']['content'] ?? ''));
+
+            if ($mode === 'decision') {
+                $parsed = json_decode($content, true);
+                $decision = is_array($parsed) ? (bool)($parsed['decision'] ?? false) : (stripos($content, 'true') !== false);
+                $reason = is_array($parsed) ? (string)($parsed['reason'] ?? '') : $content;
+                (new LeadTimelineService())->add($contactId, 'note',
+                    'IA (decisão): ' . ($decision ? 'SIM' : 'NÃO') . ($reason !== '' ? ' — ' . $reason : ''),
+                    ['channel' => 'ai', 'model' => $model, 'decision' => $decision]);
+                return ['decision' => $decision, 'text' => $content, 'detail' => ($decision ? 'SIM' : 'NÃO') . ($reason ? ' — ' . mb_substr($reason, 0, 200) : ''), 'error' => null];
+            }
+
+            // Modo simples: registra a resposta (opcional) como nota do lead.
+            if (!empty($data['save_note']) || !isset($data['save_note'])) {
+                (new LeadTimelineService())->add($contactId, 'note', 'IA (resposta): ' . mb_substr($content, 0, 1500), ['channel' => 'ai', 'model' => $model]);
+            }
+            return ['decision' => false, 'text' => $content, 'detail' => mb_substr($content, 0, 200), 'error' => null];
+        } catch (\Throwable $e) {
+            Logger::error('SequenceEngine ai exception', ['contact' => $contactId, 'error' => $e->getMessage()]);
+            return ['decision' => false, 'text' => '', 'detail' => 'Erro: ' . $e->getMessage(), 'error' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * Monta o contexto textual do lead para a IA: dados básicos, briefing e as
+     * últimas mensagens trocadas (e-mail e WhatsApp), do mais recente ao mais antigo.
+     */
+    private function buildAiContext($contactId, $contact)
+    {
+        $lines = [];
+        $name = $contact['contact_name'] ?: ($contact['push_name'] ?? '');
+        if ($name) $lines[] = 'Nome: ' . $name;
+        if (!empty($contact['lead_email'])) $lines[] = 'E-mail: ' . $contact['lead_email'];
+        if (!empty($contact['phone'])) $lines[] = 'Telefone: ' . $contact['phone'];
+
+        // Briefing comercial (empresa/cargo/necessidade), se houver
+        try {
+            $bf = $this->db->fetch("SELECT need, notes, main_pain, lead_temperature FROM commercial_briefings WHERE contact_id = ? LIMIT 1", [$contactId]);
+            if ($bf) {
+                if (!empty($bf['notes'])) $lines[] = 'Notas: ' . $bf['notes'];
+                if (!empty($bf['need'])) $lines[] = 'Necessidade: ' . $bf['need'];
+                if (!empty($bf['main_pain'])) $lines[] = 'Dor principal: ' . $bf['main_pain'];
+                if (!empty($bf['lead_temperature'])) $lines[] = 'Temperatura: ' . $bf['lead_temperature'];
+            }
+        } catch (\Throwable $e) { /* ignore */ }
+
+        // Últimos e-mails (assunto + status de resposta)
+        try {
+            $emails = $this->db->fetchAll(
+                "SELECT subject, direction, replied_at, sent_at FROM email_messages
+                 WHERE contact_id = ? ORDER BY id DESC LIMIT 5", [$contactId]);
+            foreach ($emails as $m) {
+                $dir = $m['direction'] === 'inbound' ? 'recebido' : 'enviado';
+                $lines[] = 'E-mail (' . $dir . '): ' . ($m['subject'] ?? '') . ($m['replied_at'] ? ' [respondido]' : '');
+            }
+        } catch (\Throwable $e) { /* ignore */ }
+
+        // Últimas mensagens de WhatsApp (texto + direção)
+        try {
+            $msgs = $this->db->fetchAll(
+                "SELECT from_me, message_text FROM whatsapp_messages
+                 WHERE contact_id = ? AND message_text IS NOT NULL AND message_text <> ''
+                 ORDER BY id DESC LIMIT 10", [$contactId]);
+            $msgs = array_reverse($msgs);
+            foreach ($msgs as $m) {
+                $who = $m['from_me'] ? 'Nós' : 'Lead';
+                $lines[] = 'WhatsApp ' . $who . ': ' . mb_substr($m['message_text'], 0, 300);
+            }
+        } catch (\Throwable $e) { /* ignore */ }
+
+        if (empty($lines)) return '(sem histórico registrado para este lead)';
+        return implode("\n", $lines);
     }
 
     /** Extrai o e-mail real do payload do Apollo (ignora placeholders bloqueados). */

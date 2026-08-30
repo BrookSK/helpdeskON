@@ -6,6 +6,23 @@ class Mailer
      * Envia email usando SMTP configurado no sistema.
      * Usa fsockopen para conexão SMTP direta (sem dependências externas).
      */
+    /**
+     * Anexa a assinatura padrão ao corpo, de forma idempotente. Não adiciona se:
+     *  - o corpo já contém o marcador da assinatura (data-onsolu-signature); ou
+     *  - o corpo já é o template institucional (self::template), que tem rodapé próprio.
+     */
+    public static function withSignature($htmlBody)
+    {
+        $body = (string) $htmlBody;
+        if (strpos($body, 'data-onsolu-signature') !== false) return $body;
+        if (strpos($body, 'ON Solutions Helpdesk') !== false) return $body; // template institucional
+        try {
+            return $body . EmailMessageService::signatureHtml();
+        } catch (\Throwable $e) {
+            return $body;
+        }
+    }
+
     public static function send($to, $subject, $htmlBody)
     {
         $host = Config::get('smtp_host');
@@ -19,6 +36,11 @@ class Mailer
         if (empty($host) || empty($fromEmail)) {
             return false;
         }
+
+        // Assinatura padrão em todo e-mail. Idempotente: não duplica se já houver
+        // o marcador da assinatura nem quando o corpo já é o template institucional
+        // (self::template), que traz identidade e rodapé próprios.
+        $htmlBody = self::withSignature($htmlBody);
 
         // Tentar enviar via SMTP nativo com fsockopen
         try {

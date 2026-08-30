@@ -25,7 +25,7 @@
 .seq-node .port.in { top:-10px; left:calc(50% - 9px); background:#e9ecef; }
 .n-send .hd{color:#0d6efd} .n-whatsapp .hd{color:#198754} .n-wait .hd{color:#fd7e14} .n-condition .hd{color:#6f42c1}
 .n-tag .hd{color:#20c997} .n-score .hd{color:#e0a800} .n-move .hd{color:#0dcaf0} .n-end .hd{color:#dc3545}
-.n-reveal_phone .hd{color:#212529}
+.n-reveal_phone .hd{color:#212529} .n-ai .hd{color:#0d6efd}
 #link-hint { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#1a1a2e; color:#fff;
     padding:8px 16px; border-radius:20px; font-size:0.8rem; z-index:2000; display:none; box-shadow:0 4px 12px rgba(0,0,0,.3); }
 </style>
@@ -39,7 +39,7 @@ const COLUMNS = <?= json_encode(array_map(fn($c) => ['id'=>$c['id'],'name'=>$c['
 const LABELS = <?= json_encode(array_map(fn($l) => ['id'=>$l['id'],'name'=>$l['name'],'color'=>$l['color']], $labels ?? []), JSON_UNESCAPED_UNICODE) ?>;
 // Lista de boards únicos (para o seletor encadeado do bloco "mover card")
 const BOARDS = (function(){ const m={}; COLUMNS.forEach(c=>{ if(!m[c.board_id]) m[c.board_id]={id:c.board_id,name:c.board_name}; }); return Object.values(m); })();
-const NODE_LABELS = { send:'Enviar e-mail', whatsapp:'Enviar WhatsApp', wait:'Aguardar', condition:'Condição', tag:'Tag', score:'Score', move:'Mover card', reveal_phone:'Revelar telefone', end:'Encerrar' };
+const NODE_LABELS = { send:'Enviar e-mail', whatsapp:'Enviar WhatsApp', wait:'Aguardar', condition:'Condição', ai:'IA (ChatGPT)', tag:'Tag', score:'Score', move:'Mover card', reveal_phone:'Revelar telefone', end:'Encerrar' };
 let EMAIL_TEMPLATES = [], WA_TEMPLATES = [];
 
 let nodes = [];       // {id, type, x, y, data, next, nextYes, nextNo, _el}
@@ -105,7 +105,8 @@ function buildNodeEl(n) {
     el.dataset.id = n.id;
 
     let ports = '<div class="port in"></div>';
-    if (n.type === 'condition') {
+    const aiDecision = (n.type === 'ai' && (n.data || {}).mode === 'decision');
+    if (n.type === 'condition' || aiDecision) {
         ports += `<div class="port out yes" title="Sim" data-port="yes"></div><div class="port out no" title="Não" data-port="no"></div>`;
     } else if (n.type !== 'end') {
         ports += `<div class="port out" data-port="next"></div>`;
@@ -142,6 +143,11 @@ function nodeSummary(n) {
         case 'whatsapp': return d.body ? escapeHtml(d.body.slice(0,50)) : '<em>sem mensagem</em>';
         case 'wait': return 'Aguardar ' + (d.amount||0) + ' ' + ({minutes:'min',hours:'h',days:'dias'}[d.unit]||'dias');
         case 'condition': return 'Se ' + ({replied:'respondeu',opened:'abriu',clicked:'clicou'}[d.kind]||'?') + '?';
+        case 'ai': {
+            const m = d.mode === 'decision' ? 'Decisão (Sim/Não)' : 'Resposta';
+            const md = d.model || 'gpt-4o-mini';
+            return `IA · ${m} · ${escapeHtml(md)}`;
+        }
         case 'tag': return 'Tag: ' + escapeHtml(d.label||'');
         case 'score': return 'Score ' + (d.delta>0?'+':'') + (d.delta||0);
         case 'move': { const c = COLUMNS.find(x=>x.id==d.column_id); return c ? escapeHtml(c.label) : '<em>escolher coluna</em>'; }
@@ -217,6 +223,7 @@ function defaultData(type) {
     if (type === 'whatsapp') return { body:'' };
     if (type === 'wait') return { amount:2, unit:'days' };
     if (type === 'condition') return { kind:'replied' };
+    if (type === 'ai') return { mode:'simple', model:'gpt-4o-mini', prompt:'', send_channel:'', save_note:1 };
     if (type === 'tag') return { label:'', color:'#00BFA6' };
     if (type === 'score') return { delta:3 };
     if (type === 'move') return { column_id:'' };
@@ -301,6 +308,30 @@ function renderInspector() {
             <option value="replied" ${n.data.kind==='replied'?'selected':''}>Respondeu?</option>
             <option value="opened" ${n.data.kind==='opened'?'selected':''}>Abriu?</option>
             <option value="clicked" ${n.data.kind==='clicked'?'selected':''}>Clicou?</option></select>`);
+    } else if (n.type==='ai') {
+        const mode = n.data.mode || 'simple';
+        const model = n.data.model || 'gpt-4o-mini';
+        h += field('Modelo do ChatGPT', `<select class="form-select form-select-sm" onchange="setData('model',this.value)">
+            <option value="gpt-4o-mini" ${model==='gpt-4o-mini'?'selected':''}>gpt-4o-mini (rápido e barato)</option>
+            <option value="gpt-4o" ${model==='gpt-4o'?'selected':''}>gpt-4o</option>
+            <option value="gpt-4.1" ${model==='gpt-4.1'?'selected':''}>gpt-4.1</option>
+            <option value="gpt-4.1-mini" ${model==='gpt-4.1-mini'?'selected':''}>gpt-4.1-mini</option>
+            <option value="gpt-3.5-turbo" ${model==='gpt-3.5-turbo'?'selected':''}>gpt-3.5-turbo</option>
+        </select>`);
+        h += field('Tipo de resposta', `<select class="form-select form-select-sm" id="insp-ai-mode" onchange="onAiModeChange(this.value)">
+            <option value="simple" ${mode==='simple'?'selected':''}>Resposta simples</option>
+            <option value="decision" ${mode==='decision'?'selected':''}>Decisão Sim/Não (duas saídas)</option>
+        </select>`);
+        h += `<label class="form-label small mb-1">Prompt / instrução</label>` + varChipsHtml() +
+             `<textarea id="insp-body" class="form-control form-control-sm" rows="7" placeholder="Ex.: Analise a última resposta do lead {{primeiro_nome}} e diga se ele demonstrou interesse em conversar." oninput="setData('prompt',this.value)">${escapeHtml(n.data.prompt||'')}</textarea>`;
+        h += `<small class="text-muted d-block mt-1 mb-2">A IA recebe automaticamente os dados do lead e o histórico recente de mensagens junto com o seu prompt. Use variáveis como {{primeiro_nome}}, {{empresa}}.</small>`;
+        if (mode === 'decision') {
+            h += `<div class="alert alert-light border py-2 px-2 small mb-0"><i class="bi bi-signpost-split text-primary"></i> A IA decide <strong>SIM</strong> ou <strong>NÃO</strong>. Conecte as duas saídas (verde = Sim, vermelha = Não) aos próximos blocos.</div>`;
+        } else {
+            h += field('Registrar resposta como nota no lead', `<select class="form-select form-select-sm" onchange="setData('save_note', parseInt(this.value))">
+                <option value="1" ${(n.data.save_note??1)==1?'selected':''}>Sim</option>
+                <option value="0" ${(n.data.save_note??1)==0?'selected':''}>Não</option></select>`);
+        }
     } else if (n.type==='tag') {
         // Dropdown das etiquetas existentes + opção de criar nova
         const cur = n.data.label || '';
@@ -352,7 +383,8 @@ function renderInspector() {
         const others = nodes.filter(x => x.id !== n.id);
         const optsFor = (sel) => '<option value="">— nenhum —</option>' +
             others.map(o => `<option value="${o.id}" ${sel===o.id?'selected':''}>${NODE_LABELS[o.type]||o.type} · ${escapeHtml((nodeSummary(o)||'').replace(/<[^>]+>/g,'').slice(0,20))}</option>`).join('');
-        if (n.type === 'condition') {
+        const twoWay = (n.type === 'condition') || (n.type === 'ai' && (n.data||{}).mode === 'decision');
+        if (twoWay) {
             h += field('Se SIM →', `<select class="form-select form-select-sm" onchange="setNext('nextYes',this.value)">${optsFor(n.nextYes)}</select>`);
             h += field('Se NÃO →', `<select class="form-select form-select-sm" onchange="setNext('nextNo',this.value)">${optsFor(n.nextNo)}</select>`);
         } else {
@@ -453,6 +485,26 @@ function setNext(port, targetId) {
     if (!n) return;
     if (targetId) n[port] = targetId; else delete n[port];
     drawEdges();
+}
+
+// Bloco IA: ao trocar o tipo de resposta (simples/decisão), recria o nó para
+// ajustar as portas de saída (1 saída no simples, 2 saídas no decisão) e limpa
+// conexões incompatíveis.
+function onAiModeChange(mode) {
+    const n = nodes.find(x=>x.id===selectedId);
+    if (!n) return;
+    n.data.mode = mode;
+    if (mode === 'decision') {
+        delete n.next; // passa a usar nextYes/nextNo
+    } else {
+        delete n.nextYes; delete n.nextNo; // volta a usar next
+    }
+    // Recria o elemento do nó para refletir as portas corretas
+    if (n._el) n._el.remove();
+    n._el = buildNodeEl(n);
+    canvas().appendChild(n._el);
+    drawEdges();
+    renderInspector();
 }
 
 // Bloco "mover card": ao trocar o board, limpa a coluna e mostra só as colunas daquele board

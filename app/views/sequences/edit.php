@@ -25,6 +25,7 @@
                 <button class="btn btn-sm btn-outline-success" onclick="addNode('whatsapp')"><i class="bi bi-whatsapp"></i> WhatsApp</button>
                 <button class="btn btn-sm btn-outline-warning" onclick="addNode('wait')"><i class="bi bi-clock"></i> Aguardar</button>
                 <button class="btn btn-sm btn-outline-secondary" onclick="addNode('condition')"><i class="bi bi-signpost-split"></i> Condição</button>
+                <button class="btn btn-sm btn-outline-primary" onclick="addNode('ai')"><i class="bi bi-robot"></i> IA (ChatGPT)</button>
                 <button class="btn btn-sm btn-outline-secondary" onclick="addNode('tag')"><i class="bi bi-tag"></i> Tag</button>
                 <button class="btn btn-sm btn-outline-secondary" onclick="addNode('score')"><i class="bi bi-star"></i> Score</button>
                 <button class="btn btn-sm btn-outline-info" onclick="addNode('move')"><i class="bi bi-kanban"></i> Mover card</button>
