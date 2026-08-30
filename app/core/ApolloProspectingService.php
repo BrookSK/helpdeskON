@@ -223,7 +223,8 @@ class ApolloProspectingService
         $channel = $this->sequenceChannel($sequenceId);
 
         if (!empty($selectedIds)) {
-            $rows = $this->fetchMyLeadsByIds($selectedIds, $channel);
+            // No disparo manual, inclui até os descadastrados (serão reativados no enroll).
+            $rows = $this->fetchMyLeadsByIds($selectedIds, $channel, $manual);
             $target = count($rows); // inscreve todos os selecionados
         } else {
             $filters = json_decode($camp['my_leads_filters'] ?? '{}', true) ?: [];
@@ -590,7 +591,7 @@ class ApolloProspectingService
      * Busca leads específicos por ID (seleção manual), mantendo os mesmos critérios
      * de elegibilidade (e-mail válido, não descadastrado, não bounce, não arquivado).
      */
-    private function fetchMyLeadsByIds(array $ids, $channel = 'email')
+    private function fetchMyLeadsByIds(array $ids, $channel = 'email', $manual = false)
     {
         $ids = array_values(array_filter(array_map('intval', $ids)));
         if (empty($ids)) return [];
@@ -600,8 +601,9 @@ class ApolloProspectingService
                 WHERE c.id IN ($ph)
                   AND COALESCE(c.is_group,0)=0
                   AND " . $this->channelEligibilitySql($channel) . "
-                  AND COALESCE(c.unsubscribed,0)=0
                   AND COALESCE(c.email_bounced,0)=0";
+        // Disparo automático ignora descadastrados; manual inclui (reativa no enroll).
+        if (!$manual) $sql .= " AND COALESCE(c.unsubscribed,0)=0";
         return $this->db->fetchAll($sql, $ids);
     }
 

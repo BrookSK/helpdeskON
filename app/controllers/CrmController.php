@@ -2275,14 +2275,17 @@ class CrmController extends Controller
             $channelSql = "(c.lead_email IS NOT NULL AND c.lead_email <> '')";
         }
 
+        // Inclui também os leads descadastrados (unsubscribed), marcando-os como
+        // "inativo". Assim o operador consegue reativá-los e reselecionar para
+        // testar de novo — o disparo manual reativa o contato ao inscrever.
         $sql = "SELECT c.id, c.contact_name, c.lead_email, c.phone, u.name AS assigned_name,
-                       b.lead_temperature, b.lead_source
+                       b.lead_temperature, b.lead_source,
+                       COALESCE(c.unsubscribed,0) AS unsubscribed
                 FROM whatsapp_contacts c
                 LEFT JOIN users u ON c.assigned_to = u.id
                 LEFT JOIN commercial_briefings b ON b.contact_id = c.id
                 WHERE COALESCE(c.is_group,0)=0
                   AND $channelSql
-                  AND COALESCE(c.unsubscribed,0)=0
                   AND COALESCE(c.email_bounced,0)=0
                   AND COALESCE(c.crm_archived,0)=0";
         $params = [];
@@ -2296,7 +2299,7 @@ class CrmController extends Controller
         if (!empty($_GET['source']))      { $sql .= " AND b.lead_source = ?";      $params[] = $_GET['source']; }
         if (!empty($_GET['assigned_to'])) { $sql .= " AND c.assigned_to = ?";       $params[] = intval($_GET['assigned_to']); }
 
-        $sql .= " ORDER BY c.contact_name IS NULL, c.contact_name ASC LIMIT 500";
+        $sql .= " ORDER BY unsubscribed ASC, c.contact_name IS NULL, c.contact_name ASC LIMIT 500";
         $rows = $db->fetchAll($sql, $params);
         $this->json(['success' => true, 'leads' => $rows]);
     }

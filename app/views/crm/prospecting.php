@@ -817,9 +817,14 @@ function loadLeadPicker() {
             body.innerHTML = leads.map(l => {
                 lpLeadCache[l.id] = l.contact_name || l.lead_email;
                 const checked = lpTempSelected.has(String(l.id)) ? 'checked' : '';
-                return `<tr onclick="lpToggleRow(${l.id}, event)" style="cursor:pointer;">
+                const inactive = Number(l.unsubscribed) === 1;
+                const badge = inactive
+                    ? ` <span class="badge bg-secondary" title="Lead descadastrado — será reativado ao inscrever">inativo</span>`
+                    : '';
+                const nameCell = escapeH(l.contact_name||'—') + badge;
+                return `<tr onclick="lpToggleRow(${l.id}, event)" style="cursor:pointer;${inactive?'opacity:.75;':''}">
                     <td><input type="checkbox" class="form-check-input lp-check" value="${l.id}" ${checked} onclick="event.stopPropagation();lpToggle(${l.id}, this.checked)"></td>
-                    <td>${escapeH(l.contact_name||'—')}</td>
+                    <td>${nameCell}</td>
                     <td>${escapeH(l.lead_email||'—')}</td>
                     <td>${escapeH(l.assigned_name||'—')}</td>
                     <td>${escapeH(l.lead_temperature||'—')}</td>
