@@ -1996,8 +1996,14 @@ class CrmController extends Controller
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
         @set_time_limit(300);
 
+        // Detecta respostas por e-mail (IMAP) antes de processar, para que o botão
+        // manual também capte respostas de e-mail (não só WhatsApp).
+        $replies = 0;
+        try { $replies = (new CronController())->detectReplies(); }
+        catch (\Throwable $e) { Logger::error('runSequencesNow: detectReplies', ['error' => $e->getMessage()]); }
+
         $stats = (new SequenceEngine())->processDue(200);
-        $this->json(['success' => true, 'engine' => $stats, 'replies_detected' => 0]);
+        $this->json(['success' => true, 'engine' => $stats, 'replies_detected' => $replies]);
     }
 
     /**

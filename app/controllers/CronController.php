@@ -347,9 +347,10 @@ class CronController extends Controller
     /**
      * Varre as contas IMAP em busca de respostas de leads que estão em sequência ativa,
      * e registra a resposta (o que interrompe os follow-ups pendentes).
+     * Público para poder ser chamado também no disparo manual.
      * @return int nº de respostas processadas
      */
-    private function detectReplies()
+    public function detectReplies()
     {
         $db = Database::getInstance();
         // Leads com participação ativa e e-mail conhecido
@@ -371,6 +372,11 @@ class CronController extends Controller
 
         // Para cada conta IMAP configurada, busca mensagens recentes desses remetentes
         $accounts = $db->fetchAll("SELECT * FROM email_accounts WHERE is_active = 1 AND imap_host IS NOT NULL AND imap_host <> ''");
+        if (empty($accounts)) {
+            // Sem IMAP configurado não é possível detectar respostas por e-mail.
+            Logger::error('detectReplies: nenhuma conta com IMAP configurado', ['leads_aguardando' => count($byEmail)]);
+            return 0;
+        }
         foreach ($accounts as $acc) {
             try {
                 $reader = new ImapReader($acc);
@@ -413,6 +419,9 @@ class CronController extends Controller
     {
         $this->validateToken();
         @set_time_limit(300);
+
+        // 0) Detecta respostas por e-mail (IMAP) antes de tudo.
+        try { $this->detectReplies(); } catch (\Throwable $e) { Logger::error('runProspecting: detectReplies', ['error' => $e->getMessage()]); }
 
         // 1) Captação Apollo (busca → reveal → cria lead → inscreve na sequência)
         $service = new ApolloProspectingService();
