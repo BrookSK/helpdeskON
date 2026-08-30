@@ -271,9 +271,9 @@ class ProspectingAnalytics
                  FROM prospecting_lead_outcome o
                  LEFT JOIN email_sequences s ON s.id = o.sequence_id
                  WHERE o.created_at >= ?
-                 GROUP BY o.sequence_id, o.ab_variant
+                 GROUP BY o.sequence_id, o.ab_variant, s.name
                  HAVING sent >= ?
-                 ORDER BY (scheduled / sent) DESC, replied DESC",
+                 ORDER BY (scheduled / GREATEST(sent,1)) DESC, replied DESC",
                 [$since, $minSent]
             );
             $out = [];
