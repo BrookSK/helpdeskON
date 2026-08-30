@@ -65,22 +65,21 @@ UPDATE email_sequences SET graph = JSON_OBJECT(
     'nodes', JSON_ARRAY(
         JSON_OBJECT('id','wresp','type','wait','x',360,'y',20,'next','cresp','data', JSON_OBJECT('amount',2,'unit','minutes')),
         JSON_OBJECT('id','cresp','type','condition','x',360,'y',140,'nextYes','ia','nextNo','wresp','data', JSON_OBJECT('kind','replied')),
-        JSON_OBJECT('id','ia','type','ai','x',360,'y',280,'nextYes','pos_reply','nextNo','neg_reply','data', JSON_OBJECT(
+        JSON_OBJECT('id','ia','type','ai','x',360,'y',280,'nextYes','pos_move','nextNo','neg_reply','data', JSON_OBJECT(
             'mode','decision','model','gpt-4o-mini',
             'prompt','Analise a última resposta do lead {{primeiro_nome}} (da empresa {{empresa}}) e o histórico de mensagens. decision=true SOMENTE se demonstrou INTERESSE (conversar, receber material, agendar reunião ou seguir). decision=false se desinteresse, pediu para parar, não é o momento ou já tem fornecedor. Em dúvida real, decision=false.')),
-        JSON_OBJECT('id','pos_reply','type','reply','x',120,'y',440,'next','pos_move','data', JSON_OBJECT(
+        JSON_OBJECT('id','pos_move','type','move','x',120,'y',420,'next','pos_tag','data', JSON_OBJECT('column_name','Qualificado')),
+        JSON_OBJECT('id','pos_tag','type','tag','x',120,'y',540,'next','pos_reply','data', JSON_OBJECT('label','interessado','color','#28a745')),
+        JSON_OBJECT('id','pos_reply','type','reply','x',120,'y',660,'next','sched','data', JSON_OBJECT(
             'subject','Que bom, {{primeiro_nome}}! Vamos avançar',
-            'body','{{primeiro_nome}}, que ótimo receber seu retorno!\n\nVou preparar as próximas informações e um especialista da ON Solutions entra em contato para entender melhor o cenário da {{empresa}} e propor os próximos passos.')),
-        JSON_OBJECT('id','pos_move','type','move','x',120,'y',560,'next','pos_tag','data', JSON_OBJECT('column_name','Qualificado')),
-        JSON_OBJECT('id','pos_tag','type','tag','x',120,'y',680,'next','sched','data', JSON_OBJECT('label','interessado','color','#28a745')),
-        JSON_OBJECT('id','sched','type','schedule','x',120,'y',800,'next','done','data', JSON_OBJECT(
+            'body','{{primeiro_nome}}, que ótimo receber seu retorno!\n\nPara avançarmos, separei um espaço na agenda para uma conversa rápida (online, cerca de 45 minutos).')),
+        JSON_OBJECT('id','sched','type','schedule','x',120,'y',780,'next','done','data', JSON_OBJECT(
             'channel','reply','duration',45,
             'title','Agende sua reunião com a ON Solutions Brasil',
             'message', CONCAT(
-                '{{primeiro_nome}}, para deixarmos tudo alinhado, separei um espaço na agenda para uma conversa rápida (online, cerca de 45 minutos).\n\n',
                 '👉 Escolha o melhor dia e horário para você neste link:\n',
                 '{{link_agendamento}}\n\n',
-                'Assim que você confirmar, envio o link da reunião (Google Meet) por aqui mesmo e um lembrete antes do horário.\n\n',
+                'Assim que confirmar, envio o link da reunião (Google Meet) e um lembrete antes do horário.\n\n',
                 'Fico no aguardo!'
             ))),
         JSON_OBJECT('id','neg_reply','type','reply','x',600,'y',440,'next','neg_unsub','data', JSON_OBJECT(

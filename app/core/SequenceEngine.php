@@ -24,9 +24,76 @@ class SequenceEngine
 {
     private $db;
 
+    /**
+     * Buffer de e-mails por participante durante uma "passada" de execução.
+     * Blocos de e-mail executados em sequência (sem 'wait' entre eles) são
+     * agrupados e enviados como UM ÚNICO e-mail ao esvaziar (flush). Isso mantém
+     * os blocos separados no construtor, sem fusão hardcoded, e evita e-mails
+     * separados quando confirmação + agendamento saem no mesmo passo.
+     * O WhatsApp NÃO é bufferizado (mensagens separadas são naturais no chat).
+     */
+    private $emailBuffer = [];
+
     public function __construct()
     {
         $this->db = Database::getInstance();
+    }
+
+    /**
+     * Enfileira um e-mail no buffer do participante (agrupa envios consecutivos).
+     * Retorna true (o envio real acontece no flushEmail).
+     */
+    private function bufferEmail($participant, $account, $to, $subject, $bodyHtml, $nodeId, $variant = null)
+    {
+        $pid = $participant['id'];
+        if (!isset($this->emailBuffer[$pid])) {
+            $this->emailBuffer[$pid] = [
+                'contact_id' => $participant['contact_id'],
+                'account' => $account,
+                'to' => $to,
+                'subjects' => [],
+                'parts' => [],
+                'nodes' => [],
+                'variant' => $variant,
+            ];
+        }
+        if ($subject !== null && trim($subject) !== '') $this->emailBuffer[$pid]['subjects'][] = $subject;
+        if ($variant && empty($this->emailBuffer[$pid]['variant'])) $this->emailBuffer[$pid]['variant'] = $variant;
+        $this->emailBuffer[$pid]['parts'][] = $bodyHtml;
+        $this->emailBuffer[$pid]['nodes'][] = $nodeId;
+        return true;
+    }
+
+    /**
+     * Envia o e-mail agrupado do participante (se houver) e limpa o buffer.
+     * Um único e-mail com todas as partes acumuladas na passada atual.
+     */
+    private function flushEmail($participantId)
+    {
+        if (empty($this->emailBuffer[$participantId])) return;
+        $buf = $this->emailBuffer[$participantId];
+        unset($this->emailBuffer[$participantId]);
+        if (empty($buf['parts'])) return;
+
+        $subject = $buf['subjects'][0] ?? 'ON Solutions Brasil';
+        $body = implode("\n", $buf['parts']); // partes já são blocos HTML (<p>...)
+
+        try {
+            (new EmailMessageService())->send([
+                'contact_id' => $buf['contact_id'],
+                'account' => $buf['account'],
+                'to' => $buf['to'],
+                'subject' => $subject,
+                'body_html' => $body,
+                'origin' => 'sequence',
+                'sequence_participant_id' => $participantId,
+                'node_id' => implode(',', $buf['nodes']),
+                'ab_variant' => $buf['variant'],
+                'add_signature' => true,
+            ]);
+        } catch (\Throwable $e) {
+            Logger::error('SequenceEngine flushEmail', ['participant' => $participantId, 'error' => $e->getMessage()]);
+        }
     }
 
     // ============ Inscrição ============
@@ -320,6 +387,8 @@ class SequenceEngine
                 // reagendado (fora de janela / limite diário), para por aqui.
                 if (empty($current['next_run_at']) || strtotime($current['next_run_at']) > time()) break;
             }
+            // Fim da passada deste participante: envia o e-mail agrupado (se houver).
+            $this->flushEmail($p['id']);
         }
         return $stats;
     }
@@ -365,6 +434,8 @@ class SequenceEngine
                 break;
             }
         }
+        // Envia o e-mail agrupado da passada de teste, se houver.
+        $this->flushEmail($participantId);
         $final = $this->db->fetch("SELECT status, stop_reason, ab_variant FROM sequence_participants WHERE id = ?", [$participantId]);
         return ['success' => true, 'steps' => $steps, 'final' => $final];
     }
@@ -690,24 +761,17 @@ class SequenceEngine
         $subject = $this->render($subjectSrc, $contact);
         $body = $this->render($bodySrc, $contact);
 
-        $res = (new EmailMessageService())->send([
-            'contact_id' => $contactId,
-            'account' => $account,
-            'to' => $contact['lead_email'],
-            'subject' => $subject,
-            'body_html' => $body,
-            'origin' => 'sequence',
-            'sequence_participant_id' => $participant['id'],
-            'node_id' => $node['id'],
-            'ab_variant' => $variant,
-            // Todos os e-mails de sequência recebem a assinatura padrão da empresa.
-            'add_signature' => true,
-        ]);
-        return !empty($res['success']) ? true : ('Falha no envio: ' . ($res['error'] ?? 'desconhecida'));
+        // Agrupa e-mails consecutivos num único envio (flush ao fim da passada).
+        // A assinatura é aplicada uma vez no flush (add_signature no send final).
+        $this->bufferEmail($participant, $account, $contact['lead_email'], $subject, $body, $node['id'], $variant);
+        return true;
     }
 
     private function doWhatsapp($participant, $node)
     {
+        // Se havia e-mail agrupado pendente, envia-o antes de mudar de canal.
+        $this->flushEmail($participant['id']);
+
         $contactId = $participant['contact_id'];
         $contact = $this->db->fetch("SELECT id, phone, contact_name, push_name, lead_email FROM whatsapp_contacts WHERE id = ?", [$contactId]);
         if (empty($contact['phone'])) {
@@ -1099,24 +1163,14 @@ class SequenceEngine
         $hasPhone = !empty($contact['phone']);
         $sent = [];
 
-        // E-mail
+        // E-mail (agrupa com envios consecutivos: buffer + flush no fim da passada).
         if (($channel === 'auto' || $channel === 'email') && $hasEmail) {
             $account = $this->resolveAccount($this->db->fetch("SELECT email_account_id FROM email_sequences WHERE id = ?", [$participant['sequence_id']])['email_account_id'] ?? null);
             if ($account) {
                 $bodyHtml = '<p>' . nl2br(htmlspecialchars($rendered)) . '</p>'
                     . '<p style="text-align:center;margin:24px 0;"><a href="' . htmlspecialchars($link, ENT_QUOTES) . '" style="background:#00BFA6;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;">Escolher data e horário</a></p>';
-                $res = (new EmailMessageService())->send([
-                    'contact_id' => $contactId,
-                    'account' => $account,
-                    'to' => $contact['lead_email'],
-                    'subject' => $title,
-                    'body_html' => $bodyHtml,
-                    'origin' => 'sequence',
-                    'sequence_participant_id' => $participant['id'],
-                    'node_id' => $node['id'],
-                    'add_signature' => true,
-                ]);
-                if (!empty($res['success'])) $sent[] = 'e-mail';
+                $this->bufferEmail($participant, $account, $contact['lead_email'], $title, $bodyHtml, $node['id']);
+                $sent[] = 'e-mail';
             }
         }
 
@@ -1195,14 +1249,10 @@ class SequenceEngine
             $bodyHtml = '<p>' . nl2br(htmlspecialchars($body)) . '</p>';
             $account = $this->resolveAccount($this->db->fetch("SELECT email_account_id FROM email_sequences WHERE id = ?", [$participant['sequence_id']])['email_account_id'] ?? null);
             if (!$account) return ['detail' => 'Sem conta de e-mail ativa.', 'error' => 'no_account', 'channel' => $channel];
-            $res = (new EmailMessageService())->send([
-                'contact_id' => $contactId, 'account' => $account, 'to' => $contact['lead_email'],
-                'subject' => $subject, 'body_html' => $bodyHtml, 'origin' => 'sequence',
-                'sequence_participant_id' => $participant['id'], 'node_id' => $node['id'], 'add_signature' => true,
-            ]);
-            return !empty($res['success'])
-                ? ['detail' => 'Resposta enviada por e-mail.', 'error' => null, 'channel' => 'email']
-                : ['detail' => 'Falha no e-mail: ' . ($res['error'] ?? ''), 'error' => $res['error'] ?? 'send', 'channel' => 'email'];
+            // Agrupa com envios consecutivos (buffer + flush no fim da passada):
+            // se o próximo bloco também for e-mail, sai tudo num único e-mail.
+            $this->bufferEmail($participant, $account, $contact['lead_email'], $subject, $bodyHtml, $node['id']);
+            return ['detail' => 'Resposta enviada por e-mail.', 'error' => null, 'channel' => 'email'];
         }
 
         // Canal WhatsApp
@@ -1243,6 +1293,12 @@ class SequenceEngine
      */
     private function sendWhatsappRaw($contactId, $contact, $text)
     {
+        // Garante que qualquer e-mail agrupado pendente do participante saia antes
+        // (mantém a ordem cronológica entre canais). Descobre o participante ativo.
+        try {
+            $p = $this->db->fetch("SELECT id FROM sequence_participants WHERE contact_id = ? AND status='active' ORDER BY id DESC LIMIT 1", [$contactId]);
+            if ($p && !empty($this->emailBuffer[$p['id']])) $this->flushEmail($p['id']);
+        } catch (\Throwable $e) { /* ignore */ }
         try {
             $default = $this->db->fetch("SELECT id FROM whatsapp_instances WHERE is_default = 1 LIMIT 1");
             if (!$default) return 'Sem instância padrão de WhatsApp.';
@@ -1416,11 +1472,31 @@ class SequenceEngine
     private function moveCard($contactId, $columnId)
     {
         $board = new CrmBoard();
-        $card = $this->db->fetch("SELECT id FROM crm_cards WHERE contact_id = ? ORDER BY id DESC LIMIT 1", [$contactId]);
-        if ($card) {
-            $board->moveCard($card['id'], $columnId, 0);
-            (new LeadTimelineService())->add($contactId, 'board_move', 'Card movido pela sequência', ['column_id' => $columnId]);
+        $card = $this->db->fetch(
+            "SELECT cc.id, cc.column_id, cur.position AS cur_pos, cur.board_id
+             FROM crm_cards cc
+             LEFT JOIN crm_columns cur ON cc.column_id = cur.id
+             WHERE cc.contact_id = ? ORDER BY cc.id DESC LIMIT 1",
+            [$contactId]
+        );
+        if (!$card) return;
+
+        // Já está na coluna de destino: nada a fazer.
+        if ((int)$card['column_id'] === (int)$columnId) return;
+
+        // Anti-regressão: não volta o card para uma etapa ANTERIOR do funil.
+        // Ex.: se já está em "Reunião", não retorna para "Qualificado" em um
+        // reprocessamento da sequência. Só bloqueia dentro do MESMO board.
+        $target = $this->db->fetch("SELECT position, board_id FROM crm_columns WHERE id = ?", [$columnId]);
+        if ($target && $card['board_id'] !== null
+            && (int)$target['board_id'] === (int)$card['board_id']
+            && $card['cur_pos'] !== null
+            && (int)$target['position'] < (int)$card['cur_pos']) {
+            return; // destino é uma coluna anterior → ignora
         }
+
+        $board->moveCard($card['id'], $columnId, 0);
+        (new LeadTimelineService())->add($contactId, 'board_move', 'Card movido pela sequência', ['column_id' => $columnId]);
     }
 
     /**
