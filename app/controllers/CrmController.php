@@ -1974,7 +1974,9 @@ class CrmController extends Controller
         $target = max(1, (int)$camp['daily_target'] - $already);
 
         $service = new ApolloProspectingService();
-        $result = $service->runCampaign($camp, $target);
+        // Disparo MANUAL: força a (re)inscrição/reinício, mesmo para leads que já
+        // passaram pela sequência (o operador está pedindo explicitamente).
+        $result = $service->runCampaign($camp, $target, true);
         $this->json(['success' => empty($result['error']), 'result' => $result]);
     }
 

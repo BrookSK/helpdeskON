@@ -102,14 +102,20 @@ class SequenceEngine
      * Adiciona um Lead a uma sequência (idempotente por (sequence, contact)).
      * @return array {success, participant_id, error}
      */
-    public function enroll($sequenceId, $contactId, $userId = null)
+    public function enroll($sequenceId, $contactId, $userId = null, $forceRestart = false)
     {
         $seq = $this->db->fetch("SELECT * FROM email_sequences WHERE id = ?", [$sequenceId]);
         if (!$seq || !$seq['is_active']) return ['success' => false, 'error' => 'Sequência inválida ou inativa.'];
 
         $contact = $this->db->fetch("SELECT unsubscribed, email_bounced, lead_email, phone FROM whatsapp_contacts WHERE id = ?", [$contactId]);
         if (!$contact) return ['success' => false, 'error' => 'Lead não encontrado.'];
-        if (!empty($contact['unsubscribed'])) return ['success' => false, 'error' => 'Lead descadastrado.'];
+        // Disparo MANUAL (forceRestart) ignora o opt-out: o operador está reinscrevendo
+        // deliberadamente (ex.: para testar o fluxo). Reativa o contato.
+        if (!empty($contact['unsubscribed'])) {
+            if (!$forceRestart) return ['success' => false, 'error' => 'Lead descadastrado.'];
+            $this->db->update('whatsapp_contacts', ['unsubscribed' => 0], 'id = ?', [$contactId]);
+            $contact['unsubscribed'] = 0;
+        }
 
         // Elegibilidade por CANAL da sequência (email / whatsapp / mixed).
         // - email:    exige e-mail
@@ -133,13 +139,16 @@ class SequenceEngine
 
         $existing = $this->db->fetch("SELECT * FROM sequence_participants WHERE sequence_id = ? AND contact_id = ?", [$sequenceId, $contactId]);
         if ($existing) {
-            if (in_array($existing['status'], ['active', 'paused'])) {
+            // Disparo automático não reinicia quem já está rodando. Disparo MANUAL
+            // (forceRestart) reinicia a cadência do zero mesmo que já esteja ativa.
+            if (!$forceRestart && in_array($existing['status'], ['active', 'paused'])) {
                 return ['success' => false, 'error' => 'Lead já está nesta sequência.'];
             }
-            // Reativa participante finalizado/parado
+            // Reinicia: volta ao começo do grafo e limpa travas de escuta/triagem.
             $this->db->update('sequence_participants', [
                 'status' => 'active', 'current_node' => null, 'next_run_at' => date('Y-m-d H:i:s'),
                 'stop_reason' => null, 'finished_at' => null,
+                'reply_listen_until' => null, 'triaged_at' => null, 'ai_agent_turns' => 0,
             ], 'id = ?', [$existing['id']]);
             $participantId = $existing['id'];
         } else {

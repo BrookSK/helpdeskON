@@ -78,13 +78,13 @@ class ApolloProspectingService
      * Roteia conforme a origem configurada (Apollo x Meus Leads).
      * @return array métricas da campanha
      */
-    public function runCampaign(array $camp, $target)
+    public function runCampaign(array $camp, $target, $manual = false)
     {
         $source = $camp['lead_source'] ?? 'apollo';
         if ($source === 'my_leads') {
-            return $this->runMyLeadsCampaign($camp, $target);
+            return $this->runMyLeadsCampaign($camp, $target, $manual);
         }
-        return $this->runApolloCampaign($camp, $target);
+        return $this->runApolloCampaign($camp, $target, $manual);
     }
 
     /**
@@ -97,7 +97,7 @@ class ApolloProspectingService
      * Pagina continuamente até atingir $target NOVOS elegíveis ou esgotar resultados.
      * @return array métricas da campanha
      */
-    public function runApolloCampaign(array $camp, $target)
+    public function runApolloCampaign(array $camp, $target, $manual = false)
     {
         $m = [
             'campaign' => $camp['id'], 'name' => $camp['name'], 'source' => 'apollo',
@@ -149,7 +149,7 @@ class ApolloProspectingService
                 $m['analyzed']++;
 
                 // DEDUP antes de qualquer reveal — jamais gasta crédito com quem já conhecemos.
-                if ($this->isDuplicate($p, $camp)) { $m['duplicated']++; continue; }
+                if ($this->isDuplicate($p, $camp, $manual)) { $m['duplicated']++; continue; }
 
                 // Preserva os dados da busca na staging (sem reveal)
                 $localId = $leadModel->upsertFromApollo($p, null);
@@ -173,7 +173,7 @@ class ApolloProspectingService
 
             // Só agora consome crédito: revela, cria o lead e inscreve
             foreach ($selected as $c) {
-                $r = $this->revealAndEnroll($camp, $c['person'], $c['local_id'], $c['score']);
+                $r = $this->revealAndEnroll($camp, $c['person'], $c['local_id'], $c['score'], $manual);
                 if ($r === 'enrolled') { $m['revealed_email']++; $m['imported']++; $m['enrolled']++; }
                 elseif ($r === 'reveal_failed') { $m['reveal_failed']++; }
             }
@@ -197,7 +197,7 @@ class ApolloProspectingService
      * Fluxo: Meus Leads → aplicar filtros → verificar elegibilidade/dup → inscrever.
      * @return array métricas da campanha
      */
-    public function runMyLeadsCampaign(array $camp, $target)
+    public function runMyLeadsCampaign(array $camp, $target, $manual = false)
     {
         $m = [
             'campaign' => $camp['id'], 'name' => $camp['name'], 'source' => 'my_leads',
@@ -237,10 +237,12 @@ class ApolloProspectingService
             if ($m['enrolled'] >= $target) break;
             $m['analyzed']++;
 
-            // Já inscrito nesta sequência (ativo/pausado)? ignora.
-            if ($this->alreadyInSequence((int)$lead['id'], $sequenceId)) { $m['duplicated']++; continue; }
+            // Já inscrito nesta sequência? No disparo AUTOMÁTICO, um lead que já
+            // passou (qualquer status) NÃO é reinscrito (evita loop). No disparo
+            // MANUAL, o operador quer forçar: reinscreve/reinicia mesmo assim.
+            if (!$manual && $this->alreadyInSequence((int)$lead['id'], $sequenceId)) { $m['duplicated']++; continue; }
 
-            $r = $engine->enroll($sequenceId, (int)$lead['id'], $camp['created_by'] ?: null);
+            $r = $engine->enroll($sequenceId, (int)$lead['id'], $camp['created_by'] ?: null, $manual);
             if (!empty($r['success'])) {
                 $m['enrolled']++;
                 $this->logEnrolled($camp['id'], (int)$lead['id'], 'Meus Leads → sequência');
@@ -259,7 +261,7 @@ class ApolloProspectingService
      * adiciona ao board e inscreve na sequência.
      * @return string 'enrolled' | 'reveal_failed' | 'skipped'
      */
-    private function revealAndEnroll(array $camp, array $person, $localId, $score)
+    private function revealAndEnroll(array $camp, array $person, $localId, $score, $manual = false)
     {
         $leadModel = new ApolloLead();
 
@@ -413,7 +415,7 @@ class ApolloProspectingService
             }
         }
         if ($targetSeq) {
-            (new SequenceEngine())->enroll($targetSeq, $contactId, $camp['created_by'] ?: null);
+            (new SequenceEngine())->enroll($targetSeq, $contactId, $camp['created_by'] ?: null, $manual);
             $this->logEnrolled($camp['id'], $contactId, $routeLabel);
         }
 
@@ -440,7 +442,7 @@ class ApolloProspectingService
      *   5) já está inscrito na sequência da campanha
      * NÃO usa nome como critério.
      */
-    private function isDuplicate(array $person, array $camp)
+    private function isDuplicate(array $person, array $camp, $manual = false)
     {
         $apolloId = $person['id'] ?? null;
         $leadModel = new ApolloLead();
@@ -449,10 +451,9 @@ class ApolloProspectingService
         if ($apolloId) {
             $staging = $leadModel->findByApolloId($apolloId);
             if ($staging && !empty($staging['contact_id'])) {
-                // 2/3) já prospectado por esta ou outra campanha
-                if ($this->stagingAlreadyProspected((int)$staging['id'], $camp)) return true;
-                // 4) o contato existe → verifica sequência
-                if ($this->alreadyInSequence((int)$staging['contact_id'], (int)($camp['sequence_id'] ?? 0))) return true;
+                // Disparo MANUAL: o operador quer forçar. Reinscreve/reinicia o lead
+                // conhecido na sequência SEM revelar de novo (não gasta crédito).
+                if ($manual) $this->manualReenroll((int)$staging['contact_id'], $camp);
                 return true; // já importado antes: nunca revela de novo
             }
         }
@@ -480,11 +481,28 @@ class ApolloProspectingService
             }
         }
         if ($contactId) {
-            // 5) já inscrito na sequência? de qualquer forma, lead já conhecido → não reprospecta
+            // Disparo MANUAL: força a (re)inscrição do lead conhecido sem revelar.
+            if ($manual) $this->manualReenroll($contactId, $camp);
+            // já conhecido → não reprospecta (não gasta crédito de reveal)
             return true;
         }
 
         return false;
+    }
+
+    /**
+     * (Re)inscreve um contato já conhecido na sequência da campanha em disparo
+     * MANUAL, reiniciando a cadência mesmo que já tenha rodado antes. Não gasta
+     * crédito de reveal (o lead já existe). Respeita a rota por canal se auto_route.
+     */
+    private function manualReenroll($contactId, array $camp)
+    {
+        $targetSeq = (int)($camp['sequence_id'] ?? 0);
+        if (!$targetSeq) return;
+        try {
+            (new SequenceEngine())->enroll($targetSeq, (int)$contactId, $camp['created_by'] ?: null, true);
+            $this->logEnrolled($camp['id'], (int)$contactId, 'Manual → sequência (reinício)');
+        } catch (\Throwable $e) { /* silencioso */ }
     }
 
     /** Verifica se o staging já foi prospectado (log 'enrolled') nesta campanha ou em qualquer uma (global). */
