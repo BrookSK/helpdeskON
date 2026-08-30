@@ -2073,7 +2073,7 @@ class CrmController extends Controller
                  JOIN sequence_participants sp ON e.participant_id = sp.id
                  JOIN email_sequences s ON sp.sequence_id = s.id
                  JOIN whatsapp_contacts wc ON sp.contact_id = wc.id
-                 WHERE s.name LIKE '%Apollo%'
+                 WHERE (s.name LIKE '%Apollo%' OR s.name LIKE '%ON Solu%')
                  ORDER BY e.id DESC
                  LIMIT 200"
             );
@@ -2089,7 +2089,7 @@ class CrmController extends Controller
                  FROM sequence_participants sp
                  JOIN email_sequences s ON sp.sequence_id = s.id
                  JOIN whatsapp_contacts wc ON sp.contact_id = wc.id
-                 WHERE s.name LIKE '%Apollo%'
+                 WHERE (s.name LIKE '%Apollo%' OR s.name LIKE '%ON Solu%')
                  ORDER BY sp.updated_at DESC
                  LIMIT 50"
             );

@@ -165,3 +165,15 @@ UPDATE email_sequences SET graph = JSON_OBJECT(
     )
 )
 WHERE name = 'ON Solu · Fluxo 3 (Só WhatsApp)';
+
+-- ---------------------------------------------------------------------
+-- JANELA DE ENVIO (produção): restaura horário comercial 08:30–17:00 e
+-- desabilita envio em fim de semana.
+-- ---------------------------------------------------------------------
+UPDATE email_sequences
+SET window_start = '08:30:00', window_end = '17:00:00', send_weekends = 0
+WHERE name IN (
+    'ON Solu · Fluxo 1 (Só E-mail)',
+    'ON Solu · Fluxo 2 (E-mail + WhatsApp)',
+    'ON Solu · Fluxo 3 (Só WhatsApp)'
+);

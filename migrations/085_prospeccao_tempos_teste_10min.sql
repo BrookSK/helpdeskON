@@ -167,3 +167,37 @@ UPDATE email_sequences SET graph = JSON_OBJECT(
     )
 )
 WHERE name = 'ON Solu · Fluxo 3 (Só WhatsApp)';
+
+-- ---------------------------------------------------------------------
+-- JANELA DE ENVIO (somente teste): abre 24h e habilita fim de semana,
+-- para os disparos ocorrerem em qualquer horário/dia durante o teste.
+-- Sem isso, os blocos de envio ficam reagendados para 08:30–17:00 úteis.
+-- ---------------------------------------------------------------------
+UPDATE email_sequences
+SET window_start = '00:00:00', window_end = '23:59:59', send_weekends = 1
+WHERE name IN (
+    'ON Solu · Fluxo 1 (Só E-mail)',
+    'ON Solu · Fluxo 2 (E-mail + WhatsApp)',
+    'ON Solu · Fluxo 3 (Só WhatsApp)'
+);
+
+-- ---------------------------------------------------------------------
+-- DESTRAVA os participantes já inscritos nessas sequências (somente teste):
+-- reativa e reinicia do começo com next_run_at = agora, para o processamento
+-- pegá-los imediatamente. Necessário quando o lead foi inscrito com a janela
+-- fechada (o envio ficou reagendado para o futuro) ou foi finalizado por falta
+-- de conta/janela.
+-- ---------------------------------------------------------------------
+UPDATE sequence_participants sp
+JOIN email_sequences s ON s.id = sp.sequence_id
+SET sp.status = 'active',
+    sp.current_node = NULL,
+    sp.next_run_at = NOW(),
+    sp.stop_reason = NULL,
+    sp.finished_at = NULL,
+    sp.ab_variant = NULL
+WHERE s.name IN (
+    'ON Solu · Fluxo 1 (Só E-mail)',
+    'ON Solu · Fluxo 2 (E-mail + WhatsApp)',
+    'ON Solu · Fluxo 3 (Só WhatsApp)'
+);
