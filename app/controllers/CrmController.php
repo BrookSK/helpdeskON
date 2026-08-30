@@ -2001,6 +2001,41 @@ class CrmController extends Controller
     }
 
     /**
+     * Finaliza TODAS as participações ativas/pausadas em sequências. Útil para
+     * reiniciar um teste com o mesmo contato sem que ele fique no meio de um fluxo.
+     * Protegido por login super_admin. POST crm/finishAllSequences
+     */
+    public function finishAllSequences()
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+
+        $db = Database::getInstance();
+        $now = date('Y-m-d H:i:s');
+
+        // Só as colunas que sempre existem — limpa travas de escuta/triagem se houver.
+        $sets = "status = 'stopped', stop_reason = 'manual', finished_at = ?, next_run_at = NULL";
+        $params = [$now];
+        try {
+            $cols = $db->fetchAll(
+                "SELECT COLUMN_NAME c FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sequence_participants'"
+            );
+            $names = array_map(fn($r) => strtolower($r['c']), $cols);
+            if (in_array('reply_listen_until', $names)) $sets .= ", reply_listen_until = NULL";
+            if (in_array('triaged_at', $names))         $sets .= ", triaged_at = NULL";
+        } catch (\Throwable $e) { /* mantém o set básico */ }
+
+        $stmt = $db->query(
+            "UPDATE sequence_participants SET $sets WHERE status IN ('active','paused')",
+            $params
+        );
+        $finished = $stmt ? $stmt->rowCount() : 0;
+
+        $this->json(['success' => true, 'finished' => $finished]);
+    }
+
+    /**
      * Reexecuta uma etapa específica de um participante (para testar/forçar o erro
      * sem refazer o fluxo inteiro). POST crm/runSequenceNode
      * body: participant_id, node_id

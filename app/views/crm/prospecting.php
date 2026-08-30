@@ -123,6 +123,7 @@
             <small class="text-muted">Etapas concluídas por cada lead nas sequências de prospecção, participantes e erros.</small>
             <div class="d-flex gap-2">
                 <button class="btn btn-sm btn-success" onclick="runSequencesNow(this)" title="Executa agora os passos pendentes das sequências (mesmo que o cron runSequences)"><i class="bi bi-play-circle"></i> Processar sequências agora</button>
+                <button class="btn btn-sm btn-outline-danger" onclick="finishAllSequences(this)" title="Encerra TODAS as participações ativas/pausadas em sequências (útil para reiniciar testes com o mesmo contato)"><i class="bi bi-stop-circle"></i> Finalizar todas</button>
                 <button class="btn btn-sm btn-outline-info" onclick="testEmailOpen(this)" title="Simula a abertura do último e-mail enviado para conferir se o tracking grava"><i class="bi bi-bug"></i> Testar registro de abertura</button>
                 <button class="btn btn-sm btn-outline-secondary" onclick="loadExecLog()"><i class="bi bi-arrow-clockwise"></i> Atualizar</button>
             </div>
@@ -1061,6 +1062,20 @@ function runSequencesNow(btn) {
             loadExecLog();
         })
         .catch(()=>{ btn.disabled=false; btn.innerHTML=orig; alert('Erro ao processar sequências.'); });
+}
+
+// Finaliza TODAS as participações ativas/pausadas em sequências (reiniciar testes)
+function finishAllSequences(btn) {
+    if (!confirm('Encerrar TODAS as participações ativas/pausadas em sequências?\n\nÚtil para reiniciar um teste com o mesmo contato. Não desfaz mensagens já enviadas.')) return;
+    const orig = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Finalizando...';
+    fetch(BASE + 'crm/finishAllSequences', { method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'} })
+        .then(r=>r.json()).then(d=>{
+            btn.disabled = false; btn.innerHTML = orig;
+            if (d.error) { alert(d.error); return; }
+            alert(`Sequências finalizadas: ${d.finished||0}.`);
+            loadExecLog();
+        })
+        .catch(()=>{ btn.disabled=false; btn.innerHTML=orig; alert('Erro ao finalizar sequências.'); });
 }
 
 // Reexecuta UMA etapa específica de um participante (testar/forçar sem refazer o fluxo)

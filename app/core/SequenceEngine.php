@@ -215,6 +215,88 @@ class SequenceEngine
      *
      * @return int nº de participantes roteados para triagem
      */
+    /**
+     * Varre os participantes ativos e, para cada lead que recebeu uma mensagem
+     * do próprio lead (WhatsApp from_me=0 ou e-mail inbound) após o último toque
+     * do sistema e que ainda não foi triado, encaminha para a triagem por IA.
+     *
+     * Isso complementa o webhook do WhatsApp (tempo real): assim uma resposta é
+     * sempre captada quando as sequências rodam (cron ou botão manual), mesmo que
+     * o webhook não tenha chegado.
+     */
+    public function detectRepliesForActive()
+    {
+        try {
+            $hasTriaged = $this->participantHasColumn('triaged_at');
+            $hasListen = $this->participantHasColumn('reply_listen_until');
+
+            $sel = "sp.id, sp.contact_id, sp.started_at";
+            if ($hasTriaged) $sel .= ", sp.triaged_at";
+            if ($hasListen) $sel .= ", sp.reply_listen_until";
+
+            $parts = $this->db->fetchAll(
+                "SELECT $sel FROM sequence_participants sp
+                 JOIN email_sequences s ON s.id = sp.sequence_id
+                 WHERE sp.status IN ('active','paused') AND s.is_active = 1"
+            );
+            if (empty($parts)) return 0;
+
+            $seen = [];
+            $routed = 0;
+            foreach ($parts as $p) {
+                $contactId = (int)$p['contact_id'];
+                if (isset($seen[$contactId])) continue;
+                // Já triado ou já escutando? não reprocessa.
+                if ($hasTriaged && !empty($p['triaged_at'])) { $seen[$contactId] = true; continue; }
+                if ($hasListen && !empty($p['reply_listen_until']) && strtotime($p['reply_listen_until']) > time()) { $seen[$contactId] = true; continue; }
+
+                if ($this->contactRepliedSinceLastTouch($contactId, $p['started_at'] ?? null)) {
+                    $this->routeReplyToTriage($contactId, 'replied');
+                    $routed++;
+                    $seen[$contactId] = true;
+                }
+            }
+            return $routed;
+        } catch (\Throwable $e) {
+            Logger::error('detectRepliesForActive', ['error' => $e->getMessage()]);
+            return 0;
+        }
+    }
+
+    /**
+     * Houve mensagem RECEBIDA do lead (WhatsApp from_me=0 ou e-mail inbound) após
+     * o último envio do sistema? Considera o maior entre started_at e o último
+     * toque de saída (e-mail/WhatsApp) como referência.
+     */
+    private function contactRepliedSinceLastTouch($contactId, $startedAt = null)
+    {
+        // Última saída do sistema por WhatsApp
+        $lastOutWa = $this->db->fetch(
+            "SELECT MAX(timestamp) t FROM whatsapp_messages WHERE contact_id = ? AND from_me = 1", [$contactId]);
+        // Última resposta recebida por WhatsApp
+        $lastInWa = $this->db->fetch(
+            "SELECT MAX(timestamp) t FROM whatsapp_messages WHERE contact_id = ? AND from_me = 0", [$contactId]);
+
+        $outTs = ($lastOutWa && $lastOutWa['t']) ? strtotime($lastOutWa['t']) : 0;
+        $startTs = $startedAt ? strtotime($startedAt) : 0;
+        $ref = max($outTs, $startTs);
+
+        if ($lastInWa && $lastInWa['t'] && strtotime($lastInWa['t']) >= $ref && strtotime($lastInWa['t']) > 0) {
+            return true;
+        }
+
+        // E-mail: resposta registrada (replied_at) posterior à referência
+        try {
+            $lastReplyEmail = $this->db->fetch(
+                "SELECT MAX(replied_at) t FROM email_messages WHERE contact_id = ? AND replied_at IS NOT NULL", [$contactId]);
+            if ($lastReplyEmail && $lastReplyEmail['t'] && strtotime($lastReplyEmail['t']) >= $ref) {
+                return true;
+            }
+        } catch (\Throwable $e) { /* coluna pode não existir */ }
+
+        return false;
+    }
+
     public function routeReplyToTriage($contactId, $reason = 'replied')
     {
         $parts = $this->db->fetchAll(
@@ -417,6 +499,12 @@ class SequenceEngine
      */
     public function processDue($maxBatch = 200)
     {
+        // Antes de processar, detecta respostas do lead (WhatsApp/e-mail) para os
+        // participantes ativos. O webhook do WhatsApp já dispara em tempo real, mas
+        // esta varredura garante a triagem mesmo se o webhook falhar ou se a
+        // execução for manual ("Processar sequências agora").
+        $this->detectRepliesForActive();
+
         $now = date('Y-m-d H:i:s');
         $due = $this->db->fetchAll(
             "SELECT sp.* FROM sequence_participants sp
