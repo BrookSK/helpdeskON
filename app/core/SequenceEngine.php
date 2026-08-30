@@ -88,10 +88,12 @@ class SequenceEngine
 
         (new LeadTimelineService())->add($contactId, 'sequence_start', 'Adicionado à sequência: ' . $seq['name'], ['sequence_id' => $sequenceId], $userId);
 
-        // Sequências de prospecção Apollo: garante que o lead tenha um card no board
-        // "Prospecção Automática" (coluna "Novo"), se ainda não tiver nenhum card.
-        if (stripos($seq['name'] ?? '', 'Apollo') !== false) {
+        // Sequências de prospecção: garante o card no board "Prospecção Automática"
+        // e move o lead para "Em prospecção" ao iniciar a sequência.
+        if (stripos($seq['name'] ?? '', 'Apollo') !== false || stripos($seq['name'] ?? '', 'ON Solu') !== false) {
             $this->ensureProspectingCard($contactId, $userId);
+            $col = $this->resolveMoveColumn($contactId, ['column_name' => 'Em prospecção']);
+            if ($col) $this->moveCard($contactId, $col);
         }
 
         return ['success' => true, 'participant_id' => $participantId];
@@ -341,7 +343,7 @@ class SequenceEngine
                     $detail = 'Score ' . ($delta > 0 ? '+' : '') . $delta;
                     break;
                 case 'move':
-                    $columnId = (int) ($node['data']['column_id'] ?? 0);
+                    $columnId = $this->resolveMoveColumn($contactId, $node['data'] ?? []);
                     if ($columnId) $this->moveCard($contactId, $columnId);
                     $detail = 'Card movido.';
                     break;
@@ -472,7 +474,7 @@ class SequenceEngine
                 return 'skipped';
 
             case 'move':
-                $columnId = (int) ($node['data']['column_id'] ?? 0);
+                $columnId = $this->resolveMoveColumn($contactId, $node['data'] ?? []);
                 if ($columnId) $this->moveCard($contactId, $columnId);
                 $this->advance($participant, $node['next'] ?? null, $nodes);
                 $this->logExec($participant['id'], $nodeId, $type, 'done');
@@ -854,6 +856,45 @@ class SequenceEngine
             $board->moveCard($card['id'], $columnId, 0);
             (new LeadTimelineService())->add($contactId, 'board_move', 'Card movido pela sequência', ['column_id' => $columnId]);
         }
+    }
+
+    /**
+     * Resolve o destino de um bloco "move": aceita column_id fixo OU column_name
+     * (resolvido no board do card atual do lead — robusto entre instalações).
+     * Retorna o column_id destino, ou null se não encontrado.
+     */
+    private function resolveMoveColumn($contactId, $data)
+    {
+        $columnId = (int) ($data['column_id'] ?? 0);
+        if ($columnId) return $columnId;
+
+        $name = trim((string) ($data['column_name'] ?? ''));
+        if ($name === '') return null;
+
+        // Descobre o board a partir do card atual do lead; se não houver card,
+        // usa o board "Prospecção Automática" como padrão.
+        $card = $this->db->fetch(
+            "SELECT col.board_id FROM crm_cards cc
+             JOIN crm_columns col ON cc.column_id = col.id
+             WHERE cc.contact_id = ? ORDER BY cc.id DESC LIMIT 1",
+            [$contactId]
+        );
+        $boardId = $card['board_id'] ?? null;
+        if ($boardId) {
+            $col = $this->db->fetch(
+                "SELECT id FROM crm_columns WHERE board_id = ? AND name = ? ORDER BY position ASC LIMIT 1",
+                [$boardId, $name]
+            );
+        } else {
+            $col = $this->db->fetch(
+                "SELECT col.id FROM crm_columns col
+                 JOIN crm_boards b ON col.board_id = b.id
+                 WHERE b.name = 'Prospecção Automática' AND col.name = ?
+                 ORDER BY col.position ASC LIMIT 1",
+                [$name]
+            );
+        }
+        return $col['id'] ?? null;
     }
 
     // ---- helpers de fluxo ----
