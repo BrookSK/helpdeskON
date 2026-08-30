@@ -24,6 +24,12 @@
 .seq-node .port.out.no { left:66%; background:#f8d7da; border-color:#dc3545; }
 .seq-node .port.out.reply { right:-10px; left:auto; top:calc(50% - 9px); bottom:auto; background:#cfe2ff; border-color:#0d6efd; }
 .seq-node .port.in { top:-10px; left:calc(50% - 9px); background:#e9ecef; }
+/* Módulo acoplado (Atendente de dúvidas) — pendurado na base do bloco IA */
+.seq-node .node-attach { margin:0 8px 8px; padding:4px 8px; border-radius:8px; font-size:0.68rem;
+    display:flex; align-items:center; gap:6px; border:1px dashed #b7a6e0; background:#f3effc; color:#6f42c1; cursor:pointer; }
+.seq-node .node-attach.off { border-color:#d0d0d0; background:#f6f6f6; color:#999; }
+.seq-node .node-attach i { font-size:0.85rem; }
+.seq-node .node-attach:hover { filter:brightness(0.97); }
 .n-send .hd{color:#0d6efd} .n-whatsapp .hd{color:#198754} .n-wait .hd{color:#fd7e14} .n-condition .hd{color:#6f42c1}
 .n-tag .hd{color:#20c997} .n-score .hd{color:#e0a800} .n-move .hd{color:#0dcaf0} .n-end .hd{color:#dc3545}
 .n-reveal_phone .hd{color:#212529} .n-ai .hd{color:#0d6efd} .n-unsubscribe .hd{color:#dc3545} .n-schedule .hd{color:#198754} .n-connect .hd{color:#0d6efd} .n-reply .hd{color:#0dcaf0} .n-ai_agent .hd{color:#6f42c1}
@@ -120,11 +126,25 @@ function buildNodeEl(n) {
     if (n.type === 'send' || n.type === 'whatsapp') {
         ports += `<div class="port out reply" title="Resposta recebida" data-port="reply"></div>`;
     }
+    // Módulo ACOPLADO ao bloco IA (ChatGPT) em modo decisão: "Atendente de dúvidas".
+    // Símbolo de duas setas circulares. Quando ativo, o bloco tira dúvidas do lead
+    // em loop (respeitando a janela de escuta) até concluir SIM/NÃO.
+    let attach = '';
+    if (aiDecision) {
+        const faqOn = !!(n.data||{}).faq_active;
+        attach = `<div class="node-attach ${faqOn?'on':'off'}" title="Atendente de dúvidas (loop)">
+            <i class="bi bi-arrow-repeat"></i>
+            <span>Dúvidas: ${faqOn?'ativo':'inativo'}</span>
+        </div>`;
+    }
     el.innerHTML = `<div class="hd"><span>${NODE_LABELS[n.type]||n.type}</span><span class="x">&times;</span></div>
-        <div class="bd">${nodeSummary(n)}</div>${ports}`;
+        <div class="bd">${nodeSummary(n)}</div>${attach}${ports}`;
 
     // Fechar
     el.querySelector('.x').addEventListener('mousedown', (e)=>{ e.stopPropagation(); delNode(n.id); });
+    // Clique no módulo acoplado → seleciona o bloco (edita no inspetor)
+    const attachEl = el.querySelector('.node-attach');
+    if (attachEl) attachEl.addEventListener('mousedown', (e)=>{ e.stopPropagation(); selectNode(n.id); });
     // Portas de saída → inicia ligação
     el.querySelectorAll('.port.out').forEach(p => {
         p.addEventListener('mousedown', (e)=>{ e.stopPropagation(); startLink(n.id, p.dataset.port); });
@@ -241,7 +261,7 @@ function defaultData(type) {
     if (type === 'whatsapp') return { body:'' };
     if (type === 'wait') return { amount:2, unit:'days' };
     if (type === 'condition') return { kind:'replied' };
-    if (type === 'ai') return { mode:'simple', model:'gpt-4o-mini', prompt:'', send_channel:'', save_note:1 };
+    if (type === 'ai') return { mode:'simple', model:'gpt-4o-mini', prompt:'', send_channel:'', save_note:1, faq_active:0, company_info:'', instructions:'', max_turns:6 };
     if (type === 'ai_agent') return { active:1, model:'gpt-4o-mini', company_info:'', instructions:'', max_turns:6 };
     if (type === 'tag') return { label:'', color:'#00BFA6' };
     if (type === 'score') return { delta:3 };
@@ -375,7 +395,26 @@ function renderInspector() {
              `<textarea id="insp-body" class="form-control form-control-sm" rows="7" placeholder="Ex.: Analise a última resposta do lead {{primeiro_nome}} e diga se ele demonstrou interesse em conversar." oninput="setData('prompt',this.value)">${escapeHtml(n.data.prompt||'')}</textarea>`;
         h += `<small class="text-muted d-block mt-1 mb-2">A IA recebe automaticamente os dados do lead e o histórico recente de mensagens junto com o seu prompt. Use variáveis como {{primeiro_nome}}, {{empresa}}.</small>`;
         if (mode === 'decision') {
-            h += `<div class="alert alert-light border py-2 px-2 small mb-0"><i class="bi bi-signpost-split text-primary"></i> A IA decide <strong>SIM</strong> ou <strong>NÃO</strong>. Conecte as duas saídas (verde = Sim, vermelha = Não) aos próximos blocos.</div>`;
+            h += `<div class="alert alert-light border py-2 px-2 small mb-2"><i class="bi bi-signpost-split text-primary"></i> A IA decide <strong>SIM</strong> ou <strong>NÃO</strong>. Conecte as duas saídas (verde = Sim, vermelha = Não) aos próximos blocos.</div>`;
+
+            // ---- Módulo ACOPLADO: Atendente de dúvidas (loop) ----
+            const faqOn = !!n.data.faq_active;
+            h += `<hr class="my-2"><div class="d-flex align-items-center gap-2 mb-2">
+                <i class="bi bi-arrow-repeat text-primary"></i><strong class="small">Atendente de dúvidas (acoplado)</strong></div>`;
+            h += field('Estado', `<select class="form-select form-select-sm" onchange="onFaqToggle(this.value==='1'?1:0)">
+                <option value="0" ${!faqOn?'selected':''}>Inativo — decide SIM/NÃO direto</option>
+                <option value="1" ${faqOn?'selected':''}>Ativo — tira dúvidas em loop até concluir</option>
+            </select>`);
+            if (faqOn) {
+                h += `<label class="form-label small mb-1">Informações da empresa (base de conhecimento)</label>` +
+                     `<textarea class="form-control form-control-sm" rows="5" placeholder="Ex.: A ON Solutions Brasil faz organização e automação de processos... Setores atendidos... Prazos... Diferenciais..." oninput="setData('company_info',this.value)">${escapeHtml(n.data.company_info||'')}</textarea>`;
+                h += `<label class="form-label small mb-1 mt-2">Instruções extras (tom, regras)</label>` +
+                     `<textarea class="form-control form-control-sm" rows="2" placeholder="Ex.: Seja cordial e objetivo. Não invente preços. Se perguntarem valores, oriente a agendar." oninput="setData('instructions',this.value)">${escapeHtml(n.data.instructions||'')}</textarea>`;
+                h += field('Máx. de interações antes de concluir', `<input type="number" min="1" max="20" class="form-control form-control-sm" value="${n.data.max_turns||6}" oninput="setData('max_turns',parseInt(this.value)||6)">`);
+                h += `<div class="alert alert-light border py-2 px-2 small mb-0"><i class="bi bi-arrow-repeat text-primary"></i> Enquanto o lead ainda tiver dúvidas, a IA responde (mesmo canal) e permanece neste bloco, respeitando a janela de escuta, até concluir <strong>SIM</strong> ou <strong>NÃO</strong>.</div>`;
+            } else {
+                h += `<small class="text-muted d-block">Com o atendente inativo, a IA apenas classifica a resposta e segue direto por SIM/NÃO.</small>`;
+            }
         } else {
             h += field('Registrar resposta como nota no lead', `<select class="form-select form-select-sm" onchange="setData('save_note', parseInt(this.value))">
                 <option value="1" ${(n.data.save_note??1)==1?'selected':''}>Sim</option>
@@ -584,6 +623,19 @@ function onAiModeChange(mode) {
         delete n.nextYes; delete n.nextNo; // volta a usar next
     }
     // Recria o elemento do nó para refletir as portas corretas
+    if (n._el) n._el.remove();
+    n._el = buildNodeEl(n);
+    canvas().appendChild(n._el);
+    drawEdges();
+    renderInspector();
+}
+
+// Liga/desliga o módulo ACOPLADO "Atendente de dúvidas" no bloco IA (decisão).
+function onFaqToggle(active) {
+    const n = nodes.find(x=>x.id===selectedId);
+    if (!n) return;
+    n.data.faq_active = active ? 1 : 0;
+    // Recria o elemento do nó para mostrar/ocultar o módulo acoplado.
     if (n._el) n._el.remove();
     n._el = buildNodeEl(n);
     canvas().appendChild(n._el);

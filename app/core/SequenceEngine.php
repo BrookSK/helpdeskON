@@ -265,7 +265,10 @@ class SequenceEngine
         // (interpretar as novas mensagens do lead), e NÃO ir para a triagem genérica.
         // Não marca triaged_at — o loop precisa continuar reagindo a novas respostas.
         $curNode = $participant['current_node'] ?? null;
-        if ($curNode && isset($nodesById[$curNode]) && ($nodesById[$curNode]['type'] ?? '') === 'ai_agent') {
+        $curType = $curNode && isset($nodesById[$curNode]) ? ($nodesById[$curNode]['type'] ?? '') : '';
+        $isFaqLoop = ($curType === 'ai_agent')
+            || ($curType === 'ai' && ($nodesById[$curNode]['data']['mode'] ?? '') === 'decision' && !empty($nodesById[$curNode]['data']['faq_active']));
+        if ($curNode && $isFaqLoop) {
             $this->db->update('sequence_participants', [
                 'status' => 'active',
                 'current_node' => $curNode,
@@ -685,8 +688,30 @@ class SequenceEngine
                 return 'skipped';
 
             case 'ai':
+                $aiMode = $node['data']['mode'] ?? 'simple';
+                // Módulo ACOPLADO "Atendente de dúvidas": no modo decisão com
+                // faq_active, o bloco tira dúvidas do lead em loop (janela de
+                // escuta) até concluir SIM/NÃO. Reaproveita a lógica do doAiAgent.
+                if ($aiMode === 'decision' && !empty($node['data']['faq_active'])) {
+                    $ag = $this->doAiAgent($participant, $node);
+                    $intent = $ag['intent'] ?? 'unclear';
+                    if ($intent === 'yes')      $this->advance($participant, $node['nextYes'] ?? null, $nodes);
+                    elseif ($intent === 'no')   $this->advance($participant, $node['nextNo'] ?? null, $nodes);
+                    else {
+                        // Ainda com dúvidas: respondeu e continua no ciclo, aguardando
+                        // a próxima mensagem do lead (janela de escuta).
+                        $listenMin = max(1, (int)(Config::get('sequence_reply_listen_minutes') ?? 2));
+                        $this->db->update('sequence_participants', [
+                            'current_node' => $nodeId,
+                            'reply_listen_until' => date('Y-m-d H:i:s', time() + $listenMin * 60),
+                            'next_run_at' => date('Y-m-d H:i:s', time() + $listenMin * 60),
+                        ], 'id = ?', [$participant['id']]);
+                    }
+                    $this->logExec($participant['id'], $nodeId, $type, empty($ag['error']) ? 'done' : 'failed', $ag['detail'] ?? null);
+                    return $intent === 'unclear' ? 'skipped' : 'sent';
+                }
                 $ai = $this->doAi($participant, $node);
-                if (($node['data']['mode'] ?? 'simple') === 'decision') {
+                if ($aiMode === 'decision') {
                     // ramifica conforme a decisão SIM/NÃO da IA
                     $branch = !empty($ai['decision']) ? ($node['nextYes'] ?? null) : ($node['nextNo'] ?? null);
                     $this->advance($participant, $branch, $nodes);
@@ -1176,9 +1201,14 @@ class SequenceEngine
         $data = $node['data'] ?? [];
         $model = trim((string)($data['model'] ?? 'gpt-4o-mini')) ?: 'gpt-4o-mini';
         $companyInfo = trim((string)($data['company_info'] ?? ''));
+        // Instruções: junta o campo "instructions" e, quando vier do bloco IA
+        // (ChatGPT) com módulo acoplado, também o "prompt" configurado no bloco.
         $instructions = trim((string)($data['instructions'] ?? ''));
+        $promptExtra = trim((string)($data['prompt'] ?? ''));
+        if ($promptExtra !== '') $instructions = trim($instructions . ' ' . $promptExtra);
         $maxTurns = max(1, (int)($data['max_turns'] ?? 6));
         // Toggle do bloco: ativo (loop de dúvidas) x inativo (só classifica SIM/NÃO).
+        // No bloco IA acoplado só chegamos aqui quando faq_active, então default = ativo.
         $agentActive = !isset($data['active']) || !empty($data['active']);
 
         $apiKey = trim((string) Config::get('openai_api_key'));
