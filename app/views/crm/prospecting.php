@@ -727,6 +727,15 @@ function onCampSourceChange() {
     const isMy = src === 'my_leads';
     document.querySelectorAll('.apollo-section').forEach(el => el.style.display = isMy ? 'none' : '');
     document.querySelectorAll('.myleads-section').forEach(el => el.style.display = isMy ? '' : 'none');
+
+    // O roteamento automático por canal só existe no Apollo (que revela dados).
+    // Em "Meus Leads" o lead já existe: sempre usa UMA sequência escolhida.
+    const single = document.getElementById('camp-single-seq-wrap');
+    if (isMy) {
+        if (single) single.style.display = '';   // garante o campo Sequência visível
+    } else {
+        onAutoRouteChange();                       // Apollo: respeita o toggle de auto-route
+    }
 }
 
 // Alterna entre "uma sequência" e "roteamento por canal" (3 slots).
