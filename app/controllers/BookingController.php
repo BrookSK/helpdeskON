@@ -213,6 +213,10 @@ class BookingController extends Controller
                     ['channel' => 'booking']);
             } catch (\Throwable $e) {}
 
+            // Analytics (Camada 1): marca o marco mais importante — AGENDOU reunião —
+            // ANTES de encerrar as sequências (o stop apaga o vínculo ativo).
+            try { (new SequenceEngine())->analyticsScheduled($link['contact_id'], $meetingAt); } catch (\Throwable $e) {}
+
             // Reunião agendada: ENCERRA todas as sequências ativas do lead para não
             // continuar enviando mensagens da cadência/triagem (evita o "looping").
             try { (new SequenceEngine())->stopForContact($link['contact_id'], 'booked'); } catch (\Throwable $e) {}

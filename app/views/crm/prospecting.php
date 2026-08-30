@@ -56,6 +56,7 @@
     <ul class="nav nav-pills mb-3" id="prospect-tabs">
         <li class="nav-item"><button class="nav-link active" data-tab="campaigns" onclick="switchProspectTab('campaigns')"><i class="bi bi-collection"></i> Campanhas</button></li>
         <li class="nav-item"><button class="nav-link" data-tab="logs" onclick="switchProspectTab('logs')"><i class="bi bi-clock-history"></i> Logs de execução</button></li>
+        <li class="nav-item"><button class="nav-link" data-tab="performance" onclick="switchProspectTab('performance')"><i class="bi bi-graph-up-arrow"></i> Performance</button></li>
     </ul>
 
     <!-- Lista de campanhas -->
@@ -183,6 +184,56 @@
                 <pre id="exec-errors" class="small mb-0" style="max-height:280px;overflow:auto;white-space:pre-wrap;background:#f8f9fa;padding:10px;border-radius:8px;">Carregando...</pre>
             </div>
         </div>
+    </div>
+
+    <!-- Aba de performance (Camada 1: medição) -->
+    <div id="tab-performance" style="display:none;">
+        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+            <small class="text-muted">Desempenho da prospecção: funil de conversão e ranking de mensagens por taxa de reunião agendada.</small>
+            <div class="d-flex gap-2 align-items-center">
+                <select id="perf-days" class="form-select form-select-sm" style="width:auto;" onchange="loadPerformance()">
+                    <option value="7">Últimos 7 dias</option>
+                    <option value="30">Últimos 30 dias</option>
+                    <option value="90" selected>Últimos 90 dias</option>
+                    <option value="365">Último ano</option>
+                </select>
+                <button class="btn btn-sm btn-outline-secondary" onclick="loadPerformance()"><i class="bi bi-arrow-clockwise"></i> Atualizar</button>
+            </div>
+        </div>
+
+        <!-- Funil -->
+        <div class="row g-2 mb-3" id="perf-funnel">
+            <div class="col-12"><div class="text-muted small">Carregando...</div></div>
+        </div>
+
+        <!-- Sugestões de copy da IA (Camada 2) -->
+        <div class="card mb-3">
+            <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center">
+                <span class="fw-semibold small"><i class="bi bi-magic"></i> Sugestões da IA — novas mensagens para você aprovar</span>
+                <button class="btn btn-sm btn-outline-primary" onclick="runOptimizerNow(this)" title="Gera uma sugestão agora com base no que já performou (sem esperar o gatilho de respostas)"><i class="bi bi-lightning-charge"></i> Gerar agora</button>
+            </div>
+            <div class="card-body p-0">
+                <div id="perf-suggestions"><div class="text-muted small p-3">Carregando...</div></div>
+            </div>
+        </div>
+
+        <!-- Ranking de mensagens -->
+        <div class="card">
+            <div class="card-header bg-white py-2 fw-semibold small"><i class="bi bi-trophy"></i> Ranking de mensagens — o que mais converte em reunião</div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0" style="font-size:0.8rem;">
+                        <thead class="table-light"><tr>
+                            <th>Sequência</th><th>Variante</th><th class="text-center">Enviados</th>
+                            <th class="text-center">Resp.</th><th class="text-center">Interesse</th>
+                            <th class="text-center">Reuniões</th><th class="text-center">Taxa reunião</th><th>Atributos / amostra</th>
+                        </tr></thead>
+                        <tbody id="perf-ranking"><tr><td colspan="8" class="text-center text-muted py-3">Carregando...</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <p class="text-muted small mt-2 mb-0"><i class="bi bi-info-circle"></i> A taxa de reunião é a métrica que mais importa. Use o ranking para decidir qual mensagem manter e qual descartar.</p>
     </div>
 </div><!-- /.main-content -->
 
@@ -646,7 +697,125 @@ function switchProspectTab(tab) {
     document.querySelectorAll('#prospect-tabs .nav-link').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
     document.getElementById('tab-campaigns').style.display = tab === 'campaigns' ? '' : 'none';
     document.getElementById('tab-logs').style.display = tab === 'logs' ? '' : 'none';
+    const perf = document.getElementById('tab-performance'); if (perf) perf.style.display = tab === 'performance' ? '' : 'none';
     if (tab === 'logs') loadExecLog();
+    if (tab === 'performance') loadPerformance();
+}
+
+// ===== Performance (Camada 1: medição) =====
+function loadPerformance() {
+    const days = document.getElementById('perf-days').value;
+    const funnelBox = document.getElementById('perf-funnel');
+    const rankBox = document.getElementById('perf-ranking');
+    funnelBox.innerHTML = '<div class="col-12"><div class="text-muted small">Carregando...</div></div>';
+    rankBox.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">Carregando...</td></tr>';
+
+    loadCopySuggestions();
+    fetch(BASE + 'crm/prospectingInsights?days=' + days, { headers:{'X-Requested-With':'XMLHttpRequest'} })
+        .then(r=>r.json()).then(d=>{
+            if (!d.ready) {
+                funnelBox.innerHTML = '<div class="col-12"><div class="alert alert-warning py-2 small mb-0">' + escapeH(d.error || 'Analytics ainda não disponível.') + '</div></div>';
+                rankBox.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">—</td></tr>';
+                return;
+            }
+            // Funil em cards
+            const f = d.funnel || {};
+            const card = (label, val, sub, color) =>
+                `<div class="col-6 col-md-2"><div class="card h-100"><div class="card-body py-2 px-2 text-center">
+                    <div class="small text-muted">${label}</div>
+                    <div class="fw-bold" style="font-size:1.3rem;color:${color}">${val}</div>
+                    <div class="small text-muted">${sub||''}</div>
+                </div></div></div>`;
+            funnelBox.innerHTML =
+                card('Leads', f.total||0, 'no período', '#0d6efd') +
+                card('Responderam', f.replied||0, (f.reply_rate||0)+'%', '#0dcaf0') +
+                card('Interessados', f.interested||0, (f.interest_rate||0)+'%', '#20c997') +
+                card('Reuniões', f.scheduled||0, (f.meeting_rate||0)+'%', '#198754') +
+                card('Compareceram', f.attended||0, '', '#6f42c1') +
+                card('Fechados', f.won||0, '', '#e0a800');
+
+            // Ranking
+            const rows = d.ranking || [];
+            if (!rows.length) { rankBox.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">Sem dados suficientes ainda. Rode as campanhas e volte aqui.</td></tr>'; return; }
+            rankBox.innerHTML = rows.map((r, i) => {
+                const win = i === 0 && r.scheduled > 0 ? ' <i class="bi bi-trophy-fill text-warning"></i>' : '';
+                const attr = r.attributes ? Object.entries(r.attributes).map(([k,v]) => `<span class="badge bg-light text-dark border">${escapeH(k)}: ${escapeH(String(v))}</span>`).join(' ') : '';
+                const sample = r.sample_subject ? ('<div class="small text-muted mt-1">"'+escapeH(r.sample_subject)+'"</div>') : (r.sample_body ? ('<div class="small text-muted mt-1">'+escapeH(r.sample_body)+'</div>') : '');
+                return `<tr>
+                    <td>${escapeH(r.sequence_name)}${win}</td>
+                    <td><span class="badge bg-${r.variant==='B'?'info':'primary'}">${escapeH(r.variant)}</span></td>
+                    <td class="text-center">${r.sent}</td>
+                    <td class="text-center">${r.replied} <span class="text-muted">(${r.reply_rate}%)</span></td>
+                    <td class="text-center">${r.interested}</td>
+                    <td class="text-center fw-bold">${r.scheduled}</td>
+                    <td class="text-center"><span class="badge bg-success">${r.meeting_rate}%</span></td>
+                    <td>${attr}${sample}</td>
+                </tr>`;
+            }).join('');
+        })
+        .catch(()=>{
+            funnelBox.innerHTML = '<div class="col-12"><div class="alert alert-danger py-2 small mb-0">Erro ao carregar performance.</div></div>';
+            rankBox.innerHTML = '<tr><td colspan="8" class="text-center text-danger py-3">Erro ao carregar.</td></tr>';
+        });
+}
+
+// Sugestões de copy da IA (pendentes de aprovação)
+function loadCopySuggestions() {
+    const box = document.getElementById('perf-suggestions');
+    if (!box) return;
+    box.innerHTML = '<div class="text-muted small p-3">Carregando...</div>';
+    fetch(BASE + 'crm/copySuggestions?status=pending', { headers:{'X-Requested-With':'XMLHttpRequest'} })
+        .then(r=>r.json()).then(d=>{
+            const list = d.suggestions || [];
+            if (!list.length) { box.innerHTML = '<div class="text-muted small p-3">Nenhuma sugestão pendente. A IA gera novas propostas a cada 6 respostas recebidas — ou clique em "Gerar agora".</div>'; return; }
+            box.innerHTML = list.map(s => {
+                const subj = s.suggested_subject ? `<div class="small"><strong>Assunto:</strong> ${escapeH(s.suggested_subject)}</div>` : '';
+                const obj = s.top_objections ? `<div class="small text-muted mt-1"><i class="bi bi-shield-exclamation"></i> Objeções: ${escapeH(s.top_objections)}</div>` : '';
+                return `<div class="border-bottom p-3">
+                    <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
+                        <div class="flex-grow-1">
+                            <div class="small text-muted mb-1">${escapeH(s.sequence_name||('Seq #'+s.sequence_id))} · canal ${escapeH(s.channel)} · base variante ${escapeH(s.based_on_variant||'—')} · reunião ${s.winner_meeting_rate||0}%</div>
+                            ${subj}
+                            <div class="small" style="white-space:pre-wrap;background:#f8f9fa;border-radius:8px;padding:8px;margin-top:4px;">${escapeH(s.suggested_body||'')}</div>
+                            ${s.rationale ? `<div class="small text-muted mt-1"><i class="bi bi-lightbulb"></i> ${escapeH(s.rationale)}</div>` : ''}
+                            ${obj}
+                        </div>
+                        <div class="d-flex flex-column gap-1">
+                            <button class="btn btn-sm btn-success" onclick="reviewSuggestion(${s.id},'approve',this)"><i class="bi bi-check-lg"></i> Aprovar</button>
+                            <button class="btn btn-sm btn-outline-danger" onclick="reviewSuggestion(${s.id},'reject',this)"><i class="bi bi-x-lg"></i> Rejeitar</button>
+                        </div>
+                    </div>
+                </div>`;
+            }).join('');
+        })
+        .catch(()=>{ box.innerHTML = '<div class="text-danger small p-3">Erro ao carregar sugestões.</div>'; });
+}
+
+function reviewSuggestion(id, action, btn) {
+    btn.disabled = true;
+    const fd = new FormData(); fd.append('action', action);
+    fetch(BASE + 'crm/reviewCopySuggestion/' + id, { method:'POST', body:fd, headers:{'X-Requested-With':'XMLHttpRequest'} })
+        .then(r=>r.json()).then(d=>{
+            if (action === 'approve') {
+                alert(d.published
+                    ? 'Aprovada e publicada como variante B — já entra em teste A/B contra a mensagem atual.'
+                    : 'Aprovada. (Não foi possível publicar automaticamente no bloco; verifique a sequência.)');
+            }
+            loadCopySuggestions();
+        })
+        .catch(()=>{ btn.disabled=false; alert('Erro ao processar.'); });
+}
+
+function runOptimizerNow(btn) {
+    const orig = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Gerando...';
+    fetch(BASE + 'crm/runOptimizerNow', { method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'} })
+        .then(r=>r.json()).then(d=>{
+            btn.disabled=false; btn.innerHTML=orig;
+            if (d.error) { alert(d.error); return; }
+            alert('Análise concluída. Sugestões geradas: ' + (d.suggested||0) + '.');
+            loadCopySuggestions();
+        })
+        .catch(()=>{ btn.disabled=false; btn.innerHTML=orig; alert('Erro ao gerar sugestão.'); });
 }
 
 const STEP_LABELS = { send:'E-mail', whatsapp:'WhatsApp', wait:'Aguardar', condition:'Condição', tag:'Etiqueta', score:'Score', move:'Mover card', reveal_phone:'Revelar (Apollo)', end:'Encerrar' };

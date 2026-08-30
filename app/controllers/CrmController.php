@@ -2305,6 +2305,74 @@ class CrmController extends Controller
     }
 
     /**
+     * API de performance da prospecção (Camada 1): funil consolidado + ranking de
+     * mensagens por taxa de reunião. GET crm/prospectingInsights?days=90
+     */
+    public function prospectingInsights()
+    {
+        $this->requireRole(['super_admin']);
+        $days = max(1, min(365, (int)($_GET['days'] ?? 90)));
+        $an = new ProspectingAnalytics();
+        $funnel = $an->funnel($days);
+        if ($funnel === null) {
+            $this->json(['success' => false, 'ready' => false, 'error' => 'Analytics ainda não configurado (aplique a migration 106).']);
+        }
+        $this->json([
+            'success' => true,
+            'ready' => true,
+            'days' => $days,
+            'funnel' => $funnel,
+            'ranking' => $an->messageRanking($days, 1),
+        ]);
+    }
+
+    /**
+     * Lista as sugestões de copy geradas pela IA (Camada 2).
+     * GET crm/copySuggestions?status=pending
+     */
+    public function copySuggestions()
+    {
+        $this->requireRole(['super_admin']);
+        $status = in_array($_GET['status'] ?? '', ['pending', 'approved', 'rejected'], true) ? $_GET['status'] : null;
+        $opt = new ProspectingOptimizer();
+        $this->json(['success' => true, 'suggestions' => $opt->listSuggestions($status, 50)]);
+    }
+
+    /**
+     * Aprova/rejeita uma sugestão de copy. POST crm/reviewCopySuggestion/{id}
+     * body: action = approve | reject
+     */
+    public function reviewCopySuggestion($id = null)
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+        $approve = ($_POST['action'] ?? '') === 'approve';
+        $user = $this->currentUser();
+        $res = (new ProspectingOptimizer())->review((int)$id, $approve, $user['id'] ?? null);
+        $ok = is_array($res) ? !empty($res['ok']) : (bool)$res;
+        $published = is_array($res) ? !empty($res['published']) : false;
+        $this->json(['success' => $ok, 'status' => $approve ? 'approved' : 'rejected', 'published' => $published]);
+    }
+
+    /**
+     * Dispara a análise do otimizador agora (manual), sem esperar o gatilho de N
+     * respostas. Útil para testar. POST crm/runOptimizerNow  body: sequence_id (opcional)
+     */
+    public function runOptimizerNow()
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        @set_time_limit(120);
+        $opt = new ProspectingOptimizer();
+        $seqId = !empty($_POST['sequence_id']) ? (int)$_POST['sequence_id'] : 0;
+        if ($seqId) {
+            $ok = $opt->analyzeAndSuggest($seqId, 0);
+            $this->json(['success' => true, 'suggested' => $ok ? 1 : 0]);
+        }
+        $this->json(['success' => true] + $opt->runDue());
+    }
+
+    /**
      * Alterna o status do lead entre ativo/inativo para prospecção/sequências.
      * Sincroniza a coluna sequence_status com unsubscribed (inativo = descadastrado).
      * POST crm/toggleLeadStatus  body: contact_id

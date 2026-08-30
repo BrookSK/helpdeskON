@@ -330,7 +330,18 @@ class CronController extends Controller
         $engine = new SequenceEngine();
         $stats = $engine->processDue(200);
 
-        $this->json(['success' => true, 'replies_detected' => $replies, 'engine' => $stats]);
+        // 3) RAG (Camada 3): indexa episódios recentes (mensagem→resposta→desfecho).
+        $ragIndexed = 0;
+        try { $ragIndexed = (new ProspectingRag())->indexPending(20); }
+        catch (\Throwable $e) { Logger::error('runSequences: rag', ['error' => $e->getMessage()]); }
+
+        // 4) Otimizador (Camada 2): a cada N respostas, gera sugestões de copy
+        //    (usa o RAG internamente para ancorar as sugestões em casos reais).
+        $optimizer = null;
+        try { $optimizer = (new ProspectingOptimizer())->runDue(); }
+        catch (\Throwable $e) { Logger::error('runSequences: otimizador', ['error' => $e->getMessage()]); }
+
+        $this->json(['success' => true, 'replies_detected' => $replies, 'engine' => $stats, 'rag_indexed' => $ragIndexed, 'optimizer' => $optimizer]);
     }
 
     /**

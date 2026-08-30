@@ -91,6 +91,23 @@ class SequenceEngine
                 'ab_variant' => $buf['variant'],
                 'add_signature' => true,
             ]);
+
+            // Analytics (Camada 1): registra a mensagem enviada + garante o outcome.
+            try {
+                $part = $this->db->fetch("SELECT * FROM sequence_participants WHERE id = ?", [$participantId]);
+                $an = new ProspectingAnalytics();
+                $an->logMessage([
+                    'contact_id' => $buf['contact_id'],
+                    'sequence_id' => $part['sequence_id'] ?? null,
+                    'participant_id' => $participantId,
+                    'node_id' => implode(',', $buf['nodes']),
+                    'channel' => 'email',
+                    'ab_variant' => $buf['variant'],
+                    'subject' => $subject,
+                    'body' => $body,
+                ]);
+                if ($part) $an->markStage($part, 'sent');
+            } catch (\Throwable $e) { /* nunca quebra o envio */ }
         } catch (\Throwable $e) {
             Logger::error('SequenceEngine flushEmail', ['participant' => $participantId, 'error' => $e->getMessage()]);
         }
@@ -359,6 +376,19 @@ class SequenceEngine
                 'Resposta detectada — escutando por ' . $listenMin . ' min para reunir a mensagem completa antes de triar.',
                 ['reason' => $reason]);
             if ($reason === 'replied') $this->onReplyMoveCard($contactId);
+
+            // Analytics (Camada 1): marca 'replied' e guarda a última resposta do lead.
+            try {
+                $an = new ProspectingAnalytics();
+                foreach ($parts as $p) {
+                    $rep = $this->lastLeadReply($contactId);
+                    $an->markStage($p, 'replied', [
+                        'replied_at' => date('Y-m-d H:i:s'),
+                        'reply_channel' => $rep['channel'],
+                        'reply_text' => $rep['text'],
+                    ]);
+                }
+            } catch (\Throwable $e) { /* silencioso */ }
         }
         return $opened;
     }
@@ -830,8 +860,8 @@ class SequenceEngine
                 if ($aiMode === 'decision' && !empty($node['data']['faq_active'])) {
                     $ag = $this->doAiAgent($participant, $node);
                     $intent = $ag['intent'] ?? 'unclear';
-                    if ($intent === 'yes')      $this->advance($participant, $node['nextYes'] ?? null, $nodes);
-                    elseif ($intent === 'no')   $this->advance($participant, $node['nextNo'] ?? null, $nodes);
+                    if ($intent === 'yes')      { $this->advance($participant, $node['nextYes'] ?? null, $nodes); $this->analyticsInterest($participant, true); }
+                    elseif ($intent === 'no')   { $this->advance($participant, $node['nextNo'] ?? null, $nodes); $this->analyticsInterest($participant, false); }
                     else {
                         // Ainda com dúvidas: respondeu e continua no ciclo, aguardando
                         // a próxima mensagem do lead (janela de escuta).
@@ -850,6 +880,8 @@ class SequenceEngine
                     // ramifica conforme a decisão SIM/NÃO da IA
                     $branch = !empty($ai['decision']) ? ($node['nextYes'] ?? null) : ($node['nextNo'] ?? null);
                     $this->advance($participant, $branch, $nodes);
+                    // Analytics: registra interesse classificado pela IA + objeção.
+                    $this->analyticsInterest($participant, !empty($ai['decision']), $ai['detail'] ?? null);
                 } else {
                     $this->advance($participant, $node['next'] ?? null, $nodes);
                 }
@@ -1112,6 +1144,23 @@ class SequenceEngine
             $this->db->update('whatsapp_contacts', $contactUpdate, 'id = ?', [$contactId]);
 
             (new LeadTimelineService())->add($contactId, 'note', 'WhatsApp enviado pela sequência.', ['channel' => 'whatsapp']);
+
+            // Analytics (Camada 1): registra a mensagem de WhatsApp + marca 'sent'.
+            try {
+                $an = new ProspectingAnalytics();
+                $an->logMessage([
+                    'contact_id' => $contactId,
+                    'sequence_id' => $participant['sequence_id'] ?? null,
+                    'participant_id' => $participant['id'] ?? null,
+                    'node_id' => $node['id'] ?? null,
+                    'channel' => 'whatsapp',
+                    'ab_variant' => $participant['ab_variant'] ?? null,
+                    'subject' => null,
+                    'body' => $msg,
+                ]);
+                $an->markStage($participant, 'sent');
+            } catch (\Throwable $e) { /* nunca quebra o envio */ }
+
             return true;
         } catch (\Throwable $e) {
             Logger::error('SequenceEngine whatsapp', ['contact' => $contactId, 'error' => $e->getMessage()]);
@@ -1476,6 +1525,82 @@ class SequenceEngine
     }
 
     /**
+     * Retorna a última resposta do lead (texto + canal), comparando a mensagem
+     * recebida mais recente por WhatsApp com a última resposta por e-mail.
+     * @return array ['channel'=>'email'|'whatsapp'|null, 'text'=>?string]
+     */
+    private function lastLeadReply($contactId)
+    {
+        $waTs = 0; $waText = null;
+        try {
+            $wa = $this->db->fetch(
+                "SELECT message_text, timestamp FROM whatsapp_messages
+                 WHERE contact_id = ? AND from_me = 0 AND message_text IS NOT NULL AND message_text <> ''
+                 ORDER BY id DESC LIMIT 1", [$contactId]);
+            if ($wa) { $waTs = strtotime($wa['timestamp']); $waText = $wa['message_text']; }
+        } catch (\Throwable $e) { /* ignore */ }
+
+        $emTs = 0; $emText = null;
+        try {
+            $em = $this->db->fetch(
+                "SELECT reply_snippet, replied_at FROM email_messages
+                 WHERE contact_id = ? AND replied_at IS NOT NULL
+                 ORDER BY replied_at DESC LIMIT 1", [$contactId]);
+            if ($em) { $emTs = strtotime($em['replied_at']); $emText = $em['reply_snippet'] ?? null; }
+        } catch (\Throwable $e) { /* coluna reply_snippet pode não existir */ }
+
+        if ($waTs === 0 && $emTs === 0) return ['channel' => null, 'text' => null];
+        if ($waTs >= $emTs) return ['channel' => 'whatsapp', 'text' => $waText ? mb_substr($waText, 0, 2000) : null];
+        return ['channel' => 'email', 'text' => $emText ? mb_substr($emText, 0, 2000) : null];
+    }
+
+    /**
+     * Analytics: registra o interesse classificado pela IA no desfecho do lead.
+     * positivo → estágio 'interested'; negativo → 'lost' com a objeção detectada.
+     */
+    private function analyticsInterest($participant, $positive, $detail = null)
+    {
+        try {
+            $an = new ProspectingAnalytics();
+            if ($positive) {
+                $an->markStage($participant, 'interested', [
+                    'interest' => 'positive',
+                    'interest_at' => date('Y-m-d H:i:s'),
+                ]);
+            } else {
+                $an->markStage($participant, 'lost', [
+                    'interest' => 'negative',
+                    'interest_at' => date('Y-m-d H:i:s'),
+                    'objection' => $detail ? mb_substr($detail, 0, 250) : null,
+                    'lost_reason' => 'sem interesse',
+                ]);
+            }
+        } catch (\Throwable $e) { /* silencioso */ }
+    }
+
+    /**
+     * Analytics: marca que o lead AGENDOU a reunião (marco mais importante do funil).
+     * Chamado pelo BookingController ao confirmar o agendamento.
+     */
+    public function analyticsScheduled($contactId, $meetingAt = null)
+    {
+        try {
+            $an = new ProspectingAnalytics();
+            // Aplica ao participante mais recente do contato (ativo ou não).
+            $p = $this->db->fetch(
+                "SELECT * FROM sequence_participants WHERE contact_id = ? ORDER BY id DESC LIMIT 1",
+                [$contactId]
+            );
+            if ($p) {
+                $an->markStage($p, 'scheduled', [
+                    'scheduled_at' => $meetingAt ?: date('Y-m-d H:i:s'),
+                    'interest' => 'positive',
+                ]);
+            }
+        } catch (\Throwable $e) { /* silencioso */ }
+    }
+
+    /**
      * Remove o lead da lista de prospecção: marca unsubscribed=1 (bloqueia envios
      * futuros), aplica etiqueta e registra na timeline. Também interrompe outras
      * sequências ativas do contato.
@@ -1637,6 +1762,12 @@ class SequenceEngine
             . "Responda apenas com o texto da mensagem, sem aspas.";
         $user = "INFORMAÇÕES DA EMPRESA:\n" . ($companyInfo !== '' ? $companyInfo : '(não informado)')
             . "\n\nHISTÓRICO/CONTEXTO (o lead é " . $firstName . "):\n" . $context;
+
+        // RAG (Camada 3): casos reais parecidos que converteram, para embasar a resposta.
+        try {
+            $rag = (new ProspectingRag())->contextBlock($context, 2, null);
+            if ($rag !== '') $user .= "\n\n" . $rag;
+        } catch (\Throwable $e) { /* RAG é opcional */ }
 
         try {
             $ch = curl_init('https://api.openai.com/v1/chat/completions');
