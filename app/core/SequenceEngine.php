@@ -145,11 +145,16 @@ class SequenceEngine
                 return ['success' => false, 'error' => 'Lead já está nesta sequência.'];
             }
             // Reinicia: volta ao começo do grafo e limpa travas de escuta/triagem.
-            $this->db->update('sequence_participants', [
+            // Só inclui as colunas que existem no banco (migrations 100/102 podem
+            // não ter sido aplicadas) — evita erro "Unknown column".
+            $reset = [
                 'status' => 'active', 'current_node' => null, 'next_run_at' => date('Y-m-d H:i:s'),
                 'stop_reason' => null, 'finished_at' => null,
-                'reply_listen_until' => null, 'triaged_at' => null, 'ai_agent_turns' => 0,
-            ], 'id = ?', [$existing['id']]);
+            ];
+            if ($this->participantHasColumn('reply_listen_until')) $reset['reply_listen_until'] = null;
+            if ($this->participantHasColumn('triaged_at'))         $reset['triaged_at'] = null;
+            if ($this->participantHasColumn('ai_agent_turns'))     $reset['ai_agent_turns'] = 0;
+            $this->db->update('sequence_participants', $reset, 'id = ?', [$existing['id']]);
             $participantId = $existing['id'];
         } else {
             $participantId = $this->db->insert('sequence_participants', [
@@ -1845,6 +1850,23 @@ class SequenceEngine
         if (!$c) return false;
         if ($channel === 'whatsapp') return !empty($c['phone']);
         return !empty($c['lead_email']); // email (padrão)
+    }
+
+    /** Verifica (com cache) se uma coluna existe em sequence_participants. */
+    private function participantHasColumn($column)
+    {
+        static $cols = null;
+        if ($cols === null) {
+            $cols = [];
+            try {
+                $rows = $this->db->fetchAll(
+                    "SELECT COLUMN_NAME FROM information_schema.COLUMNS
+                     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sequence_participants'"
+                );
+                foreach ($rows as $r) $cols[strtolower($r['COLUMN_NAME'])] = true;
+            } catch (\Throwable $e) { $cols = []; }
+        }
+        return isset($cols[strtolower($column)]);
     }
 
     private function finish($participant, $reason)

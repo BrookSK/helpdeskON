@@ -1973,10 +1973,15 @@ class CrmController extends Controller
         } catch (\Throwable $e) {}
         $target = max(1, (int)$camp['daily_target'] - $already);
 
-        $service = new ApolloProspectingService();
-        // Disparo MANUAL: força a (re)inscrição/reinício, mesmo para leads que já
-        // passaram pela sequência (o operador está pedindo explicitamente).
-        $result = $service->runCampaign($camp, $target, true);
+        try {
+            $service = new ApolloProspectingService();
+            // Disparo MANUAL: força a (re)inscrição/reinício, mesmo para leads que já
+            // passaram pela sequência (o operador está pedindo explicitamente).
+            $result = $service->runCampaign($camp, $target, true);
+        } catch (\Throwable $e) {
+            Logger::error('runCampaign manual', ['campaign' => $id, 'error' => $e->getMessage()]);
+            $this->json(['error' => 'Erro ao executar: ' . $e->getMessage()], 500);
+        }
         $this->json(['success' => empty($result['error']), 'result' => $result]);
     }
 
