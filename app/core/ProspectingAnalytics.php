@@ -373,22 +373,36 @@ class ProspectingAnalytics
             $chSql = '';
             if (in_array($channel, ['email', 'whatsapp'], true)) { $chSql = " AND l.channel = ?"; $params[] = $channel; }
 
+            // Desfecho consolidado POR CONTATO (não por participante): o lead pode
+            // ter vários participantes (cadência + triagem). A classificação
+            // negativa/positiva costuma ocorrer no participante de triagem, mas as
+            // mensagens estão no da cadência. Por isso agregamos por contact_id:
+            //   negativo se QUALQUER participante do contato terminou negativo;
+            //   agendou/positivo idem. Assim a negativa aparece nas mensagens do lead.
             $rows = $this->db->fetchAll(
                 "SELECT l.channel,
                         $tplKey AS tpl,
                         COUNT(*) AS sent,
-                        SUM(CASE WHEN o.replied_at IS NOT NULL THEN 1 ELSE 0 END) AS replied,
-                        SUM(CASE WHEN o.interest='positive' THEN 1 ELSE 0 END) AS positive,
-                        SUM(CASE WHEN o.interest='negative' THEN 1 ELSE 0 END) AS negative,
-                        SUM(CASE WHEN o.scheduled_at IS NOT NULL THEN 1 ELSE 0 END) AS scheduled,
+                        SUM(CASE WHEN co.replied = 1 THEN 1 ELSE 0 END) AS replied,
+                        SUM(CASE WHEN co.negative = 0 AND co.positive = 1 THEN 1 ELSE 0 END) AS positive,
+                        SUM(CASE WHEN co.negative = 1 THEN 1 ELSE 0 END) AS negative,
+                        SUM(CASE WHEN co.scheduled = 1 THEN 1 ELSE 0 END) AS scheduled,
                         MAX(l.subject) AS subject,
                         MAX(l.body) AS body
                  FROM prospecting_message_log l
-                 LEFT JOIN prospecting_lead_outcome o ON o.participant_id = l.participant_id
+                 LEFT JOIN (
+                     SELECT contact_id,
+                            MAX(CASE WHEN replied_at IS NOT NULL THEN 1 ELSE 0 END) AS replied,
+                            MAX(CASE WHEN interest='positive' THEN 1 ELSE 0 END) AS positive,
+                            MAX(CASE WHEN interest='negative' THEN 1 ELSE 0 END) AS negative,
+                            MAX(CASE WHEN scheduled_at IS NOT NULL THEN 1 ELSE 0 END) AS scheduled
+                     FROM prospecting_lead_outcome
+                     GROUP BY contact_id
+                 ) co ON co.contact_id = l.contact_id
                  WHERE l.sent_at >= ? $chSql
                  GROUP BY l.channel, tpl
                  HAVING sent >= 1
-                 ORDER BY positive DESC, scheduled DESC, replied DESC, sent DESC",
+                 ORDER BY negative DESC, positive DESC, scheduled DESC, replied DESC, sent DESC",
                 $params
             );
             $out = [];
