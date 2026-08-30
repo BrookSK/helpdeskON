@@ -212,6 +212,57 @@ class ProspectingAnalytics
     // =================================================================
 
     /**
+     * Volume de mensagens por canal no período, contando direto das tabelas reais
+     * (email_messages / whatsapp_messages) — fonte confiável, independente do
+     * analytics. Separa e-mail (enviados/respondidos) e WhatsApp (enviados/recebidos).
+     */
+    public function messageVolume($days = 90)
+    {
+        $since = date('Y-m-d 00:00:00', strtotime("-{$days} days"));
+        $out = [
+            'email_sent' => 0, 'email_replied' => 0, 'email_reply_rate' => 0,
+            'wa_sent' => 0, 'wa_received' => 0, 'wa_reply_rate' => 0,
+        ];
+        try {
+            // E-mails de sequência enviados e quantos foram respondidos.
+            $e = $this->db->fetch(
+                "SELECT
+                    SUM(CASE WHEN direction='outbound' THEN 1 ELSE 0 END) AS sent,
+                    SUM(CASE WHEN direction='outbound' AND replied_at IS NOT NULL THEN 1 ELSE 0 END) AS replied
+                 FROM email_messages
+                 WHERE origin='sequence' AND COALESCE(sent_at, created_at) >= ?",
+                [$since]
+            );
+            if ($e) {
+                $out['email_sent'] = (int)$e['sent'];
+                $out['email_replied'] = (int)$e['replied'];
+                $out['email_reply_rate'] = $out['email_sent'] ? round($out['email_replied'] / $out['email_sent'] * 100, 1) : 0;
+            }
+        } catch (\Throwable $ex) { /* ignore */ }
+
+        try {
+            // WhatsApp: enviados pela prospecção (from_me=1) e recebidos (from_me=0),
+            // apenas de contatos que participam/participaram de alguma sequência.
+            $w = $this->db->fetch(
+                "SELECT
+                    SUM(CASE WHEN wm.from_me=1 THEN 1 ELSE 0 END) AS sent,
+                    SUM(CASE WHEN wm.from_me=0 THEN 1 ELSE 0 END) AS received
+                 FROM whatsapp_messages wm
+                 WHERE wm.timestamp >= ?
+                   AND wm.contact_id IN (SELECT DISTINCT contact_id FROM sequence_participants)",
+                [$since]
+            );
+            if ($w) {
+                $out['wa_sent'] = (int)$w['sent'];
+                $out['wa_received'] = (int)$w['received'];
+                $out['wa_reply_rate'] = $out['wa_sent'] ? round($out['wa_received'] / $out['wa_sent'] * 100, 1) : 0;
+            }
+        } catch (\Throwable $ex) { /* ignore */ }
+
+        return $out;
+    }
+
+    /**
      * Funil consolidado no período: quantos leads em cada estágio + taxas.
      */
     public function funnel($days = 90)
@@ -300,6 +351,65 @@ class ProspectingAnalytics
             return $out;
         } catch (\Throwable $e) {
             Logger::error('ProspectingAnalytics messageRanking', ['error' => $e->getMessage()]);
+            return [];
+        }
+    }
+
+    /**
+     * Ranking por TEMPLATE/MENSAGEM e canal: cruza cada mensagem enviada com o
+     * desfecho do lead que a recebeu, mostrando interações positivas x negativas.
+     * Identidade do template: assunto (e-mail) ou início do corpo (WhatsApp).
+     * @param string|null $channel 'email' | 'whatsapp' | null (ambos)
+     */
+    public function templateRanking($days = 90, $channel = null)
+    {
+        if (!$this->ready()) return [];
+        try {
+            $since = date('Y-m-d 00:00:00', strtotime("-{$days} days"));
+            // Chave do template: assunto no e-mail; primeiros 80 chars do corpo no WhatsApp.
+            $tplKey = "CASE WHEN l.channel='email' THEN COALESCE(NULLIF(l.subject,''), LEFT(l.body,80))
+                            ELSE LEFT(l.body,80) END";
+            $params = [$since];
+            $chSql = '';
+            if (in_array($channel, ['email', 'whatsapp'], true)) { $chSql = " AND l.channel = ?"; $params[] = $channel; }
+
+            $rows = $this->db->fetchAll(
+                "SELECT l.channel,
+                        $tplKey AS tpl,
+                        COUNT(*) AS sent,
+                        SUM(CASE WHEN o.replied_at IS NOT NULL THEN 1 ELSE 0 END) AS replied,
+                        SUM(CASE WHEN o.interest='positive' THEN 1 ELSE 0 END) AS positive,
+                        SUM(CASE WHEN o.interest='negative' THEN 1 ELSE 0 END) AS negative,
+                        SUM(CASE WHEN o.scheduled_at IS NOT NULL THEN 1 ELSE 0 END) AS scheduled,
+                        MAX(l.subject) AS subject,
+                        MAX(l.body) AS body
+                 FROM prospecting_message_log l
+                 LEFT JOIN prospecting_lead_outcome o ON o.participant_id = l.participant_id
+                 WHERE l.sent_at >= ? $chSql
+                 GROUP BY l.channel, tpl
+                 HAVING sent >= 1
+                 ORDER BY positive DESC, scheduled DESC, replied DESC, sent DESC",
+                $params
+            );
+            $out = [];
+            foreach ($rows as $r) {
+                $sent = (int)$r['sent'];
+                $out[] = [
+                    'channel' => $r['channel'],
+                    'title' => ($r['channel'] === 'email' && $r['subject']) ? $r['subject'] : mb_substr((string)$r['body'], 0, 80),
+                    'sample' => mb_substr((string)$r['body'], 0, 160),
+                    'sent' => $sent,
+                    'replied' => (int)$r['replied'],
+                    'positive' => (int)$r['positive'],
+                    'negative' => (int)$r['negative'],
+                    'scheduled' => (int)$r['scheduled'],
+                    'reply_rate' => $sent ? round($r['replied'] / $sent * 100, 1) : 0,
+                    'positive_rate' => $sent ? round($r['positive'] / $sent * 100, 1) : 0,
+                ];
+            }
+            return $out;
+        } catch (\Throwable $e) {
+            Logger::error('ProspectingAnalytics templateRanking', ['error' => $e->getMessage()]);
             return [];
         }
     }

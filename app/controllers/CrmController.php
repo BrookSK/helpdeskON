@@ -2322,7 +2322,10 @@ class CrmController extends Controller
             'ready' => true,
             'days' => $days,
             'funnel' => $funnel,
+            'volume' => $an->messageVolume($days),
             'ranking' => $an->messageRanking($days, 1),
+            'templates_email' => $an->templateRanking($days, 'email'),
+            'templates_whatsapp' => $an->templateRanking($days, 'whatsapp'),
         ]);
     }
 

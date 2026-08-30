@@ -201,6 +201,11 @@
             </div>
         </div>
 
+        <!-- Volume por canal (E-mail x WhatsApp) -->
+        <div class="row g-2 mb-3" id="perf-volume">
+            <div class="col-12"><div class="text-muted small">Carregando...</div></div>
+        </div>
+
         <!-- Funil -->
         <div class="row g-2 mb-3" id="perf-funnel">
             <div class="col-12"><div class="text-muted small">Carregando...</div></div>
@@ -234,6 +239,38 @@
             </div>
         </div>
         <p class="text-muted small mt-2 mb-0"><i class="bi bi-info-circle"></i> A taxa de reunião é a métrica que mais importa. Use o ranking para decidir qual mensagem manter e qual descartar.</p>
+
+        <!-- Templates por interação (E-mail e WhatsApp separados) -->
+        <div class="row g-3 mt-1">
+            <div class="col-12 col-lg-6">
+                <div class="card">
+                    <div class="card-header bg-white py-2 fw-semibold small"><i class="bi bi-envelope"></i> E-mails — qual mensagem teve mais interação</div>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover mb-0" style="font-size:0.8rem;">
+                            <thead class="table-light"><tr>
+                                <th>Mensagem</th><th class="text-center">Enviados</th><th class="text-center">Resp.</th>
+                                <th class="text-center text-success">Positiva</th><th class="text-center text-danger">Negativa</th><th class="text-center">Reuniões</th>
+                            </tr></thead>
+                            <tbody id="perf-tpl-email"><tr><td colspan="6" class="text-center text-muted py-3">Carregando...</td></tr></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-lg-6">
+                <div class="card">
+                    <div class="card-header bg-white py-2 fw-semibold small"><i class="bi bi-whatsapp"></i> WhatsApp — qual mensagem teve mais interação</div>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover mb-0" style="font-size:0.8rem;">
+                            <thead class="table-light"><tr>
+                                <th>Mensagem</th><th class="text-center">Enviados</th><th class="text-center">Resp.</th>
+                                <th class="text-center text-success">Positiva</th><th class="text-center text-danger">Negativa</th><th class="text-center">Reuniões</th>
+                            </tr></thead>
+                            <tbody id="perf-tpl-whatsapp"><tr><td colspan="6" class="text-center text-muted py-3">Carregando...</td></tr></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 </div><!-- /.main-content -->
 
@@ -706,8 +743,10 @@ function switchProspectTab(tab) {
 function loadPerformance() {
     const days = document.getElementById('perf-days').value;
     const funnelBox = document.getElementById('perf-funnel');
+    const volumeBox = document.getElementById('perf-volume');
     const rankBox = document.getElementById('perf-ranking');
     funnelBox.innerHTML = '<div class="col-12"><div class="text-muted small">Carregando...</div></div>';
+    if (volumeBox) volumeBox.innerHTML = '<div class="col-12"><div class="text-muted small">Carregando...</div></div>';
     rankBox.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">Carregando...</td></tr>';
 
     loadCopySuggestions();
@@ -715,9 +754,25 @@ function loadPerformance() {
         .then(r=>r.json()).then(d=>{
             if (!d.ready) {
                 funnelBox.innerHTML = '<div class="col-12"><div class="alert alert-warning py-2 small mb-0">' + escapeH(d.error || 'Analytics ainda não disponível.') + '</div></div>';
+                if (volumeBox) volumeBox.innerHTML = '';
                 rankBox.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">—</td></tr>';
                 return;
             }
+
+            // Volume por canal (fonte real: email_messages / whatsapp_messages)
+            const v = d.volume || {};
+            const volCard = (icon, label, val, sub, color) =>
+                `<div class="col-6 col-md-3"><div class="card h-100"><div class="card-body py-2 px-2 text-center">
+                    <div class="small text-muted"><i class="bi ${icon}"></i> ${label}</div>
+                    <div class="fw-bold" style="font-size:1.3rem;color:${color}">${val}</div>
+                    <div class="small text-muted">${sub||''}</div>
+                </div></div></div>`;
+            if (volumeBox) volumeBox.innerHTML =
+                volCard('bi-envelope-fill', 'E-mails enviados', v.email_sent||0, '', '#0d6efd') +
+                volCard('bi-reply-fill', 'E-mails respondidos', v.email_replied||0, (v.email_reply_rate||0)+'% de resposta', '#0dcaf0') +
+                volCard('bi-whatsapp', 'WhatsApp enviados', v.wa_sent||0, '', '#198754') +
+                volCard('bi-chat-dots-fill', 'WhatsApp recebidos', v.wa_received||0, (v.wa_reply_rate||0)+'% de resposta', '#20c997');
+
             // Funil em cards
             const f = d.funnel || {};
             const card = (label, val, sub, color) =>
@@ -735,6 +790,10 @@ function loadPerformance() {
                 card('Fechados', f.won||0, '', '#e0a800');
 
             // Ranking
+            // Rankings por template/mensagem (E-mail e WhatsApp), interação +/-
+            renderTemplateRanking('perf-tpl-email', d.templates_email || []);
+            renderTemplateRanking('perf-tpl-whatsapp', d.templates_whatsapp || []);
+
             const rows = d.ranking || [];
             if (!rows.length) { rankBox.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">Sem dados suficientes ainda. Rode as campanhas e volte aqui.</td></tr>'; return; }
             rankBox.innerHTML = rows.map((r, i) => {
@@ -757,6 +816,24 @@ function loadPerformance() {
             funnelBox.innerHTML = '<div class="col-12"><div class="alert alert-danger py-2 small mb-0">Erro ao carregar performance.</div></div>';
             rankBox.innerHTML = '<tr><td colspan="8" class="text-center text-danger py-3">Erro ao carregar.</td></tr>';
         });
+}
+
+// Renderiza um ranking de templates por interação positiva/negativa
+function renderTemplateRanking(elId, rows) {
+    const box = document.getElementById(elId);
+    if (!box) return;
+    if (!rows.length) { box.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">Sem dados neste canal ainda.</td></tr>'; return; }
+    box.innerHTML = rows.map((r, i) => {
+        const top = i === 0 && (r.positive > 0 || r.scheduled > 0) ? ' <i class="bi bi-star-fill text-warning"></i>' : '';
+        return `<tr>
+            <td title="${escapeH(r.sample||'')}">${escapeH((r.title||'—').slice(0,60))}${top}</td>
+            <td class="text-center">${r.sent}</td>
+            <td class="text-center">${r.replied} <span class="text-muted">(${r.reply_rate}%)</span></td>
+            <td class="text-center text-success fw-bold">${r.positive}</td>
+            <td class="text-center text-danger">${r.negative}</td>
+            <td class="text-center">${r.scheduled}</td>
+        </tr>`;
+    }).join('');
 }
 
 // Sugestões de copy da IA (pendentes de aprovação)
