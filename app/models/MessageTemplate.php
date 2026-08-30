@@ -62,6 +62,11 @@ class MessageTemplate
         // Campos comerciais extras: tenta do próprio array; senão, do briefing pelo contact_id
         $extra = self::extraFields($contact);
 
+        // Nome do remetente (pessoa que assina a prospecção). Ordem de preferência:
+        // 1) contact['remetente_nome'] (quando o motor passa explicitamente);
+        // 2) setting prospecting_sender_name; 3) smtp_from_name; 4) fallback.
+        $sender = $contact['remetente_nome'] ?? self::senderName();
+
         return strtr((string) $text, [
             '{{nome}}' => $name,
             '{{primeiro_nome}}' => $first,
@@ -73,7 +78,31 @@ class MessageTemplate
             '{{estado}}' => $extra['estado'],
             '{{setor}}' => $extra['setor'],
             '{{linkedin}}' => $extra['linkedin'],
+            '{{remetente_nome}}' => $sender,
         ]);
+    }
+
+    /**
+     * Nome do remetente (assinatura pessoal da prospecção), com cache estático.
+     * settings.prospecting_sender_name > settings.smtp_from_name > fallback.
+     */
+    private static function senderName()
+    {
+        static $cached = null;
+        if ($cached !== null) return $cached;
+        $cached = 'ON Solutions Brasil';
+        try {
+            // Busca ambos e prioriza prospecting_sender_name.
+            $rows = Database::getInstance()->fetchAll(
+                "SELECT setting_key, setting_value FROM settings
+                 WHERE setting_key IN ('prospecting_sender_name','smtp_from_name')"
+            );
+            $map = [];
+            foreach ($rows as $row) $map[$row['setting_key']] = trim((string)$row['setting_value']);
+            if (!empty($map['prospecting_sender_name'])) $cached = $map['prospecting_sender_name'];
+            elseif (!empty($map['smtp_from_name'])) $cached = $map['smtp_from_name'];
+        } catch (\Throwable $e) { /* usa fallback */ }
+        return $cached;
     }
 
     /**
