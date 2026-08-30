@@ -403,9 +403,21 @@ class CronController extends Controller
         $this->validateToken();
         @set_time_limit(300);
 
+        // 1) Captação Apollo (busca → reveal → cria lead → inscreve na sequência)
         $service = new ApolloProspectingService();
         $result = $service->runDue();
-        $this->json(['success' => empty($result['error']), 'result' => $result]);
+
+        // 2) No MESMO tick, avança as sequências (envia e-mails/WhatsApp dos
+        //    participantes prontos). Assim um único agendamento de cron resolve
+        //    tanto a captação quanto o disparo dos follow-ups.
+        $engineStats = null;
+        try {
+            $engineStats = (new SequenceEngine())->processDue(200);
+        } catch (\Throwable $e) {
+            Logger::error('runProspecting: falha ao processar sequências', ['error' => $e->getMessage()]);
+        }
+
+        $this->json(['success' => empty($result['error']), 'result' => $result, 'sequences' => $engineStats]);
     }
 
     /**
