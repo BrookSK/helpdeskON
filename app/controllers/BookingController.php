@@ -212,6 +212,11 @@ class BookingController extends Controller
                     'Reunião agendada pelo lead para ' . date('d/m/Y H:i', strtotime($meetingAt)) . ($meetLink ? ' — ' . $meetLink : ''),
                     ['channel' => 'booking']);
             } catch (\Throwable $e) {}
+
+            // Reunião agendada: ENCERRA todas as sequências ativas do lead para não
+            // continuar enviando mensagens da cadência/triagem (evita o "looping").
+            try { (new SequenceEngine())->stopForContact($link['contact_id'], 'booked'); } catch (\Throwable $e) {}
+
             $this->moveContactCard($link['contact_id'], 'Reunião');
         }
 
