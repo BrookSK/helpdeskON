@@ -417,7 +417,81 @@ class CronController extends Controller
             Logger::error('runProspecting: falha ao processar sequências', ['error' => $e->getMessage()]);
         }
 
+        // 3) Lembretes de reunião (X horas antes), conforme config de agendamento.
+        try { $this->sendBookingReminders(); } catch (\Throwable $e) {
+            Logger::error('runProspecting: falha nos lembretes de reunião', ['error' => $e->getMessage()]);
+        }
+
         $this->json(['success' => empty($result['error']), 'result' => $result, 'sequences' => $engineStats]);
+    }
+
+    /**
+     * GET /cron/bookingReminders?token=XXX
+     * Envia lembrete (e-mail + WhatsApp) das reuniões que ocorrerão dentro da
+     * janela configurada (booking_notify_hours_before), uma única vez por reunião.
+     */
+    public function bookingReminders()
+    {
+        $this->validateToken();
+        @set_time_limit(120);
+        $sent = $this->sendBookingReminders();
+        $this->json(['success' => true, 'reminders_sent' => $sent]);
+    }
+
+    /** Dispara os lembretes das reuniões próximas. Retorna a quantidade enviada. */
+    private function sendBookingReminders()
+    {
+        $db = Database::getInstance();
+        $hours = max(0, (int)(Config::get('booking_notify_hours_before') ?? 24));
+        if ($hours <= 0) return 0;
+
+        // Reuniões futuras dentro da janela [agora, agora+hours] ainda não lembradas.
+        $limit = date('Y-m-d H:i:s', strtotime('+' . $hours . ' hours'));
+        $now = date('Y-m-d H:i:s');
+        $rows = $db->fetchAll(
+            "SELECT m.*, u.name AS owner_name, u.phone AS owner_phone, u.email AS owner_email,
+                    wc.contact_name AS crm_name, wc.phone AS crm_phone, wc.lead_email AS crm_email
+             FROM agenda_meetings m
+             LEFT JOIN users u ON m.assigned_to = u.id
+             LEFT JOIN whatsapp_contacts wc ON m.contact_id = wc.id
+             WHERE m.meeting_at IS NOT NULL
+               AND m.meeting_at BETWEEN ? AND ?
+               AND m.reminder_sent_at IS NULL
+               AND m.status NOT IN ('cancelada','realizada','convertida')",
+            [$now, $limit]
+        );
+
+        $sent = 0;
+        foreach ($rows as $m) {
+            $name = $m['crm_name'] ?: ($m['client_name'] ?: 'Cliente');
+            $email = $m['crm_email'] ?: ($m['client_email'] ?? null);
+            $phone = $m['crm_phone'] ?: ($m['client_phone'] ?? null);
+            $whenFmt = date('d/m/Y \à\s H:i', strtotime($m['meeting_at']));
+            $meetLink = $m['meet_link'] ?? null;
+
+            if (!empty($email)) {
+                $body = Mailer::template('Lembrete de reunião',
+                    "<p>Olá, <strong>" . htmlspecialchars($name) . "</strong>!</p>
+                     <p>Passando para lembrar da sua reunião:</p>
+                     <p style='margin:6px 0;'><strong>Assunto:</strong> " . htmlspecialchars($m['title']) . "</p>
+                     <p style='margin:6px 0;'><strong>Data:</strong> {$whenFmt}</p>"
+                     . ($meetLink ? "<p style='text-align:center;margin:24px 0;'><a href='{$meetLink}' style='background:#00BFA6;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;'>Entrar na reunião</a></p>" : "")
+                     . "<p>Até logo!</p>");
+                try { if (Mailer::send($email, 'Lembrete de reunião — ' . $m['title'], $body)) $sent++; } catch (\Throwable $e) {}
+            }
+            if (!empty($phone)) {
+                $wa = "⏰ *Lembrete de reunião*\n\n*Assunto:* {$m['title']}\n*Data:* {$whenFmt}\n" . ($meetLink ? "*Link:* {$meetLink}\n" : "") . "\nAté logo!";
+                try { if (WhatsappNotifier::sendToPhone($phone, $wa, $name)) $sent++; } catch (\Throwable $e) {}
+            }
+            // Lembrete ao responsável também
+            if (!empty($m['owner_phone'])) {
+                $waO = "⏰ *Lembrete de reunião*\n\nCom {$name}\n*Data:* {$whenFmt}\n" . ($meetLink ? "*Meet:* {$meetLink}" : "");
+                try { WhatsappNotifier::sendToPhone($m['owner_phone'], $waO, $m['owner_name'] ?? ''); } catch (\Throwable $e) {}
+            }
+
+            try { $db->update('agenda_meetings', ['reminder_sent_at' => date('Y-m-d H:i:s')], 'id = ?', [$m['id']]); } catch (\Throwable $e) {}
+        }
+        return $sent;
     }
 
     /**

@@ -199,6 +199,63 @@
             </div>
         </div>
 
+        <!-- Agendamento (bloco de sequência) -->
+        <?php
+            $bkDays = $settings['booking_days_of_week'] ?? '1,2,3,4,5';
+            $bkDaysArr = array_filter(array_map('trim', explode(',', $bkDays)));
+            $dayLabels = [1=>'Seg',2=>'Ter',3=>'Qua',4=>'Qui',5=>'Sex',6=>'Sáb',7=>'Dom'];
+        ?>
+        <div class="card mb-4">
+            <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-calendar2-check"></i> Agendamento de reuniões</h6></div>
+            <div class="card-body">
+                <p class="text-muted small">Regras do link público de agendamento enviado pelo bloco "Agendamento" das sequências.</p>
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <label class="form-label fw-medium small">Antecedência mínima (dias)</label>
+                        <input type="number" min="0" name="booking_min_advance_days" class="form-control form-control-sm" value="<?= escape($settings['booking_min_advance_days'] ?? '1') ?>">
+                        <small class="text-muted">Nº mínimo de dias a partir de hoje.</small>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-medium small">Início do período</label>
+                        <input type="time" name="booking_work_start" class="form-control form-control-sm" value="<?= escape($settings['booking_work_start'] ?? '09:00') ?>">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-medium small">Fim do período</label>
+                        <input type="time" name="booking_work_end" class="form-control form-control-sm" value="<?= escape($settings['booking_work_end'] ?? '18:00') ?>">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-medium small">Intervalo entre horários (min)</label>
+                        <input type="number" min="10" step="5" name="booking_slot_minutes" class="form-control form-control-sm" value="<?= escape($settings['booking_slot_minutes'] ?? '30') ?>">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-medium small">Duração da reunião (min)</label>
+                        <input type="number" min="15" step="15" name="booking_duration_min" class="form-control form-control-sm" value="<?= escape($settings['booking_duration_min'] ?? '45') ?>">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-medium small">Notificar antes (horas)</label>
+                        <input type="number" min="0" step="1" name="booking_notify_hours_before" class="form-control form-control-sm" value="<?= escape($settings['booking_notify_hours_before'] ?? '24') ?>">
+                        <small class="text-muted">Lembrete por e-mail/WhatsApp antes da reunião.</small>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-medium small">Validade do link (dias)</label>
+                        <input type="number" min="1" name="booking_link_expiry_days" class="form-control form-control-sm" value="<?= escape($settings['booking_link_expiry_days'] ?? '30') ?>">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label fw-medium small d-block">Dias da semana disponíveis</label>
+                        <div class="d-flex flex-wrap gap-3">
+                            <?php foreach ($dayLabels as $num => $lbl): ?>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="booking_days[]" value="<?= $num ?>" id="bkday<?= $num ?>" <?= in_array((string)$num, $bkDaysArr, true) ? 'checked' : '' ?>>
+                                <label class="form-check-label small" for="bkday<?= $num ?>"><?= $lbl ?></label>
+                            </div>
+                            <?php endforeach; ?>
+                        </div>
+                        <input type="hidden" name="booking_days_of_week" id="booking_days_of_week" value="<?= escape($bkDays) ?>">
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- URL pública do sistema (tracking de e-mail, webhooks) -->
         <div class="card mb-4">
             <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-link-45deg"></i> URL pública do sistema</h6></div>
@@ -724,6 +781,18 @@
 </div>
 
 <script>
+// Consolida os dias da semana marcados no campo oculto antes de enviar o form.
+(function(){
+    const form = document.querySelector('form[action$="settings/save"]');
+    if (!form) return;
+    form.addEventListener('submit', function(){
+        const days = Array.from(document.querySelectorAll('input[name="booking_days[]"]:checked'))
+            .map(c => c.value);
+        const hidden = document.getElementById('booking_days_of_week');
+        if (hidden) hidden.value = days.join(',');
+    });
+})();
+
 function testSmtp() {
     const btn = event.target.closest('button');
     const result = document.getElementById('smtp-test-result');

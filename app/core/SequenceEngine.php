@@ -356,6 +356,15 @@ class SequenceEngine
                     if ($columnId) $this->moveCard($contactId, $columnId);
                     $detail = 'Card movido.';
                     break;
+                case 'unsubscribe':
+                    $this->unsubscribeContact($contactId, $node['data']['reason'] ?? 'Sem interesse (sequência)');
+                    $detail = 'Lead removido da lista (descadastrado).';
+                    break;
+                case 'schedule':
+                    $sch = $this->doSchedule($participant, $node);
+                    $detail = $sch['detail'] ?? 'Link de agendamento enviado.';
+                    if (!empty($sch['error'])) $result = 'failed';
+                    break;
                 case 'wait':
                     $detail = 'Aguardar (sem efeito no teste isolado).';
                     break;
@@ -500,6 +509,18 @@ class SequenceEngine
                 $this->advance($participant, $node['next'] ?? null, $nodes);
                 $this->logExec($participant['id'], $nodeId, $type, 'done');
                 return 'skipped';
+
+            case 'unsubscribe':
+                $this->unsubscribeContact($contactId, $node['data']['reason'] ?? 'Sem interesse (sequência)');
+                $this->advance($participant, $node['next'] ?? null, $nodes);
+                $this->logExec($participant['id'], $nodeId, $type, 'done');
+                return 'skipped';
+
+            case 'schedule':
+                $sch = $this->doSchedule($participant, $node);
+                $this->advance($participant, $node['next'] ?? null, $nodes);
+                $this->logExec($participant['id'], $nodeId, $type, empty($sch['error']) ? 'done' : 'failed', $sch['detail'] ?? null);
+                return 'sent';
 
             case 'end':
             default:
@@ -894,6 +915,162 @@ class SequenceEngine
         } catch (\Throwable $e) {
             Logger::error('SequenceEngine ai exception', ['contact' => $contactId, 'error' => $e->getMessage()]);
             return ['decision' => false, 'text' => '', 'detail' => 'Erro: ' . $e->getMessage(), 'error' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * Remove o lead da lista de prospecção: marca unsubscribed=1 (bloqueia envios
+     * futuros), aplica etiqueta e registra na timeline. Também interrompe outras
+     * sequências ativas do contato.
+     */
+    private function unsubscribeContact($contactId, $reason = 'Sem interesse')
+    {
+        try {
+            $this->db->update('whatsapp_contacts', ['unsubscribed' => 1], 'id = ?', [$contactId]);
+            (new LeadTimelineService())->add($contactId, 'note', 'Lead removido da lista: ' . $reason, ['channel' => 'sequence', 'action' => 'unsubscribe']);
+            $this->applyLabel($contactId, 'sem interesse', '#dc3545');
+        } catch (\Throwable $e) {
+            Logger::error('SequenceEngine unsubscribe', ['contact' => $contactId, 'error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Bloco AGENDAMENTO: cria um link público de agendamento (token) com os dados
+     * do lead pré-preenchidos e envia o convite por e-mail e/ou WhatsApp. Ao agendar,
+     * o BookingController cria o evento no Google Meet e notifica as partes.
+     * @return array ['detail'=>string, 'error'=>?string]
+     */
+    private function doSchedule($participant, $node)
+    {
+        $contactId = $participant['contact_id'];
+        $data = $node['data'] ?? [];
+        $channel = in_array($data['channel'] ?? 'auto', ['auto', 'email', 'whatsapp'], true) ? $data['channel'] : 'auto';
+        $duration = (int)($data['duration'] ?? 0) ?: max(15, (int)(Config::get('booking_duration_min') ?? 45));
+        $expiryDays = max(1, (int)(Config::get('booking_link_expiry_days') ?? 30));
+        $title = trim((string)($data['title'] ?? '')) ?: 'Reunião com a ON Solutions Brasil';
+
+        $contact = $this->db->fetch("SELECT id, contact_name, push_name, lead_email, phone, assigned_to FROM whatsapp_contacts WHERE id = ?", [$contactId]);
+        if (!$contact) return ['detail' => 'Lead não encontrado', 'error' => 'no_contact'];
+
+        // Reaproveita um link pendente do mesmo lead, se existir; senão cria um novo.
+        $existing = $this->db->fetch(
+            "SELECT token FROM agenda_booking_links WHERE contact_id = ? AND status = 'pending' ORDER BY id DESC LIMIT 1",
+            [$contactId]);
+        if ($existing) {
+            $token = $existing['token'];
+        } else {
+            $token = bin2hex(random_bytes(16));
+            $this->db->insert('agenda_booking_links', [
+                'token' => $token,
+                'contact_id' => $contactId,
+                'assigned_to' => $contact['assigned_to'] ?: ($participant['added_by'] ?? null),
+                'sequence_participant_id' => $participant['id'],
+                'title' => $title,
+                'duration_min' => $duration,
+                'status' => 'pending',
+                'expires_at' => date('Y-m-d H:i:s', strtotime('+' . $expiryDays . ' days')),
+            ]);
+        }
+
+        $base = rtrim((string) Config::get('app_public_url'), '/') ?: rtrim(baseUrl(''), '/');
+        $link = $base . '/booking/' . $token;
+
+        // Mensagem do convite (com variáveis do lead + {{link_agendamento}})
+        $msgTpl = (string)($data['message'] ?? '');
+        if (trim($msgTpl) === '') {
+            $msgTpl = '{{primeiro_nome}}, para avançarmos, escolha o melhor dia e horário para uma conversa rápida (online). É só clicar no link: {{link_agendamento}}';
+        }
+        $rendered = $this->render($msgTpl, $contact);
+        $rendered = str_replace(['{{link_agendamento}}', '{{link}}'], $link, $rendered);
+
+        $hasEmail = !empty($contact['lead_email']);
+        $hasPhone = !empty($contact['phone']);
+        $sent = [];
+
+        // E-mail
+        if (($channel === 'auto' || $channel === 'email') && $hasEmail) {
+            $account = $this->resolveAccount($this->db->fetch("SELECT email_account_id FROM email_sequences WHERE id = ?", [$participant['sequence_id']])['email_account_id'] ?? null);
+            if ($account) {
+                $bodyHtml = '<p>' . nl2br(htmlspecialchars($rendered)) . '</p>'
+                    . '<p style="text-align:center;margin:24px 0;"><a href="' . htmlspecialchars($link, ENT_QUOTES) . '" style="background:#00BFA6;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;">Escolher data e horário</a></p>';
+                $res = (new EmailMessageService())->send([
+                    'contact_id' => $contactId,
+                    'account' => $account,
+                    'to' => $contact['lead_email'],
+                    'subject' => $title,
+                    'body_html' => $bodyHtml,
+                    'origin' => 'sequence',
+                    'sequence_participant_id' => $participant['id'],
+                    'node_id' => $node['id'],
+                    'add_signature' => true,
+                ]);
+                if (!empty($res['success'])) $sent[] = 'e-mail';
+            }
+        }
+
+        // WhatsApp
+        if (($channel === 'auto' || $channel === 'whatsapp') && $hasPhone) {
+            $ok = $this->sendWhatsappRaw($contactId, $contact, $rendered);
+            if ($ok === true) $sent[] = 'WhatsApp';
+        }
+
+        (new LeadTimelineService())->add($contactId, 'note', 'Link de agendamento enviado (' . (implode(' + ', $sent) ?: 'nenhum canal disponível') . '): ' . $link, ['channel' => 'schedule']);
+
+        if (empty($sent)) {
+            return ['detail' => 'Nenhum canal disponível para enviar o link (sem e-mail/telefone).', 'error' => 'no_channel'];
+        }
+        return ['detail' => 'Convite de agendamento enviado por ' . implode(' + ', $sent) . '.', 'error' => null];
+    }
+
+    /**
+     * Envia uma mensagem de texto simples ao lead pelo WhatsApp (instância padrão),
+     * reusando a resolução de JID/checagem do doWhatsapp. Retorna true em sucesso.
+     */
+    private function sendWhatsappRaw($contactId, $contact, $text)
+    {
+        try {
+            $default = $this->db->fetch("SELECT id FROM whatsapp_instances WHERE is_default = 1 LIMIT 1");
+            if (!$default) return 'Sem instância padrão de WhatsApp.';
+            $instanceId = (int)$default['id'];
+            if (!$this->isInstanceConnected($instanceId)) return 'Instância padrão não conectada.';
+            $api = EvolutionApi::fromInstance($instanceId);
+            if (!$api) return 'Instância indisponível.';
+
+            $ctxRow = $this->db->fetch("SELECT remote_jid FROM whatsapp_contacts WHERE id = ?", [$contactId]);
+            $existingJid = $ctxRow['remote_jid'] ?? '';
+            $isRealJid = $existingJid && stripos($existingJid, 'lead_') === false && strpos($existingJid, '@') !== false;
+            $jid = $isRealJid ? $existingJid : $api->normalizeJid($api->normalizeNumber($contact['phone']));
+
+            $checkedExists = null;
+            try {
+                $check = $api->checkIsWhatsapp([$api->extractPhone($jid)]);
+                if (is_array($check)) {
+                    foreach ($check as $item) {
+                        if (array_key_exists('exists', $item)) $checkedExists = !empty($item['exists']);
+                        if (!empty($item['exists']) && !empty($item['jid'])) { $jid = $api->normalizeJid($item['jid']); $checkedExists = true; break; }
+                    }
+                }
+            } catch (\Throwable $e) {}
+            if ($checkedExists === false) return 'Número sem WhatsApp.';
+
+            $result = $api->sendText($jid, $text);
+            if (is_array($result) && !empty($result['error'])) return 'Falha no envio do WhatsApp.';
+
+            $this->db->insert('whatsapp_messages', [
+                'instance_id' => $instanceId,
+                'contact_id' => $contactId,
+                'remote_jid' => $isRealJid ? $ctxRow['remote_jid'] : $jid,
+                'message_id' => $result['key']['id'] ?? uniqid('seq_'),
+                'from_me' => 1,
+                'message_type' => 'text',
+                'message_text' => $text,
+                'timestamp' => date('Y-m-d H:i:s'),
+            ]);
+            $this->db->update('whatsapp_contacts', ['last_message_at' => date('Y-m-d H:i:s')], 'id = ?', [$contactId]);
+            return true;
+        } catch (\Throwable $e) {
+            Logger::error('SequenceEngine sendWhatsappRaw', ['contact' => $contactId, 'error' => $e->getMessage()]);
+            return 'Erro: ' . $e->getMessage();
         }
     }
 

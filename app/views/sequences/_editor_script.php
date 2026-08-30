@@ -25,7 +25,7 @@
 .seq-node .port.in { top:-10px; left:calc(50% - 9px); background:#e9ecef; }
 .n-send .hd{color:#0d6efd} .n-whatsapp .hd{color:#198754} .n-wait .hd{color:#fd7e14} .n-condition .hd{color:#6f42c1}
 .n-tag .hd{color:#20c997} .n-score .hd{color:#e0a800} .n-move .hd{color:#0dcaf0} .n-end .hd{color:#dc3545}
-.n-reveal_phone .hd{color:#212529} .n-ai .hd{color:#0d6efd}
+.n-reveal_phone .hd{color:#212529} .n-ai .hd{color:#0d6efd} .n-unsubscribe .hd{color:#dc3545} .n-schedule .hd{color:#198754}
 #link-hint { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#1a1a2e; color:#fff;
     padding:8px 16px; border-radius:20px; font-size:0.8rem; z-index:2000; display:none; box-shadow:0 4px 12px rgba(0,0,0,.3); }
 </style>
@@ -39,7 +39,7 @@ const COLUMNS = <?= json_encode(array_map(fn($c) => ['id'=>$c['id'],'name'=>$c['
 const LABELS = <?= json_encode(array_map(fn($l) => ['id'=>$l['id'],'name'=>$l['name'],'color'=>$l['color']], $labels ?? []), JSON_UNESCAPED_UNICODE) ?>;
 // Lista de boards únicos (para o seletor encadeado do bloco "mover card")
 const BOARDS = (function(){ const m={}; COLUMNS.forEach(c=>{ if(!m[c.board_id]) m[c.board_id]={id:c.board_id,name:c.board_name}; }); return Object.values(m); })();
-const NODE_LABELS = { send:'Enviar e-mail', whatsapp:'Enviar WhatsApp', wait:'Aguardar', condition:'Condição', ai:'IA (ChatGPT)', tag:'Tag', score:'Score', move:'Mover card', reveal_phone:'Revelar telefone', end:'Encerrar' };
+const NODE_LABELS = { send:'Enviar e-mail', whatsapp:'Enviar WhatsApp', wait:'Aguardar', condition:'Condição', ai:'IA (ChatGPT)', schedule:'Agendamento', tag:'Tag', score:'Score', move:'Mover card', unsubscribe:'Remover da lista', reveal_phone:'Revelar telefone', end:'Encerrar' };
 let EMAIL_TEMPLATES = [], WA_TEMPLATES = [];
 
 let nodes = [];       // {id, type, x, y, data, next, nextYes, nextNo, _el}
@@ -152,6 +152,8 @@ function nodeSummary(n) {
         case 'score': return 'Score ' + (d.delta>0?'+':'') + (d.delta||0);
         case 'move': { const c = COLUMNS.find(x=>x.id==d.column_id); return c ? escapeHtml(c.label) : '<em>escolher coluna</em>'; }
         case 'reveal_phone': return 'Revela telefone no Apollo (se faltar)';
+        case 'unsubscribe': return 'Remove o lead da lista (descadastra)';
+        case 'schedule': return 'Envia link de agendamento (' + (d.channel||'auto') + ')';
         case 'end': return 'Fim da sequência';
     }
     return '';
@@ -227,6 +229,8 @@ function defaultData(type) {
     if (type === 'tag') return { label:'', color:'#00BFA6' };
     if (type === 'score') return { delta:3 };
     if (type === 'move') return { column_id:'' };
+    if (type === 'unsubscribe') return { reason:'Sem interesse (sequência)' };
+    if (type === 'schedule') return { channel:'auto', duration:45, title:'Reunião com a ON Solutions Brasil', message:'' };
     if (type === 'reveal_phone') return {};
     return {};
 }
@@ -374,6 +378,20 @@ function renderInspector() {
         const colOpts = '<option value="">Selecione a coluna</option>' +
             cols.map(c => `<option value="${c.id}" ${n.data.column_id==c.id?'selected':''}>${escapeHtml(c.name)}</option>`).join('');
         h += field('Coluna', `<select class="form-select form-select-sm" id="insp-column" ${boardId?'':'disabled'} onchange="setData('column_id',this.value)">${colOpts}</select>`);
+    } else if (n.type==='schedule') {
+        const ch = n.data.channel || 'auto';
+        h += field('Canal do convite', `<select class="form-select form-select-sm" onchange="setData('channel',this.value)">
+            <option value="auto" ${ch==='auto'?'selected':''}>Automático (e-mail e/ou WhatsApp)</option>
+            <option value="email" ${ch==='email'?'selected':''}>E-mail</option>
+            <option value="whatsapp" ${ch==='whatsapp'?'selected':''}>WhatsApp</option></select>`);
+        h += field('Título da reunião', `<input class="form-control form-control-sm" value="${escapeAttr(n.data.title||'Reunião com a ON Solutions Brasil')}" oninput="setData('title',this.value)">`);
+        h += field('Duração (min)', `<input type="number" min="15" step="15" class="form-control form-control-sm" value="${n.data.duration||45}" oninput="setData('duration',parseInt(this.value)||45)">`);
+        h += `<label class="form-label small mb-1">Mensagem do convite (opcional)</label>` + varChipsHtml() +
+             `<textarea id="insp-body" class="form-control form-control-sm" rows="4" placeholder="Ex.: {{primeiro_nome}}, que tal conversarmos? Escolha o melhor horário no link abaixo." oninput="setData('message',this.value)">${escapeHtml(n.data.message||'')}</textarea>`;
+        h += `<small class="text-muted d-block mt-1">Gera um link público com os dados do lead pré-preenchidos. Ao agendar, cria o evento no Google Meet e notifica por e-mail e WhatsApp. O link é inserido automaticamente ({{link_agendamento}}).</small>`;
+    } else if (n.type==='unsubscribe') {
+        h += field('Motivo (registro interno)', `<input class="form-control form-control-sm" value="${escapeAttr(n.data.reason||'Sem interesse (sequência)')}" oninput="setData('reason',this.value)">`);
+        h += `<p class="text-muted small mb-0">Marca o lead como descadastrado (bloqueia novos envios), aplica a etiqueta "sem interesse" e registra na timeline. Coloque este bloco <strong>depois</strong> do e-mail/WhatsApp de confirmação.</p>`;
     } else if (n.type==='end') {
         h += '<p class="text-muted small">Encerra a sequência para o lead.</p>';
     }

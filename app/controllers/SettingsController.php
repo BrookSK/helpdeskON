@@ -69,6 +69,10 @@ class SettingsController extends Controller
             'apollo_api_key', 'apollo_base_url', 'apollo_webhook_token',
             'app_public_url',
             'google_client_id', 'google_client_secret', 'google_refresh_token', 'google_calendar_id',
+            // Agendamento público (bloco "Agendamento" das sequências)
+            'booking_min_advance_days', 'booking_work_start', 'booking_work_end',
+            'booking_slot_minutes', 'booking_days_of_week', 'booking_duration_min',
+            'booking_notify_hours_before', 'booking_link_expiry_days',
             'webhook_url', 'webhook_phones', 'webhook_names', 'webhook_enabled',
             'webhook_message_template',
             'whatsapp_number', 'whatsapp_message', 'whatsapp_enabled',
