@@ -506,15 +506,24 @@ class ApolloProspectingService
     }
 
     /**
-     * Verifica se o contato JÁ ESTÁ RODANDO a sequência (active/paused).
-     * Participantes 'finished'/'stopped' NÃO bloqueiam: o enroll os reativa,
-     * permitindo reenviar um lead que já passou pela sequência.
+     * Verifica se o contato JÁ TEM participação nesta sequência — em QUALQUER
+     * status (active, paused, finished, stopped, failed).
+     *
+     * IMPORTANTE (correção de loop): a captação automática roda a cada tick do
+     * cron. Se considerássemos apenas active/paused, um lead que já concluiu a
+     * cadência (finished/stopped) seria RE-INSCRITO no tick seguinte, e o enroll
+     * reativa o participante zerando o current_node — reiniciando a cadência do
+     * zero e reenviando todas as mensagens em loop infinito.
+     *
+     * Por isso, para a automação, um contato que já passou pela sequência NUNCA
+     * é reinscrito automaticamente. Reenvio deliberado é feito manualmente pelo
+     * operador (CRM → inscrever na sequência), que chama enroll() diretamente.
      */
     private function alreadyInSequence($contactId, $sequenceId)
     {
         if (!$contactId || !$sequenceId) return false;
         $r = $this->db->fetch(
-            "SELECT id FROM sequence_participants WHERE sequence_id = ? AND contact_id = ? AND status IN ('active','paused') LIMIT 1",
+            "SELECT id FROM sequence_participants WHERE sequence_id = ? AND contact_id = ? LIMIT 1",
             [$sequenceId, $contactId]
         );
         return (bool)$r;

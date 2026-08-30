@@ -260,6 +260,21 @@ class SequenceEngine
         $nodesById = [];
         foreach ($graph['nodes'] ?? [] as $n) $nodesById[$n['id']] = $n;
 
+        // Caso especial: o participante está preso no loop do "Atendente IA (FAQ)".
+        // Ao expirar a janela de escuta, ele deve REPROCESSAR o próprio nó ai_agent
+        // (interpretar as novas mensagens do lead), e NÃO ir para a triagem genérica.
+        // Não marca triaged_at — o loop precisa continuar reagindo a novas respostas.
+        $curNode = $participant['current_node'] ?? null;
+        if ($curNode && isset($nodesById[$curNode]) && ($nodesById[$curNode]['type'] ?? '') === 'ai_agent') {
+            $this->db->update('sequence_participants', [
+                'status' => 'active',
+                'current_node' => $curNode,
+                'reply_listen_until' => null,
+                'next_run_at' => date('Y-m-d H:i:s'),
+            ], 'id = ?', [$participant['id']]);
+            return true;
+        }
+
         // Destino: nextReply do nó atual → qualquer nextReply → primeiro nó de IA.
         $target = null;
         $curId = $participant['current_node'] ?? ($graph['start'] ?? null);
@@ -555,6 +570,11 @@ class SequenceEngine
                     $detail = $rep['detail'] ?? 'Resposta enviada.';
                     if (!empty($rep['error'])) $result = 'failed';
                     break;
+                case 'ai_agent':
+                    $ag = $this->doAiAgent($participant, $node);
+                    $detail = 'Atendente IA · intenção: ' . ($ag['intent'] ?? 'unclear') . '. ' . ($ag['detail'] ?? '');
+                    if (!empty($ag['error'])) $result = 'failed';
+                    break;
                 case 'wait':
                     $detail = 'Aguardar (sem efeito no teste isolado).';
                     break;
@@ -728,6 +748,30 @@ class SequenceEngine
                 $this->advance($participant, $node['next'] ?? null, $nodes);
                 $this->logExec($participant['id'], $nodeId, $type, empty($rep['error']) ? 'done' : 'failed', $rep['detail'] ?? null);
                 return 'sent';
+
+            case 'ai_agent':
+                $agentActive = !isset($node['data']['active']) || !empty($node['data']['active']);
+                $ag = $this->doAiAgent($participant, $node);
+                $intent = $ag['intent'] ?? 'unclear';
+                if ($intent === 'yes')      $this->advance($participant, $node['nextYes'] ?? null, $nodes);
+                elseif ($intent === 'no')   $this->advance($participant, $node['nextNo'] ?? null, $nodes);
+                elseif (!$agentActive) {
+                    // Bloco INATIVO: sem loop nem respostas. Faz uma classificação
+                    // simples numa única passada; se ficar indefinido, segue como NÃO.
+                    $this->advance($participant, $node['nextNo'] ?? null, $nodes);
+                } else {
+                    // Bloco ATIVO e intenção ainda não clara: respondeu a dúvida e
+                    // continua no ciclo, aguardando (janela de escuta) a próxima
+                    // mensagem do lead.
+                    $listenMin = max(1, (int)(Config::get('sequence_reply_listen_minutes') ?? 2));
+                    $this->db->update('sequence_participants', [
+                        'current_node' => $nodeId,               // permanece no mesmo bloco (loop)
+                        'reply_listen_until' => date('Y-m-d H:i:s', time() + $listenMin * 60),
+                        'next_run_at' => date('Y-m-d H:i:s', time() + $listenMin * 60),
+                    ], 'id = ?', [$participant['id']]);
+                }
+                $this->logExec($participant['id'], $nodeId, $type, empty($ag['error']) ? 'done' : 'failed', $ag['detail'] ?? null);
+                return ($intent === 'unclear' && $agentActive) ? 'skipped' : 'sent';
 
             case 'end':
             default:
@@ -1116,6 +1160,154 @@ class SequenceEngine
             Logger::error('SequenceEngine ai exception', ['contact' => $contactId, 'error' => $e->getMessage()]);
             return ['decision' => false, 'text' => '', 'detail' => 'Erro: ' . $e->getMessage(), 'error' => $e->getMessage()];
         }
+    }
+
+    /**
+     * Bloco ATENDENTE IA (FAQ): responde dúvidas do lead sobre a empresa com base
+     * na base de conhecimento configurada e classifica a intenção. Enquanto a
+     * intenção não for clara, responde a dúvida (mesmo canal) e mantém o ciclo,
+     * respeitando a janela de escuta. Ao concluir, ramifica em duas saídas:
+     * SIM (quer seguir/avançar) | NÃO (quer encerrar/sem interesse).
+     * @return array ['intent'=>'yes|no|unclear', 'detail'=>string, 'error'=>?string]
+     */
+    private function doAiAgent($participant, $node)
+    {
+        $contactId = $participant['contact_id'];
+        $data = $node['data'] ?? [];
+        $model = trim((string)($data['model'] ?? 'gpt-4o-mini')) ?: 'gpt-4o-mini';
+        $companyInfo = trim((string)($data['company_info'] ?? ''));
+        $instructions = trim((string)($data['instructions'] ?? ''));
+        $maxTurns = max(1, (int)($data['max_turns'] ?? 6));
+        // Toggle do bloco: ativo (loop de dúvidas) x inativo (só classifica SIM/NÃO).
+        $agentActive = !isset($data['active']) || !empty($data['active']);
+
+        $apiKey = trim((string) Config::get('openai_api_key'));
+        if ($apiKey === '') {
+            return ['intent' => 'unclear', 'detail' => 'OpenAI não configurada.', 'error' => 'no_key'];
+        }
+
+        $contact = $this->db->fetch("SELECT id, contact_name, push_name, lead_email, phone FROM whatsapp_contacts WHERE id = ?", [$contactId]);
+        if (!$contact) return ['intent' => 'unclear', 'detail' => 'Lead não encontrado', 'error' => 'no_contact'];
+
+        // Trava de segurança (apenas no modo ATIVO): limite de interações para não
+        // ficar preso no loop de dúvidas para sempre. Ao atingir, segue pela saída NÃO.
+        $turns = (int)($participant['ai_agent_turns'] ?? 0);
+        if ($agentActive && $turns >= $maxTurns) {
+            (new LeadTimelineService())->add($contactId, 'note', 'Atendente IA atingiu o limite de interações — encerrando pela saída NÃO.', ['channel' => 'ai_agent']);
+            return ['intent' => 'no', 'detail' => 'Limite de interações atingido.', 'error' => null];
+        }
+
+        $context = $this->buildAiContext($contactId, $contact);
+        if ($agentActive) {
+            // Modo ATIVO: tira dúvidas em loop; pode devolver 'unclear' + 'reply'.
+            $system = "Você é um atendente virtual da ON Solutions Brasil. Responda dúvidas do lead sobre a empresa usando SOMENTE as informações fornecidas abaixo. "
+                . "Seja cordial, objetivo e em português do Brasil. Não invente dados (preços, prazos) que não estejam na base. "
+                . ($instructions !== '' ? ("Regras adicionais: " . $instructions . " ") : "")
+                . "Seu papel é tirar as dúvidas do lead e, quando possível, concluir se ele QUER SEGUIR (avançar/agendar/demonstra interesse claro) ou QUER ENCERRAR (sem interesse/pede para parar). "
+                . "Responda SOMENTE com JSON válido no formato: "
+                . '{"intent":"yes|no|unclear","reply":"texto para enviar ao lead"}. '
+                . "Use 'yes' quando o lead demonstra que quer avançar (marcar reunião, saber próximos passos, aceitar a proposta); "
+                . "'no' quando ele não tem interesse ou pede para parar; "
+                . "'unclear' enquanto ele ainda estiver tirando dúvidas ou indeciso — nesse caso, 'reply' deve responder a dúvida e convidar gentilmente a avançar.";
+        } else {
+            // Modo INATIVO: classificação simples numa única passada, sem responder
+            // dúvidas e sem 'unclear'. Deve decidir SIM ou NÃO.
+            $system = "Você classifica a intenção de um lead da ON Solutions Brasil a partir da última resposta e do histórico. "
+                . "Responda em português do Brasil e SOMENTE com JSON válido no formato: "
+                . '{"intent":"yes|no"}. '
+                . ($instructions !== '' ? ("Regras adicionais: " . $instructions . " ") : "")
+                . "Use 'yes' quando o lead demonstra INTERESSE (quer conversar, receber material, agendar reunião ou avançar); "
+                . "'no' quando não tem interesse, pede para parar, diz que não é o momento ou já tem fornecedor. Em dúvida real, use 'no'. "
+                . "NÃO escreva nenhum texto para o lead — apenas classifique.";
+        }
+
+        $base = "INFORMAÇÕES DA EMPRESA:\n" . ($companyInfo !== '' ? $companyInfo : '(não informado)') . "\n\n"
+            . "CONTEXTO/HISTÓRICO DO LEAD:\n" . $context;
+
+        try {
+            $ch = curl_init('https://api.openai.com/v1/chat/completions');
+            curl_setopt_array($ch, [
+                CURLOPT_POST => true,
+                CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $apiKey, 'Content-Type: application/json'],
+                CURLOPT_POSTFIELDS => json_encode([
+                    'model' => $model,
+                    'messages' => [
+                        ['role' => 'system', 'content' => $system],
+                        ['role' => 'user', 'content' => $base],
+                    ],
+                    'temperature' => 0.3,
+                    'max_tokens' => 700,
+                    'response_format' => ['type' => 'json_object'],
+                ], JSON_UNESCAPED_UNICODE),
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT => 60,
+            ]);
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+
+            if ($httpCode >= 400 || !$response) {
+                return ['intent' => 'unclear', 'detail' => 'Falha na IA (HTTP ' . $httpCode . ').', 'error' => 'http'];
+            }
+            $body = json_decode($response, true);
+            $content = trim((string)($body['choices'][0]['message']['content'] ?? ''));
+            $parsed = json_decode($content, true);
+            $intent = is_array($parsed) ? ($parsed['intent'] ?? 'unclear') : 'unclear';
+            $reply = is_array($parsed) ? trim((string)($parsed['reply'] ?? '')) : '';
+
+            if (!$agentActive) {
+                // Modo INATIVO: classificação pura numa passada. Sem loop, sem
+                // resposta ao lead e sem contador. 'unclear' vira 'no'.
+                if (!in_array($intent, ['yes', 'no'], true)) $intent = 'no';
+                (new LeadTimelineService())->add($contactId, 'note',
+                    'Classificação IA (SIM/NÃO): ' . $intent, ['channel' => 'ai_agent', 'intent' => $intent, 'mode' => 'classify']);
+                return ['intent' => $intent, 'detail' => 'Classificação: ' . $intent, 'error' => null];
+            }
+
+            // Modo ATIVO: loop de dúvidas.
+            if (!in_array($intent, ['yes', 'no', 'unclear'], true)) $intent = 'unclear';
+
+            // Incrementa o contador de interações do atendente.
+            $this->db->update('sequence_participants', ['ai_agent_turns' => $turns + 1], 'id = ?', [$participant['id']]);
+
+            // Sempre que houver texto de resposta, envia pelo mesmo canal do lead.
+            if ($reply !== '') {
+                $this->replyText($participant, $contact, $reply, 'ON Solutions Brasil');
+            }
+
+            (new LeadTimelineService())->add($contactId, 'note',
+                'Atendente IA · intenção: ' . $intent . ($reply !== '' ? ' — respondeu dúvida.' : ''),
+                ['channel' => 'ai_agent', 'intent' => $intent]);
+
+            return ['intent' => $intent, 'detail' => 'Intenção: ' . $intent, 'error' => null];
+        } catch (\Throwable $e) {
+            Logger::error('SequenceEngine ai_agent', ['contact' => $contactId, 'error' => $e->getMessage()]);
+            return ['intent' => 'unclear', 'detail' => 'Erro na IA.', 'error' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * Envia um texto ao lead pelo MESMO canal da última resposta (e-mail bufferizado
+     * ou WhatsApp imediato). Reaproveitado pelo Atendente IA.
+     */
+    private function replyText($participant, $contact, $text, $subject = 'ON Solutions Brasil')
+    {
+        $channel = $this->lastReplyChannel($participant['contact_id'], $contact);
+        if ($channel === 'email' && empty($contact['lead_email'])) $channel = 'whatsapp';
+        if ($channel === 'whatsapp' && empty($contact['phone'])) $channel = 'email';
+
+        if ($channel === 'email' && !empty($contact['lead_email'])) {
+            $account = $this->resolveAccount($this->db->fetch("SELECT email_account_id FROM email_sequences WHERE id = ?", [$participant['sequence_id']])['email_account_id'] ?? null);
+            if ($account) {
+                $bodyHtml = '<p>' . nl2br(htmlspecialchars($text)) . '</p>';
+                $this->bufferEmail($participant, $account, $contact['lead_email'], $subject, $bodyHtml, 'ai_agent');
+                return true;
+            }
+        }
+        if (!empty($contact['phone'])) {
+            return $this->sendWhatsappRaw($participant['contact_id'], $contact, $text) === true;
+        }
+        return false;
     }
 
     /**

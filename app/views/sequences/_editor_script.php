@@ -26,7 +26,7 @@
 .seq-node .port.in { top:-10px; left:calc(50% - 9px); background:#e9ecef; }
 .n-send .hd{color:#0d6efd} .n-whatsapp .hd{color:#198754} .n-wait .hd{color:#fd7e14} .n-condition .hd{color:#6f42c1}
 .n-tag .hd{color:#20c997} .n-score .hd{color:#e0a800} .n-move .hd{color:#0dcaf0} .n-end .hd{color:#dc3545}
-.n-reveal_phone .hd{color:#212529} .n-ai .hd{color:#0d6efd} .n-unsubscribe .hd{color:#dc3545} .n-schedule .hd{color:#198754} .n-connect .hd{color:#0d6efd} .n-reply .hd{color:#0dcaf0}
+.n-reveal_phone .hd{color:#212529} .n-ai .hd{color:#0d6efd} .n-unsubscribe .hd{color:#dc3545} .n-schedule .hd{color:#198754} .n-connect .hd{color:#0d6efd} .n-reply .hd{color:#0dcaf0} .n-ai_agent .hd{color:#6f42c1}
 #link-hint { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#1a1a2e; color:#fff;
     padding:8px 16px; border-radius:20px; font-size:0.8rem; z-index:2000; display:none; box-shadow:0 4px 12px rgba(0,0,0,.3); }
 </style>
@@ -40,7 +40,7 @@ const COLUMNS = <?= json_encode(array_map(fn($c) => ['id'=>$c['id'],'name'=>$c['
 const LABELS = <?= json_encode(array_map(fn($l) => ['id'=>$l['id'],'name'=>$l['name'],'color'=>$l['color']], $labels ?? []), JSON_UNESCAPED_UNICODE) ?>;
 // Lista de boards únicos (para o seletor encadeado do bloco "mover card")
 const BOARDS = (function(){ const m={}; COLUMNS.forEach(c=>{ if(!m[c.board_id]) m[c.board_id]={id:c.board_id,name:c.board_name}; }); return Object.values(m); })();
-const NODE_LABELS = { send:'Enviar e-mail', whatsapp:'Enviar WhatsApp', wait:'Aguardar', condition:'Condição', ai:'IA (ChatGPT)', schedule:'Agendamento', connect:'Conexão de sequência', reply:'Responder ao lead', tag:'Tag', score:'Score', move:'Mover card', unsubscribe:'Remover da lista', reveal_phone:'Revelar telefone', end:'Encerrar' };
+const NODE_LABELS = { send:'Enviar e-mail', whatsapp:'Enviar WhatsApp', wait:'Aguardar', condition:'Condição', ai:'IA (ChatGPT)', ai_agent:'Atendente IA (FAQ)', schedule:'Agendamento', connect:'Conexão de sequência', reply:'Responder ao lead', tag:'Tag', score:'Score', move:'Mover card', unsubscribe:'Remover da lista', reveal_phone:'Revelar telefone', end:'Encerrar' };
 const SEQUENCES = <?= json_encode(array_map(fn($s) => ['id'=>$s['id'],'name'=>$s['name']], $sequencesList ?? []), JSON_UNESCAPED_UNICODE) ?>;
 let EMAIL_TEMPLATES = [], WA_TEMPLATES = [];
 
@@ -108,7 +108,9 @@ function buildNodeEl(n) {
 
     let ports = '<div class="port in"></div>';
     const aiDecision = (n.type === 'ai' && (n.data || {}).mode === 'decision');
-    if (n.type === 'condition' || aiDecision) {
+    if (n.type === 'condition' || aiDecision || n.type === 'ai_agent') {
+        // Duas saídas SIM/NÃO. No Atendente IA (FAQ), o bloco fica tirando dúvidas
+        // em loop até concluir a intenção: SIM = quer seguir, NÃO = quer encerrar.
         ports += `<div class="port out yes" title="Sim" data-port="yes"></div><div class="port out no" title="Não" data-port="no"></div>`;
     } else if (n.type !== 'end') {
         ports += `<div class="port out" data-port="next"></div>`;
@@ -163,6 +165,7 @@ function nodeSummary(n) {
         case 'schedule': return 'Envia link de agendamento (' + (d.channel||'auto') + ')';
         case 'connect': { const s=(SEQUENCES||[]).find(x=>String(x.id)===String(d.sequence_id)); return s ? ('→ ' + escapeHtml(s.name)) : '<em>escolher sequência</em>'; }
         case 'reply': return 'Responde no mesmo canal do lead' + (d.body ? (': ' + escapeHtml(d.body.slice(0,30))) : '');
+        case 'ai_agent': return ((d.active===undefined||d.active) ? 'Tira dúvidas em loop até concluir SIM/NÃO' : 'Classifica SIM/NÃO (uma passada)') + ' · ' + escapeHtml(d.model||'gpt-4o-mini');
         case 'end': return 'Fim da sequência';
     }
     return '';
@@ -239,6 +242,7 @@ function defaultData(type) {
     if (type === 'wait') return { amount:2, unit:'days' };
     if (type === 'condition') return { kind:'replied' };
     if (type === 'ai') return { mode:'simple', model:'gpt-4o-mini', prompt:'', send_channel:'', save_note:1 };
+    if (type === 'ai_agent') return { active:1, model:'gpt-4o-mini', company_info:'', instructions:'', max_turns:6 };
     if (type === 'tag') return { label:'', color:'#00BFA6' };
     if (type === 'score') return { delta:3 };
     if (type === 'move') return { column_id:'' };
@@ -328,6 +332,31 @@ function renderInspector() {
             <option value="replied" ${n.data.kind==='replied'?'selected':''}>Respondeu?</option>
             <option value="opened" ${n.data.kind==='opened'?'selected':''}>Abriu?</option>
             <option value="clicked" ${n.data.kind==='clicked'?'selected':''}>Clicou?</option></select>`);
+    } else if (n.type==='ai_agent') {
+        const model = n.data.model || 'gpt-4o-mini';
+        const agentActive = (n.data.active === undefined) ? true : !!n.data.active;
+        h += field('Atendente IA (loop de dúvidas)', `<select class="form-select form-select-sm" onchange="setData('active', this.value==='1'?1:0); renderInspector();">
+            <option value="1" ${agentActive?'selected':''}>Ativo — tira dúvidas em loop até concluir</option>
+            <option value="0" ${!agentActive?'selected':''}>Inativo — só interpreta SIM/NÃO (uma passada)</option>
+        </select>`);
+        h += field('Modelo do ChatGPT', `<select class="form-select form-select-sm" onchange="setData('model',this.value)">
+            <option value="gpt-4o-mini" ${model==='gpt-4o-mini'?'selected':''}>gpt-4o-mini</option>
+            <option value="gpt-4o" ${model==='gpt-4o'?'selected':''}>gpt-4o</option>
+            <option value="gpt-4.1" ${model==='gpt-4.1'?'selected':''}>gpt-4.1</option>
+            <option value="gpt-4.1-mini" ${model==='gpt-4.1-mini'?'selected':''}>gpt-4.1-mini</option>
+        </select>`);
+        h += `<label class="form-label small mb-1">Informações da empresa (base de conhecimento)</label>` +
+             `<textarea class="form-control form-control-sm" rows="6" placeholder="Ex.: A ON Solutions Brasil faz organização e automação de processos... Setores atendidos... Prazos... Diferenciais..." oninput="setData('company_info',this.value)">${escapeHtml(n.data.company_info||'')}</textarea>`;
+        h += `<label class="form-label small mb-1 mt-2">Instruções extras (tom, regras)</label>` +
+             `<textarea class="form-control form-control-sm" rows="3" placeholder="Ex.: Seja cordial e objetivo. Não invente preços. Se perguntarem valores, oriente a agendar." oninput="setData('instructions',this.value)">${escapeHtml(n.data.instructions||'')}</textarea>`;
+        if (agentActive) {
+            h += field('Máx. de interações antes de escalar', `<input type="number" min="1" max="20" class="form-control form-control-sm" value="${n.data.max_turns||6}" oninput="setData('max_turns',parseInt(this.value)||6)">`);
+            h += `<div class="alert alert-light border py-2 px-2 small mb-0"><i class="bi bi-arrow-repeat text-primary"></i> <strong>Ativo:</strong> o bloco responde as dúvidas do lead sobre a empresa (com a base acima) e fica nesse ciclo, respeitando a janela de escuta, até concluir a intenção. Conecte as duas saídas:<br>
+                <span style="color:#28a745">●</span> <strong>Quer seguir</strong> (SIM) · <span style="color:#dc3545">●</span> <strong>Quer encerrar</strong> (NÃO).</div>`;
+        } else {
+            h += `<div class="alert alert-light border py-2 px-2 small mb-0"><i class="bi bi-signpost-split text-secondary"></i> <strong>Inativo:</strong> o bloco apenas interpreta a resposta do lead numa única passada (sem loop e sem responder dúvidas) e segue direto pela saída:<br>
+                <span style="color:#28a745">●</span> <strong>SIM</strong> (demonstrou interesse) · <span style="color:#dc3545">●</span> <strong>NÃO</strong> (sem interesse/indefinido).</div>`;
+        }
     } else if (n.type==='ai') {
         const mode = n.data.mode || 'simple';
         const model = n.data.model || 'gpt-4o-mini';
@@ -431,10 +460,12 @@ function renderInspector() {
         const others = nodes.filter(x => x.id !== n.id);
         const optsFor = (sel) => '<option value="">— nenhum —</option>' +
             others.map(o => `<option value="${o.id}" ${sel===o.id?'selected':''}>${NODE_LABELS[o.type]||o.type} · ${escapeHtml((nodeSummary(o)||'').replace(/<[^>]+>/g,'').slice(0,20))}</option>`).join('');
-        const twoWay = (n.type === 'condition') || (n.type === 'ai' && (n.data||{}).mode === 'decision');
+        const twoWay = (n.type === 'condition') || (n.type === 'ai' && (n.data||{}).mode === 'decision') || (n.type === 'ai_agent');
         if (twoWay) {
-            h += field('Se SIM →', `<select class="form-select form-select-sm" onchange="setNext('nextYes',this.value)">${optsFor(n.nextYes)}</select>`);
-            h += field('Se NÃO →', `<select class="form-select form-select-sm" onchange="setNext('nextNo',this.value)">${optsFor(n.nextNo)}</select>`);
+            const yesLbl = (n.type === 'ai_agent') ? 'Se QUER SEGUIR →' : 'Se SIM →';
+            const noLbl  = (n.type === 'ai_agent') ? 'Se QUER ENCERRAR →' : 'Se NÃO →';
+            h += field(yesLbl, `<select class="form-select form-select-sm" onchange="setNext('nextYes',this.value)">${optsFor(n.nextYes)}</select>`);
+            h += field(noLbl, `<select class="form-select form-select-sm" onchange="setNext('nextNo',this.value)">${optsFor(n.nextNo)}</select>`);
         } else {
             h += field('Vai para', `<select class="form-select form-select-sm" onchange="setNext('next',this.value)">${optsFor(n.next)}</select>`);
         }
