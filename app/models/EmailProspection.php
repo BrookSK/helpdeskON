@@ -159,14 +159,18 @@ class EmailProspection
      * Se o corpo já contém o marcador da assinatura (data-onsolu-signature),
      * não adiciona de novo — evita duplicidade quando algum fluxo já a inclui.
      */
-    public static function appendSignature($htmlBody)
+    public static function appendSignature($htmlBody, $account = null)
     {
         $body = (string) $htmlBody;
         if (strpos($body, 'data-onsolu-signature') !== false) {
             return $body; // já assinado
         }
         try {
-            return $body . EmailMessageService::signatureHtml();
+            // Assinatura POR CONTA/DOMÍNIO quando a conta é conhecida; senão, padrão.
+            $sig = $account
+                ? EmailMessageService::signatureForAccount($account)
+                : EmailMessageService::signatureHtml();
+            return $body . $sig;
         } catch (\Throwable $e) {
             return $body; // nunca bloqueia o envio por causa da assinatura
         }
@@ -178,10 +182,10 @@ class EmailProspection
      */
     public function sendEmail($account, $to, $subject, $htmlBody, $cc = null, $bcc = null, $attachments = [])
     {
-        // Assinatura padrão em TODO e-mail que sai pelo SMTP (ponto único de saída).
-        // Garante que qualquer código — atual ou futuro — envie com assinatura, sem
-        // precisar concatená-la manualmente. Idempotente: não duplica se já houver.
-        $htmlBody = self::appendSignature($htmlBody);
+        // Assinatura em TODO e-mail que sai pelo SMTP (ponto único de saída).
+        // Usa a assinatura da CONTA/DOMÍNIO que está enviando; se a conta não tiver
+        // assinatura própria, cai na padrão do sistema. Idempotente.
+        $htmlBody = self::appendSignature($htmlBody, $account);
 
         $host = $account['smtp_host'];
         $port = (int)$account['smtp_port'];

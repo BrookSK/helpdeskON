@@ -411,7 +411,23 @@ class SettingsController extends Controller
             'imap_host' => trim($_POST['imap_host'] ?? '') ?: null,
             'imap_port' => intval($_POST['imap_port'] ?? 993),
             'imap_encryption' => in_array($_POST['imap_encryption'] ?? '', ['ssl', 'tls', 'none']) ? $_POST['imap_encryption'] : 'ssl',
+            // Assinatura de e-mail por conta/domínio
+            'signature_enabled' => !empty($_POST['signature_enabled']) ? 1 : 0,
+            'signature_name' => trim($_POST['signature_name'] ?? '') ?: null,
+            'signature_role' => trim($_POST['signature_role'] ?? '') ?: null,
+            'signature_company' => trim($_POST['signature_company'] ?? '') ?: null,
+            'signature_site' => trim($_POST['signature_site'] ?? '') ?: null,
+            'signature_email' => trim($_POST['signature_email'] ?? '') ?: null,
+            'signature_phone' => trim($_POST['signature_phone'] ?? '') ?: null,
+            'signature_tagline' => trim($_POST['signature_tagline'] ?? '') ?: null,
+            'signature_color' => trim($_POST['signature_color'] ?? '') ?: '#00997D',
         ];
+
+        // Upload da logo da assinatura (opcional). Mantém a atual se nada for enviado.
+        if (!empty($_FILES['signature_logo']['name']) && $_FILES['signature_logo']['error'] === UPLOAD_ERR_OK) {
+            $logoPath = $this->uploadBrandFile($_FILES['signature_logo'], 'sig');
+            if ($logoPath) $data['signature_logo'] = $logoPath;
+        }
 
         if ($id) {
             // Atualiza — só manda senha se foi preenchida
