@@ -1303,9 +1303,13 @@ class SequenceEngine
 
         // Instrução de sistema conforme o modo
         if ($mode === 'decision') {
-            $system = 'Você é um assistente de qualificação comercial. Analise o contexto do lead e a instrução. '
+            $system = 'Você é um assistente de qualificação comercial. Baseie a decisão SOMENTE na "RESPOSTA ATUAL DO LEAD" '
+                . '(a última resposta dele); ignore mensagens anteriores a ela, mesmo que sejam positivas. '
+                . 'Recusas explícitas como "não", "não quero", "não tenho interesse", "pare", "remover", "não é o momento" '
+                . 'significam decision=false. Interesse ou dúvidas ("sim", "quero", "como funciona", "quanto custa", "tem material") '
+                . 'significam decision=true. Em caso de conflito, a RESPOSTA ATUAL prevalece. '
                 . 'Responda SOMENTE com JSON válido no formato {"decision": true|false, "reason": "curto"}. '
-                . 'decision=true significa SIM; decision=false significa NÃO.';
+                . 'decision=true significa SIM (interesse); decision=false significa NÃO (recusa).';
             $responseFormat = ['type' => 'json_object'];
         } else {
             $system = 'Você é um assistente comercial da ON Solutions Brasil. Responda de forma objetiva e profissional, '
@@ -1436,7 +1440,9 @@ class SequenceEngine
         }
 
         $base = "INFORMAÇÕES DA EMPRESA:\n" . ($companyInfo !== '' ? $companyInfo : '(não informado)') . "\n\n"
-            . "CONTEXTO/HISTÓRICO DO LEAD:\n" . $context;
+            . "CONTEXTO/HISTÓRICO DO LEAD:\n" . $context . "\n\n"
+            . "IMPORTANTE: classifique com base na RESPOSTA ATUAL DO LEAD (a última). "
+            . "Ignore mensagens anteriores a ela. Uma recusa atual (\"não\", \"não quero\") prevalece sobre qualquer mensagem positiva antiga.";
 
         try {
             $ch = curl_init('https://api.openai.com/v1/chat/completions');
@@ -1963,30 +1969,93 @@ class SequenceEngine
             }
         } catch (\Throwable $e) { /* ignore */ }
 
-        // Últimas mensagens de WhatsApp (texto + direção), em ordem cronológica.
-        $lastLeadMsgs = [];
+        // Últimas mensagens de WhatsApp (texto + direção + timestamp), cronológica.
+        $waMsgs = [];
         try {
-            $msgs = $this->db->fetchAll(
-                "SELECT from_me, message_text FROM whatsapp_messages
+            $waMsgs = $this->db->fetchAll(
+                "SELECT from_me, message_text, timestamp FROM whatsapp_messages
                  WHERE contact_id = ? AND message_text IS NOT NULL AND message_text <> ''
                  ORDER BY id DESC LIMIT 12", [$contactId]);
-            $msgs = array_reverse($msgs);
-            foreach ($msgs as $m) {
+            $waMsgs = array_reverse($waMsgs);
+            foreach ($waMsgs as $m) {
                 $who = $m['from_me'] ? 'Nós' : 'Lead';
                 $lines[] = 'WhatsApp ' . $who . ': ' . mb_substr($m['message_text'], 0, 300);
-                if (!$m['from_me']) $lastLeadMsgs[] = mb_substr($m['message_text'], 0, 300);
             }
         } catch (\Throwable $e) { /* ignore */ }
 
-        // Destaca as ÚLTIMAS mensagens do lead (respostas picadas) para a IA
-        // considerar todas juntas ao classificar a intenção.
-        if (!empty($lastLeadMsgs)) {
-            $recent = array_slice($lastLeadMsgs, -4);
-            $lines[] = 'ÚLTIMAS MENSAGENS DO LEAD (considere TODAS ao interpretar a intenção): "' . implode('" | "', $recent) . '"';
+        // RESPOSTA ATUAL do lead: apenas as mensagens recebidas APÓS o último envio
+        // do sistema. É o que importa para classificar a intenção AGORA — evita que
+        // respostas antigas (ex.: testes anteriores com o mesmo contato) contaminem
+        // a decisão. Se o lead escreveu "não quero" agora, isso prevalece.
+        $currentReply = $this->currentLeadReplyText($contactId);
+        if ($currentReply !== '') {
+            $lines[] = 'RESPOSTA ATUAL DO LEAD (é ESTA que você deve classificar — ignore mensagens anteriores a ela): "' . $currentReply . '"';
         }
 
         if (empty($lines)) return '(sem histórico registrado para este lead)';
         return implode("\n", $lines);
+    }
+
+    /**
+     * Junta as mensagens que o lead enviou APÓS o último envio do sistema (por
+     * WhatsApp e/ou e-mail). É a "resposta atual" — o que deve ser interpretado
+     * pela triagem agora. Ignora mensagens anteriores ao último toque de saída,
+     * evitando que respostas antigas (testes/rodadas passadas) distorçam a decisão.
+     */
+    private function currentLeadReplyText($contactId)
+    {
+        // Momento do último envio do sistema (WhatsApp OU e-mail).
+        $refTs = 0;
+        try {
+            $wo = $this->db->fetch("SELECT MAX(timestamp) t FROM whatsapp_messages WHERE contact_id = ? AND from_me = 1", [$contactId]);
+            if ($wo && $wo['t']) $refTs = max($refTs, strtotime($wo['t']));
+        } catch (\Throwable $e) {}
+        try {
+            $eo = $this->db->fetch("SELECT MAX(sent_at) t FROM email_messages WHERE contact_id = ? AND direction='outbound'", [$contactId]);
+            if ($eo && $eo['t']) $refTs = max($refTs, strtotime($eo['t']));
+        } catch (\Throwable $e) {}
+
+        $parts = [];
+        // Mensagens de WhatsApp recebidas após o último envio.
+        try {
+            $rows = $this->db->fetchAll(
+                "SELECT message_text, timestamp FROM whatsapp_messages
+                 WHERE contact_id = ? AND from_me = 0 AND message_text IS NOT NULL AND message_text <> ''
+                 ORDER BY id DESC LIMIT 8", [$contactId]);
+            $rows = array_reverse($rows);
+            foreach ($rows as $m) {
+                if ($refTs > 0 && !empty($m['timestamp']) && strtotime($m['timestamp']) < $refTs) continue;
+                $parts[] = mb_substr($m['message_text'], 0, 300);
+            }
+        } catch (\Throwable $e) {}
+
+        // Resposta de e-mail recente (snippet), se posterior ao último envio.
+        if (empty($parts)) {
+            try {
+                $em = $this->db->fetch(
+                    "SELECT reply_snippet, replied_at FROM email_messages
+                     WHERE contact_id = ? AND replied_at IS NOT NULL ORDER BY replied_at DESC LIMIT 1", [$contactId]);
+                if ($em && !empty($em['reply_snippet'])) {
+                    if (!($refTs > 0 && strtotime($em['replied_at']) < $refTs)) {
+                        $parts[] = mb_substr($em['reply_snippet'], 0, 300);
+                    }
+                }
+            } catch (\Throwable $e) {}
+        }
+
+        // Fallback: se nada após o último envio (ex.: sem timestamp confiável),
+        // usa a última mensagem recebida do lead.
+        if (empty($parts)) {
+            try {
+                $last = $this->db->fetch(
+                    "SELECT message_text FROM whatsapp_messages
+                     WHERE contact_id = ? AND from_me = 0 AND message_text IS NOT NULL AND message_text <> ''
+                     ORDER BY id DESC LIMIT 1", [$contactId]);
+                if ($last && !empty($last['message_text'])) $parts[] = mb_substr($last['message_text'], 0, 300);
+            } catch (\Throwable $e) {}
+        }
+
+        return trim(implode(' | ', $parts));
     }
 
     /** Extrai o e-mail real do payload do Apollo (ignora placeholders bloqueados). */
