@@ -171,6 +171,30 @@ class SettingsController extends Controller
         $this->redirect('settings');
     }
 
+    /**
+     * Upload da logo da assinatura. Mais tolerante que uploadBrandFile: valida por
+     * EXTENSÃO (não confia só no MIME do navegador, que às vezes vem genérico) e
+     * aceita até 3MB. Retorna o caminho relativo salvo ou null.
+     */
+    private function uploadSignatureLogo($file)
+    {
+        $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+        $allowedExt = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'];
+        if (!in_array($ext, $allowedExt, true)) return null;
+        if (($file['size'] ?? 0) > 3 * 1024 * 1024) return null;
+        if (!is_uploaded_file($file['tmp_name'])) return null;
+
+        $uploadDir = PUBLIC_PATH . '/uploads/brand';
+        if (!is_dir($uploadDir)) { @mkdir($uploadDir, 0755, true); }
+
+        $fileName = 'sig_' . time() . '_' . mt_rand(1000, 9999) . '.' . $ext;
+        $filePath = 'uploads/brand/' . $fileName;
+        if (move_uploaded_file($file['tmp_name'], PUBLIC_PATH . '/' . $filePath)) {
+            return $filePath;
+        }
+        return null;
+    }
+
     private function uploadBrandFile($file, $prefix)
     {
         $allowedTypes = ['image/png', 'image/jpeg', 'image/svg+xml', 'image/gif', 'image/x-icon', 'image/vnd.microsoft.icon', 'image/webp'];
@@ -457,7 +481,11 @@ class SettingsController extends Controller
         $domain = preg_replace('/^https?:\/\//', '', $domain);
         $domain = trim($domain, '/ ');
 
-        if ($domain === '') { flash('error', 'Informe o domínio da assinatura.'); $this->redirect('settings'); }
+        $isAjax = !empty($_SERVER['HTTP_X_REQUESTED_WITH']);
+        if ($domain === '') {
+            if ($isAjax) $this->json(['error' => 'Informe o domínio da assinatura.'], 400);
+            flash('error', 'Informe o domínio da assinatura.'); $this->redirect('settings');
+        }
 
         $data = [
             'domain' => $domain,
@@ -471,9 +499,15 @@ class SettingsController extends Controller
         ];
 
         // Upload da logo (opcional). Vazio = mantém a atual / usa a logo do sistema.
-        if (!empty($_FILES['logo']['name']) && $_FILES['logo']['error'] === UPLOAD_ERR_OK) {
-            $logoPath = $this->uploadBrandFile($_FILES['logo'], 'sig');
-            if ($logoPath) $data['logo'] = $logoPath;
+        $logoError = null;
+        if (!empty($_FILES['logo']['name'])) {
+            if ($_FILES['logo']['error'] === UPLOAD_ERR_OK) {
+                $logoPath = $this->uploadSignatureLogo($_FILES['logo']);
+                if ($logoPath) $data['logo'] = $logoPath;
+                else $logoError = 'Logo não salva (formato não suportado ou maior que 3MB). Use PNG, JPG, SVG ou WEBP.';
+            } else {
+                $logoError = 'Falha no upload da logo (código ' . (int)$_FILES['logo']['error'] . ').';
+            }
         }
 
         try {
@@ -485,8 +519,10 @@ class SettingsController extends Controller
                 if ($exists) $db->update('email_signatures', $data, 'id = ?', [$exists['id']]);
                 else $db->insert('email_signatures', $data);
             }
-            flash('success', 'Assinatura do domínio salva!');
+            if ($isAjax) $this->json(['success' => true, 'logo_error' => $logoError, 'error' => $logoError]);
+            flash($logoError ? 'error' : 'success', $logoError ?: 'Assinatura do domínio salva!');
         } catch (\Throwable $e) {
+            if ($isAjax) $this->json(['error' => 'Erro ao salvar assinatura: ' . $e->getMessage()], 500);
             flash('error', 'Erro ao salvar assinatura: ' . $e->getMessage());
         }
         $this->redirect('settings');
@@ -496,9 +532,19 @@ class SettingsController extends Controller
     public function deleteEmailSignature($id = null)
     {
         $this->requireRole(['super_admin']);
-        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->redirect('settings');
-        try { Database::getInstance()->delete('email_signatures', 'id = ?', [$id]); flash('success', 'Assinatura removida.'); }
-        catch (\Throwable $e) { flash('error', 'Erro ao remover.'); }
+        $isAjax = !empty($_SERVER['HTTP_X_REQUESTED_WITH']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
+            if ($isAjax) $this->json(['error' => 'Requisição inválida'], 400);
+            $this->redirect('settings');
+        }
+        try {
+            Database::getInstance()->delete('email_signatures', 'id = ?', [$id]);
+            if ($isAjax) $this->json(['success' => true]);
+            flash('success', 'Assinatura removida.');
+        } catch (\Throwable $e) {
+            if ($isAjax) $this->json(['error' => 'Erro ao remover.'], 500);
+            flash('error', 'Erro ao remover.');
+        }
         $this->redirect('settings');
     }
 
