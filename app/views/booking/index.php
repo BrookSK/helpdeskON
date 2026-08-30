@@ -7,69 +7,127 @@ $title = htmlspecialchars($link['title'] ?: 'Agende sua reunião', ENT_QUOTES);
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+    <meta name="theme-color" content="#00BFA6">
     <title>Agendar reunião · ON Solutions Brasil</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
     <style>
-        body { background:#f5f7fa; font-family:'Segoe UI',Arial,sans-serif; }
-        .booking-card { max-width:640px; margin:32px auto; background:#fff; border-radius:14px; box-shadow:0 4px 24px rgba(0,0,0,.08); overflow:hidden; }
-        .booking-hd { background:linear-gradient(135deg,#00BFA6,#009e88); color:#fff; padding:24px 28px; }
-        .booking-bd { padding:24px 28px; }
-        .brand { font-weight:700; letter-spacing:.5px; }
-        .slot-btn { min-width:78px; }
-        .slot-btn.active { background:#00BFA6; color:#fff; border-color:#00BFA6; }
-        .step-label { font-size:.8rem; font-weight:600; color:#667; text-transform:uppercase; letter-spacing:.5px; }
+        :root { --brand:#00BFA6; --brand-dark:#009e88; --ink:#1f2d3d; --muted:#6b7a90; }
+        * { -webkit-tap-highlight-color: transparent; }
+        body { background:#eef1f6; font-family:'Segoe UI',system-ui,Arial,sans-serif; color:var(--ink); }
+
+        .booking-card { max-width:640px; margin:24px auto; background:#fff; border-radius:20px;
+            box-shadow:0 10px 40px rgba(16,42,67,.12); overflow:hidden; }
+
+        .booking-hd { position:relative; background:linear-gradient(135deg,#00d4b8,#009e88); color:#fff; padding:28px 26px 26px; }
+        .booking-hd::after { content:''; position:absolute; right:-40px; top:-40px; width:160px; height:160px;
+            background:rgba(255,255,255,.12); border-radius:50%; }
+        .brand { display:inline-flex; align-items:center; gap:8px; font-weight:600; font-size:.82rem;
+            letter-spacing:.4px; background:rgba(255,255,255,.18); padding:5px 12px; border-radius:999px; }
+        .booking-hd h1 { font-size:1.45rem; font-weight:700; margin:14px 0 6px; line-height:1.25; }
+        .booking-hd .sub { opacity:.95; font-size:.9rem; display:flex; align-items:center; gap:6px; }
+
+        .booking-bd { padding:22px 26px 26px; }
+
+        .section { margin-bottom:22px; }
+        .section-hd { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+        .section-num { flex:0 0 auto; width:26px; height:26px; border-radius:50%; background:var(--brand);
+            color:#fff; font-size:.8rem; font-weight:700; display:flex; align-items:center; justify-content:center; }
+        .section-title { font-size:.82rem; font-weight:700; color:var(--ink); text-transform:uppercase; letter-spacing:.6px; }
+
+        .form-label { font-size:.78rem; font-weight:600; color:var(--muted); margin-bottom:4px; }
+        .form-control { border-radius:12px; border:1.5px solid #e2e8f0; padding:11px 14px; font-size:.95rem; }
+        .form-control:focus { border-color:var(--brand); box-shadow:0 0 0 3px rgba(0,191,166,.15); }
+        .form-control:disabled { background:#f4f6f9; }
+
+        .slot-group-label { font-size:.72rem; font-weight:700; color:var(--muted); text-transform:uppercase;
+            letter-spacing:.5px; margin:14px 0 8px; display:flex; align-items:center; gap:6px; }
+        .slot-group-label:first-child { margin-top:0; }
+        .slots-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(74px,1fr)); gap:8px; }
+        .slot-btn { border:1.5px solid #dbe3ec; background:#fff; color:var(--ink); border-radius:12px;
+            padding:11px 4px; font-size:.92rem; font-weight:600; cursor:pointer; transition:all .12s; text-align:center; }
+        .slot-btn:hover { border-color:var(--brand); color:var(--brand-dark); }
+        .slot-btn.active { background:var(--brand); color:#fff; border-color:var(--brand); box-shadow:0 4px 12px rgba(0,191,166,.35); }
+
+        .hint { display:flex; align-items:flex-start; gap:8px; background:#f0fbf9; border:1px solid #cbeee7;
+            color:#0b7d6d; border-radius:12px; padding:10px 12px; font-size:.8rem; }
+
+        .btn-confirm { background:var(--brand); border:none; color:#fff; border-radius:14px; padding:14px;
+            font-size:1rem; font-weight:700; width:100%; box-shadow:0 6px 18px rgba(0,191,166,.35); transition:filter .12s; }
+        .btn-confirm:hover:not(:disabled) { filter:brightness(1.05); }
+        .btn-confirm:disabled { background:#c3ccd6; box-shadow:none; cursor:not-allowed; }
+
+        .placeholder-msg { color:var(--muted); font-size:.88rem; padding:8px 2px; }
+
+        /* Rodapé fixo com o botão no mobile */
+        @media (max-width:575.98px) {
+            body { background:#fff; }
+            .booking-card { margin:0; border-radius:0; box-shadow:none; min-height:100vh; padding-bottom:88px; }
+            .booking-hd { border-radius:0; padding:24px 18px; }
+            .booking-hd h1 { font-size:1.25rem; }
+            .booking-bd { padding:20px 18px 20px; }
+            .confirm-wrap { position:fixed; left:0; right:0; bottom:0; background:#fff; padding:12px 16px calc(12px + env(safe-area-inset-bottom));
+                box-shadow:0 -4px 20px rgba(0,0,0,.08); z-index:50; }
+            .confirm-note { display:none; }
+            .slots-grid { grid-template-columns:repeat(auto-fill,minmax(72px,1fr)); }
+        }
     </style>
 </head>
 <body>
 <div class="booking-card">
     <div class="booking-hd">
-        <div class="brand"><i class="bi bi-calendar2-check"></i> ON Solutions Brasil</div>
-        <h4 class="mb-1 mt-2"><?= $title ?></h4>
-        <div style="opacity:.9;font-size:.9rem;">Escolha o melhor dia e horário. A reunião é online (Google Meet).</div>
+        <span class="brand"><i class="bi bi-calendar2-check"></i> ON Solutions Brasil</span>
+        <h1><?= $title ?></h1>
+        <div class="sub"><i class="bi bi-camera-video"></i> Reunião online via Google Meet</div>
     </div>
     <div class="booking-bd">
         <div id="alert-box"></div>
 
-        <div class="mb-3">
-            <div class="step-label mb-1">1 · Seus dados</div>
-            <div class="row g-2">
-                <div class="col-md-6">
-                    <label class="form-label small">Nome</label>
-                    <input type="text" id="bk-name" class="form-control form-control-sm" value="<?= htmlspecialchars($prefName, ENT_QUOTES) ?>">
+        <div class="section">
+            <div class="section-hd"><span class="section-num">1</span><span class="section-title">Seus dados</span></div>
+            <div class="row g-3">
+                <div class="col-12 col-sm-6">
+                    <label class="form-label">Nome</label>
+                    <input type="text" id="bk-name" class="form-control" value="<?= htmlspecialchars($prefName, ENT_QUOTES) ?>" autocomplete="name">
                 </div>
-                <div class="col-md-6">
-                    <label class="form-label small">E-mail</label>
-                    <input type="email" id="bk-email" class="form-control form-control-sm" value="<?= htmlspecialchars($prefEmail, ENT_QUOTES) ?>">
+                <div class="col-12 col-sm-6">
+                    <label class="form-label">E-mail</label>
+                    <input type="email" id="bk-email" class="form-control" value="<?= htmlspecialchars($prefEmail, ENT_QUOTES) ?>" autocomplete="email" inputmode="email">
                 </div>
-                <div class="col-md-6">
-                    <label class="form-label small">Telefone / WhatsApp</label>
-                    <input type="text" id="bk-phone" class="form-control form-control-sm" value="<?= htmlspecialchars($prefPhone, ENT_QUOTES) ?>" inputmode="numeric">
+                <div class="col-12 col-sm-6">
+                    <label class="form-label">Telefone / WhatsApp</label>
+                    <input type="tel" id="bk-phone" class="form-control" value="<?= htmlspecialchars($prefPhone, ENT_QUOTES) ?>" autocomplete="tel" inputmode="tel">
                 </div>
                 <?php if (!empty($company)): ?>
-                <div class="col-md-6">
-                    <label class="form-label small">Empresa</label>
-                    <input type="text" class="form-control form-control-sm" value="<?= htmlspecialchars($company, ENT_QUOTES) ?>" disabled>
+                <div class="col-12 col-sm-6">
+                    <label class="form-label">Empresa</label>
+                    <input type="text" class="form-control" value="<?= htmlspecialchars($company, ENT_QUOTES) ?>" disabled>
                 </div>
                 <?php endif; ?>
             </div>
         </div>
 
-        <div class="mb-3">
-            <div class="step-label mb-1">2 · Data</div>
-            <input type="date" id="bk-date" class="form-control form-control-sm" min="<?= htmlspecialchars($minDate ?? date('Y-m-d'), ENT_QUOTES) ?>" value="<?= htmlspecialchars($minDate ?? date('Y-m-d'), ENT_QUOTES) ?>">
+        <div class="section">
+            <div class="section-hd"><span class="section-num">2</span><span class="section-title">Data</span></div>
+            <input type="date" id="bk-date" class="form-control" min="<?= htmlspecialchars($minDate ?? date('Y-m-d'), ENT_QUOTES) ?>" value="<?= htmlspecialchars($minDate ?? date('Y-m-d'), ENT_QUOTES) ?>">
         </div>
 
-        <div class="mb-3">
-            <div class="step-label mb-1">3 · Horário</div>
-            <div id="slots" class="d-flex flex-wrap gap-2"><span class="text-muted small">Selecione uma data…</span></div>
+        <div class="section">
+            <div class="section-hd"><span class="section-num">3</span><span class="section-title">Horário</span></div>
+            <div id="slots"><div class="placeholder-msg"><i class="bi bi-clock"></i> Selecione uma data para ver os horários.</div></div>
         </div>
 
-        <button class="btn btn-success w-100" id="bk-confirm" onclick="confirmBooking()" disabled>
-            <i class="bi bi-check-lg"></i> Confirmar agendamento
-        </button>
-        <p class="text-muted small text-center mt-2 mb-0">Você receberá a confirmação e o link da reunião por e-mail e WhatsApp.</p>
+        <div class="hint mb-3">
+            <i class="bi bi-info-circle-fill"></i>
+            <span>Após confirmar, você recebe o link da reunião e um lembrete por e-mail e WhatsApp.</span>
+        </div>
+
+        <div class="confirm-wrap">
+            <button class="btn-confirm" id="bk-confirm" onclick="confirmBooking()" disabled>
+                <i class="bi bi-check-lg"></i> Confirmar agendamento
+            </button>
+        </div>
     </div>
 </div>
 
@@ -80,7 +138,8 @@ let selectedTime = null;
 
 function alertBox(type, msg) {
     document.getElementById('alert-box').innerHTML =
-        `<div class="alert alert-${type} py-2 px-3 small">${msg}</div>`;
+        `<div class="alert alert-${type} py-2 px-3 small rounded-3">${msg}</div>`;
+    document.getElementById('alert-box').scrollIntoView({behavior:'smooth', block:'nearest'});
 }
 
 function loadSlots() {
@@ -88,17 +147,36 @@ function loadSlots() {
     document.getElementById('bk-confirm').disabled = true;
     const date = document.getElementById('bk-date').value;
     const box = document.getElementById('slots');
-    box.innerHTML = '<span class="text-muted small">Carregando…</span>';
+    box.innerHTML = '<div class="placeholder-msg"><span class="spinner-border spinner-border-sm"></span> Carregando horários…</div>';
     fetch(`${BASE}/booking/slots/${TOKEN}?date=${date}`)
         .then(r => r.json())
         .then(d => {
             const slots = d.slots || [];
-            if (!slots.length) { box.innerHTML = '<span class="text-muted small">Nenhum horário disponível nesta data.</span>'; return; }
-            box.innerHTML = slots.map(s =>
-                `<button type="button" class="btn btn-outline-secondary btn-sm slot-btn" onclick="pickSlot(this,'${s}')">${s}</button>`
-            ).join('');
+            if (!slots.length) { box.innerHTML = '<div class="placeholder-msg"><i class="bi bi-calendar-x"></i> Nenhum horário disponível nesta data. Tente outro dia.</div>'; return; }
+            renderSlots(box, slots);
         })
-        .catch(() => { box.innerHTML = '<span class="text-danger small">Erro ao carregar horários.</span>'; });
+        .catch(() => { box.innerHTML = '<div class="placeholder-msg text-danger"><i class="bi bi-exclamation-triangle"></i> Erro ao carregar horários.</div>'; });
+}
+
+// Agrupa os horários por período (manhã / tarde / noite) para facilitar a escolha
+function renderSlots(box, slots) {
+    const groups = { manha: [], tarde: [], noite: [] };
+    slots.forEach(s => {
+        const h = parseInt(s.split(':')[0], 10);
+        if (h < 12) groups.manha.push(s);
+        else if (h < 18) groups.tarde.push(s);
+        else groups.noite.push(s);
+    });
+    const labels = { manha: ['bi-sunrise', 'Manhã'], tarde: ['bi-sun', 'Tarde'], noite: ['bi-moon-stars', 'Noite'] };
+    let html = '';
+    ['manha','tarde','noite'].forEach(g => {
+        if (!groups[g].length) return;
+        html += `<div class="slot-group-label"><i class="bi ${labels[g][0]}"></i> ${labels[g][1]}</div>`;
+        html += '<div class="slots-grid">' + groups[g].map(s =>
+            `<button type="button" class="slot-btn" onclick="pickSlot(this,'${s}')">${s}</button>`
+        ).join('') + '</div>';
+    });
+    box.innerHTML = html;
 }
 
 function pickSlot(btn, time) {
@@ -127,12 +205,13 @@ function confirmBooking() {
         .then(r => r.json())
         .then(d => {
             if (d.error) { alertBox('danger', d.error); btn.disabled=false; btn.innerHTML='<i class="bi bi-check-lg"></i> Confirmar agendamento'; return; }
-            const meet = d.meet_link ? `<p class="mt-2"><a href="${d.meet_link}" class="btn btn-success btn-sm" target="_blank"><i class="bi bi-camera-video"></i> Entrar na reunião</a></p>` : '';
+            const meet = d.meet_link ? `<a href="${d.meet_link}" class="btn-confirm d-inline-block mt-3" style="width:auto;padding:12px 24px;text-decoration:none;" target="_blank"><i class="bi bi-camera-video"></i> Entrar na reunião</a>` : '';
+            const wrap = document.querySelector('.confirm-wrap'); if (wrap) wrap.remove();
             document.querySelector('.booking-bd').innerHTML =
-                `<div class="text-center py-4">
-                    <i class="bi bi-check-circle-fill text-success" style="font-size:3rem;"></i>
-                    <h5 class="mt-3">Reunião confirmada!</h5>
-                    <p class="text-muted mb-1">Enviamos os detalhes por e-mail e WhatsApp.</p>
+                `<div class="text-center py-5">
+                    <i class="bi bi-check-circle-fill text-success" style="font-size:3.4rem;"></i>
+                    <h4 class="mt-3 mb-2" style="font-weight:700;">Reunião confirmada!</h4>
+                    <p class="text-muted mb-1">Enviamos os detalhes e o link por e-mail e WhatsApp.</p>
                     ${meet}
                 </div>`;
         })

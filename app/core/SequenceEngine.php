@@ -1601,6 +1601,63 @@ class SequenceEngine
      * aleatório.
      * @return array ['detail'=>string, 'error'=>?string, 'channel'=>string]
      */
+    /**
+     * Gera uma resposta CURTA e específica à última dúvida do lead, usando a base
+     * de conhecimento informada no bloco e o histórico recente. Não inclui o
+     * convite (isso vem da mensagem configurada). Retorna '' em caso de falha.
+     */
+    private function aiShortAnswer($contactId, $contact, $data)
+    {
+        $apiKey = trim((string) Config::get('openai_api_key'));
+        if ($apiKey === '') return '';
+
+        $model = trim((string)($data['model'] ?? 'gpt-4o-mini')) ?: 'gpt-4o-mini';
+        $companyInfo = trim((string)($data['company_info'] ?? ''));
+        $context = $this->buildAiContext($contactId, $contact);
+        $firstName = $this->render('{{primeiro_nome}}', $contact);
+
+        $system = "Você é um SDR da ON Solutions Brasil respondendo um lead no meio de uma conversa. "
+            . "Responda de forma BREVE (1 a 3 frases), específica e cordial, em português do Brasil, "
+            . "à ÚLTIMA dúvida/mensagem do lead, usando SOMENTE as informações abaixo. "
+            . "Não invente preços/prazos que não estejam na base. NÃO cumprimente de novo se a conversa já começou, "
+            . "NÃO faça convite para reunião nem inclua links (isso será acrescentado depois). "
+            . "Se o lead não fez pergunta objetiva, apenas reconheça o retorno em uma frase. "
+            . "Responda apenas com o texto da mensagem, sem aspas.";
+        $user = "INFORMAÇÕES DA EMPRESA:\n" . ($companyInfo !== '' ? $companyInfo : '(não informado)')
+            . "\n\nHISTÓRICO/CONTEXTO (o lead é " . $firstName . "):\n" . $context;
+
+        try {
+            $ch = curl_init('https://api.openai.com/v1/chat/completions');
+            curl_setopt_array($ch, [
+                CURLOPT_POST => true,
+                CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $apiKey, 'Content-Type: application/json'],
+                CURLOPT_POSTFIELDS => json_encode([
+                    'model' => $model,
+                    'messages' => [
+                        ['role' => 'system', 'content' => $system],
+                        ['role' => 'user', 'content' => $user],
+                    ],
+                    'temperature' => 0.4,
+                    'max_tokens' => 220,
+                ], JSON_UNESCAPED_UNICODE),
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT => 45,
+            ]);
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            if ($httpCode >= 400 || !$response) return '';
+            $body = json_decode($response, true);
+            $text = trim((string)($body['choices'][0]['message']['content'] ?? ''));
+            // Remove aspas externas eventualmente adicionadas pelo modelo.
+            $text = trim($text, " \t\n\r\"'");
+            return $text;
+        } catch (\Throwable $e) {
+            Logger::error('SequenceEngine aiShortAnswer', ['contact' => $contactId, 'error' => $e->getMessage()]);
+            return '';
+        }
+    }
+
     private function doReply($participant, $node)
     {
         $contactId = $participant['contact_id'];
@@ -1612,6 +1669,16 @@ class SequenceEngine
         $subject = $this->render((string)($data['subject'] ?? 'ON Solutions Brasil'), $contact);
         $bodyRaw = (string)($data['body'] ?? '');
         $body = $this->render($bodyRaw, $contact);
+
+        // Opção IA: responde brevemente a dúvida do lead (usando a base informada
+        // e o histórico) e ANTECEDE a mensagem/convite configurado. Assim a
+        // resposta deixa de ser genérica: reconhece o que o lead perguntou e então
+        // segue com o convite para a reunião.
+        if (!empty($data['ai_reply'])) {
+            $ans = $this->aiShortAnswer($contactId, $contact, $data);
+            if ($ans !== '') $body = trim($ans) . "\n\n" . $body;
+        }
+
         if (trim($body) === '') return ['detail' => 'Mensagem vazia.', 'error' => 'empty', 'channel' => $channel];
 
         // Canal e-mail: precisa de e-mail; se não tiver, tenta WhatsApp como alternativa.

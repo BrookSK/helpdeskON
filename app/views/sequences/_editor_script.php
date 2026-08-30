@@ -184,7 +184,7 @@ function nodeSummary(n) {
         case 'unsubscribe': return 'Remove o lead da lista (descadastra)';
         case 'schedule': return 'Envia link de agendamento (' + (d.channel||'auto') + ')';
         case 'connect': { const s=(SEQUENCES||[]).find(x=>String(x.id)===String(d.sequence_id)); return s ? ('→ ' + escapeHtml(s.name)) : '<em>escolher sequência</em>'; }
-        case 'reply': return 'Responde no mesmo canal do lead' + (d.body ? (': ' + escapeHtml(d.body.slice(0,30))) : '');
+        case 'reply': return (d.ai_reply ? 'IA responde a dúvida + convite' : 'Responde no mesmo canal do lead') + (d.body ? (': ' + escapeHtml(d.body.slice(0,26))) : '');
         case 'ai_agent': return ((d.active===undefined||d.active) ? 'Tira dúvidas em loop até concluir SIM/NÃO' : 'Classifica SIM/NÃO (uma passada)') + ' · ' + escapeHtml(d.model||'gpt-4o-mini');
         case 'end': return 'Fim da sequência';
     }
@@ -269,7 +269,7 @@ function defaultData(type) {
     if (type === 'unsubscribe') return { reason:'Sem interesse (sequência)' };
     if (type === 'schedule') return { channel:'auto', duration:45, title:'Reunião com a ON Solutions Brasil', message:'' };
     if (type === 'connect') return { sequence_id:'', stop_current:1 };
-    if (type === 'reply') return { subject:'ON Solutions Brasil', body:'' };
+    if (type === 'reply') return { subject:'ON Solutions Brasil', body:'', ai_reply:0, model:'gpt-4o-mini', company_info:'' };
     if (type === 'reveal_phone') return {};
     return {};
 }
@@ -476,8 +476,25 @@ function renderInspector() {
         h += `<small class="text-muted d-block mt-1">Gera um link público com os dados do lead pré-preenchidos. Ao agendar, cria o evento no Google Meet e notifica por e-mail e WhatsApp. O link é inserido automaticamente ({{link_agendamento}}).</small>`;
     } else if (n.type==='reply') {
         h += `<div class="alert alert-light border py-2 px-2 small mb-2"><i class="bi bi-reply text-info"></i> Envia pelo <strong>mesmo canal</strong> em que o lead respondeu por último (e-mail ou WhatsApp).</div>`;
+        const aiReplyOn = !!n.data.ai_reply;
+        h += field('Responder a dúvida do lead com IA', `<select class="form-select form-select-sm" onchange="setData('ai_reply', this.value==='1'?1:0); renderInspector();">
+            <option value="0" ${!aiReplyOn?'selected':''}>Não — envia só a mensagem abaixo</option>
+            <option value="1" ${aiReplyOn?'selected':''}>Sim — responde a dúvida (curto) e então convida</option>
+        </select>`);
+        if (aiReplyOn) {
+            const model = n.data.model || 'gpt-4o-mini';
+            h += field('Modelo do ChatGPT', `<select class="form-select form-select-sm" onchange="setData('model',this.value)">
+                <option value="gpt-4o-mini" ${model==='gpt-4o-mini'?'selected':''}>gpt-4o-mini</option>
+                <option value="gpt-4o" ${model==='gpt-4o'?'selected':''}>gpt-4o</option>
+                <option value="gpt-4.1" ${model==='gpt-4.1'?'selected':''}>gpt-4.1</option>
+                <option value="gpt-4.1-mini" ${model==='gpt-4.1-mini'?'selected':''}>gpt-4.1-mini</option>
+            </select>`);
+            h += `<label class="form-label small mb-1">Informações da empresa (para responder dúvidas)</label>` +
+                 `<textarea class="form-control form-control-sm" rows="4" placeholder="Ex.: O que a ON Solutions faz, como funciona, prazos, diferenciais..." oninput="setData('company_info',this.value)">${escapeHtml(n.data.company_info||'')}</textarea>`;
+            h += `<small class="text-muted d-block mb-2">A IA responde brevemente a dúvida do lead usando estas informações e o histórico, e em seguida acrescenta a mensagem/convite abaixo.</small>`;
+        }
         h += field('Assunto (só e-mail)', `<input class="form-control form-control-sm" value="${escapeAttr(n.data.subject||'ON Solutions Brasil')}" oninput="setData('subject',this.value)">`);
-        h += `<label class="form-label small mb-1">Mensagem</label>` + varChipsHtml() +
+        h += `<label class="form-label small mb-1">Mensagem ${aiReplyOn?'(convite — enviado após a resposta da IA)':''}</label>` + varChipsHtml() +
              `<textarea id="insp-body" class="form-control form-control-sm" rows="5" oninput="setData('body',this.value)">${escapeHtml(n.data.body||'')}</textarea>`;
     } else if (n.type==='connect') {
         const opts = '<option value="">— selecione a sequência —</option>' +
