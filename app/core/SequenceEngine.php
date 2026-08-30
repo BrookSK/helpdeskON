@@ -167,6 +167,9 @@ class SequenceEngine
             $reset = [
                 'status' => 'active', 'current_node' => null, 'next_run_at' => date('Y-m-d H:i:s'),
                 'stop_reason' => null, 'finished_at' => null,
+                // Reinicia o relógio: respostas ANTES do reinício não contam como
+                // resposta atual (evita triagem imediata por resposta de teste antigo).
+                'started_at' => date('Y-m-d H:i:s'),
             ];
             if ($this->participantHasColumn('reply_listen_until')) $reset['reply_listen_until'] = null;
             if ($this->participantHasColumn('triaged_at'))         $reset['triaged_at'] = null;
