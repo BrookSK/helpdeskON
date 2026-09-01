@@ -397,15 +397,26 @@ function refreshProgress() {
                     const waitCell = p.wait_until ? ('<span class="text-nowrap"><i class="bi bi-clock text-warning"></i> '+fmtWhen(p.wait_until)+'</span>') : '—';
                     const lastCell = escapeHtml(p.last_step||'—') + (p.last_at ? ' <span class="text-muted">('+fmtWhen(p.last_at)+')</span>' : '');
 
-                    // Avisos (impedido / pausado / aguardando / falha) com o motivo.
+                    // Avisos por lead. Erros (danger) não são repetidos em vermelho na
+                    // linha — viram um resumo enxuto (a lista completa fica no banner
+                    // "ver detalhes"). Avisos de pausa/informação seguem inline, discretos.
                     const alerts = p.alerts || [];
                     let alertsHtml = '';
                     if (alerts.length) {
-                        alertsHtml = '<div class="mt-1 d-flex flex-column gap-1">' + alerts.map(a => {
-                            const cls = a.level === 'danger' ? 'text-danger' : (a.level === 'warning' ? 'text-warning-emphasis' : 'text-muted');
-                            const icon = a.level === 'danger' ? 'bi-x-octagon' : (a.level === 'warning' ? 'bi-pause-circle' : 'bi-info-circle');
-                            return '<span class="small '+cls+'"><i class="bi '+icon+'"></i> '+escapeHtml(a.text)+'</span>';
-                        }).join('') + '</div>';
+                        const dangerCount = alerts.filter(a => a.level === 'danger').length;
+                        const others = alerts.filter(a => a.level !== 'danger');
+                        let parts = [];
+                        if (dangerCount) {
+                            parts.push('<span class="small text-muted"><i class="bi bi-exclamation-triangle text-danger"></i> '
+                                + dangerCount + (dangerCount > 1 ? ' impedimentos/falhas' : ' impedimento/falha')
+                                + ' — veja em "ver detalhes" acima</span>');
+                        }
+                        others.forEach(a => {
+                            const cls = a.level === 'warning' ? 'text-warning-emphasis' : 'text-muted';
+                            const icon = a.level === 'warning' ? 'bi-pause-circle' : 'bi-info-circle';
+                            parts.push('<span class="small '+cls+'"><i class="bi '+icon+'"></i> '+escapeHtml(a.text)+'</span>');
+                        });
+                        alertsHtml = '<div class="mt-1 d-flex flex-column gap-1">' + parts.join('') + '</div>';
                     }
 
                     const hist = p.history || [];

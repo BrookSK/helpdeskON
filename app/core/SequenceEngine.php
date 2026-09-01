@@ -1170,11 +1170,23 @@ class SequenceEngine
         $reason = $participant['stop_reason'] ?? '';
 
         // Falhas registradas no histórico (ex.: envio de e-mail/WhatsApp falhou).
+        // AGRUPADAS por etapa + motivo: várias tentativas com o mesmo erro viram UM
+        // único aviso (com a contagem de tentativas), em vez de repetir dezenas de
+        // linhas vermelhas idênticas. Mantém o motivo mais recente.
+        $failGroups = [];
         foreach ($history as $h) {
-            if (($h['result'] ?? '') === 'failed') {
-                $why = !empty($h['detail']) ? (' — ' . $h['detail']) : '';
-                $alerts[] = ['level' => 'danger', 'text' => 'Etapa "' . $h['step'] . '" não foi concluída' . $why];
+            if (($h['result'] ?? '') !== 'failed') continue;
+            $why = !empty($h['detail']) ? trim($h['detail']) : '';
+            $key = ($h['step'] ?? '') . '|' . $why;
+            if (!isset($failGroups[$key])) {
+                $failGroups[$key] = ['step' => $h['step'] ?? '', 'why' => $why, 'count' => 0];
             }
+            $failGroups[$key]['count']++;
+        }
+        foreach ($failGroups as $g) {
+            $times = $g['count'] > 1 ? (' (' . $g['count'] . ' tentativas)') : '';
+            $whyTxt = $g['why'] !== '' ? (' — ' . $g['why']) : '';
+            $alerts[] = ['level' => 'danger', 'text' => 'Etapa "' . $g['step'] . '" não foi concluída' . $whyTxt . $times];
         }
 
         // Estado final/interrompido com motivo.
