@@ -8,10 +8,21 @@
             <h5 class="mb-0"><i class="bi bi-diagram-3"></i> Sequências de E-mail</h5>
             <small class="text-muted">Follow-up automático de leads do CRM</small>
         </div>
-        <div class="d-flex gap-2">
-            <button class="btn btn-sm btn-outline-secondary" id="btn-run-now" onclick="runSequencesNow(this)" title="Processa agora os participantes elegíveis (teste na BETA). Em produção isso roda pelo cron.">
-                <i class="bi bi-play-fill"></i> Processar agora
-            </button>
+        <div class="d-flex gap-2 align-items-center">
+            <!-- Teste na BETA: processa manualmente uma sequência específica (ou todas). -->
+            <div class="input-group input-group-sm" id="run-now-group" style="width:auto;">
+                <select id="run-seq-select" class="form-select form-select-sm" style="max-width:260px;" title="Selecione a sequência a processar">
+                    <option value="">Todas as sequências</option>
+                    <?php foreach ($sequences as $s): ?>
+                    <option value="<?= (int)$s['id'] ?>" <?= empty($s['is_active']) ? 'disabled' : '' ?>>
+                        <?= escape($s['name']) ?><?= empty($s['is_active']) ? ' (inativa)' : '' ?>
+                    </option>
+                    <?php endforeach; ?>
+                </select>
+                <button class="btn btn-outline-secondary" id="btn-run-now" onclick="runSequencesNow(this)" title="Processa agora os participantes elegíveis (teste na BETA). Em produção isso roda pelo cron.">
+                    <i class="bi bi-play-fill"></i> Processar
+                </button>
+            </div>
             <a href="<?= baseUrl('sequences/edit') ?>" class="btn btn-sm btn-primary" id="btn-new-seq"><i class="bi bi-plus-lg"></i> Nova sequência</a>
             <button class="btn btn-sm btn-primary d-none" id="btn-new-tpl" onclick="openTemplate()"><i class="bi bi-plus-lg"></i> Novo template</button>
         </div>
@@ -139,17 +150,26 @@ function delSeq(id) {
 }
 
 // Disparo MANUAL do processamento (teste na BETA). Reutiliza o mesmo motor do cron.
+// Se uma sequência for selecionada, processa SOMENTE ela; senão, todas (igual cron).
 function runSequencesNow(btn) {
+    const seqId = document.getElementById('run-seq-select').value;
+    const seqLabel = seqId
+        ? document.getElementById('run-seq-select').selectedOptions[0].text.trim()
+        : 'todas as sequências';
     const original = btn.innerHTML;
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Processando...';
-    fetch(BASE + 'sequences/runNow', { method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'} })
+
+    const fd = new FormData();
+    if (seqId) fd.append('sequence_id', seqId);
+
+    fetch(BASE + 'sequences/runNow', { method:'POST', body: fd, headers:{'X-Requested-With':'XMLHttpRequest'} })
         .then(r=>r.json())
         .then(d=>{
             btn.disabled = false; btn.innerHTML = original;
             if (d.error) { alert(d.error); return; }
             const s = d.engine || {};
-            alert('Processamento executado.\n\n'
+            alert('Processamento executado (' + seqLabel + ').\n\n'
                 + 'Processados: ' + (s.processed ?? 0) + '\n'
                 + 'Enviados: ' + (s.sent ?? 0) + '\n'
                 + 'Ignorados (espera/janela/etapa): ' + (s.skipped ?? 0) + '\n'

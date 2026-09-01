@@ -181,17 +181,26 @@ class SequenceEngine
      * Processa os participantes prontos (next_run_at <= agora), respeitando limites.
      * @return array métricas da execução
      */
-    public function processDue($maxBatch = 200)
+    public function processDue($maxBatch = 200, $sequenceId = null)
     {
         $now = date('Y-m-d H:i:s');
+        // Filtro opcional por sequência: sem $sequenceId (default) o comportamento é
+        // idêntico ao do cron (todas as sequências ativas). Com $sequenceId, processa
+        // SOMENTE os participantes elegíveis daquela sequência — mesmo motor/step().
+        $params = [$now];
+        $seqFilter = '';
+        if ($sequenceId !== null) {
+            $seqFilter = ' AND sp.sequence_id = ?';
+            $params[] = (int) $sequenceId;
+        }
         $due = $this->db->fetchAll(
             "SELECT sp.* FROM sequence_participants sp
              JOIN email_sequences s ON s.id = sp.sequence_id
              WHERE sp.status = 'active' AND s.is_active = 1
-               AND sp.next_run_at IS NOT NULL AND sp.next_run_at <= ?
+               AND sp.next_run_at IS NOT NULL AND sp.next_run_at <= ?" . $seqFilter . "
              ORDER BY sp.next_run_at ASC
              LIMIT " . (int) $maxBatch,
-            [$now]
+            $params
         );
 
         $stats = ['processed' => 0, 'sent' => 0, 'finished' => 0, 'skipped' => 0, 'errors' => 0];

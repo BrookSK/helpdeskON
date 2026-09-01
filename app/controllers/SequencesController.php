@@ -132,11 +132,22 @@ class SequencesController extends Controller
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
         @set_time_limit(300);
 
-        // Mesmo motor usado pelo cron (passo 2 do runSequences). Sem lógica paralela.
-        $engine = new SequenceEngine();
-        $stats = $engine->processDue(200);
+        // Escopo opcional por sequência: sem sequence_id processa todas (igual ao cron);
+        // com sequence_id processa SOMENTE aquela sequência. Mesmo motor, sem paralelo.
+        $sequenceId = !empty($_POST['sequence_id']) ? intval($_POST['sequence_id']) : null;
+        if ($sequenceId) {
+            $seq = $this->model->findById($sequenceId);
+            if (!$seq) $this->json(['error' => 'Sequência não encontrada.'], 404);
+        }
 
-        $this->json(['success' => true, 'engine' => $stats]);
+        $engine = new SequenceEngine();
+        $stats = $engine->processDue(200, $sequenceId);
+
+        $this->json([
+            'success' => true,
+            'engine' => $stats,
+            'scope' => $sequenceId ? ('sequência #' . $sequenceId) : 'todas as sequências',
+        ]);
     }
 
     public function save()
