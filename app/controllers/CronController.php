@@ -336,9 +336,12 @@ class CronController extends Controller
     /**
      * Varre as contas IMAP em busca de respostas de leads que estão em sequência ativa,
      * e registra a resposta (o que interrompe os follow-ups pendentes).
+     *
+     * Público para permitir REUTILIZAÇÃO pelo disparo manual da BETA
+     * (SequencesController::runNow) — é exatamente o mesmo passo do cron, sem cópia.
      * @return int nº de respostas processadas
      */
-    private function detectReplies()
+    public function detectReplies()
     {
         $db = Database::getInstance();
         // Leads com participação ativa e e-mail conhecido

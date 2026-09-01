@@ -9,18 +9,25 @@
             <small class="text-muted">Follow-up automático de leads do CRM</small>
         </div>
         <div class="d-flex gap-2 align-items-center">
-            <!-- Teste na BETA: processa manualmente uma sequência específica (ou todas). -->
+            <!-- BETA: ponte manual para o processo que o cron executaria (captação da
+                 campanha + avanço da sequência). Selecione a campanha a executar. -->
             <div class="input-group input-group-sm" id="run-now-group" style="width:auto;">
-                <select id="run-seq-select" class="form-select form-select-sm" style="max-width:260px;" title="Selecione a sequência a processar">
-                    <option value="">Todas as sequências</option>
-                    <?php foreach ($sequences as $s): ?>
-                    <option value="<?= (int)$s['id'] ?>" <?= empty($s['is_active']) ? 'disabled' : '' ?>>
-                        <?= escape($s['name']) ?><?= empty($s['is_active']) ? ' (inativa)' : '' ?>
+                <select id="run-campaign-select" class="form-select form-select-sm" style="max-width:300px;" title="Selecione a campanha (executa captação + avanço da sequência dela)">
+                    <?php if (!empty($campaigns)): ?>
+                    <option value="">— selecione a campanha —</option>
+                    <?php foreach ($campaigns as $c): ?>
+                    <option value="<?= (int)$c['id'] ?>"
+                            data-sequence-id="<?= (int)($c['sequence_id'] ?? 0) ?>"
+                            <?= empty($c['is_active']) ? 'disabled' : '' ?>>
+                        <?= escape($c['name']) ?><?= empty($c['is_active']) ? ' (inativa)' : '' ?><?= !empty($c['sequence_name']) ? ' → ' . escape($c['sequence_name']) : '' ?>
                     </option>
                     <?php endforeach; ?>
+                    <?php else: ?>
+                    <option value="">Nenhuma campanha cadastrada</option>
+                    <?php endif; ?>
                 </select>
-                <button class="btn btn-outline-secondary" id="btn-run-now" onclick="runSequencesNow(this)" title="Processa agora os participantes elegíveis (teste na BETA). Em produção isso roda pelo cron.">
-                    <i class="bi bi-play-fill"></i> Processar
+                <button class="btn btn-outline-secondary" id="btn-run-now" onclick="runCampaignNow(this)" title="Executa manualmente o mesmo processo do cron para a campanha selecionada (captação + avanço da sequência). Uso temporário na BETA.">
+                    <i class="bi bi-play-fill"></i> Executar campanha
                 </button>
             </div>
             <a href="<?= baseUrl('sequences/edit') ?>" class="btn btn-sm btn-primary" id="btn-new-seq"><i class="bi bi-plus-lg"></i> Nova sequência</a>
@@ -149,35 +156,65 @@ function delSeq(id) {
         .then(r=>r.json()).then(d=>{ if(d.error){alert(d.error);return;} location.reload(); });
 }
 
-// Disparo MANUAL do processamento (teste na BETA). Reutiliza o mesmo motor do cron.
-// Se uma sequência for selecionada, processa SOMENTE ela; senão, todas (igual cron).
-function runSequencesNow(btn) {
-    const seqId = document.getElementById('run-seq-select').value;
-    const seqLabel = seqId
-        ? document.getElementById('run-seq-select').selectedOptions[0].text.trim()
-        : 'todas as sequências';
+// BETA: ponte manual do cron para UMA campanha. Executa o mesmo processo real:
+// (1) captação da campanha (Apollo→CRM→inscrição) e (2) avanço da sequência dela.
+// Respeita tempos de espera, condições, janela, envios e o estado de cada participante.
+function runCampaignNow(btn) {
+    const sel = document.getElementById('run-campaign-select');
+    const campId = sel.value;
+    if (!campId) { alert('Selecione a campanha que deseja executar.'); return; }
+    const campLabel = sel.selectedOptions[0].text.trim();
+
     const original = btn.innerHTML;
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Processando...';
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Executando...';
 
     const fd = new FormData();
-    if (seqId) fd.append('sequence_id', seqId);
+    fd.append('campaign_id', campId);
 
     fetch(BASE + 'sequences/runNow', { method:'POST', body: fd, headers:{'X-Requested-With':'XMLHttpRequest'} })
         .then(r=>r.json())
         .then(d=>{
             btn.disabled = false; btn.innerHTML = original;
             if (d.error) { alert(d.error); return; }
+
+            let msg = 'Execução manual da campanha concluída.\n(' + (d.scope || campLabel) + ')\n\n';
+
+            // Passo 1 — captação da campanha (igual /cron/runProspecting)
+            const p = d.prospecting || null;
+            msg += '== Captação da campanha ==\n';
+            if (!p) {
+                msg += '(não executada)\n';
+            } else if (p.error) {
+                msg += 'Erro: ' + p.error + '\n';
+            } else if (p.skipped) {
+                msg += 'Ignorada: ' + p.skipped + (p.captured_today !== undefined ? (' (captados hoje: ' + p.captured_today + ')') : '') + '\n';
+            } else {
+                msg += 'Buscados: ' + (p.searched ?? 0)
+                     + ' | Selecionados: ' + (p.selected ?? 0)
+                     + ' | Importados: ' + (p.imported ?? 0)
+                     + ' | Inscritos: ' + (p.enrolled ?? 0) + '\n';
+            }
+
+            // Passo 2 — detecção de respostas por e-mail (IMAP), igual ao cron
+            msg += '\n== Detecção de respostas (e-mail) ==\n'
+                 + 'Respostas detectadas: ' + (d.replies_detected ?? 0)
+                 + (d.replies_error ? (' | erro: ' + d.replies_error) : '') + '\n';
+
+            // Passo 3 — avanço da sequência (igual /cron/runSequences)
             const s = d.engine || {};
-            alert('Processamento executado (' + seqLabel + ').\n\n'
-                + 'Processados: ' + (s.processed ?? 0) + '\n'
-                + 'Enviados: ' + (s.sent ?? 0) + '\n'
-                + 'Ignorados (espera/janela/etapa): ' + (s.skipped ?? 0) + '\n'
-                + 'Finalizados: ' + (s.finished ?? 0) + '\n'
-                + 'Erros: ' + (s.errors ?? 0) + '\n\n'
-                + 'Tarefas LinkedIn aparecem em CRM → Minhas Ações quando um participante chega na etapa LinkedIn.');
+            msg += '\n== Avanço da sequência ==\n'
+                 + 'Processados: ' + (s.processed ?? 0)
+                 + ' | Enviados: ' + (s.sent ?? 0)
+                 + ' | Ignorados: ' + (s.skipped ?? 0)
+                 + ' | Finalizados: ' + (s.finished ?? 0)
+                 + ' | Erros: ' + (s.errors ?? 0) + '\n\n'
+                 + 'Tarefas LinkedIn aparecem em CRM → Minhas Ações quando um participante chega na etapa LinkedIn.\n'
+                 + 'Obs.: blocos "Aguardar" só liberam quando o tempo configurado vence (o processo respeita os tempos reais).';
+
+            alert(msg);
         })
-        .catch(()=>{ btn.disabled = false; btn.innerHTML = original; alert('Erro ao processar as sequências.'); });
+        .catch(()=>{ btn.disabled = false; btn.innerHTML = original; alert('Erro ao executar a campanha.'); });
 }
 
 // ---- Templates ----

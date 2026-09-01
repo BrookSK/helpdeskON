@@ -28,9 +28,23 @@ class SequencesController extends Controller
     {
         $this->requireRole($this->roles);
         $user = $this->currentUser();
+
+        // Campanhas de prospecção (para o disparo manual da BETA — ponte do cron).
+        // Silencioso se a tabela ainda não existir no ambiente.
+        $campaigns = [];
+        try {
+            $campaigns = Database::getInstance()->fetchAll(
+                "SELECT c.id, c.name, c.is_active, c.sequence_id, s.name AS sequence_name
+                 FROM apollo_campaigns c
+                 LEFT JOIN email_sequences s ON s.id = c.sequence_id
+                 ORDER BY c.id ASC"
+            );
+        } catch (\Throwable $e) { $campaigns = []; }
+
         $this->view('sequences/index', [
             'user' => $user,
             'sequences' => $this->model->all(),
+            'campaigns' => $campaigns,
         ]);
     }
 
@@ -132,22 +146,54 @@ class SequencesController extends Controller
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
         @set_time_limit(300);
 
-        // Escopo opcional por sequência: sem sequence_id processa todas (igual ao cron);
-        // com sequence_id processa SOMENTE aquela sequência. Mesmo motor, sem paralelo.
+        // Ponte MANUAL (BETA) para o processo que o cron executaria. Reproduz os dois
+        // passos do cron, sem lógica paralela nem acelerada:
+        //   1) Captação da campanha  → ApolloProspectingService::runDueCampaign (== /cron/runProspecting escopado)
+        //   2) Avanço da sequência   → SequenceEngine::processDue (== /cron/runSequences)
+        // Escopo por CAMPANHA (preferencial) ou por sequência avulsa.
+        $campaignId = !empty($_POST['campaign_id']) ? intval($_POST['campaign_id']) : null;
         $sequenceId = !empty($_POST['sequence_id']) ? intval($_POST['sequence_id']) : null;
+
+        $out = ['success' => true];
+
+        // 1) Captação da campanha (se uma campanha foi escolhida)
+        if ($campaignId) {
+            $db = Database::getInstance();
+            $camp = $db->fetch("SELECT * FROM apollo_campaigns WHERE id = ?", [$campaignId]);
+            if (!$camp) $this->json(['error' => 'Campanha não encontrada.'], 404);
+
+            $prospecting = new ApolloProspectingService();
+            $out['prospecting'] = $prospecting->runDueCampaign($campaignId);
+
+            // A campanha define qual sequência avançar em seguida.
+            if (!$sequenceId && !empty($camp['sequence_id'])) {
+                $sequenceId = (int) $camp['sequence_id'];
+            }
+            $out['scope'] = 'campanha #' . $campaignId . ($sequenceId ? (' + sequência #' . $sequenceId) : '');
+        } else {
+            $out['scope'] = $sequenceId ? ('sequência #' . $sequenceId) : 'todas as sequências';
+        }
+
+        // 2) Detecção de respostas (IMAP) — mesmo passo e método do cron, na MESMA
+        // ordem do runSequences (detecta respostas ANTES de avançar, para interromper
+        // follow-ups de quem já respondeu). Reutiliza CronController::detectReplies().
+        try {
+            $out['replies_detected'] = (new CronController())->detectReplies();
+        } catch (\Throwable $e) {
+            Logger::error('runNow detectReplies', ['error' => $e->getMessage()]);
+            $out['replies_detected'] = 0;
+            $out['replies_error'] = $e->getMessage();
+        }
+
+        // 3) Avanço da sequência (mesmo motor do cron). Escopado quando houver sequência.
         if ($sequenceId) {
             $seq = $this->model->findById($sequenceId);
             if (!$seq) $this->json(['error' => 'Sequência não encontrada.'], 404);
         }
-
         $engine = new SequenceEngine();
-        $stats = $engine->processDue(200, $sequenceId);
+        $out['engine'] = $engine->processDue(200, $sequenceId);
 
-        $this->json([
-            'success' => true,
-            'engine' => $stats,
-            'scope' => $sequenceId ? ('sequência #' . $sequenceId) : 'todas as sequências',
-        ]);
+        $this->json($out);
     }
 
     public function save()

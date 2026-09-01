@@ -74,6 +74,41 @@ class ApolloProspectingService
     }
 
     /**
+     * Executa UMA campanha específica manualmente (uso na BETA, como ponte para o
+     * disparo que o cron faria). Aplica EXATAMENTE as mesmas guardas do runDue():
+     * lock global, janela de dias/horário e meta diária. Reutiliza runCampaign() —
+     * nenhuma lógica paralela nem acelerada. Em produção, o cron segue chamando runDue().
+     * @return array métricas da campanha (mesmo formato do runDue por campanha)
+     */
+    public function runDueCampaign($campaignId)
+    {
+        if (!$this->apollo->isConfigured()) {
+            return ['error' => 'Apollo não configurado.'];
+        }
+        $camp = $this->db->fetch("SELECT * FROM apollo_campaigns WHERE id = ?", [(int) $campaignId]);
+        if (!$camp) return ['error' => 'Campanha não encontrada.'];
+        if (empty($camp['is_active'])) return ['campaign' => $camp['id'], 'skipped' => 'campanha inativa'];
+
+        if ($this->isLocked()) {
+            return ['skipped' => true, 'reason' => 'Execução em andamento'];
+        }
+        $this->lock();
+        try {
+            if (!$this->isWithinSchedule($camp)) {
+                return ['campaign' => $camp['id'], 'skipped' => 'fora da janela'];
+            }
+            $already = $this->capturedToday($camp['id']);
+            $target = max(0, (int) $camp['daily_target'] - $already);
+            if ($target <= 0) {
+                return ['campaign' => $camp['id'], 'skipped' => 'meta diária atingida', 'captured_today' => $already];
+            }
+            return $this->runCampaign($camp, $target);
+        } finally {
+            $this->unlock();
+        }
+    }
+
+    /**
      * Executa uma campanha até capturar $target leads novos.
      * Roteia conforme a origem configurada (Apollo x Meus Leads).
      * @return array métricas da campanha
