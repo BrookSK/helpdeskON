@@ -314,6 +314,7 @@ class ApolloProspectingService
         $contactId = $resolver->resolve([
             'name' => $name,
             'email' => $email,
+            'linkedin_url' => $person['linkedin_url'] ?? null,
             'company' => $org['name'] ?? null,
             'source' => 'apollo',
             'assigned_to' => $preExistingId ? null : ($superAdminId ?: null),

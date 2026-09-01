@@ -232,7 +232,7 @@ class SequencesController extends Controller
     public function templates()
     {
         $this->requireRole($this->roles);
-        $channel = in_array($_GET['channel'] ?? '', ['email', 'whatsapp']) ? $_GET['channel'] : null;
+        $channel = in_array($_GET['channel'] ?? '', ['email', 'whatsapp', 'linkedin']) ? $_GET['channel'] : null;
         $this->json(['templates' => (new MessageTemplate())->all($channel)]);
     }
 
@@ -244,7 +244,7 @@ class SequencesController extends Controller
 
         $user = $this->currentUser();
         $id = intval($_POST['id'] ?? 0);
-        $channel = in_array($_POST['channel'] ?? '', ['email', 'whatsapp']) ? $_POST['channel'] : 'email';
+        $channel = in_array($_POST['channel'] ?? '', ['email', 'whatsapp', 'linkedin']) ? $_POST['channel'] : 'email';
         $name = trim($_POST['name'] ?? '');
         $body = $_POST['body'] ?? '';
         if ($name === '' || trim($body) === '') $this->json(['error' => 'Informe nome e conteúdo do template.'], 400);

@@ -2302,11 +2302,12 @@ class CrmController extends Controller
             if (!empty($lead['organization_name'])) $notesParts[] = 'Empresa: ' . $lead['organization_name'];
             if (!empty($lead['linkedin_url'])) $notesParts[] = 'LinkedIn: ' . $lead['linkedin_url'];
 
-            // Identidade única via LeadResolver (dedup por e-mail/telefone)
+            // Identidade única via LeadResolver (dedup por e-mail/telefone/LinkedIn)
             $contactId = $resolver->resolve([
                 'name' => $name,
                 'email' => $lead['email'] ?? null,
                 'phone' => $lead['phone'] ?? null,
+                'linkedin_url' => $lead['linkedin_url'] ?? null,
                 'company' => $lead['organization_name'] ?? null,
                 'source' => 'apollo',
                 'assigned_to' => $user['id'],

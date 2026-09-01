@@ -38,7 +38,8 @@ class LeadResolver
         $email = $this->normalizeEmail($data['email'] ?? null);
         $phoneDigits = $this->normalizePhone($data['phone'] ?? null);
 
-        $existing = $this->findExisting($email, $phoneDigits, $data['name'] ?? null, $data['company'] ?? null);
+        $linkedin = $this->normalizeLinkedin($data['linkedin_url'] ?? null);
+        $existing = $this->findExisting($email, $phoneDigits, $data['name'] ?? null, $data['company'] ?? null, $linkedin);
 
         if ($existing) {
             $contactId = (int) $existing['id'];
@@ -56,13 +57,21 @@ class LeadResolver
 
     // ---- Busca de duplicidade ----
 
-    private function findExisting($email, $phoneDigits, $name, $company)
+    private function findExisting($email, $phoneDigits, $name, $company, $linkedin = null)
     {
         // 1) e-mail
         if ($email) {
             $r = $this->db->fetch(
                 "SELECT * FROM whatsapp_contacts WHERE lead_email = ? AND COALESCE(is_group,0)=0 LIMIT 1",
                 [$email]
+            );
+            if ($r) return $r;
+        }
+        // 1.5) LinkedIn URL (identificador forte da prospecção híbrida)
+        if ($linkedin) {
+            $r = $this->db->fetch(
+                "SELECT * FROM whatsapp_contacts WHERE linkedin_url = ? AND COALESCE(is_group,0)=0 LIMIT 1",
+                [$linkedin]
             );
             if ($r) return $r;
         }
@@ -105,6 +114,7 @@ class LeadResolver
             'remote_jid' => $jid,
             'phone' => $phoneDigits ?: null,
             'lead_email' => $email ?: null,
+            'linkedin_url' => $this->normalizeLinkedin($data['linkedin_url'] ?? null),
             'contact_name' => $data['name'] ?? 'Lead',
             'assigned_to' => $data['assigned_to'] ?? null,
             'lead_source_url' => $data['source_url'] ?? null,
@@ -137,12 +147,23 @@ class LeadResolver
         if (empty($existing['lead_source_url']) && !empty($data['source_url'])) {
             $update['lead_source_url'] = $data['source_url'];
         }
+        // LinkedIn: preenche se o contato ainda não tinha (não sobrescreve).
+        if (empty($existing['linkedin_url']) && !empty($data['linkedin_url'])) {
+            $update['linkedin_url'] = $this->normalizeLinkedin($data['linkedin_url']);
+        }
         if (!empty($update)) {
             $this->db->update('whatsapp_contacts', $update, 'id = ?', [$contactId]);
         }
     }
 
     // ---- Helpers ----
+
+    /** Normaliza a URL do LinkedIn (trim; ignora vazio). Não faz scraping. */
+    public function normalizeLinkedin($url)
+    {
+        $url = trim((string) $url);
+        return $url !== '' ? $url : null;
+    }
 
     public function normalizeEmail($email)
     {

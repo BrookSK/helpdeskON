@@ -25,7 +25,7 @@
 .seq-node .port.in { top:-10px; left:calc(50% - 9px); background:#e9ecef; }
 .n-send .hd{color:#0d6efd} .n-whatsapp .hd{color:#198754} .n-wait .hd{color:#fd7e14} .n-condition .hd{color:#6f42c1}
 .n-tag .hd{color:#20c997} .n-score .hd{color:#e0a800} .n-move .hd{color:#0dcaf0} .n-end .hd{color:#dc3545}
-.n-reveal_phone .hd{color:#212529}
+.n-reveal_phone .hd{color:#212529} .n-linkedin .hd{color:#0a66c2}
 #link-hint { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#1a1a2e; color:#fff;
     padding:8px 16px; border-radius:20px; font-size:0.8rem; z-index:2000; display:none; box-shadow:0 4px 12px rgba(0,0,0,.3); }
 </style>
@@ -39,8 +39,9 @@ const COLUMNS = <?= json_encode(array_map(fn($c) => ['id'=>$c['id'],'name'=>$c['
 const LABELS = <?= json_encode(array_map(fn($l) => ['id'=>$l['id'],'name'=>$l['name'],'color'=>$l['color']], $labels ?? []), JSON_UNESCAPED_UNICODE) ?>;
 // Lista de boards únicos (para o seletor encadeado do bloco "mover card")
 const BOARDS = (function(){ const m={}; COLUMNS.forEach(c=>{ if(!m[c.board_id]) m[c.board_id]={id:c.board_id,name:c.board_name}; }); return Object.values(m); })();
-const NODE_LABELS = { send:'Enviar e-mail', whatsapp:'Enviar WhatsApp', wait:'Aguardar', condition:'Condição', tag:'Tag', score:'Score', move:'Mover card', reveal_phone:'Revelar telefone', end:'Encerrar' };
-let EMAIL_TEMPLATES = [], WA_TEMPLATES = [];
+const NODE_LABELS = { send:'Enviar e-mail', whatsapp:'Enviar WhatsApp', linkedin:'LinkedIn (tarefa)', wait:'Aguardar', condition:'Condição', tag:'Tag', score:'Score', move:'Mover card', reveal_phone:'Revelar telefone', end:'Encerrar' };
+const LINKEDIN_ACTIONS = { connect:'Solicitar conexão', message:'1ª mensagem', followup:'Follow-up', final:'Mensagem final' };
+let EMAIL_TEMPLATES = [], WA_TEMPLATES = [], LINKEDIN_TEMPLATES = [];
 
 let nodes = [];       // {id, type, x, y, data, next, nextYes, nextNo, _el}
 let selectedId = null;
@@ -146,6 +147,7 @@ function nodeSummary(n) {
         case 'score': return 'Score ' + (d.delta>0?'+':'') + (d.delta||0);
         case 'move': { const c = COLUMNS.find(x=>x.id==d.column_id); return c ? escapeHtml(c.label) : '<em>escolher coluna</em>'; }
         case 'reveal_phone': return 'Revela telefone no Apollo (se faltar)';
+        case 'linkedin': return '<i class="bi bi-linkedin"></i> ' + (LINKEDIN_ACTIONS[d.action_type]||'Ação') + ' <span class="badge bg-light text-dark border">manual</span>';
         case 'end': return 'Fim da sequência';
     }
     return '';
@@ -221,6 +223,7 @@ function defaultData(type) {
     if (type === 'score') return { delta:3 };
     if (type === 'move') return { column_id:'' };
     if (type === 'reveal_phone') return {};
+    if (type === 'linkedin') return { action_type:'message', objective:'', body:'', cta:'', tone:'', max_length:0, template_id:'', model:'gpt-4o-mini' };
     return {};
 }
 function delNode(id) {
@@ -343,6 +346,22 @@ function renderInspector() {
         const colOpts = '<option value="">Selecione a coluna</option>' +
             cols.map(c => `<option value="${c.id}" ${n.data.column_id==c.id?'selected':''}>${escapeHtml(c.name)}</option>`).join('');
         h += field('Coluna', `<select class="form-select form-select-sm" id="insp-column" ${boardId?'':'disabled'} onchange="setData('column_id',this.value)">${colOpts}</select>`);
+    } else if (n.type==='linkedin') {
+        h += `<div class="alert alert-light border py-2 px-2 small mb-2" style="border-left:3px solid #0a66c2 !important;">
+            <i class="bi bi-linkedin text-primary"></i> Etapa <strong>manual</strong>. Gera uma tarefa em <em>Minhas Ações</em>.
+            A IA prepara a mensagem; o vendedor abre o perfil, cola e envia no LinkedIn e confirma. Nada é automatizado.</div>`;
+        const actOpts = Object.entries(LINKEDIN_ACTIONS).map(([k,v])=>`<option value="${k}" ${(n.data.action_type||'message')===k?'selected':''}>${v}</option>`).join('');
+        h += field('Ação', `<select class="form-select form-select-sm" onchange="setData('action_type',this.value)">${actOpts}</select>`);
+        h += linkedinTemplatePicker();
+        h += field('Objetivo', `<input class="form-control form-control-sm" value="${escapeAttr(n.data.objective||'')}" oninput="setData('objective',this.value)" placeholder="Ex.: agendar uma conversa rápida">`);
+        h += `<label class="form-label small mb-1">Mensagem base (a IA personaliza com dados reais)</label>` + varChipsHtml() +
+             `<textarea id="insp-body" class="form-control form-control-sm" rows="5" oninput="setData('body',this.value)" placeholder="Use variáveis: {{primeiro_nome}}, {{empresa}}, {{cargo}}...">${escapeHtml(n.data.body||'')}</textarea>`;
+        h += `<div class="row g-2 mt-1">`;
+        h += `<div class="col-6">` + field('CTA', `<input class="form-control form-control-sm" value="${escapeAttr(n.data.cta||'')}" oninput="setData('cta',this.value)" placeholder="opcional">`) + `</div>`;
+        h += `<div class="col-6">` + field('Tom', `<input class="form-control form-control-sm" value="${escapeAttr(n.data.tone||'')}" oninput="setData('tone',this.value)" placeholder="ex.: cordial">`) + `</div>`;
+        h += `</div>`;
+        h += field('Limite de caracteres (0 = sem limite)', `<input type="number" min="0" class="form-control form-control-sm" value="${n.data.max_length||0}" oninput="setData('max_length',parseInt(this.value)||0)">`);
+        h += `<small class="text-muted d-block">A IA usa somente dados reais do lead (nome, cargo, empresa, setor, local). Não inventa contexto.</small>`;
     } else if (n.type==='end') {
         h += '<p class="text-muted small">Encerra a sequência para o lead.</p>';
     }
@@ -394,6 +413,21 @@ function applyTemplate(channel, id) {
     const b = document.getElementById('insp-body'); if (b) b.value = n.data.body;
     refreshNodeBody(n);
 }
+// Seletor de template de LinkedIn: preenche a mensagem base do nó.
+function linkedinTemplatePicker() {
+    if (!LINKEDIN_TEMPLATES.length) return '<div class="mb-2"><small class="text-muted">Nenhum template de LinkedIn. Crie em Sequências → Templates (canal LinkedIn).</small></div>';
+    const opts = '<option value="">— usar template —</option>' + LINKEDIN_TEMPLATES.map(t=>`<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
+    return field('Template LinkedIn', `<select class="form-select form-select-sm" onchange="applyLinkedinTemplate(this.value)">${opts}</select>`);
+}
+function applyLinkedinTemplate(id) {
+    const n = nodes.find(x=>x.id===selectedId); if (!n) return;
+    if (!id) { n.data.template_id = ''; return; }
+    const t = LINKEDIN_TEMPLATES.find(x=>x.id==id); if (!t) return;
+    n.data.template_id = id;
+    n.data.body = t.body || '';
+    const b = document.getElementById('insp-body'); if (b) b.value = n.data.body;
+    refreshNodeBody(n);
+}
 // Bloco de teste A/B: quando ativado, envia aleatoriamente a variante A ou B
 function abBlock(n, channel) {
     const on = !!n.data.ab_enabled;
@@ -439,7 +473,11 @@ function onTagSelect(sel) {
 function loadTemplatesForEditor() {
     fetch(BASE + 'sequences/templates', {headers:{'X-Requested-With':'XMLHttpRequest'}})
         .then(r=>r.json()).then(d=>{
-            (d.templates||[]).forEach(t => { if (t.channel==='whatsapp') WA_TEMPLATES.push(t); else EMAIL_TEMPLATES.push(t); });
+            (d.templates||[]).forEach(t => {
+                if (t.channel==='whatsapp') WA_TEMPLATES.push(t);
+                else if (t.channel==='linkedin') LINKEDIN_TEMPLATES.push(t);
+                else EMAIL_TEMPLATES.push(t);
+            });
         }).catch(()=>{});
 }
 

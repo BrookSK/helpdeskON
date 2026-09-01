@@ -15,6 +15,9 @@
  *   tag    (data: label)                → adiciona tag, avança
  *   score  (data: delta)                → altera score, avança
  *   move   (data: column_id)            → move card do lead, avança
+ *   linkedin (data: action_type, objective, tone, cta, max_length, template_id, body)
+ *          → cria uma tarefa MANUAL (linkedin_tasks) com a mensagem preparada pela IA
+ *            e PAUSA o participante. Retomada por resumeAfterLinkedinTask ao "ENVIEI".
  *   end                                 → finaliza participante
  *
  * Execução dirigida por cron (cron/runSequences): processa participantes com
@@ -40,9 +43,14 @@ class SequenceEngine
         $seq = $this->db->fetch("SELECT * FROM email_sequences WHERE id = ?", [$sequenceId]);
         if (!$seq || !$seq['is_active']) return ['success' => false, 'error' => 'Sequência inválida ou inativa.'];
 
-        $contact = $this->db->fetch("SELECT unsubscribed, email_bounced, lead_email FROM whatsapp_contacts WHERE id = ?", [$contactId]);
+        $contact = $this->db->fetch("SELECT unsubscribed, email_bounced, lead_email, phone, linkedin_url FROM whatsapp_contacts WHERE id = ?", [$contactId]);
         if (!$contact) return ['success' => false, 'error' => 'Lead não encontrado.'];
-        if (empty($contact['lead_email'])) return ['success' => false, 'error' => 'Lead sem e-mail cadastrado.'];
+        // Prospecção HÍBRIDA: basta o lead ter ao menos um canal utilizável
+        // (e-mail, telefone OU LinkedIn). As etapas que exigem um canal específico
+        // resolvem/pulam por conta própria no doSend/doWhatsapp/case 'linkedin'.
+        if (empty($contact['lead_email']) && empty($contact['phone']) && empty($contact['linkedin_url'])) {
+            return ['success' => false, 'error' => 'Lead sem e-mail, telefone ou LinkedIn cadastrado.'];
+        }
         if (!empty($contact['unsubscribed'])) return ['success' => false, 'error' => 'Lead descadastrado.'];
 
         $existing = $this->db->fetch("SELECT * FROM sequence_participants WHERE sequence_id = ? AND contact_id = ?", [$sequenceId, $contactId]);
@@ -446,6 +454,24 @@ class SequenceEngine
                 $this->logExec($participant['id'], $nodeId, $type, 'done');
                 return 'skipped';
 
+            case 'linkedin':
+                // Etapa MANUAL assistida. NÃO envia nada: gera uma tarefa na fila
+                // "Minhas Ações" (com a mensagem preparada pela IA) e PAUSA o
+                // participante NESTE nó, aguardando o vendedor confirmar "ENVIEI".
+                // No modo teste, apenas registra e segue (não trava o teste).
+                $this->doLinkedin($participant, $seq, $node);
+                if ($testMode) {
+                    $this->advance($participant, $node['next'] ?? null, $nodes);
+                    $this->logExec($participant['id'], $nodeId, $type, 'done', 'Tarefa LinkedIn (teste): seguiria pausada em produção.');
+                    return 'skipped';
+                }
+                // Pausa: fixa o current_node neste nó e zera o next_run_at.
+                $this->db->update('sequence_participants', [
+                    'status' => 'paused', 'current_node' => $nodeId, 'next_run_at' => null,
+                ], 'id = ?', [$participant['id']]);
+                $this->logExec($participant['id'], $nodeId, $type, 'waiting', 'Tarefa LinkedIn criada — aguardando ação do vendedor.');
+                return 'skipped';
+
             case 'end':
             default:
                 $this->finish($participant, 'completed');
@@ -790,6 +816,88 @@ class SequenceEngine
             $board->moveCard($card['id'], $columnId, 0);
             (new LeadTimelineService())->add($contactId, 'board_move', 'Card movido pela sequência', ['column_id' => $columnId]);
         }
+    }
+
+    /**
+     * Etapa LinkedIn (MANUAL): cria uma tarefa na fila "Minhas Ações" com a mensagem
+     * já preparada pela IA e registra na timeline. Idempotente por (participant, node):
+     * se já existe uma tarefa aberta desta etapa, não recria.
+     *
+     * NÃO envia nada ao LinkedIn. Nenhuma automação/scraping. O envio é feito à mão
+     * pelo vendedor, que depois confirma com "ENVIEI" (resumeAfterLinkedinTask).
+     */
+    private function doLinkedin($participant, $seq, $node)
+    {
+        $contactId = $participant['contact_id'];
+        $data = $node['data'] ?? [];
+
+        $taskModel = new LinkedinTask();
+        // Idempotência: não recria tarefa já aberta desta etapa.
+        $existing = $taskModel->findOpenByParticipantNode($participant['id'], $node['id']);
+        if ($existing) return true;
+
+        $contact = $this->db->fetch(
+            "SELECT id, contact_name, push_name, linkedin_url, assigned_to FROM whatsapp_contacts WHERE id = ?",
+            [$contactId]
+        );
+
+        // Mensagem preparada ANTES de a tarefa aparecer (só dados reais; sem alucinação).
+        $gen = (new LinkedinMessageService())->generate($contactId, $node);
+
+        $actionType = $data['action_type'] ?? 'message';
+        $taskId = $taskModel->createIdempotent([
+            'contact_id' => $contactId,
+            'sequence_id' => $seq['id'] ?? null,
+            'participant_id' => $participant['id'],
+            'node_id' => $node['id'],
+            'assigned_to' => $contact['assigned_to'] ?? ($participant['added_by'] ?? null),
+            'action_type' => $actionType,
+            'objective' => $data['objective'] ?? null,
+            'linkedin_url' => $contact['linkedin_url'] ?? null,
+            'template_id' => !empty($data['template_id']) ? (int) $data['template_id'] : null,
+            'generated_message' => $gen['message'] ?? null,
+            'status' => LinkedinTask::S_READY,
+            'due_at' => date('Y-m-d H:i:s'),
+        ]);
+
+        (new LeadTimelineService())->add(
+            $contactId,
+            'linkedin_task',
+            'Tarefa LinkedIn criada (' . $actionType . ') — aguardando envio manual.',
+            ['task_id' => $taskId, 'sequence_id' => $seq['id'] ?? null, 'node_id' => $node['id']]
+        );
+
+        return true;
+    }
+
+    /**
+     * Retoma a sequência após o vendedor confirmar o envio (ou pular) da tarefa
+     * LinkedIn. Reativa o participante PAUSADO neste nó e avança para o próximo.
+     * Chamado pelo LinkedinController ao "ENVIEI"/"PULAR".
+     *
+     * @return bool true se retomou; false se não havia nada a retomar.
+     */
+    public function resumeAfterLinkedinTask($participantId, $nodeId)
+    {
+        $participant = $this->db->fetch("SELECT * FROM sequence_participants WHERE id = ?", [$participantId]);
+        if (!$participant) return false;
+        // Só retoma se estava pausado exatamente neste nó (evita corridas).
+        if ($participant['status'] !== 'paused' || (string) $participant['current_node'] !== (string) $nodeId) {
+            return false;
+        }
+
+        $seq = $this->db->fetch("SELECT graph FROM email_sequences WHERE id = ?", [$participant['sequence_id']]);
+        $graph = json_decode($seq['graph'] ?? '{}', true);
+        $nodes = [];
+        foreach (($graph['nodes'] ?? []) as $n) $nodes[$n['id']] = $n;
+        $node = $nodes[$nodeId] ?? null;
+
+        // Reativa e avança para o próximo nó (respeita os delays: o próximo 'wait'
+        // reagenda normalmente no ciclo seguinte do cron).
+        $this->db->update('sequence_participants', ['status' => 'active'], 'id = ?', [$participantId]);
+        $participant['status'] = 'active';
+        $this->advance($participant, $node['next'] ?? null, $nodes);
+        return true;
     }
 
     // ---- helpers de fluxo ----

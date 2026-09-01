@@ -62,6 +62,10 @@ class MessageTemplate
         // Campos comerciais extras: tenta do próprio array; senão, do briefing pelo contact_id
         $extra = self::extraFields($contact);
 
+        // LinkedIn: prefere a coluna estruturada do contato (whatsapp_contacts.linkedin_url),
+        // caindo para o valor do briefing quando ausente.
+        $linkedin = !empty($contact['linkedin_url']) ? $contact['linkedin_url'] : $extra['linkedin'];
+
         return strtr((string) $text, [
             '{{nome}}' => $name,
             '{{primeiro_nome}}' => $first,
@@ -72,7 +76,7 @@ class MessageTemplate
             '{{cidade}}' => $extra['cidade'],
             '{{estado}}' => $extra['estado'],
             '{{setor}}' => $extra['setor'],
-            '{{linkedin}}' => $extra['linkedin'],
+            '{{linkedin}}' => $linkedin,
         ]);
     }
 

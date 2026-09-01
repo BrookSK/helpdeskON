@@ -94,6 +94,7 @@
                         <select id="tpl-channel" class="form-select form-select-sm" onchange="tplChannelChange()">
                             <option value="email">E-mail</option>
                             <option value="whatsapp">WhatsApp</option>
+                            <option value="linkedin">LinkedIn</option>
                         </select>
                     </div>
                     <div class="col-12" id="tpl-subject-wrap">
@@ -143,7 +144,7 @@ function loadTemplates() {
             if (!ts.length) { tb.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">Nenhum template. Clique em "Novo template".</td></tr>'; return; }
             tb.innerHTML = ts.map(t => `<tr>
                 <td class="fw-semibold">${escapeHtml(t.name)}</td>
-                <td><span class="badge ${t.channel==='whatsapp'?'bg-success':'bg-primary'}">${t.channel==='whatsapp'?'WhatsApp':'E-mail'}</span></td>
+                <td><span class="badge ${t.channel==='whatsapp'?'bg-success':(t.channel==='linkedin'?'bg-info':'bg-primary')}">${t.channel==='whatsapp'?'WhatsApp':(t.channel==='linkedin'?'LinkedIn':'E-mail')}</span></td>
                 <td class="text-muted small">${escapeHtml(t.subject||'—')}</td>
                 <td class="text-end text-nowrap">
                     <button class="btn btn-sm btn-outline-secondary" onclick='editTemplate(${JSON.stringify(t)})'><i class="bi bi-pencil"></i></button>
