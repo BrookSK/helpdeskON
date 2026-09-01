@@ -190,8 +190,12 @@ class SequencesController extends Controller
             $seq = $this->model->findById($sequenceId);
             if (!$seq) $this->json(['error' => 'Sequência não encontrada.'], 404);
         }
+        // Disparo MANUAL: força a execução ignorando APENAS a janela de horário/fim
+        // de semana (manualForce=true), para que o clique do usuário execute o
+        // primeiro bloco agora em vez de reagendar. Limite diário e demais regras
+        // do motor permanecem. O cron continua chamando processDue sem esse flag.
         $engine = new SequenceEngine();
-        $out['engine'] = $engine->processDue(200, $sequenceId);
+        $out['engine'] = $engine->processDue(200, $sequenceId, true);
 
         $this->json($out);
     }

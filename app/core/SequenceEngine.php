@@ -179,9 +179,13 @@ class SequenceEngine
 
     /**
      * Processa os participantes prontos (next_run_at <= agora), respeitando limites.
+     * @param bool $manualForce Disparo MANUAL (botão "Executar campanha"): ignora
+     *        APENAS a janela de horário/fim de semana do envio, para que a ação
+     *        intencional do usuário execute o bloco agora. O limite diário e demais
+     *        regras permanecem. Default false = comportamento idêntico ao do cron.
      * @return array métricas da execução
      */
-    public function processDue($maxBatch = 200, $sequenceId = null)
+    public function processDue($maxBatch = 200, $sequenceId = null, $manualForce = false)
     {
         $now = date('Y-m-d H:i:s');
         // Filtro opcional por sequência: sem $sequenceId (default) o comportamento é
@@ -215,7 +219,7 @@ class SequenceEngine
             $current = $p;
             for ($i = 0; $i < $maxStepsPerParticipant; $i++) {
                 try {
-                    $r = $this->step($current, $sentByAccount);
+                    $r = $this->step($current, $sentByAccount, false, $manualForce);
                     $stats['processed']++;
                     if ($r === 'sent') $stats['sent']++;
                     elseif ($r === 'finished') $stats['finished']++;
@@ -363,8 +367,12 @@ class SequenceEngine
         return ['success' => true, 'result' => $result, 'detail' => $detail, 'node_type' => $type];
     }
 
-    /** Executa um passo do participante (um nó). $testMode pula esperas/janela. */
-    private function step($participant, &$sentByAccount, $testMode = false)
+    /**
+     * Executa um passo do participante (um nó). $testMode pula esperas/janela.
+     * $manualForce (disparo manual) ignora SOMENTE a janela de horário/fim de semana
+     * do envio — o limite diário e as demais regras seguem valendo.
+     */
+    private function step($participant, &$sentByAccount, $testMode = false, $manualForce = false)
     {
         $seq = $this->db->fetch("SELECT * FROM email_sequences WHERE id = ?", [$participant['sequence_id']]);
         $graph = json_decode($seq['graph'] ?? '{}', true);
@@ -392,7 +400,10 @@ class SequenceEngine
             case 'send':
                 // Respeita janela de horário e limite diário (ignorado no modo teste)
                 if (!$testMode) {
-                    if (!$this->withinWindow($seq)) { $this->reschedule($participant, $this->nextWindowStart($seq)); return 'skipped'; }
+                    // Disparo MANUAL ("Executar campanha") ignora APENAS a janela de
+                    // horário/fim de semana — a ação é intencional do usuário. O cron
+                    // (manualForce=false) mantém a janela como sempre.
+                    if (!$manualForce && !$this->withinWindow($seq)) { $this->reschedule($participant, $this->nextWindowStart($seq)); return 'skipped'; }
                     $key = $seq['id'];
                     $sentByAccount[$key] = ($sentByAccount[$key] ?? 0);
                     if ($this->sentToday($seq['id']) + $sentByAccount[$key] >= (int) $seq['daily_limit']) {
