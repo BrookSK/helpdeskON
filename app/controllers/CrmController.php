@@ -2289,6 +2289,7 @@ class CrmController extends Controller
         $resolver = new LeadResolver();
         $imported = 0;
         $skipped = 0;
+        try {
         foreach ($ids as $id) {
             $lead = $leadModel->findById(intval($id));
             if (!$lead) { $skipped++; continue; }
@@ -2339,6 +2340,17 @@ class CrmController extends Controller
 
             $leadModel->markImported($lead['id'], $contactId, $user['id']);
             $imported++;
+        }
+        } catch (\Throwable $e) {
+            // Nunca deixa um erro virar fatal (que quebraria o JSON e mostraria só
+            // "Erro ao importar." no front). Registra e devolve a causa legível.
+            Logger::error('apolloImport', ['error' => $e->getMessage()]);
+            $this->json([
+                'error' => 'Falha ao importar: ' . $e->getMessage()
+                    . ($imported ? " ({$imported} já importado(s) antes da falha)." : '.'),
+                'imported' => $imported,
+                'skipped' => $skipped,
+            ], 500);
         }
 
         $this->json(['success' => true, 'imported' => $imported, 'skipped' => $skipped]);

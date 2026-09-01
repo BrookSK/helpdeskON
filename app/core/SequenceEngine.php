@@ -826,20 +826,47 @@ class SequenceEngine
      * NÃO envia nada ao LinkedIn. Nenhuma automação/scraping. O envio é feito à mão
      * pelo vendedor, que depois confirma com "ENVIEI" (resumeAfterLinkedinTask).
      */
+    /** A tabela linkedin_tasks existe? (migration 080 pode não ter rodado ainda.) */
+    private function linkedinTasksReady()
+    {
+        static $ready = null;
+        if ($ready !== null) return $ready;
+        try {
+            $r = $this->db->fetch(
+                "SELECT 1 FROM information_schema.TABLES
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'linkedin_tasks'"
+            );
+            $ready = (bool) $r;
+        } catch (\Throwable $e) {
+            $ready = false;
+        }
+        return $ready;
+    }
+
     private function doLinkedin($participant, $seq, $node)
     {
         $contactId = $participant['contact_id'];
         $data = $node['data'] ?? [];
+
+        // Compatibilidade: se a migration 080 (tabela linkedin_tasks) ainda não foi
+        // aplicada, não quebra a sequência — apenas registra e segue.
+        if (!$this->linkedinTasksReady()) {
+            (new LeadTimelineService())->add(
+                $contactId,
+                'linkedin_task',
+                'Etapa LinkedIn ignorada: tabela linkedin_tasks ausente (aplique a migration 080).',
+                ['node_id' => $node['id']]
+            );
+            return true;
+        }
 
         $taskModel = new LinkedinTask();
         // Idempotência: não recria tarefa já aberta desta etapa.
         $existing = $taskModel->findOpenByParticipantNode($participant['id'], $node['id']);
         if ($existing) return true;
 
-        $contact = $this->db->fetch(
-            "SELECT id, contact_name, push_name, linkedin_url, assigned_to FROM whatsapp_contacts WHERE id = ?",
-            [$contactId]
-        );
+        // SELECT resiliente: linkedin_url pode não existir antes da migration 080.
+        $contact = $this->db->fetch("SELECT * FROM whatsapp_contacts WHERE id = ?", [$contactId]);
 
         // Mensagem preparada ANTES de a tarefa aparecer (só dados reais; sem alucinação).
         $gen = (new LinkedinMessageService())->generate($contactId, $node);

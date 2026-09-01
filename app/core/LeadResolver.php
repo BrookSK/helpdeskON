@@ -67,8 +67,9 @@ class LeadResolver
             );
             if ($r) return $r;
         }
-        // 1.5) LinkedIn URL (identificador forte da prospecção híbrida)
-        if ($linkedin) {
+        // 1.5) LinkedIn URL (identificador forte da prospecção híbrida).
+        // Só consulta se a coluna existir (compatível com migration 080 não aplicada).
+        if ($linkedin && $this->hasLinkedinColumn()) {
             $r = $this->db->fetch(
                 "SELECT * FROM whatsapp_contacts WHERE linkedin_url = ? AND COALESCE(is_group,0)=0 LIMIT 1",
                 [$linkedin]
@@ -109,16 +110,21 @@ class LeadResolver
         if (!$instance) return null; // sem instância não é possível criar contato
 
         $jid = ($phoneDigits ?: 'lead_' . uniqid()) . '@s.whatsapp.net';
-        $contactId = $this->db->insert('whatsapp_contacts', [
+        $insert = [
             'instance_id' => $instance['id'],
             'remote_jid' => $jid,
             'phone' => $phoneDigits ?: null,
             'lead_email' => $email ?: null,
-            'linkedin_url' => $this->normalizeLinkedin($data['linkedin_url'] ?? null),
             'contact_name' => $data['name'] ?? 'Lead',
             'assigned_to' => $data['assigned_to'] ?? null,
             'lead_source_url' => $data['source_url'] ?? null,
-        ]);
+        ];
+        // Só grava a URL do LinkedIn se a coluna existir (migration 080). Assim o
+        // import funciona mesmo antes de a migration ser aplicada no servidor.
+        if ($this->hasLinkedinColumn()) {
+            $insert['linkedin_url'] = $this->normalizeLinkedin($data['linkedin_url'] ?? null);
+        }
+        $contactId = $this->db->insert('whatsapp_contacts', $insert);
 
         // Briefing (origem + campos comerciais opcionais)
         $briefing = $data['briefing'] ?? [];
@@ -148,7 +154,8 @@ class LeadResolver
             $update['lead_source_url'] = $data['source_url'];
         }
         // LinkedIn: preenche se o contato ainda não tinha (não sobrescreve).
-        if (empty($existing['linkedin_url']) && !empty($data['linkedin_url'])) {
+        // Só quando a coluna existir (compatível com migration 080 não aplicada).
+        if ($this->hasLinkedinColumn() && empty($existing['linkedin_url']) && !empty($data['linkedin_url'])) {
             $update['linkedin_url'] = $this->normalizeLinkedin($data['linkedin_url']);
         }
         if (!empty($update)) {
@@ -163,6 +170,27 @@ class LeadResolver
     {
         $url = trim((string) $url);
         return $url !== '' ? $url : null;
+    }
+
+    /**
+     * Detecta se a coluna whatsapp_contacts.linkedin_url existe (migration 080 pode
+     * não ter rodado ainda). Mesmo padrão de compatibilidade usado no CrmBoard.
+     * Resultado em cache estático para evitar consultas repetidas.
+     */
+    private function hasLinkedinColumn()
+    {
+        static $has = null;
+        if ($has !== null) return $has;
+        try {
+            $r = $this->db->fetch(
+                "SELECT COUNT(*) c FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'whatsapp_contacts' AND COLUMN_NAME = 'linkedin_url'"
+            );
+            $has = ((int) ($r['c'] ?? 0) > 0);
+        } catch (\Throwable $e) {
+            $has = false;
+        }
+        return $has;
     }
 
     public function normalizeEmail($email)
