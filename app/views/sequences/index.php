@@ -157,11 +157,13 @@
                 </div>
             </div>
             <div class="modal-body">
+                <div id="prog-banner" style="display:none;"></div>
                 <div id="prog-summary" class="d-flex gap-2 flex-wrap mb-2 small"></div>
                 <div class="table-responsive">
                     <table class="table table-sm table-hover align-middle mb-0" style="font-size:0.83rem;">
                         <thead class="table-light">
                             <tr>
+                                <th style="width:36px;"></th>
                                 <th>Lead</th>
                                 <th>Etapa atual</th>
                                 <th>Status</th>
@@ -171,7 +173,7 @@
                             </tr>
                         </thead>
                         <tbody id="prog-tbody">
-                            <tr><td colspan="6" class="text-center text-muted py-3">Carregando...</td></tr>
+                            <tr><td colspan="7" class="text-center text-muted py-3">Carregando...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -317,6 +319,7 @@ function startProgressAuto() {
 }
 function stopProgressAuto() { if (progressTimer) { clearInterval(progressTimer); progressTimer = null; } }
 function toggleProgressAuto() { document.getElementById('prog-autorefresh').checked ? startProgressAuto() : stopProgressAuto(); }
+function toggleHist(idx) { const r = document.getElementById('hist-'+idx); if (r) r.style.display = (r.style.display === 'none' ? '' : 'none'); }
 
 function statusBadgeClass(status) {
     return status === 'active' ? 'bg-primary'
@@ -352,20 +355,77 @@ function refreshProgress() {
               + '<span class="badge bg-secondary">Interrompidos: '+(st.stopped||0)+'</span>'
               + '<span class="badge bg-danger">Falhas: '+(st.failed||0)+'</span>';
 
+            // Banner de alertas: agrega impedimentos (danger) e pausas (warning) para
+            // que o usuário veja de imediato o que travou/pausou e por quê.
+            const banner = document.getElementById('prog-banner');
+            const dangers = [], warns = [];
+            ps.forEach(p => (p.alerts||[]).forEach(a => {
+                if (a.level === 'danger') dangers.push((p.lead_name||'Lead') + ': ' + a.text);
+                else if (a.level === 'warning') warns.push((p.lead_name||'Lead') + ': ' + a.text);
+            }));
+            let bh = '';
+            if (dangers.length) {
+                bh += '<div class="alert alert-danger py-2 px-3 mb-2 small"><i class="bi bi-x-octagon"></i> <strong>Execução impedida/falha:</strong><ul class="mb-0 mt-1">'
+                    + dangers.map(t=>'<li>'+escapeHtml(t)+'</li>').join('') + '</ul></div>';
+            }
+            if (warns.length) {
+                bh += '<div class="alert alert-warning py-2 px-3 mb-2 small"><i class="bi bi-pause-circle"></i> <strong>Pausado/aguardando ação:</strong><ul class="mb-0 mt-1">'
+                    + warns.map(t=>'<li>'+escapeHtml(t)+'</li>').join('') + '</ul></div>';
+            }
+            // Só exibe o banner quando há alertas; sem alertas, fica totalmente oculto
+            // (sem ocupar espaço na tela).
+            banner.innerHTML = bh;
+            banner.style.display = bh ? '' : 'none';
+
             if (!ps.length) {
-                document.getElementById('prog-tbody').innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">Nenhum lead nesta sequência ainda.</td></tr>';
+                document.getElementById('prog-tbody').innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">Nenhum lead nesta sequência ainda.</td></tr>';
             } else {
-                document.getElementById('prog-tbody').innerHTML = ps.map(p => {
+                document.getElementById('prog-tbody').innerHTML = ps.map((p, idx) => {
                     const waitCell = p.wait_until ? ('<span class="text-nowrap"><i class="bi bi-clock text-warning"></i> '+fmtWhen(p.wait_until)+'</span>') : '—';
                     const lastCell = escapeHtml(p.last_step||'—') + (p.last_at ? ' <span class="text-muted">('+fmtWhen(p.last_at)+')</span>' : '');
-                    return '<tr>'
-                        + '<td class="fw-semibold">'+escapeHtml(p.lead_name||'—')+(p.lead_email?('<br><span class="text-muted small">'+escapeHtml(p.lead_email)+'</span>'):'')+'</td>'
+
+                    // Avisos (impedido / pausado / aguardando / falha) com o motivo.
+                    const alerts = p.alerts || [];
+                    let alertsHtml = '';
+                    if (alerts.length) {
+                        alertsHtml = '<div class="mt-1 d-flex flex-column gap-1">' + alerts.map(a => {
+                            const cls = a.level === 'danger' ? 'text-danger' : (a.level === 'warning' ? 'text-warning-emphasis' : 'text-muted');
+                            const icon = a.level === 'danger' ? 'bi-x-octagon' : (a.level === 'warning' ? 'bi-pause-circle' : 'bi-info-circle');
+                            return '<span class="small '+cls+'"><i class="bi '+icon+'"></i> '+escapeHtml(a.text)+'</span>';
+                        }).join('') + '</div>';
+                    }
+
+                    const hist = p.history || [];
+                    const hasHist = hist.length > 0;
+                    const toggle = hasHist
+                        ? '<button class="btn btn-sm btn-link p-0" title="Ver histórico de etapas" onclick="toggleHist('+idx+')"><i class="bi bi-clock-history"></i></button>'
+                        : '';
+
+                    // Linha principal + linha de histórico (oculta por padrão).
+                    let row = '<tr>'
+                        + '<td class="text-center">'+toggle+'</td>'
+                        + '<td class="fw-semibold">'+escapeHtml(p.lead_name||'—')+(p.lead_email?('<br><span class="text-muted small">'+escapeHtml(p.lead_email)+'</span>'):'')+alertsHtml+'</td>'
                         + '<td>'+escapeHtml(p.current_step||'—')+'</td>'
                         + '<td><span class="badge '+statusBadgeClass(p.status)+'">'+escapeHtml(p.status_text||p.status||'—')+'</span></td>'
                         + '<td>'+waitCell+'</td>'
                         + '<td>'+lastCell+'</td>'
                         + '<td class="text-muted">'+escapeHtml(p.next_step||'—')+'</td>'
                         + '</tr>';
+
+                    if (hasHist) {
+                        const items = hist.map(h => {
+                            const rc = h.result === 'failed' ? 'text-danger' : (h.result === 'waiting' ? 'text-warning-emphasis' : 'text-success');
+                            const det = h.detail ? ' <span class="text-muted">— '+escapeHtml(h.detail)+'</span>' : '';
+                            return '<li class="mb-1"><span class="text-muted">'+fmtWhen(h.at)+'</span> · '
+                                 + escapeHtml(h.step)+' → <span class="'+rc+'">'+escapeHtml(h.result_label||h.result||'')+'</span>'+det+'</li>';
+                        }).join('');
+                        row += '<tr id="hist-'+idx+'" style="display:none;"><td></td><td colspan="6">'
+                             + '<div class="border-start ps-2 ms-1">'
+                             + '<div class="small fw-semibold mb-1"><i class="bi bi-clock-history"></i> Histórico de etapas (o que já rodou)</div>'
+                             + '<ol class="mb-0 ps-3 small">'+items+'</ol>'
+                             + '</div></td></tr>';
+                    }
+                    return row;
                 }).join('');
             }
             document.getElementById('prog-updated').textContent = 'Atualizado às ' + new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' });

@@ -1136,6 +1136,86 @@ class SequenceEngine
     }
 
     /**
+     * Rótulo legível do RESULTADO de um passo no histórico, conforme o tipo do nó.
+     * Ex.: send/done => "E-mail enviado"; send/failed => "Falha ao enviar";
+     * wait/waiting => "Aguardando"; linkedin/waiting => "Tarefa criada (aguardando)".
+     */
+    public static function resultLabel($type, $result)
+    {
+        if ($type === 'send') {
+            if ($result === 'done') return 'E-mail enviado';
+            if ($result === 'failed') return 'Falha ao enviar e-mail';
+        }
+        if ($type === 'whatsapp') {
+            if ($result === 'done') return 'WhatsApp enviado';
+            if ($result === 'failed') return 'Falha ao enviar WhatsApp';
+        }
+        if ($type === 'wait' && $result === 'waiting') return 'Aguardando';
+        if ($type === 'linkedin' && $result === 'waiting') return 'Tarefa criada (aguardando ação)';
+        if ($type === 'condition') return 'Condição avaliada';
+        $map = ['done' => 'Executado', 'failed' => 'Falhou', 'waiting' => 'Aguardando', 'skipped' => 'Pulado'];
+        return $map[$result] ?? ($result ?: '—');
+    }
+
+    /**
+     * Monta avisos LEGÍVEIS (impedido / pausado / pulado / aguardando) com o motivo
+     * real, para o painel de acompanhamento. Cada aviso: {level, text}.
+     * level: 'danger' (impediu/falhou), 'warning' (pausado/aguardando ação),
+     *        'info' (aguardando tempo / andamento normal).
+     */
+    private function buildAlerts($participant, $curNode, array $history, $waitUntil)
+    {
+        $alerts = [];
+        $status = $participant['status'] ?? '';
+        $reason = $participant['stop_reason'] ?? '';
+
+        // Falhas registradas no histórico (ex.: envio de e-mail/WhatsApp falhou).
+        foreach ($history as $h) {
+            if (($h['result'] ?? '') === 'failed') {
+                $why = !empty($h['detail']) ? (' — ' . $h['detail']) : '';
+                $alerts[] = ['level' => 'danger', 'text' => 'Etapa "' . $h['step'] . '" não foi concluída' . $why];
+            }
+        }
+
+        // Estado final/interrompido com motivo.
+        if ($status === 'finished') {
+            $reasonMap = [
+                'completed' => 'Sequência concluída normalmente.',
+                'replied' => 'Interrompida porque o lead respondeu.',
+                'unsubscribed' => 'Interrompida: lead descadastrado.',
+                'bounce' => 'Interrompida: e-mail inválido (bounce).',
+                'no_email' => 'Impedida: o lead não tem e-mail cadastrado.',
+                'no_account' => 'Impedida: nenhuma conta de e-mail ativa configurada para envio.',
+            ];
+            $lvl = in_array($reason, ['no_email', 'no_account', 'bounce'], true) ? 'danger' : 'info';
+            $alerts[] = ['level' => $lvl, 'text' => $reasonMap[$reason] ?? ('Finalizada (' . ($reason ?: 'concluída') . ').')];
+        } elseif ($status === 'stopped') {
+            $alerts[] = ['level' => 'warning', 'text' => 'Execução interrompida' . ($reason ? ' — ' . $reason : '') . '.'];
+        } elseif ($status === 'failed') {
+            $alerts[] = ['level' => 'danger', 'text' => 'Execução falhou' . ($reason ? ' — ' . $reason : '') . '.'];
+        } elseif ($status === 'paused') {
+            if (($curNode['type'] ?? '') === 'linkedin') {
+                $alerts[] = ['level' => 'warning', 'text' => 'Pausado no LinkedIn: uma tarefa manual foi criada em CRM → Minhas Ações. A sequência só avança quando o vendedor confirmar o envio.'];
+            } else {
+                $alerts[] = ['level' => 'warning', 'text' => 'Participante pausado.'];
+            }
+        } else { // active
+            $type = $curNode['type'] ?? null;
+            if ($type === 'wait' && $waitUntil) {
+                $alerts[] = ['level' => 'info', 'text' => 'Aguardando o tempo configurado. Próxima execução prevista para ' . $waitUntil . '.'];
+            } elseif ($type === 'condition') {
+                $alerts[] = ['level' => 'info', 'text' => 'Aguardando resposta para avaliar a condição. Enquanto não responder, seguirá pelo caminho "Não".'];
+            } elseif ($type === 'send') {
+                $alerts[] = ['level' => 'info', 'text' => 'Pronto para enviar e-mail na próxima execução.'];
+            } elseif ($type === 'linkedin') {
+                $alerts[] = ['level' => 'info', 'text' => 'Pronto para gerar a tarefa de LinkedIn na próxima execução.'];
+            }
+        }
+
+        return $alerts;
+    }
+
+    /**
      * Status legível do participante para a tela de acompanhamento.
      * Considera o status do registro e o tipo do nó atual.
      */
@@ -1211,13 +1291,27 @@ class SequenceEngine
                 }
             }
 
-            // Última etapa executada (log).
-            $last = $this->db->fetch(
+            // Histórico COMPLETO de etapas executadas (mostra que nada foi "pulado":
+            // cada nó por onde o lead passou fica registrado, com resultado e motivo).
+            $execRows = $this->db->fetchAll(
                 "SELECT node_id, node_type, result, detail, executed_at
                  FROM sequence_executions WHERE participant_id = ?
-                 ORDER BY executed_at DESC, id DESC LIMIT 1",
+                 ORDER BY executed_at ASC, id ASC",
                 [$p['id']]
             );
+            $history = [];
+            foreach ($execRows as $ex) {
+                $exNode = isset($nodes[$ex['node_id']]) ? $nodes[$ex['node_id']] : ['type' => $ex['node_type']];
+                $history[] = [
+                    'step' => self::nodeDescribe($exNode),
+                    'type' => $ex['node_type'],
+                    'result' => $ex['result'],
+                    'result_label' => self::resultLabel($ex['node_type'], $ex['result']),
+                    'detail' => $ex['detail'] ?: null,
+                    'at' => $ex['executed_at'],
+                ];
+            }
+            $last = !empty($execRows) ? end($execRows) : null;
             $lastLabel = null;
             if ($last) {
                 $lastNode = isset($nodes[$last['node_id']]) ? $nodes[$last['node_id']] : ['type' => $last['node_type']];
@@ -1229,6 +1323,9 @@ class SequenceEngine
             if ($curNode && ($curNode['type'] ?? '') === 'wait' && !empty($p['next_run_at'])) {
                 $waitUntil = $p['next_run_at'];
             }
+
+            // Avisos: impedido / pausado / pulado / aguardando — com o motivo real.
+            $alerts = $this->buildAlerts($p, $curNode, $history, $waitUntil);
 
             $out[] = [
                 'participant_id' => (int) $p['id'],
@@ -1244,6 +1341,8 @@ class SequenceEngine
                 'next_step' => $nextLabel ?: '—',
                 'next_run_at' => $p['next_run_at'] ?? null,
                 'wait_until' => $waitUntil,
+                'history' => $history,
+                'alerts' => $alerts,
             ];
         }
 
