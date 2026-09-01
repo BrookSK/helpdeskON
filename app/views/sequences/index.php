@@ -83,7 +83,8 @@
                         <span><i class="bi bi-people"></i> <?= (int)$s['total_participants'] ?> leads</span>
                         <span><i class="bi bi-play-circle"></i> <?= (int)$s['active_participants'] ?> ativos</span>
                     </div>
-                    <div class="d-flex gap-2">
+                    <div class="d-flex gap-2 flex-wrap">
+                        <button class="btn btn-sm btn-outline-success" onclick="openProgress(<?= (int)$s['id'] ?>, <?= htmlspecialchars(json_encode($s['name']), ENT_QUOTES) ?>)" title="Acompanhar o estado de cada lead nesta sequência"><i class="bi bi-activity"></i> Acompanhar estado</button>
                         <a href="<?= baseUrl('sequences/edit/' . $s['id']) ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil"></i> Editar</a>
                         <button class="btn btn-sm btn-outline-danger" onclick="delSeq(<?= $s['id'] ?>)"><i class="bi bi-trash"></i></button>
                     </div>
@@ -132,6 +133,53 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
                 <button class="btn btn-sm btn-primary" onclick="saveTemplate()"><i class="bi bi-check-lg"></i> Salvar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Acompanhar estado -->
+<div class="modal fade" id="progressModal" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <h6 class="modal-title mb-0"><i class="bi bi-activity"></i> Acompanhar estado — <span id="prog-seq-name"></span></h6>
+                    <small class="text-muted">Estado atual de cada lead. Atualiza automaticamente.</small>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <div class="form-check form-switch mb-0 me-1" title="Atualizar automaticamente a cada 5s">
+                        <input class="form-check-input" type="checkbox" id="prog-autorefresh" checked onchange="toggleProgressAuto()">
+                        <label class="form-check-label small" for="prog-autorefresh">Auto</label>
+                    </div>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="refreshProgress()" title="Atualizar agora"><i class="bi bi-arrow-clockwise"></i></button>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div id="prog-summary" class="d-flex gap-2 flex-wrap mb-2 small"></div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover align-middle mb-0" style="font-size:0.83rem;">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Lead</th>
+                                <th>Etapa atual</th>
+                                <th>Status</th>
+                                <th>Aguardar até</th>
+                                <th>Última etapa</th>
+                                <th>Próxima etapa</th>
+                            </tr>
+                        </thead>
+                        <tbody id="prog-tbody">
+                            <tr><td colspan="6" class="text-center text-muted py-3">Carregando...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <small class="text-muted d-block mt-2"><i class="bi bi-info-circle"></i> Blocos "Aguardar" só liberam quando o tempo configurado vence; "Aguardar até" mostra o horário previsto para a próxima execução.</small>
+            </div>
+            <div class="modal-footer">
+                <span class="text-muted small me-auto" id="prog-updated"></span>
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Fechar</button>
             </div>
         </div>
     </div>
@@ -201,20 +249,128 @@ function runCampaignNow(btn) {
                  + 'Respostas detectadas: ' + (d.replies_detected ?? 0)
                  + (d.replies_error ? (' | erro: ' + d.replies_error) : '') + '\n';
 
-            // Passo 3 — avanço da sequência (igual /cron/runSequences)
+            // Passo 3 — avanço da sequência (igual /cron/runSequences), agora com
+            // um resumo LEGÍVEL por participante (o que aconteceu com cada lead).
             const s = d.engine || {};
-            msg += '\n== Avanço da sequência ==\n'
-                 + 'Processados: ' + (s.processed ?? 0)
-                 + ' | Enviados: ' + (s.sent ?? 0)
-                 + ' | Ignorados: ' + (s.skipped ?? 0)
-                 + ' | Finalizados: ' + (s.finished ?? 0)
-                 + ' | Erros: ' + (s.errors ?? 0) + '\n\n'
-                 + 'Tarefas LinkedIn aparecem em CRM → Minhas Ações quando um participante chega na etapa LinkedIn.\n'
-                 + 'Obs.: blocos "Aguardar" só liberam quando o tempo configurado vence (o processo respeita os tempos reais).';
+            msg += '\n== Avanço da sequência ==\n';
 
-            alert(msg);
+            const parts = d.participants || [];
+            if (parts.length) {
+                msg += 'O que aconteceu com cada lead:\n';
+                parts.forEach(p => {
+                    let line = '• ' + (p.lead_name || 'Lead') + ': ' + (p.did || '—')
+                             + ' → ' + (p.status_text || p.status || '');
+                    if (p.wait_until) line += ' (aguardar até ' + fmtWhen(p.wait_until) + ')';
+                    msg += line + '\n';
+                });
+                msg += '\n';
+            } else {
+                msg += 'Nenhum participante estava pronto para processar nesta passada.\n';
+            }
+
+            msg += 'Resumo: Processados ' + (s.processed ?? 0)
+                 + ' | Enviados ' + (s.sent ?? 0)
+                 + ' | Aguardando/etapas ' + (s.skipped ?? 0)
+                 + ' | Finalizados ' + (s.finished ?? 0)
+                 + ' | Erros ' + (s.errors ?? 0) + '\n\n'
+                 + 'Tarefas LinkedIn aparecem em CRM → Minhas Ações quando um participante chega na etapa LinkedIn.\n'
+                 + 'Blocos "Aguardar" só liberam quando o tempo configurado vence (o processo respeita os tempos reais).';
+
+            // Se houve escopo de sequência, oferece abrir a tela de acompanhamento.
+            const seqForProgress = (d.progress && d.progress.sequence) ? d.progress.sequence : null;
+            if (seqForProgress) {
+                msg += '\n\nDeseja abrir "Acompanhar estado" para ver o andamento em tempo real?';
+                if (confirm(msg)) { openProgress(seqForProgress.id, seqForProgress.name); }
+            } else {
+                alert(msg);
+            }
         })
         .catch(()=>{ btn.disabled = false; btn.innerHTML = original; alert('Erro ao executar a campanha.'); });
+}
+
+// ---- Acompanhar estado (progresso legível por lead) ----
+let progressModal = null;
+let progressTimer = null;
+let progressSeqId = null;
+
+function getProgressModal(){ if(!progressModal) progressModal = new bootstrap.Modal(document.getElementById('progressModal')); return progressModal; }
+
+function openProgress(seqId, seqName) {
+    progressSeqId = seqId;
+    document.getElementById('prog-seq-name').textContent = seqName || ('#' + seqId);
+    document.getElementById('prog-tbody').innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">Carregando...</td></tr>';
+    document.getElementById('prog-summary').innerHTML = '';
+    document.getElementById('prog-updated').textContent = '';
+    document.getElementById('prog-autorefresh').checked = true;
+    getProgressModal().show();
+    refreshProgress();
+    startProgressAuto();
+    // Para o auto-refresh ao fechar o modal.
+    document.getElementById('progressModal').addEventListener('hidden.bs.modal', stopProgressAuto, { once:true });
+}
+
+function startProgressAuto() {
+    stopProgressAuto();
+    if (document.getElementById('prog-autorefresh').checked) {
+        progressTimer = setInterval(refreshProgress, 5000);
+    }
+}
+function stopProgressAuto() { if (progressTimer) { clearInterval(progressTimer); progressTimer = null; } }
+function toggleProgressAuto() { document.getElementById('prog-autorefresh').checked ? startProgressAuto() : stopProgressAuto(); }
+
+function statusBadgeClass(status) {
+    return status === 'active' ? 'bg-primary'
+        : status === 'paused' ? 'bg-warning text-dark'
+        : status === 'finished' ? 'bg-success'
+        : status === 'stopped' ? 'bg-secondary'
+        : status === 'failed' ? 'bg-danger' : 'bg-light text-dark';
+}
+
+// Formata "YYYY-MM-DD HH:MM:SS" para algo curto e legível (HH:MM, com data se não for hoje).
+function fmtWhen(s) {
+    if (!s) return '—';
+    const d = new Date(s.replace(' ', 'T'));
+    if (isNaN(d)) return escapeHtml(s);
+    const hhmm = d.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+    const today = new Date();
+    const sameDay = d.getFullYear()===today.getFullYear() && d.getMonth()===today.getMonth() && d.getDate()===today.getDate();
+    return sameDay ? hhmm : (d.toLocaleDateString([], { day:'2-digit', month:'2-digit' }) + ' ' + hhmm);
+}
+
+function refreshProgress() {
+    if (!progressSeqId) return;
+    fetch(BASE + 'sequences/progress/' + progressSeqId, { headers:{'X-Requested-With':'XMLHttpRequest'} })
+        .then(r=>r.json())
+        .then(d=>{
+            if (d.error) { document.getElementById('prog-tbody').innerHTML = '<tr><td colspan="6" class="text-center text-danger py-3">'+escapeHtml(d.error)+'</td></tr>'; return; }
+            const ps = d.participants || [];
+            const st = d.stats || {};
+            document.getElementById('prog-summary').innerHTML =
+                '<span class="badge bg-primary">Ativos: '+(st.active||0)+'</span>'
+              + '<span class="badge bg-warning text-dark">Pausados: '+(st.paused||0)+'</span>'
+              + '<span class="badge bg-success">Finalizados: '+(st.finished||0)+'</span>'
+              + '<span class="badge bg-secondary">Interrompidos: '+(st.stopped||0)+'</span>'
+              + '<span class="badge bg-danger">Falhas: '+(st.failed||0)+'</span>';
+
+            if (!ps.length) {
+                document.getElementById('prog-tbody').innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">Nenhum lead nesta sequência ainda.</td></tr>';
+            } else {
+                document.getElementById('prog-tbody').innerHTML = ps.map(p => {
+                    const waitCell = p.wait_until ? ('<span class="text-nowrap"><i class="bi bi-clock text-warning"></i> '+fmtWhen(p.wait_until)+'</span>') : '—';
+                    const lastCell = escapeHtml(p.last_step||'—') + (p.last_at ? ' <span class="text-muted">('+fmtWhen(p.last_at)+')</span>' : '');
+                    return '<tr>'
+                        + '<td class="fw-semibold">'+escapeHtml(p.lead_name||'—')+(p.lead_email?('<br><span class="text-muted small">'+escapeHtml(p.lead_email)+'</span>'):'')+'</td>'
+                        + '<td>'+escapeHtml(p.current_step||'—')+'</td>'
+                        + '<td><span class="badge '+statusBadgeClass(p.status)+'">'+escapeHtml(p.status_text||p.status||'—')+'</span></td>'
+                        + '<td>'+waitCell+'</td>'
+                        + '<td>'+lastCell+'</td>'
+                        + '<td class="text-muted">'+escapeHtml(p.next_step||'—')+'</td>'
+                        + '</tr>';
+                }).join('');
+            }
+            document.getElementById('prog-updated').textContent = 'Atualizado às ' + new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+        })
+        .catch(()=>{ document.getElementById('prog-tbody').innerHTML = '<tr><td colspan="6" class="text-center text-danger py-3">Falha ao carregar o estado.</td></tr>'; });
 }
 
 // ---- Templates ----

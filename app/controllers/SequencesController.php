@@ -10,6 +10,7 @@
  *   sequences/save               -> POST (cria/atualiza definição + grafo)
  *   sequences/delete/{id}        -> POST
  *   sequences/detail/{id}        -> JSON (participantes/stats)
+ *   sequences/progress/{id}      -> JSON (acompanhamento legível do estado de cada lead)
  *   sequences/addLeads           -> POST (inscreve leads por contact_ids[])
  *   sequences/removeLead         -> POST (participant_id)
  *   sequences/leadsForSelect      -> JSON (leads com e-mail, para o seletor)
@@ -194,8 +195,19 @@ class SequencesController extends Controller
         // de semana (manualForce=true), para que o clique do usuário execute o
         // primeiro bloco agora em vez de reagendar. Limite diário e demais regras
         // do motor permanecem. O cron continua chamando processDue sem esse flag.
+        // O 4º argumento (&$details) coleta um resumo LEGÍVEL por participante para
+        // que a resposta do disparo manual seja compreensível (não só contadores).
         $engine = new SequenceEngine();
-        $out['engine'] = $engine->processDue(200, $sequenceId, true);
+        $details = [];
+        $out['engine'] = $engine->processDue(200, $sequenceId, true, $details);
+        $out['participants'] = $details;
+
+        // Visão de acompanhamento pós-execução (estado atual de cada lead), quando
+        // o disparo foi escopado a uma sequência — alimenta a tela "Acompanhar estado".
+        if ($sequenceId) {
+            $prog = $engine->progress($sequenceId);
+            if (empty($prog['error'])) $out['progress'] = $prog;
+        }
 
         $this->json($out);
     }
@@ -255,6 +267,31 @@ class SequencesController extends Controller
             'sequence' => $seq,
             'participants' => $this->model->participants($id),
             'stats' => $this->model->stats($id),
+        ]);
+    }
+
+    /**
+     * ACOMPANHAR ESTADO: visão legível do andamento de cada lead da sequência
+     * (etapa atual, última etapa, próxima etapa, status e "aguardar até").
+     * Somente leitura — usada pela tela de acompanhamento que atualiza sozinha.
+     * GET sequences/progress/{id}
+     */
+    public function progress($id = null)
+    {
+        $this->requireRole($this->roles);
+        if (!$id) $this->json(['error' => 'ID obrigatório'], 400);
+        $seq = $this->model->findById($id);
+        if (!$seq) $this->json(['error' => 'Sequência não encontrada'], 404);
+
+        $data = (new SequenceEngine())->progress((int) $id);
+        if (!empty($data['error'])) $this->json(['error' => $data['error']], 404);
+
+        $stats = $this->model->stats($id);
+        $this->json([
+            'sequence' => $data['sequence'],
+            'participants' => $data['participants'],
+            'stats' => $stats,
+            'server_now' => date('Y-m-d H:i:s'),
         ]);
     }
 
