@@ -320,6 +320,7 @@ function startProgressAuto() {
 function stopProgressAuto() { if (progressTimer) { clearInterval(progressTimer); progressTimer = null; } }
 function toggleProgressAuto() { document.getElementById('prog-autorefresh').checked ? startProgressAuto() : stopProgressAuto(); }
 function toggleHist(idx) { const r = document.getElementById('hist-'+idx); if (r) r.style.display = (r.style.display === 'none' ? '' : 'none'); }
+function toggleBannerDetails(id) { const r = document.getElementById(id); if (r) r.style.display = (r.style.display === 'none' ? '' : 'none'); }
 
 function statusBadgeClass(status) {
     return status === 'active' ? 'bg-primary'
@@ -363,14 +364,26 @@ function refreshProgress() {
                 if (a.level === 'danger') dangers.push((p.lead_name||'Lead') + ': ' + a.text);
                 else if (a.level === 'warning') warns.push((p.lead_name||'Lead') + ': ' + a.text);
             }));
+            // Botões discretos com "ver detalhes" (expansível). Sem caixas vermelhas
+            // chamativas; apenas um aviso enxuto que revela a lista detalhada ao clicar.
             let bh = '';
             if (dangers.length) {
-                bh += '<div class="alert alert-danger py-2 px-3 mb-2 small"><i class="bi bi-x-octagon"></i> <strong>Execução impedida/falha:</strong><ul class="mb-0 mt-1">'
-                    + dangers.map(t=>'<li>'+escapeHtml(t)+'</li>').join('') + '</ul></div>';
+                bh += '<div class="mb-2">'
+                    + '<button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleBannerDetails(\'prog-danger-details\')">'
+                    + '<i class="bi bi-exclamation-triangle text-danger"></i> Execução impedida/falha ('+dangers.length+') — ver detalhes'
+                    + '</button>'
+                    + '<div id="prog-danger-details" style="display:none;" class="mt-2 ps-1">'
+                    + '<ul class="small mb-0">'+dangers.map(t=>'<li>'+escapeHtml(t)+'</li>').join('')+'</ul>'
+                    + '</div></div>';
             }
             if (warns.length) {
-                bh += '<div class="alert alert-warning py-2 px-3 mb-2 small"><i class="bi bi-pause-circle"></i> <strong>Pausado/aguardando ação:</strong><ul class="mb-0 mt-1">'
-                    + warns.map(t=>'<li>'+escapeHtml(t)+'</li>').join('') + '</ul></div>';
+                bh += '<div class="mb-2">'
+                    + '<button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleBannerDetails(\'prog-warn-details\')">'
+                    + '<i class="bi bi-pause-circle text-warning"></i> Pausado/aguardando ação ('+warns.length+') — ver detalhes'
+                    + '</button>'
+                    + '<div id="prog-warn-details" style="display:none;" class="mt-2 ps-1">'
+                    + '<ul class="small mb-0">'+warns.map(t=>'<li>'+escapeHtml(t)+'</li>').join('')+'</ul>'
+                    + '</div></div>';
             }
             // Só exibe o banner quando há alertas; sem alertas, fica totalmente oculto
             // (sem ocupar espaço na tela).
