@@ -118,6 +118,27 @@ class SequencesController extends Controller
         $this->json($result);
     }
 
+    /**
+     * DISPARO MANUAL (apenas para teste na BETA): processa AGORA os participantes
+     * elegíveis, reutilizando exatamente o mesmo motor do cron
+     * (SequenceEngine::processDue). NÃO duplica lógica, NÃO altera o cron nem o motor
+     * — é só um gatilho manual equivalente ao passo de processamento do runSequences.
+     * Em produção, o cron continua chamando /cron/runSequences normalmente.
+     * POST sequences/runNow
+     */
+    public function runNow()
+    {
+        $this->requireRole($this->roles);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        @set_time_limit(300);
+
+        // Mesmo motor usado pelo cron (passo 2 do runSequences). Sem lógica paralela.
+        $engine = new SequenceEngine();
+        $stats = $engine->processDue(200);
+
+        $this->json(['success' => true, 'engine' => $stats]);
+    }
+
     public function save()
     {
         $this->requireRole($this->roles);

@@ -9,6 +9,9 @@
             <small class="text-muted">Follow-up automático de leads do CRM</small>
         </div>
         <div class="d-flex gap-2">
+            <button class="btn btn-sm btn-outline-secondary" id="btn-run-now" onclick="runSequencesNow(this)" title="Processa agora os participantes elegíveis (teste na BETA). Em produção isso roda pelo cron.">
+                <i class="bi bi-play-fill"></i> Processar agora
+            </button>
             <a href="<?= baseUrl('sequences/edit') ?>" class="btn btn-sm btn-primary" id="btn-new-seq"><i class="bi bi-plus-lg"></i> Nova sequência</a>
             <button class="btn btn-sm btn-primary d-none" id="btn-new-tpl" onclick="openTemplate()"><i class="bi bi-plus-lg"></i> Novo template</button>
         </div>
@@ -133,6 +136,28 @@ function delSeq(id) {
     if (!confirm('Excluir esta sequência? Os participantes e o histórico serão removidos.')) return;
     fetch(BASE + 'sequences/delete/' + id, { method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'} })
         .then(r=>r.json()).then(d=>{ if(d.error){alert(d.error);return;} location.reload(); });
+}
+
+// Disparo MANUAL do processamento (teste na BETA). Reutiliza o mesmo motor do cron.
+function runSequencesNow(btn) {
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Processando...';
+    fetch(BASE + 'sequences/runNow', { method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'} })
+        .then(r=>r.json())
+        .then(d=>{
+            btn.disabled = false; btn.innerHTML = original;
+            if (d.error) { alert(d.error); return; }
+            const s = d.engine || {};
+            alert('Processamento executado.\n\n'
+                + 'Processados: ' + (s.processed ?? 0) + '\n'
+                + 'Enviados: ' + (s.sent ?? 0) + '\n'
+                + 'Ignorados (espera/janela/etapa): ' + (s.skipped ?? 0) + '\n'
+                + 'Finalizados: ' + (s.finished ?? 0) + '\n'
+                + 'Erros: ' + (s.errors ?? 0) + '\n\n'
+                + 'Tarefas LinkedIn aparecem em CRM → Minhas Ações quando um participante chega na etapa LinkedIn.');
+        })
+        .catch(()=>{ btn.disabled = false; btn.innerHTML = original; alert('Erro ao processar as sequências.'); });
 }
 
 // ---- Templates ----
