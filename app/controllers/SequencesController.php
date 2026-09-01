@@ -30,22 +30,11 @@ class SequencesController extends Controller
         $this->requireRole($this->roles);
         $user = $this->currentUser();
 
-        // Campanhas de prospecção (para o disparo manual da BETA — ponte do cron).
-        // Silencioso se a tabela ainda não existir no ambiente.
-        $campaigns = [];
-        try {
-            $campaigns = Database::getInstance()->fetchAll(
-                "SELECT c.id, c.name, c.is_active, c.sequence_id, s.name AS sequence_name
-                 FROM apollo_campaigns c
-                 LEFT JOIN email_sequences s ON s.id = c.sequence_id
-                 ORDER BY c.id ASC"
-            );
-        } catch (\Throwable $e) { $campaigns = []; }
-
+        // O disparo manual é baseado na SEQUÊNCIA (o seletor lista as sequências
+        // ativas). Não depende mais de campanhas Apollo.
         $this->view('sequences/index', [
             'user' => $user,
             'sequences' => $this->model->all(),
-            'campaigns' => $campaigns,
         ]);
     }
 
@@ -147,13 +136,14 @@ class SequencesController extends Controller
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
         @set_time_limit(300);
 
-        // Ponte MANUAL (BETA) para o processo que o cron executaria. Reproduz os dois
-        // passos do cron, sem lógica paralela nem acelerada:
-        //   1) Captação da campanha  → ApolloProspectingService::runDueCampaign (== /cron/runProspecting escopado)
+        // Disparo MANUAL para o processo que o cron executaria, ESCOPADO À SEQUÊNCIA
+        // selecionada. Reproduz os passos do cron, sem lógica paralela nem acelerada:
+        //   1) Detecção de respostas → CronController::detectReplies (== /cron/runSequences)
         //   2) Avanço da sequência   → SequenceEngine::processDue (== /cron/runSequences)
-        // Escopo por CAMPANHA (preferencial) ou por sequência avulsa.
-        $campaignId = !empty($_POST['campaign_id']) ? intval($_POST['campaign_id']) : null;
+        // O caminho por campanha Apollo (campaign_id) é OPCIONAL/legado: se enviado,
+        // roda a captação antes; o uso normal do botão é por SEQUÊNCIA (sequence_id).
         $sequenceId = !empty($_POST['sequence_id']) ? intval($_POST['sequence_id']) : null;
+        $campaignId = !empty($_POST['campaign_id']) ? intval($_POST['campaign_id']) : null;
 
         $out = ['success' => true];
 
