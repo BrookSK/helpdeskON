@@ -199,6 +199,25 @@ class SequencesController extends Controller
             if (empty($prog['error'])) $out['progress'] = $prog;
         }
 
+        // LOG (aparece no painel de logs do servidor): registra a ROTA do disparo
+        // manual e o resultado agregado, para rastrear execuções e identificar erros.
+        $eng = $out['engine'] ?? [];
+        Logger::info('sequences/runNow disparo manual', [
+            'route' => 'sequences/runNow',
+            'user_id' => $this->currentUser()['id'] ?? null,
+            'scope' => $out['scope'] ?? null,
+            'sequence_id' => $sequenceId,
+            'campaign_id' => $campaignId,
+            'replies_detected' => $out['replies_detected'] ?? null,
+            'engine' => [
+                'processed' => $eng['processed'] ?? 0,
+                'sent' => $eng['sent'] ?? 0,
+                'skipped' => $eng['skipped'] ?? 0,
+                'finished' => $eng['finished'] ?? 0,
+                'errors' => $eng['errors'] ?? 0,
+            ],
+        ]);
+
         $this->json($out);
     }
 

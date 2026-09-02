@@ -583,9 +583,12 @@ class SequenceEngine
     private function doWhatsapp($participant, $node)
     {
         $contactId = $participant['contact_id'];
+        // Contexto base para os logs desta etapa (aparece no painel de logs do servidor).
+        $logCtx = ['step' => 'whatsapp', 'participant_id' => $participant['id'] ?? null, 'contact_id' => $contactId];
         $contact = $this->db->fetch("SELECT id, phone, contact_name, push_name, lead_email FROM whatsapp_contacts WHERE id = ?", [$contactId]);
         if (empty($contact['phone'])) {
             (new LeadTimelineService())->add($contactId, 'note', 'WhatsApp da sequência não enviado: lead sem telefone.');
+            Logger::warning('SequenceEngine whatsapp impedido', $logCtx + ['reason' => 'Lead sem telefone']);
             return 'Lead sem telefone';
         }
         $data = $node['data'] ?? [];
@@ -595,22 +598,36 @@ class SequenceEngine
             if ($tpl) $bodySrc = $tpl['body'];
         }
         $msg = $this->render($bodySrc, $contact);
-        if (trim($msg) === '') return 'Mensagem vazia';
+        if (trim($msg) === '') {
+            Logger::warning('SequenceEngine whatsapp impedido', $logCtx + ['reason' => 'Mensagem vazia']);
+            return 'Mensagem vazia';
+        }
 
         // SEMPRE usa a instância PADRÃO para envios de sequência.
         $ctxRow = $this->db->fetch("SELECT remote_jid FROM whatsapp_contacts WHERE id = ?", [$contactId]);
         $default = $this->db->fetch("SELECT id, connection_status FROM whatsapp_instances WHERE is_default = 1 LIMIT 1");
-        if (!$default) return 'Nenhuma instância padrão de WhatsApp definida. Defina uma instância como padrão em WhatsApp.';
+        if (!$default) {
+            Logger::warning('SequenceEngine whatsapp impedido', $logCtx + ['reason' => 'Nenhuma instância padrão de WhatsApp definida']);
+            return 'Nenhuma instância padrão de WhatsApp definida. Defina uma instância como padrão em WhatsApp.';
+        }
         $instanceId = (int)$default['id'];
 
         // A instância padrão precisa estar conectada (senão a Evolution retorna "Connection Closed").
         if (!$this->isInstanceConnected($instanceId)) {
+            Logger::warning('SequenceEngine whatsapp impedido', $logCtx + [
+                'reason' => 'Instância padrão de WhatsApp não conectada',
+                'instance_id' => $instanceId,
+                'connection_status' => $default['connection_status'] ?? null,
+            ]);
             return 'A instância padrão de WhatsApp não está conectada. Conecte-a em WhatsApp.';
         }
 
         try {
             $api = EvolutionApi::fromInstance($instanceId);
-            if (!$api) return 'Instância padrão de WhatsApp indisponível';
+            if (!$api) {
+                Logger::warning('SequenceEngine whatsapp impedido', $logCtx + ['reason' => 'Instância padrão indisponível', 'instance_id' => $instanceId]);
+                return 'Instância padrão de WhatsApp indisponível';
+            }
 
             // Mesmo caminho do envio manual (que funciona): usa o remote_jid do lead
             // quando for um JID válido; caso contrário monta a partir do telefone.
