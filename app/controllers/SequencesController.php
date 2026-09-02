@@ -341,6 +341,43 @@ class SequencesController extends Controller
         ]);
     }
 
+    /**
+     * TICK (auto-avanço pela tela): quebra-galho da BETA para substituir o cron
+     * enquanto o "Acompanhar estado" está aberto. AVANÇA a sequência (processa os
+     * participantes cujo tempo de espera já venceu) e devolve o estado atualizado,
+     * no MESMO formato do progress(). É LEVE de propósito: usa só
+     * SequenceEngine::processDue escopado a esta sequência — NÃO faz captação de
+     * campanha nem detecção de respostas por IMAP (isso continua no runNow/cron).
+     * Sem manualForce: respeita a janela de horário como o cron faria.
+     * POST sequences/tick/{id}
+     */
+    public function tick($id = null)
+    {
+        $this->requireRole($this->roles);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+        @set_time_limit(120);
+
+        $seq = $this->model->findById($id);
+        if (!$seq) $this->json(['error' => 'Sequência não encontrada'], 404);
+
+        // Avança APENAS esta sequência (mesmo motor do cron, sem forçar janela).
+        $engine = new SequenceEngine();
+        $engineStats = $engine->processDue(200, (int) $id);
+
+        // Estado atualizado após o avanço (idêntico ao progress()).
+        $data = $engine->progress((int) $id);
+        if (!empty($data['error'])) $this->json(['error' => $data['error']], 404);
+
+        $stats = $this->model->stats($id);
+        $this->json([
+            'sequence' => $data['sequence'],
+            'participants' => $data['participants'],
+            'stats' => $stats,
+            'engine' => $engineStats,
+            'server_now' => date('Y-m-d H:i:s'),
+        ]);
+    }
+
     public function addLeads()
     {
         $this->requireRole($this->roles);

@@ -182,7 +182,7 @@
                             </tbody>
                         </table>
                     </div>
-                    <small class="text-muted d-block mt-2"><i class="bi bi-info-circle"></i> Blocos "Aguardar" só liberam quando o tempo configurado vence; "Aguardar até" mostra o horário previsto para a próxima execução.</small>
+                    <small class="text-muted d-block mt-2"><i class="bi bi-info-circle"></i> Blocos "Aguardar" só liberam quando o tempo configurado vence; "Aguardar até" mostra o horário previsto para a próxima execução. Enquanto esta janela estiver aberta, o andamento é empurrado automaticamente a cada minuto (substitui o cron na BETA); ao concluir o ciclo, a atualização automática pausa.</small>
                 </div>
 
                 <!-- VISÃO HISTÓRICO (cronológico da execução atual) -->
@@ -339,7 +339,9 @@ function openProgress(seqId, seqName) {
 function startProgressAuto() {
     stopProgressAuto();
     if (document.getElementById('prog-autorefresh').checked) {
-        progressTimer = setInterval(refreshProgress, 5000);
+        // A cada 60s (evita travamentos por chamadas frequentes), AVANÇA o fluxo
+        // (tick) e atualiza a tela — substitui o cron enquanto a página está aberta.
+        progressTimer = setInterval(() => fetchProgress(true), 60000);
     }
 }
 function stopProgressAuto() { if (progressTimer) { clearInterval(progressTimer); progressTimer = null; } }
@@ -371,11 +373,31 @@ function fmtWhen(s) {
     return sameDay ? hhmm : (da + '/' + mo + ' ' + hhmm);
 }
 
-function refreshProgress() {
+// Núcleo de atualização do "Acompanhar estado".
+//  - advance=true  → POST sequences/tick: AVANÇA a sequência (processa quem já
+//    venceu o "Aguardar") e devolve o estado. É o quebra-galho que substitui o
+//    cron enquanto a tela está aberta.
+//  - advance=false → GET sequences/progress: SOMENTE leitura (não avança nada).
+// Ambos renderizam com renderProgress(). O auto-refresh e o botão manual usam
+// advance=true (empurram o fluxo); há a opção de leitura pura se necessário.
+function fetchProgress(advance) {
     if (!progressSeqId) return;
-    fetch(BASE + 'sequences/progress/' + progressSeqId, { headers:{'X-Requested-With':'XMLHttpRequest'} })
+    const opts = advance
+        ? { method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'} }
+        : { headers:{'X-Requested-With':'XMLHttpRequest'} };
+    const url = BASE + (advance ? 'sequences/tick/' : 'sequences/progress/') + progressSeqId;
+    fetch(url, opts)
         .then(r=>r.json())
-        .then(d=>{
+        .then(d=>renderProgress(d))
+        .catch(()=>{ document.getElementById('prog-tbody').innerHTML = '<tr><td colspan="6" class="text-center text-danger py-3">Falha ao carregar o estado.</td></tr>'; });
+}
+
+// Botão manual "Atualizar agora": também AVANÇA o fluxo (empurra na hora, sem
+// esperar o próximo tique automático).
+function refreshProgress() { fetchProgress(true); }
+
+// Renderiza o estado a partir do objeto de resposta (do tick ou do progress).
+function renderProgress(d) {
             if (d.error) { document.getElementById('prog-tbody').innerHTML = '<tr><td colspan="6" class="text-center text-danger py-3">'+escapeHtml(d.error)+'</td></tr>'; return; }
             const ps = d.participants || [];
             const st = d.stats || {};
@@ -466,8 +488,19 @@ function refreshProgress() {
             // Mantém a visão Histórico em sincronia com esta atualização.
             renderHistoryView();
             document.getElementById('prog-updated').textContent = 'Atualizado às ' + new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' });
-        })
-        .catch(()=>{ document.getElementById('prog-tbody').innerHTML = '<tr><td colspan="6" class="text-center text-danger py-3">Falha ao carregar o estado.</td></tr>'; });
+
+            // CICLO FINALIZADO: se não há mais nenhum participante ATIVO (todos
+            // finalizados/interrompidos/falha), não há o que avançar — desliga o
+            // auto-refresh para não ficar processando à toa. O usuário ainda pode
+            // atualizar manualmente pelo botão. Só desliga a automação; não altera
+            // motor nem estado.
+            const activeCount = (st.active || 0);
+            if (activeCount === 0 && ps.length > 0) {
+                stopProgressAuto();
+                document.getElementById('prog-autorefresh').checked = false;
+                document.getElementById('prog-updated').textContent =
+                    'Execução concluída — atualização automática pausada. ' + new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+            }
 }
 
 // ---- Visão "Histórico" (cronológico da execução atual) ----
