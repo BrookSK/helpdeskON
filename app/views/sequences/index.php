@@ -149,6 +149,9 @@
                     <small class="text-muted">Estado atual de cada lead. Atualiza automaticamente.</small>
                 </div>
                 <div class="d-flex align-items-center gap-2">
+                    <button class="btn btn-sm btn-outline-primary" id="prog-history-btn" onclick="toggleHistoryView()" title="Ver o histórico cronológico da execução atual (o que já rodou, com horário e resultado)">
+                        <i class="bi bi-clock-history"></i> Histórico
+                    </button>
                     <div class="form-check form-switch mb-0 me-1" title="Atualizar automaticamente a cada 5s">
                         <input class="form-check-input" type="checkbox" id="prog-autorefresh" checked onchange="toggleProgressAuto()">
                         <label class="form-check-label small" for="prog-autorefresh">Auto</label>
@@ -160,25 +163,33 @@
             <div class="modal-body">
                 <div id="prog-banner" style="display:none;"></div>
                 <div id="prog-summary" class="d-flex gap-2 flex-wrap mb-2 small"></div>
-                <div class="table-responsive">
-                    <table class="table table-sm table-hover align-middle mb-0" style="font-size:0.83rem;">
-                        <thead class="table-light">
-                            <tr>
-                                <th style="width:36px;"></th>
-                                <th>Lead</th>
-                                <th>Etapa atual</th>
-                                <th>Status</th>
-                                <th>Aguardar até</th>
-                                <th>Última etapa</th>
-                                <th>Próxima etapa</th>
-                            </tr>
-                        </thead>
-                        <tbody id="prog-tbody">
-                            <tr><td colspan="7" class="text-center text-muted py-3">Carregando...</td></tr>
-                        </tbody>
-                    </table>
+                <!-- VISÃO ESTADO (tabela) -->
+                <div id="prog-state-view">
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover align-middle mb-0" style="font-size:0.83rem;">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Lead</th>
+                                    <th>Etapa atual</th>
+                                    <th>Status</th>
+                                    <th>Aguardar até</th>
+                                    <th>Última etapa</th>
+                                    <th>Próxima etapa</th>
+                                </tr>
+                            </thead>
+                            <tbody id="prog-tbody">
+                                <tr><td colspan="6" class="text-center text-muted py-3">Carregando...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <small class="text-muted d-block mt-2"><i class="bi bi-info-circle"></i> Blocos "Aguardar" só liberam quando o tempo configurado vence; "Aguardar até" mostra o horário previsto para a próxima execução.</small>
                 </div>
-                <small class="text-muted d-block mt-2"><i class="bi bi-info-circle"></i> Blocos "Aguardar" só liberam quando o tempo configurado vence; "Aguardar até" mostra o horário previsto para a próxima execução.</small>
+
+                <!-- VISÃO HISTÓRICO (cronológico da execução atual) -->
+                <div id="prog-history-view" style="display:none;">
+                    <div class="small text-muted mb-2"><i class="bi bi-info-circle"></i> Histórico cronológico da <strong>execução atual</strong> de cada lead (o que já rodou, com horário e resultado reais). Uma nova execução recomeça o histórico.</div>
+                    <div id="prog-history-body"></div>
+                </div>
             </div>
             <div class="modal-footer">
                 <span class="text-muted small me-auto" id="prog-updated"></span>
@@ -298,6 +309,8 @@ function runCampaignNow(btn) {
 let progressModal = null;
 let progressTimer = null;
 let progressSeqId = null;
+let progHistoryOn = false;        // visão "Histórico" ativa?
+let progLastParticipants = [];    // participantes da última atualização (fonte da visão Histórico)
 
 function getProgressModal(){ if(!progressModal) progressModal = new bootstrap.Modal(document.getElementById('progressModal')); return progressModal; }
 
@@ -308,6 +321,14 @@ function openProgress(seqId, seqName) {
     document.getElementById('prog-summary').innerHTML = '';
     document.getElementById('prog-updated').textContent = '';
     document.getElementById('prog-autorefresh').checked = true;
+    // Sempre abre na visão de ESTADO (tabela); o botão "Histórico" alterna depois.
+    progHistoryOn = false;
+    progLastParticipants = [];
+    document.getElementById('prog-state-view').style.display = '';
+    document.getElementById('prog-history-view').style.display = 'none';
+    const histBtn = document.getElementById('prog-history-btn');
+    histBtn.classList.remove('btn-primary'); histBtn.classList.add('btn-outline-primary');
+    histBtn.innerHTML = '<i class="bi bi-clock-history"></i> Histórico';
     getProgressModal().show();
     refreshProgress();
     startProgressAuto();
@@ -323,17 +344,6 @@ function startProgressAuto() {
 }
 function stopProgressAuto() { if (progressTimer) { clearInterval(progressTimer); progressTimer = null; } }
 function toggleProgressAuto() { document.getElementById('prog-autorefresh').checked ? startProgressAuto() : stopProgressAuto(); }
-// Guarda quais históricos estão abertos (por participante), para que o
-// auto-refresh de 5s NÃO feche a lista que o usuário deixou aberta (ex.: para
-// tirar print). A chave é o participant_id (estável), não a posição da linha.
-const expandedHist = new Set();
-function toggleHist(pid) {
-    const r = document.getElementById('hist-'+pid);
-    if (!r) return;
-    const willOpen = (r.style.display === 'none');
-    r.style.display = willOpen ? '' : 'none';
-    if (willOpen) expandedHist.add(String(pid)); else expandedHist.delete(String(pid));
-}
 function toggleBannerDetails(id) { const r = document.getElementById(id); if (r) r.style.display = (r.style.display === 'none' ? '' : 'none'); }
 
 function statusBadgeClass(status) {
@@ -404,10 +414,14 @@ function refreshProgress() {
             banner.innerHTML = bh;
             banner.style.display = bh ? '' : 'none';
 
+            // Guarda os participantes da última atualização para a visão "Histórico"
+            // renderizar a partir dos MESMOS dados (mantém tudo em sincronia).
+            progLastParticipants = ps;
+
             if (!ps.length) {
-                document.getElementById('prog-tbody').innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">Nenhum lead nesta sequência ainda.</td></tr>';
+                document.getElementById('prog-tbody').innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">Nenhum lead nesta sequência ainda.</td></tr>';
             } else {
-                document.getElementById('prog-tbody').innerHTML = ps.map((p, idx) => {
+                document.getElementById('prog-tbody').innerHTML = ps.map((p) => {
                     const waitCell = p.wait_until ? ('<span class="text-nowrap"><i class="bi bi-clock text-warning"></i> '+fmtWhen(p.wait_until)+'</span>') : '—';
                     const lastCell = escapeHtml(p.last_step||'—') + (p.last_at ? ' <span class="text-muted">('+fmtWhen(p.last_at)+')</span>' : '');
 
@@ -433,20 +447,7 @@ function refreshProgress() {
                         alertsHtml = '<div class="mt-1 d-flex flex-column gap-1">' + parts.join('') + '</div>';
                     }
 
-                    // Histórico da EXECUÇÃO ATUAL (não mistura com execuções
-                    // anteriores). Vem pronto do back-end (history_current), montado
-                    // a partir dos registros REAIS de sequence_executions.
-                    const hist = p.history_current || [];
-                    const hasHist = hist.length > 0;
-                    const pid = p.participant_id;
-                    const isOpen = expandedHist.has(String(pid));
-                    const toggle = hasHist
-                        ? '<button class="btn btn-sm btn-link p-0" title="Ver histórico desta execução" onclick="toggleHist('+pid+')"><i class="bi bi-clock-history"></i></button>'
-                        : '';
-
-                    // Linha principal + linha de histórico (oculta por padrão).
-                    let row = '<tr>'
-                        + '<td class="text-center">'+toggle+'</td>'
+                    return '<tr>'
                         + '<td class="fw-semibold">'+escapeHtml(p.lead_name||'—')+(p.lead_email?('<br><span class="text-muted small">'+escapeHtml(p.lead_email)+'</span>'):'')+alertsHtml+'</td>'
                         + '<td>'+escapeHtml(p.current_step||'—')+'</td>'
                         + '<td><span class="badge '+statusBadgeClass(p.status)+'">'+escapeHtml(p.status_text||p.status||'—')+'</span></td>'
@@ -454,33 +455,63 @@ function refreshProgress() {
                         + '<td>'+lastCell+'</td>'
                         + '<td class="text-muted">'+escapeHtml(p.next_step||'—')+'</td>'
                         + '</tr>';
-
-                    if (hasHist) {
-                        // Lista simples e cronológica: "Etapa — resultado — HH:MM".
-                        // Somente o que REALMENTE aconteceu nesta execução, com o
-                        // horário e o resultado reais. Ideal para tirar print.
-                        const items = hist.map(h => {
-                            const rc = h.result === 'failed' ? 'text-danger' : (h.result === 'waiting' ? 'text-warning-emphasis' : 'text-success');
-                            const label = escapeHtml(h.result_label || h.result || '');
-                            const det = h.detail ? ' <span class="text-muted">('+escapeHtml(h.detail)+')</span>' : '';
-                            return '<li class="mb-1">'
-                                 + '<span class="fw-semibold">'+escapeHtml(h.step)+'</span>'
-                                 + ' — <span class="'+rc+'">'+label+'</span>'+det
-                                 + ' <span class="text-muted">— '+fmtWhen(h.at)+'</span>'
-                                 + '</li>';
-                        }).join('');
-                        row += '<tr id="hist-'+pid+'" style="display:'+(isOpen?'':'none')+';"><td></td><td colspan="6">'
-                             + '<div class="border-start ps-2 ms-1">'
-                             + '<div class="small fw-semibold mb-1"><i class="bi bi-clock-history"></i> Histórico desta execução</div>'
-                             + '<ol class="mb-0 ps-3 small">'+items+'</ol>'
-                             + '</div></td></tr>';
-                    }
-                    return row;
                 }).join('');
             }
+            // Mantém a visão Histórico em sincronia com esta atualização.
+            renderHistoryView();
             document.getElementById('prog-updated').textContent = 'Atualizado às ' + new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' });
         })
         .catch(()=>{ document.getElementById('prog-tbody').innerHTML = '<tr><td colspan="6" class="text-center text-danger py-3">Falha ao carregar o estado.</td></tr>'; });
+}
+
+// ---- Visão "Histórico" (cronológico da execução atual) ----
+// Alterna entre a tabela de estado e a lista de histórico. Um único botão no topo.
+function toggleHistoryView() {
+    progHistoryOn = !progHistoryOn;
+    document.getElementById('prog-state-view').style.display = progHistoryOn ? 'none' : '';
+    document.getElementById('prog-history-view').style.display = progHistoryOn ? '' : 'none';
+    const btn = document.getElementById('prog-history-btn');
+    btn.classList.toggle('btn-primary', progHistoryOn);
+    btn.classList.toggle('btn-outline-primary', !progHistoryOn);
+    btn.innerHTML = progHistoryOn
+        ? '<i class="bi bi-table"></i> Ver estado'
+        : '<i class="bi bi-clock-history"></i> Histórico';
+    renderHistoryView();
+}
+
+// Renderiza o histórico cronológico da execução atual, por lead, a partir de
+// history_current (dados REAIS já registrados). Só desenha quando a visão está
+// ativa; é chamada a cada atualização para ficar em sincronia com o painel.
+function renderHistoryView() {
+    if (!progHistoryOn) return;
+    const box = document.getElementById('prog-history-body');
+    const ps = progLastParticipants || [];
+    if (!ps.length) {
+        box.innerHTML = '<div class="text-muted small py-3 text-center">Nenhum lead nesta sequência ainda.</div>';
+        return;
+    }
+    box.innerHTML = ps.map(p => {
+        const hist = p.history_current || [];
+        const head = '<div class="fw-semibold">'+escapeHtml(p.lead_name||'—')
+                   + (p.lead_email?(' <span class="text-muted small">'+escapeHtml(p.lead_email)+'</span>'):'')+'</div>';
+        if (!hist.length) {
+            return '<div class="mb-3">'+head+'<div class="text-muted small ps-2">Nenhuma etapa executada ainda nesta execução.</div></div>';
+        }
+        // Lista simples "Etapa — resultado — HH:MM", em ordem cronológica.
+        const items = hist.map(h => {
+            const rc = h.result === 'failed' ? 'text-danger' : (h.result === 'waiting' ? 'text-warning-emphasis' : 'text-success');
+            const label = escapeHtml(h.result_label || h.result || '');
+            const det = h.detail ? ' <span class="text-muted">('+escapeHtml(h.detail)+')</span>' : '';
+            return '<li class="mb-1">'
+                 + '<span class="fw-semibold">'+escapeHtml(h.step)+'</span>'
+                 + ' — <span class="'+rc+'">'+label+'</span>'+det
+                 + ' <span class="text-muted">— '+fmtWhen(h.at)+'</span>'
+                 + '</li>';
+        }).join('');
+        return '<div class="mb-3">'+head
+             + '<ol class="mb-0 ps-3 small border-start ms-1">'+items+'</ol>'
+             + '</div>';
+    }).join('');
 }
 
 // ---- Templates ----
