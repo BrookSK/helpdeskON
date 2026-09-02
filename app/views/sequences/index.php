@@ -144,11 +144,11 @@
     <div class="modal-dialog modal-xl modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
-                <div>
-                    <h6 class="modal-title mb-0"><i class="bi bi-activity"></i> Acompanhar estado — <span id="prog-seq-name"></span></h6>
+                <div class="me-auto" style="min-width:0;">
+                    <h6 class="modal-title mb-0 text-truncate"><i class="bi bi-activity"></i> Acompanhar estado — <span id="prog-seq-name"></span></h6>
                     <small class="text-muted">Estado atual de cada lead. Atualiza automaticamente.</small>
                 </div>
-                <div class="d-flex align-items-center gap-2">
+                <div class="d-flex align-items-center gap-2 ms-3 flex-shrink-0">
                     <button class="btn btn-sm btn-outline-primary" id="prog-history-btn" onclick="toggleHistoryView()" title="Ver o histórico cronológico da execução atual (o que já rodou, com horário e resultado)">
                         <i class="bi bi-clock-history"></i> Histórico
                     </button>
@@ -357,12 +357,18 @@ function statusBadgeClass(status) {
 // Formata "YYYY-MM-DD HH:MM:SS" para algo curto e legível (HH:MM, com data se não for hoje).
 function fmtWhen(s) {
     if (!s) return '—';
-    const d = new Date(s.replace(' ', 'T'));
-    if (isNaN(d)) return escapeHtml(s);
-    const hhmm = d.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+    // Os horários vêm do servidor já no fuso do Brasil ("YYYY-MM-DD HH:MM:SS").
+    // Exibimos EXATAMENTE como registrados — sem converter pelo fuso do navegador
+    // (new Date() interpretaria a string como local e poderia deslocar o horário).
+    // Assim o que aparece na tela é o horário REAL gravado da execução.
+    const m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+    if (!m) return escapeHtml(s);
+    const [, y, mo, da, hh, mi] = m;
+    const hhmm = hh + ':' + mi;
     const today = new Date();
-    const sameDay = d.getFullYear()===today.getFullYear() && d.getMonth()===today.getMonth() && d.getDate()===today.getDate();
-    return sameDay ? hhmm : (d.toLocaleDateString([], { day:'2-digit', month:'2-digit' }) + ' ' + hhmm);
+    const sameDay = (+y === today.getFullYear()) && (+mo === today.getMonth() + 1) && (+da === today.getDate());
+    // Horário no fuso de Brasília (UTC-03:00), exibido de forma enxuta, sem sufixo.
+    return sameDay ? hhmm : (da + '/' + mo + ' ' + hhmm);
 }
 
 function refreshProgress() {

@@ -20,6 +20,16 @@ class Database
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
                 PDO::ATTR_EMULATE_PREPARES => false,
             ]);
+
+            // Alinha o fuso da SESSÃO MySQL ao horário do Brasil (UTC-03:00), o
+            // mesmo usado pelo PHP (date_default_timezone_set). Assim, colunas
+            // preenchidas pelo banco (ex.: CURRENT_TIMESTAMP em sequence_executions)
+            // ficam no mesmo fuso das datas geradas pelo PHP, evitando horários
+            // deslocados/"voltando no tempo" no acompanhamento. Brasil não usa mais
+            // horário de verão desde 2019, então o offset fixo é estável.
+            try {
+                $this->pdo->exec("SET time_zone = '-03:00'");
+            } catch (\Throwable $e) { /* se o servidor recusar, mantém o padrão */ }
         } catch (PDOException $e) {
             die('Erro de conexão com o banco: ' . $e->getMessage());
         }
