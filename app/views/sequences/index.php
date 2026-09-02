@@ -323,7 +323,17 @@ function startProgressAuto() {
 }
 function stopProgressAuto() { if (progressTimer) { clearInterval(progressTimer); progressTimer = null; } }
 function toggleProgressAuto() { document.getElementById('prog-autorefresh').checked ? startProgressAuto() : stopProgressAuto(); }
-function toggleHist(idx) { const r = document.getElementById('hist-'+idx); if (r) r.style.display = (r.style.display === 'none' ? '' : 'none'); }
+// Guarda quais históricos estão abertos (por participante), para que o
+// auto-refresh de 5s NÃO feche a lista que o usuário deixou aberta (ex.: para
+// tirar print). A chave é o participant_id (estável), não a posição da linha.
+const expandedHist = new Set();
+function toggleHist(pid) {
+    const r = document.getElementById('hist-'+pid);
+    if (!r) return;
+    const willOpen = (r.style.display === 'none');
+    r.style.display = willOpen ? '' : 'none';
+    if (willOpen) expandedHist.add(String(pid)); else expandedHist.delete(String(pid));
+}
 function toggleBannerDetails(id) { const r = document.getElementById(id); if (r) r.style.display = (r.style.display === 'none' ? '' : 'none'); }
 
 function statusBadgeClass(status) {
@@ -423,10 +433,15 @@ function refreshProgress() {
                         alertsHtml = '<div class="mt-1 d-flex flex-column gap-1">' + parts.join('') + '</div>';
                     }
 
-                    const hist = p.history || [];
+                    // Histórico da EXECUÇÃO ATUAL (não mistura com execuções
+                    // anteriores). Vem pronto do back-end (history_current), montado
+                    // a partir dos registros REAIS de sequence_executions.
+                    const hist = p.history_current || [];
                     const hasHist = hist.length > 0;
+                    const pid = p.participant_id;
+                    const isOpen = expandedHist.has(String(pid));
                     const toggle = hasHist
-                        ? '<button class="btn btn-sm btn-link p-0" title="Ver histórico de etapas" onclick="toggleHist('+idx+')"><i class="bi bi-clock-history"></i></button>'
+                        ? '<button class="btn btn-sm btn-link p-0" title="Ver histórico desta execução" onclick="toggleHist('+pid+')"><i class="bi bi-clock-history"></i></button>'
                         : '';
 
                     // Linha principal + linha de histórico (oculta por padrão).
@@ -441,15 +456,22 @@ function refreshProgress() {
                         + '</tr>';
 
                     if (hasHist) {
+                        // Lista simples e cronológica: "Etapa — resultado — HH:MM".
+                        // Somente o que REALMENTE aconteceu nesta execução, com o
+                        // horário e o resultado reais. Ideal para tirar print.
                         const items = hist.map(h => {
                             const rc = h.result === 'failed' ? 'text-danger' : (h.result === 'waiting' ? 'text-warning-emphasis' : 'text-success');
-                            const det = h.detail ? ' <span class="text-muted">— '+escapeHtml(h.detail)+'</span>' : '';
-                            return '<li class="mb-1"><span class="text-muted">'+fmtWhen(h.at)+'</span> · '
-                                 + escapeHtml(h.step)+' → <span class="'+rc+'">'+escapeHtml(h.result_label||h.result||'')+'</span>'+det+'</li>';
+                            const label = escapeHtml(h.result_label || h.result || '');
+                            const det = h.detail ? ' <span class="text-muted">('+escapeHtml(h.detail)+')</span>' : '';
+                            return '<li class="mb-1">'
+                                 + '<span class="fw-semibold">'+escapeHtml(h.step)+'</span>'
+                                 + ' — <span class="'+rc+'">'+label+'</span>'+det
+                                 + ' <span class="text-muted">— '+fmtWhen(h.at)+'</span>'
+                                 + '</li>';
                         }).join('');
-                        row += '<tr id="hist-'+idx+'" style="display:none;"><td></td><td colspan="6">'
+                        row += '<tr id="hist-'+pid+'" style="display:'+(isOpen?'':'none')+';"><td></td><td colspan="6">'
                              + '<div class="border-start ps-2 ms-1">'
-                             + '<div class="small fw-semibold mb-1"><i class="bi bi-clock-history"></i> Histórico de etapas (o que já rodou)</div>'
+                             + '<div class="small fw-semibold mb-1"><i class="bi bi-clock-history"></i> Histórico desta execução</div>'
                              + '<ol class="mb-0 ps-3 small">'+items+'</ol>'
                              + '</div></td></tr>';
                     }

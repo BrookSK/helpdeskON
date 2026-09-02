@@ -1388,6 +1388,20 @@ class SequenceEngine
                     'at' => $ex['executed_at'],
                 ];
             }
+            // Histórico da EXECUÇÃO ATUAL (não mistura com execuções anteriores).
+            // Como a reinscrição reaproveita o mesmo participant_id e mantém as
+            // linhas antigas em sequence_executions, delimitamos a execução atual
+            // pela ÚLTIMA vez em que o fluxo passou pelo nó inicial (start): toda
+            // execução começa por ele. Tudo a partir daí é a execução corrente.
+            // Isso usa apenas dados REAIS já registrados — não reconstrói nem estima.
+            $currentStart = 0;
+            if ($startId) {
+                for ($i = count($execRows) - 1; $i >= 0; $i--) {
+                    if (($execRows[$i]['node_id'] ?? null) === $startId) { $currentStart = $i; break; }
+                }
+            }
+            $historyCurrent = array_slice($history, $currentStart);
+
             $last = !empty($execRows) ? end($execRows) : null;
             $lastLabel = null;
             if ($last) {
@@ -1409,7 +1423,9 @@ class SequenceEngine
             }
 
             // Avisos: impedido / pausado / pulado / aguardando — com o motivo real.
-            $alerts = $this->buildAlerts($p, $curNode, $history, $waitUntil);
+            // Usa o histórico da EXECUÇÃO ATUAL (não considera falhas de execuções
+            // anteriores já superadas).
+            $alerts = $this->buildAlerts($p, $curNode, $historyCurrent, $waitUntil);
 
             $out[] = [
                 'participant_id' => (int) $p['id'],
@@ -1426,6 +1442,7 @@ class SequenceEngine
                 'next_run_at' => $p['next_run_at'] ?? null,
                 'wait_until' => $waitUntil,
                 'history' => $history,
+                'history_current' => $historyCurrent,
                 'alerts' => $alerts,
             ];
         }
