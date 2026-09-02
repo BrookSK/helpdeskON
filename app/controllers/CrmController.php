@@ -1831,6 +1831,16 @@ class CrmController extends Controller
         $name = trim($_POST['name'] ?? '');
         if ($name === '') $this->json(['error' => 'Informe o nome da campanha.'], 400);
 
+        // Nome único: a tabela tem índice UNIQUE (uk_campaign_name). Verifica antes de
+        // salvar para devolver uma mensagem amigável em vez do erro cru do banco.
+        $dupe = $db->fetch(
+            "SELECT id FROM apollo_campaigns WHERE name = ? AND id <> ? LIMIT 1",
+            [$name, $id]
+        );
+        if ($dupe) {
+            $this->json(['error' => 'Já existe uma campanha com o nome "' . $name . '". Escolha um nome diferente.'], 409);
+        }
+
         // Auto-correção de schema: garante que as colunas usadas pelo formulário
         // existam antes de salvar. Isso conserta o "Erro ao salvar" quando as
         // migrations 078/079 não foram aplicadas no servidor (a tabela
@@ -1893,7 +1903,7 @@ class CrmController extends Controller
             $missing = $this->missingColumnFromError($e->getMessage(), $optionalColumns);
             if ($missing === null) {
                 Logger::error('crm/saveCampaign falhou', ['error' => $e->getMessage()]);
-                $this->json(['error' => 'Não foi possível salvar a campanha: ' . $e->getMessage()], 500);
+                $this->json(['error' => $this->friendlyCampaignError($e->getMessage(), $name)], 500);
             }
             // Remove todas as colunas opcionais que ainda não existem no banco e tenta
             // novamente com o conjunto de campos suportado.
@@ -1902,7 +1912,7 @@ class CrmController extends Controller
                 $id = $persist($data);
             } catch (\PDOException $e2) {
                 Logger::error('crm/saveCampaign falhou (2ª tentativa)', ['error' => $e2->getMessage()]);
-                $this->json(['error' => 'Não foi possível salvar a campanha: ' . $e2->getMessage()], 500);
+                $this->json(['error' => $this->friendlyCampaignError($e2->getMessage(), $name)], 500);
             }
         }
         $this->json(['success' => true, 'id' => $id]);
@@ -2144,6 +2154,20 @@ class CrmController extends Controller
             }
         }
         return null;
+    }
+
+    /**
+     * Converte erros crus do banco (ao salvar campanha) em mensagens legíveis
+     * para o usuário. Hoje trata nome duplicado; demais erros são devolvidos com
+     * um prefixo claro.
+     */
+    private function friendlyCampaignError($message, $name)
+    {
+        if (stripos($message, 'Duplicate entry') !== false
+            && (stripos($message, 'uk_campaign_name') !== false || stripos($message, "'name'") !== false)) {
+            return 'Já existe uma campanha com o nome "' . $name . '". Escolha um nome diferente.';
+        }
+        return 'Não foi possível salvar a campanha: ' . $message;
     }
 
     /**

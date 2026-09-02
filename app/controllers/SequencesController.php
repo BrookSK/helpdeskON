@@ -30,11 +30,26 @@ class SequencesController extends Controller
         $this->requireRole($this->roles);
         $user = $this->currentUser();
 
-        // O disparo manual é baseado na SEQUÊNCIA (o seletor lista as sequências
-        // ativas). Não depende mais de campanhas Apollo.
+        // Quebra-galho MANUAL: o seletor "Executar agora" desta aba lista as
+        // CAMPANHAS de Prospecção Automática (Apollo). Ele imita o botão "Executar
+        // campanha" da tela de Prospecção, porém disparado manualmente (sem cron):
+        // faz a captação da campanha e depois avança a sequência ligada a ela.
+        $campaigns = [];
+        try {
+            $campaigns = Database::getInstance()->fetchAll(
+                "SELECT c.id, c.name, c.is_active, c.lead_source, c.sequence_id, s.name AS sequence_name
+                 FROM apollo_campaigns c
+                 LEFT JOIN email_sequences s ON c.sequence_id = s.id
+                 ORDER BY c.is_active DESC, c.name ASC"
+            );
+        } catch (\Throwable $e) {
+            $campaigns = [];
+        }
+
         $this->view('sequences/index', [
             'user' => $user,
             'sequences' => $this->model->all(),
+            'campaigns' => $campaigns,
         ]);
     }
 
@@ -153,8 +168,30 @@ class SequencesController extends Controller
             $camp = $db->fetch("SELECT * FROM apollo_campaigns WHERE id = ?", [$campaignId]);
             if (!$camp) $this->json(['error' => 'Campanha não encontrada.'], 404);
 
+            // Apollo só é obrigatório quando a fonte é Apollo (Meus Leads não consome API).
+            if (($camp['lead_source'] ?? 'apollo') !== 'my_leads') {
+                $apollo = new ApolloApi();
+                if (!$apollo->isConfigured()) $this->json(['error' => 'Apollo não configurado.'], 400);
+            }
+
+            // DISPARO MANUAL (quebra-galho): imita EXATAMENTE o botão "Executar
+            // campanha" da Prospecção Automática. Diferente do cron (runDueCampaign),
+            // aqui forçamos a captação AGORA — ignorando a janela de horário e o
+            // "pular por meta atingida" — usando runCampaign direto, com o mesmo
+            // cálculo de alvo do botão da Prospecção (meta diária menos o já captado
+            // hoje, com mínimo de 1). Assim o clique sempre capta, como esperado.
+            $already = 0;
+            try {
+                $r = $db->fetch(
+                    "SELECT COUNT(*) t FROM apollo_prospecting_log WHERE campaign_id=? AND action='enrolled' AND DATE(created_at)=CURDATE()",
+                    [$campaignId]
+                );
+                $already = (int) ($r['t'] ?? 0);
+            } catch (\Throwable $e) {}
+            $target = max(1, (int) $camp['daily_target'] - $already);
+
             $prospecting = new ApolloProspectingService();
-            $out['prospecting'] = $prospecting->runDueCampaign($campaignId);
+            $out['prospecting'] = $prospecting->runCampaign($camp, $target);
 
             // A campanha define qual sequência avançar em seguida.
             if (!$sequenceId && !empty($camp['sequence_id'])) {

@@ -9,24 +9,25 @@
             <small class="text-muted">Follow-up automático de leads do CRM</small>
         </div>
         <div class="d-flex gap-2 align-items-center">
-            <!-- Disparo MANUAL: executa AGORA, para a sequência selecionada, o mesmo
-                 processo que o cron rodaria (avanço da sequência + detecção de
-                 respostas). Baseado na SEQUÊNCIA — não exige campanha Apollo. -->
+            <!-- Quebra-galho MANUAL: imita o botão "Executar campanha" da tela de
+                 Prospecção Automática (Apollo), porém disparado por aqui, sem cron.
+                 Seleciona-se uma CAMPANHA; ao executar, faz a captação da campanha
+                 e depois avança a sequência ligada a ela (+ detecção de respostas). -->
             <div class="input-group input-group-sm" id="run-now-group" style="width:auto;">
-                <select id="run-sequence-select" class="form-select form-select-sm" style="max-width:300px;" title="Selecione a sequência a executar manualmente (processa somente ela)">
+                <select id="run-campaign-select" class="form-select form-select-sm" style="max-width:300px;" title="Selecione a campanha de Prospecção a executar manualmente (mesma ação do botão 'Executar campanha', sem cron)">
                     <?php
-                    $activeSequences = array_filter($sequences ?? [], fn($s) => !empty($s['is_active']));
+                    $activeCampaigns = array_filter($campaigns ?? [], fn($c) => !empty($c['is_active']));
                     ?>
-                    <?php if (!empty($activeSequences)): ?>
-                    <option value="">— selecione a sequência —</option>
-                    <?php foreach ($activeSequences as $s): ?>
-                    <option value="<?= (int)$s['id'] ?>"><?= escape($s['name']) ?></option>
+                    <?php if (!empty($activeCampaigns)): ?>
+                    <option value="">— selecione a campanha —</option>
+                    <?php foreach ($activeCampaigns as $c): ?>
+                    <option value="<?= (int)$c['id'] ?>"><?= escape($c['name']) ?></option>
                     <?php endforeach; ?>
                     <?php else: ?>
-                    <option value="">Nenhuma sequência ativa</option>
+                    <option value="">Nenhuma campanha ativa</option>
                     <?php endif; ?>
                 </select>
-                <button class="btn btn-outline-secondary" id="btn-run-now" onclick="runSequenceNow(this)" title="Executa manualmente o mesmo processo do cron para a sequência selecionada (processa somente ela). Em produção isso roda pelo cron.">
+                <button class="btn btn-outline-secondary" id="btn-run-now" onclick="runCampaignNow(this)" title="Executa manualmente a campanha selecionada (captação + avanço da sequência ligada). Mesma ação do botão 'Executar campanha' da Prospecção, mas sem depender do cron.">
                     <i class="bi bi-play-fill"></i> Executar agora
                 </button>
             </div>
@@ -206,22 +207,22 @@ function delSeq(id) {
         .then(r=>r.json()).then(d=>{ if(d.error){alert(d.error);return;} location.reload(); });
 }
 
-// Disparo MANUAL por SEQUÊNCIA: executa AGORA, para a sequência selecionada, o
-// mesmo processo do cron (detecção de respostas + avanço da sequência), processando
-// SOMENTE ela. Respeita tempos de espera, condições, janela, envios e o estado de
-// cada participante. Não exige campanha Apollo.
-function runSequenceNow(btn) {
-    const sel = document.getElementById('run-sequence-select');
-    const seqId = sel.value;
-    if (!seqId) { alert('Selecione a sequência que deseja executar.'); return; }
-    const seqLabel = sel.selectedOptions[0].text.trim();
+// Quebra-galho MANUAL por CAMPANHA: imita o botão "Executar campanha" da
+// Prospecção Automática (Apollo), mas disparado aqui e sem depender do cron.
+// Executa AGORA, para a campanha selecionada: (1) captação da campanha,
+// (2) detecção de respostas por e-mail e (3) avanço da sequência ligada à campanha.
+function runCampaignNow(btn) {
+    const sel = document.getElementById('run-campaign-select');
+    const campId = sel.value;
+    if (!campId) { alert('Selecione a campanha que deseja executar.'); return; }
+    const campLabel = sel.selectedOptions[0].text.trim();
 
     const original = btn.innerHTML;
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Executando...';
 
     const fd = new FormData();
-    fd.append('sequence_id', seqId);
+    fd.append('campaign_id', campId);
 
     fetch(BASE + 'sequences/runNow', { method:'POST', body: fd, headers:{'X-Requested-With':'XMLHttpRequest'} })
         .then(r=>r.json())
@@ -229,14 +230,32 @@ function runSequenceNow(btn) {
             btn.disabled = false; btn.innerHTML = original;
             if (d.error) { alert(d.error); return; }
 
-            let msg = 'Execução manual concluída.\n(' + (d.scope || seqLabel) + ')\n\n';
+            let msg = 'Execução manual da campanha concluída.\n(' + (d.scope || campLabel) + ')\n\n';
 
-            // Passo 1 — detecção de respostas por e-mail (IMAP), igual ao cron
-            msg += '== Detecção de respostas (e-mail) ==\n'
+            // Passo 1 — captação da campanha (Apollo/Meus Leads), igual ao "Executar campanha"
+            const p = d.prospecting || null;
+            if (p) {
+                msg += '== Captação da campanha ==\n';
+                if (p.error) {
+                    msg += 'Erro: ' + p.error + '\n';
+                } else if (p.skipped) {
+                    msg += 'Ignorada: ' + (p.skipped === true ? (p.reason || 'sem detalhes') : p.skipped) + '\n';
+                } else {
+                    msg += 'Analisados: ' + (p.analyzed ?? p.searched ?? 0)
+                         + ' | Duplicados: ' + (p.duplicated ?? 0)
+                         + ' | Fora ICP: ' + (p.out_of_icp ?? 0)
+                         + ' | Score baixo: ' + (p.low_score ?? 0)
+                         + ' | Importados: ' + (p.imported ?? 0)
+                         + ' | Captados: ' + (p.enrolled ?? 0) + '\n';
+                }
+            }
+
+            // Passo 2 — detecção de respostas por e-mail (IMAP), igual ao cron
+            msg += '\n== Detecção de respostas (e-mail) ==\n'
                  + 'Respostas detectadas: ' + (d.replies_detected ?? 0)
                  + (d.replies_error ? (' | erro: ' + d.replies_error) : '') + '\n';
 
-            // Passo 2 — avanço da sequência (igual /cron/runSequences), com um
+            // Passo 3 — avanço da sequência (igual /cron/runSequences), com um
             // resumo LEGÍVEL por participante (o que aconteceu com cada lead).
             const s = d.engine || {};
             msg += '\n== Avanço da sequência ==\n';
@@ -272,7 +291,7 @@ function runSequenceNow(btn) {
                 alert(msg);
             }
         })
-        .catch(()=>{ btn.disabled = false; btn.innerHTML = original; alert('Erro ao executar a sequência.'); });
+        .catch(()=>{ btn.disabled = false; btn.innerHTML = original; alert('Erro ao executar a campanha.'); });
 }
 
 // ---- Acompanhar estado (progresso legível por lead) ----
