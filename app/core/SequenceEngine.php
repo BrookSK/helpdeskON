@@ -1186,24 +1186,45 @@ class SequenceEngine
         $status = $participant['status'] ?? '';
         $reason = $participant['stop_reason'] ?? '';
 
-        // Falhas registradas no histórico (ex.: envio de e-mail/WhatsApp falhou).
-        // AGRUPADAS por etapa + motivo: várias tentativas com o mesmo erro viram UM
-        // único aviso (com a contagem de tentativas), em vez de repetir dezenas de
-        // linhas vermelhas idênticas. Mantém o motivo mais recente.
-        $failGroups = [];
-        foreach ($history as $h) {
-            if (($h['result'] ?? '') !== 'failed') continue;
-            $why = !empty($h['detail']) ? trim($h['detail']) : '';
-            $key = ($h['step'] ?? '') . '|' . $why;
-            if (!isset($failGroups[$key])) {
-                $failGroups[$key] = ['step' => $h['step'] ?? '', 'why' => $why, 'count' => 0];
+        // Impedimento ATUAL (não histórico): só é "impedimento vermelho" a falha que
+        // está travando o participante AGORA. Como o motor de alguns nós (ex.:
+        // WhatsApp) registra 'failed' mas AVANÇA mesmo assim, uma falha antiga NÃO
+        // pode continuar aparecendo como impedimento atual depois que o fluxo já
+        // seguiu adiante. Por isso só consideramos falhas que:
+        //   (a) estão na CAUDA do histórico (as últimas execuções seguidas foram
+        //       falhas da MESMA etapa — ou seja, o lead está preso ali agora), ou
+        //   (b) o participante está com status 'failed'.
+        // Falhas já superadas (o fluxo avançou para outra etapa depois delas) viram
+        // apenas parte do histórico, sem alarme vermelho.
+        $tailFails = [];
+        for ($i = count($history) - 1; $i >= 0; $i--) {
+            $h = $history[$i];
+            if (($h['result'] ?? '') === 'failed') {
+                $tailFails[] = $h;
+                continue;
             }
-            $failGroups[$key]['count']++;
+            // Encontrou uma execução que NÃO falhou: a "cauda de falhas" terminou.
+            // Tudo antes disso é falha já superada (não é impedimento atual).
+            break;
         }
-        foreach ($failGroups as $g) {
-            $times = $g['count'] > 1 ? (' (' . $g['count'] . ' tentativas)') : '';
-            $whyTxt = $g['why'] !== '' ? (' — ' . $g['why']) : '';
-            $alerts[] = ['level' => 'danger', 'text' => 'Etapa "' . $g['step'] . '" não foi concluída' . $whyTxt . $times];
+
+        if (!empty($tailFails)) {
+            // Agrupa a cauda de falhas por etapa + motivo (várias tentativas do mesmo
+            // erro viram um único aviso com a contagem), mantendo o motivo real.
+            $failGroups = [];
+            foreach ($tailFails as $h) {
+                $why = !empty($h['detail']) ? trim($h['detail']) : '';
+                $key = ($h['step'] ?? '') . '|' . $why;
+                if (!isset($failGroups[$key])) {
+                    $failGroups[$key] = ['step' => $h['step'] ?? '', 'why' => $why, 'count' => 0];
+                }
+                $failGroups[$key]['count']++;
+            }
+            foreach ($failGroups as $g) {
+                $times = $g['count'] > 1 ? (' (' . $g['count'] . ' tentativas)') : '';
+                $whyTxt = $g['why'] !== '' ? (' — ' . $g['why']) : '';
+                $alerts[] = ['level' => 'danger', 'text' => 'Etapa "' . $g['step'] . '" não foi concluída' . $whyTxt . $times];
+            }
         }
 
         // Estado final/interrompido com motivo.
@@ -1230,7 +1251,11 @@ class SequenceEngine
             }
         } else { // active
             $type = $curNode['type'] ?? null;
-            if ($type === 'wait' && $waitUntil) {
+            // Se há uma espera pendente (next_run_at no futuro), o lead está
+            // AGUARDANDO — independentemente do tipo do nó atual (um 'wait' pode já
+            // ter avançado o current_node para a próxima etapa e mesmo assim estar
+            // dentro do tempo de espera). Prioriza esse aviso.
+            if ($waitUntil) {
                 $alerts[] = ['level' => 'info', 'text' => 'Aguardando o tempo configurado. Próxima execução prevista para ' . $waitUntil . '.'];
             } elseif ($type === 'condition') {
                 $alerts[] = ['level' => 'info', 'text' => 'Aguardando resposta para avaliar a condição. Enquanto não responder, seguirá pelo caminho "Não".'];
@@ -1242,6 +1267,23 @@ class SequenceEngine
         }
 
         return $alerts;
+    }
+
+    /**
+     * Rótulo da coluna "Etapa atual" no acompanhamento.
+     * Quando há espera pendente ($waitUntil), o current_node já aponta para a
+     * PRÓXIMA etapa (o nó 'wait' avança ao agendar). Para não dar a impressão de
+     * que a espera foi pulada, mostramos "Aguardando (próxima: <etapa>)". Sem
+     * espera pendente, mostra a descrição normal do nó atual.
+     */
+    private function currentStepLabel($curNode, $waitUntil)
+    {
+        if (!$curNode) return '—';
+        $desc = self::nodeDescribe($curNode);
+        if ($waitUntil) {
+            return 'Aguardando (próxima: ' . $desc . ')';
+        }
+        return $desc;
     }
 
     /**
@@ -1265,6 +1307,12 @@ class SequenceEngine
         if ($status === 'paused') {
             if ($type === 'linkedin') return 'Aguardando ação no LinkedIn (Minhas Ações)';
             return 'Pausado';
+        }
+        // Ativo com espera pendente (next_run_at no futuro): está aguardando o tempo,
+        // mesmo que o current_node já seja a próxima etapa (um 'wait' avança o nó ao
+        // agendar). Detecta pelo horário para não depender do tipo do nó atual.
+        if ($status === 'active' && !empty($participant['next_run_at']) && strtotime($participant['next_run_at']) > time()) {
+            return 'Aguardando';
         }
         // Ativo: detalha pelo tipo do nó atual
         if ($type === 'wait') return 'Aguardando';
@@ -1347,9 +1395,16 @@ class SequenceEngine
                 $lastLabel = self::nodeDescribe($lastNode);
             }
 
-            // "Aguardar até": só relevante quando o nó atual é 'wait' e há next_run_at futuro.
+            // "Aguardar até": o participante está em espera sempre que estiver ATIVO
+            // e tiver um next_run_at no FUTURO. Isso cobre dois casos:
+            //   (1) o nó atual é 'wait' (espera explícita), e
+            //   (2) um nó 'wait' já rodou e avançou o current_node para a próxima
+            //       etapa, mas o next_run_at ainda está no futuro (a etapa seguinte
+            //       só roda quando o tempo vencer). Antes esse caso mostrava "—",
+            //       dando a impressão errada de que a espera não foi respeitada.
             $waitUntil = null;
-            if ($curNode && ($curNode['type'] ?? '') === 'wait' && !empty($p['next_run_at'])) {
+            $isActive = ($p['status'] ?? '') === 'active';
+            if ($isActive && !empty($p['next_run_at']) && strtotime($p['next_run_at']) > time()) {
                 $waitUntil = $p['next_run_at'];
             }
 
@@ -1362,7 +1417,7 @@ class SequenceEngine
                 'lead_email' => $p['lead_email'] ?? null,
                 'status' => $p['status'],
                 'status_text' => $this->participantStatusText($p, $curNode),
-                'current_step' => $curNode ? self::nodeDescribe($curNode) : '—',
+                'current_step' => $this->currentStepLabel($curNode, $waitUntil),
                 'current_type' => $curNode['type'] ?? null,
                 'last_step' => $lastLabel ?: '—',
                 'last_result' => $last['result'] ?? null,
@@ -1414,15 +1469,21 @@ class SequenceEngine
         if ($hadError) $actions[] = 'erro durante a execução';
         if (empty($actions)) $actions[] = 'nenhuma ação executável nesta passada';
 
+        // Espera pendente: ativo com next_run_at no futuro (mesma regra do progress()).
+        $waitUntil = null;
+        if (($p['status'] ?? '') === 'active' && !empty($p['next_run_at']) && strtotime($p['next_run_at']) > time()) {
+            $waitUntil = $p['next_run_at'];
+        }
+
         $line = [
             'participant_id' => (int) $participantId,
             'lead_name' => $name,
             'did' => implode('; ', $actions),
             'status' => $p['status'] ?? '',
             'status_text' => $this->participantStatusText($p, $curNode),
-            'current_step' => $curNode ? self::nodeDescribe($curNode) : '—',
+            'current_step' => $this->currentStepLabel($curNode, $waitUntil),
             'current_type' => $curNode['type'] ?? null,
-            'wait_until' => ($curNode && ($curNode['type'] ?? '') === 'wait' && !empty($p['next_run_at'])) ? $p['next_run_at'] : null,
+            'wait_until' => $waitUntil,
             'next_run_at' => $p['next_run_at'] ?? null,
         ];
         return $line;
