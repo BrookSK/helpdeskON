@@ -562,7 +562,12 @@ function bufferIcon(service) {
     return map[service] || 'share';
 }
 
+let bufferScheduling = false;
 function scheduleToBuffer() {
+    // Guarda de reentrância: evita disparar múltiplas requisições em paralelo
+    // (duplo clique, Enter, etc.) que estouram o rate limit do Buffer.
+    if (bufferScheduling) return;
+
     const id = document.getElementById('item-id').value;
     const channels = Array.from(document.querySelectorAll('.buffer-channel-cb:checked')).map(cb => cb.value);
     const result = document.getElementById('item-buffer-result');
@@ -587,6 +592,7 @@ function scheduleToBuffer() {
     if (imageUrl) fd.append('image_url', imageUrl);
 
     // Desabilitar botão para evitar cliques duplos
+    bufferScheduling = true;
     if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Agendando...'; }
     result.innerHTML = '<span class="text-muted">Agendando no Buffer, aguarde...</span>';
     fetch(`${BASE}buffer/schedule`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
@@ -604,7 +610,7 @@ function scheduleToBuffer() {
                 .then(() => afterItemChange());
         })
         .catch(() => { result.innerHTML = '<span class="text-danger">Erro na requisição.</span>'; })
-        .finally(() => { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-calendar-check"></i> Agendar no Buffer'; } });
+        .finally(() => { bufferScheduling = false; if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-calendar-check"></i> Agendar no Buffer'; } });
 }
 
 // Recarrega a aba ativa após mudanças

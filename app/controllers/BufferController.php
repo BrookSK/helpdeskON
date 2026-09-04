@@ -482,13 +482,13 @@ class BufferController extends Controller
             // Log para diagnóstico de erros da API Buffer
             $this->logBufferResponse($res, $channelId);
 
-            // Se é rate limit, tentar fallback direto via Meta API
+            // Rate limit (429 HTTP ou "too many requests" no corpo) — tratamento unificado.
+            // O BufferApi já respeita o Retry-After e para de retentar às cegas, então aqui
+            // apenas: (1) tentamos o fallback via Meta API e (2) enfileiramos o restante.
             if (($res['http'] ?? 0) === 429) {
-                $window = $res['window'] ?? '';
-                
                 // Tentar publicar direto via Meta API como fallback
                 $metaResult = $this->publishDirectMeta($channelId, $text, $dueAtIso, $assets, $channelMap);
-                
+
                 if ($metaResult && !empty($metaResult['success'])) {
                     // Publicou direto via Meta!
                     $this->data->savePost([
@@ -506,48 +506,22 @@ class BufferController extends Controller
                     $this->logBufferResponse(['fallback' => 'meta_api', 'result' => $metaResult], $channelId);
                     continue; // Próximo canal
                 }
-                
-                // Fallback Meta também falhou — salvar na fila
+
+                // Fallback Meta indisponível/falhou — enfileirar o canal atual e os
+                // restantes (sem duplicar), pois insistir agora só agrava o bloqueio.
                 foreach (array_slice($channelIds, $idx) as $queuedChannelId) {
-                    $this->data->savePost([
-                        'marketing_item_id' => $marketingItemId,
-                        'buffer_post_id' => 'queued_' . uniqid(),
-                        'channel_id' => $queuedChannelId,
-                        'service' => $channelMap[$queuedChannelId]['service'] ?? null,
-                        'text' => $text,
-                        'status' => 'queued',
-                        'due_at' => $dueAtIso ? date('Y-m-d H:i:s', strtotime($dueAtIso)) : null,
-                        'created_by' => $user['id'],
-                    ]);
+                    $this->queuePostOnce($marketingItemId, $queuedChannelId, $channelMap, $text, $dueAtIso, $user['id']);
                 }
 
-                $metaError = $metaResult['error'] ?? 'Meta API não disponível';
+                // Mensagem já formatada pelo BufferApi (inclui a janela e o tempo de espera).
+                $rateMsg = $res['errors'][0]['message'] ?? 'Limite de requisições da API Buffer atingido.';
                 $this->json([
-                    'error' => "Buffer com limite diário esgotado. Tentativa direta via Meta API: {$metaError}. Post salvo na fila.",
-                ], 400);
+                    'error' => $rateMsg . ' Os posts foram salvos na fila e serão publicados automaticamente.',
+                ], 429);
             }
 
             $node = $res['data']['createPost']['post'] ?? null;
             $errMsg = $res['data']['createPost']['message'] ?? ($res['errors'][0]['message'] ?? null);
-
-            // Rate limit detectado na mensagem: informar usuário
-            if ($errMsg && stripos($errMsg, 'too many requests') !== false) {
-                foreach (array_slice($channelIds, $idx) as $queuedChannelId) {
-                    $this->data->savePost([
-                        'marketing_item_id' => $marketingItemId,
-                        'buffer_post_id' => 'queued_' . uniqid(),
-                        'channel_id' => $queuedChannelId,
-                        'service' => $channelMap[$queuedChannelId]['service'] ?? null,
-                        'text' => $text,
-                        'status' => 'queued',
-                        'due_at' => $dueAtIso ? date('Y-m-d H:i:s', strtotime($dueAtIso)) : null,
-                        'created_by' => $user['id'],
-                    ]);
-                }
-                $this->json([
-                    'error' => 'O Buffer retornou "too many requests". O plano pode ter atingido o limite de publicações. O post foi salvo na fila. Verifique seu plano em buffer.com.',
-                ], 400);
-            }
 
             if ($node) {
                 $channel = null;
@@ -574,23 +548,7 @@ class BufferController extends Controller
         if (empty($created)) {
             // Se nenhum post foi criado via API, salvar todos na fila para envio posterior
             foreach ($channelIds as $queuedChannelId) {
-                // Verificar se já não foi salvo na fila (evitar duplicatas)
-                $alreadyQueued = Database::getInstance()->fetch(
-                    "SELECT id FROM buffer_posts WHERE marketing_item_id = ? AND channel_id = ? AND status = 'queued' AND created_at > DATE_SUB(NOW(), INTERVAL 5 MINUTE)",
-                    [$marketingItemId, $queuedChannelId]
-                );
-                if (!$alreadyQueued) {
-                    $this->data->savePost([
-                        'marketing_item_id' => $marketingItemId,
-                        'buffer_post_id' => 'queued_' . uniqid(),
-                        'channel_id' => $queuedChannelId,
-                        'service' => $channelMap[$queuedChannelId]['service'] ?? null,
-                        'text' => $text,
-                        'status' => 'queued',
-                        'due_at' => $dueAtIso ? date('Y-m-d H:i:s', strtotime($dueAtIso)) : null,
-                        'created_by' => $user['id'],
-                    ]);
-                }
+                $this->queuePostOnce($marketingItemId, $queuedChannelId, $channelMap, $text, $dueAtIso, $user['id']);
             }
             $this->json([
                 'success' => true,
@@ -925,6 +883,35 @@ class BufferController extends Controller
         }
 
         return null;
+    }
+
+    /**
+     * Enfileira um post para envio posterior, evitando duplicatas.
+     * Não cria um novo registro se já existe um 'queued' para o mesmo
+     * item de marketing + canal nos últimos 5 minutos.
+     */
+    private function queuePostOnce($marketingItemId, $channelId, $channelMap, $text, $dueAtIso, $userId)
+    {
+        $alreadyQueued = Database::getInstance()->fetch(
+            "SELECT id FROM buffer_posts
+             WHERE channel_id = ? AND status = 'queued'
+               AND (marketing_item_id <=> ?)
+               AND created_at > DATE_SUB(NOW(), INTERVAL 5 MINUTE)
+             LIMIT 1",
+            [$channelId, $marketingItemId]
+        );
+        if ($alreadyQueued) return;
+
+        $this->data->savePost([
+            'marketing_item_id' => $marketingItemId,
+            'buffer_post_id' => 'queued_' . uniqid(),
+            'channel_id' => $channelId,
+            'service' => $channelMap[$channelId]['service'] ?? null,
+            'text' => $text,
+            'status' => 'queued',
+            'due_at' => $dueAtIso ? date('Y-m-d H:i:s', strtotime($dueAtIso)) : null,
+            'created_by' => $userId,
+        ]);
     }
 
     /**
