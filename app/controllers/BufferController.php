@@ -733,6 +733,8 @@ class BufferController extends Controller
             $after = null; $pages = 0;
             do {
                 $res = $api->getSentPostsWithMetrics($orgId, [], 50, $after);
+                // Cota da API esgotada (429): interrompe o ciclo Buffer para não insistir.
+                if (($res['http'] ?? 0) === 429) { $errors[] = ($acc['label'] ?: 'Conta') . ': cota da API Buffer atingida, sincronização interrompida.'; break 2; }
                 if (!empty($res['errors'])) { $errors[] = ($acc['label'] ?: 'Conta') . ': ' . ($res['errors'][0]['message'] ?? 'erro'); break; }
                 $conn = $res['data']['posts'] ?? ['edges' => [], 'pageInfo' => []];
                 foreach ($conn['edges'] as $edge) {
@@ -762,7 +764,7 @@ class BufferController extends Controller
                 $after = $conn['pageInfo']['endCursor'] ?? null;
                 $hasNext = !empty($conn['pageInfo']['hasNextPage']);
                 $pages++;
-            } while ($hasNext && $pages < 20);
+            } while ($hasNext && $pages < 3); // limita a ~150 posts recentes para economizar requisições
 
             // 2) Agregação por canal (só os canais desta conta)
             $snapshotModel = new SocialSnapshot();

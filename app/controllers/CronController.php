@@ -50,6 +50,16 @@ class CronController extends Controller
         $bufferData = new BufferData();
         $allAccounts = $bufferAccounts->all(true);
 
+        // Guard de cache: o ciclo Buffer é pesado (muitas requisições). Se já
+        // sincronizamos há menos de 6h, pulamos para não estourar a cota da API.
+        // (Aceita ?force=1 para forçar quando necessário.)
+        $bufferLastSync = Config::get('buffer_metrics_last_sync');
+        $forceBuffer = !empty($_GET['force']);
+        if (!$forceBuffer && $bufferLastSync && (time() - strtotime($bufferLastSync)) < 21600) {
+            $allAccounts = []; // pula o ciclo Buffer sem alterar o resto do sync
+            $stats['buffer_skipped'] = true;
+        }
+
         $since = strtotime('-365 days');
         $until = time();
         $startIso = gmdate('Y-m-d\T00:00:00\Z', $since);
@@ -69,6 +79,8 @@ class CronController extends Controller
 
                 // Canais
                 $res = $api->getChannels($orgId);
+                // Cota da API esgotada (429): não adianta continuar — interrompe o ciclo Buffer.
+                if (($res['http'] ?? 0) === 429) { $errors[] = 'Buffer: cota da API atingida, sincronização interrompida.'; break; }
                 if (empty($res['errors'])) {
                     $channels = $res['data']['channels'] ?? [];
                     $bufferData->syncChannels($channels, $orgId, $acc['id']);
@@ -79,6 +91,7 @@ class CronController extends Controller
                 $after = null; $pages = 0;
                 do {
                     $res = $api->getSentPostsWithMetrics($orgId, [], 50, $after);
+                    if (($res['http'] ?? 0) === 429) { $errors[] = 'Buffer: cota da API atingida durante a busca de posts.'; break 2; }
                     if (!empty($res['errors'])) break;
                     $conn = $res['data']['posts'] ?? ['edges' => [], 'pageInfo' => []];
                     foreach ($conn['edges'] as $edge) {
@@ -108,7 +121,7 @@ class CronController extends Controller
                     $after = $conn['pageInfo']['endCursor'] ?? null;
                     $hasNext = !empty($conn['pageInfo']['hasNextPage']);
                     $pages++;
-                } while ($hasNext && $pages < 20);
+                } while ($hasNext && $pages < 3); // limita a ~150 posts recentes para economizar requisições
 
                 // Agregação por canal
                 $snapshotModel = new SocialSnapshot();
@@ -140,6 +153,10 @@ class CronController extends Controller
             } catch (\Throwable $e) {
                 $errors[] = 'Buffer: ' . $e->getMessage();
             }
+        }
+        // Marca a última sincronização Buffer só se o ciclo realmente rodou (guard de 6h acima).
+        if (!empty($allAccounts)) {
+            Config::set('buffer_metrics_last_sync', date('Y-m-d H:i:s'));
         }
 
         // 2) Social sync (Meta + LinkedIn)
