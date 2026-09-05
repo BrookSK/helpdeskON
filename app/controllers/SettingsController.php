@@ -138,6 +138,8 @@ class SettingsController extends Controller
         if (!isset($_POST['whatsapp_group_notify_enabled'])) {
             Config::set('whatsapp_group_notify_enabled', '0');
         }
+        // Buffer: modo teste/simulação (não chama a API real ao agendar)
+        Config::set('buffer_test_mode', isset($_POST['buffer_test_mode']) ? '1' : '0');
 
         // Upload de Logo
         if (!empty($_FILES['app_logo']['name']) && $_FILES['app_logo']['error'] === UPLOAD_ERR_OK) {

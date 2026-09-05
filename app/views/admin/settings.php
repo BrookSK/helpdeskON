@@ -244,6 +244,13 @@
                 <div id="buffer-accounts-list" class="d-flex flex-column gap-2">
                     <div class="text-muted small">Carregando contas...</div>
                 </div>
+                <div class="form-check form-switch mt-3 pt-3 border-top">
+                    <input class="form-check-input" type="checkbox" role="switch" id="buffer_test_mode" name="buffer_test_mode" value="1" <?= (($settings['buffer_test_mode'] ?? '0') === '1') ? 'checked' : '' ?>>
+                    <label class="form-check-label small fw-medium" for="buffer_test_mode">
+                        Modo teste (simulação)
+                    </label>
+                    <small class="text-muted d-block">Quando ativo, o "Agendar no Buffer" simula o envio sem chamar a API real — útil para validar o fluxo sem consumir a cota. Os posts simulados são marcados como <code>sim_*</code> e não vão às redes.</small>
+                </div>
             </div>
         </div>
 

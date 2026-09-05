@@ -19,6 +19,12 @@ class BufferApi
         return !empty($this->apiKey);
     }
 
+    /** Modo teste/simulação ativo? Configurável em Configurações (buffer_test_mode). */
+    public static function isTestMode()
+    {
+        return (string) Config::get('buffer_test_mode', '0') === '1';
+    }
+
     /**
      * Executa uma query/mutation GraphQL.
      * Retorna ['data' => ..., 'errors' => ..., 'http' => code].
@@ -188,6 +194,24 @@ class BufferApi
      */
     public function createPost($channelId, $text, $dueAtIso = null, $assets = [])
     {
+        // Modo teste/simulação: não chama a API real do Buffer (não consome cota).
+        // Retorna o mesmo formato de sucesso que a API devolveria, permitindo validar
+        // todo o fluxo de agendamento de ponta a ponta. O post é marcado como sim_*.
+        if (self::isTestMode()) {
+            return [
+                'http' => 200,
+                'simulated' => true,
+                'data' => ['createPost' => ['post' => [
+                    'id' => 'sim_' . bin2hex(random_bytes(8)),
+                    'text' => $text,
+                    'status' => 'scheduled',
+                    'dueAt' => $dueAtIso,
+                    'channelId' => $channelId,
+                    'externalLink' => null,
+                ]]],
+            ];
+        }
+
         $input = [
             'text' => $text,
             'channelId' => $channelId,

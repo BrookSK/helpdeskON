@@ -455,9 +455,11 @@ class BufferController extends Controller
 
         $created = [];
         $errors = [];
+        $testMode = BufferApi::isTestMode();
         foreach ($channelIds as $idx => $channelId) {
-            // Delay entre chamadas para evitar rate limiting da API Buffer
-            if ($idx > 0) usleep(1000000); // 1s entre cada canal
+            // Delay entre chamadas para evitar rate limiting da API Buffer.
+            // No modo teste não há chamada real, então não precisa do delay.
+            if ($idx > 0 && !$testMode) usleep(1000000); // 1s entre cada canal
 
             // Usar a API key da conta vinculada ao canal (ou a padrão)
             $apiKey = $defaultApiKey;
@@ -557,7 +559,7 @@ class BufferController extends Controller
                 'message' => 'Post(s) agendado(s) com sucesso! Serão publicados automaticamente.',
             ]);
         }
-        $this->json(['success' => true, 'created' => count($created), 'errors' => $errors]);
+        $this->json(['success' => true, 'created' => count($created), 'errors' => $errors, 'simulated' => $testMode]);
 
         } catch (\Throwable $e) {
             $this->json(['error' => 'Erro interno: ' . $e->getMessage() . ' (linha ' . $e->getLine() . ')'], 500);
