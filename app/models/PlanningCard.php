@@ -355,9 +355,12 @@ class PlanningCard
         $db = Database::getInstance();
         // Remover acessos antigos
         $db->delete('user_company_access', 'user_id = ?', [$userId]);
-        // Inserir novos
+        // Inserir novos (sem duplicatas)
+        $seen = [];
         foreach ($companyIds as $companyId) {
-            if ($companyId) {
+            $companyId = (int)$companyId;
+            if ($companyId && !isset($seen[$companyId])) {
+                $seen[$companyId] = true;
                 $db->insert('user_company_access', [
                     'user_id' => $userId,
                     'company_id' => $companyId,

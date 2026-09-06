@@ -155,35 +155,52 @@
                             </div>
 
                             <!-- Multi-Empresas: vínculos adicionais para o cliente -->
+                            <?php
+                            $allCompaniesLink = (new Company())->getAll();
+                            $clientLinkedIds = $editUser ? PlanningCard::getUserCompanyAccessIds($editUser['id']) : [];
+                            // Opções (excluindo a empresa principal, que já é selecionada acima)
+                            $extraSelected = array_values(array_map('intval', $clientLinkedIds));
+                            ?>
                             <div class="col-12">
                                 <hr class="my-2">
                                 <h6 class="fw-medium mb-1" style="font-size:0.86rem"><i class="bi bi-buildings"></i> Empresas adicionais (Multi-Empresas)</h6>
                                 <p class="small text-muted mb-2">
-                                    Vincule este mesmo usuário a outras empresas. Ao usar <strong>Ver como</strong>,
+                                    Opcional. Vincule este mesmo usuário a outras empresas. Ao usar <strong>Ver como</strong>,
                                     você poderá escolher qual empresa visualizar. A empresa selecionada acima é a principal.
                                 </p>
-                                <div class="row g-2">
-                                    <?php
-                                    $allCompaniesLink = (new Company())->getAll();
-                                    $clientLinkedIds = $editUser ? PlanningCard::getUserCompanyAccessIds($editUser['id']) : [];
-                                    $primaryCompanyId = $editUser['company_id'] ?? null;
-                                    foreach ($allCompaniesLink as $c):
-                                        $isPrimary = ($primaryCompanyId && (int)$primaryCompanyId === (int)$c['id']);
-                                    ?>
-                                    <div class="col-sm-6 col-md-4">
-                                        <div class="form-check">
-                                            <input class="form-check-input client-company-access" type="checkbox"
-                                                   name="company_access[]" value="<?= $c['id'] ?>"
-                                                   id="clink_<?= $c['id'] ?>"
-                                                   <?= in_array($c['id'], $clientLinkedIds) ? 'checked' : '' ?>
-                                                   <?= $isPrimary ? 'disabled title="Empresa principal"' : '' ?>>
-                                            <label class="form-check-label small" for="clink_<?= $c['id'] ?>">
-                                                <?= escape($c['name']) ?><?= $isPrimary ? ' <span class="badge bg-success" style="font-size:0.6rem">principal</span>' : '' ?>
-                                            </label>
+
+                                <div id="extra-companies-list" class="d-flex flex-column gap-2">
+                                    <?php if (!empty($extraSelected)): ?>
+                                        <?php foreach ($extraSelected as $selId): ?>
+                                        <div class="input-group input-group-sm extra-company-row">
+                                            <select name="company_access[]" class="form-select form-select-sm extra-company-select">
+                                                <option value="">Selecione uma empresa...</option>
+                                                <?php foreach ($allCompaniesLink as $c): ?>
+                                                <option value="<?= $c['id'] ?>" <?= $selId === (int)$c['id'] ? 'selected' : '' ?>><?= escape($c['name']) ?></option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                            <button type="button" class="btn btn-outline-danger remove-extra-company" title="Remover"><i class="bi bi-x-lg"></i></button>
                                         </div>
-                                    </div>
-                                    <?php endforeach; ?>
+                                        <?php endforeach; ?>
+                                    <?php endif; ?>
                                 </div>
+
+                                <button type="button" id="add-extra-company" class="btn btn-outline-secondary btn-sm mt-2">
+                                    <i class="bi bi-plus-lg"></i> Adicionar outra empresa
+                                </button>
+
+                                <!-- Template de linha (usado pelo JS) -->
+                                <template id="extra-company-template">
+                                    <div class="input-group input-group-sm extra-company-row">
+                                        <select name="company_access[]" class="form-select form-select-sm extra-company-select">
+                                            <option value="">Selecione uma empresa...</option>
+                                            <?php foreach ($allCompaniesLink as $c): ?>
+                                            <option value="<?= $c['id'] ?>"><?= escape($c['name']) ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                        <button type="button" class="btn btn-outline-danger remove-extra-company" title="Remover"><i class="bi bi-x-lg"></i></button>
+                                    </div>
+                                </template>
                             </div>
                         </div>
                     </div>
@@ -264,6 +281,30 @@ function toggleSeeAll() {
     checks.forEach(function(chk) { chk.disabled = seeAll.checked; });
     list.style.opacity = seeAll.checked ? '0.5' : '1';
 }
+
+// ===== Empresas adicionais (Multi-Empresas) — selects dinâmicos =====
+(function() {
+    const list = document.getElementById('extra-companies-list');
+    const addBtn = document.getElementById('add-extra-company');
+    const template = document.getElementById('extra-company-template');
+    if (!list || !addBtn || !template) return;
+
+    function addRow() {
+        const clone = template.content.firstElementChild.cloneNode(true);
+        list.appendChild(clone);
+    }
+
+    addBtn.addEventListener('click', addRow);
+
+    // Remover linha (delegação de evento)
+    list.addEventListener('click', function(e) {
+        const btn = e.target.closest('.remove-extra-company');
+        if (btn) {
+            const row = btn.closest('.extra-company-row');
+            if (row) row.remove();
+        }
+    });
+})();
 
 // Estado inicial
 document.addEventListener('DOMContentLoaded', toggleSeeAll);
