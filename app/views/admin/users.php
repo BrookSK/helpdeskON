@@ -92,6 +92,9 @@
                             <td>
                                 <div class="btn-group btn-group-sm">
                                     <?php if ($u['is_active'] && $u['id'] != ($user['id'] ?? 0)): ?>
+                                    <a href="<?= baseUrl('login/verComo/' . $u['id']) ?>" class="btn btn-outline-info" title="Ver como (selecionar empresa)">
+                                        <i class="bi bi-eye"></i>
+                                    </a>
                                     <a href="<?= baseUrl('login/loginAs/' . $u['id']) ?>" class="btn btn-outline-success" title="Login como usuário" onclick="return confirm('Entrar no sistema como <?= escape($u['name']) ?>?')">
                                         <i class="bi bi-box-arrow-in-right"></i>
                                     </a>
@@ -129,6 +132,7 @@
                     </div>
                     <div class="mt-2 d-flex gap-2 flex-wrap">
                         <?php if ($u['is_active'] && $u['id'] != ($user['id'] ?? 0)): ?>
+                        <a href="<?= baseUrl('login/verComo/' . $u['id']) ?>" class="btn btn-sm btn-outline-info"><i class="bi bi-eye"></i> Ver como</a>
                         <a href="<?= baseUrl('login/loginAs/' . $u['id']) ?>" class="btn btn-sm btn-outline-success" onclick="return confirm('Entrar como <?= escape($u['name']) ?>?')"><i class="bi bi-box-arrow-in-right"></i> Login</a>
                         <?php endif; ?>
                         <a href="<?= baseUrl('users/edit/' . $u['id']) ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil"></i> Editar</a>

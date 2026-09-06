@@ -67,4 +67,20 @@ class Controller
             'role' => $_SESSION['user_role'],
         ];
     }
+
+    /**
+     * Empresa ativa (contexto) do usuário logado.
+     * Em uma sessão "Ver como" Multi-Empresas, retorna a empresa escolhida.
+     * Caso contrário, cai no company_id da sessão. Retorna null se não houver.
+     */
+    protected function activeCompanyId()
+    {
+        if (!empty($_SESSION['active_company_id'])) {
+            return (int)$_SESSION['active_company_id'];
+        }
+        if (!empty($_SESSION['user_company_id'])) {
+            return (int)$_SESSION['user_company_id'];
+        }
+        return null;
+    }
 }

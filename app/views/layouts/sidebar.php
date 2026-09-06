@@ -297,6 +297,20 @@
     </nav>
     <div class="sidebar-footer">
         <?php if (!empty($_SESSION['impersonator'])): ?>
+        <?php
+            $activeCompanyName = '';
+            if (!empty($_SESSION['active_company_id'])) {
+                $activeCompanyRow = Database::getInstance()->fetch("SELECT name FROM companies WHERE id = ?", [$_SESSION['active_company_id']]);
+                $activeCompanyName = $activeCompanyRow['name'] ?? '';
+            }
+        ?>
+        <?php if ($activeCompanyName !== ''): ?>
+        <div class="text-white small mb-2 px-1" style="font-size:0.72rem;line-height:1.3;">
+            <i class="bi bi-building"></i> Vendo como
+            <strong><?= escape($_SESSION['user_name'] ?? '') ?></strong>
+            em <strong><?= escape($activeCompanyName) ?></strong>
+        </div>
+        <?php endif; ?>
         <a href="<?= baseUrl('login/returnAdmin') ?>" class="btn btn-warning btn-sm w-100 mb-2 fw-medium" style="border-radius:8px;">
             <i class="bi bi-arrow-return-left"></i> Voltar para <?= escape($_SESSION['impersonator']['user_name']) ?>
         </a>

@@ -153,6 +153,38 @@
                                     </label>
                                 </div>
                             </div>
+
+                            <!-- Multi-Empresas: vínculos adicionais para o cliente -->
+                            <div class="col-12">
+                                <hr class="my-2">
+                                <h6 class="fw-medium mb-1" style="font-size:0.86rem"><i class="bi bi-buildings"></i> Empresas adicionais (Multi-Empresas)</h6>
+                                <p class="small text-muted mb-2">
+                                    Vincule este mesmo usuário a outras empresas. Ao usar <strong>Ver como</strong>,
+                                    você poderá escolher qual empresa visualizar. A empresa selecionada acima é a principal.
+                                </p>
+                                <div class="row g-2">
+                                    <?php
+                                    $allCompaniesLink = (new Company())->getAll();
+                                    $clientLinkedIds = $editUser ? PlanningCard::getUserCompanyAccessIds($editUser['id']) : [];
+                                    $primaryCompanyId = $editUser['company_id'] ?? null;
+                                    foreach ($allCompaniesLink as $c):
+                                        $isPrimary = ($primaryCompanyId && (int)$primaryCompanyId === (int)$c['id']);
+                                    ?>
+                                    <div class="col-sm-6 col-md-4">
+                                        <div class="form-check">
+                                            <input class="form-check-input client-company-access" type="checkbox"
+                                                   name="company_access[]" value="<?= $c['id'] ?>"
+                                                   id="clink_<?= $c['id'] ?>"
+                                                   <?= in_array($c['id'], $clientLinkedIds) ? 'checked' : '' ?>
+                                                   <?= $isPrimary ? 'disabled title="Empresa principal"' : '' ?>>
+                                            <label class="form-check-label small" for="clink_<?= $c['id'] ?>">
+                                                <?= escape($c['name']) ?><?= $isPrimary ? ' <span class="badge bg-success" style="font-size:0.6rem">principal</span>' : '' ?>
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
                         </div>
                     </div>
 

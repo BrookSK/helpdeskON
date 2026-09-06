@@ -113,9 +113,14 @@ class UsersController extends Controller
             flash('success', 'Usuário criado com sucesso! Email enviado com as credenciais.');
         }
 
-        // Salvar acesso a empresas (para equipe interna)
-        if (in_array($role, ['attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']) && isset($_POST['company_access'])) {
-            PlanningCard::setUserCompanyAccess($userId, $_POST['company_access']);
+        // Salvar acesso a empresas (equipe interna) e vínculos Multi-Empresas (clientes)
+        if (in_array($role, ['attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial', 'client']) && isset($_POST['company_access'])) {
+            $companyAccess = $_POST['company_access'];
+            // Para clientes, a empresa principal não deve duplicar no pivot
+            if ($role === 'client' && $finalCompanyId) {
+                $companyAccess = array_values(array_filter($companyAccess, fn($cid) => (int)$cid !== (int)$finalCompanyId));
+            }
+            PlanningCard::setUserCompanyAccess($userId, $companyAccess);
         }
 
         $this->redirect('users');
@@ -210,10 +215,14 @@ class UsersController extends Controller
         }
         $db->update('users', $sipData, 'id = ?', [$id]);
 
-        // Salvar acesso a empresas (para equipe interna)
+        // Salvar acesso a empresas (equipe interna) e vínculos Multi-Empresas (clientes)
         $role = $data['role'] ?? $_POST['role'] ?? '';
-        if (in_array($role, ['attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial'])) {
+        if (in_array($role, ['attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial', 'client'])) {
             $companyAccess = $_POST['company_access'] ?? [];
+            // Para clientes, a empresa principal não deve duplicar no pivot
+            if ($role === 'client' && !empty($finalCompanyId)) {
+                $companyAccess = array_values(array_filter($companyAccess, fn($cid) => (int)$cid !== (int)$finalCompanyId));
+            }
             PlanningCard::setUserCompanyAccess($id, $companyAccess);
         }
 
