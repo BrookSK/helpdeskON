@@ -21,9 +21,16 @@ class TicketsController extends Controller
 
         if ($user['role'] === 'client') {
             $fullUser = (new User())->findById($user['id']);
+            // Contexto Multi-Empresas: usa a empresa ativa (Ver como) quando definida
+            // e o usuário está de fato vinculado a ela.
+            $activeCompanyId = $this->activeCompanyId();
+            $companyContext = $fullUser['company_id'] ?? null;
+            if ($activeCompanyId && (new User())->isLinkedToCompany($user['id'], $activeCompanyId)) {
+                $companyContext = $activeCompanyId;
+            }
             // Dono da empresa vê todos os tickets da empresa
-            if ($fullUser['is_company_owner'] && $fullUser['company_id']) {
-                $tickets = $this->ticketModel->getByCompany($fullUser['company_id']);
+            if ($fullUser['is_company_owner'] && $companyContext) {
+                $tickets = $this->ticketModel->getByCompany($companyContext);
                 $this->view('client/tickets', ['user' => $user, 'tickets' => $tickets, 'isOwner' => true]);
             } else {
                 $tickets = $this->ticketModel->getByClient($user['id']);

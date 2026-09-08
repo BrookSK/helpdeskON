@@ -15,6 +15,9 @@
  *   tag    (data: label)                → adiciona tag, avança
  *   score  (data: delta)                → altera score, avança
  *   move   (data: column_id)            → move card do lead, avança
+ *   linkedin (data: action_type, objective, tone, cta, max_length, template_id, body)
+ *          → cria uma tarefa MANUAL (linkedin_tasks) com a mensagem preparada pela IA
+ *            e PAUSA o participante. Retomada por resumeAfterLinkedinTask ao "ENVIEI".
  *   end                                 → finaliza participante
  *
  * Execução dirigida por cron (cron/runSequences): processa participantes com
@@ -124,7 +127,7 @@ class SequenceEngine
         $seq = $this->db->fetch("SELECT * FROM email_sequences WHERE id = ?", [$sequenceId]);
         if (!$seq || !$seq['is_active']) return ['success' => false, 'error' => 'Sequência inválida ou inativa.'];
 
-        $contact = $this->db->fetch("SELECT unsubscribed, email_bounced, lead_email, phone FROM whatsapp_contacts WHERE id = ?", [$contactId]);
+        $contact = $this->db->fetch("SELECT unsubscribed, email_bounced, lead_email, phone, linkedin_url FROM whatsapp_contacts WHERE id = ?", [$contactId]);
         if (!$contact) return ['success' => false, 'error' => 'Lead não encontrado.'];
         // Disparo MANUAL (forceRestart) ignora o opt-out: o operador está reinscrevendo
         // deliberadamente (ex.: para testar o fluxo). Reativa o contato.
@@ -137,18 +140,19 @@ class SequenceEngine
         // Elegibilidade por CANAL da sequência (email / whatsapp / mixed).
         // - email:    exige e-mail
         // - whatsapp: exige telefone
-        // - mixed:    exige e-mail OU telefone
+        // - mixed:    exige e-mail, telefone OU LinkedIn (prospecção híbrida)
         $channel = $seq['channel_type'] ?? 'email';
         $hasEmail = !empty($contact['lead_email']);
         $hasPhone = !empty($contact['phone']);
+        $hasLinkedin = !empty($contact['linkedin_url']);
         // A própria sequência pode revelar o telefone depois (bloco reveal_phone),
         // então um lead sem telefone imediato ainda é elegível em whatsapp/mixed.
         $willRevealPhone = $this->graphHasPhoneReveal($seq);
         if ($channel === 'whatsapp' && !$hasPhone && !$willRevealPhone) {
             return ['success' => false, 'error' => 'Lead sem telefone para sequência de WhatsApp.'];
         }
-        if ($channel === 'mixed' && !$hasEmail && !$hasPhone && !$willRevealPhone) {
-            return ['success' => false, 'error' => 'Lead sem e-mail nem telefone.'];
+        if ($channel === 'mixed' && !$hasEmail && !$hasPhone && !$hasLinkedin && !$willRevealPhone) {
+            return ['success' => false, 'error' => 'Lead sem e-mail, telefone ou LinkedIn.'];
         }
         if ($channel === 'email' && !$hasEmail) {
             return ['success' => false, 'error' => 'Lead sem e-mail cadastrado.'];
@@ -540,9 +544,17 @@ class SequenceEngine
 
     /**
      * Processa os participantes prontos (next_run_at <= agora), respeitando limites.
+     * @param bool $manualForce Disparo MANUAL (botão "Executar campanha"): ignora
+     *        APENAS a janela de horário/fim de semana do envio, para que a ação
+     *        intencional do usuário execute o bloco agora. O limite diário e demais
+     *        regras permanecem. Default false = comportamento idêntico ao do cron.
+     * @param array|null $details Se um array for passado por referência, recebe uma
+     *        linha LEGÍVEL por participante processado (nome, o que aconteceu, etapa
+     *        atual, status e "aguardar até"). Só é usado no disparo manual — quando
+     *        null (cron), o comportamento é idêntico ao de antes.
      * @return array métricas da execução
      */
-    public function processDue($maxBatch = 200)
+    public function processDue($maxBatch = 200, $sequenceId = null, $manualForce = false, &$details = null)
     {
         // Antes de processar, detecta respostas do lead (WhatsApp/e-mail) para os
         // participantes ativos. O webhook do WhatsApp já dispara em tempo real, mas
@@ -550,15 +562,25 @@ class SequenceEngine
         // execução for manual ("Processar sequências agora").
         $this->detectRepliesForActive();
 
+        $collect = is_array($details); // coletor legível por participante (disparo manual)
         $now = date('Y-m-d H:i:s');
+        // Filtro opcional por sequência: sem $sequenceId (default) o comportamento é
+        // idêntico ao do cron (todas as sequências ativas). Com $sequenceId, processa
+        // SOMENTE os participantes elegíveis daquela sequência — mesmo motor/step().
+        $params = [$now];
+        $seqFilter = '';
+        if ($sequenceId !== null) {
+            $seqFilter = ' AND sp.sequence_id = ?';
+            $params[] = (int) $sequenceId;
+        }
         $due = $this->db->fetchAll(
             "SELECT sp.* FROM sequence_participants sp
              JOIN email_sequences s ON s.id = sp.sequence_id
              WHERE sp.status = 'active' AND s.is_active = 1
-               AND sp.next_run_at IS NOT NULL AND sp.next_run_at <= ?
+               AND sp.next_run_at IS NOT NULL AND sp.next_run_at <= ?" . $seqFilter . "
              ORDER BY sp.next_run_at ASC
              LIMIT " . (int) $maxBatch,
-            [$now]
+            $params
         );
 
         $stats = ['processed' => 0, 'sent' => 0, 'finished' => 0, 'skipped' => 0, 'errors' => 0];
@@ -579,15 +601,18 @@ class SequenceEngine
             // então continuamos executando até bater num 'wait' (agenda futuro),
             // finalizar, pular por janela/limite, ou atingir a trava de segurança.
             $current = $p;
+            $stepResults = []; // resultados dos passos deste participante (para o coletor legível)
             for ($i = 0; $i < $maxStepsPerParticipant; $i++) {
                 try {
-                    $r = $this->step($current, $sentByAccount);
+                    $r = $this->step($current, $sentByAccount, false, $manualForce);
                     $stats['processed']++;
                     if ($r === 'sent') $stats['sent']++;
                     elseif ($r === 'finished') $stats['finished']++;
                     elseif ($r === 'skipped') $stats['skipped']++;
+                    $stepResults[] = $r;
                 } catch (\Throwable $e) {
                     $stats['errors']++;
+                    $stepResults[] = 'error';
                     Logger::error('SequenceEngine step', ['participant' => $current['id'], 'error' => $e->getMessage()]);
                     $this->db->update('sequence_participants', ['status' => 'failed', 'stop_reason' => 'error'], 'id = ?', [$current['id']]);
                     break;
@@ -604,6 +629,11 @@ class SequenceEngine
             }
             // Fim da passada deste participante: envia o e-mail agrupado (se houver).
             $this->flushEmail($p['id']);
+
+            // Coletor legível (disparo manual): registra o que aconteceu com este lead.
+            if ($collect) {
+                $details[] = $this->summarizeRun($p['id'], $stepResults);
+            }
         }
         return $stats;
     }
@@ -766,8 +796,12 @@ class SequenceEngine
         return ['success' => true, 'result' => $result, 'detail' => $detail, 'node_type' => $type];
     }
 
-    /** Executa um passo do participante (um nó). $testMode pula esperas/janela. */
-    private function step($participant, &$sentByAccount, $testMode = false)
+    /**
+     * Executa um passo do participante (um nó). $testMode pula esperas/janela.
+     * $manualForce (disparo manual) ignora SOMENTE a janela de horário/fim de semana
+     * do envio — o limite diário e as demais regras seguem valendo.
+     */
+    private function step($participant, &$sentByAccount, $testMode = false, $manualForce = false)
     {
         $seq = $this->db->fetch("SELECT * FROM email_sequences WHERE id = ?", [$participant['sequence_id']]);
         $graph = json_decode($seq['graph'] ?? '{}', true);
@@ -802,7 +836,10 @@ class SequenceEngine
                 }
                 // Respeita janela de horário e limite diário (ignorado no modo teste)
                 if (!$testMode) {
-                    if (!$this->withinWindow($seq)) { $this->reschedule($participant, $this->nextWindowStart($seq)); return 'skipped'; }
+                    // Disparo MANUAL ("Executar campanha") ignora APENAS a janela de
+                    // horário/fim de semana — a ação é intencional do usuário. O cron
+                    // (manualForce=false) mantém a janela como sempre.
+                    if (!$manualForce && !$this->withinWindow($seq)) { $this->reschedule($participant, $this->nextWindowStart($seq)); return 'skipped'; }
                     $key = $seq['id'];
                     $sentByAccount[$key] = ($sentByAccount[$key] ?? 0);
                     if ($this->sentToday($seq['id']) + $sentByAccount[$key] >= (int) $seq['daily_limit']) {
@@ -968,6 +1005,24 @@ class SequenceEngine
                 $this->logExec($participant['id'], $nodeId, $type, empty($ag['error']) ? 'done' : 'failed', $ag['detail'] ?? null);
                 return ($intent === 'unclear' && $agentActive) ? 'skipped' : 'sent';
 
+            case 'linkedin':
+                // Etapa MANUAL assistida. NÃO envia nada: gera uma tarefa na fila
+                // "Minhas Ações" (com a mensagem preparada pela IA) e PAUSA o
+                // participante NESTE nó, aguardando o vendedor confirmar "ENVIEI".
+                // No modo teste, apenas registra e segue (não trava o teste).
+                $this->doLinkedin($participant, $seq, $node);
+                if ($testMode) {
+                    $this->advance($participant, $node['next'] ?? null, $nodes);
+                    $this->logExec($participant['id'], $nodeId, $type, 'done', 'Tarefa LinkedIn (teste): seguiria pausada em produção.');
+                    return 'skipped';
+                }
+                // Pausa: fixa o current_node neste nó e zera o next_run_at.
+                $this->db->update('sequence_participants', [
+                    'status' => 'paused', 'current_node' => $nodeId, 'next_run_at' => null,
+                ], 'id = ?', [$participant['id']]);
+                $this->logExec($participant['id'], $nodeId, $type, 'waiting', 'Tarefa LinkedIn criada — aguardando ação do vendedor.');
+                return 'skipped';
+
             case 'end':
             default:
                 $this->finish($participant, 'completed');
@@ -1041,9 +1096,12 @@ class SequenceEngine
         $this->flushEmail($participant['id']);
 
         $contactId = $participant['contact_id'];
+        // Contexto base para os logs desta etapa (aparece no painel de logs do servidor).
+        $logCtx = ['step' => 'whatsapp', 'participant_id' => $participant['id'] ?? null, 'contact_id' => $contactId];
         $contact = $this->db->fetch("SELECT id, phone, contact_name, push_name, lead_email FROM whatsapp_contacts WHERE id = ?", [$contactId]);
         if (empty($contact['phone'])) {
             (new LeadTimelineService())->add($contactId, 'note', 'WhatsApp da sequência não enviado: lead sem telefone.');
+            Logger::warning('SequenceEngine whatsapp impedido', $logCtx + ['reason' => 'Lead sem telefone']);
             return 'Lead sem telefone';
         }
         $data = $node['data'] ?? [];
@@ -1075,22 +1133,36 @@ class SequenceEngine
         }
 
         $msg = $this->render($bodySrc, $contact);
-        if (trim($msg) === '') return 'Mensagem vazia';
+        if (trim($msg) === '') {
+            Logger::warning('SequenceEngine whatsapp impedido', $logCtx + ['reason' => 'Mensagem vazia']);
+            return 'Mensagem vazia';
+        }
 
         // SEMPRE usa a instância PADRÃO para envios de sequência.
         $ctxRow = $this->db->fetch("SELECT remote_jid FROM whatsapp_contacts WHERE id = ?", [$contactId]);
         $default = $this->db->fetch("SELECT id, connection_status FROM whatsapp_instances WHERE is_default = 1 LIMIT 1");
-        if (!$default) return 'Nenhuma instância padrão de WhatsApp definida. Defina uma instância como padrão em WhatsApp.';
+        if (!$default) {
+            Logger::warning('SequenceEngine whatsapp impedido', $logCtx + ['reason' => 'Nenhuma instância padrão de WhatsApp definida']);
+            return 'Nenhuma instância padrão de WhatsApp definida. Defina uma instância como padrão em WhatsApp.';
+        }
         $instanceId = (int)$default['id'];
 
         // A instância padrão precisa estar conectada (senão a Evolution retorna "Connection Closed").
         if (!$this->isInstanceConnected($instanceId)) {
+            Logger::warning('SequenceEngine whatsapp impedido', $logCtx + [
+                'reason' => 'Instância padrão de WhatsApp não conectada',
+                'instance_id' => $instanceId,
+                'connection_status' => $default['connection_status'] ?? null,
+            ]);
             return 'A instância padrão de WhatsApp não está conectada. Conecte-a em WhatsApp.';
         }
 
         try {
             $api = EvolutionApi::fromInstance($instanceId);
-            if (!$api) return 'Instância padrão de WhatsApp indisponível';
+            if (!$api) {
+                Logger::warning('SequenceEngine whatsapp impedido', $logCtx + ['reason' => 'Instância padrão indisponível', 'instance_id' => $instanceId]);
+                return 'Instância padrão de WhatsApp indisponível';
+            }
 
             // Mesmo caminho do envio manual (que funciona): usa o remote_jid do lead
             // quando for um JID válido; caso contrário monta a partir do telefone.
@@ -2225,6 +2297,115 @@ class SequenceEngine
         return $col['id'] ?? null;
     }
 
+    /**
+     * Etapa LinkedIn (MANUAL): cria uma tarefa na fila "Minhas Ações" com a mensagem
+     * já preparada pela IA e registra na timeline. Idempotente por (participant, node):
+     * se já existe uma tarefa aberta desta etapa, não recria.
+     *
+     * NÃO envia nada ao LinkedIn. Nenhuma automação/scraping. O envio é feito à mão
+     * pelo vendedor, que depois confirma com "ENVIEI" (resumeAfterLinkedinTask).
+     */
+    /** A tabela linkedin_tasks existe? (migration 080 pode não ter rodado ainda.) */
+    private function linkedinTasksReady()
+    {
+        static $ready = null;
+        if ($ready !== null) return $ready;
+        try {
+            $r = $this->db->fetch(
+                "SELECT 1 FROM information_schema.TABLES
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'linkedin_tasks'"
+            );
+            $ready = (bool) $r;
+        } catch (\Throwable $e) {
+            $ready = false;
+        }
+        return $ready;
+    }
+
+    private function doLinkedin($participant, $seq, $node)
+    {
+        $contactId = $participant['contact_id'];
+        $data = $node['data'] ?? [];
+
+        // Compatibilidade: se a migration 080 (tabela linkedin_tasks) ainda não foi
+        // aplicada, não quebra a sequência — apenas registra e segue.
+        if (!$this->linkedinTasksReady()) {
+            (new LeadTimelineService())->add(
+                $contactId,
+                'linkedin_task',
+                'Etapa LinkedIn ignorada: tabela linkedin_tasks ausente (aplique a migration 080).',
+                ['node_id' => $node['id']]
+            );
+            return true;
+        }
+
+        $taskModel = new LinkedinTask();
+        // Idempotência: não recria tarefa já aberta desta etapa.
+        $existing = $taskModel->findOpenByParticipantNode($participant['id'], $node['id']);
+        if ($existing) return true;
+
+        // SELECT resiliente: linkedin_url pode não existir antes da migration 080.
+        $contact = $this->db->fetch("SELECT * FROM whatsapp_contacts WHERE id = ?", [$contactId]);
+
+        // Mensagem preparada ANTES de a tarefa aparecer (só dados reais; sem alucinação).
+        $gen = (new LinkedinMessageService())->generate($contactId, $node);
+
+        $actionType = $data['action_type'] ?? 'message';
+        $taskId = $taskModel->createIdempotent([
+            'contact_id' => $contactId,
+            'sequence_id' => $seq['id'] ?? null,
+            'participant_id' => $participant['id'],
+            'node_id' => $node['id'],
+            'assigned_to' => $contact['assigned_to'] ?? ($participant['added_by'] ?? null),
+            'action_type' => $actionType,
+            'objective' => $data['objective'] ?? null,
+            'linkedin_url' => $contact['linkedin_url'] ?? null,
+            'template_id' => !empty($data['template_id']) ? (int) $data['template_id'] : null,
+            'generated_message' => $gen['message'] ?? null,
+            'status' => LinkedinTask::S_READY,
+            'due_at' => date('Y-m-d H:i:s'),
+        ]);
+
+        (new LeadTimelineService())->add(
+            $contactId,
+            'linkedin_task',
+            'Tarefa LinkedIn criada (' . $actionType . ') — aguardando envio manual.',
+            ['task_id' => $taskId, 'sequence_id' => $seq['id'] ?? null, 'node_id' => $node['id']]
+        );
+
+        return true;
+    }
+
+    /**
+     * Retoma a sequência após o vendedor confirmar o envio (ou pular) da tarefa
+     * LinkedIn. Reativa o participante PAUSADO neste nó e avança para o próximo.
+     * Chamado pelo LinkedinController ao "ENVIEI"/"PULAR".
+     *
+     * @return bool true se retomou; false se não havia nada a retomar.
+     */
+    public function resumeAfterLinkedinTask($participantId, $nodeId)
+    {
+        $participant = $this->db->fetch("SELECT * FROM sequence_participants WHERE id = ?", [$participantId]);
+        if (!$participant) return false;
+        // Só retoma se estava pausado exatamente neste nó (evita corridas).
+        if ($participant['status'] !== 'paused' || (string) $participant['current_node'] !== (string) $nodeId) {
+            return false;
+        }
+
+        $seq = $this->db->fetch("SELECT graph FROM email_sequences WHERE id = ?", [$participant['sequence_id']]);
+        $graph = json_decode($seq['graph'] ?? '{}', true);
+        $nodes = [];
+        foreach (($graph['nodes'] ?? []) as $n) $nodes[$n['id']] = $n;
+        $node = $nodes[$nodeId] ?? null;
+
+        // Reativa e avança para o próximo nó (respeita os delays: o próximo 'wait'
+        // reagenda normalmente no ciclo seguinte do cron).
+        $this->db->update('sequence_participants', ['status' => 'active'], 'id = ?', [$participantId]);
+        $participant['status'] = 'active';
+        $this->advance($participant, $node['next'] ?? null, $nodes);
+        return true;
+    }
+
     // ---- helpers de fluxo ----
 
     private function advance($participant, $nextNodeId, $nodes)
@@ -2386,5 +2567,416 @@ class SequenceEngine
             'created_by' => $userId,
         ]);
         return $this->enroll($seqId, $contactId, $userId);
+    }
+
+    // ============ Acompanhamento (visão legível do estado) ============
+
+    /**
+     * Rótulos humanos por tipo de nó (espelham os NODE_LABELS do editor visual).
+     */
+    public static function nodeTypeLabel($type)
+    {
+        $map = [
+            'send' => 'Enviar e-mail',
+            'whatsapp' => 'Enviar WhatsApp',
+            'linkedin' => 'LinkedIn (tarefa)',
+            'wait' => 'Aguardar',
+            'condition' => 'Condição',
+            'tag' => 'Etiqueta',
+            'score' => 'Score',
+            'move' => 'Mover card',
+            'reveal_phone' => 'Revelar telefone',
+            'end' => 'Encerrar',
+        ];
+        return $map[$type] ?? ($type ?: '—');
+    }
+
+    /**
+     * Descrição legível de um nó específico do grafo (ex.: "Aguardar 4 min",
+     * "Condição — Se respondeu?", "Enviar e-mail — Assunto: ...").
+     */
+    public static function nodeDescribe($node)
+    {
+        if (!$node || empty($node['type'])) return '—';
+        $type = $node['type'];
+        $d = $node['data'] ?? [];
+        $label = self::nodeTypeLabel($type);
+        switch ($type) {
+            case 'send':
+                $subj = trim($d['subject'] ?? '');
+                return $label . ($subj !== '' ? ' — ' . $subj : '');
+            case 'wait':
+                $amount = (int) ($d['amount'] ?? 0);
+                $unitMap = ['minutes' => 'min', 'hours' => 'h', 'days' => 'dias'];
+                $unit = $unitMap[$d['unit'] ?? 'days'] ?? 'dias';
+                return $label . ' ' . $amount . ' ' . $unit;
+            case 'condition':
+                $kindMap = ['replied' => 'Se respondeu?', 'opened' => 'Se abriu?', 'clicked' => 'Se clicou?'];
+                return $label . ' — ' . ($kindMap[$d['kind'] ?? 'replied'] ?? '?');
+            case 'tag':
+                return $label . (trim($d['label'] ?? '') !== '' ? ' — ' . $d['label'] : '');
+            case 'score':
+                $delta = (int) ($d['delta'] ?? 0);
+                return $label . ' ' . ($delta > 0 ? '+' : '') . $delta;
+            case 'linkedin':
+                $actMap = ['connect' => 'Solicitar conexão', 'message' => '1ª mensagem', 'followup' => 'Follow-up', 'final' => 'Mensagem final'];
+                return $label . ' — ' . ($actMap[$d['action_type'] ?? 'message'] ?? 'Ação');
+            default:
+                return $label;
+        }
+    }
+
+    /**
+     * Rótulo legível do RESULTADO de um passo no histórico, conforme o tipo do nó.
+     * Ex.: send/done => "E-mail enviado"; send/failed => "Falha ao enviar";
+     * wait/waiting => "Aguardando"; linkedin/waiting => "Tarefa criada (aguardando)".
+     */
+    public static function resultLabel($type, $result)
+    {
+        if ($type === 'send') {
+            if ($result === 'done') return 'E-mail enviado';
+            if ($result === 'failed') return 'Falha ao enviar e-mail';
+        }
+        if ($type === 'whatsapp') {
+            if ($result === 'done') return 'WhatsApp enviado';
+            if ($result === 'failed') return 'Falha ao enviar WhatsApp';
+        }
+        if ($type === 'wait' && $result === 'waiting') return 'Aguardando';
+        if ($type === 'linkedin' && $result === 'waiting') return 'Tarefa criada (aguardando ação)';
+        if ($type === 'condition') return 'Condição avaliada';
+        $map = ['done' => 'Executado', 'failed' => 'Falhou', 'waiting' => 'Aguardando', 'skipped' => 'Pulado'];
+        return $map[$result] ?? ($result ?: '—');
+    }
+
+    /**
+     * Monta avisos LEGÍVEIS (impedido / pausado / pulado / aguardando) com o motivo
+     * real, para o painel de acompanhamento. Cada aviso: {level, text}.
+     * level: 'danger' (impediu/falhou), 'warning' (pausado/aguardando ação),
+     *        'info' (aguardando tempo / andamento normal).
+     */
+    private function buildAlerts($participant, $curNode, array $history, $waitUntil)
+    {
+        $alerts = [];
+        $status = $participant['status'] ?? '';
+        $reason = $participant['stop_reason'] ?? '';
+
+        // Impedimento ATUAL (não histórico): só é "impedimento vermelho" a falha que
+        // está travando o participante AGORA. Como o motor de alguns nós (ex.:
+        // WhatsApp) registra 'failed' mas AVANÇA mesmo assim, uma falha antiga NÃO
+        // pode continuar aparecendo como impedimento atual depois que o fluxo já
+        // seguiu adiante. Por isso só consideramos falhas que:
+        //   (a) estão na CAUDA do histórico (as últimas execuções seguidas foram
+        //       falhas da MESMA etapa — ou seja, o lead está preso ali agora), ou
+        //   (b) o participante está com status 'failed'.
+        // Falhas já superadas (o fluxo avançou para outra etapa depois delas) viram
+        // apenas parte do histórico, sem alarme vermelho.
+        $tailFails = [];
+        for ($i = count($history) - 1; $i >= 0; $i--) {
+            $h = $history[$i];
+            if (($h['result'] ?? '') === 'failed') {
+                $tailFails[] = $h;
+                continue;
+            }
+            // Encontrou uma execução que NÃO falhou: a "cauda de falhas" terminou.
+            // Tudo antes disso é falha já superada (não é impedimento atual).
+            break;
+        }
+
+        if (!empty($tailFails)) {
+            // Agrupa a cauda de falhas por etapa + motivo (várias tentativas do mesmo
+            // erro viram um único aviso com a contagem), mantendo o motivo real.
+            $failGroups = [];
+            foreach ($tailFails as $h) {
+                $why = !empty($h['detail']) ? trim($h['detail']) : '';
+                $key = ($h['step'] ?? '') . '|' . $why;
+                if (!isset($failGroups[$key])) {
+                    $failGroups[$key] = ['step' => $h['step'] ?? '', 'why' => $why, 'count' => 0];
+                }
+                $failGroups[$key]['count']++;
+            }
+            foreach ($failGroups as $g) {
+                $times = $g['count'] > 1 ? (' (' . $g['count'] . ' tentativas)') : '';
+                $whyTxt = $g['why'] !== '' ? (' — ' . $g['why']) : '';
+                $alerts[] = ['level' => 'danger', 'text' => 'Etapa "' . $g['step'] . '" não foi concluída' . $whyTxt . $times];
+            }
+        }
+
+        // Estado final/interrompido com motivo.
+        if ($status === 'finished') {
+            $reasonMap = [
+                'completed' => 'Sequência concluída normalmente.',
+                'replied' => 'Interrompida porque o lead respondeu.',
+                'unsubscribed' => 'Interrompida: lead descadastrado.',
+                'bounce' => 'Interrompida: e-mail inválido (bounce).',
+                'no_email' => 'Impedida: o lead não tem e-mail cadastrado.',
+                'no_account' => 'Impedida: nenhuma conta de e-mail ativa configurada para envio.',
+            ];
+            $lvl = in_array($reason, ['no_email', 'no_account', 'bounce'], true) ? 'danger' : 'info';
+            $alerts[] = ['level' => $lvl, 'text' => $reasonMap[$reason] ?? ('Finalizada (' . ($reason ?: 'concluída') . ').')];
+        } elseif ($status === 'stopped') {
+            $alerts[] = ['level' => 'warning', 'text' => 'Execução interrompida' . ($reason ? ' — ' . $reason : '') . '.'];
+        } elseif ($status === 'failed') {
+            $alerts[] = ['level' => 'danger', 'text' => 'Execução falhou' . ($reason ? ' — ' . $reason : '') . '.'];
+        } elseif ($status === 'paused') {
+            if (($curNode['type'] ?? '') === 'linkedin') {
+                $alerts[] = ['level' => 'warning', 'text' => 'Pausado no LinkedIn: uma tarefa manual foi criada em CRM → Minhas Ações. A sequência só avança quando o vendedor confirmar o envio.'];
+            } else {
+                $alerts[] = ['level' => 'warning', 'text' => 'Participante pausado.'];
+            }
+        } else { // active
+            $type = $curNode['type'] ?? null;
+            // Se há uma espera pendente (next_run_at no futuro), o lead está
+            // AGUARDANDO — independentemente do tipo do nó atual (um 'wait' pode já
+            // ter avançado o current_node para a próxima etapa e mesmo assim estar
+            // dentro do tempo de espera). Prioriza esse aviso.
+            if ($waitUntil) {
+                $alerts[] = ['level' => 'info', 'text' => 'Aguardando o tempo configurado. Próxima execução prevista para ' . $waitUntil . '.'];
+            } elseif ($type === 'condition') {
+                $alerts[] = ['level' => 'info', 'text' => 'Aguardando resposta para avaliar a condição. Enquanto não responder, seguirá pelo caminho "Não".'];
+            } elseif ($type === 'send') {
+                $alerts[] = ['level' => 'info', 'text' => 'Pronto para enviar e-mail na próxima execução.'];
+            } elseif ($type === 'linkedin') {
+                $alerts[] = ['level' => 'info', 'text' => 'Pronto para gerar a tarefa de LinkedIn na próxima execução.'];
+            }
+        }
+
+        return $alerts;
+    }
+
+    /**
+     * Rótulo da coluna "Etapa atual" no acompanhamento.
+     * Quando há espera pendente ($waitUntil), o current_node já aponta para a
+     * PRÓXIMA etapa (o nó 'wait' avança ao agendar). Para não dar a impressão de
+     * que a espera foi pulada, mostramos "Aguardando (próxima: <etapa>)". Sem
+     * espera pendente, mostra a descrição normal do nó atual.
+     */
+    private function currentStepLabel($curNode, $waitUntil)
+    {
+        if (!$curNode) return '—';
+        $desc = self::nodeDescribe($curNode);
+        if ($waitUntil) {
+            return 'Aguardando (próxima: ' . $desc . ')';
+        }
+        return $desc;
+    }
+
+    /**
+     * Status legível do participante para a tela de acompanhamento.
+     * Considera o status do registro e o tipo do nó atual.
+     */
+    private function participantStatusText($participant, $currentNode)
+    {
+        $status = $participant['status'] ?? '';
+        $type = $currentNode['type'] ?? null;
+
+        if ($status === 'finished') {
+            $reasonMap = [
+                'completed' => 'Concluída', 'replied' => 'Respondeu', 'unsubscribed' => 'Descadastrado',
+                'bounce' => 'E-mail inválido (bounce)', 'no_email' => 'Sem e-mail', 'no_account' => 'Sem conta de envio',
+            ];
+            return 'Finalizado — ' . ($reasonMap[$participant['stop_reason'] ?? ''] ?? ($participant['stop_reason'] ?: 'concluída'));
+        }
+        if ($status === 'stopped') return 'Interrompido' . (!empty($participant['stop_reason']) ? ' — ' . $participant['stop_reason'] : '');
+        if ($status === 'failed') return 'Falhou' . (!empty($participant['stop_reason']) ? ' — ' . $participant['stop_reason'] : '');
+        if ($status === 'paused') {
+            if ($type === 'linkedin') return 'Aguardando ação no LinkedIn (Minhas Ações)';
+            return 'Pausado';
+        }
+        // Ativo com espera pendente (next_run_at no futuro): está aguardando o tempo,
+        // mesmo que o current_node já seja a próxima etapa (um 'wait' avança o nó ao
+        // agendar). Detecta pelo horário para não depender do tipo do nó atual.
+        if ($status === 'active' && !empty($participant['next_run_at']) && strtotime($participant['next_run_at']) > time()) {
+            return 'Aguardando';
+        }
+        // Ativo: detalha pelo tipo do nó atual
+        if ($type === 'wait') return 'Aguardando';
+        if ($type === 'condition') return 'Aguardando resposta';
+        if ($type === 'send') return 'Pronto para enviar e-mail';
+        if ($type === 'linkedin') return 'Pronto para tarefa de LinkedIn';
+        return 'Ativo';
+    }
+
+    /**
+     * Monta a visão legível de acompanhamento de TODOS os participantes de uma
+     * sequência: etapa atual, última etapa executada, próxima etapa, status e,
+     * quando em "Aguardar", até quando deve esperar (next_run_at).
+     * Somente leitura — não altera estado nem executa nada.
+     * @return array {sequence, participants:[...]}
+     */
+    public function progress($sequenceId)
+    {
+        $seq = $this->db->fetch("SELECT id, name, graph FROM email_sequences WHERE id = ?", [$sequenceId]);
+        if (!$seq) return ['error' => 'Sequência não encontrada.'];
+
+        $graph = json_decode($seq['graph'] ?? '{}', true);
+        $nodes = [];
+        foreach (($graph['nodes'] ?? []) as $n) $nodes[$n['id']] = $n;
+        $startId = $graph['start'] ?? ($graph['nodes'][0]['id'] ?? null);
+
+        $rows = $this->db->fetchAll(
+            "SELECT sp.*, COALESCE(wc.contact_name, wc.push_name, wc.lead_email) AS lead_name, wc.lead_email
+             FROM sequence_participants sp
+             JOIN whatsapp_contacts wc ON sp.contact_id = wc.id
+             WHERE sp.sequence_id = ?
+             ORDER BY sp.status = 'active' DESC, sp.next_run_at ASC, sp.id ASC",
+            [$sequenceId]
+        );
+
+        $out = [];
+        foreach ($rows as $p) {
+            // Nó atual: se null, o próximo a rodar é o start.
+            $curId = $p['current_node'] ?: $startId;
+            $curNode = $curId && isset($nodes[$curId]) ? $nodes[$curId] : null;
+
+            // Próxima etapa: para nós lineares é o "next"; para condição depende do
+            // ramo (mostramos ambos de forma resumida). Só informativo.
+            $nextLabel = null;
+            if ($curNode) {
+                if (($curNode['type'] ?? '') === 'condition') {
+                    $yes = isset($nodes[$curNode['nextYes'] ?? '']) ? self::nodeDescribe($nodes[$curNode['nextYes']]) : '—';
+                    $no = isset($nodes[$curNode['nextNo'] ?? '']) ? self::nodeDescribe($nodes[$curNode['nextNo']]) : '—';
+                    $nextLabel = 'Sim → ' . $yes . ' | Não → ' . $no;
+                } else {
+                    $nx = $curNode['next'] ?? null;
+                    $nextLabel = ($nx && isset($nodes[$nx])) ? self::nodeDescribe($nodes[$nx]) : ('end' === ($curNode['type'] ?? '') ? '—' : 'Fim da sequência');
+                }
+            }
+
+            // Histórico COMPLETO de etapas executadas (mostra que nada foi "pulado":
+            // cada nó por onde o lead passou fica registrado, com resultado e motivo).
+            $execRows = $this->db->fetchAll(
+                "SELECT node_id, node_type, result, detail, executed_at
+                 FROM sequence_executions WHERE participant_id = ?
+                 ORDER BY executed_at ASC, id ASC",
+                [$p['id']]
+            );
+            $history = [];
+            foreach ($execRows as $ex) {
+                $exNode = isset($nodes[$ex['node_id']]) ? $nodes[$ex['node_id']] : ['type' => $ex['node_type']];
+                $history[] = [
+                    'step' => self::nodeDescribe($exNode),
+                    'type' => $ex['node_type'],
+                    'result' => $ex['result'],
+                    'result_label' => self::resultLabel($ex['node_type'], $ex['result']),
+                    'detail' => $ex['detail'] ?: null,
+                    'at' => $ex['executed_at'],
+                ];
+            }
+            // Histórico da EXECUÇÃO ATUAL (não mistura com execuções anteriores).
+            // Como a reinscrição reaproveita o mesmo participant_id e mantém as
+            // linhas antigas em sequence_executions, delimitamos a execução atual
+            // pela ÚLTIMA vez em que o fluxo passou pelo nó inicial (start): toda
+            // execução começa por ele. Tudo a partir daí é a execução corrente.
+            // Isso usa apenas dados REAIS já registrados — não reconstrói nem estima.
+            $currentStart = 0;
+            if ($startId) {
+                for ($i = count($execRows) - 1; $i >= 0; $i--) {
+                    if (($execRows[$i]['node_id'] ?? null) === $startId) { $currentStart = $i; break; }
+                }
+            }
+            $historyCurrent = array_slice($history, $currentStart);
+
+            $last = !empty($execRows) ? end($execRows) : null;
+            $lastLabel = null;
+            if ($last) {
+                $lastNode = isset($nodes[$last['node_id']]) ? $nodes[$last['node_id']] : ['type' => $last['node_type']];
+                $lastLabel = self::nodeDescribe($lastNode);
+            }
+
+            // "Aguardar até": o participante está em espera sempre que estiver ATIVO
+            // e tiver um next_run_at no FUTURO. Isso cobre dois casos:
+            //   (1) o nó atual é 'wait' (espera explícita), e
+            //   (2) um nó 'wait' já rodou e avançou o current_node para a próxima
+            //       etapa, mas o next_run_at ainda está no futuro (a etapa seguinte
+            //       só roda quando o tempo vencer). Antes esse caso mostrava "—",
+            //       dando a impressão errada de que a espera não foi respeitada.
+            $waitUntil = null;
+            $isActive = ($p['status'] ?? '') === 'active';
+            if ($isActive && !empty($p['next_run_at']) && strtotime($p['next_run_at']) > time()) {
+                $waitUntil = $p['next_run_at'];
+            }
+
+            // Avisos: impedido / pausado / pulado / aguardando — com o motivo real.
+            // Usa o histórico da EXECUÇÃO ATUAL (não considera falhas de execuções
+            // anteriores já superadas).
+            $alerts = $this->buildAlerts($p, $curNode, $historyCurrent, $waitUntil);
+
+            $out[] = [
+                'participant_id' => (int) $p['id'],
+                'lead_name' => $p['lead_name'] ?: ('Lead #' . $p['contact_id']),
+                'lead_email' => $p['lead_email'] ?? null,
+                'status' => $p['status'],
+                'status_text' => $this->participantStatusText($p, $curNode),
+                'current_step' => $this->currentStepLabel($curNode, $waitUntil),
+                'current_type' => $curNode['type'] ?? null,
+                'last_step' => $lastLabel ?: '—',
+                'last_result' => $last['result'] ?? null,
+                'last_at' => $last['executed_at'] ?? null,
+                'next_step' => $nextLabel ?: '—',
+                'next_run_at' => $p['next_run_at'] ?? null,
+                'wait_until' => $waitUntil,
+                'history' => $history,
+                'history_current' => $historyCurrent,
+                'alerts' => $alerts,
+            ];
+        }
+
+        return ['sequence' => ['id' => (int) $seq['id'], 'name' => $seq['name']], 'participants' => $out];
+    }
+
+    /**
+     * Resume, de forma LEGÍVEL, o que aconteceu com um participante durante uma
+     * passada do disparo manual: nome do lead, o que foi executado, etapa atual,
+     * status e "aguardar até" (quando aplicável). Usado só pelo coletor do runNow.
+     * @param int   $participantId
+     * @param array $stepResults resultados brutos dos passos ('sent','skipped',...)
+     * @return array linha legível
+     */
+    private function summarizeRun($participantId, array $stepResults)
+    {
+        $p = $this->db->fetch(
+            "SELECT sp.*, COALESCE(wc.contact_name, wc.push_name, wc.lead_email) AS lead_name
+             FROM sequence_participants sp
+             JOIN whatsapp_contacts wc ON sp.contact_id = wc.id
+             WHERE sp.id = ?",
+            [$participantId]
+        );
+        $name = $p['lead_name'] ?? ('Lead #' . $participantId);
+
+        // Grafo para descrever o nó atual.
+        $seq = $this->db->fetch("SELECT graph FROM email_sequences WHERE id = ?", [$p['sequence_id'] ?? 0]);
+        $graph = json_decode($seq['graph'] ?? '{}', true);
+        $nodes = [];
+        foreach (($graph['nodes'] ?? []) as $n) $nodes[$n['id']] = $n;
+        $startId = $graph['start'] ?? ($graph['nodes'][0]['id'] ?? null);
+        $curId = $p['current_node'] ?: $startId;
+        $curNode = ($curId && isset($nodes[$curId])) ? $nodes[$curId] : null;
+
+        // O que foi feito nesta passada, com base nos resultados dos passos.
+        $sent = count(array_filter($stepResults, fn($r) => $r === 'sent'));
+        $hadError = in_array('error', $stepResults, true);
+        $actions = [];
+        if ($sent > 0) $actions[] = ($sent === 1 ? 'Envio realizado' : ($sent . ' envios realizados'));
+        if ($hadError) $actions[] = 'erro durante a execução';
+        if (empty($actions)) $actions[] = 'nenhuma ação executável nesta passada';
+
+        // Espera pendente: ativo com next_run_at no futuro (mesma regra do progress()).
+        $waitUntil = null;
+        if (($p['status'] ?? '') === 'active' && !empty($p['next_run_at']) && strtotime($p['next_run_at']) > time()) {
+            $waitUntil = $p['next_run_at'];
+        }
+
+        $line = [
+            'participant_id' => (int) $participantId,
+            'lead_name' => $name,
+            'did' => implode('; ', $actions),
+            'status' => $p['status'] ?? '',
+            'status_text' => $this->participantStatusText($p, $curNode),
+            'current_step' => $this->currentStepLabel($curNode, $waitUntil),
+            'current_type' => $curNode['type'] ?? null,
+            'wait_until' => $waitUntil,
+            'next_run_at' => $p['next_run_at'] ?? null,
+        ];
+        return $line;
     }
 }

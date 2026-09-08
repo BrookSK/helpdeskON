@@ -176,7 +176,7 @@
                     <i class="bi bi-whatsapp"></i> WhatsApp Chat
                 </a>
             </li>
-            <?php $crmSectionActive = in_array($currentPage ?? '', ['crm', 'crm_dashboard', 'crm_commissions', 'crm_leads', 'crm_calls', 'crm_capture', 'crm_prospecting', 'sequences', 'leadcapture_opps', 'leadcapture_config', 'leadcapture_health']); ?>
+            <?php $crmSectionActive = in_array($currentPage ?? '', ['crm', 'crm_dashboard', 'crm_commissions', 'crm_leads', 'crm_calls', 'crm_capture', 'crm_prospecting', 'sequences', 'linkedin_queue', 'linkedin_run', 'leadcapture_opps', 'leadcapture_config', 'leadcapture_health']); ?>
             <li class="nav-item">
                 <a class="nav-link d-flex align-items-center justify-content-between <?= ($currentPage ?? '') === 'crm' ? 'active' : '' ?>" href="<?= baseUrl('crm') ?>">
                     <span class="nav-link-body"><i class="bi bi-kanban"></i> <span class="nav-text">CRM</span></span>
@@ -205,6 +205,11 @@
                 <li class="nav-item">
                     <a class="nav-link <?= ($currentPage ?? '') === 'sequences' ? 'active' : '' ?>" href="<?= baseUrl('sequences') ?>" style="padding-left:2.6rem;font-size:0.85rem;">
                         <i class="bi bi-diagram-3"></i> Sequências
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link <?= in_array($currentPage ?? '', ['linkedin_queue', 'linkedin_run']) ? 'active' : '' ?>" href="<?= baseUrl('linkedin/queue') ?>" style="padding-left:2.6rem;font-size:0.85rem;">
+                        <i class="bi bi-linkedin"></i> Minhas Ações
                     </a>
                 </li>
                 <?php $lcActive = in_array($currentPage ?? '', ['leadcapture_opps', 'leadcapture_config', 'leadcapture_health']); ?>
@@ -292,6 +297,20 @@
     </nav>
     <div class="sidebar-footer">
         <?php if (!empty($_SESSION['impersonator'])): ?>
+        <?php
+            $activeCompanyName = '';
+            if (!empty($_SESSION['active_company_id'])) {
+                $activeCompanyRow = Database::getInstance()->fetch("SELECT name FROM companies WHERE id = ?", [$_SESSION['active_company_id']]);
+                $activeCompanyName = $activeCompanyRow['name'] ?? '';
+            }
+        ?>
+        <?php if ($activeCompanyName !== ''): ?>
+        <div class="text-white small mb-2 px-1" style="font-size:0.72rem;line-height:1.3;">
+            <i class="bi bi-building"></i> Vendo como
+            <strong><?= escape($_SESSION['user_name'] ?? '') ?></strong>
+            em <strong><?= escape($activeCompanyName) ?></strong>
+        </div>
+        <?php endif; ?>
         <a href="<?= baseUrl('login/returnAdmin') ?>" class="btn btn-warning btn-sm w-100 mb-2 fw-medium" style="border-radius:8px;">
             <i class="bi bi-arrow-return-left"></i> Voltar para <?= escape($_SESSION['impersonator']['user_name']) ?>
         </a>

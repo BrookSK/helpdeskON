@@ -10,6 +10,7 @@
  *   sequences/save               -> POST (cria/atualiza definição + grafo)
  *   sequences/delete/{id}        -> POST
  *   sequences/detail/{id}        -> JSON (participantes/stats)
+ *   sequences/progress/{id}      -> JSON (acompanhamento legível do estado de cada lead)
  *   sequences/addLeads           -> POST (inscreve leads por contact_ids[])
  *   sequences/removeLead         -> POST (participant_id)
  *   sequences/leadsForSelect      -> JSON (leads com e-mail, para o seletor)
@@ -28,9 +29,27 @@ class SequencesController extends Controller
     {
         $this->requireRole($this->roles);
         $user = $this->currentUser();
+
+        // Quebra-galho MANUAL: o seletor "Executar agora" desta aba lista as
+        // CAMPANHAS de Prospecção Automática (Apollo). Ele imita o botão "Executar
+        // campanha" da tela de Prospecção, porém disparado manualmente (sem cron):
+        // faz a captação da campanha e depois avança a sequência ligada a ela.
+        $campaigns = [];
+        try {
+            $campaigns = Database::getInstance()->fetchAll(
+                "SELECT c.id, c.name, c.is_active, c.lead_source, c.sequence_id, s.name AS sequence_name
+                 FROM apollo_campaigns c
+                 LEFT JOIN email_sequences s ON c.sequence_id = s.id
+                 ORDER BY c.is_active DESC, c.name ASC"
+            );
+        } catch (\Throwable $e) {
+            $campaigns = [];
+        }
+
         $this->view('sequences/index', [
             'user' => $user,
             'sequences' => $this->model->all(),
+            'campaigns' => $campaigns,
         ]);
     }
 
@@ -124,6 +143,127 @@ class SequencesController extends Controller
         $this->json($result);
     }
 
+    /**
+     * DISPARO MANUAL (apenas para teste na BETA): processa AGORA os participantes
+     * elegíveis, reutilizando exatamente o mesmo motor do cron
+     * (SequenceEngine::processDue). NÃO duplica lógica, NÃO altera o cron nem o motor
+     * — é só um gatilho manual equivalente ao passo de processamento do runSequences.
+     * Em produção, o cron continua chamando /cron/runSequences normalmente.
+     * POST sequences/runNow
+     */
+    public function runNow()
+    {
+        $this->requireRole($this->roles);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        @set_time_limit(300);
+
+        // Disparo MANUAL para o processo que o cron executaria, ESCOPADO À SEQUÊNCIA
+        // selecionada. Reproduz os passos do cron, sem lógica paralela nem acelerada:
+        //   1) Detecção de respostas → CronController::detectReplies (== /cron/runSequences)
+        //   2) Avanço da sequência   → SequenceEngine::processDue (== /cron/runSequences)
+        // O caminho por campanha Apollo (campaign_id) é OPCIONAL/legado: se enviado,
+        // roda a captação antes; o uso normal do botão é por SEQUÊNCIA (sequence_id).
+        $sequenceId = !empty($_POST['sequence_id']) ? intval($_POST['sequence_id']) : null;
+        $campaignId = !empty($_POST['campaign_id']) ? intval($_POST['campaign_id']) : null;
+
+        $out = ['success' => true];
+
+        // 1) Captação da campanha (se uma campanha foi escolhida)
+        if ($campaignId) {
+            $db = Database::getInstance();
+            $camp = $db->fetch("SELECT * FROM apollo_campaigns WHERE id = ?", [$campaignId]);
+            if (!$camp) $this->json(['error' => 'Campanha não encontrada.'], 404);
+
+            // Apollo só é obrigatório quando a fonte é Apollo (Meus Leads não consome API).
+            if (($camp['lead_source'] ?? 'apollo') !== 'my_leads') {
+                $apollo = new ApolloApi();
+                if (!$apollo->isConfigured()) $this->json(['error' => 'Apollo não configurado.'], 400);
+            }
+
+            // DISPARO MANUAL (quebra-galho): imita EXATAMENTE o botão "Executar
+            // campanha" da Prospecção Automática. Diferente do cron (runDueCampaign),
+            // aqui forçamos a captação AGORA — ignorando a janela de horário e o
+            // "pular por meta atingida" — usando runCampaign direto, com o mesmo
+            // cálculo de alvo do botão da Prospecção (meta diária menos o já captado
+            // hoje, com mínimo de 1). Assim o clique sempre capta, como esperado.
+            $already = 0;
+            try {
+                $r = $db->fetch(
+                    "SELECT COUNT(*) t FROM apollo_prospecting_log WHERE campaign_id=? AND action='enrolled' AND DATE(created_at)=CURDATE()",
+                    [$campaignId]
+                );
+                $already = (int) ($r['t'] ?? 0);
+            } catch (\Throwable $e) {}
+            $target = max(1, (int) $camp['daily_target'] - $already);
+
+            $prospecting = new ApolloProspectingService();
+            $out['prospecting'] = $prospecting->runCampaign($camp, $target);
+
+            // A campanha define qual sequência avançar em seguida.
+            if (!$sequenceId && !empty($camp['sequence_id'])) {
+                $sequenceId = (int) $camp['sequence_id'];
+            }
+            $out['scope'] = 'campanha #' . $campaignId . ($sequenceId ? (' + sequência #' . $sequenceId) : '');
+        } else {
+            $out['scope'] = $sequenceId ? ('sequência #' . $sequenceId) : 'todas as sequências';
+        }
+
+        // 2) Detecção de respostas (IMAP) — mesmo passo e método do cron, na MESMA
+        // ordem do runSequences (detecta respostas ANTES de avançar, para interromper
+        // follow-ups de quem já respondeu). Reutiliza CronController::detectReplies().
+        try {
+            $out['replies_detected'] = (new CronController())->detectReplies();
+        } catch (\Throwable $e) {
+            Logger::error('runNow detectReplies', ['error' => $e->getMessage()]);
+            $out['replies_detected'] = 0;
+            $out['replies_error'] = $e->getMessage();
+        }
+
+        // 3) Avanço da sequência (mesmo motor do cron). Escopado quando houver sequência.
+        if ($sequenceId) {
+            $seq = $this->model->findById($sequenceId);
+            if (!$seq) $this->json(['error' => 'Sequência não encontrada.'], 404);
+        }
+        // Disparo MANUAL: força a execução ignorando APENAS a janela de horário/fim
+        // de semana (manualForce=true), para que o clique do usuário execute o
+        // primeiro bloco agora em vez de reagendar. Limite diário e demais regras
+        // do motor permanecem. O cron continua chamando processDue sem esse flag.
+        // O 4º argumento (&$details) coleta um resumo LEGÍVEL por participante para
+        // que a resposta do disparo manual seja compreensível (não só contadores).
+        $engine = new SequenceEngine();
+        $details = [];
+        $out['engine'] = $engine->processDue(200, $sequenceId, true, $details);
+        $out['participants'] = $details;
+
+        // Visão de acompanhamento pós-execução (estado atual de cada lead), quando
+        // o disparo foi escopado a uma sequência — alimenta a tela "Acompanhar estado".
+        if ($sequenceId) {
+            $prog = $engine->progress($sequenceId);
+            if (empty($prog['error'])) $out['progress'] = $prog;
+        }
+
+        // LOG (aparece no painel de logs do servidor): registra a ROTA do disparo
+        // manual e o resultado agregado, para rastrear execuções e identificar erros.
+        $eng = $out['engine'] ?? [];
+        Logger::info('sequences/runNow disparo manual', [
+            'route' => 'sequences/runNow',
+            'user_id' => $this->currentUser()['id'] ?? null,
+            'scope' => $out['scope'] ?? null,
+            'sequence_id' => $sequenceId,
+            'campaign_id' => $campaignId,
+            'replies_detected' => $out['replies_detected'] ?? null,
+            'engine' => [
+                'processed' => $eng['processed'] ?? 0,
+                'sent' => $eng['sent'] ?? 0,
+                'skipped' => $eng['skipped'] ?? 0,
+                'finished' => $eng['finished'] ?? 0,
+                'errors' => $eng['errors'] ?? 0,
+            ],
+        ]);
+
+        $this->json($out);
+    }
+
     public function save()
     {
         $this->requireRole($this->roles);
@@ -186,6 +326,68 @@ class SequencesController extends Controller
         ]);
     }
 
+    /**
+     * ACOMPANHAR ESTADO: visão legível do andamento de cada lead da sequência
+     * (etapa atual, última etapa, próxima etapa, status e "aguardar até").
+     * Somente leitura — usada pela tela de acompanhamento que atualiza sozinha.
+     * GET sequences/progress/{id}
+     */
+    public function progress($id = null)
+    {
+        $this->requireRole($this->roles);
+        if (!$id) $this->json(['error' => 'ID obrigatório'], 400);
+        $seq = $this->model->findById($id);
+        if (!$seq) $this->json(['error' => 'Sequência não encontrada'], 404);
+
+        $data = (new SequenceEngine())->progress((int) $id);
+        if (!empty($data['error'])) $this->json(['error' => $data['error']], 404);
+
+        $stats = $this->model->stats($id);
+        $this->json([
+            'sequence' => $data['sequence'],
+            'participants' => $data['participants'],
+            'stats' => $stats,
+            'server_now' => date('Y-m-d H:i:s'),
+        ]);
+    }
+
+    /**
+     * TICK (auto-avanço pela tela): quebra-galho da BETA para substituir o cron
+     * enquanto o "Acompanhar estado" está aberto. AVANÇA a sequência (processa os
+     * participantes cujo tempo de espera já venceu) e devolve o estado atualizado,
+     * no MESMO formato do progress(). É LEVE de propósito: usa só
+     * SequenceEngine::processDue escopado a esta sequência — NÃO faz captação de
+     * campanha nem detecção de respostas por IMAP (isso continua no runNow/cron).
+     * Sem manualForce: respeita a janela de horário como o cron faria.
+     * POST sequences/tick/{id}
+     */
+    public function tick($id = null)
+    {
+        $this->requireRole($this->roles);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+        @set_time_limit(120);
+
+        $seq = $this->model->findById($id);
+        if (!$seq) $this->json(['error' => 'Sequência não encontrada'], 404);
+
+        // Avança APENAS esta sequência (mesmo motor do cron, sem forçar janela).
+        $engine = new SequenceEngine();
+        $engineStats = $engine->processDue(200, (int) $id);
+
+        // Estado atualizado após o avanço (idêntico ao progress()).
+        $data = $engine->progress((int) $id);
+        if (!empty($data['error'])) $this->json(['error' => $data['error']], 404);
+
+        $stats = $this->model->stats($id);
+        $this->json([
+            'sequence' => $data['sequence'],
+            'participants' => $data['participants'],
+            'stats' => $stats,
+            'engine' => $engineStats,
+            'server_now' => date('Y-m-d H:i:s'),
+        ]);
+    }
+
     public function addLeads()
     {
         $this->requireRole($this->roles);
@@ -242,7 +444,7 @@ class SequencesController extends Controller
     public function templates()
     {
         $this->requireRole($this->roles);
-        $channel = in_array($_GET['channel'] ?? '', ['email', 'whatsapp']) ? $_GET['channel'] : null;
+        $channel = in_array($_GET['channel'] ?? '', ['email', 'whatsapp', 'linkedin']) ? $_GET['channel'] : null;
         $this->json(['templates' => (new MessageTemplate())->all($channel)]);
     }
 
@@ -254,7 +456,7 @@ class SequencesController extends Controller
 
         $user = $this->currentUser();
         $id = intval($_POST['id'] ?? 0);
-        $channel = in_array($_POST['channel'] ?? '', ['email', 'whatsapp']) ? $_POST['channel'] : 'email';
+        $channel = in_array($_POST['channel'] ?? '', ['email', 'whatsapp', 'linkedin']) ? $_POST['channel'] : 'email';
         $name = trim($_POST['name'] ?? '');
         $body = $_POST['body'] ?? '';
         if ($name === '' || trim($body) === '') $this->json(['error' => 'Informe nome e conteúdo do template.'], 400);

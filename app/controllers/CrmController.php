@@ -1883,6 +1883,23 @@ class CrmController extends Controller
         $name = trim($_POST['name'] ?? '');
         if ($name === '') $this->json(['error' => 'Informe o nome da campanha.'], 400);
 
+        // Nome único: a tabela tem índice UNIQUE (uk_campaign_name). Verifica antes de
+        // salvar para devolver uma mensagem amigável em vez do erro cru do banco.
+        $dupe = $db->fetch(
+            "SELECT id FROM apollo_campaigns WHERE name = ? AND id <> ? LIMIT 1",
+            [$name, $id]
+        );
+        if ($dupe) {
+            $this->json(['error' => 'Já existe uma campanha com o nome "' . $name . '". Escolha um nome diferente.'], 409);
+        }
+
+        // Auto-correção de schema: garante que as colunas usadas pelo formulário
+        // existam antes de salvar. Isso conserta o "Erro ao salvar" quando as
+        // migrations 078/079 não foram aplicadas no servidor (a tabela
+        // apollo_campaigns não tinha lead_source / my_leads_filters / etc.).
+        // É idempotente e seguro: só cria o que estiver faltando.
+        $this->ensureCampaignSchema($db);
+
         // Origem dos leads: apollo (busca/reveal) ou my_leads (CRM existente)
         $leadSource = ($_POST['lead_source'] ?? 'apollo') === 'my_leads' ? 'my_leads' : 'apollo';
 
@@ -1918,12 +1935,41 @@ class CrmController extends Controller
             'reveal_phone' => !empty($_POST['reveal_phone']) ? 1 : 0,
         ];
 
-        if ($id) {
-            $db->update('apollo_campaigns', $data, 'id = ?', [$id]);
-        } else {
-            $data['created_by'] = $user['id'];
-            $data['search_page'] = 1;
-            $id = $db->insert('apollo_campaigns', $data);
+        // Resiliência: colunas mais novas (migrations 078/079) podem não estar
+        // aplicadas no banco. Se o INSERT/UPDATE falhar por "coluna desconhecida",
+        // removemos as colunas ausentes e tentamos de novo, para que a campanha
+        // continue salvando (e possa rodar) mesmo antes de rodar as migrations.
+        // Qualquer outro erro é devolvido como JSON legível em vez de fatal (que a
+        // tela interpretava como o genérico "Erro ao salvar").
+        $optionalColumns = ['lead_source', 'global_dedupe', 'my_leads_filters', 'my_leads_ids'];
+
+        $persist = function (array $payload) use ($db, $id, $user) {
+            if ($id) {
+                $db->update('apollo_campaigns', $payload, 'id = ?', [$id]);
+                return $id;
+            }
+            $payload['created_by'] = $user['id'];
+            $payload['search_page'] = 1;
+            return $db->insert('apollo_campaigns', $payload);
+        };
+
+        try {
+            $id = $persist($data);
+        } catch (\PDOException $e) {
+            $missing = $this->missingColumnFromError($e->getMessage(), $optionalColumns);
+            if ($missing === null) {
+                Logger::error('crm/saveCampaign falhou', ['error' => $e->getMessage()]);
+                $this->json(['error' => $this->friendlyCampaignError($e->getMessage(), $name)], 500);
+            }
+            // Remove todas as colunas opcionais que ainda não existem no banco e tenta
+            // novamente com o conjunto de campos suportado.
+            foreach ($optionalColumns as $col) unset($data[$col]);
+            try {
+                $id = $persist($data);
+            } catch (\PDOException $e2) {
+                Logger::error('crm/saveCampaign falhou (2ª tentativa)', ['error' => $e2->getMessage()]);
+                $this->json(['error' => $this->friendlyCampaignError($e2->getMessage(), $name)], 500);
+            }
         }
         $this->json(['success' => true, 'id' => $id]);
     }
@@ -2195,6 +2241,73 @@ class CrmController extends Controller
         if (preg_match('/^\d{1,2}:\d{2}$/', $v)) return $v . ':00';
         if (preg_match('/^\d{1,2}:\d{2}:\d{2}$/', $v)) return $v;
         return $default;
+    }
+
+    /**
+     * Se a mensagem de erro do PDO for de "coluna desconhecida" e a coluna estiver
+     * na lista de colunas opcionais (adicionadas por migrations recentes que podem
+     * não ter rodado no servidor), retorna o nome da coluna; senão, null.
+     */
+    private function missingColumnFromError($message, array $optionalColumns)
+    {
+        // Ex.: SQLSTATE[42S22]: ... Unknown column 'lead_source' in 'field list'
+        if (stripos($message, 'Unknown column') === false) return null;
+        foreach ($optionalColumns as $col) {
+            if (preg_match("/Unknown column '" . preg_quote($col, '/') . "'/i", $message)) {
+                return $col;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Converte erros crus do banco (ao salvar campanha) em mensagens legíveis
+     * para o usuário. Hoje trata nome duplicado; demais erros são devolvidos com
+     * um prefixo claro.
+     */
+    private function friendlyCampaignError($message, $name)
+    {
+        if (stripos($message, 'Duplicate entry') !== false
+            && (stripos($message, 'uk_campaign_name') !== false || stripos($message, "'name'") !== false)) {
+            return 'Já existe uma campanha com o nome "' . $name . '". Escolha um nome diferente.';
+        }
+        return 'Não foi possível salvar a campanha: ' . $message;
+    }
+
+    /**
+     * Auto-correção de schema para apollo_campaigns (equivalente às migrations
+     * 078/079). Cria apenas as colunas que estiverem faltando, usando o mesmo
+     * padrão de checagem via information_schema já usado no projeto. Idempotente
+     * e silencioso: qualquer falha é logada, mas não interrompe o salvamento
+     * (o try/catch do saveCampaign continua como rede de segurança).
+     */
+    private function ensureCampaignSchema($db)
+    {
+        // coluna => definição (SQL) que será usada no ADD COLUMN se ela faltar.
+        $columns = [
+            'lead_source'      => "ADD COLUMN lead_source ENUM('apollo','my_leads') NOT NULL DEFAULT 'apollo' COMMENT 'origem dos leads' AFTER is_active",
+            'my_leads_filters' => "ADD COLUMN my_leads_filters JSON DEFAULT NULL COMMENT 'filtros para lead_source=my_leads'",
+            'my_leads_ids'     => "ADD COLUMN my_leads_ids JSON DEFAULT NULL COMMENT 'IDs de whatsapp_contacts selecionados manualmente'",
+            'global_dedupe'    => "ADD COLUMN global_dedupe TINYINT(1) NOT NULL DEFAULT 1 COMMENT 'nunca re-prospectar entre campanhas'",
+        ];
+
+        foreach ($columns as $name => $ddl) {
+            try {
+                $exists = $db->fetch(
+                    "SELECT 1 FROM information_schema.COLUMNS
+                     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'apollo_campaigns' AND COLUMN_NAME = ?",
+                    [$name]
+                );
+                if (!$exists) {
+                    // Nome de coluna vem de uma lista fixa (não do usuário) — sem risco de injeção.
+                    $db->query("ALTER TABLE apollo_campaigns {$ddl}");
+                    Logger::info('ensureCampaignSchema: coluna criada', ['column' => $name]);
+                }
+            } catch (\Throwable $e) {
+                // Não bloqueia o salvamento; o fallback do saveCampaign cobre o resto.
+                Logger::error('ensureCampaignSchema falhou', ['column' => $name, 'error' => $e->getMessage()]);
+            }
+        }
     }
 
     private function buildCampaignFilters()
@@ -2517,6 +2630,7 @@ class CrmController extends Controller
         $resolver = new LeadResolver();
         $imported = 0;
         $skipped = 0;
+        try {
         foreach ($ids as $id) {
             $lead = $leadModel->findById(intval($id));
             if (!$lead) { $skipped++; continue; }
@@ -2530,11 +2644,12 @@ class CrmController extends Controller
             if (!empty($lead['organization_name'])) $notesParts[] = 'Empresa: ' . $lead['organization_name'];
             if (!empty($lead['linkedin_url'])) $notesParts[] = 'LinkedIn: ' . $lead['linkedin_url'];
 
-            // Identidade única via LeadResolver (dedup por e-mail/telefone)
+            // Identidade única via LeadResolver (dedup por e-mail/telefone/LinkedIn)
             $contactId = $resolver->resolve([
                 'name' => $name,
                 'email' => $lead['email'] ?? null,
                 'phone' => $lead['phone'] ?? null,
+                'linkedin_url' => $lead['linkedin_url'] ?? null,
                 'company' => $lead['organization_name'] ?? null,
                 'source' => 'apollo',
                 'assigned_to' => $user['id'],
@@ -2566,6 +2681,17 @@ class CrmController extends Controller
 
             $leadModel->markImported($lead['id'], $contactId, $user['id']);
             $imported++;
+        }
+        } catch (\Throwable $e) {
+            // Nunca deixa um erro virar fatal (que quebraria o JSON e mostraria só
+            // "Erro ao importar." no front). Registra e devolve a causa legível.
+            Logger::error('apolloImport', ['error' => $e->getMessage()]);
+            $this->json([
+                'error' => 'Falha ao importar: ' . $e->getMessage()
+                    . ($imported ? " ({$imported} já importado(s) antes da falha)." : '.'),
+                'imported' => $imported,
+                'skipped' => $skipped,
+            ], 500);
         }
 
         $this->json(['success' => true, 'imported' => $imported, 'skipped' => $skipped]);

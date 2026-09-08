@@ -31,6 +31,7 @@
                 <button class="btn btn-sm btn-outline-secondary" onclick="addNode('score')"><i class="bi bi-star"></i> Score</button>
                 <button class="btn btn-sm btn-outline-info" onclick="addNode('move')"><i class="bi bi-kanban"></i> Mover card</button>
                 <button class="btn btn-sm btn-outline-danger" onclick="addNode('unsubscribe')"><i class="bi bi-person-dash"></i> Remover da lista</button>
+                <button class="btn btn-sm btn-outline-primary" onclick="addNode('linkedin')"><i class="bi bi-linkedin"></i> LinkedIn (tarefa)</button>
                 <button class="btn btn-sm btn-outline-dark" onclick="addNode('reveal_phone')"><i class="bi bi-telephone-plus"></i> Revelar telefone (Apollo)</button>
                 <button class="btn btn-sm btn-outline-success" onclick="addNode('schedule')"><i class="bi bi-calendar2-check"></i> Agendamento</button>
                 <button class="btn btn-sm btn-outline-primary" onclick="addNode('connect')"><i class="bi bi-diagram-2"></i> Conexão de sequência</button>

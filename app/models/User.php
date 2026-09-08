@@ -120,6 +120,83 @@ class User
     }
 
     /**
+     * Retorna as empresas vinculadas a um usuário (Multi-Empresas).
+     * Combina a empresa principal (users.company_id) com os vínculos extras
+     * registrados em user_company_access. Sem duplicatas, ordenado por nome.
+     *
+     * @return array Lista de empresas [id, name, is_primary]
+     */
+    public function getLinkedCompanies($userId)
+    {
+        $user = $this->findById($userId);
+        if (!$user) {
+            return [];
+        }
+
+        $companies = [];
+
+        // 1) Empresa principal
+        if (!empty($user['company_id'])) {
+            $primary = $this->db->fetch("SELECT id, name FROM companies WHERE id = ?", [$user['company_id']]);
+            if ($primary) {
+                $companies[(int)$primary['id']] = [
+                    'id' => (int)$primary['id'],
+                    'name' => $primary['name'],
+                    'is_primary' => true,
+                ];
+            }
+        }
+
+        // 2) Vínculos adicionais (user_company_access)
+        $rows = $this->db->fetchAll(
+            "SELECT c.id, c.name
+             FROM user_company_access uca
+             INNER JOIN companies c ON c.id = uca.company_id
+             WHERE uca.user_id = ?",
+            [$userId]
+        );
+        foreach ($rows as $r) {
+            $id = (int)$r['id'];
+            if (!isset($companies[$id])) {
+                $companies[$id] = [
+                    'id' => $id,
+                    'name' => $r['name'],
+                    'is_primary' => false,
+                ];
+            }
+        }
+
+        $list = array_values($companies);
+        usort($list, function ($a, $b) {
+            // Empresa principal primeiro, depois por nome
+            if ($a['is_primary'] !== $b['is_primary']) {
+                return $a['is_primary'] ? -1 : 1;
+            }
+            return strcasecmp($a['name'], $b['name']);
+        });
+
+        return $list;
+    }
+
+    /**
+     * Verifica se um usuário está vinculado a uma empresa específica
+     * (seja como empresa principal ou via user_company_access).
+     */
+    public function isLinkedToCompany($userId, $companyId)
+    {
+        $companyId = (int)$companyId;
+        if ($companyId <= 0) {
+            return false;
+        }
+        foreach ($this->getLinkedCompanies($userId) as $c) {
+            if ((int)$c['id'] === $companyId) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Gera um token de definição de senha (primeiro acesso) e envia email com o link.
      * Após definir a senha, o usuário é logado automaticamente.
      */

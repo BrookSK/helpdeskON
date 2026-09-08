@@ -6,6 +6,11 @@ session_start();
 @ini_set('upload_max_filesize', '10M');
 @ini_set('max_input_vars', '5000');
 
+// Fuso horário padrão da aplicação (Brasil). Sem isso, o PHP usa o fuso do
+// php.ini (geralmente UTC), o que fazia os horários do acompanhamento ficarem
+// deslocados em relação ao relógio local ("voltando no tempo").
+date_default_timezone_set('America/Sao_Paulo');
+
 // Definir constantes base
 define('BASE_PATH', dirname(__DIR__));
 define('APP_PATH', BASE_PATH . '/app');
