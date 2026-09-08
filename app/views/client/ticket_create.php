@@ -75,14 +75,22 @@
                         }, $clients)) ?>;
                     </script>
                     <div class="col-sm-6">
-                        <label class="form-label fw-medium">Atendente (comunicação)</label>
-                        <select name="attendant_id" class="form-select">
-                            <option value="">Não atribuir agora</option>
+                        <label class="form-label fw-medium">Atendentes (comunicação)</label>
+                        <?php if (!empty($attendants)): ?>
+                        <div class="border rounded-3 p-2" style="max-height:180px;overflow-y:auto">
                             <?php foreach (($attendants ?? []) as $att): ?>
-                            <option value="<?= $att['id'] ?>"><?= escape($att['name']) ?> — <?= roleLabel($att['role']) ?></option>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="attendant_ids[]" value="<?= $att['id'] ?>" id="att-<?= $att['id'] ?>">
+                                <label class="form-check-label" for="att-<?= $att['id'] ?>">
+                                    <?= escape($att['name']) ?> — <?= roleLabel($att['role']) ?>
+                                </label>
+                            </div>
                             <?php endforeach; ?>
-                        </select>
-                        <small class="text-muted">Quem vai se comunicar dentro do ticket</small>
+                        </div>
+                        <?php else: ?>
+                        <p class="text-muted small mb-0">Nenhum atendente disponível.</p>
+                        <?php endif; ?>
+                        <small class="text-muted">Selecione um ou mais atendentes. O primeiro marcado será o principal.</small>
                     </div>
                     <div class="col-sm-6">
                         <label class="form-label fw-medium">Responsável Técnico</label>

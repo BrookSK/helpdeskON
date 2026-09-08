@@ -2270,6 +2270,15 @@ function sendMessage() {
     // Bloquear polling durante envio
     isSending = true;
 
+    // Bolha otimista: aparece de imediato com o reloginho (pending)
+    const tempId = 'sending-' + Date.now();
+    const area = document.getElementById('messages-area');
+    const nowStr = formatFullTime(new Date().toISOString().slice(0, 19).replace('T', ' '));
+    area.insertAdjacentHTML('beforeend',
+        `<div class="wpp-msg mine" id="${tempId}"><div class="wpp-msg-body">${formatWhatsApp(finalText)}</div>` +
+        `<div class="wpp-msg-time">${nowStr} <span class="wpp-msg-ack-holder" data-ack="pending">${renderAckIcon('pending')}</span></div></div>`);
+    scrollToBottom();
+
     const fd = new FormData();
     fd.append('contact_id', activeContactId);
     fd.append('message', finalText);
@@ -2277,14 +2286,32 @@ function sendMessage() {
     fetch(BASE + 'whatsapp/send', { method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'} })
     .then(r => r.json())
     .then(data => {
+        const temp = document.getElementById(tempId);
         if (data.success && data.message) {
             reflectAutoAssign();
             renderedMessageIds.add(data.message.id);
             lastMessageId = Math.max(lastMessageId, data.message.id);
-            const area = document.getElementById('messages-area');
-            area.insertAdjacentHTML('beforeend', renderSingleMessage(data.message));
+            // Se o polling já inseriu esta mensagem (corrida), descarta a bolha otimista
+            const already = area.querySelector(`.wpp-msg[data-msg-id="${data.message.id}"]`);
+            if (already) {
+                if (temp) temp.remove();
+            } else if (temp) {
+                // Substitui a bolha otimista pela definitiva (troca o reloginho pelo check)
+                temp.outerHTML = renderSingleMessage(data.message);
+            } else {
+                area.insertAdjacentHTML('beforeend', renderSingleMessage(data.message));
+            }
             scrollToBottom();
+        } else if (temp) {
+            // Falha no envio: marca a bolha com ícone de erro
+            const holder = temp.querySelector('.wpp-msg-ack-holder');
+            if (holder) { holder.dataset.ack = 'failed'; holder.innerHTML = renderAckIcon('failed'); }
         }
+    })
+    .catch(() => {
+        const temp = document.getElementById(tempId);
+        const holder = temp && temp.querySelector('.wpp-msg-ack-holder');
+        if (holder) { holder.dataset.ack = 'failed'; holder.innerHTML = renderAckIcon('failed'); }
     })
     .finally(() => {
         setTimeout(() => { isSending = false; }, 2000);
@@ -2393,8 +2420,9 @@ function startPolling() {
             if (messages && messages.length) {
                 const area = document.getElementById('messages-area');
                 messages.forEach(m => {
-                    // Ignorar mensagens já renderizadas (evita duplicação)
+                    // Ignorar mensagens já renderizadas (evita duplicação) — checa memória e DOM
                     if (renderedMessageIds.has(m.id)) return;
+                    if (area.querySelector(`.wpp-msg[data-msg-id="${m.id}"]`)) { renderedMessageIds.add(m.id); return; }
                     renderedMessageIds.add(m.id);
 
                     // Popular cache de menções

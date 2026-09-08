@@ -189,6 +189,67 @@
             </div>
         </div>
 
+        <!-- Assinatura de e-mail por domínio (salva via AJAX, fora do submit principal) -->
+        <div class="card mb-4">
+            <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-pen"></i> Assinatura de e-mail (por domínio)</h6></div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">Uma assinatura por domínio, com os mesmos campos da assinatura padrão (logo, empresa, especialidades, e-mail, site e tagline). Ao enviar, o sistema casa o domínio do remetente com a assinatura correspondente. Sem correspondência, usa a assinatura padrão. <strong>Cada bloco tem seu próprio botão Salvar</strong> (independente do botão geral no fim da página).</p>
+
+                <?php foreach (($emailSignatures ?? []) as $sig): ?>
+                <div class="sig-block border rounded p-3 mb-3">
+                    <input type="hidden" class="sig-id" value="<?= (int)$sig['id'] ?>">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <strong class="small"><i class="bi bi-globe"></i> <span class="sig-domain-label"><?= escape($sig['domain']) ?></span></strong>
+                        <div class="form-check form-switch mb-0">
+                            <input class="form-check-input sig-active" type="checkbox" <?= !empty($sig['is_active']) ? 'checked' : '' ?>>
+                            <label class="form-check-label small">Ativa</label>
+                        </div>
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-md-4"><label class="form-label small">Domínio</label><input type="text" class="form-control form-control-sm sig-domain" value="<?= escape($sig['domain']) ?>"></div>
+                        <div class="col-md-4"><label class="form-label small">Empresa (negrito)</label><input type="text" class="form-control form-control-sm sig-company" value="<?= escape($sig['company'] ?? '') ?>"></div>
+                        <div class="col-md-4"><label class="form-label small">Especialidades</label><input type="text" class="form-control form-control-sm sig-specialties" value="<?= escape($sig['specialties'] ?? '') ?>"></div>
+                        <div class="col-md-4"><label class="form-label small">E-mail de contato</label><input type="text" class="form-control form-control-sm sig-contact_email" value="<?= escape($sig['contact_email'] ?? '') ?>"></div>
+                        <div class="col-md-4"><label class="form-label small">Site</label><input type="text" class="form-control form-control-sm sig-site" value="<?= escape($sig['site'] ?? '') ?>"></div>
+                        <div class="col-md-4"><label class="form-label small">Cor dos links</label><input type="color" class="form-control form-control-sm form-control-color sig-color" value="<?= escape($sig['color'] ?: '#00997D') ?>" style="height:31px;"></div>
+                        <div class="col-md-8"><label class="form-label small">Tagline (linha final)</label><input type="text" class="form-control form-control-sm sig-tagline" value="<?= escape($sig['tagline'] ?? '') ?>"></div>
+                        <div class="col-md-4"><label class="form-label small">Logo</label><input type="file" class="form-control form-control-sm sig-logo" accept="image/*"></div>
+                        <div class="col-12">
+                            <?php if (!empty($sig['logo'])): ?>
+                                <img src="<?= baseUrl($sig['logo']) ?>" alt="logo" style="max-height:44px;border:1px solid #eee;border-radius:6px;padding:3px;background:#fff;">
+                                <small class="text-muted ms-1">logo atual (vazio = mantém)</small>
+                            <?php else: ?>
+                                <small class="text-muted">Sem logo própria — usa a logo do sistema.</small>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                    <div class="d-flex justify-content-between mt-3">
+                        <button type="button" class="btn btn-sm btn-primary" onclick="saveSignature(this)"><i class="bi bi-check-lg"></i> Salvar assinatura</button>
+                        <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteSignature(<?= (int)$sig['id'] ?>)"><i class="bi bi-trash"></i></button>
+                    </div>
+                </div>
+                <?php endforeach; ?>
+
+                <!-- Nova assinatura -->
+                <div class="sig-block border rounded p-3" style="border-style:dashed !important;">
+                    <input type="hidden" class="sig-id" value="">
+                    <strong class="small d-block mb-2"><i class="bi bi-plus-circle"></i> Adicionar assinatura de domínio</strong>
+                    <div class="row g-2">
+                        <div class="col-md-4"><label class="form-label small">Domínio *</label><input type="text" class="form-control form-control-sm sig-domain" placeholder="lrvweb.com.br"></div>
+                        <div class="col-md-4"><label class="form-label small">Empresa (negrito)</label><input type="text" class="form-control form-control-sm sig-company" placeholder="LRV Web"></div>
+                        <div class="col-md-4"><label class="form-label small">Especialidades</label><input type="text" class="form-control form-control-sm sig-specialties" placeholder="Sites • Sistemas • Soluções digitais"></div>
+                        <div class="col-md-4"><label class="form-label small">E-mail de contato</label><input type="text" class="form-control form-control-sm sig-contact_email" placeholder="contato@lrvweb.com.br"></div>
+                        <div class="col-md-4"><label class="form-label small">Site</label><input type="text" class="form-control form-control-sm sig-site" placeholder="www.lrvweb.com.br"></div>
+                        <div class="col-md-4"><label class="form-label small">Cor dos links</label><input type="color" class="form-control form-control-sm form-control-color sig-color" value="#0d6efd" style="height:31px;"></div>
+                        <div class="col-md-8"><label class="form-label small">Tagline (linha final)</label><input type="text" class="form-control form-control-sm sig-tagline" placeholder="Presença digital que gera resultado."></div>
+                        <div class="col-md-4"><label class="form-label small">Logo</label><input type="file" class="form-control form-control-sm sig-logo" accept="image/*"></div>
+                    </div>
+                    <input type="hidden" class="sig-active" value="1">
+                    <button type="button" class="btn btn-sm btn-outline-primary mt-3" onclick="saveSignature(this)"><i class="bi bi-plus-lg"></i> Adicionar</button>
+                </div>
+            </div>
+        </div>
+
         <!-- OpenAI -->
         <div class="card mb-4">
             <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-robot"></i> OpenAI</h6></div>
@@ -196,6 +257,63 @@
                 <label class="form-label fw-medium small">API Key</label>
                 <input type="password" name="openai_api_key" class="form-control form-control-sm" value="<?= escape($settings['openai_api_key'] ?? '') ?>" placeholder="sk-...">
                 <small class="text-muted">Necessário para transcrição por voz e datas de marketing.</small>
+            </div>
+        </div>
+
+        <!-- Agendamento (bloco de sequência) -->
+        <?php
+            $bkDays = $settings['booking_days_of_week'] ?? '1,2,3,4,5';
+            $bkDaysArr = array_filter(array_map('trim', explode(',', $bkDays)));
+            $dayLabels = [1=>'Seg',2=>'Ter',3=>'Qua',4=>'Qui',5=>'Sex',6=>'Sáb',7=>'Dom'];
+        ?>
+        <div class="card mb-4">
+            <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-calendar2-check"></i> Agendamento de reuniões</h6></div>
+            <div class="card-body">
+                <p class="text-muted small">Regras do link público de agendamento enviado pelo bloco "Agendamento" das sequências.</p>
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <label class="form-label fw-medium small">Antecedência mínima (dias)</label>
+                        <input type="number" min="0" name="booking_min_advance_days" class="form-control form-control-sm" value="<?= escape($settings['booking_min_advance_days'] ?? '1') ?>">
+                        <small class="text-muted">Nº mínimo de dias a partir de hoje.</small>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-medium small">Início do período</label>
+                        <input type="time" name="booking_work_start" class="form-control form-control-sm" value="<?= escape($settings['booking_work_start'] ?? '09:00') ?>">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-medium small">Fim do período</label>
+                        <input type="time" name="booking_work_end" class="form-control form-control-sm" value="<?= escape($settings['booking_work_end'] ?? '18:00') ?>">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-medium small">Intervalo entre horários (min)</label>
+                        <input type="number" min="10" step="5" name="booking_slot_minutes" class="form-control form-control-sm" value="<?= escape($settings['booking_slot_minutes'] ?? '30') ?>">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-medium small">Duração da reunião (min)</label>
+                        <input type="number" min="15" step="15" name="booking_duration_min" class="form-control form-control-sm" value="<?= escape($settings['booking_duration_min'] ?? '45') ?>">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-medium small">Notificar antes (horas)</label>
+                        <input type="number" min="0" step="1" name="booking_notify_hours_before" class="form-control form-control-sm" value="<?= escape($settings['booking_notify_hours_before'] ?? '24') ?>">
+                        <small class="text-muted">Lembrete por e-mail/WhatsApp antes da reunião.</small>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-medium small">Validade do link (dias)</label>
+                        <input type="number" min="1" name="booking_link_expiry_days" class="form-control form-control-sm" value="<?= escape($settings['booking_link_expiry_days'] ?? '30') ?>">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label fw-medium small d-block">Dias da semana disponíveis</label>
+                        <div class="d-flex flex-wrap gap-3">
+                            <?php foreach ($dayLabels as $num => $lbl): ?>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="booking_days[]" value="<?= $num ?>" id="bkday<?= $num ?>" <?= in_array((string)$num, $bkDaysArr, true) ? 'checked' : '' ?>>
+                                <label class="form-check-label small" for="bkday<?= $num ?>"><?= $lbl ?></label>
+                            </div>
+                            <?php endforeach; ?>
+                        </div>
+                        <input type="hidden" name="booking_days_of_week" id="booking_days_of_week" value="<?= escape($bkDays) ?>">
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -728,9 +846,62 @@
             <i class="bi bi-check-lg"></i> Salvar Configurações
         </button>
     </form>
+
 </div>
 
 <script>
+// Consolida os dias da semana marcados no campo oculto antes de enviar o form.
+(function(){
+    const form = document.querySelector('form[action$="settings/save"]');
+    if (!form) return;
+    form.addEventListener('submit', function(){
+        const days = Array.from(document.querySelectorAll('input[name="booking_days[]"]:checked'))
+            .map(c => c.value);
+        const hidden = document.getElementById('booking_days_of_week');
+        if (hidden) hidden.value = days.join(',');
+    });
+})();
+
+// ===== Assinatura de e-mail por domínio (salva via AJAX, com upload de logo) =====
+function saveSignature(btn) {
+    const block = btn.closest('.sig-block');
+    const val = sel => { const el = block.querySelector(sel); return el ? el.value.trim() : ''; };
+    const domain = val('.sig-domain');
+    if (!domain) { alert('Informe o domínio.'); return; }
+
+    const fd = new FormData();
+    fd.append('sig_id', block.querySelector('.sig-id').value || '');
+    fd.append('domain', domain);
+    fd.append('company', val('.sig-company'));
+    fd.append('specialties', val('.sig-specialties'));
+    fd.append('contact_email', val('.sig-contact_email'));
+    fd.append('site', val('.sig-site'));
+    fd.append('tagline', val('.sig-tagline'));
+    fd.append('color', val('.sig-color') || '#00997D');
+    const activeEl = block.querySelector('.sig-active');
+    const active = activeEl ? (activeEl.type === 'checkbox' ? activeEl.checked : activeEl.value === '1') : true;
+    fd.append('is_active', active ? '1' : '0');
+    const fileEl = block.querySelector('.sig-logo');
+    if (fileEl && fileEl.files && fileEl.files[0]) fd.append('logo', fileEl.files[0]);
+
+    const orig = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    fetch('<?= baseUrl("settings/saveEmailSignature") ?>', { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(r => r.json())
+        .then(d => {
+            btn.disabled = false; btn.innerHTML = orig;
+            if (d && d.error) { alert(d.error); return; }
+            location.reload(); // recarrega para mostrar a logo salva
+        })
+        .catch(() => { btn.disabled = false; btn.innerHTML = orig; alert('Erro ao salvar a assinatura.'); });
+}
+
+function deleteSignature(id) {
+    if (!confirm('Remover a assinatura deste domínio?')) return;
+    fetch('<?= baseUrl("settings/deleteEmailSignature/") ?>' + id, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(r => r.json()).then(() => location.reload())
+        .catch(() => alert('Erro ao remover.'));
+}
+
 function testSmtp() {
     const btn = event.target.closest('button');
     const result = document.getElementById('smtp-test-result');

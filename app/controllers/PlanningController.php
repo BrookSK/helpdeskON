@@ -24,34 +24,23 @@ class PlanningController extends Controller
         $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']);
 
         $filters = [];
-        // Filtro de empresa: aceita múltiplas (company_id[]) ou valor único legado.
-        $companyFilter = $_GET['company_id'] ?? null;
-        if (is_array($companyFilter)) {
-            $ids = array_values(array_filter(array_map('intval', $companyFilter)));
-            if (!empty($ids)) $filters['company_ids'] = $ids;
-        } elseif (!empty($companyFilter)) {
-            $filters['company_ids'] = [(int)$companyFilter];
-        }
-        // Filtro de responsável: aceita múltiplos (assigned_to[]) ou valor único legado.
-        $assignedFilter = $_GET['assigned_to'] ?? null;
-        if (is_array($assignedFilter)) {
-            $aids = array_values(array_filter(array_map('intval', $assignedFilter)));
-            if (!empty($aids)) $filters['assigned_to_ids'] = $aids;
-        } elseif (!empty($assignedFilter)) {
-            $filters['assigned_to_ids'] = [(int)$assignedFilter];
-        }
+        // Filtros de múltipla escolha (arrays). Aceita valores únicos por compatibilidade.
+        if (!empty($_GET['company_id'])) $filters['company_id'] = array_filter((array)$_GET['company_id'], fn($v) => $v !== '');
+        if (!empty($_GET['assigned_to'])) $filters['assigned_to'] = array_filter((array)$_GET['assigned_to'], fn($v) => $v !== '');
+        if (!empty($_GET['created_by'])) $filters['created_by'] = array_filter((array)$_GET['created_by'], fn($v) => $v !== '');
+        if (!empty($_GET['statuses'])) $filters['statuses'] = array_filter((array)$_GET['statuses'], fn($v) => $v !== '');
         if (!empty($_GET['order'])) $filters['order'] = $_GET['order'];
 
         // whatsapp_agent, developer e analyst só veem cards atribuídos a eles (forçar filtro)
         if (in_array($user['role'], ['whatsapp_agent', 'developer', 'analyst', 'comercial'])) {
-            $filters['assigned_to_ids'] = [$user['id']];
+            $filters['assigned_to'] = [$user['id']];
         }
 
         // Para super_admin e attendant: pré-filtrar pelo usuário logado por padrão
         // a menos que o usuário explicitamente escolha "Todos" (via parâmetro show_all=1)
         if (in_array($user['role'], ['super_admin', 'attendant'])) {
-            if (empty($_GET['show_all']) && empty($filters['assigned_to_ids'])) {
-                $filters['assigned_to_ids'] = [$user['id']];
+            if (empty($_GET['show_all']) && empty($_GET['assigned_to'])) {
+                $filters['assigned_to'] = [$user['id']];
             }
         }
 
@@ -89,6 +78,9 @@ class PlanningController extends Controller
         $techniciansList = $userModel->getByRoles(['developer']);
         $analystsList = $userModel->getByRoles(['analyst']);
 
+        // Lista de solicitantes (criadores dos cards) para o filtro
+        $requesters = $this->cardModel->getRequesters($allowedCompanies);
+
         $this->view('planning/index', [
             'user' => $user,
             'grouped' => $grouped,
@@ -97,6 +89,7 @@ class PlanningController extends Controller
             'attendantsList' => $attendantsList,
             'techniciansList' => $techniciansList,
             'analystsList' => $analystsList,
+            'requesters' => $requesters,
             'filters' => $filters,
         ]);
     }
@@ -111,23 +104,15 @@ class PlanningController extends Controller
         $end = $_GET['end'] ?? date('Y-m-t 23:59:59');
 
         $filters = [];
-        // Filtro de empresa: aceita múltiplas (company_id[]) ou valor único legado.
-        $companyFilter = $_GET['company_id'] ?? null;
-        if (is_array($companyFilter)) {
-            $ids = array_values(array_filter(array_map('intval', $companyFilter)));
-            if (!empty($ids)) $filters['company_ids'] = $ids;
-        } elseif (!empty($companyFilter)) {
-            $filters['company_ids'] = [(int)$companyFilter];
-        }
-        // Filtro de responsável: aceita múltiplos (assigned_to[]) ou valor único legado.
-        $assignedFilter = $_GET['assigned_to'] ?? null;
-        if (is_array($assignedFilter)) {
-            $aids = array_values(array_filter(array_map('intval', $assignedFilter)));
-            if (!empty($aids)) $filters['assigned_to_ids'] = $aids;
-        } elseif (!empty($assignedFilter)) {
-            $filters['assigned_to_ids'] = [(int)$assignedFilter];
-        }
+        if (!empty($_GET['company_id'])) $filters['company_id'] = array_filter((array)$_GET['company_id'], fn($v) => $v !== '');
+        if (!empty($_GET['assigned_to'])) $filters['assigned_to'] = array_filter((array)$_GET['assigned_to'], fn($v) => $v !== '');
+        if (!empty($_GET['statuses'])) $filters['statuses'] = array_filter((array)$_GET['statuses'], fn($v) => $v !== '');
         if (!empty($_GET['hide_completed'])) $filters['hide_completed'] = true;
+
+        // whatsapp_agent/developer/analyst/comercial só veem os próprios cards
+        if (in_array($user['role'], ['whatsapp_agent', 'developer', 'analyst', 'comercial'])) {
+            $filters['assigned_to'] = [$user['id']];
+        }
 
         // Controle de acesso por empresa
         $allowedCompanies = PlanningCard::getUserAllowedCompanies($user['id'], $user['role']);

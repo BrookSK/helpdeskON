@@ -112,7 +112,23 @@ class AgendaMeeting
     public function getParticipants($meetingId)
     {
         return $this->db->fetchAll(
-            "SELECT u.id, u.name, u.email, u.role
+            "SELECT u.id, u.name, u.email, u.phone, u.role
+             FROM agenda_meeting_participants p
+             JOIN users u ON p.user_id = u.id
+             WHERE p.meeting_id = ?
+             ORDER BY u.name",
+            [$meetingId]
+        );
+    }
+
+    /**
+     * Retorna nome, e-mail e telefone dos participantes internos de uma reunião,
+     * usado para disparar notificações (WhatsApp + e-mail).
+     */
+    public function getParticipantContacts($meetingId)
+    {
+        return $this->db->fetchAll(
+            "SELECT u.id, u.name, u.email, u.phone
              FROM agenda_meeting_participants p
              JOIN users u ON p.user_id = u.id
              WHERE p.meeting_id = ?

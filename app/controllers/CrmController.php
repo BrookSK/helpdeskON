@@ -1531,7 +1531,8 @@ class CrmController extends Controller
         $credit->consume($user['id'], 1);
 
         $data = $res['data'] ?? [];
-        $people = $data['people'] ?? ($data['contacts'] ?? []);
+        // A Apollo separa resultados "fora da conta" (people) dos "salvos na conta" (contacts).
+        $people = $this->mergeApolloLists($data, 'people', 'contacts');
         $pagination = $data['pagination'] ?? [];
 
         // Persiste em staging para consulta/importação posterior
@@ -1585,7 +1586,8 @@ class CrmController extends Controller
         $credit->consume($user['id'], 1);
 
         $data = $res['data'] ?? [];
-        $orgs = $data['organizations'] ?? ($data['accounts'] ?? []);
+        // Empresas já salvas na conta Apollo voltam em "accounts" (não em "organizations").
+        $orgs = $this->mergeApolloLists($data, 'organizations', 'accounts');
         $pagination = $data['pagination'] ?? [];
 
         $after = $credit->check($user, 0);
@@ -1660,6 +1662,13 @@ class CrmController extends Controller
         $updated = $leadModel->findById($localId);
         $formatted = $this->formatApolloPerson($person, $updated);
 
+        // Se o lead JÁ foi enviado para Meus Leads, propaga o e-mail/telefone revelado
+        // para o contato do CRM. Sem isso, o lead importado ficaria sem e-mail e nunca
+        // entraria na captação automática (que exige lead_email).
+        if (!empty($updated['contact_id'])) {
+            $this->propagateRevealToContact((int)$updated['contact_id'], $updated);
+        }
+
         // Liberar dados (e-mail + telefone) consome 8 créditos do limite diário.
         $credit->consume($user['id'], ApolloCreditUsage::COST_MOBILE);
 
@@ -1693,6 +1702,49 @@ class CrmController extends Controller
         $after = $credit->check($user, 0);
         $out['credits'] = ['limit' => $after['limit'], 'used' => $after['used'], 'remaining' => $after['remaining']];
         $this->json($out);
+    }
+
+    /**
+     * Propaga e-mail/telefone revelados no Apollo para o contato do CRM já
+     * importado (whatsapp_contacts), sem sobrescrever dados já preenchidos.
+     * Garante que o lead fique elegível à captação automática (que exige e-mail).
+     */
+    private function propagateRevealToContact($contactId, $lead)
+    {
+        $db = Database::getInstance();
+        $contact = $db->fetch("SELECT * FROM whatsapp_contacts WHERE id = ? LIMIT 1", [$contactId]);
+        if (!$contact) return;
+
+        $update = [];
+
+        // E-mail real (ignora placeholders de e-mail bloqueado)
+        $email = $lead['email'] ?? null;
+        $isRealEmail = $email && stripos($email, 'email_not_unlocked') === false
+            && filter_var($email, FILTER_VALIDATE_EMAIL);
+        if ($isRealEmail && empty($contact['lead_email'])) {
+            $update['lead_email'] = mb_strtolower($email);
+        }
+
+        // Telefone (só preenche se o contato ainda não tem)
+        if (!empty($lead['phone']) && empty($contact['phone'])) {
+            $digits = preg_replace('/\D/', '', (string) $lead['phone']) ?: null;
+            if ($digits) {
+                $update['phone'] = $digits;
+                // Se o JID é sintético, regenera para o número real (aparece no chat)
+                if (preg_match('/^(lead_|manual_)/', (string) $contact['remote_jid'])) {
+                    $realJid = $digits . '@s.whatsapp.net';
+                    $dup = $db->fetch(
+                        "SELECT id FROM whatsapp_contacts WHERE instance_id = ? AND remote_jid = ? AND id <> ?",
+                        [$contact['instance_id'], $realJid, $contactId]
+                    );
+                    if (!$dup) $update['remote_jid'] = $realJid;
+                }
+            }
+        }
+
+        if (!empty($update)) {
+            $db->update('whatsapp_contacts', $update, 'id = ?', [$contactId]);
+        }
     }
 
     /**
@@ -1864,6 +1916,10 @@ class CrmController extends Controller
             'my_leads_filters' => json_encode($myLeadsFilters, JSON_UNESCAPED_UNICODE),
             'my_leads_ids' => json_encode($this->buildMyLeadsIds(), JSON_UNESCAPED_UNICODE),
             'sequence_id' => !empty($_POST['sequence_id']) ? intval($_POST['sequence_id']) : null,
+            'auto_route' => !empty($_POST['auto_route']) ? 1 : 0,
+            'sequence_id_email' => !empty($_POST['sequence_id_email']) ? intval($_POST['sequence_id_email']) : null,
+            'sequence_id_whatsapp' => !empty($_POST['sequence_id_whatsapp']) ? intval($_POST['sequence_id_whatsapp']) : null,
+            'sequence_id_mixed' => !empty($_POST['sequence_id_mixed']) ? intval($_POST['sequence_id_mixed']) : null,
             'board_id' => !empty($_POST['board_id']) ? intval($_POST['board_id']) : null,
             'column_id' => !empty($_POST['column_id']) ? intval($_POST['column_id']) : null,
             'assigned_to' => !empty($_POST['assigned_to']) ? intval($_POST['assigned_to']) : null,
@@ -1963,8 +2019,15 @@ class CrmController extends Controller
         } catch (\Throwable $e) {}
         $target = max(1, (int)$camp['daily_target'] - $already);
 
-        $service = new ApolloProspectingService();
-        $result = $service->runCampaign($camp, $target);
+        try {
+            $service = new ApolloProspectingService();
+            // Disparo MANUAL: força a (re)inscrição/reinício, mesmo para leads que já
+            // passaram pela sequência (o operador está pedindo explicitamente).
+            $result = $service->runCampaign($camp, $target, true);
+        } catch (\Throwable $e) {
+            Logger::error('runCampaign manual', ['campaign' => $id, 'error' => $e->getMessage()]);
+            $this->json(['error' => 'Erro ao executar: ' . $e->getMessage()], 500);
+        }
         $this->json(['success' => empty($result['error']), 'result' => $result]);
     }
 
@@ -1979,8 +2042,49 @@ class CrmController extends Controller
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
         @set_time_limit(300);
 
+        // Detecta respostas por e-mail (IMAP) antes de processar, para que o botão
+        // manual também capte respostas de e-mail (não só WhatsApp).
+        $replies = 0;
+        try { $replies = (new CronController())->detectReplies(); }
+        catch (\Throwable $e) { Logger::error('runSequencesNow: detectReplies', ['error' => $e->getMessage()]); }
+
         $stats = (new SequenceEngine())->processDue(200);
-        $this->json(['success' => true, 'engine' => $stats, 'replies_detected' => 0]);
+        $this->json(['success' => true, 'engine' => $stats, 'replies_detected' => $replies]);
+    }
+
+    /**
+     * Finaliza TODAS as participações ativas/pausadas em sequências. Útil para
+     * reiniciar um teste com o mesmo contato sem que ele fique no meio de um fluxo.
+     * Protegido por login super_admin. POST crm/finishAllSequences
+     */
+    public function finishAllSequences()
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+
+        $db = Database::getInstance();
+        $now = date('Y-m-d H:i:s');
+
+        // Só as colunas que sempre existem — limpa travas de escuta/triagem se houver.
+        $sets = "status = 'stopped', stop_reason = 'manual', finished_at = ?, next_run_at = NULL";
+        $params = [$now];
+        try {
+            $cols = $db->fetchAll(
+                "SELECT COLUMN_NAME c FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sequence_participants'"
+            );
+            $names = array_map(fn($r) => strtolower($r['c']), $cols);
+            if (in_array('reply_listen_until', $names)) $sets .= ", reply_listen_until = NULL";
+            if (in_array('triaged_at', $names))         $sets .= ", triaged_at = NULL";
+        } catch (\Throwable $e) { /* mantém o set básico */ }
+
+        $stmt = $db->query(
+            "UPDATE sequence_participants SET $sets WHERE status IN ('active','paused')",
+            $params
+        );
+        $finished = $stmt ? $stmt->rowCount() : 0;
+
+        $this->json(['success' => true, 'finished' => $finished]);
     }
 
     /**
@@ -2063,7 +2167,7 @@ class CrmController extends Controller
                  JOIN sequence_participants sp ON e.participant_id = sp.id
                  JOIN email_sequences s ON sp.sequence_id = s.id
                  JOIN whatsapp_contacts wc ON sp.contact_id = wc.id
-                 WHERE s.name LIKE '%Apollo%'
+                 WHERE (s.name LIKE '%Apollo%' OR s.name LIKE '%ON Solu%')
                  ORDER BY e.id DESC
                  LIMIT 200"
             );
@@ -2079,7 +2183,7 @@ class CrmController extends Controller
                  FROM sequence_participants sp
                  JOIN email_sequences s ON sp.sequence_id = s.id
                  JOIN whatsapp_contacts wc ON sp.contact_id = wc.id
-                 WHERE s.name LIKE '%Apollo%'
+                 WHERE (s.name LIKE '%Apollo%' OR s.name LIKE '%ON Solu%')
                  ORDER BY sp.updated_at DESC
                  LIMIT 50"
             );
@@ -2280,14 +2384,27 @@ class CrmController extends Controller
         $this->requireRole(['super_admin']);
         $db = Database::getInstance();
 
+        // Canal de elegibilidade (email/whatsapp/mixed) — combina com o canal da sequência.
+        $channel = in_array($_GET['channel'] ?? '', ['email', 'whatsapp', 'mixed'], true) ? $_GET['channel'] : 'email';
+        if ($channel === 'whatsapp') {
+            $channelSql = "(c.phone IS NOT NULL AND c.phone <> '')";
+        } elseif ($channel === 'mixed') {
+            $channelSql = "((c.lead_email IS NOT NULL AND c.lead_email <> '') OR (c.phone IS NOT NULL AND c.phone <> ''))";
+        } else {
+            $channelSql = "(c.lead_email IS NOT NULL AND c.lead_email <> '')";
+        }
+
+        // Inclui também os leads descadastrados (unsubscribed), marcando-os como
+        // "inativo". Assim o operador consegue reativá-los e reselecionar para
+        // testar de novo — o disparo manual reativa o contato ao inscrever.
         $sql = "SELECT c.id, c.contact_name, c.lead_email, c.phone, u.name AS assigned_name,
-                       b.lead_temperature, b.lead_source
+                       b.lead_temperature, b.lead_source,
+                       COALESCE(c.unsubscribed,0) AS unsubscribed
                 FROM whatsapp_contacts c
                 LEFT JOIN users u ON c.assigned_to = u.id
                 LEFT JOIN commercial_briefings b ON b.contact_id = c.id
                 WHERE COALESCE(c.is_group,0)=0
-                  AND c.lead_email IS NOT NULL AND c.lead_email <> ''
-                  AND COALESCE(c.unsubscribed,0)=0
+                  AND $channelSql
                   AND COALESCE(c.email_bounced,0)=0
                   AND COALESCE(c.crm_archived,0)=0";
         $params = [];
@@ -2301,9 +2418,120 @@ class CrmController extends Controller
         if (!empty($_GET['source']))      { $sql .= " AND b.lead_source = ?";      $params[] = $_GET['source']; }
         if (!empty($_GET['assigned_to'])) { $sql .= " AND c.assigned_to = ?";       $params[] = intval($_GET['assigned_to']); }
 
-        $sql .= " ORDER BY c.contact_name IS NULL, c.contact_name ASC LIMIT 500";
+        $sql .= " ORDER BY unsubscribed ASC, c.contact_name IS NULL, c.contact_name ASC LIMIT 500";
         $rows = $db->fetchAll($sql, $params);
         $this->json(['success' => true, 'leads' => $rows]);
+    }
+
+    /**
+     * API de performance da prospecção (Camada 1): funil consolidado + ranking de
+     * mensagens por taxa de reunião. GET crm/prospectingInsights?days=90
+     */
+    public function prospectingInsights()
+    {
+        $this->requireRole(['super_admin']);
+        $days = max(1, min(365, (int)($_GET['days'] ?? 90)));
+        $an = new ProspectingAnalytics();
+        $funnel = $an->funnel($days);
+        if ($funnel === null) {
+            $this->json(['success' => false, 'ready' => false, 'error' => 'Analytics ainda não configurado (aplique a migration 106).']);
+        }
+        $this->json([
+            'success' => true,
+            'ready' => true,
+            'days' => $days,
+            'funnel' => $funnel,
+            'volume' => $an->messageVolume($days),
+            'ranking' => $an->messageRanking($days, 1),
+            'templates_email' => $an->templateRanking($days, 'email'),
+            'templates_whatsapp' => $an->templateRanking($days, 'whatsapp'),
+        ]);
+    }
+
+    /**
+     * Lista as sugestões de copy geradas pela IA (Camada 2).
+     * GET crm/copySuggestions?status=pending
+     */
+    public function copySuggestions()
+    {
+        $this->requireRole(['super_admin']);
+        $status = in_array($_GET['status'] ?? '', ['pending', 'approved', 'rejected'], true) ? $_GET['status'] : null;
+        $opt = new ProspectingOptimizer();
+        $this->json(['success' => true, 'suggestions' => $opt->listSuggestions($status, 50)]);
+    }
+
+    /**
+     * Aprova/rejeita uma sugestão de copy. POST crm/reviewCopySuggestion/{id}
+     * body: action = approve | reject
+     */
+    public function reviewCopySuggestion($id = null)
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+        $approve = ($_POST['action'] ?? '') === 'approve';
+        $user = $this->currentUser();
+        $res = (new ProspectingOptimizer())->review((int)$id, $approve, $user['id'] ?? null);
+        $ok = is_array($res) ? !empty($res['ok']) : (bool)$res;
+        $published = is_array($res) ? !empty($res['published']) : false;
+        $this->json(['success' => $ok, 'status' => $approve ? 'approved' : 'rejected', 'published' => $published]);
+    }
+
+    /**
+     * Dispara a análise do otimizador agora (manual), sem esperar o gatilho de N
+     * respostas. Útil para testar. POST crm/runOptimizerNow  body: sequence_id (opcional)
+     */
+    public function runOptimizerNow()
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        @set_time_limit(120);
+        $opt = new ProspectingOptimizer();
+        $seqId = !empty($_POST['sequence_id']) ? (int)$_POST['sequence_id'] : 0;
+        if ($seqId) {
+            $ok = $opt->analyzeAndSuggest($seqId, 0);
+            $this->json(['success' => true, 'suggested' => $ok ? 1 : 0]);
+        }
+        $this->json(['success' => true] + $opt->runDue());
+    }
+
+    /**
+     * Alterna o status do lead entre ativo/inativo para prospecção/sequências.
+     * Sincroniza a coluna sequence_status com unsubscribed (inativo = descadastrado).
+     * POST crm/toggleLeadStatus  body: contact_id
+     */
+    public function toggleLeadStatus()
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $contactId = !empty($_POST['contact_id']) ? intval($_POST['contact_id']) : 0;
+        if (!$contactId) $this->json(['error' => 'Lead inválido.'], 400);
+
+        $db = Database::getInstance();
+        $c = $db->fetch("SELECT id, COALESCE(unsubscribed,0) AS unsubscribed FROM whatsapp_contacts WHERE id = ?", [$contactId]);
+        if (!$c) $this->json(['error' => 'Lead não encontrado.'], 404);
+
+        // Alterna: se está inativo (unsubscribed=1) → ativa; senão → inativa.
+        $makeInactive = ((int)$c['unsubscribed'] === 0);
+        $data = ['unsubscribed' => $makeInactive ? 1 : 0];
+
+        // Mantém a coluna dedicada sincronizada, se existir.
+        try {
+            $has = $db->fetch("SELECT COUNT(*) t FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='whatsapp_contacts' AND COLUMN_NAME='sequence_status'");
+            if ($has && (int)$has['t'] > 0) $data['sequence_status'] = $makeInactive ? 'inactive' : 'active';
+        } catch (\Throwable $e) { /* ignora */ }
+
+        $db->update('whatsapp_contacts', $data, 'id = ?', [$contactId]);
+
+        // Ao ATIVAR, encerra participações antigas para permitir reinício limpo no teste.
+        if (!$makeInactive) {
+            try {
+                $db->query("UPDATE sequence_participants SET status='stopped', stop_reason='manual', finished_at=NOW(), next_run_at=NULL
+                            WHERE contact_id = ? AND status IN ('active','paused')", [$contactId]);
+            } catch (\Throwable $e) { /* ignora */ }
+        }
+
+        $this->json(['success' => true, 'unsubscribed' => $makeInactive ? 1 : 0, 'sequence_status' => $makeInactive ? 'inactive' : 'active']);
     }
 
     /**
@@ -2552,6 +2780,143 @@ class CrmController extends Controller
             ],
             'results' => $results,
         ]);
+    }
+
+    /**
+     * API (diagnóstico): rastreia o PIPELINE de uma busca de Pessoas, mostrando
+     * quantos itens existem em cada etapa entre a resposta bruta do Apollo e o que
+     * é efetivamente exibido na tela. Serve para identificar onde os resultados
+     * "somem" (filtragem/formatação/máscara), sem depender do que a UI mostra.
+     *
+     * POST crm/apolloSearchTrace  (restrito a super_admin)
+     * Body: scope=people|orgs, q=<termo livre>, per_page=<int>
+     */
+    public function apolloSearchTrace()
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+
+        $apollo = new ApolloApi();
+        if (!$apollo->isConfigured()) $this->json(['error' => 'Apollo não configurado. Informe a API key em Configurações.'], 400);
+
+        $scope = ($_POST['scope'] ?? 'people') === 'orgs' ? 'orgs' : 'people';
+        $q = trim($_POST['q'] ?? '');
+        $perPage = min(25, max(1, intval($_POST['per_page'] ?? 10)));
+
+        $stages = [];   // etapas do pipeline, na ordem
+        $notes = [];    // observações/alertas encontrados
+
+        if ($scope === 'orgs') {
+            $filters = ['page' => 1, 'per_page' => $perPage];
+            if ($q !== '') $filters['q_organization_name'] = $q;
+            $res = $apollo->searchOrganizations($filters);
+
+            $stages[] = ['stage' => 'Payload enviado ao Apollo', 'payload' => $filters];
+            if (!$res['success']) $this->json(['error' => $res['error'] ?? 'Falha na busca.', 'stages' => $stages], 502);
+
+            $data = $res['data'] ?? [];
+            $rawOrgs = is_array($data['organizations'] ?? null) ? $data['organizations'] : [];
+            $rawAccounts = is_array($data['accounts'] ?? null) ? $data['accounts'] : [];
+            $orgs = $this->mergeApolloLists($data, 'organizations', 'accounts');
+            $pagination = $data['pagination'] ?? [];
+
+            $stages[] = ['stage' => 'Resposta bruta da API — organizations[]', 'count' => count($rawOrgs)];
+            $stages[] = ['stage' => 'Resposta bruta da API — accounts[] (já na sua conta Apollo)', 'count' => count($rawAccounts)];
+            $stages[] = ['stage' => 'Após mesclar organizations + accounts', 'count' => count($orgs)];
+            $stages[] = ['stage' => 'total_entries informado pela API', 'count' => $pagination['total_entries'] ?? null];
+            $stages[] = ['stage' => 'Exibido na tela (sem formatação/filtro no backend)', 'count' => count($orgs)];
+
+            if (count($rawOrgs) === 0 && count($rawAccounts) > 0) {
+                $notes[] = 'A empresa voltou em "accounts[]" (já está salva na sua conta Apollo) e não em "organizations[]". Antes da correção, o código usava "??" e ignorava a lista "accounts", por isso a empresa "sumia". Agora as duas listas são mescladas e ela aparece.';
+            } elseif (count($orgs) === 0) {
+                $notes[] = 'A API retornou 0 empresas para este termo, tanto em "organizations[]" quanto em "accounts[]". O filtro está na própria consulta ao Apollo, não no código de exibição.';
+            } else {
+                $notes[] = 'Empresas não passam por máscara no backend: o que a API retorna (organizations + accounts) é exibido integralmente.';
+            }
+
+            $sample = array_map(fn($o) => [
+                'name' => $o['name'] ?? null,
+                'domain' => $o['primary_domain'] ?? null,
+                'id' => $o['id'] ?? null,
+            ], array_slice($orgs, 0, 10));
+
+            $this->json(['success' => true, 'scope' => $scope, 'q' => $q, 'stages' => $stages, 'notes' => $notes, 'sample' => $sample]);
+        }
+
+        // scope = people
+        $filters = ['page' => 1, 'per_page' => $perPage];
+        if ($q !== '') $filters['q_keywords'] = $q;
+        $res = $apollo->searchPeople($filters);
+
+        $stages[] = ['stage' => 'Payload enviado ao Apollo', 'payload' => $filters];
+        if (!$res['success']) $this->json(['error' => $res['error'] ?? 'Falha na busca.', 'stages' => $stages], 502);
+
+        $data = $res['data'] ?? [];
+        $rawPeople = is_array($data['people'] ?? null) ? $data['people'] : [];
+        $rawContacts = is_array($data['contacts'] ?? null) ? $data['contacts'] : [];
+        $people = $this->mergeApolloLists($data, 'people', 'contacts');
+        $pagination = $data['pagination'] ?? [];
+
+        $stages[] = ['stage' => 'Resposta bruta da API — people[]', 'count' => count($rawPeople)];
+        $stages[] = ['stage' => 'Resposta bruta da API — contacts[] (já na sua conta Apollo)', 'count' => count($rawContacts)];
+        $stages[] = ['stage' => 'Após mesclar people + contacts', 'count' => count($people)];
+        $stages[] = ['stage' => 'total_entries informado pela API', 'count' => $pagination['total_entries'] ?? null];
+
+        // Reproduz exatamente o que apolloSearchPeople faz: upsert + format
+        $leadModel = new ApolloLead();
+        $out = [];
+        $upsertNulls = 0;
+        foreach ($people as $p) {
+            $localId = $leadModel->upsertFromApollo($p, $this->currentUser()['id']);
+            if (!$localId) { $upsertNulls++; }
+            $existing = $localId ? $leadModel->findById($localId) : null;
+            $out[] = $this->formatApolloPerson($p, $existing);
+        }
+
+        $stages[] = ['stage' => 'Após upsert em apollo_leads (staging)', 'count' => count($out)];
+        if ($upsertNulls > 0) {
+            $notes[] = "{$upsertNulls} pessoa(s) sem apollo_id foram ignoradas no upsert (upsertFromApollo retorna null quando falta 'id'). Elas ainda aparecem na tela, mas sem local_id não podem ser liberadas/importadas.";
+        }
+
+        // Contagens de estados que afetam a exibição
+        $masked = 0; $ownedByOther = 0; $imported = 0; $noLocalId = 0;
+        foreach ($out as $row) {
+            if (!empty($row['contact_masked'])) $masked++;
+            if (!empty($row['imported'])) $imported++;
+            if (empty($row['local_id'])) $noLocalId++;
+            if (!empty($row['imported']) && !empty($row['owner_id'])
+                && (int)$row['owner_id'] !== (int)$this->currentUser()['id']) $ownedByOther++;
+        }
+
+        $stages[] = ['stage' => 'Enviado ao navegador (people[])', 'count' => count($out)];
+        $stages[] = ['stage' => '↳ marcados como sigilosos (contact_masked)', 'count' => $masked];
+        $stages[] = ['stage' => '↳ já importados (imported)', 'count' => $imported];
+        $stages[] = ['stage' => '↳ de outro responsável (bloqueados p/ importar)', 'count' => $ownedByOther];
+        $stages[] = ['stage' => '↳ sem local_id (não puderam ser gravados)', 'count' => $noLocalId];
+
+        if (count($rawPeople) === 0 && count($rawContacts) > 0) {
+            $notes[] = 'A API trouxe resultados apenas em "contacts[]" (pessoas já salvas na sua conta Apollo) e nada em "people[]". Antes da correção, o código usava "??" e descartava esses contatos, fazendo o resultado sumir. Agora as duas listas são mescladas.';
+        }
+        if (count($people) > 0 && count($out) === count($people)) {
+            $notes[] = 'O backend NÃO descarta nenhuma pessoa: todas as ' . count($people) . ' retornadas pela API são enviadas ao navegador. Se você vê menos na tela, a redução é (a) no filtro enviado ao Apollo, (b) na paginação (per_page), ou (c) na renderização do front-end.';
+        }
+        if ($masked > 0) {
+            $notes[] = "{$masked} contato(s) aparecem, mas com e-mail/telefone ocultos por pertencerem a outro responsável (regra de sigilo em formatApolloPerson). Isso oculta DADOS, não a linha inteira.";
+        }
+        if (count($people) === 0) {
+            $notes[] = 'A API retornou 0 pessoas. Como a busca da UI usa filtros específicos (cargos, localização, tecnologias etc.), verifique se algum filtro está restringindo demais — o "sumiço" ocorre na consulta ao Apollo, não na exibição.';
+        }
+
+        $sample = array_map(fn($r) => [
+            'name' => $r['name'] ?? null,
+            'title' => $r['title'] ?? null,
+            'organization_name' => $r['organization_name'] ?? null,
+            'imported' => (bool)($r['imported'] ?? false),
+            'masked' => (bool)($r['contact_masked'] ?? false),
+            'local_id' => $r['local_id'] ?? null,
+        ], array_slice($out, 0, 10));
+
+        $this->json(['success' => true, 'scope' => $scope, 'q' => $q, 'stages' => $stages, 'notes' => $notes, 'sample' => $sample]);
     }
 
     /**
@@ -2810,6 +3175,29 @@ class CrmController extends Controller
      * Formata um person do Apollo + registro local para exibição no painel.
      * $stored é a linha em apollo_leads (pode conter o e-mail já revelado).
      */
+    /**
+     * Mescla as duas listas que a Apollo pode retornar para o mesmo tipo de
+     * resultado. Ex.: pessoas vêm em "people" (fora da sua conta) E/OU "contacts"
+     * (já salvas na sua conta); empresas vêm em "organizations" E/OU "accounts".
+     * Usar "??" é errado porque a Apollo devolve um array VAZIO (não nulo) para a
+     * lista sem itens, escondendo os resultados que estão na outra lista.
+     */
+    private function mergeApolloLists($data, $primaryKey, $secondaryKey)
+    {
+        $primary = is_array($data[$primaryKey] ?? null) ? $data[$primaryKey] : [];
+        $secondary = is_array($data[$secondaryKey] ?? null) ? $data[$secondaryKey] : [];
+        if (empty($secondary)) return $primary;
+        if (empty($primary)) return $secondary;
+
+        // Evita duplicar quando a mesma entidade vier nas duas listas (mesmo id).
+        $byId = [];
+        foreach (array_merge($primary, $secondary) as $item) {
+            $id = $item['id'] ?? spl_object_hash((object)$item);
+            if (!isset($byId[$id])) $byId[$id] = $item;
+        }
+        return array_values($byId);
+    }
+
     private function formatApolloPerson($person, $stored = null)
     {
         $org = $person['organization'] ?? ($person['account'] ?? []);

@@ -31,6 +31,11 @@ function switchTab(tab) {
     resultsCol.classList.toggle('col-lg-9', !hideFilters);
     resultsCol.classList.toggle('col-lg-12', hideFilters);
     document.getElementById('search-btn').closest('.card-footer').style.display = hideFilters ? 'none' : '';
+
+    // Campo de pesquisa por nome: só na aba Capturados
+    const capSearchWrap = document.getElementById('captured-search-wrap');
+    if (capSearchWrap) capSearchWrap.style.display = (tab === 'captured') ? '' : 'none';
+
     selected.clear();
     updateBulkBar();
     if (tab === 'captured') { loadCaptured(1); }
@@ -365,7 +370,12 @@ function personRow(p) {
         }
         actions += `<button class="btn btn-success" title="Enviar p/ Meus Leads" onclick="importOne(${p.local_id}, this)"><i class="bi bi-download"></i></button>`;
     } else {
-        actions += '<span class="badge bg-success">Em Meus Leads</span>';
+        // Já em Meus Leads: se ainda não tem e-mail revelado, permite liberar agora
+        // (o e-mail/telefone é propagado ao lead do CRM e o habilita p/ captação automática).
+        if (!p.email && !revealed) {
+            actions += `<button class="btn btn-outline-success" title="Liberar e-mail/telefone e habilitar captação automática" onclick="revealOne(${p.local_id}, this)"><i class="bi bi-unlock"></i> Liberar</button>`;
+        }
+        actions += '<span class="badge bg-success align-self-center"><i class="bi bi-check"></i> Em Meus Leads</span>';
     }
     // Excluir (somente super_admin)
     if (window.CAP_IS_ADMIN) {
@@ -734,10 +744,15 @@ function changePage(delta) {
 }
 
 // ===== Aba Capturados =====
+let _capturedSearchTimer = null;
+
 function loadCaptured(page) {
     currentPage = page || 1;
     showLoading(true);
-    const qs = new URLSearchParams({ page: currentPage }).toString();
+    const params = { page: currentPage };
+    const term = (document.getElementById('captured-search') || {}).value || '';
+    if (term.trim() !== '') params.search = term.trim();
+    const qs = new URLSearchParams(params).toString();
     fetch(BASE + 'crm/apolloLeads?' + qs, { headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json())
         .then(d => {
@@ -746,6 +761,23 @@ function loadCaptured(page) {
             renderPeople(d.leads || [], { page: d.page, total_pages: d.total_pages, total_entries: d.total });
         })
         .catch(() => { showLoading(false); alert('Erro ao carregar capturados.'); });
+}
+
+// Pesquisa por nome na aba Capturados (com debounce)
+function onCapturedSearchInput() {
+    const input = document.getElementById('captured-search');
+    const clearBtn = document.getElementById('captured-search-clear');
+    if (clearBtn) clearBtn.style.display = (input && input.value.trim() !== '') ? '' : 'none';
+    if (_capturedSearchTimer) clearTimeout(_capturedSearchTimer);
+    _capturedSearchTimer = setTimeout(() => loadCaptured(1), 350);
+}
+
+function clearCapturedSearch() {
+    const input = document.getElementById('captured-search');
+    if (input) input.value = '';
+    const clearBtn = document.getElementById('captured-search-clear');
+    if (clearBtn) clearBtn.style.display = 'none';
+    loadCaptured(1);
 }
 
 // ===== Status da integração =====
@@ -898,6 +930,72 @@ function copyDiagnostics() {
     } else {
         document.execCommand('copy'); done();
     }
+}
+
+// ===== Rastreador de pipeline (diagnóstico) =====
+function runSearchTrace() {
+    const btn = document.getElementById('trace-run-btn');
+    const out = document.getElementById('trace-output');
+    const loading = document.getElementById('trace-loading');
+    btn.disabled = true;
+    out.style.display = 'none';
+    loading.style.display = '';
+
+    const fd = new FormData();
+    fd.append('scope', document.getElementById('trace-scope').value);
+    fd.append('q', document.getElementById('trace-q').value.trim());
+    fd.append('per_page', document.getElementById('trace-perpage').value || 10);
+
+    fetch(BASE + 'crm/apolloSearchTrace', { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json())
+        .then(d => {
+            btn.disabled = false;
+            loading.style.display = 'none';
+            if (d.error) {
+                out.style.display = '';
+                document.getElementById('trace-stages').innerHTML = '';
+                document.getElementById('trace-notes').innerHTML =
+                    `<div class="alert alert-danger py-2 px-3 small mb-0"><i class="bi bi-exclamation-octagon"></i> ${escapeHtml(d.error)}</div>`;
+                document.getElementById('trace-sample').textContent = '';
+                return;
+            }
+            renderSearchTrace(d);
+        })
+        .catch(() => {
+            btn.disabled = false;
+            loading.style.display = 'none';
+            alert('Erro ao rastrear o pipeline.');
+        });
+}
+
+function renderSearchTrace(d) {
+    const out = document.getElementById('trace-output');
+    const stagesEl = document.getElementById('trace-stages');
+    stagesEl.innerHTML = (d.stages || []).map(s => {
+        // Etapa com payload (mostra o JSON enviado)
+        if (s.payload !== undefined) {
+            return `<tr>
+                <td>${escapeHtml(s.stage)}
+                    <pre class="bg-light p-2 rounded mt-1 mb-0" style="font-size:0.7rem;">${escapeHtml(JSON.stringify(s.payload, null, 2))}</pre>
+                </td>
+                <td class="text-end text-muted">—</td>
+            </tr>`;
+        }
+        const isSub = s.stage.trim().startsWith('↳');
+        const val = (s.count === null || s.count === undefined) ? '—' : s.count;
+        return `<tr>
+            <td class="${isSub ? 'ps-4 text-muted' : 'fw-medium'}">${escapeHtml(s.stage)}</td>
+            <td class="text-end ${isSub ? 'text-muted' : 'fw-semibold'}">${escapeHtml(String(val))}</td>
+        </tr>`;
+    }).join('');
+
+    const notes = d.notes || [];
+    document.getElementById('trace-notes').innerHTML = notes.length
+        ? notes.map(n => `<div class="alert alert-info py-2 px-3 small mb-2"><i class="bi bi-info-circle"></i> ${escapeHtml(n)}</div>`).join('')
+        : '';
+
+    document.getElementById('trace-sample').textContent = JSON.stringify(d.sample || [], null, 2);
+    out.style.display = '';
 }
 
 // ===== Utils =====

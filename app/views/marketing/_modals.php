@@ -43,9 +43,20 @@
                         </select>
                         <small class="text-muted mkt-marketing-only" style="display:none;">Você será o responsável por esta demanda.</small>
                     </div>
+                    <div class="col-sm-6" id="item-approver-wrap">
+                        <label class="form-label small fw-medium">Aprovador</label>
+                        <select id="item-approver" class="form-select form-select-sm">
+                            <option value="">Selecione o aprovador...</option>
+                            <?php foreach ($approvers as $ap): ?>
+                            <option value="<?= $ap['id'] ?>"><?= escape($ap['name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <small class="text-muted">Escolha um administrador. Ele recebe notificação de envio e de ajustes.</small>
+                    </div>
                     <div class="col-sm-6">
                         <label class="form-label small fw-medium">Status</label>
                         <select id="item-status" class="form-select form-select-sm">
+                            <option value="rascunho">Rascunho</option>
                             <option value="ideia">Ideia</option>
                             <option value="em_producao">Em produção</option>
                             <option value="aguardando_aprovacao">Aguardando aprovação</option>
@@ -90,6 +101,13 @@
                         </div>
                         <small class="text-muted" id="item-file-hint">Os anexos serão enviados ao salvar a demanda.</small>
                     </div>
+
+                    <!-- Histórico da demanda -->
+                    <div class="col-12" id="item-history-wrap" style="display:none;">
+                        <hr>
+                        <label class="form-label small fw-medium"><i class="bi bi-clock-history"></i> Histórico</label>
+                        <div id="item-history" class="small" style="max-height:200px;overflow-y:auto;"></div>
+                    </div>
                 </div>
             </div>
             <div class="modal-footer justify-content-between">
@@ -97,13 +115,17 @@
                     <button class="btn btn-sm btn-outline-danger" id="item-delete-btn" onclick="deleteItem()" style="display:none;"><i class="bi bi-trash"></i> Excluir</button>
                     <button class="btn btn-sm btn-outline-success" id="item-notify-btn" onclick="notifyResponsible()" style="display:none;" title="Reenviar a notificação ao responsável via WhatsApp"><i class="bi bi-whatsapp"></i> Notificar responsável</button>
                 </div>
-                <div class="d-flex gap-2">
+                <div class="d-flex gap-2 flex-wrap">
                     <!-- Ações de aprovação (admin) -->
                     <button class="btn btn-sm mkt-btn-warning mkt-approval-action" onclick="requestChanges()" style="display:none;"><i class="bi bi-arrow-counterclockwise"></i> Solicitar ajustes</button>
                     <button class="btn btn-sm mkt-btn-danger mkt-approval-action" onclick="rejectItem()" style="display:none;"><i class="bi bi-x-lg"></i> Rejeitar</button>
                     <button class="btn btn-sm btn-success mkt-approval-action" onclick="approveItem()" style="display:none;"><i class="bi bi-check-lg"></i> Aprovar</button>
                     <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Fechar</button>
+                    <!-- Salvar padrão (admin) -->
                     <button class="btn btn-sm btn-primary" id="item-save-btn" onclick="saveItem()"><i class="bi bi-check-lg"></i> Salvar</button>
+                    <!-- Salvar (marketing): rascunho ou enviar para revisão -->
+                    <button class="btn btn-sm btn-outline-secondary" id="item-save-draft-btn" onclick="saveItemAs('rascunho')" style="display:none;"><i class="bi bi-file-earmark"></i> Salvar como rascunho</button>
+                    <button class="btn btn-sm btn-primary" id="item-save-review-btn" onclick="saveItemAs('aguardando_aprovacao')" style="display:none;"><i class="bi bi-send"></i> Salvar e enviar para revisão</button>
                 </div>
             </div>
         </div>
@@ -202,8 +224,9 @@ function openHolidayCreate(holidayId, title, dateStr) {
 function resetItemForm() {
     currentItem = null;
     pendingFiles = [];
-    ['item-id','item-holiday-id','item-title','item-scheduled','item-social','item-assigned','item-briefing','item-copy'].forEach(f => document.getElementById(f).value = '');
+    ['item-id','item-holiday-id','item-title','item-scheduled','item-social','item-assigned','item-approver','item-briefing','item-copy'].forEach(f => { const el = document.getElementById(f); if (el) el.value = ''; });
     document.getElementById('item-status').value = 'ideia';
+    const hw = document.getElementById('item-history-wrap'); if (hw) hw.style.display = 'none';
     document.getElementById('item-review-alert').style.display = 'none';
     document.getElementById('item-attachments-wrap').style.display = '';
     document.getElementById('item-attachments').innerHTML = '';
@@ -211,6 +234,9 @@ function resetItemForm() {
     const bw = document.getElementById('item-buffer-wrap');
     if (bw) bw.style.display = 'none';
     document.getElementById('item-delete-btn').style.display = 'none';
+    const dbtn = document.getElementById('item-save-draft-btn'); if (dbtn) dbtn.style.display = 'none';
+    const rbtn = document.getElementById('item-save-review-btn'); if (rbtn) rbtn.style.display = 'none';
+    const sbtn = document.getElementById('item-save-btn'); if (sbtn) sbtn.style.display = '';
     const nbtn = document.getElementById('item-notify-btn');
     if (nbtn) nbtn.style.display = 'none';
     document.querySelectorAll('.mkt-approval-action').forEach(b => b.style.display = 'none');
@@ -218,6 +244,11 @@ function resetItemForm() {
     document.getElementById('item-file').disabled = false;
     document.getElementById('item-file-btn').style.display = 'none';
     document.getElementById('item-file-hint').style.display = '';
+    // Reabilita todos os campos (podem ter sido desabilitados numa edição anterior)
+    ['item-title','item-scheduled','item-social','item-assigned','item-approver','item-briefing','item-copy','item-status'].forEach(f => {
+        const el = document.getElementById(f); if (el) el.disabled = false;
+    });
+    document.getElementById('item-file').parentElement.style.display = '';
 }
 
 // Seleção de arquivos: se item novo, acumula em pendingFiles; se edição, mostra botão de upload
@@ -257,6 +288,7 @@ function removePendingFile(i) {
 // UI para novo item conforme papel
 function applyRoleUiForNew() {
     const assignedWrap = document.getElementById('item-assigned-wrap');
+    const approverWrap = document.getElementById('item-approver-wrap');
     if (IS_ADMIN) {
         assignedWrap.style.display = '';
         document.querySelector('.mkt-marketing-only').style.display = 'none';
@@ -264,6 +296,28 @@ function applyRoleUiForNew() {
         // marketing: sempre responsável; oculta seletor
         assignedWrap.style.display = 'none';
         document.querySelector('.mkt-marketing-only').style.display = '';
+    }
+    // Aprovador (sempre um admin): marketing e admin podem escolher.
+    if (approverWrap) {
+        approverWrap.style.display = '';
+        document.getElementById('item-approver').disabled = false;
+    }
+    // Status: liberado para todos (admin e marketing). Os botões de salvar do
+    // marketing definem o destino, mas o select fica editável.
+    document.getElementById('item-status').disabled = false;
+    toggleApproveOption();
+    // Botões de salvar por papel
+    const saveBtn = document.getElementById('item-save-btn');
+    const draftBtn = document.getElementById('item-save-draft-btn');
+    const reviewBtn = document.getElementById('item-save-review-btn');
+    if (IS_ADMIN) {
+        saveBtn.style.display = '';
+        if (draftBtn) draftBtn.style.display = 'none';
+        if (reviewBtn) reviewBtn.style.display = 'none';
+    } else {
+        saveBtn.style.display = 'none';
+        if (draftBtn) draftBtn.style.display = '';
+        if (reviewBtn) reviewBtn.style.display = '';
     }
     toggleApproveOption();
 }
@@ -296,6 +350,7 @@ function fillItemForm(it) {
     document.getElementById('item-scheduled').value = it.scheduled_at ? it.scheduled_at.replace(' ', 'T').slice(0,16) : '';
     document.getElementById('item-social').value = it.social_network || '';
     document.getElementById('item-assigned').value = it.assigned_to || '';
+    const apprEl = document.getElementById('item-approver'); if (apprEl) apprEl.value = it.approver_id || '';
     document.getElementById('item-briefing').value = it.briefing || '';
     document.getElementById('item-copy').value = it.copy || '';
     document.getElementById('item-status').value = it.status || 'ideia';
@@ -308,9 +363,25 @@ function fillItemForm(it) {
     // Data: só admin altera
     document.getElementById('item-scheduled').disabled = !IS_ADMIN;
 
-    // Campos editáveis apenas por quem gerencia
-    ['item-title','item-social','item-briefing','item-copy','item-status'].forEach(f => document.getElementById(f).disabled = !canManage);
-    document.getElementById('item-save-btn').style.display = canManage ? '' : 'none';
+    // Campos de conteúdo: editáveis por quem gerencia (marketing responsável ou admin).
+    ['item-title','item-social','item-briefing','item-copy'].forEach(f => document.getElementById(f).disabled = !canManage);
+    // Status: liberado para quem gerencia a demanda (marketing responsável ou admin).
+    document.getElementById('item-status').disabled = !canManage;
+
+    // Botões de salvar conforme o papel
+    const saveBtn = document.getElementById('item-save-btn');
+    const draftBtn = document.getElementById('item-save-draft-btn');
+    const reviewBtn = document.getElementById('item-save-review-btn');
+    if (IS_ADMIN) {
+        saveBtn.style.display = canManage ? '' : 'none';
+        if (draftBtn) draftBtn.style.display = 'none';
+        if (reviewBtn) reviewBtn.style.display = 'none';
+    } else {
+        // Marketing: esconde o "Salvar" genérico e usa os dois botões dedicados
+        saveBtn.style.display = 'none';
+        if (draftBtn) draftBtn.style.display = canManage ? '' : 'none';
+        if (reviewBtn) reviewBtn.style.display = canManage ? '' : 'none';
+    }
     document.getElementById('item-delete-btn').style.display = canManage ? '' : 'none';
 
     // Alerta de ajustes
@@ -324,8 +395,10 @@ function fillItemForm(it) {
     const notifyBtn = document.getElementById('item-notify-btn');
     if (notifyBtn) notifyBtn.style.display = (canManage && it.assigned_to) ? '' : 'none';
 
-    // Ações de aprovação (admin, item aguardando aprovação)
-    if (IS_ADMIN && it.status === 'aguardando_aprovacao') {
+    // Ações de aprovação (admin): disponíveis enquanto a demanda estiver em andamento
+    // (qualquer status que não seja aprovado/publicado/rejeitado).
+    const approvableStatuses = ['ideia', 'em_producao', 'aguardando_aprovacao', 'agendado'];
+    if (IS_ADMIN && approvableStatuses.includes(it.status)) {
         document.querySelectorAll('.mkt-approval-action').forEach(b => b.style.display = '');
     }
 
@@ -346,6 +419,41 @@ function fillItemForm(it) {
     document.getElementById('item-file').disabled = !canManage;
     document.getElementById('item-file').parentElement.style.display = canManage ? '' : 'none';
     renderAttachments(it.attachments || []);
+
+    // Aprovador (sempre um admin): quem gerencia a demanda pode escolher.
+    const apprWrap = document.getElementById('item-approver-wrap');
+    if (apprWrap) {
+        apprWrap.style.display = '';
+        document.getElementById('item-approver').disabled = !canManage;
+    }
+
+    // Histórico da demanda
+    renderHistory(it.history || []);
+}
+
+const MKT_HISTORY_LABELS = {
+    created: '📝 Criada', updated: '✏️ Atualizada', submitted: '📤 Enviada p/ aprovação',
+    changes_requested: '🔄 Ajustes solicitados', approved: '✅ Aprovada', rejected: '❌ Rejeitada',
+    adjusted: '🛠️ Ajustes realizados'
+};
+
+function renderHistory(history) {
+    const wrap = document.getElementById('item-history-wrap');
+    const box = document.getElementById('item-history');
+    if (!wrap || !box) return;
+    if (!history.length) { wrap.style.display = 'none'; return; }
+    wrap.style.display = '';
+    box.innerHTML = history.map(h => {
+        const label = MKT_HISTORY_LABELS[h.action] || h.action;
+        const when = h.created_at ? new Date(h.created_at.replace(' ', 'T')).toLocaleString('pt-BR') : '';
+        const who = h.user_name ? ` — ${escapeHtml(h.user_name)}` : '';
+        const notes = h.notes ? `<div class="text-muted" style="white-space:pre-wrap;">${escapeHtml(h.notes)}</div>` : '';
+        return `<div class="border-start ps-2 mb-2" style="border-width:3px !important;border-color:#00997D !important;">
+            <div class="fw-medium">${label}${who}</div>
+            <div class="text-muted" style="font-size:0.72rem;">${when}</div>
+            ${notes}
+        </div>`;
+    }).join('');
 }
 
 function renderAttachments(atts) {
@@ -373,16 +481,62 @@ function collectItemPayload() {
     fd.append('briefing', document.getElementById('item-briefing').value);
     fd.append('copy', document.getElementById('item-copy').value);
     fd.append('status', document.getElementById('item-status').value);
-    if (IS_ADMIN) fd.append('assigned_to', document.getElementById('item-assigned').value);
+    if (IS_ADMIN) {
+        fd.append('assigned_to', document.getElementById('item-assigned').value);
+    }
+    // Aprovador pode ser definido por quem gerencia (marketing ou admin)
+    fd.append('approver_id', document.getElementById('item-approver').value);
     const hid = document.getElementById('item-holiday-id').value;
     if (hid) fd.append('holiday_id', hid);
     return fd;
 }
 
-function saveItem() {
+// Salvar do marketing com destino explícito: 'rascunho' ou 'aguardando_aprovacao'.
+function saveItemAs(targetStatus) {
+    const title = document.getElementById('item-title').value.trim();
+    if (!title) { alert('Informe o título.'); return; }
+
+    // Para enviar à revisão é obrigatório ter imagem (existente ou nova).
+    if (targetStatus === 'aguardando_aprovacao') {
+        const hasExisting = currentItem && currentItem.has_image;
+        const hasNewImg = pendingFiles.some(f => /\.(jpe?g|png|gif|webp|bmp|svg)$/i.test(f.name));
+        if (!hasExisting && !hasNewImg) {
+            alert('Anexe ao menos uma imagem para enviar à revisão. Sem imagem, salve como rascunho.');
+            return;
+        }
+    }
+    // Define o status desejado e reaproveita o fluxo de salvamento
+    document.getElementById('item-status').value = targetStatus;
+    saveItem(true);
+}
+
+function saveItem(skipDraftGuard) {
     const title = document.getElementById('item-title').value.trim();
     if (!title) { alert('Informe o título.'); return; }
     const id = document.getElementById('item-id').value;
+    const statusSel = document.getElementById('item-status');
+    const status = statusSel.value;
+    if (skipDraftGuard === true) {
+        // Chamado por saveItemAs — validação de imagem já feita; segue direto.
+        return doSaveItem(id);
+    }
+
+    // Regra (marketing): sem imagem, só pode salvar como rascunho.
+    const needsImage = ['em_producao','aguardando_aprovacao','aprovado','agendado','publicado'].includes(status);
+    if (!IS_ADMIN && needsImage) {
+        const hasExisting = currentItem && currentItem.has_image;
+        const hasNewImg = pendingFiles.some(f => /\.(jpe?g|png|gif|webp|bmp|svg)$/i.test(f.name));
+        if (!hasExisting && !hasNewImg) {
+            if (!confirm('Esta demanda ainda não tem imagem. Sem imagem só é possível salvar como RASCUNHO. Deseja salvar como rascunho?')) return;
+            statusSel.value = 'rascunho';
+        }
+    }
+
+    doSaveItem(id);
+}
+
+// Executa o salvamento (create/update) + upload dos anexos pendentes.
+function doSaveItem(id) {
     const url = id ? `${BASE}marketing/update/${id}` : `${BASE}marketing/create`;
 
     fetch(url, { method: 'POST', body: collectItemPayload(), headers: {'X-Requested-With':'XMLHttpRequest'} })

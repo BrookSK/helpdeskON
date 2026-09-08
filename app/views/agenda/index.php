@@ -86,6 +86,10 @@ $tempMeta = ['frio' => ['Frio', '#1565c0'], 'morno' => ['Morno', '#e65100'], 'qu
 .agenda-col-body { padding: 10px; display: flex; flex-direction: column; gap: 10px; min-height: 60px; }
 .agenda-card { background: #fff; border: 1px solid #eef0f2; border-radius: 10px; padding: 10px; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.04); transition: box-shadow .15s; }
 .agenda-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+.agenda-card.dragging { opacity: 0.5; }
+.agenda-card-op { border-left: 3px solid #455a64; }
+.agenda-col-body.drag-over { background: #e3f2fd; outline: 2px dashed #90caf9; outline-offset: -4px; border-radius: 8px; }
+.agenda-col-body.drag-blocked { background: #ffebee; outline: 2px dashed #ef9a9a; outline-offset: -4px; border-radius: 8px; }
 .agenda-card h6 { font-size: 0.85rem; margin-bottom: 4px; }
 .agenda-card .ac-meta { font-size: 0.7rem; color: #888; display: flex; flex-wrap: wrap; gap: 3px 8px; margin-top: 4px; }
 .agenda-badge { font-size: 0.62rem; font-weight: 600; padding: 2px 8px; border-radius: 20px; color: #fff; display: inline-block; }
@@ -213,6 +217,103 @@ function dayContent(dayStr) {
 
 function escapeHtml(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
 function escapeAttr(s) { return (s || '').replace(/'/g, "\\'").replace(/"/g, '&quot;'); }
+
+// ===== Drag & Drop no Kanban =====
+// Reuniões operacionais só podem ir para estes status (sem convertida/remarcada).
+const OP_ALLOWED_STATUS = ['a_agendar', 'agendada', 'confirmada', 'realizada', 'cancelada'];
+let draggedCard = null;
+
+// Verifica se um card pode ser solto em uma coluna de destino.
+function canDrop(card, targetStatus) {
+    if (!card) return false;
+    const type = card.dataset.type;
+    // "convertida" nunca via arrasto (exige informar quem fechou pelo modal).
+    if (targetStatus === 'convertida') return false;
+    if (type === 'operacional' && !OP_ALLOWED_STATUS.includes(targetStatus)) return false;
+    return true;
+}
+
+function initKanbanDnD() {
+    // Cards arrastáveis
+    document.querySelectorAll('.agenda-card[draggable="true"]').forEach(card => {
+        card.addEventListener('dragstart', (e) => {
+            draggedCard = card;
+            card.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            try { e.dataTransfer.setData('text/plain', card.dataset.id); } catch (_) {}
+        });
+        card.addEventListener('dragend', () => {
+            card.classList.remove('dragging');
+            draggedCard = null;
+            document.querySelectorAll('.agenda-col-body').forEach(b => b.classList.remove('drag-over', 'drag-blocked'));
+        });
+    });
+
+    // Colunas como alvos de drop
+    document.querySelectorAll('.agenda-col-body').forEach(body => {
+        const targetStatus = body.dataset.status;
+
+        body.addEventListener('dragover', (e) => {
+            if (!draggedCard) return;
+            e.preventDefault();
+            if (canDrop(draggedCard, targetStatus)) {
+                e.dataTransfer.dropEffect = 'move';
+                body.classList.add('drag-over');
+                body.classList.remove('drag-blocked');
+            } else {
+                e.dataTransfer.dropEffect = 'none';
+                body.classList.add('drag-blocked');
+                body.classList.remove('drag-over');
+            }
+        });
+        body.addEventListener('dragleave', () => {
+            body.classList.remove('drag-over', 'drag-blocked');
+        });
+        body.addEventListener('drop', (e) => {
+            e.preventDefault();
+            body.classList.remove('drag-over', 'drag-blocked');
+            if (!draggedCard) return;
+
+            const card = draggedCard;
+            const id = card.dataset.id;
+            const sourceStatus = card.closest('.agenda-col-body')?.dataset.status;
+            if (sourceStatus === targetStatus) return; // mesma coluna, nada a fazer
+
+            if (!canDrop(card, targetStatus)) {
+                if (targetStatus === 'convertida') {
+                    alert('Para marcar como convertida, abra a reunião e informe quem fechou o negócio.');
+                } else {
+                    alert('Este status não é permitido para reuniões operacionais.');
+                }
+                return;
+            }
+
+            // Move o card na tela de forma otimista
+            body.appendChild(card);
+            updateColumnCounts();
+
+            const fd = new FormData();
+            fd.append('status', targetStatus);
+            fetch(`${BASE}agenda/updateStatus/${id}`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
+                .then(r => r.json()).then(d => {
+                    if (d.error) { alert(d.error); location.reload(); }
+                })
+                .catch(() => { alert('Erro ao mover a reunião.'); location.reload(); });
+        });
+    });
+}
+
+// Atualiza os contadores no topo de cada coluna.
+function updateColumnCounts() {
+    document.querySelectorAll('.agenda-col').forEach(col => {
+        const status = col.dataset.status;
+        const count = col.querySelectorAll('.agenda-col-body .agenda-card').length;
+        const badge = col.querySelector('.agenda-col-count');
+        if (badge) badge.textContent = count;
+    });
+}
+
+initKanbanDnD();
 </script>
 
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>

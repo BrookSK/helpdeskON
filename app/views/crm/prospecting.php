@@ -56,6 +56,7 @@
     <ul class="nav nav-pills mb-3" id="prospect-tabs">
         <li class="nav-item"><button class="nav-link active" data-tab="campaigns" onclick="switchProspectTab('campaigns')"><i class="bi bi-collection"></i> Campanhas</button></li>
         <li class="nav-item"><button class="nav-link" data-tab="logs" onclick="switchProspectTab('logs')"><i class="bi bi-clock-history"></i> Logs de execução</button></li>
+        <li class="nav-item"><button class="nav-link" data-tab="performance" onclick="switchProspectTab('performance')"><i class="bi bi-graph-up-arrow"></i> Performance</button></li>
     </ul>
 
     <!-- Lista de campanhas -->
@@ -123,6 +124,7 @@
             <small class="text-muted">Etapas concluídas por cada lead nas sequências de prospecção, participantes e erros.</small>
             <div class="d-flex gap-2">
                 <button class="btn btn-sm btn-success" onclick="runSequencesNow(this)" title="Executa agora os passos pendentes das sequências (mesmo que o cron runSequences)"><i class="bi bi-play-circle"></i> Processar sequências agora</button>
+                <button class="btn btn-sm btn-outline-danger" onclick="finishAllSequences(this)" title="Encerra TODAS as participações ativas/pausadas em sequências (útil para reiniciar testes com o mesmo contato)"><i class="bi bi-stop-circle"></i> Finalizar todas</button>
                 <button class="btn btn-sm btn-outline-info" onclick="testEmailOpen(this)" title="Simula a abertura do último e-mail enviado para conferir se o tracking grava"><i class="bi bi-bug"></i> Testar registro de abertura</button>
                 <button class="btn btn-sm btn-outline-secondary" onclick="loadExecLog()"><i class="bi bi-arrow-clockwise"></i> Atualizar</button>
             </div>
@@ -183,6 +185,93 @@
             </div>
         </div>
     </div>
+
+    <!-- Aba de performance (Camada 1: medição) -->
+    <div id="tab-performance" style="display:none;">
+        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+            <small class="text-muted">Desempenho da prospecção: funil de conversão e ranking de mensagens por taxa de reunião agendada.</small>
+            <div class="d-flex gap-2 align-items-center">
+                <select id="perf-days" class="form-select form-select-sm" style="width:auto;" onchange="loadPerformance()">
+                    <option value="7">Últimos 7 dias</option>
+                    <option value="30">Últimos 30 dias</option>
+                    <option value="90" selected>Últimos 90 dias</option>
+                    <option value="365">Último ano</option>
+                </select>
+                <button class="btn btn-sm btn-outline-secondary" onclick="loadPerformance()"><i class="bi bi-arrow-clockwise"></i> Atualizar</button>
+            </div>
+        </div>
+
+        <!-- Volume por canal (E-mail x WhatsApp) -->
+        <div class="row g-2 mb-3" id="perf-volume">
+            <div class="col-12"><div class="text-muted small">Carregando...</div></div>
+        </div>
+
+        <!-- Funil -->
+        <div class="row g-2 mb-3" id="perf-funnel">
+            <div class="col-12"><div class="text-muted small">Carregando...</div></div>
+        </div>
+
+        <!-- Sugestões de copy da IA (Camada 2) -->
+        <div class="card mb-3">
+            <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center">
+                <span class="fw-semibold small"><i class="bi bi-magic"></i> Sugestões da IA — novas mensagens para você aprovar</span>
+                <button class="btn btn-sm btn-outline-primary" onclick="runOptimizerNow(this)" title="Gera uma sugestão agora com base no que já performou (sem esperar o gatilho de respostas)"><i class="bi bi-lightning-charge"></i> Gerar agora</button>
+            </div>
+            <div class="card-body p-0">
+                <div id="perf-suggestions"><div class="text-muted small p-3">Carregando...</div></div>
+            </div>
+        </div>
+
+        <!-- Ranking de mensagens -->
+        <div class="card">
+            <div class="card-header bg-white py-2 fw-semibold small"><i class="bi bi-trophy"></i> Ranking de mensagens — o que mais converte em reunião</div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0" style="font-size:0.8rem;">
+                        <thead class="table-light"><tr>
+                            <th>Sequência</th><th>Variante</th><th class="text-center">Enviados</th>
+                            <th class="text-center">Resp.</th><th class="text-center">Interesse</th>
+                            <th class="text-center">Reuniões</th><th class="text-center">Taxa reunião</th><th>Atributos / amostra</th>
+                        </tr></thead>
+                        <tbody id="perf-ranking"><tr><td colspan="8" class="text-center text-muted py-3">Carregando...</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <p class="text-muted small mt-2 mb-0"><i class="bi bi-info-circle"></i> A taxa de reunião é a métrica que mais importa. Use o ranking para decidir qual mensagem manter e qual descartar.</p>
+
+        <!-- Templates por interação (E-mail e WhatsApp separados) -->
+        <div class="row g-3 mt-1">
+            <div class="col-12 col-lg-6">
+                <div class="card">
+                    <div class="card-header bg-white py-2 fw-semibold small"><i class="bi bi-envelope"></i> E-mails — qual mensagem teve mais interação</div>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover mb-0" style="font-size:0.8rem;">
+                            <thead class="table-light"><tr>
+                                <th>Mensagem</th><th class="text-center">Copie</th><th class="text-center">Enviados</th><th class="text-center">Resp.</th>
+                                <th class="text-center text-success">Positiva</th><th class="text-center text-danger">Negativa</th><th class="text-center">Reuniões</th>
+                            </tr></thead>
+                            <tbody id="perf-tpl-email"><tr><td colspan="7" class="text-center text-muted py-3">Carregando...</td></tr></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-lg-6">
+                <div class="card">
+                    <div class="card-header bg-white py-2 fw-semibold small"><i class="bi bi-whatsapp"></i> WhatsApp — qual mensagem teve mais interação</div>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover mb-0" style="font-size:0.8rem;">
+                            <thead class="table-light"><tr>
+                                <th>Mensagem</th><th class="text-center">Copie</th><th class="text-center">Enviados</th><th class="text-center">Resp.</th>
+                                <th class="text-center text-success">Positiva</th><th class="text-center text-danger">Negativa</th><th class="text-center">Reuniões</th>
+                            </tr></thead>
+                            <tbody id="perf-tpl-whatsapp"><tr><td colspan="7" class="text-center text-muted py-3">Carregando...</td></tr></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 </div><!-- /.main-content -->
 
 <!-- Modal Campanha -->
@@ -207,12 +296,44 @@
                             <option value="my_leads">Meus Leads</option>
                         </select>
                     </div>
-                    <div class="col-md-4">
+                    <?php
+                        // Monta as opções de sequência (com canal) uma vez para reaproveitar.
+                        $seqOptions = '';
+                        foreach ($sequences as $s) {
+                            $chLbl = ['email' => 'E-mail', 'whatsapp' => 'WhatsApp', 'mixed' => 'Mista'][$s['channel_type'] ?? 'email'] ?? 'E-mail';
+                            $seqOptions .= '<option value="' . $s['id'] . '" data-channel="' . escape($s['channel_type'] ?? 'email') . '">' . escape($s['name']) . ' · ' . $chLbl . '</option>';
+                        }
+                    ?>
+                    <div class="col-md-4" id="camp-single-seq-wrap">
                         <label class="form-label small fw-medium">Sequência</label>
-                        <select id="camp-sequence" class="form-select form-select-sm">
+                        <select id="camp-sequence" class="form-select form-select-sm" onchange="onCampSequenceChange()">
                             <option value="">Selecione...</option>
-                            <?php foreach ($sequences as $s): ?><option value="<?= $s['id'] ?>"><?= escape($s['name']) ?></option><?php endforeach; ?>
+                            <?= $seqOptions ?>
                         </select>
+                        <small id="camp-channel-hint" class="text-muted d-block mt-1" style="display:none;font-size:0.72rem;"></small>
+                    </div>
+                    <div class="col-md-8 apollo-section">
+                        <div class="form-check form-switch mb-1">
+                            <input class="form-check-input" type="checkbox" id="camp-auto-route" onchange="onAutoRouteChange()">
+                            <label class="form-check-label small fw-medium" for="camp-auto-route">
+                                <i class="bi bi-signpost-split"></i> Rotear por canal automaticamente
+                            </label>
+                        </div>
+                        <small class="text-muted d-block" style="font-size:0.72rem;">Escolhe a sequência conforme os dados que o Apollo encontrar: e-mail + telefone → mista; só e-mail → e-mail; só telefone → WhatsApp.</small>
+                        <div id="camp-route-slots" class="row g-2 mt-1" style="display:none;">
+                            <div class="col-md-4">
+                                <label class="form-label small mb-1">E-mail + telefone → mista</label>
+                                <select id="camp-seq-mixed" class="form-select form-select-sm"><option value="">Selecione...</option><?= $seqOptions ?></select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small mb-1">Só e-mail → e-mail</label>
+                                <select id="camp-seq-email" class="form-select form-select-sm"><option value="">Selecione...</option><?= $seqOptions ?></select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small mb-1">Só telefone → WhatsApp</label>
+                                <select id="camp-seq-whatsapp" class="form-select form-select-sm"><option value="">Selecione...</option><?= $seqOptions ?></select>
+                            </div>
+                        </div>
                     </div>
                     <div class="col-md-4">
                         <label class="form-label small fw-medium">Board</label>
@@ -463,9 +584,9 @@
                 <div class="table-responsive" style="max-height:420px;overflow:auto;">
                     <table class="table table-sm table-hover mb-0" style="font-size:0.82rem;">
                         <thead class="table-light sticky-top"><tr>
-                            <th style="width:36px;"></th><th>Nome</th><th>E-mail</th><th>Responsável</th><th>Temp.</th>
+                            <th style="width:36px;"></th><th>Nome</th><th>E-mail</th><th>Responsável</th><th>Temp.</th><th>Status</th>
                         </tr></thead>
-                        <tbody id="lp-body"><tr><td colspan="5" class="text-center text-muted py-3">Carregando...</td></tr></tbody>
+                        <tbody id="lp-body"><tr><td colspan="6" class="text-center text-muted py-3">Carregando...</td></tr></tbody>
                     </table>
                 </div>
             </div>
@@ -613,7 +734,173 @@ function switchProspectTab(tab) {
     document.querySelectorAll('#prospect-tabs .nav-link').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
     document.getElementById('tab-campaigns').style.display = tab === 'campaigns' ? '' : 'none';
     document.getElementById('tab-logs').style.display = tab === 'logs' ? '' : 'none';
+    const perf = document.getElementById('tab-performance'); if (perf) perf.style.display = tab === 'performance' ? '' : 'none';
     if (tab === 'logs') loadExecLog();
+    if (tab === 'performance') loadPerformance();
+}
+
+// ===== Performance (Camada 1: medição) =====
+function loadPerformance() {
+    const days = document.getElementById('perf-days').value;
+    const funnelBox = document.getElementById('perf-funnel');
+    const volumeBox = document.getElementById('perf-volume');
+    const rankBox = document.getElementById('perf-ranking');
+    funnelBox.innerHTML = '<div class="col-12"><div class="text-muted small">Carregando...</div></div>';
+    if (volumeBox) volumeBox.innerHTML = '<div class="col-12"><div class="text-muted small">Carregando...</div></div>';
+    rankBox.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">Carregando...</td></tr>';
+
+    loadCopySuggestions();
+    fetch(BASE + 'crm/prospectingInsights?days=' + days, { headers:{'X-Requested-With':'XMLHttpRequest'} })
+        .then(r=>r.json()).then(d=>{
+            if (!d.ready) {
+                funnelBox.innerHTML = '<div class="col-12"><div class="alert alert-warning py-2 small mb-0">' + escapeH(d.error || 'Analytics ainda não disponível.') + '</div></div>';
+                if (volumeBox) volumeBox.innerHTML = '';
+                rankBox.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">—</td></tr>';
+                return;
+            }
+
+            // Volume por canal (fonte real: email_messages / whatsapp_messages)
+            const v = d.volume || {};
+            const volCard = (icon, label, val, sub, color) =>
+                `<div class="col-6 col-md-3"><div class="card h-100"><div class="card-body py-2 px-2 text-center">
+                    <div class="small text-muted"><i class="bi ${icon}"></i> ${label}</div>
+                    <div class="fw-bold" style="font-size:1.3rem;color:${color}">${val}</div>
+                    <div class="small text-muted">${sub||''}</div>
+                </div></div></div>`;
+            if (volumeBox) volumeBox.innerHTML =
+                volCard('bi-envelope-fill', 'E-mails enviados', v.email_sent||0, '', '#0d6efd') +
+                volCard('bi-reply-fill', 'E-mails respondidos', v.email_replied||0, (v.email_reply_rate||0)+'% de resposta', '#0dcaf0') +
+                volCard('bi-whatsapp', 'WhatsApp enviados', v.wa_sent||0, '', '#198754') +
+                volCard('bi-chat-dots-fill', 'WhatsApp recebidos', v.wa_received||0, (v.wa_reply_rate||0)+'% de resposta', '#20c997');
+
+            // Funil em cards
+            const f = d.funnel || {};
+            const card = (label, val, sub, color) =>
+                `<div class="col-6 col-md-2"><div class="card h-100"><div class="card-body py-2 px-2 text-center">
+                    <div class="small text-muted">${label}</div>
+                    <div class="fw-bold" style="font-size:1.3rem;color:${color}">${val}</div>
+                    <div class="small text-muted">${sub||''}</div>
+                </div></div></div>`;
+            funnelBox.innerHTML =
+                card('Leads', f.total||0, 'no período', '#0d6efd') +
+                card('Responderam', f.replied||0, (f.reply_rate||0)+'%', '#0dcaf0') +
+                card('Interessados', f.interested||0, (f.interest_rate||0)+'%', '#20c997') +
+                card('Reuniões', f.scheduled||0, (f.meeting_rate||0)+'%', '#198754') +
+                card('Compareceram', f.attended||0, '', '#6f42c1') +
+                card('Fechados', f.won||0, '', '#e0a800');
+
+            // Ranking
+            // Rankings por template/mensagem (E-mail e WhatsApp), interação +/-
+            renderTemplateRanking('perf-tpl-email', d.templates_email || []);
+            renderTemplateRanking('perf-tpl-whatsapp', d.templates_whatsapp || []);
+
+            const rows = d.ranking || [];
+            if (!rows.length) { rankBox.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">Sem dados suficientes ainda. Rode as campanhas e volte aqui.</td></tr>'; return; }
+            rankBox.innerHTML = rows.map((r, i) => {
+                const win = i === 0 && r.scheduled > 0 ? ' <i class="bi bi-trophy-fill text-warning"></i>' : '';
+                const attr = r.attributes ? Object.entries(r.attributes).map(([k,v]) => `<span class="badge bg-light text-dark border">${escapeH(k)}: ${escapeH(String(v))}</span>`).join(' ') : '';
+                const sample = r.sample_subject ? ('<div class="small text-muted mt-1">"'+escapeH(r.sample_subject)+'"</div>') : (r.sample_body ? ('<div class="small text-muted mt-1">'+escapeH(r.sample_body)+'</div>') : '');
+                return `<tr>
+                    <td>${escapeH(r.sequence_name)}${win}</td>
+                    <td><span class="badge bg-${r.variant==='B'?'info':'primary'}">${escapeH(r.variant)}</span></td>
+                    <td class="text-center">${r.sent}</td>
+                    <td class="text-center">${r.replied} <span class="text-muted">(${r.reply_rate}%)</span></td>
+                    <td class="text-center">${r.interested}</td>
+                    <td class="text-center fw-bold">${r.scheduled}</td>
+                    <td class="text-center"><span class="badge bg-success">${r.meeting_rate}%</span></td>
+                    <td>${attr}${sample}</td>
+                </tr>`;
+            }).join('');
+        })
+        .catch(()=>{
+            funnelBox.innerHTML = '<div class="col-12"><div class="alert alert-danger py-2 small mb-0">Erro ao carregar performance.</div></div>';
+            rankBox.innerHTML = '<tr><td colspan="8" class="text-center text-danger py-3">Erro ao carregar.</td></tr>';
+        });
+}
+
+// Renderiza um ranking de templates por interação positiva/negativa
+function renderTemplateRanking(elId, rows) {
+    const box = document.getElementById(elId);
+    if (!box) return;
+    if (!rows.length) { box.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">Sem dados neste canal ainda.</td></tr>'; return; }
+    box.innerHTML = rows.map((r, i) => {
+        const top = i === 0 && (r.positive > 0 || r.scheduled > 0) ? ' <i class="bi bi-star-fill text-warning"></i>' : '';
+        const variant = r.variant || 'A';
+        const vbadge = `<span class="badge bg-${variant==='B'?'info':'primary'}">${escapeH(variant)}</span>`;
+        // Nome clicável: abre o editor da sequência (com o template) em nova aba.
+        const title = escapeH((r.title||'—').slice(0,60));
+        const nameCell = r.sequence_id
+            ? `<a href="${BASE}sequences/edit/${r.sequence_id}" target="_blank" rel="noopener" title="Abrir template para editar — ${escapeH(r.sample||'')}">${title}</a>`
+            : `<span title="${escapeH(r.sample||'')}">${title}</span>`;
+        return `<tr>
+            <td>${nameCell}${top}</td>
+            <td class="text-center">${vbadge}</td>
+            <td class="text-center">${r.sent}</td>
+            <td class="text-center">${r.replied} <span class="text-muted">(${r.reply_rate}%)</span></td>
+            <td class="text-center text-success fw-bold">${r.positive}</td>
+            <td class="text-center text-danger">${r.negative}</td>
+            <td class="text-center">${r.scheduled}</td>
+        </tr>`;
+    }).join('');
+}
+
+// Sugestões de copy da IA (pendentes de aprovação)
+function loadCopySuggestions() {
+    const box = document.getElementById('perf-suggestions');
+    if (!box) return;
+    box.innerHTML = '<div class="text-muted small p-3">Carregando...</div>';
+    fetch(BASE + 'crm/copySuggestions?status=pending', { headers:{'X-Requested-With':'XMLHttpRequest'} })
+        .then(r=>r.json()).then(d=>{
+            const list = d.suggestions || [];
+            if (!list.length) { box.innerHTML = '<div class="text-muted small p-3">Nenhuma sugestão pendente. A IA gera novas propostas a cada 6 respostas recebidas — ou clique em "Gerar agora".</div>'; return; }
+            box.innerHTML = list.map(s => {
+                const subj = s.suggested_subject ? `<div class="small"><strong>Assunto:</strong> ${escapeH(s.suggested_subject)}</div>` : '';
+                const obj = s.top_objections ? `<div class="small text-muted mt-1"><i class="bi bi-shield-exclamation"></i> Objeções: ${escapeH(s.top_objections)}</div>` : '';
+                return `<div class="border-bottom p-3">
+                    <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
+                        <div class="flex-grow-1">
+                            <div class="small text-muted mb-1">${escapeH(s.sequence_name||('Seq #'+s.sequence_id))} · canal ${escapeH(s.channel)} · base variante ${escapeH(s.based_on_variant||'—')} · reunião ${s.winner_meeting_rate||0}%</div>
+                            ${subj}
+                            <div class="small" style="white-space:pre-wrap;background:#f8f9fa;border-radius:8px;padding:8px;margin-top:4px;">${escapeH(s.suggested_body||'')}</div>
+                            ${s.rationale ? `<div class="small text-muted mt-1"><i class="bi bi-lightbulb"></i> ${escapeH(s.rationale)}</div>` : ''}
+                            ${obj}
+                        </div>
+                        <div class="d-flex flex-column gap-1">
+                            <button class="btn btn-sm btn-success" onclick="reviewSuggestion(${s.id},'approve',this)"><i class="bi bi-check-lg"></i> Aprovar</button>
+                            <button class="btn btn-sm btn-outline-danger" onclick="reviewSuggestion(${s.id},'reject',this)"><i class="bi bi-x-lg"></i> Rejeitar</button>
+                        </div>
+                    </div>
+                </div>`;
+            }).join('');
+        })
+        .catch(()=>{ box.innerHTML = '<div class="text-danger small p-3">Erro ao carregar sugestões.</div>'; });
+}
+
+function reviewSuggestion(id, action, btn) {
+    btn.disabled = true;
+    const fd = new FormData(); fd.append('action', action);
+    fetch(BASE + 'crm/reviewCopySuggestion/' + id, { method:'POST', body:fd, headers:{'X-Requested-With':'XMLHttpRequest'} })
+        .then(r=>r.json()).then(d=>{
+            if (action === 'approve') {
+                alert(d.published
+                    ? 'Aprovada e publicada como variante B — já entra em teste A/B contra a mensagem atual.'
+                    : 'Aprovada. (Não foi possível publicar automaticamente no bloco; verifique a sequência.)');
+            }
+            loadCopySuggestions();
+        })
+        .catch(()=>{ btn.disabled=false; alert('Erro ao processar.'); });
+}
+
+function runOptimizerNow(btn) {
+    const orig = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Gerando...';
+    fetch(BASE + 'crm/runOptimizerNow', { method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'} })
+        .then(r=>r.json()).then(d=>{
+            btn.disabled=false; btn.innerHTML=orig;
+            if (d.error) { alert(d.error); return; }
+            alert('Análise concluída. Sugestões geradas: ' + (d.suggested||0) + '.');
+            loadCopySuggestions();
+        })
+        .catch(()=>{ btn.disabled=false; btn.innerHTML=orig; alert('Erro ao gerar sugestão.'); });
 }
 
 const STEP_LABELS = { send:'E-mail', whatsapp:'WhatsApp', wait:'Aguardar', condition:'Condição', tag:'Etiqueta', score:'Score', move:'Mover card', reveal_phone:'Revelar (Apollo)', end:'Encerrar' };
@@ -695,6 +982,40 @@ function onCampSourceChange() {
     const isMy = src === 'my_leads';
     document.querySelectorAll('.apollo-section').forEach(el => el.style.display = isMy ? 'none' : '');
     document.querySelectorAll('.myleads-section').forEach(el => el.style.display = isMy ? '' : 'none');
+
+    // O roteamento automático por canal só existe no Apollo (que revela dados).
+    // Em "Meus Leads" o lead já existe: sempre usa UMA sequência escolhida.
+    const single = document.getElementById('camp-single-seq-wrap');
+    if (isMy) {
+        if (single) single.style.display = '';   // garante o campo Sequência visível
+    } else {
+        onAutoRouteChange();                       // Apollo: respeita o toggle de auto-route
+    }
+}
+
+// Alterna entre "uma sequência" e "roteamento por canal" (3 slots).
+function onAutoRouteChange() {
+    const on = document.getElementById('camp-auto-route').checked;
+    const slots = document.getElementById('camp-route-slots');
+    const single = document.getElementById('camp-single-seq-wrap');
+    if (slots) slots.style.display = on ? '' : 'none';
+    if (single) single.style.display = on ? 'none' : '';
+}
+
+// Mostra o canal da sequência escolhida (define a elegibilidade dos leads).
+function onCampSequenceChange() {
+    const sel = document.getElementById('camp-sequence');
+    const hint = document.getElementById('camp-channel-hint');
+    if (!hint) return;
+    const opt = sel.options[sel.selectedIndex];
+    const ch = opt ? (opt.dataset.channel || '') : '';
+    const map = {
+        email:    'Canal E-mail: só entram leads COM e-mail.',
+        whatsapp: 'Canal WhatsApp: só entram leads COM telefone.',
+        mixed:    'Canal Misto: entram leads com e-mail e/ou telefone (blocos sem o canal do lead são pulados).',
+    };
+    hint.textContent = ch ? map[ch] || '' : '';
+    hint.style.display = ch ? '' : 'none';
 }
 
 // ===== Seleção de leads específicos (multiseleção) =====
@@ -738,25 +1059,58 @@ function loadLeadPicker() {
     const t = document.getElementById('camp-ml-temperature').value; if (t) qs.set('temperature', t);
     const src = document.getElementById('camp-ml-source').value.trim(); if (src) qs.set('source', src);
     const a = document.getElementById('camp-ml-assigned').value; if (a) qs.set('assigned_to', a);
+    // Canal da sequência escolhida define a elegibilidade dos leads listados.
+    const seqOpt = document.getElementById('camp-sequence');
+    const ch = seqOpt && seqOpt.options[seqOpt.selectedIndex] ? (seqOpt.options[seqOpt.selectedIndex].dataset.channel || '') : '';
+    if (ch) qs.set('channel', ch);
 
     fetch(BASE + 'crm/leadsForCampaign?' + qs.toString(), { headers:{'X-Requested-With':'XMLHttpRequest'} })
         .then(r=>r.json()).then(d=>{
             const leads = d.leads || [];
-            if (!leads.length) { body.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">Nenhum lead com e-mail encontrado.</td></tr>'; return; }
+            if (!leads.length) { body.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">Nenhum lead elegível para o canal desta sequência.</td></tr>'; return; }
             body.innerHTML = leads.map(l => {
                 lpLeadCache[l.id] = l.contact_name || l.lead_email;
                 const checked = lpTempSelected.has(String(l.id)) ? 'checked' : '';
-                return `<tr onclick="lpToggleRow(${l.id}, event)" style="cursor:pointer;">
+                const inactive = Number(l.unsubscribed) === 1;
+                const statusBtn = inactive
+                    ? `<button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" title="Inativo — clique para ativar" onclick="event.stopPropagation();lpToggleStatus(${l.id}, this)"><i class="bi bi-toggle-off"></i> Inativo</button>`
+                    : `<button type="button" class="btn btn-sm btn-outline-success py-0 px-2" title="Ativo — clique para inativar" onclick="event.stopPropagation();lpToggleStatus(${l.id}, this)"><i class="bi bi-toggle-on"></i> Ativo</button>`;
+                return `<tr onclick="lpToggleRow(${l.id}, event)" style="cursor:pointer;${inactive?'opacity:.7;':''}" data-lead-row="${l.id}">
                     <td><input type="checkbox" class="form-check-input lp-check" value="${l.id}" ${checked} onclick="event.stopPropagation();lpToggle(${l.id}, this.checked)"></td>
                     <td>${escapeH(l.contact_name||'—')}</td>
                     <td>${escapeH(l.lead_email||'—')}</td>
                     <td>${escapeH(l.assigned_name||'—')}</td>
                     <td>${escapeH(l.lead_temperature||'—')}</td>
+                    <td>${statusBtn}</td>
                 </tr>`;
             }).join('');
             lpUpdateCount();
         })
-        .catch(()=>{ body.innerHTML = '<tr><td colspan="5" class="text-center text-danger py-3">Erro ao carregar leads.</td></tr>'; });
+        .catch(()=>{ body.innerHTML = '<tr><td colspan="6" class="text-center text-danger py-3">Erro ao carregar leads.</td></tr>'; });
+}
+
+// Alterna o status ativo/inativo do lead (grava na coluna sequence_status).
+function lpToggleStatus(id, btn) {
+    const orig = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    const fd = new FormData(); fd.append('contact_id', id);
+    fetch(BASE + 'crm/toggleLeadStatus', { method:'POST', body:fd, headers:{'X-Requested-With':'XMLHttpRequest'} })
+        .then(r=>r.json()).then(d=>{
+            btn.disabled = false;
+            if (d.error) { alert(d.error); btn.innerHTML = orig; return; }
+            const row = document.querySelector(`tr[data-lead-row="${id}"]`);
+            if (Number(d.unsubscribed) === 1) {
+                btn.className = 'btn btn-sm btn-outline-secondary py-0 px-2';
+                btn.title = 'Inativo — clique para ativar';
+                btn.innerHTML = '<i class="bi bi-toggle-off"></i> Inativo';
+                if (row) row.style.opacity = '.7';
+            } else {
+                btn.className = 'btn btn-sm btn-outline-success py-0 px-2';
+                btn.title = 'Ativo — clique para inativar';
+                btn.innerHTML = '<i class="bi bi-toggle-on"></i> Ativo';
+                if (row) row.style.opacity = '';
+            }
+        })
+        .catch(()=>{ btn.disabled=false; btn.innerHTML=orig; alert('Erro ao alterar o status.'); });
 }
 
 function lpToggle(id, on) {
@@ -807,6 +1161,12 @@ function openCampaign() {
     Object.keys(CHIP_CUSTOM_STORE).forEach(k => delete CHIP_CUSTOM_STORE[k]);
     chipRenderAll({});
     document.getElementById('camp-source').value = 'apollo';
+    document.getElementById('camp-auto-route').checked = false;
+    document.getElementById('camp-seq-mixed').value = '';
+    document.getElementById('camp-seq-email').value = '';
+    document.getElementById('camp-seq-whatsapp').value = '';
+    onAutoRouteChange();
+    onCampSequenceChange();
     document.getElementById('camp-global-dedupe').checked = true;
     document.getElementById('camp-ml-temperature').value = '';
     document.getElementById('camp-ml-source').value = '';
@@ -825,6 +1185,12 @@ function editCampaign(c) {
     document.getElementById('camp-id').value = c.id;
     document.getElementById('camp-name').value = c.name || '';
     document.getElementById('camp-sequence').value = c.sequence_id || '';
+    document.getElementById('camp-auto-route').checked = !!Number(c.auto_route);
+    document.getElementById('camp-seq-mixed').value = c.sequence_id_mixed || '';
+    document.getElementById('camp-seq-email').value = c.sequence_id_email || '';
+    document.getElementById('camp-seq-whatsapp').value = c.sequence_id_whatsapp || '';
+    onAutoRouteChange();
+    onCampSequenceChange();
     document.getElementById('camp-board').value = c.board_id || '';
     onCampBoardChange();
     document.getElementById('camp-column').value = c.column_id || '';
@@ -886,6 +1252,12 @@ function saveCampaign(btn) {
     fd.append('id', document.getElementById('camp-id').value);
     fd.append('name', name);
     fd.append('sequence_id', document.getElementById('camp-sequence').value);
+    if (document.getElementById('camp-auto-route').checked) {
+        fd.append('auto_route', '1');
+        fd.append('sequence_id_mixed', document.getElementById('camp-seq-mixed').value);
+        fd.append('sequence_id_email', document.getElementById('camp-seq-email').value);
+        fd.append('sequence_id_whatsapp', document.getElementById('camp-seq-whatsapp').value);
+    }
     fd.append('board_id', document.getElementById('camp-board').value);
     fd.append('column_id', document.getElementById('camp-column').value);
     fd.append('assigned_to', document.getElementById('camp-assigned').value);
@@ -973,6 +1345,20 @@ function runSequencesNow(btn) {
             loadExecLog();
         })
         .catch(()=>{ btn.disabled=false; btn.innerHTML=orig; alert('Erro ao processar sequências.'); });
+}
+
+// Finaliza TODAS as participações ativas/pausadas em sequências (reiniciar testes)
+function finishAllSequences(btn) {
+    if (!confirm('Encerrar TODAS as participações ativas/pausadas em sequências?\n\nÚtil para reiniciar um teste com o mesmo contato. Não desfaz mensagens já enviadas.')) return;
+    const orig = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Finalizando...';
+    fetch(BASE + 'crm/finishAllSequences', { method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'} })
+        .then(r=>r.json()).then(d=>{
+            btn.disabled = false; btn.innerHTML = orig;
+            if (d.error) { alert(d.error); return; }
+            alert(`Sequências finalizadas: ${d.finished||0}.`);
+            loadExecLog();
+        })
+        .catch(()=>{ btn.disabled=false; btn.innerHTML=orig; alert('Erro ao finalizar sequências.'); });
 }
 
 // Reexecuta UMA etapa específica de um participante (testar/forçar sem refazer o fluxo)

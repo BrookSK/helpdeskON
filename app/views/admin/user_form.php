@@ -8,7 +8,12 @@
             <h5 class="mb-0"><?= $editUser ? 'Editar Usuário' : 'Novo Usuário' ?></h5>
             <small class="text-muted"><?= $editUser ? escape($editUser['name']) : 'Cadastrar novo usuário' ?></small>
         </div>
-        <a href="<?= baseUrl('users') ?>" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left"></i> Voltar</a>
+        <div class="d-flex gap-2">
+            <?php if ($editUser): ?>
+            <a href="<?= baseUrl('users/activity/' . $editUser['id']) ?>" class="btn btn-outline-info btn-sm"><i class="bi bi-clock-history"></i> Logins e Ações</a>
+            <?php endif; ?>
+            <a href="<?= baseUrl('users') ?>" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left"></i> Voltar</a>
+        </div>
     </div>
 
     <?php if ($msg = flash('error')): ?>

@@ -365,6 +365,16 @@ class WhatsappContact
     }
 
     /**
+     * Vincula o contato a uma instância (a instância "consome" o contato).
+     * O contato pertence à plataforma; este vínculo apenas define por qual
+     * conexão as mensagens são enviadas/recebidas e pode ser trocado.
+     */
+    public function assignInstance($id, $instanceId)
+    {
+        return $this->db->update('whatsapp_contacts', ['instance_id' => $instanceId], 'id = ?', [$id]);
+    }
+
+    /**
      * Arquivar/desarquivar contato (afeta a lista do chat do WhatsApp)
      */
     public function toggleArchive($id)

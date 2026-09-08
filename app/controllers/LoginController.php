@@ -37,6 +37,10 @@ class LoginController extends Controller
             $_SESSION['user_is_company_owner'] = $user['is_company_owner'] ?? 0;
             unset($_SESSION['active_company_id']);
             unset($_SESSION['impersonator']);
+
+            // Auditoria: registrar o login
+            ActivityLogger::logLogin($user['id'], 'password');
+
             $this->redirect('dashboard');
         } else {
             flash('error', 'Email ou senha inválidos.');
@@ -189,6 +193,11 @@ class LoginController extends Controller
 
         // Empresa ativa (contexto Multi-Empresas). Honrada pelo scoping de dados.
         $_SESSION['active_company_id'] = $companyId ?? ($target['company_id'] ?? null);
+
+        // Auditoria: registrar o acesso via impersonação
+        ActivityLogger::logLogin($target['id'], 'impersonation', $_SESSION['impersonator']['user_id'] ?? null);
+
+        $this->redirect('dashboard');
     }
 
     /**

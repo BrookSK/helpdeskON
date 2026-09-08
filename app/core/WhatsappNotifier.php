@@ -46,10 +46,17 @@ class WhatsappNotifier
         try {
             $result = $api->sendText($groupJid, $message);
         } catch (Exception $e) {
+            self::log("EXCECAO sendText grupo jid={$groupJid}: " . $e->getMessage());
             return false;
         }
 
-        if (isset($result['error']) && $result['error']) {
+        if (!empty($result['error'])) {
+            self::log("FALHA ENVIO grupo jid={$groupJid} http=" . ($result['http_code'] ?? '?')
+                . " msg=" . ($result['message'] ?? ''));
+            return false;
+        }
+        if (empty($result['key'])) {
+            self::log("ENVIO GRUPO NAO CONFIRMADO (sem key) jid={$groupJid} resp=" . json_encode($result));
             return false;
         }
 
@@ -107,109 +114,130 @@ class WhatsappNotifier
 
         $db = Database::getInstance();
 
-        // Selecionar a instância seguindo a MESMA lógica da tela de chat (getUserInstance),
-        // porém para uma instância compartilhada (sem vínculo de usuário), já que a
-        // notificação é disparada pelo sistema:
-        //  1) Instância padrão SEM vínculo de usuário (disponível para todos);
-        //  2) Qualquer instância SEM vínculo de usuário;
-        //  3) Padrão / qualquer (fallback).
+        // Cada instância é específica (ex.: Prospecção x Atendimento). As
+        // notificações do sistema saem SEMPRE pela instância padrão compartilhada
+        // (is_default = 1, sem vínculo de usuário). Não trocamos de instância
+        // automaticamente para não enviar pela conexão errada.
         $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE is_default = 1 AND user_id IS NULL LIMIT 1");
-        if (!$instance) {
-            $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE user_id IS NULL LIMIT 1");
-        }
         if (!$instance) {
             $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE is_default = 1 LIMIT 1");
         }
         if (!$instance) {
-            $instance = $db->fetch("SELECT * FROM whatsapp_instances LIMIT 1");
+            self::log("NENHUMA INSTANCIA PADRAO configurada para phone={$phone}. Defina uma instância padrão em /whatsapp.");
+            return false;
         }
 
-        // API para envio (usa a instância encontrada, ou fallback global)
-        $api = $instance
-            ? EvolutionApi::fromInstance($instance['id'])
-            : EvolutionApi::getDefault();
+        $api = EvolutionApi::fromInstance($instance['id']);
         if (!$api) {
+            self::log("SEM API para instancia padrao={$instance['id']} phone={$phone}");
             return false;
         }
 
         // Normalizar o número para JID individual
         $jid = $api->normalizeJid($api->normalizeNumber($phone));
-        $phoneOnly = $api->extractPhone($jid);
 
-        // Enviar a mensagem
-        $result = [];
         try {
             $result = $api->sendText($jid, $message);
         } catch (Exception $e) {
-            $result = [];
+            self::log("EXCECAO sendText phone={$phone} jid={$jid} instance={$instance['id']}: " . $e->getMessage());
+            return false;
         }
 
-        // Usar o JID real retornado pela Evolution (pode diferir do normalizado por causa do 9º dígito)
+        // Falha reportada pela Evolution (ex.: Connection Closed): NÃO grava no chat.
+        // A instância padrão está desconectada/instável — precisa reconectar em /whatsapp.
+        if (!empty($result['error'])) {
+            self::log("FALHA ENVIO phone={$phone} jid={$jid} instance={$instance['id']}"
+                . " http=" . ($result['http_code'] ?? '?')
+                . " msg=" . ($result['message'] ?? '')
+                . " resp=" . json_encode($result['response'] ?? null));
+            return false;
+        }
+
+        // Envio aceito exige a chave da mensagem (result.key). Sem ela, não confirma.
+        if (empty($result['key'])) {
+            self::log("ENVIO NAO CONFIRMADO (sem key) phone={$phone} jid={$jid} instance={$instance['id']} resp=" . json_encode($result));
+            return false;
+        }
+
+        // JID real retornado pela Evolution (pode diferir por causa do 9º dígito)
         $realJid = $result['key']['remoteJid'] ?? $jid;
         if (strpos($realJid, '@') === false) {
             $realJid = $api->normalizeJid($realJid);
         }
         $realPhone = $api->extractPhone($realJid);
 
-        // Registrar no chat SEMPRE (mesmo que a resposta da API não traga a key),
-        // usando os mesmos models do fluxo de mensagens recebidas. Assim a conversa
-        // aparece no chat independentemente do formato de resposta da Evolution.
-        if ($instance) {
-            try {
-                $contactModel = new WhatsappContact();
-                $messageModel = new WhatsappMessage();
-
-                // upsert cria o contato se não existir (mesma função usada pelo webhook)
-                $contactId = $contactModel->upsert($instance['id'], $realJid, [
-                    'phone' => $realPhone,
-                    'is_group' => 0,
-                    'last_message_at' => date('Y-m-d H:i:s'),
-                ], $contactName);
-
-                // Garantir que o contato fique visível no chat (desarquivado) e com nome
-                $updateContact = ['is_archived' => 0];
-                if (!empty($contactName)) {
-                    $existing = $contactModel->findById($contactId);
-                    if ($existing && empty($existing['contact_name'])) {
-                        $updateContact['contact_name'] = $contactName;
-                    }
-                }
-                $db->update('whatsapp_contacts', $updateContact, 'id = ?', [$contactId]);
-
-                $messageModel->create([
-                    'instance_id' => $instance['id'],
-                    'contact_id' => $contactId,
-                    'remote_jid' => $realJid,
-                    'message_id' => $result['key']['id'] ?? uniqid('notif_'),
-                    'from_me' => 1,
-                    'message_type' => 'text',
-                    'message_text' => $message,
-                    'sender_name' => 'Sistema',
-                    'timestamp' => date('Y-m-d H:i:s'),
-                    'is_read' => 1,
-                ]);
-
-                $contactModel->updateLastMessage($contactId, date('Y-m-d H:i:s'));
-
-                // Diagnóstico: linha real do contato + quantos o chat enxerga nesta instância
-                $row = $db->fetch("SELECT id, instance_id, remote_jid, phone, contact_name, is_group, is_archived, service_status FROM whatsapp_contacts WHERE id = ?", [$contactId]);
-                $visible = $db->fetch("SELECT COUNT(*) as t FROM whatsapp_contacts WHERE instance_id = ? AND is_group = 0 AND is_archived = 0", [$instance['id']]);
-                self::log("OK phone={$phone} jid={$realJid} instance={$instance['id']} contact={$contactId} row=" . json_encode($row) . " visiveis={$visible['t']}");
-            } catch (Exception $e) {
-                self::log("ERRO persistencia phone={$phone} jid={$realJid}: " . $e->getMessage());
-            }
-        } else {
-            self::log("SEM INSTANCIA para phone={$phone}");
-        }
+        self::persistChatMessage($db, $instance, $realJid, $realPhone, $message, $result, $contactName, $phone);
 
         return true;
     }
 
     /**
-     * Log de diagnóstico em arquivo (public/uploads/whatsapp_notifier.log).
+     * Registra no histórico do chat a mensagem enviada com sucesso.
+     */
+    private static function persistChatMessage($db, $instance, $realJid, $realPhone, $message, $result, $contactName, $phone)
+    {
+        try {
+            $contactModel = new WhatsappContact();
+            $messageModel = new WhatsappMessage();
+
+            // upsert cria o contato se não existir (mesma função usada pelo webhook)
+            $contactId = $contactModel->upsert($instance['id'], $realJid, [
+                'phone' => $realPhone,
+                'is_group' => 0,
+                'last_message_at' => date('Y-m-d H:i:s'),
+            ], $contactName);
+
+            // Garantir que o contato fique visível no chat (desarquivado) e com nome
+            $updateContact = ['is_archived' => 0];
+            if (!empty($contactName)) {
+                $existing = $contactModel->findById($contactId);
+                if ($existing && empty($existing['contact_name'])) {
+                    $updateContact['contact_name'] = $contactName;
+                }
+            }
+            $db->update('whatsapp_contacts', $updateContact, 'id = ?', [$contactId]);
+
+            $messageModel->create([
+                'instance_id' => $instance['id'],
+                'contact_id' => $contactId,
+                'remote_jid' => $realJid,
+                'message_id' => $result['key']['id'] ?? uniqid('notif_'),
+                'from_me' => 1,
+                'message_type' => 'text',
+                'message_text' => $message,
+                'sender_name' => 'Sistema',
+                'timestamp' => date('Y-m-d H:i:s'),
+                'is_read' => 1,
+            ]);
+
+            $contactModel->updateLastMessage($contactId, date('Y-m-d H:i:s'));
+
+            self::log("OK phone={$phone} jid={$realJid} instance={$instance['id']} contact={$contactId}");
+        } catch (Exception $e) {
+            self::log("ERRO persistencia phone={$phone} jid={$realJid}: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Log de diagnóstico. Escreve em dois destinos:
+     *  1) Logger centralizado -> error_log() do PHP, capturado pelo painel de
+     *     logs do servidor (Plesk / valueserver).
+     *  2) Arquivo próprio (public/uploads/whatsapp_notifier.log) para histórico.
      */
     private static function log($msg)
     {
+        // 1) Painel de logs do servidor (Plesk). Prefixo facilita filtrar.
+        try {
+            if (class_exists('Logger')) {
+                Logger::error('[WhatsappNotifier] ' . $msg);
+            } else {
+                error_log('[WhatsappNotifier] ' . $msg);
+            }
+        } catch (\Throwable $e) {
+            // ignora
+        }
+
+        // 2) Arquivo próprio da aplicação
         try {
             $file = PUBLIC_PATH . '/uploads/whatsapp_notifier.log';
             file_put_contents($file, '[' . date('Y-m-d H:i:s') . '] ' . $msg . "\n", FILE_APPEND);

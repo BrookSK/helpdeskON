@@ -53,19 +53,11 @@ class PlanningCard
             $sql .= " AND pc.priority = ?";
             $params[] = $filters['priority'];
         }
-        if (!empty($filters['company_ids'])) {
-            $ph = implode(',', array_fill(0, count($filters['company_ids']), '?'));
-            $sql .= " AND pc.company_id IN ($ph)";
-            $params = array_merge($params, $filters['company_ids']);
-        } elseif (!empty($filters['company_id'])) {
+        if (!empty($filters['company_id'])) {
             $sql .= " AND pc.company_id = ?";
             $params[] = $filters['company_id'];
         }
-        if (!empty($filters['assigned_to_ids'])) {
-            $ph = implode(',', array_fill(0, count($filters['assigned_to_ids']), '?'));
-            $sql .= " AND pc.assigned_to IN ($ph)";
-            $params = array_merge($params, $filters['assigned_to_ids']);
-        } elseif (!empty($filters['assigned_to'])) {
+        if (!empty($filters['assigned_to'])) {
             $sql .= " AND pc.assigned_to = ?";
             $params[] = $filters['assigned_to'];
         }
@@ -84,7 +76,35 @@ class PlanningCard
 
     public function getGroupedByStatus($filters = [])
     {
-        $statuses = ['open', 'in_progress', 'em_revisao_interna', 'waiting_client', 'em_homologacao', 'aprovado_producao', 'completed', 'denied', 'archived'];
+        $allStatuses = ['open', 'in_progress', 'em_revisao_interna', 'waiting_client', 'em_homologacao', 'aprovado_producao', 'completed', 'denied', 'archived'];
+
+        // Filtro de status (múltipla escolha): limita as colunas retornadas.
+        $statuses = $allStatuses;
+        if (!empty($filters['statuses'])) {
+            $selected = array_values(array_intersect($allStatuses, (array)$filters['statuses']));
+            if (!empty($selected)) {
+                $statuses = $selected;
+            }
+        }
+
+        // Filtro de responsáveis (múltipla escolha).
+        $assignedIds = [];
+        if (!empty($filters['assigned_to'])) {
+            $assignedIds = array_values(array_unique(array_filter(array_map('intval', (array)$filters['assigned_to']))));
+        }
+
+        // Filtro de empresas (múltipla escolha).
+        $companyIds = [];
+        if (!empty($filters['company_id'])) {
+            $companyIds = array_values(array_unique(array_filter(array_map('intval', (array)$filters['company_id']))));
+        }
+
+        // Filtro de solicitantes/criadores (múltipla escolha).
+        $createdByIds = [];
+        if (!empty($filters['created_by'])) {
+            $createdByIds = array_values(array_unique(array_filter(array_map('intval', (array)$filters['created_by']))));
+        }
+
         $result = [];
 
         foreach ($statuses as $status) {
@@ -99,21 +119,20 @@ class PlanningCard
                     WHERE pc.status = ?";
             $params = [$status];
 
-            if (!empty($filters['company_ids'])) {
-                $ph = implode(',', array_fill(0, count($filters['company_ids']), '?'));
+            if (!empty($companyIds)) {
+                $ph = implode(',', array_fill(0, count($companyIds), '?'));
                 $sql .= " AND pc.company_id IN ($ph)";
-                $params = array_merge($params, $filters['company_ids']);
-            } elseif (!empty($filters['company_id'])) {
-                $sql .= " AND pc.company_id = ?";
-                $params[] = $filters['company_id'];
+                $params = array_merge($params, $companyIds);
             }
-            if (!empty($filters['assigned_to_ids'])) {
-                $ph = implode(',', array_fill(0, count($filters['assigned_to_ids']), '?'));
+            if (!empty($assignedIds)) {
+                $ph = implode(',', array_fill(0, count($assignedIds), '?'));
                 $sql .= " AND pc.assigned_to IN ($ph)";
-                $params = array_merge($params, $filters['assigned_to_ids']);
-            } elseif (!empty($filters['assigned_to'])) {
-                $sql .= " AND pc.assigned_to = ?";
-                $params[] = $filters['assigned_to'];
+                $params = array_merge($params, $assignedIds);
+            }
+            if (!empty($createdByIds)) {
+                $ph = implode(',', array_fill(0, count($createdByIds), '?'));
+                $sql .= " AND pc.created_by IN ($ph)";
+                $params = array_merge($params, $createdByIds);
             }
             if (!empty($filters['allowed_companies'])) {
                 $placeholders = implode(',', array_fill(0, count($filters['allowed_companies']), '?'));
@@ -138,6 +157,29 @@ class PlanningCard
         return $result;
     }
 
+    /**
+     * Lista os solicitantes (usuários que criaram cards), para o filtro.
+     * Respeita o controle de acesso por empresa quando informado.
+     */
+    public function getRequesters($allowedCompanies = null)
+    {
+        $sql = "SELECT DISTINCT u.id, u.name
+                FROM planning_cards pc
+                INNER JOIN users u ON pc.created_by = u.id";
+        $params = [];
+
+        if ($allowedCompanies !== null && !in_array(0, $allowedCompanies, true)) {
+            if (!empty($allowedCompanies)) {
+                $ph = implode(',', array_fill(0, count($allowedCompanies), '?'));
+                $sql .= " WHERE (pc.company_id IS NULL OR pc.company_id IN ($ph))";
+                $params = array_merge($params, $allowedCompanies);
+            }
+        }
+
+        $sql .= " ORDER BY u.name ASC";
+        return $this->db->fetchAll($sql, $params);
+    }
+
     public function getForCalendar($startDate, $endDate, $filters = [])
     {
         // Buscar cards que tenham qualquer data dentro do range:
@@ -156,21 +198,29 @@ class PlanningCard
                 )";
         $params = [$startDate, $endDate, $endDate, $startDate, $startDate, $endDate];
 
-        if (!empty($filters['company_ids'])) {
-            $ph = implode(',', array_fill(0, count($filters['company_ids']), '?'));
-            $sql .= " AND pc.company_id IN ($ph)";
-            $params = array_merge($params, $filters['company_ids']);
-        } elseif (!empty($filters['company_id'])) {
-            $sql .= " AND pc.company_id = ?";
-            $params[] = $filters['company_id'];
+        if (!empty($filters['company_id'])) {
+            $ids = array_values(array_unique(array_filter(array_map('intval', (array)$filters['company_id']))));
+            if (!empty($ids)) {
+                $ph = implode(',', array_fill(0, count($ids), '?'));
+                $sql .= " AND pc.company_id IN ($ph)";
+                $params = array_merge($params, $ids);
+            }
         }
-        if (!empty($filters['assigned_to_ids'])) {
-            $ph = implode(',', array_fill(0, count($filters['assigned_to_ids']), '?'));
-            $sql .= " AND pc.assigned_to IN ($ph)";
-            $params = array_merge($params, $filters['assigned_to_ids']);
-        } elseif (!empty($filters['assigned_to'])) {
-            $sql .= " AND pc.assigned_to = ?";
-            $params[] = $filters['assigned_to'];
+        if (!empty($filters['assigned_to'])) {
+            $ids = array_values(array_unique(array_filter(array_map('intval', (array)$filters['assigned_to']))));
+            if (!empty($ids)) {
+                $ph = implode(',', array_fill(0, count($ids), '?'));
+                $sql .= " AND pc.assigned_to IN ($ph)";
+                $params = array_merge($params, $ids);
+            }
+        }
+        if (!empty($filters['statuses'])) {
+            $sts = array_values((array)$filters['statuses']);
+            if (!empty($sts)) {
+                $ph = implode(',', array_fill(0, count($sts), '?'));
+                $sql .= " AND pc.status IN ($ph)";
+                $params = array_merge($params, $sts);
+            }
         }
         if (!empty($filters['hide_completed'])) {
             $sql .= " AND pc.status NOT IN ('completed', 'archived')";

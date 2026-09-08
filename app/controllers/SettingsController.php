@@ -9,7 +9,14 @@ class SettingsController extends Controller
         $settings = Config::getAll();
         $whatsappGroups = (new WhatsappContact())->getAllGroups();
         $dbInfo = $this->detectDatabaseInfo();
-        $this->view('admin/settings', ['user' => $user, 'settings' => $settings, 'whatsappGroups' => $whatsappGroups, 'dbInfo' => $dbInfo]);
+
+        // Assinaturas de e-mail por domínio (tabela pode não existir ainda)
+        $emailSignatures = [];
+        try {
+            $emailSignatures = Database::getInstance()->fetchAll("SELECT * FROM email_signatures ORDER BY domain ASC");
+        } catch (\Throwable $e) { $emailSignatures = []; }
+
+        $this->view('admin/settings', ['user' => $user, 'settings' => $settings, 'whatsappGroups' => $whatsappGroups, 'dbInfo' => $dbInfo, 'emailSignatures' => $emailSignatures]);
     }
 
     /**
@@ -69,6 +76,10 @@ class SettingsController extends Controller
             'apollo_api_key', 'apollo_base_url', 'apollo_webhook_token',
             'app_public_url',
             'google_client_id', 'google_client_secret', 'google_refresh_token', 'google_calendar_id',
+            // Agendamento público (bloco "Agendamento" das sequências)
+            'booking_min_advance_days', 'booking_work_start', 'booking_work_end',
+            'booking_slot_minutes', 'booking_days_of_week', 'booking_duration_min',
+            'booking_notify_hours_before', 'booking_link_expiry_days',
             'webhook_url', 'webhook_phones', 'webhook_names', 'webhook_enabled',
             'webhook_message_template',
             'whatsapp_number', 'whatsapp_message', 'whatsapp_enabled',
@@ -160,6 +171,30 @@ class SettingsController extends Controller
         Config::reload();
         flash('success', 'Configurações salvas com sucesso!');
         $this->redirect('settings');
+    }
+
+    /**
+     * Upload da logo da assinatura. Mais tolerante que uploadBrandFile: valida por
+     * EXTENSÃO (não confia só no MIME do navegador, que às vezes vem genérico) e
+     * aceita até 3MB. Retorna o caminho relativo salvo ou null.
+     */
+    private function uploadSignatureLogo($file)
+    {
+        $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+        $allowedExt = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'];
+        if (!in_array($ext, $allowedExt, true)) return null;
+        if (($file['size'] ?? 0) > 3 * 1024 * 1024) return null;
+        if (!is_uploaded_file($file['tmp_name'])) return null;
+
+        $uploadDir = PUBLIC_PATH . '/uploads/brand';
+        if (!is_dir($uploadDir)) { @mkdir($uploadDir, 0755, true); }
+
+        $fileName = 'sig_' . time() . '_' . mt_rand(1000, 9999) . '.' . $ext;
+        $filePath = 'uploads/brand/' . $fileName;
+        if (move_uploaded_file($file['tmp_name'], PUBLIC_PATH . '/' . $filePath)) {
+            return $filePath;
+        }
+        return null;
     }
 
     private function uploadBrandFile($file, $prefix)
@@ -429,6 +464,90 @@ class SettingsController extends Controller
 
         flash('success', 'Conta de e-mail salva com sucesso!');
         $this->redirect('settings/emailAccounts');
+    }
+
+    /**
+     * Salva (cria/atualiza) uma assinatura de e-mail por domínio.
+     * POST settings/saveEmailSignature  (multipart: logo opcional)
+     */
+    public function saveEmailSignature()
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->redirect('settings');
+
+        $db = Database::getInstance();
+        $id = !empty($_POST['sig_id']) ? intval($_POST['sig_id']) : null;
+        $domain = strtolower(trim($_POST['domain'] ?? ''));
+        // normaliza: se colaram um e-mail, extrai o domínio
+        if (strpos($domain, '@') !== false) $domain = substr(strrchr($domain, '@'), 1);
+        $domain = preg_replace('/^https?:\/\//', '', $domain);
+        $domain = trim($domain, '/ ');
+
+        $isAjax = !empty($_SERVER['HTTP_X_REQUESTED_WITH']);
+        if ($domain === '') {
+            if ($isAjax) $this->json(['error' => 'Informe o domínio da assinatura.'], 400);
+            flash('error', 'Informe o domínio da assinatura.'); $this->redirect('settings');
+        }
+
+        $data = [
+            'domain' => $domain,
+            'company' => trim($_POST['company'] ?? '') ?: null,
+            'specialties' => trim($_POST['specialties'] ?? '') ?: null,
+            'contact_email' => trim($_POST['contact_email'] ?? '') ?: null,
+            'site' => trim($_POST['site'] ?? '') ?: null,
+            'tagline' => trim($_POST['tagline'] ?? '') ?: null,
+            'color' => trim($_POST['color'] ?? '') ?: '#00997D',
+            'is_active' => !empty($_POST['is_active']) ? 1 : 0,
+        ];
+
+        // Upload da logo (opcional). Vazio = mantém a atual / usa a logo do sistema.
+        $logoError = null;
+        if (!empty($_FILES['logo']['name'])) {
+            if ($_FILES['logo']['error'] === UPLOAD_ERR_OK) {
+                $logoPath = $this->uploadSignatureLogo($_FILES['logo']);
+                if ($logoPath) $data['logo'] = $logoPath;
+                else $logoError = 'Logo não salva (formato não suportado ou maior que 3MB). Use PNG, JPG, SVG ou WEBP.';
+            } else {
+                $logoError = 'Falha no upload da logo (código ' . (int)$_FILES['logo']['error'] . ').';
+            }
+        }
+
+        try {
+            if ($id) {
+                $db->update('email_signatures', $data, 'id = ?', [$id]);
+            } else {
+                // upsert por domínio
+                $exists = $db->fetch("SELECT id FROM email_signatures WHERE domain = ?", [$domain]);
+                if ($exists) $db->update('email_signatures', $data, 'id = ?', [$exists['id']]);
+                else $db->insert('email_signatures', $data);
+            }
+            if ($isAjax) $this->json(['success' => true, 'logo_error' => $logoError, 'error' => $logoError]);
+            flash($logoError ? 'error' : 'success', $logoError ?: 'Assinatura do domínio salva!');
+        } catch (\Throwable $e) {
+            if ($isAjax) $this->json(['error' => 'Erro ao salvar assinatura: ' . $e->getMessage()], 500);
+            flash('error', 'Erro ao salvar assinatura: ' . $e->getMessage());
+        }
+        $this->redirect('settings');
+    }
+
+    /** Exclui uma assinatura de domínio. POST settings/deleteEmailSignature/{id} */
+    public function deleteEmailSignature($id = null)
+    {
+        $this->requireRole(['super_admin']);
+        $isAjax = !empty($_SERVER['HTTP_X_REQUESTED_WITH']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
+            if ($isAjax) $this->json(['error' => 'Requisição inválida'], 400);
+            $this->redirect('settings');
+        }
+        try {
+            Database::getInstance()->delete('email_signatures', 'id = ?', [$id]);
+            if ($isAjax) $this->json(['success' => true]);
+            flash('success', 'Assinatura removida.');
+        } catch (\Throwable $e) {
+            if ($isAjax) $this->json(['error' => 'Erro ao remover.'], 500);
+            flash('error', 'Erro ao remover.');
+        }
+        $this->redirect('settings');
     }
 
     public function deleteEmailAccount($id = null)

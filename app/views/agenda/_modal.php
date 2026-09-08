@@ -19,14 +19,15 @@
                 <input type="hidden" id="mt-temperature">
 
                 <div class="row g-3">
-                    <div class="col-md-4">
+                    <!-- Tipo da reunião -->
+                    <div class="col-md-5">
                         <label class="form-label small fw-medium">Tipo de reunião *</label>
-                        <select id="mt-meeting-type" class="form-select form-select-sm" onchange="onMeetingTypeChange()">
+                        <select id="mt-type" class="form-select form-select-sm" onchange="onMeetingTypeChange()">
                             <option value="comercial">Comercial</option>
                             <option value="operacional">Operacional</option>
                         </select>
                     </div>
-                    <div class="col-md-8">
+                    <div class="col-md-7">
                         <label class="form-label small fw-medium">Título *</label>
                         <input type="text" id="mt-title" class="form-control form-control-sm" placeholder="Ex: Reunião de apresentação">
                     </div>
@@ -53,7 +54,7 @@
                     </div>
 
                     <!-- Cliente do CRM -->
-                    <div class="col-md-8">
+                    <div class="col-md-8 mt-commercial-only">
                         <label class="form-label small fw-medium">Cliente (CRM) *</label>
                         <select id="mt-client" class="form-select form-select-sm" onchange="onClientChange()">
                             <option value="">Selecione um lead do CRM...</option>
@@ -75,7 +76,7 @@
                     </div>
 
                     <!-- Email do cliente (para envio do convite) -->
-                    <div class="col-md-6">
+                    <div class="col-md-6 mt-commercial-only">
                         <label class="form-label small fw-medium">E-mail do cliente</label>
                         <input type="email" id="mt-client-email" class="form-control form-control-sm" placeholder="cliente@email.com">
                     </div>
@@ -90,7 +91,7 @@
                         <input type="text" id="mt-new-phone" class="form-control form-control-sm" placeholder="(00) 00000-0000" inputmode="numeric" oninput="this.value=this.value.replace(/\D/g,'')">
                     </div>
 
-                    <div class="col-md-4">
+                    <div class="col-md-4 mt-commercial-only">
                         <label class="form-label small fw-medium">Responsável</label>
                         <select id="mt-assigned" class="form-select form-select-sm">
                             <?php foreach ($team as $t): ?>
@@ -98,7 +99,7 @@
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    <div class="col-md-8">
+                    <div class="col-md-8 mt-commercial-only">
                         <label class="form-label small fw-medium">Status</label>
                         <select id="mt-status" class="form-select form-select-sm" onchange="onStatusChange()">
                             <option value="a_agendar">A agendar</option>
@@ -107,6 +108,18 @@
                             <option value="realizada">Realizada</option>
                             <option value="convertida">Convertida</option>
                             <option value="remarcada">Remarcada</option>
+                            <option value="cancelada">Cancelada</option>
+                        </select>
+                    </div>
+
+                    <!-- Status para reunião operacional (sem estados comerciais) -->
+                    <div class="col-md-6 mt-operational-only" style="display:none;">
+                        <label class="form-label small fw-medium">Status</label>
+                        <select id="mt-status-op" class="form-select form-select-sm">
+                            <option value="a_agendar">A agendar</option>
+                            <option value="agendada">Agendada</option>
+                            <option value="confirmada">Confirmada</option>
+                            <option value="realizada">Realizada</option>
                             <option value="cancelada">Cancelada</option>
                         </select>
                     </div>
@@ -159,13 +172,13 @@
                     </div>
 
                     <div class="col-12">
-                        <label class="form-label small fw-medium">Observações</label>
-                        <textarea id="mt-notes" class="form-control form-control-sm" rows="2" placeholder="Notas da reunião..."></textarea>
+                        <label class="form-label small fw-medium">Descrição</label>
+                        <textarea id="mt-notes" class="form-control form-control-sm" rows="2" placeholder="Descrição / notas da reunião..."></textarea>
                     </div>
                 </div>
 
-                <!-- Briefing do cliente (editável) — só para reuniões comerciais -->
-                <div id="briefing-section">
+                <!-- Briefing do cliente (editável) -->
+                <div class="mt-commercial-only">
                 <hr>
                 <div class="d-flex align-items-center justify-content-between mb-2">
                     <h6 class="fw-semibold mb-0" style="font-size:0.85rem;"><i class="bi bi-clipboard-data"></i> Briefing do cliente</h6>
@@ -240,12 +253,12 @@
                         <textarea id="bf-notes" class="form-control form-control-sm" rows="2"></textarea>
                     </div>
                 </div>
-                </div>
-                <!-- /#briefing-section -->
+                </div><!-- /.mt-commercial-only (briefing) -->
             </div>
             <div class="modal-footer justify-content-between">
                 <button class="btn btn-sm btn-outline-danger" id="mt-delete-btn" onclick="deleteMeeting()" style="display:none;"><i class="bi bi-trash"></i> Excluir</button>
                 <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-sm btn-outline-info" id="mt-resend-btn" onclick="resendNotifications()" style="display:none;"><i class="bi bi-send"></i> Reenviar notificações</button>
                     <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Fechar</button>
                     <button class="btn btn-sm btn-primary" onclick="saveMeeting()"><i class="bi bi-check-lg"></i> Salvar</button>
                 </div>
@@ -282,13 +295,13 @@ function resetMeetingForm() {
     document.getElementById('mt-urgency').value = 'media';
     document.getElementById('mt-temperature').value = '';
     document.getElementById('mt-status').value = 'a_agendar';
+    document.getElementById('mt-status-op').value = 'a_agendar';
     document.getElementById('mt-closed-by').value = '';
     document.getElementById('closed-by-field').style.display = 'none';
-    // Tipo de reunião: padrão comercial (mostra o briefing)
-    const mtType = document.getElementById('mt-meeting-type');
-    if (mtType) mtType.value = 'comercial';
-    onMeetingTypeChange();
-    // Limpa participantes
+    // Tipo de reunião padrão
+    const typeSel = document.getElementById('mt-type');
+    if (typeSel) typeSel.value = 'comercial';
+    // Limpa participantes (select fonte de verdade + checkboxes do dropdown)
     const ptSel = document.getElementById('mt-participants');
     if (ptSel) Array.from(ptSel.options).forEach(o => o.selected = false);
     syncParticipantChecks();
@@ -296,7 +309,25 @@ function resetMeetingForm() {
     const bfUrg = document.getElementById('bf-urgency'); if (bfUrg) bfUrg.value = '';
     document.querySelectorAll('.mt-new-client').forEach(el => el.style.display = 'none');
     document.getElementById('mt-delete-btn').style.display = 'none';
+    document.getElementById('mt-resend-btn').style.display = 'none';
     clearBriefing();
+    onMeetingTypeChange();
+}
+
+// Mostra/oculta os campos comerciais/briefing conforme o tipo de reunião.
+// Operacional: só título, descrição, data/horário e participantes.
+function onMeetingTypeChange() {
+    const isOperational = document.getElementById('mt-type').value === 'operacional';
+    document.querySelectorAll('.mt-commercial-only').forEach(el => {
+        el.style.display = isOperational ? 'none' : '';
+    });
+    document.querySelectorAll('.mt-operational-only').forEach(el => {
+        el.style.display = isOperational ? '' : 'none';
+    });
+    // Ao voltar para operacional, garante que os campos de "novo cliente" fiquem ocultos
+    if (isOperational) {
+        document.querySelectorAll('.mt-new-client').forEach(el => el.style.display = 'none');
+    }
 }
 function clearBriefing() {
     BF_FIELDS.forEach(k => { const el = document.getElementById('bf-' + k); if (el) el.value = ''; });
@@ -366,6 +397,9 @@ function openMeetingModal(id = null, dateStr = null) {
 function fillMeeting(m) {
     document.getElementById('meeting-modal-title').textContent = 'Editar reunião';
     document.getElementById('mt-id').value = m.id;
+    const mtType = (m.meeting_type || 'comercial').toString().trim().toLowerCase();
+    document.getElementById('mt-type').value = (mtType === 'operacional') ? 'operacional' : 'comercial';
+    onMeetingTypeChange();
     document.getElementById('mt-contact-id').value = m.contact_id || '';
     document.getElementById('mt-title').value = m.title || '';
     document.getElementById('mt-meeting-at').value = m.meeting_at ? m.meeting_at.replace(' ', 'T').slice(0,16) : '';
@@ -373,12 +407,15 @@ function fillMeeting(m) {
     document.getElementById('mt-assigned').value = m.assigned_to || '';
     document.getElementById('mt-status').value = m.status || 'a_agendar';
     document.getElementById('mt-closed-by').value = m.closed_by || '';
+    // Status do seletor operacional (estados comerciais caem em "a_agendar")
+    const opStatus = ['a_agendar','agendada','confirmada','realizada','cancelada'].includes(m.status) ? m.status : 'a_agendar';
+    document.getElementById('mt-status-op').value = opStatus;
     onStatusChange();
     document.getElementById('mt-notes').value = m.notes || '';
     document.getElementById('mt-client-email').value = m.client_email || '';
     document.getElementById('mt-google-event-id').value = m.google_event_id || '';
     document.getElementById('mt-meet-link').value = m.meet_link || '';
-    // Preenche participantes selecionados
+    // Preenche participantes selecionados (select fonte de verdade + checkboxes do dropdown)
     const ptSel = document.getElementById('mt-participants');
     if (ptSel && m.participants) {
         const ids = m.participants.map(p => String(p.id));
@@ -386,22 +423,11 @@ function fillMeeting(m) {
     }
     syncParticipantChecks();
     fillBriefing(m.briefing);
-    // Reuniões existentes abrem como comercial (briefing visível), preservando o comportamento atual.
-    const mtType = document.getElementById('mt-meeting-type');
-    if (mtType) mtType.value = 'comercial';
-    onMeetingTypeChange();
     // Urgência e temperatura são campos únicos (briefing). Usa os do briefing; se vazios, cai nos da reunião.
     syncInherited(m.urgency || 'media', m.temperature || '');
     if (m.meet_link) showMeetLink(m.meet_link);
     document.getElementById('mt-delete-btn').style.display = '';
-}
-
-// Mostra/oculta o briefing conforme o tipo de reunião.
-// Reunião operacional não precisa de briefing do cliente.
-function onMeetingTypeChange() {
-    const type = document.getElementById('mt-meeting-type').value;
-    const section = document.getElementById('briefing-section');
-    if (section) section.style.display = (type === 'operacional') ? 'none' : '';
+    document.getElementById('mt-resend-btn').style.display = '';
 }
 
 // Mostra/oculta campo "Quem fechou" conforme o status
@@ -544,6 +570,7 @@ function syncParticipantChecks() {
 
 function collectPayload() {
     const fd = new FormData();
+    fd.append('meeting_type', document.getElementById('mt-type').value);
     fd.append('title', document.getElementById('mt-title').value.trim());
     fd.append('meeting_at', document.getElementById('mt-meeting-at').value);
     fd.append('assigned_to', document.getElementById('mt-assigned').value);
@@ -557,7 +584,11 @@ function collectPayload() {
     const tempVal = bfTemp ? bfTemp.value : document.getElementById('mt-temperature').value;
     document.getElementById('mt-temperature').value = tempVal;
     fd.append('temperature', tempVal);
-    fd.append('status', document.getElementById('mt-status').value);
+    const isOperationalPayload = document.getElementById('mt-type').value === 'operacional';
+    const statusVal = isOperationalPayload
+        ? document.getElementById('mt-status-op').value
+        : document.getElementById('mt-status').value;
+    fd.append('status', statusVal);
     fd.append('closed_by', document.getElementById('mt-closed-by').value);
     fd.append('notes', document.getElementById('mt-notes').value);
     fd.append('client_email', document.getElementById('mt-client-email').value.trim());
@@ -575,18 +606,11 @@ function collectPayload() {
     // Link do Meet já gerado (evita criar evento duplicado)
     fd.append('google_event_id', document.getElementById('mt-google-event-id').value);
     fd.append('meet_link', document.getElementById('mt-meet-link').value);
-    // Participantes da equipe
-    const ptSel = document.getElementById('mt-participants');
-    if (ptSel) {
-        Array.from(ptSel.selectedOptions).forEach(o => fd.append('participants[]', o.value));
-    }
-    // Tipo de reunião
-    const meetingType = document.getElementById('mt-meeting-type').value;
-    fd.append('meeting_type', meetingType);
-    // Briefing: só envia para reuniões comerciais (operacional não usa briefing)
-    if (meetingType !== 'operacional') {
-        BF_FIELDS.forEach(k => fd.append('bf_' + k, document.getElementById('bf-' + k).value));
-    }
+    // Participantes da equipe (select fonte de verdade)
+    const ptSelPayload = document.getElementById('mt-participants');
+    if (ptSelPayload) Array.from(ptSelPayload.selectedOptions).forEach(o => fd.append('participants[]', o.value));
+    // Briefing
+    BF_FIELDS.forEach(k => fd.append('bf_' + k, document.getElementById('bf-' + k).value));
     return fd;
 }
 
@@ -616,10 +640,8 @@ function generateMeet(btn) {
     const mid = document.getElementById('mt-id').value;
     if (mid) fd.append('meeting_id', mid);
     // Envia participantes para inclusão no evento Google
-    const ptSel = document.getElementById('mt-participants');
-    if (ptSel) {
-        Array.from(ptSel.selectedOptions).forEach(o => fd.append('participants[]', o.value));
-    }
+    const ptSelMeet = document.getElementById('mt-participants');
+    if (ptSelMeet) Array.from(ptSelMeet.selectedOptions).forEach(o => fd.append('participants[]', o.value));
 
     fetch(`${BASE}agenda/generateMeet`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json()).then(d => {
@@ -636,20 +658,26 @@ function saveMeeting() {
     const title = document.getElementById('mt-title').value.trim();
     if (!title) { alert('Informe o título.'); return; }
 
-    // Contato: obrigatório apenas em reuniões comerciais (operacional não exige cliente)
-    const meetingType = document.getElementById('mt-meeting-type').value;
-    const clientVal = document.getElementById('mt-client').value;
-    if (meetingType !== 'operacional') {
-        if (!clientVal) { alert('Selecione um cliente (CRM) ou cadastre um novo.'); return; }
-    }
-    if (clientVal === '__new__' && !document.getElementById('mt-new-name').value.trim()) {
-        alert('Informe o nome do novo cliente.'); return;
-    }
+    const isOperational = document.getElementById('mt-type').value === 'operacional';
 
-    // Se convertida, exige quem fechou
-    const status = document.getElementById('mt-status').value;
-    if (status === 'convertida' && !document.getElementById('mt-closed-by').value) {
-        alert('Informe quem fechou o negócio.'); return;
+    if (!isOperational) {
+        // Contato obrigatório (só reunião comercial)
+        const clientVal = document.getElementById('mt-client').value;
+        if (!clientVal) { alert('Selecione um cliente (CRM) ou cadastre um novo.'); return; }
+        if (clientVal === '__new__' && !document.getElementById('mt-new-name').value.trim()) {
+            alert('Informe o nome do novo cliente.'); return;
+        }
+        // Se convertida, exige quem fechou
+        const status = document.getElementById('mt-status').value;
+        if (status === 'convertida' && !document.getElementById('mt-closed-by').value) {
+            alert('Informe quem fechou o negócio.'); return;
+        }
+    } else {
+        // Reunião operacional: exige ao menos um participante
+        const ptSelOp = document.getElementById('mt-participants');
+        if (!ptSelOp || ptSelOp.selectedOptions.length === 0) {
+            alert('Selecione ao menos um participante.'); return;
+        }
     }
 
     const id = document.getElementById('mt-id').value;
@@ -657,8 +685,8 @@ function saveMeeting() {
 
     const fd = collectPayload();
 
-    // Se está editando e mudando status para "cancelada" e há evento Google, pergunta
-    if (id) {
+    // Se está editando e mudando status para "cancelada" e há evento Google, pergunta (só comercial)
+    if (id && !isOperational) {
         const newStatus = document.getElementById('mt-status').value;
         const hasGoogleEvent = !!document.getElementById('mt-google-event-id').value;
         if (newStatus === 'cancelada' && hasGoogleEvent) {
@@ -676,6 +704,26 @@ function saveMeeting() {
             if (d.error) { alert(d.error); return; }
             location.reload();
         });
+}
+
+// Reenvia as notificações (WhatsApp + e-mail) aos participantes/cliente da reunião
+function resendNotifications() {
+    const id = document.getElementById('mt-id').value;
+    if (!id) return;
+    if (!confirm('Reenviar as notificações (WhatsApp + e-mail) aos participantes?')) return;
+
+    const btn = document.getElementById('mt-resend-btn');
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Enviando...';
+
+    fetch(`${BASE}agenda/resendNotifications/${id}`, { method: 'POST', headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json()).then(d => {
+            btn.disabled = false; btn.innerHTML = original;
+            if (d.error) { alert(d.error); return; }
+            alert(d.message || 'Notificações reenviadas.');
+        })
+        .catch(() => { btn.disabled = false; btn.innerHTML = original; alert('Erro ao reenviar as notificações.'); });
 }
 
 function deleteMeeting() {

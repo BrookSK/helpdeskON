@@ -22,10 +22,17 @@
 .seq-node .port.out { bottom:-10px; left:calc(50% - 9px); }
 .seq-node .port.out.yes { left:26%; background:#d4edda; border-color:#28a745; }
 .seq-node .port.out.no { left:66%; background:#f8d7da; border-color:#dc3545; }
+.seq-node .port.out.reply { right:-10px; left:auto; top:calc(50% - 9px); bottom:auto; background:#cfe2ff; border-color:#0d6efd; }
 .seq-node .port.in { top:-10px; left:calc(50% - 9px); background:#e9ecef; }
+/* Módulo acoplado (Atendente de dúvidas) — pendurado na base do bloco IA */
+.seq-node .node-attach { margin:0 8px 8px; padding:4px 8px; border-radius:8px; font-size:0.68rem;
+    display:flex; align-items:center; gap:6px; border:1px dashed #b7a6e0; background:#f3effc; color:#6f42c1; cursor:pointer; }
+.seq-node .node-attach.off { border-color:#d0d0d0; background:#f6f6f6; color:#999; }
+.seq-node .node-attach i { font-size:0.85rem; }
+.seq-node .node-attach:hover { filter:brightness(0.97); }
 .n-send .hd{color:#0d6efd} .n-whatsapp .hd{color:#198754} .n-wait .hd{color:#fd7e14} .n-condition .hd{color:#6f42c1}
 .n-tag .hd{color:#20c997} .n-score .hd{color:#e0a800} .n-move .hd{color:#0dcaf0} .n-end .hd{color:#dc3545}
-.n-reveal_phone .hd{color:#212529} .n-linkedin .hd{color:#0a66c2}
+.n-reveal_phone .hd{color:#212529} .n-ai .hd{color:#0d6efd} .n-unsubscribe .hd{color:#dc3545} .n-schedule .hd{color:#198754} .n-connect .hd{color:#0d6efd} .n-reply .hd{color:#0dcaf0} .n-ai_agent .hd{color:#6f42c1} .n-linkedin .hd{color:#0a66c2}
 #link-hint { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#1a1a2e; color:#fff;
     padding:8px 16px; border-radius:20px; font-size:0.8rem; z-index:2000; display:none; box-shadow:0 4px 12px rgba(0,0,0,.3); }
 </style>
@@ -39,8 +46,9 @@ const COLUMNS = <?= json_encode(array_map(fn($c) => ['id'=>$c['id'],'name'=>$c['
 const LABELS = <?= json_encode(array_map(fn($l) => ['id'=>$l['id'],'name'=>$l['name'],'color'=>$l['color']], $labels ?? []), JSON_UNESCAPED_UNICODE) ?>;
 // Lista de boards únicos (para o seletor encadeado do bloco "mover card")
 const BOARDS = (function(){ const m={}; COLUMNS.forEach(c=>{ if(!m[c.board_id]) m[c.board_id]={id:c.board_id,name:c.board_name}; }); return Object.values(m); })();
-const NODE_LABELS = { send:'Enviar e-mail', whatsapp:'Enviar WhatsApp', linkedin:'LinkedIn (tarefa)', wait:'Aguardar', condition:'Condição', tag:'Tag', score:'Score', move:'Mover card', reveal_phone:'Revelar telefone', end:'Encerrar' };
+const NODE_LABELS = { send:'Enviar e-mail', whatsapp:'Enviar WhatsApp', linkedin:'LinkedIn (tarefa)', wait:'Aguardar', condition:'Condição', ai:'IA (ChatGPT)', ai_agent:'Atendente IA (FAQ)', schedule:'Agendamento', connect:'Conexão de sequência', reply:'Responder ao lead', tag:'Tag', score:'Score', move:'Mover card', unsubscribe:'Remover da lista', reveal_phone:'Revelar telefone', end:'Encerrar' };
 const LINKEDIN_ACTIONS = { connect:'Solicitar conexão', message:'1ª mensagem', followup:'Follow-up', final:'Mensagem final' };
+const SEQUENCES = <?= json_encode(array_map(fn($s) => ['id'=>$s['id'],'name'=>$s['name']], $sequencesList ?? []), JSON_UNESCAPED_UNICODE) ?>;
 let EMAIL_TEMPLATES = [], WA_TEMPLATES = [], LINKEDIN_TEMPLATES = [];
 
 let nodes = [];       // {id, type, x, y, data, next, nextYes, nextNo, _el}
@@ -106,16 +114,38 @@ function buildNodeEl(n) {
     el.dataset.id = n.id;
 
     let ports = '<div class="port in"></div>';
-    if (n.type === 'condition') {
+    const aiDecision = (n.type === 'ai' && (n.data || {}).mode === 'decision');
+    if (n.type === 'condition' || aiDecision || n.type === 'ai_agent') {
+        // Duas saídas SIM/NÃO. No Atendente IA (FAQ), o bloco fica tirando dúvidas
+        // em loop até concluir a intenção: SIM = quer seguir, NÃO = quer encerrar.
         ports += `<div class="port out yes" title="Sim" data-port="yes"></div><div class="port out no" title="Não" data-port="no"></div>`;
     } else if (n.type !== 'end') {
         ports += `<div class="port out" data-port="next"></div>`;
     }
+    // Blocos de mensagem ganham uma saída extra "Resposta recebida" (à direita),
+    // para conectar ao bloco de Conexão de sequência (triagem por IA).
+    if (n.type === 'send' || n.type === 'whatsapp') {
+        ports += `<div class="port out reply" title="Resposta recebida" data-port="reply"></div>`;
+    }
+    // Módulo ACOPLADO ao bloco IA (ChatGPT) em modo decisão: "Atendente de dúvidas".
+    // Símbolo de duas setas circulares. Quando ativo, o bloco tira dúvidas do lead
+    // em loop (respeitando a janela de escuta) até concluir SIM/NÃO.
+    let attach = '';
+    if (aiDecision) {
+        const faqOn = !!(n.data||{}).faq_active;
+        attach = `<div class="node-attach ${faqOn?'on':'off'}" title="Atendente de dúvidas (loop)">
+            <i class="bi bi-arrow-repeat"></i>
+            <span>Dúvidas: ${faqOn?'ativo':'inativo'}</span>
+        </div>`;
+    }
     el.innerHTML = `<div class="hd"><span>${NODE_LABELS[n.type]||n.type}</span><span class="x">&times;</span></div>
-        <div class="bd">${nodeSummary(n)}</div>${ports}`;
+        <div class="bd">${nodeSummary(n)}</div>${attach}${ports}`;
 
     // Fechar
     el.querySelector('.x').addEventListener('mousedown', (e)=>{ e.stopPropagation(); delNode(n.id); });
+    // Clique no módulo acoplado → seleciona o bloco (edita no inspetor)
+    const attachEl = el.querySelector('.node-attach');
+    if (attachEl) attachEl.addEventListener('mousedown', (e)=>{ e.stopPropagation(); selectNode(n.id); });
     // Portas de saída → inicia ligação
     el.querySelectorAll('.port.out').forEach(p => {
         p.addEventListener('mousedown', (e)=>{ e.stopPropagation(); startLink(n.id, p.dataset.port); });
@@ -143,10 +173,20 @@ function nodeSummary(n) {
         case 'whatsapp': return d.body ? escapeHtml(d.body.slice(0,50)) : '<em>sem mensagem</em>';
         case 'wait': return 'Aguardar ' + (d.amount||0) + ' ' + ({minutes:'min',hours:'h',days:'dias'}[d.unit]||'dias');
         case 'condition': return 'Se ' + ({replied:'respondeu',opened:'abriu',clicked:'clicou'}[d.kind]||'?') + '?';
+        case 'ai': {
+            const m = d.mode === 'decision' ? 'Decisão (Sim/Não)' : 'Resposta';
+            const md = d.model || 'gpt-4o-mini';
+            return `IA · ${m} · ${escapeHtml(md)}`;
+        }
         case 'tag': return 'Tag: ' + escapeHtml(d.label||'');
         case 'score': return 'Score ' + (d.delta>0?'+':'') + (d.delta||0);
         case 'move': { const c = COLUMNS.find(x=>x.id==d.column_id); return c ? escapeHtml(c.label) : '<em>escolher coluna</em>'; }
         case 'reveal_phone': return 'Revela telefone no Apollo (se faltar)';
+        case 'unsubscribe': return 'Remove o lead da lista (descadastra)';
+        case 'schedule': return 'Envia link de agendamento (' + (d.channel||'auto') + ')';
+        case 'connect': { const s=(SEQUENCES||[]).find(x=>String(x.id)===String(d.sequence_id)); return s ? ('→ ' + escapeHtml(s.name)) : '<em>escolher sequência</em>'; }
+        case 'reply': return (d.ai_reply ? 'IA responde a dúvida + convite' : 'Responde no mesmo canal do lead') + (d.body ? (': ' + escapeHtml(d.body.slice(0,26))) : '');
+        case 'ai_agent': return ((d.active===undefined||d.active) ? 'Tira dúvidas em loop até concluir SIM/NÃO' : 'Classifica SIM/NÃO (uma passada)') + ' · ' + escapeHtml(d.model||'gpt-4o-mini');
         case 'linkedin': return '<i class="bi bi-linkedin"></i> ' + (LINKEDIN_ACTIONS[d.action_type]||'Ação') + ' <span class="badge bg-light text-dark border">manual</span>';
         case 'end': return 'Fim da sequência';
     }
@@ -162,14 +202,18 @@ function drawEdges() {
         const s = svg(); let out = '';
         nodes.forEach(n => {
             const conns = [];
-            if (n.next) conns.push([n.next, '#00BFA6', 0.5]);
-            if (n.nextYes) conns.push([n.nextYes, '#28a745', 0.26]);
-            if (n.nextNo) conns.push([n.nextNo, '#dc3545', 0.66]);
-            conns.forEach(([to, color, fx]) => {
+            if (n.next) conns.push([n.next, '#00BFA6', 0.5, 'bottom']);
+            if (n.nextYes) conns.push([n.nextYes, '#28a745', 0.26, 'bottom']);
+            if (n.nextNo) conns.push([n.nextNo, '#dc3545', 0.66, 'bottom']);
+            if (n.nextReply) conns.push([n.nextReply, '#0d6efd', 1, 'right']);
+            conns.forEach(([to, color, fx, side]) => {
                 const t = nodes.find(x=>x.id===to); if (!t) return;
-                const x1 = n.x + 190*fx, y1 = n.y + 68, x2 = t.x + 95, y2 = t.y;
+                let x1, y1;
+                if (side === 'right') { x1 = n.x + 190; y1 = n.y + 34; }
+                else { x1 = n.x + 190*fx; y1 = n.y + 68; }
+                const x2 = t.x + 95, y2 = t.y;
                 const mid = (y1+y2)/2;
-                out += `<path d="M${x1},${y1} C${x1},${mid} ${x2},${mid} ${x2},${y2}" stroke="${color}" fill="none" stroke-width="2"/>`;
+                out += `<path d="M${x1},${y1} C${x1},${mid} ${x2},${mid} ${x2},${y2}" stroke="${color}" fill="none" stroke-width="2" ${side==='right'?'stroke-dasharray="4,3"':''}/>`;
                 out += `<circle cx="${x2}" cy="${y2}" r="3" fill="${color}"/>`;
             });
         });
@@ -219,9 +263,15 @@ function defaultData(type) {
     if (type === 'whatsapp') return { body:'' };
     if (type === 'wait') return { amount:2, unit:'days' };
     if (type === 'condition') return { kind:'replied' };
+    if (type === 'ai') return { mode:'simple', model:'gpt-4o-mini', prompt:'', send_channel:'', save_note:1, faq_active:0, company_info:'', instructions:'', max_turns:6 };
+    if (type === 'ai_agent') return { active:1, model:'gpt-4o-mini', company_info:'', instructions:'', max_turns:6 };
     if (type === 'tag') return { label:'', color:'#00BFA6' };
     if (type === 'score') return { delta:3 };
     if (type === 'move') return { column_id:'' };
+    if (type === 'unsubscribe') return { reason:'Sem interesse (sequência)' };
+    if (type === 'schedule') return { channel:'auto', duration:45, title:'Reunião com a ON Solutions Brasil', message:'' };
+    if (type === 'connect') return { sequence_id:'', stop_current:1 };
+    if (type === 'reply') return { subject:'ON Solutions Brasil', body:'', ai_reply:0, model:'gpt-4o-mini', company_info:'' };
     if (type === 'reveal_phone') return {};
     if (type === 'linkedin') return { action_type:'message', objective:'', body:'', cta:'', tone:'', max_length:0, template_id:'', model:'gpt-4o-mini' };
     return {};
@@ -230,7 +280,7 @@ function delNode(id) {
     const n = nodes.find(x=>x.id===id);
     if (n && n._el) n._el.remove();
     nodes = nodes.filter(x=>x.id!==id);
-    nodes.forEach(x=>{ if(x.next===id)delete x.next; if(x.nextYes===id)delete x.nextYes; if(x.nextNo===id)delete x.nextNo; });
+    nodes.forEach(x=>{ if(x.next===id)delete x.next; if(x.nextYes===id)delete x.nextYes; if(x.nextNo===id)delete x.nextNo; if(x.nextReply===id)delete x.nextReply; });
     if (selectedId===id) { selectedId=null; renderInspector(); }
     drawEdges();
 }
@@ -262,6 +312,7 @@ function finishLink(targetId) {
         if (n) {
             if (linkFrom.port === 'yes') n.nextYes = targetId;
             else if (linkFrom.port === 'no') n.nextNo = targetId;
+            else if (linkFrom.port === 'reply') n.nextReply = targetId;
             else n.next = targetId;
         }
     }
@@ -304,6 +355,74 @@ function renderInspector() {
             <option value="replied" ${n.data.kind==='replied'?'selected':''}>Respondeu?</option>
             <option value="opened" ${n.data.kind==='opened'?'selected':''}>Abriu?</option>
             <option value="clicked" ${n.data.kind==='clicked'?'selected':''}>Clicou?</option></select>`);
+    } else if (n.type==='ai_agent') {
+        const model = n.data.model || 'gpt-4o-mini';
+        const agentActive = (n.data.active === undefined) ? true : !!n.data.active;
+        h += field('Atendente IA (loop de dúvidas)', `<select class="form-select form-select-sm" onchange="setData('active', this.value==='1'?1:0); renderInspector();">
+            <option value="1" ${agentActive?'selected':''}>Ativo — tira dúvidas em loop até concluir</option>
+            <option value="0" ${!agentActive?'selected':''}>Inativo — só interpreta SIM/NÃO (uma passada)</option>
+        </select>`);
+        h += field('Modelo do ChatGPT', `<select class="form-select form-select-sm" onchange="setData('model',this.value)">
+            <option value="gpt-4o-mini" ${model==='gpt-4o-mini'?'selected':''}>gpt-4o-mini</option>
+            <option value="gpt-4o" ${model==='gpt-4o'?'selected':''}>gpt-4o</option>
+            <option value="gpt-4.1" ${model==='gpt-4.1'?'selected':''}>gpt-4.1</option>
+            <option value="gpt-4.1-mini" ${model==='gpt-4.1-mini'?'selected':''}>gpt-4.1-mini</option>
+        </select>`);
+        h += `<label class="form-label small mb-1">Informações da empresa (base de conhecimento)</label>` +
+             `<textarea class="form-control form-control-sm" rows="6" placeholder="Ex.: A ON Solutions Brasil faz organização e automação de processos... Setores atendidos... Prazos... Diferenciais..." oninput="setData('company_info',this.value)">${escapeHtml(n.data.company_info||'')}</textarea>`;
+        h += `<label class="form-label small mb-1 mt-2">Instruções extras (tom, regras)</label>` +
+             `<textarea class="form-control form-control-sm" rows="3" placeholder="Ex.: Seja cordial e objetivo. Não invente preços. Se perguntarem valores, oriente a agendar." oninput="setData('instructions',this.value)">${escapeHtml(n.data.instructions||'')}</textarea>`;
+        if (agentActive) {
+            h += field('Máx. de interações antes de escalar', `<input type="number" min="1" max="20" class="form-control form-control-sm" value="${n.data.max_turns||6}" oninput="setData('max_turns',parseInt(this.value)||6)">`);
+            h += `<div class="alert alert-light border py-2 px-2 small mb-0"><i class="bi bi-arrow-repeat text-primary"></i> <strong>Ativo:</strong> o bloco responde as dúvidas do lead sobre a empresa (com a base acima) e fica nesse ciclo, respeitando a janela de escuta, até concluir a intenção. Conecte as duas saídas:<br>
+                <span style="color:#28a745">●</span> <strong>Quer seguir</strong> (SIM) · <span style="color:#dc3545">●</span> <strong>Quer encerrar</strong> (NÃO).</div>`;
+        } else {
+            h += `<div class="alert alert-light border py-2 px-2 small mb-0"><i class="bi bi-signpost-split text-secondary"></i> <strong>Inativo:</strong> o bloco apenas interpreta a resposta do lead numa única passada (sem loop e sem responder dúvidas) e segue direto pela saída:<br>
+                <span style="color:#28a745">●</span> <strong>SIM</strong> (demonstrou interesse) · <span style="color:#dc3545">●</span> <strong>NÃO</strong> (sem interesse/indefinido).</div>`;
+        }
+    } else if (n.type==='ai') {
+        const mode = n.data.mode || 'simple';
+        const model = n.data.model || 'gpt-4o-mini';
+        h += field('Modelo do ChatGPT', `<select class="form-select form-select-sm" onchange="setData('model',this.value)">
+            <option value="gpt-4o-mini" ${model==='gpt-4o-mini'?'selected':''}>gpt-4o-mini (rápido e barato)</option>
+            <option value="gpt-4o" ${model==='gpt-4o'?'selected':''}>gpt-4o</option>
+            <option value="gpt-4.1" ${model==='gpt-4.1'?'selected':''}>gpt-4.1</option>
+            <option value="gpt-4.1-mini" ${model==='gpt-4.1-mini'?'selected':''}>gpt-4.1-mini</option>
+            <option value="gpt-3.5-turbo" ${model==='gpt-3.5-turbo'?'selected':''}>gpt-3.5-turbo</option>
+        </select>`);
+        h += field('Tipo de resposta', `<select class="form-select form-select-sm" id="insp-ai-mode" onchange="onAiModeChange(this.value)">
+            <option value="simple" ${mode==='simple'?'selected':''}>Resposta simples</option>
+            <option value="decision" ${mode==='decision'?'selected':''}>Decisão Sim/Não (duas saídas)</option>
+        </select>`);
+        h += `<label class="form-label small mb-1">Prompt / instrução</label>` + varChipsHtml() +
+             `<textarea id="insp-body" class="form-control form-control-sm" rows="7" placeholder="Ex.: Analise a última resposta do lead {{primeiro_nome}} e diga se ele demonstrou interesse em conversar." oninput="setData('prompt',this.value)">${escapeHtml(n.data.prompt||'')}</textarea>`;
+        h += `<small class="text-muted d-block mt-1 mb-2">A IA recebe automaticamente os dados do lead e o histórico recente de mensagens junto com o seu prompt. Use variáveis como {{primeiro_nome}}, {{empresa}}.</small>`;
+        if (mode === 'decision') {
+            h += `<div class="alert alert-light border py-2 px-2 small mb-2"><i class="bi bi-signpost-split text-primary"></i> A IA decide <strong>SIM</strong> ou <strong>NÃO</strong>. Conecte as duas saídas (verde = Sim, vermelha = Não) aos próximos blocos.</div>`;
+
+            // ---- Módulo ACOPLADO: Atendente de dúvidas (loop) ----
+            const faqOn = !!n.data.faq_active;
+            h += `<hr class="my-2"><div class="d-flex align-items-center gap-2 mb-2">
+                <i class="bi bi-arrow-repeat text-primary"></i><strong class="small">Atendente de dúvidas (acoplado)</strong></div>`;
+            h += field('Estado', `<select class="form-select form-select-sm" onchange="onFaqToggle(this.value==='1'?1:0)">
+                <option value="0" ${!faqOn?'selected':''}>Inativo — decide SIM/NÃO direto</option>
+                <option value="1" ${faqOn?'selected':''}>Ativo — tira dúvidas em loop até concluir</option>
+            </select>`);
+            if (faqOn) {
+                h += `<label class="form-label small mb-1">Informações da empresa (base de conhecimento)</label>` +
+                     `<textarea class="form-control form-control-sm" rows="5" placeholder="Ex.: A ON Solutions Brasil faz organização e automação de processos... Setores atendidos... Prazos... Diferenciais..." oninput="setData('company_info',this.value)">${escapeHtml(n.data.company_info||'')}</textarea>`;
+                h += `<label class="form-label small mb-1 mt-2">Instruções extras (tom, regras)</label>` +
+                     `<textarea class="form-control form-control-sm" rows="2" placeholder="Ex.: Seja cordial e objetivo. Não invente preços. Se perguntarem valores, oriente a agendar." oninput="setData('instructions',this.value)">${escapeHtml(n.data.instructions||'')}</textarea>`;
+                h += field('Máx. de interações antes de concluir', `<input type="number" min="1" max="20" class="form-control form-control-sm" value="${n.data.max_turns||6}" oninput="setData('max_turns',parseInt(this.value)||6)">`);
+                h += `<div class="alert alert-light border py-2 px-2 small mb-0"><i class="bi bi-arrow-repeat text-primary"></i> Enquanto o lead ainda tiver dúvidas, a IA responde (mesmo canal) e permanece neste bloco, respeitando a janela de escuta, até concluir <strong>SIM</strong> ou <strong>NÃO</strong>.</div>`;
+            } else {
+                h += `<small class="text-muted d-block">Com o atendente inativo, a IA apenas classifica a resposta e segue direto por SIM/NÃO.</small>`;
+            }
+        } else {
+            h += field('Registrar resposta como nota no lead', `<select class="form-select form-select-sm" onchange="setData('save_note', parseInt(this.value))">
+                <option value="1" ${(n.data.save_note??1)==1?'selected':''}>Sim</option>
+                <option value="0" ${(n.data.save_note??1)==0?'selected':''}>Não</option></select>`);
+        }
     } else if (n.type==='tag') {
         // Dropdown das etiquetas existentes + opção de criar nova
         const cur = n.data.label || '';
@@ -346,6 +465,51 @@ function renderInspector() {
         const colOpts = '<option value="">Selecione a coluna</option>' +
             cols.map(c => `<option value="${c.id}" ${n.data.column_id==c.id?'selected':''}>${escapeHtml(c.name)}</option>`).join('');
         h += field('Coluna', `<select class="form-select form-select-sm" id="insp-column" ${boardId?'':'disabled'} onchange="setData('column_id',this.value)">${colOpts}</select>`);
+    } else if (n.type==='schedule') {
+        const ch = n.data.channel || 'auto';
+        h += field('Canal do convite', `<select class="form-select form-select-sm" onchange="setData('channel',this.value)">
+            <option value="reply" ${ch==='reply'?'selected':''}>Mesmo canal da resposta do lead</option>
+            <option value="auto" ${ch==='auto'?'selected':''}>Automático (e-mail e/ou WhatsApp)</option>
+            <option value="email" ${ch==='email'?'selected':''}>E-mail</option>
+            <option value="whatsapp" ${ch==='whatsapp'?'selected':''}>WhatsApp</option></select>`);
+        h += field('Título da reunião', `<input class="form-control form-control-sm" value="${escapeAttr(n.data.title||'Reunião com a ON Solutions Brasil')}" oninput="setData('title',this.value)">`);
+        h += field('Duração (min)', `<input type="number" min="15" step="15" class="form-control form-control-sm" value="${n.data.duration||45}" oninput="setData('duration',parseInt(this.value)||45)">`);
+        h += `<label class="form-label small mb-1">Mensagem do convite (opcional)</label>` + varChipsHtml() +
+             `<textarea id="insp-body" class="form-control form-control-sm" rows="4" placeholder="Ex.: {{primeiro_nome}}, que tal conversarmos? Escolha o melhor horário no link abaixo." oninput="setData('message',this.value)">${escapeHtml(n.data.message||'')}</textarea>`;
+        h += `<small class="text-muted d-block mt-1">Gera um link público com os dados do lead pré-preenchidos. Ao agendar, cria o evento no Google Meet e notifica por e-mail e WhatsApp. O link é inserido automaticamente ({{link_agendamento}}).</small>`;
+    } else if (n.type==='reply') {
+        h += `<div class="alert alert-light border py-2 px-2 small mb-2"><i class="bi bi-reply text-info"></i> Envia pelo <strong>mesmo canal</strong> em que o lead respondeu por último (e-mail ou WhatsApp).</div>`;
+        const aiReplyOn = !!n.data.ai_reply;
+        h += field('Responder a dúvida do lead com IA', `<select class="form-select form-select-sm" onchange="setData('ai_reply', this.value==='1'?1:0); renderInspector();">
+            <option value="0" ${!aiReplyOn?'selected':''}>Não — envia só a mensagem abaixo</option>
+            <option value="1" ${aiReplyOn?'selected':''}>Sim — responde a dúvida (curto) e então convida</option>
+        </select>`);
+        if (aiReplyOn) {
+            const model = n.data.model || 'gpt-4o-mini';
+            h += field('Modelo do ChatGPT', `<select class="form-select form-select-sm" onchange="setData('model',this.value)">
+                <option value="gpt-4o-mini" ${model==='gpt-4o-mini'?'selected':''}>gpt-4o-mini</option>
+                <option value="gpt-4o" ${model==='gpt-4o'?'selected':''}>gpt-4o</option>
+                <option value="gpt-4.1" ${model==='gpt-4.1'?'selected':''}>gpt-4.1</option>
+                <option value="gpt-4.1-mini" ${model==='gpt-4.1-mini'?'selected':''}>gpt-4.1-mini</option>
+            </select>`);
+            h += `<label class="form-label small mb-1">Informações da empresa (para responder dúvidas)</label>` +
+                 `<textarea class="form-control form-control-sm" rows="4" placeholder="Ex.: O que a ON Solutions faz, como funciona, prazos, diferenciais..." oninput="setData('company_info',this.value)">${escapeHtml(n.data.company_info||'')}</textarea>`;
+            h += `<small class="text-muted d-block mb-2">A IA responde brevemente a dúvida do lead usando estas informações e o histórico, e em seguida acrescenta a mensagem/convite abaixo.</small>`;
+        }
+        h += field('Assunto (só e-mail)', `<input class="form-control form-control-sm" value="${escapeAttr(n.data.subject||'ON Solutions Brasil')}" oninput="setData('subject',this.value)">`);
+        h += `<label class="form-label small mb-1">Mensagem ${aiReplyOn?'(convite — enviado após a resposta da IA)':''}</label>` + varChipsHtml() +
+             `<textarea id="insp-body" class="form-control form-control-sm" rows="5" oninput="setData('body',this.value)">${escapeHtml(n.data.body||'')}</textarea>`;
+    } else if (n.type==='connect') {
+        const opts = '<option value="">— selecione a sequência —</option>' +
+            (SEQUENCES||[]).map(s => `<option value="${s.id}" ${String(n.data.sequence_id)===String(s.id)?'selected':''}>${escapeHtml(s.name)}</option>`).join('');
+        h += field('Sequência de destino', `<select class="form-select form-select-sm" onchange="setData('sequence_id',this.value)">${opts}</select>`);
+        h += field('Ao conectar', `<select class="form-select form-select-sm" onchange="setData('stop_current',parseInt(this.value))">
+            <option value="1" ${(n.data.stop_current??1)==1?'selected':''}>Encerrar esta sequência e seguir na nova</option>
+            <option value="0" ${(n.data.stop_current??1)==0?'selected':''}>Manter esta ativa (inscreve em paralelo)</option></select>`);
+        h += `<small class="text-muted d-block mt-1">Inscreve o lead na sequência escolhida (respeitando o canal dela). Útil para encadear fluxos — ex.: da cadência principal para a triagem por IA.</small>`;
+    } else if (n.type==='unsubscribe') {
+        h += field('Motivo (registro interno)', `<input class="form-control form-control-sm" value="${escapeAttr(n.data.reason||'Sem interesse (sequência)')}" oninput="setData('reason',this.value)">`);
+        h += `<p class="text-muted small mb-0">Marca o lead como descadastrado (bloqueia novos envios), aplica a etiqueta "sem interesse" e registra na timeline. Coloque este bloco <strong>depois</strong> do e-mail/WhatsApp de confirmação.</p>`;
     } else if (n.type==='linkedin') {
         h += `<div class="alert alert-light border py-2 px-2 small mb-2" style="border-left:3px solid #0a66c2 !important;">
             <i class="bi bi-linkedin text-primary"></i> Etapa <strong>manual</strong>. Gera uma tarefa em <em>Minhas Ações</em>.
@@ -371,11 +535,19 @@ function renderInspector() {
         const others = nodes.filter(x => x.id !== n.id);
         const optsFor = (sel) => '<option value="">— nenhum —</option>' +
             others.map(o => `<option value="${o.id}" ${sel===o.id?'selected':''}>${NODE_LABELS[o.type]||o.type} · ${escapeHtml((nodeSummary(o)||'').replace(/<[^>]+>/g,'').slice(0,20))}</option>`).join('');
-        if (n.type === 'condition') {
-            h += field('Se SIM →', `<select class="form-select form-select-sm" onchange="setNext('nextYes',this.value)">${optsFor(n.nextYes)}</select>`);
-            h += field('Se NÃO →', `<select class="form-select form-select-sm" onchange="setNext('nextNo',this.value)">${optsFor(n.nextNo)}</select>`);
+        const twoWay = (n.type === 'condition') || (n.type === 'ai' && (n.data||{}).mode === 'decision') || (n.type === 'ai_agent');
+        if (twoWay) {
+            const yesLbl = (n.type === 'ai_agent') ? 'Se QUER SEGUIR →' : 'Se SIM →';
+            const noLbl  = (n.type === 'ai_agent') ? 'Se QUER ENCERRAR →' : 'Se NÃO →';
+            h += field(yesLbl, `<select class="form-select form-select-sm" onchange="setNext('nextYes',this.value)">${optsFor(n.nextYes)}</select>`);
+            h += field(noLbl, `<select class="form-select form-select-sm" onchange="setNext('nextNo',this.value)">${optsFor(n.nextNo)}</select>`);
         } else {
             h += field('Vai para', `<select class="form-select form-select-sm" onchange="setNext('next',this.value)">${optsFor(n.next)}</select>`);
+        }
+        // Saída extra "Resposta recebida" para blocos de mensagem
+        if (n.type === 'send' || n.type === 'whatsapp') {
+            h += field('<i class="bi bi-reply"></i> Resposta recebida →', `<select class="form-select form-select-sm" onchange="setNext('nextReply',this.value)">${optsFor(n.nextReply)}</select>`);
+            h += `<small class="text-muted d-block">Para onde ir se o lead responder após este envio (ex.: Conexão → Triagem IA). O sistema detecta a resposta automaticamente por e-mail e WhatsApp.</small>`;
         }
     }
     box.innerHTML = h;
@@ -493,6 +665,39 @@ function setNext(port, targetId) {
     drawEdges();
 }
 
+// Bloco IA: ao trocar o tipo de resposta (simples/decisão), recria o nó para
+// ajustar as portas de saída (1 saída no simples, 2 saídas no decisão) e limpa
+// conexões incompatíveis.
+function onAiModeChange(mode) {
+    const n = nodes.find(x=>x.id===selectedId);
+    if (!n) return;
+    n.data.mode = mode;
+    if (mode === 'decision') {
+        delete n.next; // passa a usar nextYes/nextNo
+    } else {
+        delete n.nextYes; delete n.nextNo; // volta a usar next
+    }
+    // Recria o elemento do nó para refletir as portas corretas
+    if (n._el) n._el.remove();
+    n._el = buildNodeEl(n);
+    canvas().appendChild(n._el);
+    drawEdges();
+    renderInspector();
+}
+
+// Liga/desliga o módulo ACOPLADO "Atendente de dúvidas" no bloco IA (decisão).
+function onFaqToggle(active) {
+    const n = nodes.find(x=>x.id===selectedId);
+    if (!n) return;
+    n.data.faq_active = active ? 1 : 0;
+    // Recria o elemento do nó para mostrar/ocultar o módulo acoplado.
+    if (n._el) n._el.remove();
+    n._el = buildNodeEl(n);
+    canvas().appendChild(n._el);
+    drawEdges();
+    renderInspector();
+}
+
 // Bloco "mover card": ao trocar o board, limpa a coluna e mostra só as colunas daquele board
 function onMoveBoardChange(boardId) {
     const n = nodes.find(x=>x.id===selectedId);
@@ -506,7 +711,7 @@ function onMoveBoardChange(boardId) {
 // ================= Salvar / participantes =================
 function buildGraph() {
     const start = nodes.length ? nodes[0].id : null;
-    return { start, nodes: nodes.map(n => ({ id:n.id, type:n.type, x:n.x, y:n.y, data:n.data, next:n.next, nextYes:n.nextYes, nextNo:n.nextNo })) };
+    return { start, nodes: nodes.map(n => ({ id:n.id, type:n.type, x:n.x, y:n.y, data:n.data, next:n.next, nextYes:n.nextYes, nextNo:n.nextNo, nextReply:n.nextReply })) };
 }
 function saveSeq() {
     const name = document.getElementById('seq-name').value.trim();
@@ -514,6 +719,7 @@ function saveSeq() {
     const fd = new FormData();
     if (SEQ_ID) fd.append('id', SEQ_ID);
     fd.append('name', name);
+    fd.append('channel_type', (document.getElementById('seq-channel') || {}).value || 'email');
     fd.append('email_account_id', document.getElementById('seq-account').value);
     fd.append('daily_limit', document.getElementById('seq-daily').value);
     fd.append('window_start', document.getElementById('seq-wstart').value + ':00');

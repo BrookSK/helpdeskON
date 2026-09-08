@@ -49,7 +49,12 @@
                             <strong>Prioridade:</strong> <span class="priority-<?= $ticket['priority'] ?>"><?= priorityLabel($ticket['priority']) ?></span>
                         </div>
                         <div class="col-sm-6">
-                            <strong>Atendente:</strong> <?= escape($ticket['attendant_name'] ?? 'Não atribuído') ?>
+                            <strong>Atendentes:</strong>
+                            <?php if (!empty($assignedAttendants)): ?>
+                                <?= escape(implode(', ', array_map(function ($a) { return $a['name']; }, $assignedAttendants))) ?>
+                            <?php else: ?>
+                                <?= escape($ticket['attendant_name'] ?? 'Não atribuído') ?>
+                            <?php endif; ?>
                         </div>
                         <div class="col-sm-6">
                             <strong>Responsável Técnico:</strong> <?= escape($ticket['technical_name'] ?? 'Não atribuído') ?>
@@ -239,17 +244,20 @@
             <?php if ($canEditStatus): ?>
             <!-- Atribuir Atendente -->
             <div class="card mb-3">
-                <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.88rem">Atribuir Atendente</h6></div>
+                <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.88rem">Atribuir Atendentes</h6></div>
                 <div class="card-body">
                     <form action="<?= baseUrl('tickets/assign/' . $ticket['id']) ?>" method="POST">
-                        <select name="attendant_id" class="form-select form-select-sm mb-2">
-                            <option value="">Selecione</option>
+                        <div class="border rounded-3 p-2 mb-2" style="max-height:180px;overflow-y:auto">
                             <?php foreach ($attendants as $att): ?>
-                            <option value="<?= $att['id'] ?>" <?= $ticket['attendant_id'] == $att['id'] ? 'selected' : '' ?>>
-                                <?= escape($att['name']) ?>
-                            </option>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="attendant_ids[]" value="<?= $att['id'] ?>" id="assign-att-<?= $att['id'] ?>" <?= in_array((int)$att['id'], $assignedAttendantIds ?? [], true) ? 'checked' : '' ?>>
+                                <label class="form-check-label" for="assign-att-<?= $att['id'] ?>">
+                                    <?= escape($att['name']) ?>
+                                </label>
+                            </div>
                             <?php endforeach; ?>
-                        </select>
+                        </div>
+                        <small class="text-muted d-block mb-2">O primeiro marcado será o atendente principal.</small>
                         <button type="submit" class="btn btn-outline-primary btn-sm w-100">Atribuir</button>
                     </form>
                 </div>

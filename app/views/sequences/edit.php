@@ -25,11 +25,17 @@
                 <button class="btn btn-sm btn-outline-success" onclick="addNode('whatsapp')"><i class="bi bi-whatsapp"></i> WhatsApp</button>
                 <button class="btn btn-sm btn-outline-warning" onclick="addNode('wait')"><i class="bi bi-clock"></i> Aguardar</button>
                 <button class="btn btn-sm btn-outline-secondary" onclick="addNode('condition')"><i class="bi bi-signpost-split"></i> Condição</button>
+                <button class="btn btn-sm btn-outline-primary" onclick="addNode('ai')"><i class="bi bi-robot"></i> IA (ChatGPT)</button>
+                <button class="btn btn-sm btn-outline-primary" onclick="addNode('ai_agent')"><i class="bi bi-arrow-repeat"></i> Atendente IA (FAQ)</button>
                 <button class="btn btn-sm btn-outline-secondary" onclick="addNode('tag')"><i class="bi bi-tag"></i> Tag</button>
                 <button class="btn btn-sm btn-outline-secondary" onclick="addNode('score')"><i class="bi bi-star"></i> Score</button>
                 <button class="btn btn-sm btn-outline-info" onclick="addNode('move')"><i class="bi bi-kanban"></i> Mover card</button>
+                <button class="btn btn-sm btn-outline-danger" onclick="addNode('unsubscribe')"><i class="bi bi-person-dash"></i> Remover da lista</button>
                 <button class="btn btn-sm btn-outline-primary" onclick="addNode('linkedin')"><i class="bi bi-linkedin"></i> LinkedIn (tarefa)</button>
                 <button class="btn btn-sm btn-outline-dark" onclick="addNode('reveal_phone')"><i class="bi bi-telephone-plus"></i> Revelar telefone (Apollo)</button>
+                <button class="btn btn-sm btn-outline-success" onclick="addNode('schedule')"><i class="bi bi-calendar2-check"></i> Agendamento</button>
+                <button class="btn btn-sm btn-outline-primary" onclick="addNode('connect')"><i class="bi bi-diagram-2"></i> Conexão de sequência</button>
+                <button class="btn btn-sm btn-outline-info" onclick="addNode('reply')"><i class="bi bi-reply"></i> Responder ao lead</button>
                 <button class="btn btn-sm btn-outline-danger" onclick="addNode('end')"><i class="bi bi-stop-circle"></i> Encerrar</button>
                 <div class="ms-auto">
                     <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#seq-config">
@@ -40,6 +46,15 @@
             <!-- Configurações (collapse) -->
             <div class="collapse mt-2" id="seq-config">
                 <div class="row g-2 align-items-end border-top pt-2">
+                    <div class="col-6 col-md-2">
+                        <label class="form-label small mb-1">Canal</label>
+                        <select id="seq-channel" class="form-select form-select-sm" title="Define quais leads são elegíveis: e-mail exige e-mail; WhatsApp exige telefone; mista aceita e-mail e/ou telefone">
+                            <?php $chan = $sequence['channel_type'] ?? 'email'; ?>
+                            <option value="email" <?= $chan === 'email' ? 'selected' : '' ?>>E-mail</option>
+                            <option value="whatsapp" <?= $chan === 'whatsapp' ? 'selected' : '' ?>>WhatsApp</option>
+                            <option value="mixed" <?= $chan === 'mixed' ? 'selected' : '' ?>>Mista (e-mail + WhatsApp)</option>
+                        </select>
+                    </div>
                     <div class="col-6 col-md-3">
                         <label class="form-label small mb-1">Conta de envio</label>
                         <select id="seq-account" class="form-select form-select-sm">

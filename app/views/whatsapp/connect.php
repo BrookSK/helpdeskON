@@ -82,7 +82,7 @@ $defaultApiKey = $defaultInstance['api_key'] ?? '';
                         </button>
                         <?php endif; ?>
 
-                        <button class="btn btn-sm btn-outline-secondary" onclick="checkStatus(<?= $inst['id'] ?>)">
+                        <button class="btn btn-sm btn-outline-secondary" onclick="restartInstance(<?= $inst['id'] ?>, this)" title="Renovar conexão (reiniciar socket)">
                             <i class="bi bi-arrow-repeat"></i>
                         </button>
 
@@ -327,16 +327,24 @@ function connectInstance(id) {
     .then(r => r.json())
     .then(data => {
         qrArea.querySelector('.qr-loading').style.display = 'none';
+        if (data.already_connected) {
+            // Já está conectada: a Evolution não gera QR nesse estado.
+            qrArea.querySelector('.qr-image').innerHTML = '<div class="alert alert-info small mb-0">' +
+                (data.message || 'A instância já está conectada. Desconecte antes de gerar um novo QR Code.') + '</div>';
+            return;
+        }
         if (data.base64) {
             qrArea.querySelector('.qr-image').innerHTML = '<img src="' + data.base64 + '"><br><small class="text-muted mt-2 d-block">Escaneie com seu WhatsApp</small>';
+            startStatusPolling(id);
         } else if (data.code) {
             qrArea.querySelector('.qr-image').innerHTML = '<img src="data:image/png;base64,' + data.code + '"><br><small class="text-muted mt-2 d-block">Escaneie com seu WhatsApp</small>';
+            startStatusPolling(id);
         } else if (data.pairingCode) {
             qrArea.querySelector('.qr-image').innerHTML = '<div class="alert alert-info small">Código de pareamento: <strong>' + data.pairingCode + '</strong></div>';
+            startStatusPolling(id);
         } else {
-            qrArea.querySelector('.qr-image').innerHTML = '<div class="alert alert-warning small">QR Code não disponível. Verifique o status.</div>';
+            qrArea.querySelector('.qr-image').innerHTML = '<div class="alert alert-warning small mb-0">QR Code não disponível. A sessão anterior pode não ter sido encerrada.<br>Clique em <strong>Desconectar</strong> novamente e depois em <strong>Conectar</strong>, ou use o botão de <strong>reiniciar</strong> (setas).</div>';
         }
-        startStatusPolling(id);
     })
     .catch(() => {
         qrArea.querySelector('.qr-loading').style.display = 'none';
@@ -359,12 +367,37 @@ function startStatusPolling(id) {
     }, 5000);
 }
 
+// Apenas consulta o status (sem reiniciar)
 function checkStatus(id) {
     fetch(BASE + 'whatsapp/status/' + id, { headers: {'X-Requested-With': 'XMLHttpRequest'} })
     .then(r => r.json())
     .then(data => {
         alert('Status: ' + (data.state || 'Desconhecido'));
         location.reload();
+    });
+}
+
+// Botão de refresh (setas): reinicia a instância para renovar o socket travado
+// do Baileys. Resolve o caso "Conectado" no painel mas com "Connection Closed"
+// no envio, sem precisar ler o QR Code de novo.
+function restartInstance(id, btn) {
+    const original = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>'; }
+    fetch(BASE + 'whatsapp/restart/' + id, { method: 'POST', headers: {'X-Requested-With': 'XMLHttpRequest'} })
+    .then(r => r.json())
+    .then(data => {
+        if (data.connected) {
+            alert('Conexão renovada com sucesso. A instância está pronta para enviar.');
+        } else if (data.success) {
+            alert('Instância reiniciada. Estado atual: ' + (data.state || 'connecting') + '.\nAguarde alguns segundos e verifique novamente. Se não conectar, use "Conectar" para ler o QR Code.');
+        } else {
+            alert('Não foi possível reiniciar a instância. Tente "Desconectar" e "Conectar" novamente.');
+        }
+        location.reload();
+    })
+    .catch(() => {
+        alert('Erro ao reiniciar a instância.');
+        if (btn) { btn.disabled = false; btn.innerHTML = original; }
     });
 }
 
@@ -394,7 +427,12 @@ function disconnectInstance(id) {
     if (!confirm('Deseja desconectar esta instância?')) return;
     fetch(BASE + 'whatsapp/disconnect/' + id, { headers: {'X-Requested-With': 'XMLHttpRequest'} })
     .then(r => r.json())
-    .then(() => location.reload());
+    .then(data => {
+        if (data && data.success === false) {
+            alert(data.message || 'Não foi possível encerrar a sessão. Tente reiniciar a instância (setas) e desconectar novamente.');
+        }
+        location.reload();
+    });
 }
 
 function setDefault(id) {

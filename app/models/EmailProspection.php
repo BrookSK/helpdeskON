@@ -155,11 +155,38 @@ class EmailProspection
     }
 
     /**
+     * Anexa a assinatura padrão da ON Solutions ao corpo, de forma idempotente.
+     * Se o corpo já contém o marcador da assinatura (data-onsolu-signature),
+     * não adiciona de novo — evita duplicidade quando algum fluxo já a inclui.
+     */
+    public static function appendSignature($htmlBody, $account = null)
+    {
+        $body = (string) $htmlBody;
+        if (strpos($body, 'data-onsolu-signature') !== false) {
+            return $body; // já assinado
+        }
+        try {
+            // Assinatura pelo DOMÍNIO do remetente quando a conta é conhecida; senão, padrão.
+            $sig = (is_array($account) && !empty($account['email']))
+                ? EmailMessageService::signatureForSender($account['email'])
+                : EmailMessageService::signatureHtml();
+            return $body . $sig;
+        } catch (\Throwable $e) {
+            return $body; // nunca bloqueia o envio por causa da assinatura
+        }
+    }
+
+    /**
      * Envia o e-mail via SMTP usando os dados da conta.
      * Retorna true em caso de sucesso, ou string de erro.
      */
     public function sendEmail($account, $to, $subject, $htmlBody, $cc = null, $bcc = null, $attachments = [])
     {
+        // Assinatura em TODO e-mail que sai pelo SMTP (ponto único de saída).
+        // Usa a assinatura da CONTA/DOMÍNIO que está enviando; se a conta não tiver
+        // assinatura própria, cai na padrão do sistema. Idempotente.
+        $htmlBody = self::appendSignature($htmlBody, $account);
+
         $host = $account['smtp_host'];
         $port = (int)$account['smtp_port'];
         $encryption = $account['smtp_encryption'];

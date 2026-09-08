@@ -113,8 +113,9 @@ class ProspectionController extends Controller
             }
         }
 
-        // Anexa a assinatura padrão da empresa ao corpo
-        $bodyWithSignature = $body . $this->buildSignature($user);
+        // A assinatura padrão é aplicada centralmente na camada de envio SMTP
+        // (EmailProspection::sendEmail), de forma idempotente. Não concatenar aqui.
+        $bodyWithSignature = $body;
 
         // Envio + registro unificado (email_messages) com tracking, quando há lead resolvido.
         if ($contactId) {
@@ -453,35 +454,13 @@ class ProspectionController extends Controller
     }
 
     /**
-     * Monta a assinatura HTML padrão anexada a todos os e-mails enviados.
-     * Inclui a logo do sistema (se configurada) e o nome do usuário remetente.
+     * Assinatura padrão dos e-mails. Mantido por compatibilidade: delega para a
+     * assinatura canônica (EmailMessageService::signatureHtml), fonte única usada
+     * também na injeção automática da camada de envio SMTP.
      */
     private function buildSignature($user)
     {
-        $userName = htmlspecialchars($user['name'] ?? '', ENT_QUOTES, 'UTF-8');
-
-        $logoHtml = '';
-        $logoPath = Config::get('app_logo');
-        if (!empty($logoPath)) {
-            $logoUrl = baseUrl($logoPath);
-            $logoHtml = '<img src="' . htmlspecialchars($logoUrl, ENT_QUOTES, 'UTF-8') . '" alt="ON Solutions Brasil" style="max-height:56px;margin-bottom:8px;">';
-        }
-
-        return '
-<div style="margin-top:28px;padding-top:16px;border-top:1px solid #e5e7eb;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#333;line-height:1.5;">
-    ' . $logoHtml . '
-    <div style="font-weight:600;color:#111;">' . $userName . '</div>
-    <div style="margin-top:6px;">Atenciosamente,<br><strong>Equipe ON Solutions Brasil</strong></div>
-    <div style="color:#666;margin-top:2px;">Tecnologia • Desenvolvimento • Automação</div>
-    <div style="margin-top:8px;">
-        📧 <a href="mailto:contato@onsolutionsbrasil.com.br" style="color:#00997D;text-decoration:none;">contato@onsolutionsbrasil.com.br</a><br>
-        🌐 <a href="https://www.onsolutionsbrasil.com.br" style="color:#00997D;text-decoration:none;">www.onsolutionsbrasil.com.br</a>
-    </div>
-    <div style="margin-top:8px;color:#888;font-size:12px;">
-        <strong>ON Solutions Brasil</strong><br>
-        Soluções inteligentes para transformar processos e negócios.
-    </div>
-</div>';
+        return EmailMessageService::signatureHtml($user['name'] ?? null);
     }
 
     /**
@@ -581,8 +560,8 @@ class ProspectionController extends Controller
         $linkedUsers = $this->accountModel->getLinkedUserIds($accountId);
         if (!in_array($user['id'], $linkedUsers)) $this->json(['error' => 'Sem permissão.'], 403);
 
-        $bodyWithSignature = $body . $this->buildSignature($user);
-        $result = $this->prospectionModel->sendEmail($account, $to, $subject, $bodyWithSignature, $cc, null, []);
+        // Assinatura aplicada centralmente no envio SMTP (idempotente).
+        $result = $this->prospectionModel->sendEmail($account, $to, $subject, $body, $cc, null, []);
 
         // Registra a resposta manual no histórico unificado do lead (se houver lead)
         if (!empty($_POST['contact_id'])) {

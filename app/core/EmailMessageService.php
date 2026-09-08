@@ -27,6 +27,104 @@ class EmailMessageService
      * }
      * @return array {success, message_id (local), error}
      */
+    /**
+     * Assinatura HTML padrão dos e-mails da ON Solutions Brasil.
+     * Mesma identidade usada nos envios manuais (logo, nome, contatos).
+     * Fonte única para e-mails manuais e de sequência.
+     */
+    /**
+     * Assinatura HTML pelo DOMÍNIO do remetente. Casa o domínio de $fromEmail com
+     * uma assinatura cadastrada em email_signatures (configurada uma vez em
+     * Configurações). Mesmos campos da assinatura padrão: logo, empresa,
+     * especialidades, e-mail, site e tagline. Sem correspondência → padrão.
+     *
+     * @param string|null $fromEmail e-mail da conta que está enviando
+     * @return string HTML com o marcador data-onsolu-signature
+     */
+    public static function signatureForSender($fromEmail, $userName = null)
+    {
+        $sig = null;
+        try {
+            $email = trim((string)$fromEmail);
+            $domain = (strpos($email, '@') !== false) ? strtolower(substr(strrchr($email, '@'), 1)) : '';
+            if ($domain !== '') {
+                $sig = Database::getInstance()->fetch(
+                    "SELECT * FROM email_signatures WHERE is_active = 1 AND domain = ? LIMIT 1",
+                    [$domain]
+                );
+            }
+        } catch (\Throwable $e) { $sig = null; }
+
+        if (!$sig) return self::signatureHtml($userName); // fallback padrão
+
+        $esc = fn($v) => htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
+        $color = $esc($sig['color'] ?: '#00997D');
+
+        // Logo: usa a da assinatura (upload) ou, se vazia, a logo do sistema.
+        $logoHtml = '';
+        $logo = $sig['logo'] ?? '';
+        if (empty($logo)) { try { $logo = (string) Config::get('app_logo'); } catch (\Throwable $e) {} }
+        if (!empty($logo)) {
+            $logoUrl = (stripos($logo, 'http') === 0) ? $logo : baseUrl($logo);
+            $logoHtml = '<img src="' . $esc($logoUrl) . '" alt="' . $esc($sig['company'] ?? '') . '" style="max-height:56px;margin-bottom:8px;">';
+        }
+
+        $company = trim((string)($sig['company'] ?? ''));
+        $spec = trim((string)($sig['specialties'] ?? ''));
+        $email = trim((string)($sig['contact_email'] ?? ''));
+        $site = trim((string)($sig['site'] ?? ''));
+        $tagline = trim((string)($sig['tagline'] ?? ''));
+        $siteUrl = ($site && stripos($site, 'http') === 0) ? $site : ('https://' . $site);
+
+        $contact = [];
+        if ($email !== '') $contact[] = '📧 <a href="mailto:' . $esc($email) . '" style="color:' . $color . ';text-decoration:none;">' . $esc($email) . '</a>';
+        if ($site !== '')  $contact[] = '🌐 <a href="' . $esc($siteUrl) . '" style="color:' . $color . ';text-decoration:none;">' . $esc($site) . '</a>';
+
+        // Mesmo layout da assinatura padrão (imagem de referência).
+        return '
+<div data-onsolu-signature="1" style="margin-top:28px;padding-top:16px;border-top:1px solid #e5e7eb;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#333;line-height:1.5;">
+    ' . $logoHtml . '
+    <div style="margin-top:6px;">Atenciosamente,<br><strong>' . $esc($company) . '</strong></div>'
+    . ($spec !== '' ? '<div style="color:#666;margin-top:2px;">' . $esc($spec) . '</div>' : '') . '
+    ' . (!empty($contact) ? '<div style="margin-top:8px;">' . implode('<br>', $contact) . '</div>' : '') . '
+    ' . ($tagline !== '' ? '<div style="margin-top:8px;color:#888;font-size:12px;"><strong>' . $esc($company) . '</strong><br>' . $esc($tagline) . '</div>' : '') . '
+</div>';
+    }
+
+    public static function signatureHtml($userName = null)
+    {
+        $name = htmlspecialchars((string) ($userName ?? ''), ENT_QUOTES, 'UTF-8');
+
+        $logoHtml = '';
+        try {
+            $logoPath = Config::get('app_logo');
+            if (!empty($logoPath)) {
+                $logoUrl = baseUrl($logoPath);
+                $logoHtml = '<img src="' . htmlspecialchars($logoUrl, ENT_QUOTES, 'UTF-8') . '" alt="ON Solutions Brasil" style="max-height:56px;margin-bottom:8px;">';
+            }
+        } catch (\Throwable $e) { $logoHtml = ''; }
+
+        $nameBlock = $name !== '' ? '<div style="font-weight:600;color:#111;">' . $name . '</div>' : '';
+
+        // Marcador de idempotência: usado pelo EmailProspection::sendEmail para
+        // detectar que a assinatura já está presente e não duplicá-la.
+        return '
+<div data-onsolu-signature="1" style="margin-top:28px;padding-top:16px;border-top:1px solid #e5e7eb;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#333;line-height:1.5;">
+    ' . $logoHtml . '
+    ' . $nameBlock . '
+    <div style="margin-top:6px;">Atenciosamente,<br><strong>Equipe ON Solutions Brasil</strong></div>
+    <div style="color:#666;margin-top:2px;">Tecnologia • Desenvolvimento • Automação</div>
+    <div style="margin-top:8px;">
+        📧 <a href="mailto:contato@onsolutionsbrasil.com.br" style="color:#00997D;text-decoration:none;">contato@onsolutionsbrasil.com.br</a><br>
+        🌐 <a href="https://www.onsolutionsbrasil.com.br" style="color:#00997D;text-decoration:none;">www.onsolutionsbrasil.com.br</a>
+    </div>
+    <div style="margin-top:8px;color:#888;font-size:12px;">
+        <strong>ON Solutions Brasil</strong><br>
+        Soluções inteligentes para transformar processos e negócios.
+    </div>
+</div>';
+    }
+
     public function send(array $params)
     {
         $contactId = (int) $params['contact_id'];
@@ -35,6 +133,14 @@ class EmailMessageService
         $subject = trim($params['subject']);
         $body = $params['body_html'];
         $origin = $params['origin'] ?? 'manual';
+
+        // Assinatura padrão: anexada quando add_signature=true (ex.: e-mails de
+        // sequência). O envio manual já concatena a assinatura antes de chamar aqui,
+        // então não usa esse flag para evitar duplicidade.
+        if (!empty($params['add_signature'])) {
+            // Assinatura pelo DOMÍNIO do remetente; fallback padrão.
+            $body .= self::signatureForSender($account['email'] ?? null, $params['signature_name'] ?? null);
+        }
 
         // Bloqueia envio a leads descadastrados / com bounce definitivo
         $contact = $this->db->fetch("SELECT unsubscribed, email_bounced FROM whatsapp_contacts WHERE id = ?", [$contactId]);
@@ -192,8 +298,9 @@ class EmailMessageService
         (new LeadTimelineService())->add($contactId, 'email_reply', 'Lead respondeu' . ($subject ? ': ' . $subject : ''), null, $userId);
         (new LeadScoreService())->add($contactId, LeadScoreService::W_REPLY, 'resposta recebida');
 
-        // Interrompe sequências ativas do lead
-        (new SequenceEngine())->stopForContact($contactId, 'replied');
+        // Resposta do lead: encaminha para triagem por IA (se a sequência tiver o
+        // bloco de IA); senão, encerra. Antes o comportamento era sempre encerrar.
+        (new SequenceEngine())->routeReplyToTriage($contactId, 'replied');
 
         return true;
     }
