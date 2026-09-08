@@ -226,9 +226,11 @@ class AgendaController extends Controller
             // Reunião operacional: notifica os participantes por WhatsApp + e-mail
             $this->notifyParticipants($id);
         } elseif (!empty($data['meeting_at'])) {
-            // Integração Google Agenda/Meet + convites (email + WhatsApp)
+            // Integração Google Agenda/Meet + convites ao cliente (email + WhatsApp)
             // Se o evento já foi criado no modal (link gerado), só envia os convites; senão cria agora
             $this->createGoogleEventAndInvites($id, !$preEventId);
+            // Notifica também a equipe (participantes internos) por WhatsApp + e-mail
+            $this->notifyParticipants($id);
         }
 
         $this->json(['success' => true, 'meeting' => $this->model->findById($id)]);
@@ -279,12 +281,15 @@ class AgendaController extends Controller
 
             // WhatsApp
             if (!empty($p['phone'])) {
+                $dateFmt = !empty($meeting['meeting_at']) ? date('d/m/Y', strtotime($meeting['meeting_at'])) : 'a definir';
+                $timeFmt = !empty($meeting['meeting_at']) ? date('H\hi', strtotime($meeting['meeting_at'])) : 'a definir';
                 $waMsg = "📅 *Reunião agendada*\n\n"
-                    . "*Assunto:* {$meeting['title']}\n"
-                    . "*Data:* {$whenFmt}\n"
-                    . ($desc !== '' ? "*Descrição:* {$desc}\n" : "")
-                    . ($meetLink !== '' ? "*Link da call:* {$meetLink}\n" : "")
-                    . "\nAté breve!";
+                    . "Olá, equipe! 👋\n\n"
+                    . "A reunião *{$meeting['title']}* está confirmada.\n\n"
+                    . "📅 *Data:* {$dateFmt}\n"
+                    . "🕐 *Horário:* {$timeFmt}"
+                    . ($meetLink !== '' ? "\n🔗 *Link da reunião:* {$meetLink}" : "")
+                    . "\n\nContamos com a participação de todos os envolvidos.";
                 try {
                     if (WhatsappNotifier::sendToPhone($p['phone'], $waMsg, $p['name'])) $sentWhats++;
                 } catch (\Throwable $e) { /* ignora */ }
