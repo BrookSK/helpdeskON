@@ -38,7 +38,6 @@
                         <select id="mt-client-source" class="form-select form-select-sm" onchange="onClientSourceChange()">
                             <option value="crm">Cliente (CRM)</option>
                             <option value="empresa">Empresa</option>
-                            <option value="ambos">Ambos</option>
                         </select>
                     </div>
 
@@ -457,13 +456,11 @@ function onStatusChange() {
     }
 }
 
-// Alterna a origem do cliente: CRM (lead), Empresa → Contato, ou ambos.
+// Alterna a origem do cliente: CRM (lead) ou Empresa → Contato.
 function onClientSourceChange() {
-    const src = document.getElementById('mt-client-source').value;
-    const showCrm = (src === 'crm' || src === 'ambos');
-    const showEmpresa = (src === 'empresa' || src === 'ambos');
-    document.querySelectorAll('.mt-source-crm').forEach(el => el.style.display = showCrm ? '' : 'none');
-    document.querySelectorAll('.mt-source-empresa').forEach(el => el.style.display = showEmpresa ? '' : 'none');
+    const isEmpresa = document.getElementById('mt-client-source').value === 'empresa';
+    document.querySelectorAll('.mt-source-crm').forEach(el => el.style.display = isEmpresa ? 'none' : '');
+    document.querySelectorAll('.mt-source-empresa').forEach(el => el.style.display = isEmpresa ? '' : 'none');
 }
 
 // Ao escolher cliente: carrega o briefing ou mostra campos de novo cliente
