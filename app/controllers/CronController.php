@@ -461,6 +461,11 @@ class CronController extends Controller
             Logger::error('runProspecting: falha nos lembretes de reunião', ['error' => $e->getMessage()]);
         }
 
+        // 4) Lembrete de 1h para reuniões agendadas no mesmo dia (antecedência de criação <= 24h).
+        try { $this->sendSameDayReminders(); } catch (\Throwable $e) {
+            Logger::error('runProspecting: falha no lembrete de 1h (mesmo dia)', ['error' => $e->getMessage()]);
+        }
+
         $this->json(['success' => empty($result['error']), 'result' => $result, 'sequences' => $engineStats]);
     }
 
@@ -526,6 +531,114 @@ class CronController extends Controller
             if (!empty($m['owner_phone'])) {
                 $waO = "⏰ *Lembrete de reunião*\n\nCom {$name}\n*Data:* {$whenFmt}\n" . ($meetLink ? "*Meet:* {$meetLink}" : "");
                 try { WhatsappNotifier::sendToPhone($m['owner_phone'], $waO, $m['owner_name'] ?? ''); } catch (\Throwable $e) {}
+            }
+
+            try { $db->update('agenda_meetings', ['reminder_sent_at' => date('Y-m-d H:i:s')], 'id = ?', [$m['id']]); } catch (\Throwable $e) {}
+        }
+        return $sent;
+    }
+
+    /**
+     * Lembrete de 1 hora para reuniões agendadas "no mesmo dia" — isto é, cuja
+     * antecedência entre a criação e o horário da reunião é de até 24h.
+     * (Reuniões com mais de 24h de antecedência usam o lembrete de 5h, tratado à parte.)
+     *
+     * Regras:
+     *  - Só dispara quando falta 1h ou menos para a reunião (meeting_at entre agora e agora+1h).
+     *  - Se o horário de 1h antes já passou (reunião muito próxima), simplesmente não envia
+     *    (a janela [agora, agora+1h] naturalmente exclui reuniões que já começaram).
+     *  - Envia ao cliente, ao responsável e a toda a equipe (participantes internos).
+     *  - Uma única vez por reunião (controlado por reminder_sent_at).
+     */
+    private function sendSameDayReminders()
+    {
+        $db = Database::getInstance();
+
+        $now = date('Y-m-d H:i:s');
+        $oneHour = date('Y-m-d H:i:s', strtotime('+1 hour'));
+
+        // Reuniões que começam dentro da próxima 1h, ainda não lembradas, e cuja
+        // antecedência de criação (created_at → meeting_at) é de no máximo 24h.
+        $rows = $db->fetchAll(
+            "SELECT m.*, u.name AS owner_name, u.phone AS owner_phone, u.email AS owner_email,
+                    wc.contact_name AS crm_name, wc.phone AS crm_phone, wc.lead_email AS crm_email
+             FROM agenda_meetings m
+             LEFT JOIN users u ON m.assigned_to = u.id
+             LEFT JOIN whatsapp_contacts wc ON m.contact_id = wc.id
+             WHERE m.meeting_at IS NOT NULL
+               AND m.meeting_at BETWEEN ? AND ?
+               AND m.reminder_sent_at IS NULL
+               AND m.status NOT IN ('cancelada','realizada','convertida')
+               AND TIMESTAMPDIFF(SECOND, m.created_at, m.meeting_at) <= 86400",
+            [$now, $oneHour]
+        );
+
+        $sent = 0;
+        foreach ($rows as $m) {
+            $name = $m['crm_name'] ?: ($m['client_name'] ?: 'Cliente');
+            $email = $m['crm_email'] ?: ($m['client_email'] ?? null);
+            $phone = $m['crm_phone'] ?: ($m['client_phone'] ?? null);
+            $whenFmt = date('d/m/Y \à\s H:i', strtotime($m['meeting_at']));
+            $dateFmt = date('d/m/Y', strtotime($m['meeting_at']));
+            $timeFmt = date('H\hi', strtotime($m['meeting_at']));
+            $meetLink = $m['meet_link'] ?? null;
+
+            // --- Cliente (e-mail + WhatsApp) ---
+            if (!empty($email)) {
+                $body = Mailer::template('Lembrete de reunião',
+                    "<p>Olá, <strong>" . htmlspecialchars($name) . "</strong>!</p>
+                     <p>Sua reunião começa em 1 hora:</p>
+                     <p style='margin:6px 0;'><strong>Assunto:</strong> " . htmlspecialchars($m['title']) . "</p>
+                     <p style='margin:6px 0;'><strong>Data:</strong> {$whenFmt}</p>"
+                     . ($meetLink ? "<p style='text-align:center;margin:24px 0;'><a href='{$meetLink}' style='background:#00BFA6;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;'>Entrar na reunião</a></p>" : "")
+                     . "<p>Até logo!</p>");
+                try { if (Mailer::send($email, 'Lembrete de reunião — ' . $m['title'], $body)) $sent++; } catch (\Throwable $e) {}
+            }
+            if (!empty($phone)) {
+                $wa = "⏰ *Lembrete de reunião*\n\n"
+                    . "Sua reunião *{$m['title']}* começa em 1 hora.\n\n"
+                    . "📅 *Data:* {$dateFmt}\n"
+                    . "🕐 *Horário:* {$timeFmt}"
+                    . ($meetLink ? "\n🔗 *Link da reunião:* {$meetLink}" : "");
+                try { if (WhatsappNotifier::sendToPhone($phone, $wa, $name)) $sent++; } catch (\Throwable $e) {}
+            }
+
+            // --- Responsável ---
+            if (!empty($m['owner_phone'])) {
+                $waO = "⏰ *Lembrete de reunião*\n\nCom {$name} — começa em 1 hora.\n"
+                    . "📅 *Data:* {$dateFmt}\n🕐 *Horário:* {$timeFmt}"
+                    . ($meetLink ? "\n🔗 *Link:* {$meetLink}" : "");
+                try { WhatsappNotifier::sendToPhone($m['owner_phone'], $waO, $m['owner_name'] ?? ''); } catch (\Throwable $e) {}
+            }
+
+            // --- Equipe (participantes internos): e-mail + WhatsApp ---
+            $participants = $db->fetchAll(
+                "SELECT u.name, u.email, u.phone
+                 FROM agenda_meeting_participants p
+                 JOIN users u ON p.user_id = u.id
+                 WHERE p.meeting_id = ?",
+                [$m['id']]
+            );
+            foreach ($participants as $p) {
+                if (!empty($p['email'])) {
+                    $bodyP = Mailer::template('Lembrete de reunião',
+                        "<p>Olá, <strong>" . htmlspecialchars($p['name']) . "</strong>!</p>
+                         <p>A reunião <strong>" . htmlspecialchars($m['title']) . "</strong> começa em 1 hora.</p>
+                         <p style='margin:6px 0;'><strong>Data:</strong> {$whenFmt}</p>"
+                         . ($meetLink ? "<p style='text-align:center;margin:24px 0;'><a href='{$meetLink}' style='background:#00BFA6;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;'>Entrar na reunião</a></p>" : "")
+                         . "<p>Contamos com a sua participação.</p>");
+                    try { if (Mailer::send($p['email'], 'Lembrete de reunião — ' . $m['title'], $bodyP)) $sent++; } catch (\Throwable $e) {}
+                }
+                if (!empty($p['phone'])) {
+                    $waP = "⏰ *Lembrete de reunião*\n\n"
+                        . "Olá, equipe! 👋\n\n"
+                        . "A reunião *{$m['title']}* começa em 1 hora.\n\n"
+                        . "📅 *Data:* {$dateFmt}\n"
+                        . "🕐 *Horário:* {$timeFmt}"
+                        . ($meetLink ? "\n🔗 *Link da reunião:* {$meetLink}" : "")
+                        . "\n\nContamos com a participação de todos os envolvidos.";
+                    try { if (WhatsappNotifier::sendToPhone($p['phone'], $waP, $p['name'])) $sent++; } catch (\Throwable $e) {}
+                }
             }
 
             try { $db->update('agenda_meetings', ['reminder_sent_at' => date('Y-m-d H:i:s')], 'id = ?', [$m['id']]); } catch (\Throwable $e) {}
