@@ -52,6 +52,11 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                             <span data-ph="Todas Empresas" data-single="empresa" data-plural="empresas">Todas Empresas</span>
                         </button>
                         <div class="dropdown-menu p-2" style="max-height:280px;overflow-y:auto;min-width:220px;">
+                            <label class="dropdown-item d-flex align-items-center gap-2 px-2 py-1 fw-medium" style="cursor:pointer;">
+                                <input class="form-check-input mt-0 mf-all" type="checkbox">
+                                <span class="small">Selecionar todas</span>
+                            </label>
+                            <div class="dropdown-divider my-1"></div>
                             <?php foreach ($companies as $c): ?>
                             <label class="dropdown-item d-flex align-items-center gap-2 px-2 py-1" style="cursor:pointer;">
                                 <input class="form-check-input mt-0 mf-check" type="checkbox" name="company_id[]" value="<?= $c['id'] ?>" <?= in_array((int)$c['id'], $selCompanies, true) ? 'checked' : '' ?>>
@@ -69,6 +74,11 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                             <span data-ph="Todos Responsáveis" data-single="responsável" data-plural="responsáveis">Todos Responsáveis</span>
                         </button>
                         <div class="dropdown-menu p-2" style="max-height:280px;overflow-y:auto;min-width:220px;">
+                            <label class="dropdown-item d-flex align-items-center gap-2 px-2 py-1 fw-medium" style="cursor:pointer;">
+                                <input class="form-check-input mt-0 mf-all" type="checkbox">
+                                <span class="small">Selecionar todos</span>
+                            </label>
+                            <div class="dropdown-divider my-1"></div>
                             <?php foreach ($teamMembers as $m): ?>
                             <label class="dropdown-item d-flex align-items-center gap-2 px-2 py-1" style="cursor:pointer;">
                                 <input class="form-check-input mt-0 mf-check" type="checkbox" name="assigned_to[]" value="<?= $m['id'] ?>" <?= in_array((int)$m['id'], $selAssigned, true) ? 'checked' : '' ?>>
@@ -86,6 +96,11 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                             <span data-ph="Todos Solicitantes" data-single="solicitante" data-plural="solicitantes">Todos Solicitantes</span>
                         </button>
                         <div class="dropdown-menu p-2" style="max-height:280px;overflow-y:auto;min-width:220px;">
+                            <label class="dropdown-item d-flex align-items-center gap-2 px-2 py-1 fw-medium" style="cursor:pointer;">
+                                <input class="form-check-input mt-0 mf-all" type="checkbox">
+                                <span class="small">Selecionar todos</span>
+                            </label>
+                            <div class="dropdown-divider my-1"></div>
                             <?php foreach (($requesters ?? []) as $r): ?>
                             <label class="dropdown-item d-flex align-items-center gap-2 px-2 py-1" style="cursor:pointer;">
                                 <input class="form-check-input mt-0 mf-check" type="checkbox" name="created_by[]" value="<?= $r['id'] ?>" <?= in_array((int)$r['id'], $selRequesters, true) ? 'checked' : '' ?>>
@@ -103,6 +118,11 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                             <span data-ph="Todos os Status" data-single="status" data-plural="status">Todos os Status</span>
                         </button>
                         <div class="dropdown-menu p-2" style="max-height:280px;overflow-y:auto;min-width:220px;">
+                            <label class="dropdown-item d-flex align-items-center gap-2 px-2 py-1 fw-medium" style="cursor:pointer;">
+                                <input class="form-check-input mt-0 mf-all" type="checkbox">
+                                <span class="small">Selecionar todos</span>
+                            </label>
+                            <div class="dropdown-divider my-1"></div>
                             <?php foreach ($statusLabels as $s => $info): ?>
                             <label class="dropdown-item d-flex align-items-center gap-2 px-2 py-1" style="cursor:pointer;">
                                 <input class="form-check-input mt-0 mf-check" type="checkbox" name="statuses[]" value="<?= $s ?>" <?= in_array($s, $selStatuses, true) ? 'checked' : '' ?>>
@@ -1780,10 +1800,37 @@ document.getElementById('cardDetailModal').addEventListener('shown.bs.modal', fu
         }
     }
 
+    // Sincroniza o estado do "Selecionar todos" com os itens do filtro.
+    function syncMaster(dropdown) {
+        var master = dropdown.querySelector('.mf-all');
+        if (!master) return;
+        var checks = dropdown.querySelectorAll('.mf-check');
+        var total = checks.length;
+        var selected = Array.prototype.filter.call(checks, function (c) { return c.checked; }).length;
+        master.checked = (total > 0 && selected === total);
+        master.indeterminate = (selected > 0 && selected < total);
+    }
+
     document.querySelectorAll('.multi-filter').forEach(function (dropdown) {
         updateLabel(dropdown);
+        syncMaster(dropdown);
+
+        // "Selecionar todos": marca/desmarca todos os itens de uma vez.
+        var master = dropdown.querySelector('.mf-all');
+        if (master) {
+            master.addEventListener('change', function () {
+                dropdown.querySelectorAll('.mf-check').forEach(function (chk) { chk.checked = master.checked; });
+                master.indeterminate = false;
+                updateLabel(dropdown);
+            });
+        }
+
+        // Item individual: atualiza rótulo e o estado do "Selecionar todos".
         dropdown.querySelectorAll('.mf-check').forEach(function (chk) {
-            chk.addEventListener('change', function () { updateLabel(dropdown); });
+            chk.addEventListener('change', function () {
+                updateLabel(dropdown);
+                syncMaster(dropdown);
+            });
         });
     });
 })();
