@@ -139,6 +139,9 @@ class AgendaController extends Controller
         $title = trim($_POST['title'] ?? '');
         if ($title === '') $this->json(['error' => 'Título obrigatório'], 400);
 
+        // Tipo de reunião: comercial (usa briefing) ou operacional (dispensa cliente/briefing)
+        $meetingType = ($_POST['meeting_type'] ?? 'comercial') === 'operacional' ? 'operacional' : 'comercial';
+
         $contactId = !empty($_POST['contact_id']) ? intval($_POST['contact_id']) : null;
 
         // Cliente novo (manual): cria o lead no CRM para ficar disponível depois
@@ -150,8 +153,9 @@ class AgendaController extends Controller
             );
         }
 
-        // Contato é obrigatório (selecionar existente ou cadastrar novo)
-        if (!$contactId) {
+        // Contato é obrigatório apenas para reuniões comerciais.
+        // Reuniões operacionais podem ser criadas sem cliente vinculado.
+        if (!$contactId && $meetingType !== 'operacional') {
             $this->json(['error' => 'Selecione um cliente ou cadastre um novo.'], 400);
         }
 

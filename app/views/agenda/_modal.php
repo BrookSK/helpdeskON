@@ -19,7 +19,14 @@
                 <input type="hidden" id="mt-temperature">
 
                 <div class="row g-3">
-                    <div class="col-12">
+                    <div class="col-md-4">
+                        <label class="form-label small fw-medium">Tipo de reunião *</label>
+                        <select id="mt-meeting-type" class="form-select form-select-sm" onchange="onMeetingTypeChange()">
+                            <option value="comercial">Comercial</option>
+                            <option value="operacional">Operacional</option>
+                        </select>
+                    </div>
+                    <div class="col-md-8">
                         <label class="form-label small fw-medium">Título *</label>
                         <input type="text" id="mt-title" class="form-control form-control-sm" placeholder="Ex: Reunião de apresentação">
                     </div>
@@ -157,7 +164,8 @@
                     </div>
                 </div>
 
-                <!-- Briefing do cliente (editável) -->
+                <!-- Briefing do cliente (editável) — só para reuniões comerciais -->
+                <div id="briefing-section">
                 <hr>
                 <div class="d-flex align-items-center justify-content-between mb-2">
                     <h6 class="fw-semibold mb-0" style="font-size:0.85rem;"><i class="bi bi-clipboard-data"></i> Briefing do cliente</h6>
@@ -232,6 +240,8 @@
                         <textarea id="bf-notes" class="form-control form-control-sm" rows="2"></textarea>
                     </div>
                 </div>
+                </div>
+                <!-- /#briefing-section -->
             </div>
             <div class="modal-footer justify-content-between">
                 <button class="btn btn-sm btn-outline-danger" id="mt-delete-btn" onclick="deleteMeeting()" style="display:none;"><i class="bi bi-trash"></i> Excluir</button>
@@ -274,6 +284,10 @@ function resetMeetingForm() {
     document.getElementById('mt-status').value = 'a_agendar';
     document.getElementById('mt-closed-by').value = '';
     document.getElementById('closed-by-field').style.display = 'none';
+    // Tipo de reunião: padrão comercial (mostra o briefing)
+    const mtType = document.getElementById('mt-meeting-type');
+    if (mtType) mtType.value = 'comercial';
+    onMeetingTypeChange();
     // Limpa participantes
     const ptSel = document.getElementById('mt-participants');
     if (ptSel) Array.from(ptSel.options).forEach(o => o.selected = false);
@@ -372,10 +386,22 @@ function fillMeeting(m) {
     }
     syncParticipantChecks();
     fillBriefing(m.briefing);
+    // Reuniões existentes abrem como comercial (briefing visível), preservando o comportamento atual.
+    const mtType = document.getElementById('mt-meeting-type');
+    if (mtType) mtType.value = 'comercial';
+    onMeetingTypeChange();
     // Urgência e temperatura são campos únicos (briefing). Usa os do briefing; se vazios, cai nos da reunião.
     syncInherited(m.urgency || 'media', m.temperature || '');
     if (m.meet_link) showMeetLink(m.meet_link);
     document.getElementById('mt-delete-btn').style.display = '';
+}
+
+// Mostra/oculta o briefing conforme o tipo de reunião.
+// Reunião operacional não precisa de briefing do cliente.
+function onMeetingTypeChange() {
+    const type = document.getElementById('mt-meeting-type').value;
+    const section = document.getElementById('briefing-section');
+    if (section) section.style.display = (type === 'operacional') ? 'none' : '';
 }
 
 // Mostra/oculta campo "Quem fechou" conforme o status
@@ -554,8 +580,13 @@ function collectPayload() {
     if (ptSel) {
         Array.from(ptSel.selectedOptions).forEach(o => fd.append('participants[]', o.value));
     }
-    // Briefing
-    BF_FIELDS.forEach(k => fd.append('bf_' + k, document.getElementById('bf-' + k).value));
+    // Tipo de reunião
+    const meetingType = document.getElementById('mt-meeting-type').value;
+    fd.append('meeting_type', meetingType);
+    // Briefing: só envia para reuniões comerciais (operacional não usa briefing)
+    if (meetingType !== 'operacional') {
+        BF_FIELDS.forEach(k => fd.append('bf_' + k, document.getElementById('bf-' + k).value));
+    }
     return fd;
 }
 
@@ -605,9 +636,12 @@ function saveMeeting() {
     const title = document.getElementById('mt-title').value.trim();
     if (!title) { alert('Informe o título.'); return; }
 
-    // Contato obrigatório
+    // Contato: obrigatório apenas em reuniões comerciais (operacional não exige cliente)
+    const meetingType = document.getElementById('mt-meeting-type').value;
     const clientVal = document.getElementById('mt-client').value;
-    if (!clientVal) { alert('Selecione um cliente (CRM) ou cadastre um novo.'); return; }
+    if (meetingType !== 'operacional') {
+        if (!clientVal) { alert('Selecione um cliente (CRM) ou cadastre um novo.'); return; }
+    }
     if (clientVal === '__new__' && !document.getElementById('mt-new-name').value.trim()) {
         alert('Informe o nome do novo cliente.'); return;
     }
