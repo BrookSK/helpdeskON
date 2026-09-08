@@ -154,8 +154,10 @@ class AgendaController extends Controller
             );
         }
 
-        // Contato só é obrigatório em reunião comercial (selecionar existente ou cadastrar novo)
-        if (!$isOperational && !$contactId) {
+        // Em reunião comercial o cliente pode vir do CRM (contact_id) ou de uma empresa
+        // (Empresa → Contato), que preenche client_name/phone/email como snapshot.
+        $hasClientSnapshot = trim($_POST['client_name'] ?? '') !== '';
+        if (!$isOperational && !$contactId && !$hasClientSnapshot) {
             $this->json(['error' => 'Selecione um cliente ou cadastre um novo.'], 400);
         }
 

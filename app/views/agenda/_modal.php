@@ -32,9 +32,30 @@
                         <input type="text" id="mt-title" class="form-control form-control-sm" placeholder="Ex: Reunião de apresentação">
                     </div>
 
-                    <!-- Empresa → Contato (reutiliza o vínculo existente users.company_id) -->
-                    <div class="col-md-6">
-                        <label class="form-label small fw-medium">Empresa</label>
+                    <!-- Origem do cliente: CRM (lead) ou Empresa → Contato -->
+                    <div class="col-md-4 mt-commercial-only">
+                        <label class="form-label small fw-medium">Buscar cliente por *</label>
+                        <select id="mt-client-source" class="form-select form-select-sm" onchange="onClientSourceChange()">
+                            <option value="crm">Cliente (CRM)</option>
+                            <option value="empresa">Empresa</option>
+                        </select>
+                    </div>
+
+                    <!-- Origem = CRM: lead do CRM -->
+                    <div class="col-md-8 mt-commercial-only mt-source-crm">
+                        <label class="form-label small fw-medium">Cliente (CRM) *</label>
+                        <select id="mt-client" class="form-select form-select-sm" onchange="onClientChange()">
+                            <option value="">Selecione um lead do CRM...</option>
+                            <?php foreach ($leads as $l): ?>
+                            <option value="<?= $l['id'] ?>"><?= escape($l['contact_name'] ?: ('Contato #' . $l['id'])) ?><?= $l['phone'] ? ' — ' . escape($l['phone']) : '' ?></option>
+                            <?php endforeach; ?>
+                            <option value="__new__">➕ Cadastrar novo cliente</option>
+                        </select>
+                    </div>
+
+                    <!-- Origem = Empresa: Empresa → Contato (reutiliza users.company_id) -->
+                    <div class="col-md-4 mt-commercial-only mt-source-empresa" style="display:none;">
+                        <label class="form-label small fw-medium">Empresa *</label>
                         <input type="text" id="mt-company-search" class="form-control form-control-sm mb-1"
                                placeholder="Pesquisar empresa por nome..." oninput="filterCompanyOptions()" autocomplete="off">
                         <select id="mt-company" class="form-select form-select-sm" onchange="onCompanyChange()">
@@ -44,24 +65,12 @@
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    <div class="col-md-6">
-                        <label class="form-label small fw-medium">Contato</label>
+                    <div class="col-md-4 mt-commercial-only mt-source-empresa" style="display:none;">
+                        <label class="form-label small fw-medium">Contato *</label>
                         <input type="text" id="mt-contact-search" class="form-control form-control-sm mb-1"
                                placeholder="Pesquisar contato por nome..." oninput="filterContactOptions()" autocomplete="off">
                         <select id="mt-contact" class="form-select form-select-sm" onchange="onContactChange()" disabled>
                             <option value="">Selecione uma empresa primeiro...</option>
-                        </select>
-                    </div>
-
-                    <!-- Cliente do CRM -->
-                    <div class="col-md-8 mt-commercial-only">
-                        <label class="form-label small fw-medium">Cliente (CRM) *</label>
-                        <select id="mt-client" class="form-select form-select-sm" onchange="onClientChange()">
-                            <option value="">Selecione um lead do CRM...</option>
-                            <?php foreach ($leads as $l): ?>
-                            <option value="<?= $l['id'] ?>"><?= escape($l['contact_name'] ?: ('Contato #' . $l['id'])) ?><?= $l['phone'] ? ' — ' . escape($l['phone']) : '' ?></option>
-                            <?php endforeach; ?>
-                            <option value="__new__">➕ Cadastrar novo cliente</option>
                         </select>
                     </div>
                     <div class="col-md-4">
@@ -301,6 +310,9 @@ function resetMeetingForm() {
     // Tipo de reunião padrão
     const typeSel = document.getElementById('mt-type');
     if (typeSel) typeSel.value = 'comercial';
+    // Origem do cliente padrão: CRM
+    const srcSel = document.getElementById('mt-client-source');
+    if (srcSel) srcSel.value = 'crm';
     // Limpa participantes (select fonte de verdade + checkboxes do dropdown)
     const ptSel = document.getElementById('mt-participants');
     if (ptSel) Array.from(ptSel.options).forEach(o => o.selected = false);
@@ -327,6 +339,9 @@ function onMeetingTypeChange() {
     // Ao voltar para operacional, garante que os campos de "novo cliente" fiquem ocultos
     if (isOperational) {
         document.querySelectorAll('.mt-new-client').forEach(el => el.style.display = 'none');
+    } else {
+        // Em reunião comercial, respeita a origem escolhida (CRM ou Empresa)
+        onClientSourceChange();
     }
 }
 function clearBriefing() {
@@ -439,6 +454,14 @@ function onStatusChange() {
     } else {
         field.style.display = 'none';
     }
+}
+
+// Alterna a origem do cliente: CRM (lead) ou Empresa → Contato.
+function onClientSourceChange() {
+    const src = document.getElementById('mt-client-source').value;
+    const isEmpresa = src === 'empresa';
+    document.querySelectorAll('.mt-source-crm').forEach(el => el.style.display = isEmpresa ? 'none' : '');
+    document.querySelectorAll('.mt-source-empresa').forEach(el => el.style.display = isEmpresa ? '' : 'none');
 }
 
 // Ao escolher cliente: carrega o briefing ou mostra campos de novo cliente
@@ -661,11 +684,17 @@ function saveMeeting() {
     const isOperational = document.getElementById('mt-type').value === 'operacional';
 
     if (!isOperational) {
-        // Contato obrigatório (só reunião comercial)
-        const clientVal = document.getElementById('mt-client').value;
-        if (!clientVal) { alert('Selecione um cliente (CRM) ou cadastre um novo.'); return; }
-        if (clientVal === '__new__' && !document.getElementById('mt-new-name').value.trim()) {
-            alert('Informe o nome do novo cliente.'); return;
+        // Reunião comercial: valida conforme a origem do cliente (CRM ou Empresa)
+        const source = document.getElementById('mt-client-source').value;
+        if (source === 'empresa') {
+            if (!document.getElementById('mt-company').value) { alert('Selecione uma empresa.'); return; }
+            if (!document.getElementById('mt-contact').value) { alert('Selecione um contato da empresa.'); return; }
+        } else {
+            const clientVal = document.getElementById('mt-client').value;
+            if (!clientVal) { alert('Selecione um cliente (CRM) ou cadastre um novo.'); return; }
+            if (clientVal === '__new__' && !document.getElementById('mt-new-name').value.trim()) {
+                alert('Informe o nome do novo cliente.'); return;
+            }
         }
         // Se convertida, exige quem fechou
         const status = document.getElementById('mt-status').value;
