@@ -283,11 +283,15 @@ class AgendaController extends Controller
 
         // 3) WhatsApp para o cliente
         if (!empty($clientPhone)) {
-            $waMsg = "📅 *Reunião agendada*\n\n"
-                . "*Assunto:* {$meeting['title']}\n"
-                . "*Data:* {$whenFmt}\n"
-                . ($meetLink ? "*Link da call:* {$meetLink}\n" : "")
-                . "\nAté breve!";
+            $dateFmt = date('d/m/Y', strtotime($meetingAt));
+            $timeFmt = date('H\hi', strtotime($meetingAt));
+            $waMsg = "Olá, tudo bem?\n\n"
+                . "Eu sou a Carla e faço parte da equipe da ON Solutions.\n"
+                . "Estou entrando em contato para informar que sua reunião {$meeting['title']} está confirmada.\n\n"
+                . "Será um prazer contar com a sua presença.\n\n"
+                . "📅 Data: {$dateFmt}\n"
+                . "🕐 Horário: {$timeFmt}"
+                . ($meetLink ? "\n🔗 Link da reunião: {$meetLink}" : "");
             try { WhatsappNotifier::sendToPhone($clientPhone, $waMsg, $clientName); } catch (\Throwable $e) {}
         }
     }
