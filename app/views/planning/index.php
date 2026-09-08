@@ -38,20 +38,66 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
             <form method="GET" class="row g-2 align-items-center" id="filters-form">
                 <input type="hidden" name="show_all" id="show_all_input" value="0">
                 <div class="col-6 col-md-auto">
-                    <select name="company_id" class="form-select form-select-sm">
-                        <option value="">Todas Empresas</option>
-                        <?php foreach ($companies as $c): ?>
-                        <option value="<?= $c['id'] ?>" <?= ($filters['company_id'] ?? '') == $c['id'] ? 'selected' : '' ?>><?= escape($c['name']) ?></option>
-                        <?php endforeach; ?>
-                    </select>
+                    <?php
+                        // Empresas atualmente filtradas (multisseleção).
+                        $selectedCompanies = $filters['company_ids'] ?? (isset($filters['company_id']) && $filters['company_id'] !== '' ? [$filters['company_id']] : []);
+                        $selectedCompanies = array_map('strval', (array)$selectedCompanies);
+                        $totalCompanies = count($companies);
+                        $allSelected = $totalCompanies > 0 && count($selectedCompanies) === $totalCompanies;
+                    ?>
+                    <div class="dropdown">
+                        <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle d-flex justify-content-between align-items-center"
+                                style="min-width:170px;" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                            <span id="company-filter-label">Todas Empresas</span>
+                        </button>
+                        <div class="dropdown-menu p-2" style="min-width:240px;max-height:280px;overflow-y:auto;">
+                            <label class="dropdown-item d-flex align-items-center gap-2 px-1 py-1 fw-medium" style="cursor:pointer;">
+                                <input type="checkbox" class="form-check-input mt-0" id="company-select-all"
+                                       <?= $allSelected ? 'checked' : '' ?> onchange="onSelectAllCompanies(this)">
+                                <span class="small">Selecionar todas</span>
+                            </label>
+                            <div class="dropdown-divider my-1"></div>
+                            <?php foreach ($companies as $c): ?>
+                            <label class="dropdown-item d-flex align-items-center gap-2 px-1 py-1" style="cursor:pointer;">
+                                <input type="checkbox" class="form-check-input mt-0 company-filter-check" name="company_id[]"
+                                       value="<?= $c['id'] ?>" <?= in_array((string)$c['id'], $selectedCompanies, true) ? 'checked' : '' ?>
+                                       onchange="onCompanyFilterToggle()">
+                                <span class="small"><?= escape($c['name']) ?></span>
+                            </label>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
                 </div>
                 <div class="col-6 col-md-auto">
-                    <select name="assigned_to" class="form-select form-select-sm">
-                        <option value="">Todos Responsáveis</option>
-                        <?php foreach ($teamMembers as $m): ?>
-                        <option value="<?= $m['id'] ?>" <?= ($filters['assigned_to'] ?? '') == $m['id'] ? 'selected' : '' ?>><?= escape($m['name']) ?></option>
-                        <?php endforeach; ?>
-                    </select>
+                    <?php
+                        // Responsáveis atualmente filtrados (multisseleção).
+                        $selectedAssignees = $filters['assigned_to_ids'] ?? (isset($filters['assigned_to']) && $filters['assigned_to'] !== '' ? [$filters['assigned_to']] : []);
+                        $selectedAssignees = array_map('strval', (array)$selectedAssignees);
+                        $totalAssignees = count($teamMembers);
+                        $allAssigneesSelected = $totalAssignees > 0 && count($selectedAssignees) === $totalAssignees;
+                    ?>
+                    <div class="dropdown">
+                        <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle d-flex justify-content-between align-items-center"
+                                style="min-width:170px;" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                            <span id="assignee-filter-label">Todos Responsáveis</span>
+                        </button>
+                        <div class="dropdown-menu p-2" style="min-width:240px;max-height:280px;overflow-y:auto;">
+                            <label class="dropdown-item d-flex align-items-center gap-2 px-1 py-1 fw-medium" style="cursor:pointer;">
+                                <input type="checkbox" class="form-check-input mt-0" id="assignee-select-all"
+                                       <?= $allAssigneesSelected ? 'checked' : '' ?> onchange="onSelectAllAssignees(this)">
+                                <span class="small">Selecionar todos</span>
+                            </label>
+                            <div class="dropdown-divider my-1"></div>
+                            <?php foreach ($teamMembers as $m): ?>
+                            <label class="dropdown-item d-flex align-items-center gap-2 px-1 py-1" style="cursor:pointer;">
+                                <input type="checkbox" class="form-check-input mt-0 assignee-filter-check" name="assigned_to[]"
+                                       value="<?= $m['id'] ?>" <?= in_array((string)$m['id'], $selectedAssignees, true) ? 'checked' : '' ?>
+                                       onchange="onAssigneeFilterToggle()">
+                                <span class="small"><?= escape($m['name']) ?></span>
+                            </label>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
                 </div>
                 <div class="col-6 col-md-auto">
                     <select name="order" class="form-select form-select-sm">
@@ -623,10 +669,72 @@ let calMode = 'month';
 const priorityColors = {low:'#6b7280',medium:'#f59e0b',high:'#ef4444',urgent:'#dc2626'};
 const statusColors = {open:'#1565c0',in_progress:'#e65100',em_revisao_interna:'#5c6bc0',waiting_client:'#7b1fa2',em_homologacao:'#0097a7',aprovado_producao:'#8bc34a',completed:'#2e7d32',denied:'#d84315',archived:'#546e7a'};
 
-// === FILTER FORM: marcar show_all quando responsável está vazio ===
+// === FILTRO DE EMPRESAS (multisseleção + selecionar todas) ===
+function companyFilterChecks() {
+    return Array.from(document.querySelectorAll('.company-filter-check'));
+}
+// "Selecionar todas": marca ou desmarca todas as empresas de uma vez.
+function onSelectAllCompanies(master) {
+    companyFilterChecks().forEach(cb => { cb.checked = master.checked; });
+    updateCompanyFilterLabel();
+}
+// Ao marcar/desmarcar uma empresa: sincroniza o "selecionar todas" e o rótulo.
+function onCompanyFilterToggle() {
+    const checks = companyFilterChecks();
+    const master = document.getElementById('company-select-all');
+    const selected = checks.filter(cb => cb.checked).length;
+    if (master) master.checked = (checks.length > 0 && selected === checks.length);
+    updateCompanyFilterLabel();
+}
+// Rótulo do botão: "Todas Empresas" / "1 empresa" / "N empresas".
+function updateCompanyFilterLabel() {
+    const checks = companyFilterChecks();
+    const selected = checks.filter(cb => cb.checked).length;
+    const label = document.getElementById('company-filter-label');
+    if (!label) return;
+    if (selected === 0 || selected === checks.length) {
+        label.textContent = 'Todas Empresas';
+    } else {
+        label.textContent = selected === 1 ? '1 empresa' : selected + ' empresas';
+    }
+}
+updateCompanyFilterLabel();
+
+// === FILTRO DE RESPONSÁVEIS (multisseleção + selecionar todos) ===
+function assigneeFilterChecks() {
+    return Array.from(document.querySelectorAll('.assignee-filter-check'));
+}
+// "Selecionar todos": marca ou desmarca todos os responsáveis de uma vez.
+function onSelectAllAssignees(master) {
+    assigneeFilterChecks().forEach(cb => { cb.checked = master.checked; });
+    updateAssigneeFilterLabel();
+}
+// Ao marcar/desmarcar um responsável: sincroniza o "selecionar todos" e o rótulo.
+function onAssigneeFilterToggle() {
+    const checks = assigneeFilterChecks();
+    const master = document.getElementById('assignee-select-all');
+    const selected = checks.filter(cb => cb.checked).length;
+    if (master) master.checked = (checks.length > 0 && selected === checks.length);
+    updateAssigneeFilterLabel();
+}
+// Rótulo do botão: "Todos Responsáveis" / "1 responsável" / "N responsáveis".
+function updateAssigneeFilterLabel() {
+    const checks = assigneeFilterChecks();
+    const selected = checks.filter(cb => cb.checked).length;
+    const label = document.getElementById('assignee-filter-label');
+    if (!label) return;
+    if (selected === 0 || selected === checks.length) {
+        label.textContent = 'Todos Responsáveis';
+    } else {
+        label.textContent = selected === 1 ? '1 responsável' : selected + ' responsáveis';
+    }
+}
+updateAssigneeFilterLabel();
+
+// === FILTER FORM: marcar show_all quando nenhum responsável está selecionado ===
 document.getElementById('filters-form').addEventListener('submit', function() {
-    const assignedSelect = this.querySelector('[name="assigned_to"]');
-    if (!assignedSelect.value) {
+    const anyAssignee = assigneeFilterChecks().some(cb => cb.checked);
+    if (!anyAssignee) {
         document.getElementById('show_all_input').value = '1';
     }
 });

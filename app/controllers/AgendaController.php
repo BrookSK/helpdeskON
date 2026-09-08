@@ -30,6 +30,10 @@ class AgendaController extends Controller
         $team = $userModel->getByRoles(['super_admin', 'comercial', 'marketing']);
         $leads = $this->contactModel->getLeadsForSelect();
 
+        // Empresas já cadastradas (para seleção Empresa → Contato na reunião).
+        // Reutiliza o relacionamento existente companies → users (users.company_id).
+        $companies = (new Company())->getAll();
+
         // Todos os usuários internos (exceto clientes) para o multi-select de participantes
         $allInternalRoles = ['super_admin', 'attendant', 'developer', 'analyst', 'comercial', 'marketing', 'whatsapp_agent'];
         $participants = $userModel->getGroupedByRole($allInternalRoles);
@@ -39,6 +43,7 @@ class AgendaController extends Controller
             'grouped' => $grouped,
             'team' => $team,
             'leads' => $leads,
+            'companies' => $companies,
             'participants' => $participants,
             'isAdmin' => $user['role'] === 'super_admin',
         ]);
@@ -91,6 +96,27 @@ class AgendaController extends Controller
         $meeting['briefing'] = $briefing;
         $meeting['participants'] = $this->model->getParticipants($id);
         $this->json(['meeting' => $meeting]);
+    }
+
+    // API: contatos vinculados a uma empresa (para o fluxo Empresa → Contato).
+    // Reutiliza o relacionamento existente companies → users (users.company_id),
+    // via Company::getUsers(). Não cria/duplica contatos nem novos vínculos.
+    public function companyContacts($companyId = null)
+    {
+        $this->requireRole($this->accessRoles);
+        if (!$companyId) $this->json(['error' => 'Empresa não informada'], 400);
+
+        $users = (new Company())->getUsers(intval($companyId));
+        $contacts = array_map(function ($u) {
+            return [
+                'id'    => (int)$u['id'],
+                'name'  => $u['name'],
+                'email' => $u['email'] ?? null,
+                'phone' => $u['phone'] ?? null,
+            ];
+        }, $users);
+
+        $this->json(['contacts' => $contacts]);
     }
 
     // API: briefing de um lead (ao selecionar o cliente no formulário)

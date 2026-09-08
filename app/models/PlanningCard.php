@@ -53,11 +53,19 @@ class PlanningCard
             $sql .= " AND pc.priority = ?";
             $params[] = $filters['priority'];
         }
-        if (!empty($filters['company_id'])) {
+        if (!empty($filters['company_ids'])) {
+            $ph = implode(',', array_fill(0, count($filters['company_ids']), '?'));
+            $sql .= " AND pc.company_id IN ($ph)";
+            $params = array_merge($params, $filters['company_ids']);
+        } elseif (!empty($filters['company_id'])) {
             $sql .= " AND pc.company_id = ?";
             $params[] = $filters['company_id'];
         }
-        if (!empty($filters['assigned_to'])) {
+        if (!empty($filters['assigned_to_ids'])) {
+            $ph = implode(',', array_fill(0, count($filters['assigned_to_ids']), '?'));
+            $sql .= " AND pc.assigned_to IN ($ph)";
+            $params = array_merge($params, $filters['assigned_to_ids']);
+        } elseif (!empty($filters['assigned_to'])) {
             $sql .= " AND pc.assigned_to = ?";
             $params[] = $filters['assigned_to'];
         }
@@ -91,11 +99,19 @@ class PlanningCard
                     WHERE pc.status = ?";
             $params = [$status];
 
-            if (!empty($filters['company_id'])) {
+            if (!empty($filters['company_ids'])) {
+                $ph = implode(',', array_fill(0, count($filters['company_ids']), '?'));
+                $sql .= " AND pc.company_id IN ($ph)";
+                $params = array_merge($params, $filters['company_ids']);
+            } elseif (!empty($filters['company_id'])) {
                 $sql .= " AND pc.company_id = ?";
                 $params[] = $filters['company_id'];
             }
-            if (!empty($filters['assigned_to'])) {
+            if (!empty($filters['assigned_to_ids'])) {
+                $ph = implode(',', array_fill(0, count($filters['assigned_to_ids']), '?'));
+                $sql .= " AND pc.assigned_to IN ($ph)";
+                $params = array_merge($params, $filters['assigned_to_ids']);
+            } elseif (!empty($filters['assigned_to'])) {
                 $sql .= " AND pc.assigned_to = ?";
                 $params[] = $filters['assigned_to'];
             }
@@ -140,11 +156,19 @@ class PlanningCard
                 )";
         $params = [$startDate, $endDate, $endDate, $startDate, $startDate, $endDate];
 
-        if (!empty($filters['company_id'])) {
+        if (!empty($filters['company_ids'])) {
+            $ph = implode(',', array_fill(0, count($filters['company_ids']), '?'));
+            $sql .= " AND pc.company_id IN ($ph)";
+            $params = array_merge($params, $filters['company_ids']);
+        } elseif (!empty($filters['company_id'])) {
             $sql .= " AND pc.company_id = ?";
             $params[] = $filters['company_id'];
         }
-        if (!empty($filters['assigned_to'])) {
+        if (!empty($filters['assigned_to_ids'])) {
+            $ph = implode(',', array_fill(0, count($filters['assigned_to_ids']), '?'));
+            $sql .= " AND pc.assigned_to IN ($ph)";
+            $params = array_merge($params, $filters['assigned_to_ids']);
+        } elseif (!empty($filters['assigned_to'])) {
             $sql .= " AND pc.assigned_to = ?";
             $params[] = $filters['assigned_to'];
         }

@@ -11,6 +11,9 @@
                 <input type="hidden" id="mt-contact-id">
                 <input type="hidden" id="mt-google-event-id">
                 <input type="hidden" id="mt-meet-link">
+                <!-- Snapshot do contato escolhido via Empresa → Contato (não altera contact_id do CRM) -->
+                <input type="hidden" id="mt-client-name">
+                <input type="hidden" id="mt-client-phone">
                 <!-- Urgência e temperatura da reunião: espelham os campos do briefing (campos únicos) -->
                 <input type="hidden" id="mt-urgency">
                 <input type="hidden" id="mt-temperature">
@@ -19,6 +22,27 @@
                     <div class="col-12">
                         <label class="form-label small fw-medium">Título *</label>
                         <input type="text" id="mt-title" class="form-control form-control-sm" placeholder="Ex: Reunião de apresentação">
+                    </div>
+
+                    <!-- Empresa → Contato (reutiliza o vínculo existente users.company_id) -->
+                    <div class="col-md-6">
+                        <label class="form-label small fw-medium">Empresa</label>
+                        <input type="text" id="mt-company-search" class="form-control form-control-sm mb-1"
+                               placeholder="Pesquisar empresa por nome..." oninput="filterCompanyOptions()" autocomplete="off">
+                        <select id="mt-company" class="form-select form-select-sm" onchange="onCompanyChange()">
+                            <option value="">Selecione uma empresa...</option>
+                            <?php foreach ($companies as $co): ?>
+                            <option value="<?= $co['id'] ?>" data-name="<?= escape(mb_strtolower($co['name'])) ?>"><?= escape($co['name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small fw-medium">Contato</label>
+                        <input type="text" id="mt-contact-search" class="form-control form-control-sm mb-1"
+                               placeholder="Pesquisar contato por nome..." oninput="filterContactOptions()" autocomplete="off">
+                        <select id="mt-contact" class="form-select form-select-sm" onchange="onContactChange()" disabled>
+                            <option value="">Selecione uma empresa primeiro...</option>
+                        </select>
                     </div>
 
                     <!-- Cliente do CRM -->
@@ -92,10 +116,11 @@
                         <small class="text-muted">Quem efetivamente realizou o fechamento comercial</small>
                     </div>
 
-                    <!-- Participantes da equipe -->
+                    <!-- Participantes da equipe (dropdown com multisseleção) -->
                     <div class="col-12">
                         <label class="form-label small fw-medium">Participantes da equipe</label>
-                        <select id="mt-participants" class="form-select form-select-sm" multiple size="4" style="min-height:90px;">
+                        <!-- Select real (fonte de verdade dos dados; mantém participants[] intacto) -->
+                        <select id="mt-participants" multiple class="d-none">
                             <?php foreach ($participants as $role => $users): ?>
                             <optgroup label="<?= roleLabel($role) ?>">
                                 <?php foreach ($users as $p): ?>
@@ -104,7 +129,26 @@
                             </optgroup>
                             <?php endforeach; ?>
                         </select>
-                        <small class="text-muted">Segure Ctrl (ou Cmd) para selecionar vários</small>
+                        <!-- UI do dropdown -->
+                        <div class="dropdown">
+                            <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle w-100 d-flex justify-content-between align-items-center"
+                                    data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                                <span id="mt-participants-label">0 selecionados</span>
+                            </button>
+                            <div class="dropdown-menu w-100 p-2" style="max-height:240px; overflow-y:auto;">
+                                <?php foreach ($participants as $role => $users): ?>
+                                <h6 class="dropdown-header px-1 py-1"><?= roleLabel($role) ?></h6>
+                                <?php foreach ($users as $p): ?>
+                                <label class="dropdown-item d-flex align-items-center gap-2 px-1 py-1" style="cursor:pointer;">
+                                    <input type="checkbox" class="form-check-input mt-0 mt-participant-check" value="<?= $p['id'] ?>"
+                                           onchange="onParticipantToggle(this)">
+                                    <span class="small"><?= escape($p['name']) ?></span>
+                                </label>
+                                <?php endforeach; ?>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                        <small class="text-muted">Selecione uma ou mais pessoas da equipe</small>
                     </div>
 
                     <div class="col-12">
@@ -215,8 +259,16 @@ function resetMeetingForm() {
     document.getElementById('mt-google-event-id').value = '';
     document.getElementById('mt-meet-link').value = '';
     document.getElementById('mt-meet-hint').innerHTML = '';
-    ['mt-title','mt-meeting-at','mt-new-name','mt-new-phone','mt-notes','mt-client-email'].forEach(f => document.getElementById(f).value = '');
+    ['mt-title','mt-meeting-at','mt-new-name','mt-new-phone','mt-notes','mt-client-email','mt-client-name','mt-client-phone'].forEach(f => document.getElementById(f).value = '');
     document.getElementById('mt-client').value = '';
+    // Reseta Empresa → Contato
+    const coSel = document.getElementById('mt-company');
+    if (coSel) coSel.value = '';
+    const coSearch = document.getElementById('mt-company-search'); if (coSearch) coSearch.value = '';
+    filterCompanyOptions();
+    const ctSearch = document.getElementById('mt-contact-search'); if (ctSearch) ctSearch.value = '';
+    const ctSel = document.getElementById('mt-contact');
+    if (ctSel) { ctSel.disabled = true; ctSel.innerHTML = '<option value="">Selecione uma empresa primeiro...</option>'; }
     document.getElementById('mt-urgency').value = 'media';
     document.getElementById('mt-temperature').value = '';
     document.getElementById('mt-status').value = 'a_agendar';
@@ -225,6 +277,7 @@ function resetMeetingForm() {
     // Limpa participantes
     const ptSel = document.getElementById('mt-participants');
     if (ptSel) Array.from(ptSel.options).forEach(o => o.selected = false);
+    syncParticipantChecks();
     const bfTemp = document.getElementById('bf-lead_temperature'); if (bfTemp) bfTemp.value = '';
     const bfUrg = document.getElementById('bf-urgency'); if (bfUrg) bfUrg.value = '';
     document.querySelectorAll('.mt-new-client').forEach(el => el.style.display = 'none');
@@ -317,6 +370,7 @@ function fillMeeting(m) {
         const ids = m.participants.map(p => String(p.id));
         Array.from(ptSel.options).forEach(o => o.selected = ids.includes(o.value));
     }
+    syncParticipantChecks();
     fillBriefing(m.briefing);
     // Urgência e temperatura são campos únicos (briefing). Usa os do briefing; se vazios, cai nos da reunião.
     syncInherited(m.urgency || 'media', m.temperature || '');
@@ -355,6 +409,113 @@ function onClientChange() {
     }
 }
 
+// ===== Empresa → Contato (reutiliza users.company_id via Company::getUsers) =====
+
+// Filtra as opções do dropdown de empresa pelo nome digitado.
+function filterCompanyOptions() {
+    const term = (document.getElementById('mt-company-search').value || '').trim().toLowerCase();
+    const sel = document.getElementById('mt-company');
+    Array.from(sel.options).forEach(o => {
+        if (!o.value) return; // mantém o placeholder
+        const name = o.getAttribute('data-name') || o.textContent.toLowerCase();
+        o.hidden = term !== '' && !name.includes(term);
+    });
+}
+
+// Filtra as opções do dropdown de contato pelo nome digitado.
+function filterContactOptions() {
+    const term = (document.getElementById('mt-contact-search').value || '').trim().toLowerCase();
+    const sel = document.getElementById('mt-contact');
+    Array.from(sel.options).forEach(o => {
+        if (!o.value) return;
+        const name = o.getAttribute('data-name') || o.textContent.toLowerCase();
+        o.hidden = term !== '' && !name.includes(term);
+    });
+}
+
+// Ao trocar a empresa: carrega os contatos (users) daquela empresa e reseta o contato.
+function onCompanyChange() {
+    const companyId = document.getElementById('mt-company').value;
+    const contactSel = document.getElementById('mt-contact');
+    document.getElementById('mt-contact-search').value = '';
+    contactSel.innerHTML = '';
+    if (!companyId) {
+        contactSel.disabled = true;
+        contactSel.innerHTML = '<option value="">Selecione uma empresa primeiro...</option>';
+        return;
+    }
+    contactSel.disabled = true;
+    contactSel.innerHTML = '<option value="">Carregando...</option>';
+    fetch(`${BASE}agenda/companyContacts/${companyId}`)
+        .then(r => r.json())
+        .then(d => {
+            const list = (d && d.contacts) ? d.contacts : [];
+            contactSel.innerHTML = '<option value="">Selecione um contato...</option>';
+            if (list.length === 0) {
+                contactSel.innerHTML = '<option value="">Nenhum contato nesta empresa</option>';
+                contactSel.disabled = true;
+                return;
+            }
+            list.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c.id;
+                opt.textContent = c.name;
+                opt.setAttribute('data-name', (c.name || '').toLowerCase());
+                opt.setAttribute('data-email', c.email || '');
+                opt.setAttribute('data-phone', c.phone || '');
+                opt.setAttribute('data-contact-name', c.name || '');
+                contactSel.appendChild(opt);
+            });
+            contactSel.disabled = false;
+        })
+        .catch(() => {
+            contactSel.innerHTML = '<option value="">Erro ao carregar contatos</option>';
+            contactSel.disabled = true;
+        });
+}
+
+// Ao escolher o contato: preenche os campos snapshot (nome/telefone/email) já existentes.
+// NÃO altera o contact_id do CRM (agenda_meetings.contact_id continua apontando p/ whatsapp_contacts).
+function onContactChange() {
+    const sel = document.getElementById('mt-contact');
+    const opt = sel.options[sel.selectedIndex];
+    if (!opt || !opt.value) return;
+    const name  = opt.getAttribute('data-contact-name') || '';
+    const email = opt.getAttribute('data-email') || '';
+    const phone = opt.getAttribute('data-phone') || '';
+    document.getElementById('mt-client-name').value = name;
+    document.getElementById('mt-client-phone').value = phone;
+    if (email) document.getElementById('mt-client-email').value = email;
+}
+
+// ===== Participantes (dropdown com multisseleção) =====
+
+// Sincroniza o checkbox marcado/desmarcado com o <select multiple> (fonte de verdade).
+function onParticipantToggle(cb) {
+    const sel = document.getElementById('mt-participants');
+    const opt = Array.from(sel.options).find(o => o.value === cb.value);
+    if (opt) opt.selected = cb.checked;
+    updateParticipantsLabel();
+}
+
+// Atualiza o texto do botão: "0 selecionados", "1 selecionado", "3 selecionados".
+function updateParticipantsLabel() {
+    const sel = document.getElementById('mt-participants');
+    const n = Array.from(sel.selectedOptions).length;
+    const label = document.getElementById('mt-participants-label');
+    if (label) label.textContent = n === 1 ? '1 selecionado' : n + ' selecionados';
+}
+
+// Reflete o estado do <select> nos checkboxes (usado ao abrir/editar reunião).
+function syncParticipantChecks() {
+    const sel = document.getElementById('mt-participants');
+    const selectedIds = Array.from(sel.selectedOptions).map(o => o.value);
+    document.querySelectorAll('.mt-participant-check').forEach(cb => {
+        cb.checked = selectedIds.includes(cb.value);
+    });
+    updateParticipantsLabel();
+}
+
 function collectPayload() {
     const fd = new FormData();
     fd.append('title', document.getElementById('mt-title').value.trim());
@@ -374,6 +535,9 @@ function collectPayload() {
     fd.append('closed_by', document.getElementById('mt-closed-by').value);
     fd.append('notes', document.getElementById('mt-notes').value);
     fd.append('client_email', document.getElementById('mt-client-email').value.trim());
+    // Snapshot do contato escolhido via Empresa → Contato (campos já persistidos hoje)
+    fd.append('client_name', document.getElementById('mt-client-name').value.trim());
+    fd.append('client_phone', document.getElementById('mt-client-phone').value.trim());
 
     const clientVal = document.getElementById('mt-client').value;
     if (clientVal === '__new__') {
