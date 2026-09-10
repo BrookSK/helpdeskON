@@ -248,6 +248,13 @@ class MarketingController extends Controller
             if (!$isAdmin && in_array($newStatus, $forbiddenForMarketing)) {
                 $this->json(['error' => 'Somente o administrador pode aprovar ou rejeitar o conteúdo.'], 403);
             }
+            // Uma aprovação só pode avançar para agendamento/publicação. Reabrir conteúdo
+            // aprovado deve ocorrer por uma ação explícita de revisão, não por um salvamento
+            // tardio ou uma requisição desatualizada do formulário.
+            if ($item['status'] === 'aprovado' && !in_array($newStatus, ['aprovado', 'agendado', 'publicado'], true)) {
+                $this->json(['error' => 'Esta demanda já foi aprovada e não pode retornar para etapas anteriores. Solicite ajustes para reabri-la.'], 409);
+            }
+
             // Regra: para sair de rascunho e seguir no fluxo (produção/aprovação) é
             // obrigatório ter ao menos uma imagem anexada. Sem imagem, fica em rascunho.
             $needsImageStatuses = ['em_producao', 'aguardando_aprovacao', 'aprovado', 'agendado', 'publicado'];

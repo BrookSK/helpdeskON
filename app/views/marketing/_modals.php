@@ -365,8 +365,10 @@ function fillItemForm(it) {
 
     // Campos de conteúdo: editáveis por quem gerencia (marketing responsável ou admin).
     ['item-title','item-social','item-briefing','item-copy'].forEach(f => document.getElementById(f).disabled = !canManage);
-    // Status: liberado para quem gerencia a demanda (marketing responsável ou admin).
-    document.getElementById('item-status').disabled = !canManage;
+    // Após a aprovação, Marketing não pode devolver a demanda a etapas anteriores.
+    // O backend também valida essa regra para cobrir requisições antigas ou manipuladas.
+    const isApproved = it.status === 'aprovado';
+    document.getElementById('item-status').disabled = !canManage || (!IS_ADMIN && isApproved);
 
     // Botões de salvar conforme o papel
     const saveBtn = document.getElementById('item-save-btn');
@@ -377,10 +379,11 @@ function fillItemForm(it) {
         if (draftBtn) draftBtn.style.display = 'none';
         if (reviewBtn) reviewBtn.style.display = 'none';
     } else {
-        // Marketing: esconde o "Salvar" genérico e usa os dois botões dedicados
+        // Marketing: uma demanda aprovada não pode ser salva como rascunho ou reenviada
+        // para revisão. Caso precise ser reaberta, o admin deve solicitar ajustes.
         saveBtn.style.display = 'none';
-        if (draftBtn) draftBtn.style.display = canManage ? '' : 'none';
-        if (reviewBtn) reviewBtn.style.display = canManage ? '' : 'none';
+        if (draftBtn) draftBtn.style.display = canManage && !isApproved ? '' : 'none';
+        if (reviewBtn) reviewBtn.style.display = canManage && !isApproved ? '' : 'none';
     }
     document.getElementById('item-delete-btn').style.display = canManage ? '' : 'none';
 
@@ -395,11 +398,14 @@ function fillItemForm(it) {
     const notifyBtn = document.getElementById('item-notify-btn');
     if (notifyBtn) notifyBtn.style.display = (canManage && it.assigned_to) ? '' : 'none';
 
-    // Ações de aprovação (admin): disponíveis enquanto a demanda estiver em andamento
-    // (qualquer status que não seja aprovado/publicado/rejeitado).
+    // Ações de aprovação (admin): disponíveis enquanto a demanda estiver em andamento.
     const approvableStatuses = ['ideia', 'em_producao', 'aguardando_aprovacao', 'agendado'];
     if (IS_ADMIN && approvableStatuses.includes(it.status)) {
         document.querySelectorAll('.mkt-approval-action').forEach(b => b.style.display = '');
+    } else if (IS_ADMIN && it.status === 'aprovado') {
+        // Conteúdo aprovado só pode ser reaberto pelo admin via solicitação de ajustes.
+        const requestChangesBtn = document.querySelector('.mkt-approval-action[onclick="requestChanges()"]');
+        if (requestChangesBtn) requestChangesBtn.style.display = '';
     }
 
     // Agendamento no Buffer: disponível quando aprovado/agendado
