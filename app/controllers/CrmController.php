@@ -1827,7 +1827,7 @@ class CrmController extends Controller
      */
     public function prospecting()
     {
-        $this->requireRole(['super_admin']);
+        $this->requireRole(['super_admin', 'comercial']);
         $user = $this->currentUser();
         $db = Database::getInstance();
 
@@ -1873,7 +1873,7 @@ class CrmController extends Controller
     /** Salva (cria/atualiza) uma campanha de prospecção. POST crm/saveCampaign */
     public function saveCampaign()
     {
-        $this->requireRole(['super_admin']);
+        $this->requireRole(['super_admin', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
 
         $user = $this->currentUser();
@@ -1977,7 +1977,7 @@ class CrmController extends Controller
     /** Ativa/desativa uma campanha. POST crm/toggleCampaign/{id} */
     public function toggleCampaign($id = null)
     {
-        $this->requireRole(['super_admin']);
+        $this->requireRole(['super_admin', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
         $db = Database::getInstance();
         $c = $db->fetch("SELECT is_active FROM apollo_campaigns WHERE id = ?", [$id]);
@@ -1989,7 +1989,7 @@ class CrmController extends Controller
     /** Exclui uma campanha. POST crm/deleteCampaign/{id} */
     public function deleteCampaign($id = null)
     {
-        $this->requireRole(['super_admin']);
+        $this->requireRole(['super_admin', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
         Database::getInstance()->delete('apollo_campaigns', 'id = ?', [$id]);
         $this->json(['success' => true]);
@@ -1998,7 +1998,7 @@ class CrmController extends Controller
     /** Executa uma campanha agora (manual). POST crm/runCampaign/{id} */
     public function runCampaign($id = null)
     {
-        $this->requireRole(['super_admin']);
+        $this->requireRole(['super_admin', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
         @set_time_limit(300);
 
@@ -2038,7 +2038,7 @@ class CrmController extends Controller
      */
     public function runSequencesNow()
     {
-        $this->requireRole(['super_admin']);
+        $this->requireRole(['super_admin', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
         @set_time_limit(300);
 
@@ -2059,7 +2059,7 @@ class CrmController extends Controller
      */
     public function finishAllSequences()
     {
-        $this->requireRole(['super_admin']);
+        $this->requireRole(['super_admin', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
 
         $db = Database::getInstance();
@@ -2094,7 +2094,7 @@ class CrmController extends Controller
      */
     public function runSequenceNode()
     {
-        $this->requireRole(['super_admin']);
+        $this->requireRole(['super_admin', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
 
         $participantId = intval($_POST['participant_id'] ?? 0);
@@ -2110,7 +2110,7 @@ class CrmController extends Controller
     /** Log recente de uma campanha (para acompanhar). GET crm/campaignLog/{id} */
     public function campaignLog($id = null)
     {
-        $this->requireRole(['super_admin']);
+        $this->requireRole(['super_admin', 'comercial']);
         if (!$id) $this->json(['error' => 'ID obrigatório'], 400);
         $rows = Database::getInstance()->fetchAll(
             "SELECT action, detail, credits, created_at FROM apollo_prospecting_log WHERE campaign_id = ? ORDER BY id DESC LIMIT 50",
@@ -2126,7 +2126,7 @@ class CrmController extends Controller
      */
     public function testEmailOpen()
     {
-        $this->requireRole(['super_admin']);
+        $this->requireRole(['super_admin', 'comercial']);
         $db = Database::getInstance();
         // Prioriza uma mensagem COM variante A/B (para a taxa A/B refletir); senão, a última.
         $msg = $db->fetch("SELECT track_token, recipient_email FROM email_messages WHERE origin='sequence' AND track_token IS NOT NULL AND ab_variant IS NOT NULL ORDER BY id DESC LIMIT 1");
@@ -2153,7 +2153,7 @@ class CrmController extends Controller
      */
     public function prospectingExecLog()
     {
-        $this->requireRole(['super_admin']);
+        $this->requireRole(['super_admin', 'comercial']);
         $db = Database::getInstance();
 
         // Etapas executadas por participante das sequências de prospecção (Apollo).
@@ -2381,7 +2381,7 @@ class CrmController extends Controller
      */
     public function leadsForCampaign()
     {
-        $this->requireRole(['super_admin']);
+        $this->requireRole(['super_admin', 'comercial']);
         $db = Database::getInstance();
 
         // Canal de elegibilidade (email/whatsapp/mixed) — combina com o canal da sequência.
@@ -2429,7 +2429,7 @@ class CrmController extends Controller
      */
     public function prospectingInsights()
     {
-        $this->requireRole(['super_admin']);
+        $this->requireRole(['super_admin', 'comercial']);
         $days = max(1, min(365, (int)($_GET['days'] ?? 90)));
         $an = new ProspectingAnalytics();
         $funnel = $an->funnel($days);
@@ -2454,7 +2454,7 @@ class CrmController extends Controller
      */
     public function copySuggestions()
     {
-        $this->requireRole(['super_admin']);
+        $this->requireRole(['super_admin', 'comercial']);
         $status = in_array($_GET['status'] ?? '', ['pending', 'approved', 'rejected'], true) ? $_GET['status'] : null;
         $opt = new ProspectingOptimizer();
         $this->json(['success' => true, 'suggestions' => $opt->listSuggestions($status, 50)]);
@@ -2466,7 +2466,7 @@ class CrmController extends Controller
      */
     public function reviewCopySuggestion($id = null)
     {
-        $this->requireRole(['super_admin']);
+        $this->requireRole(['super_admin', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
         $approve = ($_POST['action'] ?? '') === 'approve';
         $user = $this->currentUser();
@@ -2482,7 +2482,7 @@ class CrmController extends Controller
      */
     public function runOptimizerNow()
     {
-        $this->requireRole(['super_admin']);
+        $this->requireRole(['super_admin', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
         @set_time_limit(120);
         $opt = new ProspectingOptimizer();
@@ -2501,7 +2501,7 @@ class CrmController extends Controller
      */
     public function toggleLeadStatus()
     {
-        $this->requireRole(['super_admin']);
+        $this->requireRole(['super_admin', 'comercial']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
         $contactId = !empty($_POST['contact_id']) ? intval($_POST['contact_id']) : 0;
         if (!$contactId) $this->json(['error' => 'Lead inválido.'], 400);
