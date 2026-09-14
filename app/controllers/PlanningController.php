@@ -201,7 +201,14 @@ class PlanningController extends Controller
 
         // Preserva o filtro que estava aplicado ao criar o card: volta para
         // a mesma listagem (mesma query string) em vez de resetar os filtros.
-        $returnQuery = trim($_POST['return_query'] ?? '', "?&");
+        // Reconstruímos via parse_str/http_build_query para garantir uma query
+        // válida (empresas, responsáveis, solicitantes, status e ordenação).
+        $returnQuery = '';
+        if (!empty($_POST['return_query'])) {
+            parse_str(ltrim($_POST['return_query'], '?&'), $returnParams);
+            unset($returnParams['url']);
+            $returnQuery = http_build_query($returnParams);
+        }
         $this->redirect('planning' . ($returnQuery !== '' ? '?' . $returnQuery : ''));
     }
 

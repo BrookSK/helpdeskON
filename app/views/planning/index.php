@@ -232,7 +232,15 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <form action="<?= baseUrl('planning/create') ?>" method="POST">
-                    <input type="hidden" name="return_query" value="<?= escape($_SERVER['QUERY_STRING'] ?? '') ?>">
+                    <?php
+                    // Query string dos filtros atuais, sem o parâmetro interno "url"
+                    // (usado pelo roteador). Preserva empresas, responsáveis,
+                    // solicitantes, status e ordenação ao criar o card.
+                    $returnParams = $_GET;
+                    unset($returnParams['url']);
+                    $returnQueryStr = http_build_query($returnParams);
+                    ?>
+                    <input type="hidden" name="return_query" value="<?= escape($returnQueryStr) ?>">
                     <div class="modal-body">
                         <div class="mb-3">
                             <label class="form-label small fw-medium">Título *</label>
