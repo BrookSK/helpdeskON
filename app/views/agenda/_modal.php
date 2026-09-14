@@ -25,6 +25,7 @@
                         <select id="mt-type" class="form-select form-select-sm" onchange="onMeetingTypeChange()">
                             <option value="comercial">Comercial</option>
                             <option value="operacional">Operacional</option>
+                            <option value="externo">Convite externo</option>
                         </select>
                     </div>
                     <div class="col-md-7">
@@ -82,6 +83,30 @@
                             <i class="bi bi-camera-video"></i> Gerar link do Meet
                         </button>
                         <span id="mt-meet-hint" style="font-size:0.78rem;"></span>
+                    </div>
+
+                    <!-- ===== Convite externo (demanda #210) ===== -->
+                    <!-- Convidados que NÃO fazem parte do sistema: nome + e-mail e/ou telefone. -->
+                    <div class="col-12 mt-external-only" style="display:none;">
+                        <div class="d-flex align-items-center justify-content-between mb-1">
+                            <label class="form-label small fw-medium mb-0"><i class="bi bi-person-plus"></i> Convidados externos *</label>
+                            <button type="button" class="btn btn-sm btn-outline-secondary py-0" onclick="addExternalGuestRow()">
+                                <i class="bi bi-plus-lg"></i> Adicionar convidado
+                            </button>
+                        </div>
+                        <div id="mt-external-guests"></div>
+                        <small class="text-muted">Informe o nome e ao menos um contato (e-mail ou telefone) por convidado.</small>
+                    </div>
+
+                    <!-- Registrar agendamento: gera o link "Adicionar ao Google Agenda" enviado no convite. -->
+                    <div class="col-12 mt-external-only" style="display:none;">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="mt-register-google">
+                            <label class="form-check-label small fw-medium" for="mt-register-google">
+                                <i class="bi bi-calendar-plus"></i> Registrar agendamento (gerar link do Google Agenda)
+                            </label>
+                        </div>
+                        <small class="text-muted">Um link "Adicionar ao Google Agenda" será enviado junto com o convite para o cliente salvar o compromisso.</small>
                     </div>
 
                     <!-- Email do cliente (para envio do convite) -->
@@ -310,6 +335,11 @@ function resetMeetingForm() {
     // Tipo de reunião padrão
     const typeSel = document.getElementById('mt-type');
     if (typeSel) typeSel.value = 'comercial';
+    // Reseta o bloco de convite externo (convidados + registrar agendamento)
+    const extWrap = document.getElementById('mt-external-guests');
+    if (extWrap) extWrap.innerHTML = '';
+    const regChk = document.getElementById('mt-register-google');
+    if (regChk) regChk.checked = false;
     // Origem do cliente padrão: CRM
     const srcSel = document.getElementById('mt-client-source');
     if (srcSel) srcSel.value = 'crm';
@@ -328,21 +358,77 @@ function resetMeetingForm() {
 
 // Mostra/oculta os campos comerciais/briefing conforme o tipo de reunião.
 // Operacional: só título, descrição, data/horário e participantes.
+// Externo: título, descrição, data/horário, convidados externos e registrar agendamento.
 function onMeetingTypeChange() {
-    const isOperational = document.getElementById('mt-type').value === 'operacional';
+    const type = document.getElementById('mt-type').value;
+    const isOperational = type === 'operacional';
+    const isExternal = type === 'externo';
+    const isCommercial = !isOperational && !isExternal;
+
+    // Campos comerciais (cliente CRM/Empresa + briefing) só na reunião comercial.
     document.querySelectorAll('.mt-commercial-only').forEach(el => {
-        el.style.display = isOperational ? 'none' : '';
+        el.style.display = isCommercial ? '' : 'none';
     });
+    // Status operacional (sem estados comerciais): operacional e externo.
     document.querySelectorAll('.mt-operational-only').forEach(el => {
-        el.style.display = isOperational ? '' : 'none';
+        el.style.display = isCommercial ? 'none' : '';
     });
-    // Ao voltar para operacional, garante que os campos de "novo cliente" fiquem ocultos
-    if (isOperational) {
-        document.querySelectorAll('.mt-new-client').forEach(el => el.style.display = 'none');
-    } else {
+    // Blocos exclusivos do convite externo.
+    document.querySelectorAll('.mt-external-only').forEach(el => {
+        el.style.display = isExternal ? '' : 'none';
+    });
+
+    if (isExternal) {
+        // Garante ao menos uma linha de convidado ao entrar no modo externo.
+        const wrap = document.getElementById('mt-external-guests');
+        if (wrap && wrap.children.length === 0) addExternalGuestRow();
+    }
+
+    if (isCommercial) {
         // Em reunião comercial, respeita a origem escolhida (CRM ou Empresa)
         onClientSourceChange();
+    } else {
+        // Nos demais tipos, esconde os campos de "novo cliente".
+        document.querySelectorAll('.mt-new-client').forEach(el => el.style.display = 'none');
     }
+}
+
+// ===== Convidados externos (demanda #210) =====
+
+// Adiciona uma linha (nome / e-mail / telefone) ao bloco de convidados externos.
+function addExternalGuestRow(guest) {
+    const wrap = document.getElementById('mt-external-guests');
+    if (!wrap) return;
+    const g = guest || {};
+    const row = document.createElement('div');
+    row.className = 'row g-2 align-items-center mb-2 mt-external-guest-row';
+    row.innerHTML =
+        '<div class="col-md-4"><input type="text" class="form-control form-control-sm mt-ext-name" placeholder="Nome *"></div>' +
+        '<div class="col-md-4"><input type="email" class="form-control form-control-sm mt-ext-email" placeholder="E-mail"></div>' +
+        '<div class="col-md-3"><input type="text" class="form-control form-control-sm mt-ext-phone" placeholder="Telefone" inputmode="numeric" oninput="this.value=this.value.replace(/\\D/g,\'\')"></div>' +
+        '<div class="col-md-1 text-end"><button type="button" class="btn btn-sm btn-outline-danger py-0" onclick="removeExternalGuestRow(this)"><i class="bi bi-x-lg"></i></button></div>';
+    wrap.appendChild(row);
+    row.querySelector('.mt-ext-name').value = g.name || '';
+    row.querySelector('.mt-ext-email').value = g.email || '';
+    row.querySelector('.mt-ext-phone').value = (g.phone || '').toString().replace(/\D/g, '');
+}
+
+// Remove uma linha de convidado externo (mantém sempre ao menos uma).
+function removeExternalGuestRow(btn) {
+    const wrap = document.getElementById('mt-external-guests');
+    const row = btn.closest('.mt-external-guest-row');
+    if (row) row.remove();
+    if (wrap && wrap.children.length === 0) addExternalGuestRow();
+}
+
+// Limpa e repopula o bloco de convidados externos (usado ao abrir/editar).
+function fillExternalGuests(list) {
+    const wrap = document.getElementById('mt-external-guests');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    const guests = Array.isArray(list) ? list : [];
+    if (guests.length === 0) { addExternalGuestRow(); return; }
+    guests.forEach(g => addExternalGuestRow(g));
 }
 function clearBriefing() {
     BF_FIELDS.forEach(k => { const el = document.getElementById('bf-' + k); if (el) el.value = ''; });
@@ -413,7 +499,7 @@ function fillMeeting(m) {
     document.getElementById('meeting-modal-title').textContent = 'Editar reunião';
     document.getElementById('mt-id').value = m.id;
     const mtType = (m.meeting_type || 'comercial').toString().trim().toLowerCase();
-    document.getElementById('mt-type').value = (mtType === 'operacional') ? 'operacional' : 'comercial';
+    document.getElementById('mt-type').value = ['operacional','externo'].includes(mtType) ? mtType : 'comercial';
     onMeetingTypeChange();
     document.getElementById('mt-contact-id').value = m.contact_id || '';
     document.getElementById('mt-title').value = m.title || '';
@@ -437,6 +523,14 @@ function fillMeeting(m) {
         Array.from(ptSel.options).forEach(o => o.selected = ids.includes(o.value));
     }
     syncParticipantChecks();
+    // Convite externo (demanda #210): convidados externos + registrar agendamento.
+    if (mtType === 'externo') {
+        let guests = m.external_guests || [];
+        if (typeof guests === 'string') { try { guests = JSON.parse(guests); } catch (e) { guests = []; } }
+        fillExternalGuests(guests);
+        const regChk = document.getElementById('mt-register-google');
+        if (regChk) regChk.checked = String(m.register_google) === '1' || m.register_google === 1 || m.register_google === true;
+    }
     fillBriefing(m.briefing);
     // Urgência e temperatura são campos únicos (briefing). Usa os do briefing; se vazios, cai nos da reunião.
     syncInherited(m.urgency || 'media', m.temperature || '');
@@ -606,8 +700,10 @@ function collectPayload() {
     const tempVal = bfTemp ? bfTemp.value : document.getElementById('mt-temperature').value;
     document.getElementById('mt-temperature').value = tempVal;
     fd.append('temperature', tempVal);
-    const isOperationalPayload = document.getElementById('mt-type').value === 'operacional';
-    const statusVal = isOperationalPayload
+    // Operacional e externo usam o seletor de status simplificado (sem estados comerciais).
+    const typePayload = document.getElementById('mt-type').value;
+    const usesOpStatus = (typePayload === 'operacional' || typePayload === 'externo');
+    const statusVal = usesOpStatus
         ? document.getElementById('mt-status-op').value
         : document.getElementById('mt-status').value;
     fd.append('status', statusVal);
@@ -631,6 +727,19 @@ function collectPayload() {
     // Participantes da equipe (select fonte de verdade)
     const ptSelPayload = document.getElementById('mt-participants');
     if (ptSelPayload) Array.from(ptSelPayload.selectedOptions).forEach(o => fd.append('participants[]', o.value));
+    // Convite externo (demanda #210): convidados externos + registrar agendamento.
+    if (document.getElementById('mt-type').value === 'externo') {
+        document.querySelectorAll('#mt-external-guests .mt-external-guest-row').forEach(row => {
+            const name  = row.querySelector('.mt-ext-name').value.trim();
+            const email = row.querySelector('.mt-ext-email').value.trim();
+            const phone = row.querySelector('.mt-ext-phone').value.trim();
+            if (!name && !email && !phone) return; // ignora linhas vazias
+            fd.append('external_name[]', name);
+            fd.append('external_email[]', email);
+            fd.append('external_phone[]', phone);
+        });
+        fd.append('register_google', document.getElementById('mt-register-google').checked ? '1' : '0');
+    }
     // Briefing
     BF_FIELDS.forEach(k => fd.append('bf_' + k, document.getElementById('bf-' + k).value));
     return fd;
@@ -680,9 +789,29 @@ function saveMeeting() {
     const title = document.getElementById('mt-title').value.trim();
     if (!title) { alert('Informe o título.'); return; }
 
-    const isOperational = document.getElementById('mt-type').value === 'operacional';
+    const meetingType = document.getElementById('mt-type').value;
+    const isOperational = meetingType === 'operacional';
+    const isExternal = meetingType === 'externo';
 
-    if (!isOperational) {
+    if (isExternal) {
+        // Convite externo: exige ao menos um convidado com nome + (e-mail ou telefone).
+        let validGuests = 0;
+        document.querySelectorAll('#mt-external-guests .mt-external-guest-row').forEach(row => {
+            const name  = row.querySelector('.mt-ext-name').value.trim();
+            const email = row.querySelector('.mt-ext-email').value.trim();
+            const phone = row.querySelector('.mt-ext-phone').value.trim();
+            if (name && (email || phone)) validGuests++;
+        });
+        if (validGuests === 0) {
+            alert('Informe ao menos um convidado externo com nome e e-mail ou telefone.'); return;
+        }
+    } else if (isOperational) {
+        // Reunião operacional: exige ao menos um participante
+        const ptSelOp = document.getElementById('mt-participants');
+        if (!ptSelOp || ptSelOp.selectedOptions.length === 0) {
+            alert('Selecione ao menos um participante.'); return;
+        }
+    } else {
         // Reunião comercial: valida conforme a origem do cliente (CRM ou Empresa)
         const source = document.getElementById('mt-client-source').value;
         if (source === 'empresa') {
@@ -700,12 +829,6 @@ function saveMeeting() {
         if (status === 'convertida' && !document.getElementById('mt-closed-by').value) {
             alert('Informe quem fechou o negócio.'); return;
         }
-    } else {
-        // Reunião operacional: exige ao menos um participante
-        const ptSelOp = document.getElementById('mt-participants');
-        if (!ptSelOp || ptSelOp.selectedOptions.length === 0) {
-            alert('Selecione ao menos um participante.'); return;
-        }
     }
 
     const id = document.getElementById('mt-id').value;
@@ -714,7 +837,7 @@ function saveMeeting() {
     const fd = collectPayload();
 
     // Se está editando e mudando status para "cancelada" e há evento Google, pergunta (só comercial)
-    if (id && !isOperational) {
+    if (id && !isOperational && !isExternal) {
         const newStatus = document.getElementById('mt-status').value;
         const hasGoogleEvent = !!document.getElementById('mt-google-event-id').value;
         if (newStatus === 'cancelada' && hasGoogleEvent) {

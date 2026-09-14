@@ -139,14 +139,16 @@ class AgendaController extends Controller
         $title = trim($_POST['title'] ?? '');
         if ($title === '') $this->json(['error' => 'Título obrigatório'], 400);
 
-        // Tipo da reunião: comercial (fluxo atual) ou operacional (interna, só participantes)
-        $meetingType = in_array($_POST['meeting_type'] ?? '', ['comercial', 'operacional']) ? $_POST['meeting_type'] : 'comercial';
+        // Tipo da reunião: comercial (fluxo atual), operacional (interna, só participantes)
+        // ou externo (convidados que NÃO fazem parte do sistema — demanda #210).
+        $meetingType = in_array($_POST['meeting_type'] ?? '', ['comercial', 'operacional', 'externo']) ? $_POST['meeting_type'] : 'comercial';
         $isOperational = $meetingType === 'operacional';
+        $isExternal = $meetingType === 'externo';
 
         $contactId = !empty($_POST['contact_id']) ? intval($_POST['contact_id']) : null;
 
         // Cliente novo (manual): cria o lead no CRM para ficar disponível depois (só reunião comercial)
-        if (!$isOperational && !$contactId && !empty($_POST['new_client_name'])) {
+        if (!$isOperational && !$isExternal && !$contactId && !empty($_POST['new_client_name'])) {
             $contactId = $this->contactModel->createManualLead(
                 trim($_POST['new_client_name']),
                 trim($_POST['new_client_phone'] ?? ''),
@@ -157,8 +159,17 @@ class AgendaController extends Controller
         // Em reunião comercial o cliente pode vir do CRM (contact_id) ou de uma empresa
         // (Empresa → Contato), que preenche client_name/phone/email como snapshot.
         $hasClientSnapshot = trim($_POST['client_name'] ?? '') !== '';
-        if (!$isOperational && !$contactId && !$hasClientSnapshot) {
+        if (!$isOperational && !$isExternal && !$contactId && !$hasClientSnapshot) {
             $this->json(['error' => 'Selecione um cliente ou cadastre um novo.'], 400);
+        }
+
+        // Convite externo: valida os dados dos convidados externos informados.
+        $externalGuests = [];
+        if ($isExternal) {
+            $externalGuests = $this->parseExternalGuests();
+            if (empty($externalGuests)) {
+                $this->json(['error' => 'Informe ao menos um convidado externo (nome + e-mail ou telefone).'], 400);
+            }
         }
 
         $data = [
@@ -185,6 +196,22 @@ class AgendaController extends Controller
             $data['client_email'] = null;
             $data['temperature'] = null;
             $data['closed_by'] = null;
+            // Preserva o link do Meet gerado no modal, se houver
+            $preEventId = trim($_POST['google_event_id'] ?? '') ?: null;
+            $preMeetLink = trim($_POST['meet_link'] ?? '') ?: null;
+            if ($preEventId) $data['google_event_id'] = $preEventId;
+            if ($preMeetLink) $data['meet_link'] = $preMeetLink;
+        } elseif ($isExternal) {
+            // Convite externo: sem cliente CRM/briefing. Guarda os convidados externos
+            // (JSON), a preferência "Registrar agendamento" e o link do Meet (se gerado).
+            $data['contact_id'] = null;
+            $data['client_name'] = null;
+            $data['client_phone'] = null;
+            $data['client_email'] = null;
+            $data['temperature'] = null;
+            $data['closed_by'] = null;
+            $data['external_guests'] = json_encode($externalGuests, JSON_UNESCAPED_UNICODE);
+            $data['register_google'] = !empty($_POST['register_google']) ? 1 : 0;
             // Preserva o link do Meet gerado no modal, se houver
             $preEventId = trim($_POST['google_event_id'] ?? '') ?: null;
             $preMeetLink = trim($_POST['meet_link'] ?? '') ?: null;
@@ -224,6 +251,13 @@ class AgendaController extends Controller
 
         if ($isOperational) {
             // Reunião operacional: notifica os participantes por WhatsApp + e-mail
+            $this->notifyParticipants($id);
+        } elseif ($isExternal) {
+            // Convite externo: gera (se pedido) o link do Google Agenda e envia o
+            // convite padronizado aos convidados externos por e-mail + WhatsApp.
+            $this->prepareExternalGoogleLink($id);
+            $this->notifyExternalGuests($id);
+            // Também avisa a equipe interna selecionada, se houver.
             $this->notifyParticipants($id);
         } elseif (!empty($data['meeting_at'])) {
             // Integração Google Agenda/Meet + convites ao cliente (email + WhatsApp)
@@ -303,6 +337,172 @@ class AgendaController extends Controller
         return ['email' => $sentEmail, 'whatsapp' => $sentWhats];
     }
 
+    // ===================================================================
+    // Convite externo 
+    // ===================================================================
+
+    /**
+     * Lê e sanitiza os convidados externos enviados no formulário.
+     * Aceita arrays paralelos (external_name[], external_email[], external_phone[]).
+     * Cada convidado precisa de nome e (e-mail OU telefone) para ser válido.
+     *
+     * @return array Lista de ['name'=>, 'email'=>, 'phone'=>]
+     */
+    private function parseExternalGuests()
+    {
+        $names  = $_POST['external_name']  ?? [];
+        $emails = $_POST['external_email'] ?? [];
+        $phones = $_POST['external_phone'] ?? [];
+
+        if (!is_array($names))  $names  = [$names];
+        if (!is_array($emails)) $emails = [$emails];
+        if (!is_array($phones)) $phones = [$phones];
+
+        $guests = [];
+        $count = max(count($names), count($emails), count($phones));
+        for ($i = 0; $i < $count; $i++) {
+            $name  = trim($names[$i]  ?? '');
+            $email = trim($emails[$i] ?? '');
+            $phone = preg_replace('/\D/', '', trim($phones[$i] ?? ''));
+
+            // Descarta linhas totalmente vazias.
+            if ($name === '' && $email === '' && $phone === '') continue;
+            // Precisa de nome e ao menos um canal de contato.
+            if ($name === '' || ($email === '' && $phone === '')) continue;
+            if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) $email = '';
+
+            $guests[] = ['name' => $name, 'email' => $email, 'phone' => $phone];
+        }
+        return $guests;
+    }
+
+    /**
+     * Decodifica os convidados externos persistidos (coluna external_guests em JSON).
+     */
+    private function decodeExternalGuests($meeting)
+    {
+        $raw = $meeting['external_guests'] ?? '';
+        if (empty($raw)) return [];
+        $list = json_decode($raw, true);
+        return is_array($list) ? $list : [];
+    }
+
+    /**
+     * "Registrar agendamento": gera o link para o cliente adicionar o evento ao
+     * próprio Google Agenda e o persiste. Não depende da integração OAuth do
+     * Google — é um link de template público. Só gera quando a opção foi marcada
+     * e há data/horário definidos.
+     */
+    private function prepareExternalGoogleLink($meetingId)
+    {
+        $meeting = $this->model->findById($meetingId);
+        if (!$meeting) return null;
+
+        if (empty($meeting['register_google']) || empty($meeting['meeting_at'])) {
+            return $meeting['google_calendar_link'] ?? null;
+        }
+
+        $desc = trim($meeting['notes'] ?? '');
+        $meetLink = trim($meeting['meet_link'] ?? '');
+        if ($meetLink !== '') {
+            $desc = trim($desc . "\n\nLink da reunião: " . $meetLink);
+        }
+
+        $link = GoogleCalendarApi::templateLink([
+            'title' => $meeting['title'],
+            'description' => $desc,
+            'start' => $meeting['meeting_at'],
+            'durationMin' => 60,
+            'timezone' => 'America/Sao_Paulo',
+        ]);
+
+        if ($link) {
+            try { $this->model->update($meetingId, ['google_calendar_link' => $link]); } catch (\Throwable $e) { /* ignora */ }
+        }
+        return $link;
+    }
+
+    /**
+     * Envia o convite padronizado (e-mail + WhatsApp) aos convidados externos,
+     * incluindo — quando disponível — o link do Meet e o link para registrar o
+     * agendamento no Google Agenda do próprio cliente.
+     *
+     * @return array ['email'=>N, 'whatsapp'=>N]
+     */
+    private function notifyExternalGuests($meetingId)
+    {
+        $meeting = $this->model->findById($meetingId);
+        if (!$meeting) return ['email' => 0, 'whatsapp' => 0];
+
+        $guests = $this->decodeExternalGuests($meeting);
+        if (empty($guests)) return ['email' => 0, 'whatsapp' => 0];
+
+        $whenFmt = !empty($meeting['meeting_at'])
+            ? date('d/m/Y \à\s H:i', strtotime($meeting['meeting_at']))
+            : 'a definir';
+        $desc = trim($meeting['notes'] ?? '');
+        $meetLink = trim($meeting['meet_link'] ?? '');
+        $calendarLink = trim($meeting['google_calendar_link'] ?? '');
+
+        $sentEmail = 0;
+        $sentWhats = 0;
+
+        foreach ($guests as $g) {
+            $name  = trim($g['name'] ?? '') ?: 'Convidado';
+            $email = trim($g['email'] ?? '');
+            $phone = preg_replace('/\D/', '', trim($g['phone'] ?? ''));
+
+            // ----- E-mail padronizado -----
+            if ($email !== '') {
+                $emailBody = Mailer::template(
+                    'Convite de Reunião',
+                    "<p>Olá, <strong>" . htmlspecialchars($name) . "</strong>!</p>
+                     <p>Você está sendo convidado(a) para uma reunião:</p>
+                     <p style='margin:6px 0;'><strong>Assunto:</strong> " . htmlspecialchars($meeting['title']) . "</p>
+                     <p style='margin:6px 0;'><strong>Data:</strong> {$whenFmt}</p>"
+                     . ($desc !== '' ? "<p style='margin:6px 0;'><strong>Descrição:</strong> " . nl2br(htmlspecialchars($desc)) . "</p>" : "")
+                     . ($meetLink !== '' ? "<p style='text-align:center;margin:24px 0 8px;'>
+                            <a href='{$meetLink}' style='background:#00BFA6;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;'>
+                                Entrar na reunião (Google Meet)
+                            </a></p>
+                            <p style='font-size:0.8rem;color:#888;word-break:break-all;text-align:center;'>Link: {$meetLink}</p>" : "")
+                     . ($calendarLink !== '' ? "<p style='text-align:center;margin:16px 0 8px;'>
+                            <a href='{$calendarLink}' style='background:#4285F4;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;'>
+                                Adicionar ao Google Agenda
+                            </a></p>
+                            <p style='font-size:0.8rem;color:#888;text-align:center;'>Salve este compromisso na sua agenda com um clique.</p>" : "")
+                     . "<p>Nos vemos lá!</p>"
+                );
+                try {
+                    if (Mailer::send($email, 'Convite de Reunião — ' . $meeting['title'], $emailBody)) $sentEmail++;
+                } catch (\Throwable $e) { /* ignora */ }
+            }
+
+            // ----- WhatsApp padronizado -----
+            if ($phone !== '') {
+                $dateFmt = !empty($meeting['meeting_at']) ? date('d/m/Y', strtotime($meeting['meeting_at'])) : 'a definir';
+                $timeFmt = !empty($meeting['meeting_at']) ? date('H\hi', strtotime($meeting['meeting_at'])) : 'a definir';
+                $waMsg = "📅 *Convite de Reunião*\n\n"
+                    . "Olá, " . $name . "! 👋\n\n"
+                    . "Você está sendo convidado(a) para a reunião *{$meeting['title']}*.\n\n"
+                    . "📅 *Data:* {$dateFmt}\n"
+                    . "🕐 *Horário:* {$timeFmt}"
+                    . ($meetLink !== '' ? "\n🔗 *Link da reunião:* {$meetLink}" : "")
+                    . ($calendarLink !== '' ? "\n🗓️ *Adicionar ao Google Agenda:* {$calendarLink}" : "")
+                    . "\n\nContamos com a sua presença!";
+                try {
+                    if (WhatsappNotifier::sendToPhone($phone, $waMsg, $name)) $sentWhats++;
+                } catch (\Throwable $e) { /* ignora */ }
+            }
+        }
+
+        try {
+            $this->model->update($meetingId, ['notifications_sent_at' => date('Y-m-d H:i:s')]);
+        } catch (\Throwable $e) { /* ignora */ }
+
+        return ['email' => $sentEmail, 'whatsapp' => $sentWhats];
+    }
+
     /**
      * API: reenvia as notificações (WhatsApp + e-mail) aos participantes da reunião.
      * Para reuniões comerciais reaproveita o fluxo de convites (Google/Meet + cliente).
@@ -315,11 +515,22 @@ class AgendaController extends Controller
         $meeting = $this->model->findById($id);
         if (!$meeting) $this->json(['error' => 'Reunião não encontrada'], 404);
 
-        if (($meeting['meeting_type'] ?? 'comercial') === 'operacional') {
+        $type = $meeting['meeting_type'] ?? 'comercial';
+        if ($type === 'operacional') {
             $result = $this->notifyParticipants($id);
             $this->json([
                 'success' => true,
                 'message' => "Notificações reenviadas: {$result['email']} e-mail(s), {$result['whatsapp']} WhatsApp.",
+            ]);
+        } elseif ($type === 'externo') {
+            // Convite externo: regenera o link do Google Agenda (se aplicável) e
+            // reenvia o convite padronizado aos convidados externos.
+            $this->prepareExternalGoogleLink($id);
+            $result = $this->notifyExternalGuests($id);
+            $this->notifyParticipants($id);
+            $this->json([
+                'success' => true,
+                'message' => "Convites reenviados: {$result['email']} e-mail(s), {$result['whatsapp']} WhatsApp.",
             ]);
         } else {
             // Reunião comercial: reenvia convites sem recriar o evento no Google
@@ -422,7 +633,9 @@ class AgendaController extends Controller
         if (!$meeting) $this->json(['error' => 'Reunião não encontrada'], 404);
 
         $user = $this->currentUser();
-        $isOperational = ($meeting['meeting_type'] ?? 'comercial') === 'operacional';
+        $meetingType = $meeting['meeting_type'] ?? 'comercial';
+        $isOperational = $meetingType === 'operacional';
+        $isExternal = $meetingType === 'externo';
         $data = [];
         if (isset($_POST['title'])) $data['title'] = trim($_POST['title']);
         if (isset($_POST['assigned_to'])) $data['assigned_to'] = $_POST['assigned_to'] ?: null;
@@ -454,6 +667,26 @@ class AgendaController extends Controller
         // quando o usuário pediu explicitamente (checkbox de reenvio).
         if ($isOperational) {
             if (!empty($_POST['resend_notifications'])) {
+                $this->notifyParticipants($id);
+            }
+            $this->json(['success' => true, 'meeting' => $this->model->findById($id)]);
+            return;
+        }
+
+        // Convite externo: atualiza os convidados externos e a preferência de
+        // registro no Google Agenda; não usa briefing nem o fluxo comercial.
+        if ($isExternal) {
+            if (isset($_POST['external_name']) || isset($_POST['external_email']) || isset($_POST['external_phone'])) {
+                $guests = $this->parseExternalGuests();
+                $this->model->update($id, ['external_guests' => json_encode($guests, JSON_UNESCAPED_UNICODE)]);
+            }
+            if (isset($_POST['register_google'])) {
+                $this->model->update($id, ['register_google' => !empty($_POST['register_google']) ? 1 : 0]);
+            }
+            // (Re)gera o link do Google Agenda conforme a preferência atual.
+            $this->prepareExternalGoogleLink($id);
+            if (!empty($_POST['resend_notifications'])) {
+                $this->notifyExternalGuests($id);
                 $this->notifyParticipants($id);
             }
             $this->json(['success' => true, 'meeting' => $this->model->findById($id)]);
