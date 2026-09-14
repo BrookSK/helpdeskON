@@ -232,6 +232,7 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <form action="<?= baseUrl('planning/create') ?>" method="POST">
+                    <input type="hidden" name="return_query" value="<?= escape($_SERVER['QUERY_STRING'] ?? '') ?>">
                     <div class="modal-body">
                         <div class="mb-3">
                             <label class="form-label small fw-medium">Título *</label>
@@ -593,6 +594,17 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                                 </div>
 
                                 <hr class="my-2">
+                                <div class="mb-3">
+                                    <label class="form-label small fw-medium text-muted"><i class="bi bi-link-45deg"></i> Link do Card</label>
+                                    <div class="input-group input-group-sm">
+                                        <input type="text" id="detail-card-link" class="form-control form-control-sm" readonly style="font-size:0.72rem;background:#fff;">
+                                        <button class="btn btn-outline-secondary" type="button" onclick="copyCardLink()" title="Copiar link"><i class="bi bi-clipboard" id="detail-card-link-icon"></i></button>
+                                        <a class="btn btn-outline-secondary" id="detail-card-link-open" href="#" target="_blank" title="Abrir link"><i class="bi bi-box-arrow-up-right"></i></a>
+                                    </div>
+                                    <small class="text-muted" style="font-size:0.68rem;">Compartilhe para abrir este card diretamente.</small>
+                                </div>
+
+                                <hr class="my-2">
                                 <small class="text-muted d-block mb-2" id="detail-meta" style="font-size:0.72rem;line-height:1.4;"></small>
 
                                 <hr class="my-2">
@@ -785,6 +797,36 @@ function openCreateModal() {
     new bootstrap.Modal(document.getElementById('createCardModal')).show();
 }
 
+// Copia o link individual do card para a área de transferência.
+function copyCardLink() {
+    const input = document.getElementById('detail-card-link');
+    if (!input || !input.value) return;
+    const icon = document.getElementById('detail-card-link-icon');
+    const done = () => {
+        if (icon) {
+            icon.classList.remove('bi-clipboard');
+            icon.classList.add('bi-clipboard-check');
+            setTimeout(() => { icon.classList.remove('bi-clipboard-check'); icon.classList.add('bi-clipboard'); }, 1500);
+        }
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(input.value).then(done).catch(() => { input.select(); document.execCommand('copy'); done(); });
+    } else {
+        input.select();
+        document.execCommand('copy');
+        done();
+    }
+}
+
+// Abre automaticamente o card indicado na URL (?card=ID), permitindo que o
+// link compartilhado abra direto o card em um modal.
+document.addEventListener('DOMContentLoaded', function () {
+    const cardId = new URLSearchParams(window.location.search).get('card');
+    if (cardId && /^\d+$/.test(cardId)) {
+        openCardModal(parseInt(cardId, 10));
+    }
+});
+
 function openCardModal(id) {
     currentCardId = id;
     fetch(BASE + 'planning/get/' + id).then(r => r.json()).then(data => {
@@ -822,6 +864,11 @@ function openCardModal(id) {
         document.getElementById('detail-cx-hub-name').value = c.cx_hub_name || '';
         document.getElementById('detail-branch-name').value = c.branch_name || '';
         document.getElementById('detail-pr-number').value = c.pr_number || '';
+
+        // Link individual do card (para compartilhamento)
+        const cardLink = BASE + 'planning?card=' + c.id;
+        document.getElementById('detail-card-link').value = cardLink;
+        document.getElementById('detail-card-link-open').href = cardLink;
 
         // Meta info
         let metaHtml = '<i class="bi bi-person-fill"></i> Criado por <strong>' + (c.created_by_name || 'Desconhecido') + '</strong>';
