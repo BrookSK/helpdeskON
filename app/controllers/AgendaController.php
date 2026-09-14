@@ -166,6 +166,8 @@ class AgendaController extends Controller
         // Convite externo: valida os dados dos convidados externos informados.
         $externalGuests = [];
         if ($isExternal) {
+            // Garante que as colunas/enum do convite externo existam (idempotente).
+            $this->ensureExternalInviteSchema();
             $externalGuests = $this->parseExternalGuests();
             if (empty($externalGuests)) {
                 $this->json(['error' => 'Informe ao menos um convidado externo (nome + e-mail ou telefone).'], 400);
@@ -231,7 +233,17 @@ class AgendaController extends Controller
             if ($preMeetLink) $data['meet_link'] = $preMeetLink;
         }
 
-        $id = $this->model->create($data);
+        try {
+            $id = $this->model->create($data);
+        } catch (\Throwable $e) {
+            // Causa mais comum: migration 115 (colunas do convite externo / valor
+            // 'externo' do enum meeting_type) ainda não aplicada no banco.
+            $hint = '';
+            if ($isExternal) {
+                $hint = ' Verifique se a migration 115_agenda_external_invite.sql foi executada no banco.';
+            }
+            $this->json(['error' => 'Não foi possível salvar a reunião: ' . $e->getMessage() . $hint], 500);
+        }
 
         // Salva participantes da equipe
         $participantIds = array_filter(array_map('intval', $_POST['participants'] ?? []));
@@ -340,6 +352,57 @@ class AgendaController extends Controller
     // ===================================================================
     // Convite externo 
     // ===================================================================
+
+    /**
+     * Auto-correção de schema para o convite externo (equivalente à migration
+     * 115_agenda_external_invite.sql). Cria apenas o que estiver faltando, usando
+     * o mesmo padrão de checagem via information_schema já usado no projeto
+     * (ex.: CrmController::ensureCampaignSchema). Idempotente e silencioso: falhas
+     * são logadas, mas não interrompem o fluxo. Assim o convite externo funciona
+     * mesmo que a migration ainda não tenha sido rodada manualmente no banco.
+     */
+    private function ensureExternalInviteSchema()
+    {
+        $db = Database::getInstance();
+
+        // 1) Garante o valor 'externo' no ENUM meeting_type.
+        try {
+            $col = $db->fetch(
+                "SELECT COLUMN_TYPE ct FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agenda_meetings' AND COLUMN_NAME = 'meeting_type'"
+            );
+            if ($col && strpos((string)$col['ct'], "'externo'") === false) {
+                $db->query("ALTER TABLE agenda_meetings
+                    MODIFY COLUMN meeting_type ENUM('comercial','operacional','externo') NOT NULL DEFAULT 'comercial'");
+                if (class_exists('Logger')) Logger::info('ensureExternalInviteSchema: enum meeting_type atualizado');
+            }
+        } catch (\Throwable $e) {
+            if (class_exists('Logger')) Logger::error('ensureExternalInviteSchema enum falhou', ['error' => $e->getMessage()]);
+        }
+
+        // 2) Colunas novas => definição do ADD COLUMN se faltarem.
+        $columns = [
+            'external_guests'      => "ADD COLUMN external_guests LONGTEXT NULL",
+            'register_google'      => "ADD COLUMN register_google TINYINT(1) NOT NULL DEFAULT 0",
+            'google_calendar_link' => "ADD COLUMN google_calendar_link VARCHAR(1000) NULL",
+        ];
+        foreach ($columns as $name => $ddl) {
+            try {
+                $exists = $db->fetch(
+                    "SELECT 1 FROM information_schema.COLUMNS
+                     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agenda_meetings' AND COLUMN_NAME = ?",
+                    [$name]
+                );
+                if (!$exists) {
+                    // Nome de coluna vem de uma lista fixa (não do usuário) — sem risco de injeção.
+                    $db->query("ALTER TABLE agenda_meetings {$ddl}");
+                    if (class_exists('Logger')) Logger::info('ensureExternalInviteSchema: coluna criada', ['column' => $name]);
+                }
+            } catch (\Throwable $e) {
+                if (class_exists('Logger')) Logger::error('ensureExternalInviteSchema falhou', ['column' => $name, 'error' => $e->getMessage()]);
+            }
+        }
+    }
 
     /**
      * Lê e sanitiza os convidados externos enviados no formulário.
@@ -676,6 +739,8 @@ class AgendaController extends Controller
         // Convite externo: atualiza os convidados externos e a preferência de
         // registro no Google Agenda; não usa briefing nem o fluxo comercial.
         if ($isExternal) {
+            // Garante que as colunas/enum do convite externo existam (idempotente).
+            $this->ensureExternalInviteSchema();
             if (isset($_POST['external_name']) || isset($_POST['external_email']) || isset($_POST['external_phone'])) {
                 $guests = $this->parseExternalGuests();
                 $this->model->update($id, ['external_guests' => json_encode($guests, JSON_UNESCAPED_UNICODE)]);
