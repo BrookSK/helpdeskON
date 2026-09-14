@@ -231,11 +231,10 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                     <h6 class="modal-title">Novo Card</h6>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
-                <form action="<?= baseUrl('planning/create') ?>" method="POST">
+                <form action="<?= baseUrl('planning/create') ?>" method="POST" id="createCardForm">
                     <?php
                     // Query string dos filtros atuais, sem o parâmetro interno "url"
-                    // (usado pelo roteador). Preserva empresas, responsáveis,
-                    // solicitantes, status e ordenação ao criar o card.
+                    // (usado pelo roteador). Fallback caso o envio via AJAX falhe.
                     $returnParams = $_GET;
                     unset($returnParams['url']);
                     $returnQueryStr = http_build_query($returnParams);
@@ -803,6 +802,89 @@ function updateKanbanCounts() {
 // === MODALS ===
 function openCreateModal() {
     new bootstrap.Modal(document.getElementById('createCardModal')).show();
+}
+
+// Cria o card via AJAX para NÃO recarregar a página — assim os filtros
+// aplicados na aba de Planejamento permanecem exatamente como estavam.
+(function () {
+    const form = document.getElementById('createCardForm');
+    if (!form) return;
+
+    form.addEventListener('submit', function (e) {
+        e.preventDefault();
+
+        const submitBtn = form.querySelector('button[type="submit"]');
+        const originalHtml = submitBtn ? submitBtn.innerHTML : '';
+        if (submitBtn) { submitBtn.disabled = true; submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Criando...'; }
+
+        fetch(form.action, {
+            method: 'POST',
+            body: new FormData(form),
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success || !data.card) {
+                alert(data.error || 'Erro ao criar o card.');
+                return;
+            }
+            addCardToBoard(data.card);
+            // Fecha o modal e limpa o formulário para o próximo card.
+            const modalEl = document.getElementById('createCardModal');
+            const modal = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
+            modal.hide();
+            form.reset();
+        })
+        .catch(() => {
+            // Fallback: se o AJAX falhar, faz o envio tradicional (recarrega a página).
+            form.submit();
+        })
+        .finally(() => {
+            if (submitBtn) { submitBtn.disabled = false; submitBtn.innerHTML = originalHtml; }
+        });
+    });
+})();
+
+// Insere um card recém-criado na coluna correta do Kanban, sem recarregar.
+function addCardToBoard(card) {
+    const list = document.querySelector('.kanban-list[data-status="' + card.status + '"]');
+    if (!list) return; // Coluna do status não está visível no filtro atual.
+
+    const priorityLabelsMap = {low:'Baixa',medium:'Média',high:'Alta',urgent:'Urgente'};
+    const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+
+    const isOverdue = card.due_date && (new Date(card.due_date).getTime() < Date.now())
+        && card.status !== 'completed' && card.status !== 'archived';
+
+    let dueHtml = '';
+    if (card.due_date) {
+        const d = new Date(card.due_date);
+        const dd = String(d.getDate()).padStart(2,'0');
+        const mm = String(d.getMonth()+1).padStart(2,'0');
+        const hh = String(d.getHours()).padStart(2,'0');
+        const mi = String(d.getMinutes()).padStart(2,'0');
+        dueHtml = '<span class="float-end ' + (isOverdue ? 'text-danger fw-semibold' : '') + '"><i class="bi bi-clock"></i> ' + dd + '/' + mm + ' ' + hh + ':' + mi + '</span>';
+    }
+
+    const div = document.createElement('div');
+    div.className = 'kanban-card planning-card' + (isOverdue ? ' overdue' : '');
+    div.dataset.id = card.id;
+    div.setAttribute('onclick', 'openCardModal(' + card.id + ')');
+    div.innerHTML =
+        '<div class="d-flex justify-content-between align-items-start mb-1">' +
+            '<span class="text-muted" style="font-size:0.7rem">#' + card.id + '</span>' +
+            '<span class="priority-' + esc(card.priority) + '" style="font-size:0.7rem">' + (priorityLabelsMap[card.priority] || '') + '</span>' +
+        '</div>' +
+        '<div class="fw-medium" style="font-size:0.82rem;word-break:break-word;">' + esc(card.title) + '</div>' +
+        '<div class="text-muted mt-2" style="font-size:0.7rem">' +
+            (card.company_name ? '<span><i class="bi bi-building"></i> ' + esc(card.company_name) + '</span><br>' : '') +
+            (card.created_by_name ? '<span><i class="bi bi-person-badge"></i> ' + esc(card.created_by_name) + '</span><br>' : '') +
+            '<span><i class="bi bi-person"></i> ' + esc(card.assigned_name || 'Não atribuído') + '</span>' +
+            dueHtml +
+        '</div>';
+
+    list.prepend(div);
+    updateKanbanCounts();
 }
 
 // Copia o link individual do card para a área de transferência.
