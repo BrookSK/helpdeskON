@@ -393,7 +393,7 @@ function onMeetingTypeChange() {
     }
 }
 
-// ===== Convidados externos (demanda #210) =====
+// ===== Convidados externos =====
 
 // Adiciona uma linha (nome / e-mail / telefone) ao bloco de convidados externos.
 function addExternalGuestRow(guest) {
@@ -523,7 +523,7 @@ function fillMeeting(m) {
         Array.from(ptSel.options).forEach(o => o.selected = ids.includes(o.value));
     }
     syncParticipantChecks();
-    // Convite externo (demanda #210): convidados externos + registrar agendamento.
+    // Convite externo: convidados externos + registrar agendamento.
     if (mtType === 'externo') {
         let guests = m.external_guests || [];
         if (typeof guests === 'string') { try { guests = JSON.parse(guests); } catch (e) { guests = []; } }
@@ -727,7 +727,7 @@ function collectPayload() {
     // Participantes da equipe (select fonte de verdade)
     const ptSelPayload = document.getElementById('mt-participants');
     if (ptSelPayload) Array.from(ptSelPayload.selectedOptions).forEach(o => fd.append('participants[]', o.value));
-    // Convite externo (demanda #210): convidados externos + registrar agendamento.
+    // Convite externo: convidados externos + registrar agendamento.
     if (document.getElementById('mt-type').value === 'externo') {
         document.querySelectorAll('#mt-external-guests .mt-external-guest-row').forEach(row => {
             const name  = row.querySelector('.mt-ext-name').value.trim();
