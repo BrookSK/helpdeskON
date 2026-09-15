@@ -359,7 +359,7 @@
                     </div>
                     <div class="col-md-2">
                         <label class="form-label small fw-medium">Score mín.</label>
-                        <input type="number" id="camp-minscore" class="form-control form-control-sm" value="70" min="0">
+                        <input type="number" id="camp-minscore" class="form-control form-control-sm" value="50" min="0">
                     </div>
                     <div class="col-md-2">
                         <label class="form-label small fw-medium">Por página</label>
@@ -541,12 +541,12 @@
                     <div class="col-12">
                         <label class="form-label small">Pesos do score</label>
                         <div class="d-flex flex-wrap gap-2">
-                            <span class="input-group input-group-sm" style="width:auto;"><span class="input-group-text">Decisor</span><input type="number" id="camp-w-decisor" class="form-control" value="30" style="width:70px;"></span>
-                            <span class="input-group input-group-sm" style="width:auto;"><span class="input-group-text">Cargo</span><input type="number" id="camp-w-title" class="form-control" value="20" style="width:70px;"></span>
-                            <span class="input-group input-group-sm" style="width:auto;"><span class="input-group-text">Porte</span><input type="number" id="camp-w-size" class="form-control" value="15" style="width:70px;"></span>
-                            <span class="input-group input-group-sm" style="width:auto;"><span class="input-group-text">Região</span><input type="number" id="camp-w-region" class="form-control" value="10" style="width:70px;"></span>
-                            <span class="input-group input-group-sm" style="width:auto;"><span class="input-group-text">Site</span><input type="number" id="camp-w-website" class="form-control" value="5" style="width:70px;"></span>
-                            <span class="input-group input-group-sm" style="width:auto;"><span class="input-group-text">Tec.</span><input type="number" id="camp-w-technology" class="form-control" value="10" style="width:70px;"></span>
+                            <span class="input-group input-group-sm" style="width:auto;"><span class="input-group-text">Decisor</span><input type="number" id="camp-w-decisor" class="form-control" value="35" style="width:70px;"></span>
+                            <span class="input-group input-group-sm" style="width:auto;"><span class="input-group-text">Cargo</span><input type="number" id="camp-w-title" class="form-control" value="30" style="width:70px;"></span>
+                            <span class="input-group input-group-sm" style="width:auto;"><span class="input-group-text">Porte</span><input type="number" id="camp-w-size" class="form-control" value="10" style="width:70px;"></span>
+                            <span class="input-group input-group-sm" style="width:auto;"><span class="input-group-text">Região</span><input type="number" id="camp-w-region" class="form-control" value="15" style="width:70px;"></span>
+                            <span class="input-group input-group-sm" style="width:auto;"><span class="input-group-text">Site</span><input type="number" id="camp-w-website" class="form-control" value="10" style="width:70px;"></span>
+                            <span class="input-group input-group-sm" style="width:auto;"><span class="input-group-text">Tec.</span><input type="number" id="camp-w-technology" class="form-control" value="0" style="width:70px;"></span>
                         </div>
                     </div>
                         </div><!-- /.row (apollo-section) -->
@@ -1178,7 +1178,7 @@ function openCampaign() {
     document.getElementById('camp-column').innerHTML = '<option value="">Selecione o board...</option>';
     document.getElementById('camp-assigned').value = '';
     document.getElementById('camp-daily').value = 12;
-    document.getElementById('camp-minscore').value = 70;
+    document.getElementById('camp-minscore').value = 50;
     document.getElementById('camp-perpage').value = 50;
     setDays('1,2,3,4,5');
     document.getElementById('camp-wstart').value = '08:00';
@@ -1204,7 +1204,7 @@ function openCampaign() {
     selectedLeadIds = [];
     refreshLeadSelectionInfo();
     onCampSourceChange();
-    ['decisor:30','title:20','size:15','region:10','website:5','technology:10'].forEach(p => { const [k,v]=p.split(':'); document.getElementById('camp-w-'+k).value = v; });
+    ['decisor:35','title:30','size:10','region:15','website:10','technology:0'].forEach(p => { const [k,v]=p.split(':'); document.getElementById('camp-w-'+k).value = v; });
     if (!campModal) campModal = new bootstrap.Modal(document.getElementById('campaignModal'));
     campModal.show();
 }

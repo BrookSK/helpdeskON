@@ -1925,7 +1925,7 @@ class CrmController extends Controller
             'assigned_to' => !empty($_POST['assigned_to']) ? intval($_POST['assigned_to']) : null,
             'search_filters' => json_encode($searchFilters, JSON_UNESCAPED_UNICODE),
             'icp_rules' => json_encode($icpRules, JSON_UNESCAPED_UNICODE),
-            'min_score' => max(0, intval($_POST['min_score'] ?? 70)),
+            'min_score' => max(0, intval($_POST['min_score'] ?? 50)),
             'daily_target' => max(1, intval($_POST['daily_target'] ?? 12)),
             'search_per_page' => min(100, max(10, intval($_POST['search_per_page'] ?? 50))),
             'days_of_week' => trim($_POST['days_of_week'] ?? '1,2,3,4,5'),
@@ -2390,12 +2390,12 @@ class CrmController extends Controller
         $toArr = fn($k) => array_values(array_filter(array_map('trim', explode(',', $_POST[$k] ?? ''))));
         $icp = [
             'score' => [
-                'decisor' => intval($_POST['w_decisor'] ?? 30),
-                'title' => intval($_POST['w_title'] ?? 20),
-                'size' => intval($_POST['w_size'] ?? 15),
-                'region' => intval($_POST['w_region'] ?? 10),
-                'website' => intval($_POST['w_website'] ?? 5),
-                'technology' => intval($_POST['w_technology'] ?? 10),
+                'decisor' => intval($_POST['w_decisor'] ?? 35),
+                'title' => intval($_POST['w_title'] ?? 30),
+                'size' => intval($_POST['w_size'] ?? 10),
+                'region' => intval($_POST['w_region'] ?? 15),
+                'website' => intval($_POST['w_website'] ?? 10),
+                'technology' => intval($_POST['w_technology'] ?? 0),
             ],
         ];
         if (!empty($_POST['icp_seniorities'])) $icp['seniorities'] = $toArr('icp_seniorities');
