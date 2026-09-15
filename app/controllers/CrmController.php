@@ -2310,6 +2310,50 @@ class CrmController extends Controller
         }
     }
 
+    /**
+     * Interpreta o campo de faixas de nº de funcionários e devolve um array de
+     * pares "min,max" no formato exigido pelo Apollo (ex.: ["1,10","11,50"]).
+     *
+     * Aceita:
+     *   - "1,10;11,50"      → ["1,10","11,50"]   (formato novo: ';' separa as faixas)
+     *   - "1,10; 11,50"     → idem (com espaços)
+     *   - "1,10,11,50"      → ["1,10","11,50"]   (formato legado: vírgulas soltas, reagrupa em pares)
+     *   - array já pronto    → normaliza da mesma forma
+     */
+    private function parseEmployeeRanges($value)
+    {
+        if (is_array($value)) {
+            $items = $value;
+        } else {
+            // Se há ';', ele separa as faixas. Sem ';', trata a string inteira como
+            // uma lista de números separados por vírgula (formato legado a reagrupar).
+            $str = (string) $value;
+            $items = strpos($str, ';') !== false ? preg_split('/[;\n]+/', $str) : [$str];
+        }
+
+        $pairs = [];
+        $loose = [];
+        foreach ($items as $item) {
+            $item = trim((string) $item);
+            if ($item === '') continue;
+            $parts = array_values(array_filter(array_map('trim', explode(',', $item)), fn($v) => $v !== ''));
+            if (count($parts) === 2 && is_numeric($parts[0]) && is_numeric($parts[1])) {
+                // Faixa "min,max" bem formada.
+                $pairs[] = $parts[0] . ',' . $parts[1];
+            } else {
+                // Mais/menos de 2 partes: joga tudo no balde de números soltos
+                // para reagrupar em pares consecutivos (repara dado legado).
+                foreach ($parts as $n) {
+                    if (is_numeric($n)) $loose[] = $n;
+                }
+            }
+        }
+        for ($i = 0; $i + 1 < count($loose); $i += 2) {
+            $pairs[] = $loose[$i] . ',' . $loose[$i + 1];
+        }
+        return array_values(array_unique($pairs));
+    }
+
     private function buildCampaignFilters()
     {
         // Se veio JSON bruto (campo avançado), usa-o; senão monta dos campos simples.
@@ -2326,7 +2370,13 @@ class CrmController extends Controller
         if (!empty($_POST['f_org_locations'])) $f['organization_locations'] = $toArr('f_org_locations');
         if (!empty($_POST['f_domains'])) $f['q_organization_domains_list'] = $toArr('f_domains');
         if (!empty($_POST['f_keywords'])) $f['q_keywords'] = implode(' ', $toArr('f_keywords'));
-        if (!empty($_POST['f_employee_ranges'])) $f['organization_num_employees_ranges'] = $toArr('f_employee_ranges');
+        // Faixas de nº de funcionários: cada faixa é um par "min,max". O separador
+        // ENTRE faixas é ';' (a vírgula é usada DENTRO de cada faixa). Também aceita
+        // o formato legado com vírgulas soltas, reagrupando os números em pares.
+        if (!empty($_POST['f_employee_ranges'])) {
+            $ranges = $this->parseEmployeeRanges($_POST['f_employee_ranges']);
+            if (!empty($ranges)) $f['organization_num_employees_ranges'] = $ranges;
+        }
         return $f;
     }
 

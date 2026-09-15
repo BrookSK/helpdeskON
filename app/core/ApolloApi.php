@@ -234,6 +234,12 @@ class ApolloApi
         ];
         foreach ($arrayMap as $in => $out) {
             $vals = $this->toArray($f[$in] ?? null);
+            // Faixas de nº de funcionários exigem o formato "min,max" por item.
+            // Normaliza aqui (rede de segurança) para reparar dados legados que
+            // possam ter sido gravados como números soltos ["11","50",...].
+            if ($out === 'organization_num_employees_ranges') {
+                $vals = $this->normalizeEmployeeRanges($f[$in] ?? null);
+            }
             if (!empty($vals)) $p[$out] = $vals;
         }
 
@@ -276,6 +282,9 @@ class ApolloApi
         ];
         foreach ($arrayMap as $in => $out) {
             $vals = $this->toArray($f[$in] ?? null);
+            if ($out === 'organization_num_employees_ranges') {
+                $vals = $this->normalizeEmployeeRanges($f[$in] ?? null);
+            }
             if (!empty($vals)) $p[$out] = $vals;
         }
 
@@ -303,6 +312,57 @@ class ApolloApi
         if (isset($range['min']) && $range['min'] !== '') $out['min'] = $range['min'];
         if (isset($range['max']) && $range['max'] !== '') $out['max'] = $range['max'];
         if (!empty($out)) $payload[$key] = $out;
+    }
+
+    /**
+     * Normaliza as faixas de nº de funcionários para o formato exigido pelo Apollo:
+     * um array onde cada item é uma faixa "min,max" (ex.: ["1,10","11,50"]).
+     *
+     * Aceita e repara vários formatos de entrada:
+     *   - Já correto:            ["1,10","11,50"]                 → mantém
+     *   - Números soltos (bug):  ["1","10","11","50"]             → agrupa em pares → ["1,10","11,50"]
+     *   - String "min,max;..."   "1,10;11,50"                     → ["1,10","11,50"]
+     *   - Item com par único      ["1,10"]                        → mantém
+     *
+     * Descarta itens sem os dois limites (número ímpar de valores) para não enviar
+     * uma faixa inválida à Apollo (que rejeitaria a requisição inteira).
+     */
+    private function normalizeEmployeeRanges($value)
+    {
+        if ($value === null || $value === '') return [];
+
+        // 1) Coleta os itens brutos (aceita array ou string separada por ; ou nova linha).
+        if (is_array($value)) {
+            $items = $value;
+        } else {
+            $items = preg_split('/[;\n]+/', (string) $value);
+        }
+
+        // 2) Se algum item já é um par "min,max", preserva os pares diretamente.
+        $pairs = [];
+        $loose = [];
+        foreach ($items as $item) {
+            $item = trim((string) $item);
+            if ($item === '') continue;
+            if (strpos($item, ',') !== false) {
+                // Item no formato "min,max" (ou com mais partes: usa as duas primeiras).
+                $parts = array_values(array_filter(array_map('trim', explode(',', $item)), fn($v) => $v !== ''));
+                if (count($parts) >= 2 && is_numeric($parts[0]) && is_numeric($parts[1])) {
+                    $pairs[] = $parts[0] . ',' . $parts[1];
+                }
+            } elseif (is_numeric($item)) {
+                // Número solto: será agrupado em par na próxima etapa.
+                $loose[] = $item;
+            }
+        }
+
+        // 3) Agrupa números soltos em pares consecutivos (repara o dado legado).
+        for ($i = 0; $i + 1 < count($loose); $i += 2) {
+            $pairs[] = $loose[$i] . ',' . $loose[$i + 1];
+        }
+
+        // 4) Remove duplicatas e reindexa.
+        return array_values(array_unique($pairs));
     }
 
     /**
