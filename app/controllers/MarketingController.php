@@ -248,23 +248,34 @@ class MarketingController extends Controller
             if (!$isAdmin && in_array($newStatus, $forbiddenForMarketing)) {
                 $this->json(['error' => 'Somente o administrador pode aprovar ou rejeitar o conteúdo.'], 403);
             }
-            // Uma aprovação só pode avançar para agendamento/publicação. Reabrir conteúdo
-            // aprovado deve ocorrer por uma ação explícita de revisão, não por um salvamento
-            // tardio ou uma requisição desatualizada do formulário.
-            if ($item['status'] === 'aprovado' && !in_array($newStatus, ['aprovado', 'agendado', 'publicado'], true)) {
-                $this->json(['error' => 'Esta demanda já foi aprovada e não pode retornar para etapas anteriores. Solicite ajustes para reabri-la.'], 409);
+            // Uma demanda que já passou da aprovação (aprovado/agendado/publicado) NUNCA
+            // volta para etapas anteriores por um salvamento comum (edição de conteúdo).
+            // Isso evita o bug em que uma tela desatualizada reenvia o status antigo
+            // ("aguardando_aprovacao") por cima do status atual. A única forma de reabrir
+            // é uma ação explícita: returnToApproval() ou requestChanges().
+            // Aqui apenas ignoramos silenciosamente o status recuado e preservamos o atual.
+            $postApprovalStatuses = ['aprovado', 'agendado', 'publicado'];
+            $isBackwardFromApproved = in_array($item['status'], $postApprovalStatuses, true)
+                && !in_array($newStatus, $postApprovalStatuses, true);
+
+            if ($isBackwardFromApproved) {
+                // Não altera o status: a edição de conteúdo (título/copy/briefing/anexos)
+                // continua valendo, mas a demanda permanece no status atual.
+                $newStatus = null;
             }
 
-            // Regra: para sair de rascunho e seguir no fluxo (produção/aprovação) é
-            // obrigatório ter ao menos uma imagem anexada. Sem imagem, fica em rascunho.
-            $needsImageStatuses = ['em_producao', 'aguardando_aprovacao', 'aprovado', 'agendado', 'publicado'];
-            if (!$isAdmin && in_array($newStatus, $needsImageStatuses) && !$hasImage) {
-                $this->json(['error' => 'Anexe ao menos uma imagem para enviar a demanda. Sem imagem, só é possível salvar como rascunho.'], 422);
-            }
-            $data['status'] = $newStatus;
-            // Ao reenviar para aprovação, limpa a observação de ajustes (some o destaque amarelo).
-            if ($newStatus === 'aguardando_aprovacao') {
-                $data['review_notes'] = null;
+            if ($newStatus !== null) {
+                // Regra: para sair de rascunho e seguir no fluxo (produção/aprovação) é
+                // obrigatório ter ao menos uma imagem anexada. Sem imagem, fica em rascunho.
+                $needsImageStatuses = ['em_producao', 'aguardando_aprovacao', 'aprovado', 'agendado', 'publicado'];
+                if (!$isAdmin && in_array($newStatus, $needsImageStatuses) && !$hasImage) {
+                    $this->json(['error' => 'Anexe ao menos uma imagem para enviar a demanda. Sem imagem, só é possível salvar como rascunho.'], 422);
+                }
+                $data['status'] = $newStatus;
+                // Ao reenviar para aprovação, limpa a observação de ajustes (some o destaque amarelo).
+                if ($newStatus === 'aguardando_aprovacao') {
+                    $data['review_notes'] = null;
+                }
             }
         }
 
@@ -289,8 +300,11 @@ class MarketingController extends Controller
             $this->notifyApprover($updatedItem, 'ajustes_feitos', $user);
         }
 
-        // Notificar admins quando enviado para aprovação
-        if (($data['status'] ?? '') === 'aguardando_aprovacao') {
+        // Notificar admins quando enviado para aprovação.
+        // Só dispara em uma transição REAL para "aguardando_aprovacao". Re-salvar uma
+        // demanda que já estava aguardando não deve reenviar a notificação nem gerar
+        // um histórico "submitted" duplicado.
+        if ($statusChanged && ($data['status'] ?? '') === 'aguardando_aprovacao') {
             $this->notifyAdmins('Conteúdo aguardando aprovação', "{$user['name']} enviou \"{$item['title']}\" para aprovação.");
             $this->itemModel->addHistory($id, $user['id'], 'submitted', 'Enviado para aprovação.');
             // Notifica o aprovador designado, se houver
@@ -428,6 +442,47 @@ class MarketingController extends Controller
             );
         }
         $this->json(['success' => true, 'item' => $this->itemModel->findById($id)]);
+    }
+
+    // API: retornar uma demanda que já passou da aprovação (aprovada ou agendada) de
+    // volta para a fila de Aprovações (somente admin). Esta é a ÚNICA forma de reverter
+    // para "aguardando_aprovacao" — sempre por uma ação explícita e consciente, nunca
+    // por um salvamento de edição desatualizado.
+    public function returnToApproval($id = null)
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+        $item = $this->itemModel->findById($id);
+        if (!$item) $this->json(['error' => 'Item não encontrado'], 404);
+
+        // Só faz sentido retornar para aprovações uma demanda que já foi aprovada/agendada.
+        if (!in_array($item['status'], ['aprovado', 'agendado'], true)) {
+            $this->json(['error' => 'Apenas demandas aprovadas ou agendadas podem ser retornadas para a fila de aprovações.'], 409);
+        }
+
+        $user = $this->currentUser();
+        $this->itemModel->update($id, ['status' => 'aguardando_aprovacao', 'review_notes' => null]);
+        $this->itemModel->addHistory($id, $user['id'], 'submitted', 'Demanda retornada para a fila de aprovações pelo administrador.');
+
+        $updatedItem = $this->itemModel->findById($id);
+
+        // Avisa os admins que a demanda voltou para a fila de aprovações.
+        $this->notifyAdmins('Demanda retornada para aprovação', "{$user['name']} retornou \"{$item['title']}\" para a fila de aprovações.");
+        // Avisa o aprovador designado, se houver.
+        $this->notifyApprover($updatedItem, 'aguardando', $user);
+
+        // Avisa o responsável no chat WhatsApp sobre a mudança de status.
+        if ($updatedItem['assigned_to'] && $updatedItem['assigned_to'] != $user['id']) {
+            $this->notifyWhatsappResponsible(
+                $updatedItem,
+                "🔄 *Status Atualizado — Marketing*",
+                "Esta demanda retornou para a fila de aprovações.\nAlterado por: {$user['name']}"
+            );
+        }
+
+        $this->json(['success' => true, 'item' => $updatedItem]);
     }
 
     // API: reenviar manualmente ao responsável a notificação da demanda via WhatsApp.
