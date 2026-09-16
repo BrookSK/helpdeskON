@@ -74,6 +74,8 @@
                 $overdueStatusMeta = [
                     'open' => ['color' => '#dc3545', 'badge' => 'bg-danger-subtle text-danger', 'icon' => 'bi-inbox'],
                     'in_progress' => ['color' => '#fd7e14', 'badge' => 'bg-warning-subtle text-warning', 'icon' => 'bi-gear'],
+                    'em_revisao_interna' => ['color' => '#6f42c1', 'badge' => 'bg-secondary-subtle text-secondary', 'icon' => 'bi-search'],
+                    'waiting_client' => ['color' => '#20c997', 'badge' => 'bg-success-subtle text-success', 'icon' => 'bi-hourglass-split'],
                     'em_homologacao' => ['color' => '#0d6efd', 'badge' => 'bg-primary-subtle text-primary', 'icon' => 'bi-clipboard-check'],
                 ];
                 ?>
@@ -93,6 +95,10 @@
                                 <?= statusLabel($status) ?>
                                 <?php if ($status === 'em_homologacao'): ?>
                                 <span class="text-muted fw-normal" style="font-size:0.7rem">(aguardando validação)</span>
+                                <?php elseif ($status === 'waiting_client'): ?>
+                                <span class="text-muted fw-normal" style="font-size:0.7rem">(aguardando cliente)</span>
+                                <?php elseif ($status === 'em_revisao_interna'): ?>
+                                <span class="text-muted fw-normal" style="font-size:0.7rem">(em revisão)</span>
                                 <?php endif; ?>
                             </span>
                             <span class="badge <?= $meta['badge'] ?>" style="font-size:0.7rem"><?= count($groupCards) ?></span>

@@ -268,7 +268,7 @@ class PlanningCard
      * @param int   $limitPerStatus Limite de cards por status.
      */
     public function getOverdueGroupedByStatus(
-        $statuses = ['open', 'in_progress', 'em_homologacao'],
+        $statuses = ['open', 'in_progress', 'em_revisao_interna', 'waiting_client', 'em_homologacao'],
         $limitPerStatus = 10
     ) {
         $statuses = array_values(array_filter((array)$statuses));

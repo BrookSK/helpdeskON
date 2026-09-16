@@ -62,7 +62,7 @@ class DashboardController extends Controller
             // ainda dependem de desenvolvimento; em homologação já estão, na
             // prática, finalizadas (só aguardando validação).
             $data['overdueByStatus'] = $planningModel->getOverdueGroupedByStatus(
-                ['open', 'in_progress', 'em_homologacao'],
+                ['open', 'in_progress', 'em_revisao_interna', 'waiting_client', 'em_homologacao'],
                 10
             );
             $this->view('admin/dashboard', $data);
