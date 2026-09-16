@@ -187,4 +187,48 @@ class GoogleCalendarApi
         // Google retorna 204 No Content para exclusão bem-sucedida
         return ['success' => $code >= 200 && $code < 300];
     }
+
+    /**
+     * Gera um link público "Adicionar ao Google Agenda" (template do Google Calendar).
+     *
+     * Diferente de createEvent(), NÃO exige OAuth nem integração configurada: é
+     * apenas uma URL que abre o Google Agenda do próprio cliente já preenchido,
+     * pronta para ele salvar o compromisso com um clique. Usada no "Registrar
+     * agendamento" da demanda #210 e enviada junto com o convite.
+     *
+     * @param array $params: title, description, start (Y-m-d H:i:s), durationMin,
+     *                       timezone, location
+     * @return string|null  URL do template ou null se faltar a data.
+     */
+    public static function templateLink($params)
+    {
+        if (empty($params['start'])) {
+            return null;
+        }
+
+        $tz = $params['timezone'] ?? 'America/Sao_Paulo';
+        try {
+            $start = new DateTime($params['start'], new DateTimeZone($tz));
+        } catch (\Exception $e) {
+            return null;
+        }
+        $end = clone $start;
+        $end->modify('+' . (int)($params['durationMin'] ?? 60) . ' minutes');
+
+        // O Google Calendar interpreta as datas do parâmetro "dates" como UTC
+        // quando no formato ...Z. Convertendo para UTC evitamos deslocamento.
+        $startUtc = clone $start; $startUtc->setTimezone(new DateTimeZone('UTC'));
+        $endUtc = clone $end; $endUtc->setTimezone(new DateTimeZone('UTC'));
+
+        $query = http_build_query([
+            'action' => 'TEMPLATE',
+            'text' => $params['title'] ?? 'Reunião',
+            'dates' => $startUtc->format('Ymd\THis\Z') . '/' . $endUtc->format('Ymd\THis\Z'),
+            'details' => $params['description'] ?? '',
+            'location' => $params['location'] ?? '',
+            'ctz' => $tz,
+        ]);
+
+        return 'https://calendar.google.com/calendar/render?' . $query;
+    }
 }

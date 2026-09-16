@@ -120,6 +120,9 @@
                     <button class="btn btn-sm mkt-btn-warning mkt-approval-action" onclick="requestChanges()" style="display:none;"><i class="bi bi-arrow-counterclockwise"></i> Solicitar ajustes</button>
                     <button class="btn btn-sm mkt-btn-danger mkt-approval-action" onclick="rejectItem()" style="display:none;"><i class="bi bi-x-lg"></i> Rejeitar</button>
                     <button class="btn btn-sm btn-success mkt-approval-action" onclick="approveItem()" style="display:none;"><i class="bi bi-check-lg"></i> Aprovar</button>
+                    <!-- Retornar para aprovações (admin): aparece em demandas agendadas,
+                         no lugar de "Aprovar". Única forma de devolver à fila de aprovações. -->
+                    <button class="btn btn-sm btn-success" id="item-return-approval-btn" onclick="returnToApproval()" style="display:none;"><i class="bi bi-arrow-return-left"></i> Retornar para aprovações</button>
                     <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Fechar</button>
                     <!-- Salvar padrão (admin) -->
                     <button class="btn btn-sm btn-primary" id="item-save-btn" onclick="saveItem()"><i class="bi bi-check-lg"></i> Salvar</button>
@@ -398,14 +401,30 @@ function fillItemForm(it) {
     const notifyBtn = document.getElementById('item-notify-btn');
     if (notifyBtn) notifyBtn.style.display = (canManage && it.assigned_to) ? '' : 'none';
 
-    // Ações de aprovação (admin): disponíveis enquanto a demanda estiver em andamento.
-    const approvableStatuses = ['ideia', 'em_producao', 'aguardando_aprovacao', 'agendado'];
-    if (IS_ADMIN && approvableStatuses.includes(it.status)) {
-        document.querySelectorAll('.mkt-approval-action').forEach(b => b.style.display = '');
-    } else if (IS_ADMIN && it.status === 'aprovado') {
-        // Conteúdo aprovado só pode ser reaberto pelo admin via solicitação de ajustes.
-        const requestChangesBtn = document.querySelector('.mkt-approval-action[onclick="requestChanges()"]');
-        if (requestChangesBtn) requestChangesBtn.style.display = '';
+    // Ações de aprovação (admin), conforme a fase da demanda.
+    const returnApprovalBtn = document.getElementById('item-return-approval-btn');
+    const approveBtn = document.querySelector('.mkt-approval-action[onclick="approveItem()"]');
+    const rejectBtn = document.querySelector('.mkt-approval-action[onclick="rejectItem()"]');
+    const requestChangesBtn = document.querySelector('.mkt-approval-action[onclick="requestChanges()"]');
+    // Começa tudo oculto e liga só o que faz sentido para o status atual.
+    document.querySelectorAll('.mkt-approval-action').forEach(b => b.style.display = 'none');
+    if (returnApprovalBtn) returnApprovalBtn.style.display = 'none';
+
+    if (IS_ADMIN) {
+        // Fase de avaliação: pode solicitar ajustes, rejeitar ou aprovar.
+        const evaluatingStatuses = ['ideia', 'em_producao', 'aguardando_aprovacao'];
+        if (evaluatingStatuses.includes(it.status)) {
+            if (requestChangesBtn) requestChangesBtn.style.display = '';
+            if (rejectBtn) rejectBtn.style.display = '';
+            if (approveBtn) approveBtn.style.display = '';
+        } else if (it.status === 'aprovado') {
+            // Aprovada: só pode ser reaberta via "Solicitar ajustes" (volta para produção).
+            if (requestChangesBtn) requestChangesBtn.style.display = '';
+        } else if (it.status === 'agendado') {
+            // Agendada: já passou da aprovação. A ÚNICA ação disponível é
+            // "Retornar para aprovações" (devolve a demanda para a fila de aprovações).
+            if (returnApprovalBtn) returnApprovalBtn.style.display = '';
+        }
     }
 
     // Agendamento no Buffer: disponível quando aprovado/agendado
@@ -479,14 +498,22 @@ function renderAttachments(atts) {
     }).join('');
 }
 
-function collectItemPayload() {
+// Monta o payload do salvamento.
+// IMPORTANTE: o campo "status" só é enviado quando includeStatus === true, ou seja,
+// numa mudança de status EXPLÍCITA (enviar para revisão, salvar como rascunho, ou o
+// admin realmente alterando o select). Edições comuns de conteúdo NÃO reenviam o
+// status, evitando que uma tela desatualizada sobrescreva o status atual da demanda
+// (ex.: regravar "aguardando_aprovacao" por cima de um "aprovado").
+function collectItemPayload(includeStatus) {
     const fd = new FormData();
     fd.append('title', document.getElementById('item-title').value.trim());
     fd.append('scheduled_at', document.getElementById('item-scheduled').value.replace('T', ' '));
     fd.append('social_network', document.getElementById('item-social').value);
     fd.append('briefing', document.getElementById('item-briefing').value);
     fd.append('copy', document.getElementById('item-copy').value);
-    fd.append('status', document.getElementById('item-status').value);
+    if (includeStatus === true) {
+        fd.append('status', document.getElementById('item-status').value);
+    }
     if (IS_ADMIN) {
         fd.append('assigned_to', document.getElementById('item-assigned').value);
     }
@@ -511,7 +538,8 @@ function saveItemAs(targetStatus) {
             return;
         }
     }
-    // Define o status desejado e reaproveita o fluxo de salvamento
+    // Define o status desejado e reaproveita o fluxo de salvamento.
+    // Aqui a mudança de status é EXPLÍCITA, então o payload deve incluí-la.
     document.getElementById('item-status').value = targetStatus;
     saveItem(true);
 }
@@ -523,9 +551,14 @@ function saveItem(skipDraftGuard) {
     const statusSel = document.getElementById('item-status');
     const status = statusSel.value;
     if (skipDraftGuard === true) {
-        // Chamado por saveItemAs — validação de imagem já feita; segue direto.
-        return doSaveItem(id);
+        // Chamado por saveItemAs — mudança de status explícita; envia o status.
+        return doSaveItem(id, true);
     }
+
+    // Salvamento comum do admin: só envia o status quando ele foi REALMENTE alterado
+    // em relação ao valor carregado. Editar apenas conteúdo não reenvia o status,
+    // preservando o estado atual da demanda no servidor.
+    const statusChanged = !currentItem || status !== currentItem.status;
 
     // Regra (marketing): sem imagem, só pode salvar como rascunho.
     const needsImage = ['em_producao','aguardando_aprovacao','aprovado','agendado','publicado'].includes(status);
@@ -535,17 +568,21 @@ function saveItem(skipDraftGuard) {
         if (!hasExisting && !hasNewImg) {
             if (!confirm('Esta demanda ainda não tem imagem. Sem imagem só é possível salvar como RASCUNHO. Deseja salvar como rascunho?')) return;
             statusSel.value = 'rascunho';
+            return doSaveItem(id, true);
         }
     }
 
-    doSaveItem(id);
+    doSaveItem(id, statusChanged);
 }
 
 // Executa o salvamento (create/update) + upload dos anexos pendentes.
-function doSaveItem(id) {
+// includeStatus indica se o campo "status" deve ir no payload (mudança explícita).
+// Na CRIAÇÃO o status é sempre enviado (define o status inicial da nova demanda).
+function doSaveItem(id, includeStatus) {
     const url = id ? `${BASE}marketing/update/${id}` : `${BASE}marketing/create`;
+    const sendStatus = includeStatus === true || !id;
 
-    fetch(url, { method: 'POST', body: collectItemPayload(), headers: {'X-Requested-With':'XMLHttpRequest'} })
+    fetch(url, { method: 'POST', body: collectItemPayload(sendStatus), headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json())
         .then(data => {
             if (data.error) { alert(data.error); return; }
@@ -574,6 +611,19 @@ function approveItem() {
     const id = document.getElementById('item-id').value;
     if (!id) return;
     fetch(`${BASE}marketing/approve/${id}`, { method: 'POST', headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json()).then(data => {
+            if (data.error) { alert(data.error); return; }
+            getItemModal().hide();
+            afterItemChange();
+        });
+}
+
+// Retorna uma demanda aprovada para a fila de aprovações (ação explícita, somente admin).
+function returnToApproval() {
+    const id = document.getElementById('item-id').value;
+    if (!id) return;
+    if (!confirm('Retornar esta demanda para a fila de aprovações?')) return;
+    fetch(`${BASE}marketing/returnToApproval/${id}`, { method: 'POST', headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json()).then(data => {
             if (data.error) { alert(data.error); return; }
             getItemModal().hide();

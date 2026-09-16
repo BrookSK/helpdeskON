@@ -182,6 +182,11 @@ class PlanningController extends Controller
             $this->notifyAssignment($cardId, $data['assigned_to'], $user, $title);
         }
 
+        // Notificar o técnico responsável (com o link individual do card)
+        if (!empty($data['technical_responsible_id']) && $data['technical_responsible_id'] != $user['id']) {
+            $this->notifyTechnicalResponsible($cardId, $user, $title);
+        }
+
         // Webhook WhatsApp para qualquer card criado (mesmo sem atribuição)
         if (!($data['assigned_to'] && $data['assigned_to'] != $user['id'])) {
             $this->triggerCardWebhook($cardId, $user, $title);
@@ -193,7 +198,18 @@ class PlanningController extends Controller
         }
 
         flash('success', 'Card criado com sucesso!');
-        $this->redirect('planning');
+
+        // Preserva o filtro que estava aplicado ao criar o card: volta para
+        // a mesma listagem (mesma query string) em vez de resetar os filtros.
+        // Reconstruímos via parse_str/http_build_query para garantir uma query
+        // válida (empresas, responsáveis, solicitantes, status e ordenação).
+        $returnQuery = '';
+        if (!empty($_POST['return_query'])) {
+            parse_str(ltrim($_POST['return_query'], '?&'), $returnParams);
+            unset($returnParams['url']);
+            $returnQuery = http_build_query($returnParams);
+        }
+        $this->redirect('planning' . ($returnQuery !== '' ? '?' . $returnQuery : ''));
     }
 
     // Obter card (JSON)
@@ -1041,6 +1057,9 @@ class PlanningController extends Controller
         $db = Database::getInstance();
         $card = $this->cardModel->findById($cardId);
 
+        // Link individual do card (abre direto o card em um modal).
+        $cardLink = baseUrl('planning?card=' . $cardId);
+
         // Notificação no sistema
         $db->insert('notifications', [
             'user_id' => $assignedTo,
@@ -1069,7 +1088,8 @@ class PlanningController extends Controller
                 . "*Desenvolvimento:* {$startStr} até {$endStr}\n"
                 . "*Entrega:* {$dueStr}\n"
                 . "*Atribuído por:* {$currentUser['name']}\n\n"
-                . "Acesse o planejamento para ver os detalhes.";
+                . "🔗 *Link do card:* {$cardLink}\n\n"
+                . "Acesse o link acima para ver os detalhes.";
 
             try {
                 WhatsappNotifier::sendToPhone($assignedUser['phone'], $whatsMessage, $assignedUser['name']);
@@ -1099,7 +1119,7 @@ class PlanningController extends Controller
                     </table>
                 </div>
                 <p style='margin-top:20px;'>
-                    <a href='" . baseUrl('planning') . "' style='display:inline-block;background:#00BFA6;color:#fff;padding:10px 24px;border-radius:6px;text-decoration:none;font-weight:600;font-size:0.9rem;'>Ver no Planejamento</a>
+                    <a href='" . $cardLink . "' style='display:inline-block;background:#00BFA6;color:#fff;padding:10px 24px;border-radius:6px;text-decoration:none;font-weight:600;font-size:0.9rem;'>Abrir Card</a>
                 </p>
             ";
             $htmlBody = Mailer::template('Nova Tarefa Atribuída', $emailBody);
@@ -1124,7 +1144,8 @@ class PlanningController extends Controller
                     . "*Entrega:* {$dueStr}\n"
                     . "*Atribuído por:* {$currentUser['name']}\n"
                     . "*Responsável:* " . ($assignedUser['name'] ?? '') . "\n\n"
-                    . "Acesse o painel para ver os detalhes.";
+                    . "🔗 *Link do card:* {$cardLink}\n\n"
+                    . "Acesse o link acima para ver os detalhes.";
 
                 // Enviar diretamente via cURL para cada telefone configurado
                 $phonesRaw = Config::get('webhook_phones') ?: Config::get('webhook_phone') ?: '';
@@ -1158,6 +1179,40 @@ class PlanningController extends Controller
         }
     }
 
+    // Notifica o técnico responsável via WhatsApp na criação do card, com o link individual.
+    private function notifyTechnicalResponsible($cardId, $currentUser, $cardTitle)
+    {
+        $card = $this->cardModel->findById($cardId);
+        if (empty($card['technical_responsible_id'])) return;
+
+        $userModel = new User();
+        $techUser = $userModel->findById($card['technical_responsible_id']);
+        if (!$techUser || empty($techUser['phone'])) return;
+
+        $cardLink = baseUrl('planning?card=' . $cardId);
+        $startStr = $card['start_date'] ? date('d/m/Y', strtotime($card['start_date'])) : 'Não definido';
+        $endStr = $card['end_date'] ? date('d/m/Y', strtotime($card['end_date'])) : 'Não definido';
+        $dueStr = $card['due_date'] ? date('d/m/Y H:i', strtotime($card['due_date'])) : 'Não definido';
+        $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'urgent' => 'Urgente'];
+        $priorityLabel = $priorityLabels[$card['priority']] ?? $card['priority'];
+
+        $techMessage = "🔧 *Novo Card — Você é o Responsável Técnico*\n\n"
+            . "*Card:* #{$card['id']} — {$cardTitle}\n"
+            . "*Empresa:* " . ($card['company_name'] ?? 'N/A') . "\n"
+            . "*Prioridade:* {$priorityLabel}\n"
+            . "*Desenvolvimento:* {$startStr} até {$endStr}\n"
+            . "*Entrega:* {$dueStr}\n"
+            . "*Atribuído por:* {$currentUser['name']}\n\n"
+            . "🔗 *Link do card:* {$cardLink}\n\n"
+            . "Acesse o link acima para ver os detalhes.";
+
+        try {
+            WhatsappNotifier::sendToPhone($techUser['phone'], $techMessage, $techUser['name']);
+        } catch (\Throwable $e) {
+            // Silencioso — WhatsApp é canal complementar
+        }
+    }
+
     // Webhook para criação de card (quando não há atribuição)
     private function triggerCardWebhook($cardId, $currentUser, $cardTitle)
     {
@@ -1170,6 +1225,7 @@ class PlanningController extends Controller
         $card = $this->cardModel->findById($cardId);
         $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'urgent' => 'Urgente'];
         $dueStr = $card['due_date'] ? date('d/m/Y', strtotime($card['due_date'])) : '?';
+        $cardLink = baseUrl('planning?card=' . $cardId);
 
         $webhookMessage = "📋 *Novo Card Criado*\n\n"
             . "*Card:* #{$card['id']} — {$cardTitle}\n"
@@ -1177,7 +1233,8 @@ class PlanningController extends Controller
             . "*Prioridade:* " . ($priorityLabels[$card['priority']] ?? '') . "\n"
             . "*Entrega:* {$dueStr}\n"
             . "*Criado por:* {$currentUser['name']}\n\n"
-            . "Acesse o painel para ver os detalhes.";
+            . "🔗 *Link do card:* {$cardLink}\n\n"
+            . "Acesse o link acima para ver os detalhes.";
 
         $phonesRaw = Config::get('webhook_phones') ?: Config::get('webhook_phone') ?: '';
         $namesRaw = Config::get('webhook_names') ?: Config::get('webhook_name') ?: 'Admin';
