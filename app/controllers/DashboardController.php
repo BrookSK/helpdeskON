@@ -56,7 +56,15 @@ class DashboardController extends Controller
             $userModel = new User();
             $data['totalClients'] = count($userModel->getClients());
             $data['totalAttendants'] = count($userModel->getAttendants());
-            $data['overdueCards'] = (new PlanningCard())->getOverdue(10);
+            $planningModel = new PlanningCard();
+            $data['overdueCards'] = $planningModel->getOverdue(10);
+            // Demandas em atraso separadas por status: em aberto e em andamento
+            // ainda dependem de desenvolvimento; em homologação já estão, na
+            // prática, finalizadas (só aguardando validação).
+            $data['overdueByStatus'] = $planningModel->getOverdueGroupedByStatus(
+                ['open', 'in_progress', 'em_homologacao'],
+                10
+            );
             $this->view('admin/dashboard', $data);
         }
     }

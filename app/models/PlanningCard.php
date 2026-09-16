@@ -254,6 +254,54 @@ class PlanningCard
         );
     }
 
+    /**
+     * Cards em atraso agrupados pelo status atual.
+     *
+     * Facilita a leitura do dashboard: demandas em homologação já estão, na
+     * prática, finalizadas (só aguardando validação), então convém separá-las
+     * das que ainda dependem de desenvolvimento (aberto / em andamento).
+     *
+     * Retorna um array associativo status => [cards], preservando a ordem dos
+     * status informados. Só devolve os status que possuem ao menos um card.
+     *
+     * @param array $statuses Status considerados, na ordem de exibição.
+     * @param int   $limitPerStatus Limite de cards por status.
+     */
+    public function getOverdueGroupedByStatus(
+        $statuses = ['open', 'in_progress', 'em_homologacao'],
+        $limitPerStatus = 10
+    ) {
+        $statuses = array_values(array_filter((array)$statuses));
+        if (empty($statuses)) {
+            return [];
+        }
+
+        $limit = intval($limitPerStatus);
+        $grouped = [];
+
+        foreach ($statuses as $status) {
+            $rows = $this->db->fetchAll(
+                "SELECT pc.*, u.name as assigned_name, co.name as company_name, t.id as ticket_ref
+                 FROM planning_cards pc
+                 LEFT JOIN users u ON pc.assigned_to = u.id
+                 LEFT JOIN companies co ON pc.company_id = co.id
+                 LEFT JOIN tickets t ON pc.ticket_id = t.id
+                 WHERE pc.due_date IS NOT NULL
+                   AND pc.due_date < NOW()
+                   AND pc.status = ?
+                 ORDER BY pc.due_date ASC
+                 LIMIT " . $limit,
+                [$status]
+            );
+
+            if (!empty($rows)) {
+                $grouped[$status] = $rows;
+            }
+        }
+
+        return $grouped;
+    }
+
     public function create($data)
     {
         return $this->db->insert('planning_cards', $data);
