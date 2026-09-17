@@ -192,16 +192,16 @@ class EmailMessageService
 
             // Espelha na caixa de enviados (email_prospections) para aparecer no
             // Histórico de Prospecção — inclusive envios automáticos das sequências.
-            // user_id e email_account_id são NOT NULL: usa fallbacks quando o envio
-            // veio de uma sequência (sem usuário logado).
+            // user_id e email_account_id são NOT NULL: quando o envio veio de uma
+            // sequência (sem usuário logado), o REMETENTE deve refletir o DONO da
+            // conta de envio, não um super_admin genérico.
             try {
                 $cName = $this->db->fetch("SELECT contact_name FROM whatsapp_contacts WHERE id = ?", [$contactId]);
+                $accId = $account['id'] ?? null;
                 $uid = $params['sent_by'] ?? null;
                 if (!$uid) {
-                    $adm = $this->db->fetch("SELECT id FROM users WHERE role='super_admin' AND is_active=1 ORDER BY id ASC LIMIT 1");
-                    $uid = $adm['id'] ?? null;
+                    $uid = $this->resolveAccountOwner($accId);
                 }
-                $accId = $account['id'] ?? null;
                 if ($uid && $accId) {
                     $this->prospection->create([
                         'user_id' => $uid,
@@ -225,6 +225,35 @@ class EmailMessageService
             'error_message' => is_string($result) ? $result : 'Falha no envio',
         ], 'id = ?', [$messageId]);
         return ['success' => false, 'error' => is_string($result) ? $result : 'Falha no envio', 'message_id' => $messageId];
+    }
+
+    /**
+     * Resolve o "dono" de uma conta de envio para creditar o REMETENTE no
+     * Histórico de Prospecção quando não há usuário logado (ex.: envios
+     * automáticos de sequências).
+     *
+     * Ordem de resolução:
+     *   1. Usuário vinculado à conta (email_account_users) — relação explícita
+     *      usada no dropdown de envio; há um usuário por conta.
+     *   2. Quem cadastrou a conta (email_accounts.created_by).
+     *   3. Primeiro super_admin ativo (último recurso, mantém o registro válido
+     *      já que user_id é NOT NULL).
+     */
+    private function resolveAccountOwner($accountId)
+    {
+        if ($accountId) {
+            $linked = $this->db->fetch(
+                "SELECT user_id FROM email_account_users WHERE email_account_id = ? ORDER BY id ASC LIMIT 1",
+                [$accountId]
+            );
+            if (!empty($linked['user_id'])) return (int) $linked['user_id'];
+
+            $acc = $this->db->fetch("SELECT created_by FROM email_accounts WHERE id = ?", [$accountId]);
+            if (!empty($acc['created_by'])) return (int) $acc['created_by'];
+        }
+
+        $adm = $this->db->fetch("SELECT id FROM users WHERE role='super_admin' AND is_active=1 ORDER BY id ASC LIMIT 1");
+        return $adm['id'] ?? null;
     }
 
     /** Registra uma abertura (pixel). Sinal fraco. */
