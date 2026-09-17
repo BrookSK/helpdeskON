@@ -93,7 +93,7 @@ $tempMeta = ['frio' => ['Frio', '#1565c0'], 'morno' => ['Morno', '#e65100'], 'qu
                     <div class="mb-2">
                         <label class="form-label small fw-medium">Nome da sala (opcional)</label>
                         <input type="text" id="qr-title" class="form-control form-control-sm" placeholder="Ex.: Reunião rápida com o cliente" maxlength="120">
-                        <small class="text-muted">Entram quantas pessoas forem chegando pelo link — você, o cliente, seu sócio, o Fathom, o que precisar.</small>
+                        <small class="text-muted">Entram quantas pessoas forem chegando pelo link — você, o cliente, o Fathom, o que precisar.</small>
                     </div>
                 </div>
                 <!-- Passo 2: link gerado -->
