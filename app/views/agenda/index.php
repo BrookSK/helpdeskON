@@ -30,6 +30,7 @@ $tempMeta = ['frio' => ['Frio', '#1565c0'], 'morno' => ['Morno', '#e65100'], 'qu
                 <button type="button" class="btn btn-outline-primary active" data-view="kanban"><i class="bi bi-kanban"></i> Kanban</button>
                 <button type="button" class="btn btn-outline-primary" data-view="calendar"><i class="bi bi-calendar3"></i> Calendário</button>
             </div>
+            <button class="btn btn-outline-success btn-sm" onclick="openQuickRoom()"><i class="bi bi-camera-reels"></i> Sala rápida</button>
             <button class="btn btn-primary btn-sm" onclick="openMeetingModal()"><i class="bi bi-plus-lg"></i> Nova reunião</button>
         </div>
     </div>
@@ -76,6 +77,110 @@ $tempMeta = ['frio' => ['Frio', '#1565c0'], 'morno' => ['Morno', '#e65100'], 'qu
 </div>
 
 <?php require APP_PATH . '/views/agenda/_modal.php'; ?>
+
+<!-- Modal: Sala rápida (cria uma videochamada sem precisar agendar) -->
+<div class="modal fade" id="quickRoomModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title"><i class="bi bi-camera-reels"></i> Sala de vídeo rápida</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Passo 1: formulário -->
+                <div id="qr-form">
+                    <p class="text-muted small">Gera um link de videochamada em grupo na hora, sem precisar agendar. Compartilhe o link com quem quiser (ou com o Fathom para gravar).</p>
+                    <div class="mb-3">
+                        <label class="form-label small fw-medium">Nome da sala (opcional)</label>
+                        <input type="text" id="qr-title" class="form-control form-control-sm" placeholder="Ex.: Reunião rápida com o cliente" maxlength="120">
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small fw-medium">Limite de participantes</label>
+                        <select id="qr-max" class="form-select form-select-sm">
+                            <option value="4">Até 4 (recomendado)</option>
+                            <option value="6">Até 6</option>
+                            <option value="8" selected>Até 8</option>
+                            <option value="12">Até 12</option>
+                            <option value="15">Até 15</option>
+                        </select>
+                        <small class="text-muted">Acima de ~6 pessoas o vídeo pode ficar pesado (é uma limitação do modo P2P).</small>
+                    </div>
+                </div>
+                <!-- Passo 2: link gerado -->
+                <div id="qr-result" style="display:none;">
+                    <div class="text-center mb-3">
+                        <i class="bi bi-check-circle-fill text-success" style="font-size:2.4rem;"></i>
+                        <h6 class="mt-2 mb-0">Sala criada!</h6>
+                        <small class="text-muted">Copie o link e envie para os participantes.</small>
+                    </div>
+                    <div class="input-group input-group-sm mb-2">
+                        <input type="text" id="qr-link" class="form-control" readonly>
+                        <button class="btn btn-outline-secondary" onclick="copyQuickLink()"><i class="bi bi-clipboard"></i></button>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <div id="qr-actions-form">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-sm btn-success" id="qr-create-btn" onclick="createQuickRoom()"><i class="bi bi-camera-video"></i> Criar e gerar link</button>
+                </div>
+                <div id="qr-actions-result" style="display:none;">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="resetQuickRoom()"><i class="bi bi-arrow-left"></i> Criar outra</button>
+                    <a href="#" id="qr-enter" target="_blank" class="btn btn-sm btn-primary"><i class="bi bi-box-arrow-in-right"></i> Entrar agora</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+const QR_BASE = '<?= baseUrl("") ?>';
+let quickRoomModalInstance = null;
+function getQuickRoomModal() {
+    if (!quickRoomModalInstance) quickRoomModalInstance = new bootstrap.Modal(document.getElementById('quickRoomModal'));
+    return quickRoomModalInstance;
+}
+function openQuickRoom() { resetQuickRoom(); getQuickRoomModal().show(); }
+function resetQuickRoom() {
+    document.getElementById('qr-title').value = '';
+    document.getElementById('qr-max').value = '8';
+    document.getElementById('qr-form').style.display = '';
+    document.getElementById('qr-result').style.display = 'none';
+    document.getElementById('qr-actions-form').style.display = '';
+    document.getElementById('qr-actions-result').style.display = 'none';
+}
+function createQuickRoom() {
+    const btn = document.getElementById('qr-create-btn');
+    const original = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Criando...';
+
+    const fd = new FormData();
+    fd.append('title', document.getElementById('qr-title').value.trim() || 'Sala rápida');
+    fd.append('max_participants', document.getElementById('qr-max').value);
+
+    fetch(`${QR_BASE}videocall/create`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json()).then(d => {
+            btn.disabled = false; btn.innerHTML = original;
+            if (d.error) { alert(d.error); return; }
+            document.getElementById('qr-link').value = d.url || '';
+            document.getElementById('qr-enter').href = d.url || '#';
+            document.getElementById('qr-form').style.display = 'none';
+            document.getElementById('qr-result').style.display = '';
+            document.getElementById('qr-actions-form').style.display = 'none';
+            document.getElementById('qr-actions-result').style.display = '';
+        })
+        .catch(() => { btn.disabled = false; btn.innerHTML = original; alert('Erro ao criar a sala.'); });
+}
+function copyQuickLink() {
+    const el = document.getElementById('qr-link');
+    el.select();
+    navigator.clipboard?.writeText(el.value).then(() => {
+        const btn = event.currentTarget;
+        const old = btn.innerHTML; btn.innerHTML = '<i class="bi bi-check-lg"></i>';
+        setTimeout(() => btn.innerHTML = old, 1500);
+    }).catch(() => document.execCommand('copy'));
+}
+</script>
 
 <style>
 .agenda-kanban { display: flex; gap: 12px; align-items: flex-start; overflow-x: auto; padding-bottom: 8px; }

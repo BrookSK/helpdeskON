@@ -82,6 +82,9 @@
                         <button type="button" class="btn btn-sm btn-outline-primary" id="mt-gen-meet" onclick="generateMeet(this)">
                             <i class="bi bi-camera-video"></i> Gerar link do Meet
                         </button>
+                        <button type="button" class="btn btn-sm btn-outline-success" id="mt-gen-room" onclick="generateVideoRoom(this)">
+                            <i class="bi bi-camera-reels"></i> Sala de vídeo do sistema
+                        </button>
                         <span id="mt-meet-hint" style="font-size:0.78rem;"></span>
                     </div>
 
@@ -783,6 +786,32 @@ function generateMeet(btn) {
             showMeetLink(d.meet_link);
         })
         .catch(() => { btn.disabled = false; btn.innerHTML = original; alert('Erro ao gerar o link.'); });
+}
+
+// Gera uma SALA DE VÍDEO nativa do sistema (WebRTC em grupo, sem API externa).
+// O link público entra no campo do Meet (mt-meet-link), então já será enviado
+// nos convites por e-mail/WhatsApp e serve para o Fathom entrar e gravar.
+function generateVideoRoom(btn) {
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Criando...';
+
+    const fd = new FormData();
+    fd.append('title', document.getElementById('mt-title').value.trim() || 'Videochamada');
+    fd.append('max_participants', '8');
+    const mid = document.getElementById('mt-id').value;
+    if (mid) fd.append('meeting_id', mid);
+
+    fetch(`${BASE}videocall/create`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json()).then(d => {
+            btn.disabled = false; btn.innerHTML = original;
+            if (d.error) { alert(d.error); return; }
+            // Reaproveita o campo do Meet para o link da chamada (vai nos convites).
+            document.getElementById('mt-meet-link').value = d.url || '';
+            document.getElementById('mt-google-event-id').value = '';
+            showMeetLink(d.url);
+        })
+        .catch(() => { btn.disabled = false; btn.innerHTML = original; alert('Erro ao criar a sala de vídeo.'); });
 }
 
 function saveMeeting() {
