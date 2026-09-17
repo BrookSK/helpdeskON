@@ -1925,7 +1925,7 @@ class CrmController extends Controller
             'assigned_to' => !empty($_POST['assigned_to']) ? intval($_POST['assigned_to']) : null,
             'search_filters' => json_encode($searchFilters, JSON_UNESCAPED_UNICODE),
             'icp_rules' => json_encode($icpRules, JSON_UNESCAPED_UNICODE),
-            'min_score' => max(0, intval($_POST['min_score'] ?? 70)),
+            'min_score' => max(0, intval($_POST['min_score'] ?? 50)),
             'daily_target' => max(1, intval($_POST['daily_target'] ?? 12)),
             'search_per_page' => min(100, max(10, intval($_POST['search_per_page'] ?? 50))),
             'days_of_week' => trim($_POST['days_of_week'] ?? '1,2,3,4,5'),
@@ -2310,6 +2310,50 @@ class CrmController extends Controller
         }
     }
 
+    /**
+     * Interpreta o campo de faixas de nº de funcionários e devolve um array de
+     * pares "min,max" no formato exigido pelo Apollo (ex.: ["1,10","11,50"]).
+     *
+     * Aceita:
+     *   - "1,10;11,50"      → ["1,10","11,50"]   (formato novo: ';' separa as faixas)
+     *   - "1,10; 11,50"     → idem (com espaços)
+     *   - "1,10,11,50"      → ["1,10","11,50"]   (formato legado: vírgulas soltas, reagrupa em pares)
+     *   - array já pronto    → normaliza da mesma forma
+     */
+    private function parseEmployeeRanges($value)
+    {
+        if (is_array($value)) {
+            $items = $value;
+        } else {
+            // Se há ';', ele separa as faixas. Sem ';', trata a string inteira como
+            // uma lista de números separados por vírgula (formato legado a reagrupar).
+            $str = (string) $value;
+            $items = strpos($str, ';') !== false ? preg_split('/[;\n]+/', $str) : [$str];
+        }
+
+        $pairs = [];
+        $loose = [];
+        foreach ($items as $item) {
+            $item = trim((string) $item);
+            if ($item === '') continue;
+            $parts = array_values(array_filter(array_map('trim', explode(',', $item)), fn($v) => $v !== ''));
+            if (count($parts) === 2 && is_numeric($parts[0]) && is_numeric($parts[1])) {
+                // Faixa "min,max" bem formada.
+                $pairs[] = $parts[0] . ',' . $parts[1];
+            } else {
+                // Mais/menos de 2 partes: joga tudo no balde de números soltos
+                // para reagrupar em pares consecutivos (repara dado legado).
+                foreach ($parts as $n) {
+                    if (is_numeric($n)) $loose[] = $n;
+                }
+            }
+        }
+        for ($i = 0; $i + 1 < count($loose); $i += 2) {
+            $pairs[] = $loose[$i] . ',' . $loose[$i + 1];
+        }
+        return array_values(array_unique($pairs));
+    }
+
     private function buildCampaignFilters()
     {
         // Se veio JSON bruto (campo avançado), usa-o; senão monta dos campos simples.
@@ -2326,7 +2370,13 @@ class CrmController extends Controller
         if (!empty($_POST['f_org_locations'])) $f['organization_locations'] = $toArr('f_org_locations');
         if (!empty($_POST['f_domains'])) $f['q_organization_domains_list'] = $toArr('f_domains');
         if (!empty($_POST['f_keywords'])) $f['q_keywords'] = implode(' ', $toArr('f_keywords'));
-        if (!empty($_POST['f_employee_ranges'])) $f['organization_num_employees_ranges'] = $toArr('f_employee_ranges');
+        // Faixas de nº de funcionários: cada faixa é um par "min,max". O separador
+        // ENTRE faixas é ';' (a vírgula é usada DENTRO de cada faixa). Também aceita
+        // o formato legado com vírgulas soltas, reagrupando os números em pares.
+        if (!empty($_POST['f_employee_ranges'])) {
+            $ranges = $this->parseEmployeeRanges($_POST['f_employee_ranges']);
+            if (!empty($ranges)) $f['organization_num_employees_ranges'] = $ranges;
+        }
         return $f;
     }
 
@@ -2340,12 +2390,12 @@ class CrmController extends Controller
         $toArr = fn($k) => array_values(array_filter(array_map('trim', explode(',', $_POST[$k] ?? ''))));
         $icp = [
             'score' => [
-                'decisor' => intval($_POST['w_decisor'] ?? 30),
-                'title' => intval($_POST['w_title'] ?? 20),
-                'size' => intval($_POST['w_size'] ?? 15),
-                'region' => intval($_POST['w_region'] ?? 10),
-                'website' => intval($_POST['w_website'] ?? 5),
-                'technology' => intval($_POST['w_technology'] ?? 10),
+                'decisor' => intval($_POST['w_decisor'] ?? 35),
+                'title' => intval($_POST['w_title'] ?? 30),
+                'size' => intval($_POST['w_size'] ?? 10),
+                'region' => intval($_POST['w_region'] ?? 15),
+                'website' => intval($_POST['w_website'] ?? 10),
+                'technology' => intval($_POST['w_technology'] ?? 0),
             ],
         ];
         if (!empty($_POST['icp_seniorities'])) $icp['seniorities'] = $toArr('icp_seniorities');

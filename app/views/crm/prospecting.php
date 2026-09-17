@@ -359,7 +359,7 @@
                     </div>
                     <div class="col-md-2">
                         <label class="form-label small fw-medium">Score mín.</label>
-                        <input type="number" id="camp-minscore" class="form-control form-control-sm" value="70" min="0">
+                        <input type="number" id="camp-minscore" class="form-control form-control-sm" value="50" min="0">
                     </div>
                     <div class="col-md-2">
                         <label class="form-label small fw-medium">Por página</label>
@@ -541,12 +541,12 @@
                     <div class="col-12">
                         <label class="form-label small">Pesos do score</label>
                         <div class="d-flex flex-wrap gap-2">
-                            <span class="input-group input-group-sm" style="width:auto;"><span class="input-group-text">Decisor</span><input type="number" id="camp-w-decisor" class="form-control" value="30" style="width:70px;"></span>
-                            <span class="input-group input-group-sm" style="width:auto;"><span class="input-group-text">Cargo</span><input type="number" id="camp-w-title" class="form-control" value="20" style="width:70px;"></span>
-                            <span class="input-group input-group-sm" style="width:auto;"><span class="input-group-text">Porte</span><input type="number" id="camp-w-size" class="form-control" value="15" style="width:70px;"></span>
-                            <span class="input-group input-group-sm" style="width:auto;"><span class="input-group-text">Região</span><input type="number" id="camp-w-region" class="form-control" value="10" style="width:70px;"></span>
-                            <span class="input-group input-group-sm" style="width:auto;"><span class="input-group-text">Site</span><input type="number" id="camp-w-website" class="form-control" value="5" style="width:70px;"></span>
-                            <span class="input-group input-group-sm" style="width:auto;"><span class="input-group-text">Tec.</span><input type="number" id="camp-w-technology" class="form-control" value="10" style="width:70px;"></span>
+                            <span class="input-group input-group-sm" style="width:auto;"><span class="input-group-text">Decisor</span><input type="number" id="camp-w-decisor" class="form-control" value="35" style="width:70px;"></span>
+                            <span class="input-group input-group-sm" style="width:auto;"><span class="input-group-text">Cargo</span><input type="number" id="camp-w-title" class="form-control" value="30" style="width:70px;"></span>
+                            <span class="input-group input-group-sm" style="width:auto;"><span class="input-group-text">Porte</span><input type="number" id="camp-w-size" class="form-control" value="10" style="width:70px;"></span>
+                            <span class="input-group input-group-sm" style="width:auto;"><span class="input-group-text">Região</span><input type="number" id="camp-w-region" class="form-control" value="15" style="width:70px;"></span>
+                            <span class="input-group input-group-sm" style="width:auto;"><span class="input-group-text">Site</span><input type="number" id="camp-w-website" class="form-control" value="10" style="width:70px;"></span>
+                            <span class="input-group input-group-sm" style="width:auto;"><span class="input-group-text">Tec.</span><input type="number" id="camp-w-technology" class="form-control" value="0" style="width:70px;"></span>
                         </div>
                     </div>
                         </div><!-- /.row (apollo-section) -->
@@ -686,7 +686,10 @@ function chipSync(chipset) {
     const hidden = document.getElementById('camp-' + chipset);
     if (!box || !hidden) return;
     const vals = Array.from(box.querySelectorAll('input:checked')).map(cb => cb.value);
-    hidden.value = vals.join(', ');
+    // O chipset de faixas de funcionários tem valores no formato "min,max" (com
+    // vírgula interna). Para não corromper os pares, usa ';' como separador entre
+    // as faixas. Os demais chipsets seguem com vírgula.
+    hidden.value = vals.join(chipset === 'f-emp' ? ';' : ', ');
 }
 
 function chipAdd(chipset, inputId) {
@@ -697,8 +700,10 @@ function chipAdd(chipset, inputId) {
     if (!CHIP_CUSTOM_STORE[chipset].some(o => o.value.toLowerCase() === val.toLowerCase())) {
         CHIP_CUSTOM_STORE[chipset].push({value:val, label:val});
     }
-    // Mantém a seleção atual e marca o novo
-    const current = (document.getElementById('camp-' + chipset).value || '').split(',').map(s=>s.trim()).filter(Boolean);
+    // Mantém a seleção atual e marca o novo. O chipset f-emp usa ';' como separador
+    // entre faixas (cada valor "min,max" contém vírgula interna).
+    const sep = chipset === 'f-emp' ? ';' : ',';
+    const current = (document.getElementById('camp-' + chipset).value || '').split(sep).map(s=>s.trim()).filter(Boolean);
     current.push(val);
     chipRender(chipset, current);
     inp.value = '';
@@ -720,11 +725,36 @@ function setDays(csv) {
 // liga o onchange dos dias
 document.addEventListener('change', function(e){ if (e.target && e.target.closest && e.target.closest('#camp-days-chips')) syncDays(); });
 
-// Renderiza todos os chipsets com os valores informados (csv). Usado em open/edit.
+// Converte o array salvo de faixas de funcionários numa string separada por ';'
+// (formato esperado pelo chipset f-emp). Aceita pares já corretos ["11,50"] e
+// repara o formato legado com números soltos ["11","50","51","200"] agrupando-os
+// em pares "min,max".
+function normalizeEmpRangesForChips(arr) {
+    if (!Array.isArray(arr)) arr = [arr];
+    const pairs = [];
+    const loose = [];
+    arr.forEach(item => {
+        const s = String(item == null ? '' : item).trim();
+        if (!s) return;
+        if (s.indexOf(',') !== -1) {
+            const parts = s.split(',').map(x => x.trim()).filter(Boolean);
+            if (parts.length >= 2) pairs.push(parts[0] + ',' + parts[1]);
+        } else {
+            loose.push(s);
+        }
+    });
+    for (let i = 0; i + 1 < loose.length; i += 2) pairs.push(loose[i] + ',' + loose[i + 1]);
+    return Array.from(new Set(pairs)).join(';');
+}
+
+// Renderiza todos os chipsets com os valores informados. Usado em open/edit.
+// O chipset f-emp recebe as faixas já separadas por ';' (cada faixa é "min,max");
+// os demais usam vírgula como separador.
 function chipRenderAll(values) {
     Object.keys(CHIP_OPTIONS).forEach(cs => {
-        const csv = values && values[cs] != null ? values[cs] : '';
-        const arr = String(csv).split(',').map(s=>s.trim()).filter(Boolean);
+        const raw = values && values[cs] != null ? values[cs] : '';
+        const sep = cs === 'f-emp' ? ';' : ',';
+        const arr = String(raw).split(sep).map(s=>s.trim()).filter(Boolean);
         chipRender(cs, arr);
     });
 }
@@ -1148,7 +1178,7 @@ function openCampaign() {
     document.getElementById('camp-column').innerHTML = '<option value="">Selecione o board...</option>';
     document.getElementById('camp-assigned').value = '';
     document.getElementById('camp-daily').value = 12;
-    document.getElementById('camp-minscore').value = 70;
+    document.getElementById('camp-minscore').value = 50;
     document.getElementById('camp-perpage').value = 50;
     setDays('1,2,3,4,5');
     document.getElementById('camp-wstart').value = '08:00';
@@ -1174,7 +1204,7 @@ function openCampaign() {
     selectedLeadIds = [];
     refreshLeadSelectionInfo();
     onCampSourceChange();
-    ['decisor:30','title:20','size:15','region:10','website:5','technology:10'].forEach(p => { const [k,v]=p.split(':'); document.getElementById('camp-w-'+k).value = v; });
+    ['decisor:35','title:30','size:10','region:15','website:10','technology:0'].forEach(p => { const [k,v]=p.split(':'); document.getElementById('camp-w-'+k).value = v; });
     if (!campModal) campModal = new bootstrap.Modal(document.getElementById('campaignModal'));
     campModal.show();
 }
@@ -1227,7 +1257,10 @@ function editCampaign(c) {
         chipVals['f-titles'] = (f.person_titles||[]).join(', ');
         chipVals['f-seniorities'] = (f.person_seniorities||[]).join(', ');
         chipVals['f-ploc'] = (f.person_locations||[]).join(', ');
-        chipVals['f-emp'] = (f.organization_num_employees_ranges||[]).join(', ');
+        // Faixas de funcionários: cada faixa é "min,max". Junta com ';' para não
+        // conflitar com a vírgula interna. Repara dados legados gravados como
+        // números soltos (["11","50",...]) reagrupando-os em pares "min,max".
+        chipVals['f-emp'] = normalizeEmpRangesForChips(f.organization_num_employees_ranges || []);
         chipVals['f-keywords'] = f.q_keywords || '';
         document.getElementById('camp-f-domains').value = (f.q_organization_domains_list||[]).join(', ');
     } catch(e){}

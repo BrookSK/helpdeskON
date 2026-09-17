@@ -718,7 +718,15 @@ class ApolloProspectingService
 
     /**
      * Lead Score sobre os dados da busca (configurável via icp_rules.score).
-     * Pesos padrão: decisor +30, título-alvo +20, porte correto +15, região +10, site +5, tecnologia +10.
+     *
+     * Pesos padrão (rebalanceados para a fase de BUSCA, onde só há dados crus):
+     *   decisor +35, título-alvo +30, região +15, site +10, porte +10, tecnologia +0.
+     *
+     * Racional: seniority/título/região vêm quase sempre na People Search e são os
+     * sinais mais confiáveis, então concentram o peso. Porte (nº de funcionários)
+     * entra como bônus quando a busca o traz. Tecnologia praticamente nunca vem
+     * nesta fase (só no enrichment), por isso peso 0 — evita "matar" o score de
+     * bons leads. O total possível com dados confiáveis chega a ~100.
      */
     private function scoreProspect(array $person, array $icp)
     {
@@ -728,22 +736,22 @@ class ApolloProspectingService
 
         $sen = strtolower($person['seniority'] ?? '');
         if (in_array($sen, ['owner', 'founder', 'c_suite', 'partner', 'vp', 'head', 'director'])) {
-            $score += (int)($w['decisor'] ?? 30);
+            $score += (int)($w['decisor'] ?? 35);
         }
         if (!empty($icp['titles_any'])) {
             $title = strtolower($person['title'] ?? '');
             foreach ($icp['titles_any'] as $t) {
-                if ($title !== '' && strpos($title, strtolower($t)) !== false) { $score += (int)($w['title'] ?? 20); break; }
+                if ($title !== '' && strpos($title, strtolower($t)) !== false) { $score += (int)($w['title'] ?? 30); break; }
             }
         }
         $emp = (int)($org['estimated_num_employees'] ?? 0);
         if ($emp > 0 && (empty($icp['employee_min']) || $emp >= (int)$icp['employee_min'])
             && (empty($icp['employee_max']) || $emp <= (int)$icp['employee_max'])) {
-            $score += (int)($w['size'] ?? 15);
+            $score += (int)($w['size'] ?? 10);
         }
-        if (!empty($person['country']) || !empty($org['country'])) $score += (int)($w['region'] ?? 10);
-        if (!empty($org['website_url']) || !empty($org['primary_domain'])) $score += (int)($w['website'] ?? 5);
-        if (!empty($org['technology_names'])) $score += (int)($w['technology'] ?? 10);
+        if (!empty($person['country']) || !empty($org['country'])) $score += (int)($w['region'] ?? 15);
+        if (!empty($org['website_url']) || !empty($org['primary_domain'])) $score += (int)($w['website'] ?? 10);
+        if (!empty($org['technology_names'])) $score += (int)($w['technology'] ?? 0);
 
         return $score;
     }
