@@ -90,20 +90,10 @@ $tempMeta = ['frio' => ['Frio', '#1565c0'], 'morno' => ['Morno', '#e65100'], 'qu
                 <!-- Passo 1: formulário -->
                 <div id="qr-form">
                     <p class="text-muted small">Gera um link de videochamada em grupo na hora, sem precisar agendar. Compartilhe o link com quem quiser (ou com o Fathom para gravar).</p>
-                    <div class="mb-3">
+                    <div class="mb-2">
                         <label class="form-label small fw-medium">Nome da sala (opcional)</label>
                         <input type="text" id="qr-title" class="form-control form-control-sm" placeholder="Ex.: Reunião rápida com o cliente" maxlength="120">
-                    </div>
-                    <div class="mb-2">
-                        <label class="form-label small fw-medium">Limite de participantes</label>
-                        <select id="qr-max" class="form-select form-select-sm">
-                            <option value="4">Até 4 (recomendado)</option>
-                            <option value="6">Até 6</option>
-                            <option value="8" selected>Até 8</option>
-                            <option value="12">Até 12</option>
-                            <option value="15">Até 15</option>
-                        </select>
-                        <small class="text-muted">Acima de ~6 pessoas o vídeo pode ficar pesado (é uma limitação do modo P2P).</small>
+                        <small class="text-muted">Entram quantas pessoas forem chegando pelo link — você, o cliente, seu sócio, o Fathom, o que precisar.</small>
                     </div>
                 </div>
                 <!-- Passo 2: link gerado -->
@@ -143,7 +133,6 @@ function getQuickRoomModal() {
 function openQuickRoom() { resetQuickRoom(); getQuickRoomModal().show(); }
 function resetQuickRoom() {
     document.getElementById('qr-title').value = '';
-    document.getElementById('qr-max').value = '8';
     document.getElementById('qr-form').style.display = '';
     document.getElementById('qr-result').style.display = 'none';
     document.getElementById('qr-actions-form').style.display = '';
@@ -156,7 +145,6 @@ function createQuickRoom() {
 
     const fd = new FormData();
     fd.append('title', document.getElementById('qr-title').value.trim() || 'Sala rápida');
-    fd.append('max_participants', document.getElementById('qr-max').value);
 
     fetch(`${QR_BASE}videocall/create`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json()).then(d => {

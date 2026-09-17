@@ -46,7 +46,9 @@ class VideocallController extends Controller
         }
 
         $title = trim($_POST['title'] ?? '') ?: 'Videochamada';
-        $max = (int)($_POST['max_participants'] ?? 8);
+        // Sem informar limite, usa o teto máximo (só uma proteção técnica; o usuário
+        // não precisa decidir quantas pessoas vão entrar).
+        $max = (int)($_POST['max_participants'] ?? 15);
         if ($max < 2) $max = 2;
         if ($max > 15) $max = 15;
 
