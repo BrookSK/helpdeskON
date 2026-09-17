@@ -151,10 +151,10 @@ class WhatsappController extends Controller
 
         $filters = [];
 
-        // Permissão TEMPORÁRIA: além do super_admin, a Lauren pode escolher ver os
-        // contatos de outro usuário (especificamente os do Super Admin, id 1).
+        // Permissão TEMPORÁRIA: além do super_admin, a Lauren Beirigo (id 28) pode
+        // escolher ver os contatos de outro usuário (os do Super Admin, id 1).
         $canPickOtherOwner = ($user['role'] === 'super_admin')
-            || (strtolower($user['email'] ?? '') === 'lauren.beirigo@onsolutionsbrasil.com.br');
+            || ((int)($user['id'] ?? 0) === 28);
 
         // Filtragem automática: cada usuário vê apenas SEUS contatos
         if (!empty($_GET['assigned_to'])) {
