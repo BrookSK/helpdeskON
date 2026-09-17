@@ -47,7 +47,7 @@ UPDATE email_prospections ep
 JOIN users cur ON cur.id = ep.user_id AND cur.role = 'super_admin'
 JOIN email_accounts ea ON ea.id = ep.email_account_id
 JOIN users creator ON creator.id = ea.created_by AND creator.role <> 'super_admin'
-WHERE NOT EXISTS (
-        SELECT 1 FROM email_account_users eau WHERE eau.email_account_id = ep.email_account_id
-      )
+LEFT JOIN email_account_users eau ON eau.email_account_id = ep.email_account_id
+SET ep.user_id = ea.created_by
+WHERE eau.email_account_id IS NULL
   AND ep.user_id <> ea.created_by;
