@@ -62,33 +62,67 @@
     <div class="row g-4">
         <div class="col-lg-5">
             <div class="card h-100">
+                <?php
+                // Configuração visual por status. Em aberto/andamento = urgência
+                // de desenvolvimento (vermelho). Em homologação = já finalizado,
+                // apenas aguardando validação (azul, tom mais brando).
+                $overdueGroups = $overdueByStatus ?? [];
+                $overdueTotal = 0;
+                foreach ($overdueGroups as $groupCards) {
+                    $overdueTotal += count($groupCards);
+                }
+                $overdueStatusMeta = [
+                    'open' => ['color' => '#dc3545', 'badge' => 'bg-danger-subtle text-danger', 'icon' => 'bi-inbox'],
+                    'in_progress' => ['color' => '#fd7e14', 'badge' => 'bg-warning-subtle text-warning', 'icon' => 'bi-gear'],
+                    'em_revisao_interna' => ['color' => '#6f42c1', 'badge' => 'bg-secondary-subtle text-secondary', 'icon' => 'bi-search'],
+                    'waiting_client' => ['color' => '#20c997', 'badge' => 'bg-success-subtle text-success', 'icon' => 'bi-hourglass-split'],
+                    'em_homologacao' => ['color' => '#0d6efd', 'badge' => 'bg-primary-subtle text-primary', 'icon' => 'bi-clipboard-check'],
+                ];
+                ?>
                 <div class="card-header bg-white d-flex justify-content-between align-items-center">
                     <h6 class="mb-0"><i class="bi bi-exclamation-triangle text-danger me-1"></i> Demandas em Atraso</h6>
-                    <?php if (!empty($overdueCards)): ?>
-                    <span class="badge bg-danger"><?= count($overdueCards) ?></span>
+                    <?php if ($overdueTotal > 0): ?>
+                    <span class="badge bg-danger"><?= $overdueTotal ?></span>
                     <?php endif; ?>
                 </div>
                 <div class="card-body p-0">
-                    <?php if (!empty($overdueCards)): ?>
-                    <div class="list-group list-group-flush">
-                        <?php foreach ($overdueCards as $card): ?>
-                        <?php $link = !empty($card['ticket_ref']) ? baseUrl('tickets/show/' . $card['ticket_ref']) : baseUrl('planning'); ?>
-                        <a href="<?= $link ?>" class="list-group-item list-group-item-action px-3 py-2" style="border-left:3px solid #dc3545;">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <div class="text-truncate me-2">
-                                    <span class="fw-medium text-dark"><?= escape($card['title']) ?></span>
-                                    <?php if (!empty($card['company_name'])): ?>
-                                    <div class="text-muted" style="font-size:0.72rem"><i class="bi bi-building"></i> <?= escape($card['company_name']) ?></div>
-                                    <?php endif; ?>
+                    <?php if ($overdueTotal > 0): ?>
+                        <?php foreach ($overdueGroups as $status => $groupCards): ?>
+                        <?php $meta = $overdueStatusMeta[$status] ?? ['color' => '#6c757d', 'badge' => 'bg-secondary-subtle text-secondary', 'icon' => 'bi-tag']; ?>
+                        <div class="px-3 py-2 bg-light d-flex justify-content-between align-items-center border-bottom">
+                            <span class="fw-semibold text-dark" style="font-size:0.8rem">
+                                <i class="bi <?= $meta['icon'] ?>" style="color:<?= $meta['color'] ?>"></i>
+                                <?= statusLabel($status) ?>
+                                <?php if ($status === 'em_homologacao'): ?>
+                                <span class="text-muted fw-normal" style="font-size:0.7rem">(aguardando validação)</span>
+                                <?php elseif ($status === 'waiting_client'): ?>
+                                <span class="text-muted fw-normal" style="font-size:0.7rem">(aguardando cliente)</span>
+                                <?php elseif ($status === 'em_revisao_interna'): ?>
+                                <span class="text-muted fw-normal" style="font-size:0.7rem">(em revisão)</span>
+                                <?php endif; ?>
+                            </span>
+                            <span class="badge <?= $meta['badge'] ?>" style="font-size:0.7rem"><?= count($groupCards) ?></span>
+                        </div>
+                        <div class="list-group list-group-flush">
+                            <?php foreach ($groupCards as $card): ?>
+                            <?php $link = !empty($card['ticket_ref']) ? baseUrl('tickets/show/' . $card['ticket_ref']) : baseUrl('planning'); ?>
+                            <a href="<?= $link ?>" class="list-group-item list-group-item-action px-3 py-2" style="border-left:3px solid <?= $meta['color'] ?>;">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div class="text-truncate me-2">
+                                        <span class="fw-medium text-dark"><?= escape($card['title']) ?></span>
+                                        <?php if (!empty($card['company_name'])): ?>
+                                        <div class="text-muted" style="font-size:0.72rem"><i class="bi bi-building"></i> <?= escape($card['company_name']) ?></div>
+                                        <?php endif; ?>
+                                    </div>
+                                    <span class="badge <?= $meta['badge'] ?> flex-shrink-0" style="font-size:0.7rem">
+                                        <i class="bi bi-clock"></i> <?= date('d/m H:i', strtotime($card['due_date'])) ?>
+                                    </span>
                                 </div>
-                                <span class="badge bg-danger-subtle text-danger flex-shrink-0" style="font-size:0.7rem">
-                                    <i class="bi bi-clock"></i> <?= date('d/m H:i', strtotime($card['due_date'])) ?>
-                                </span>
-                            </div>
-                            <small class="text-muted"><i class="bi bi-person"></i> <?= escape($card['assigned_name'] ?? 'Não atribuído') ?></small>
-                        </a>
+                                <small class="text-muted"><i class="bi bi-person"></i> <?= escape($card['assigned_name'] ?? 'Não atribuído') ?></small>
+                            </a>
+                            <?php endforeach; ?>
+                        </div>
                         <?php endforeach; ?>
-                    </div>
                     <?php else: ?>
                     <div class="text-center text-muted py-5">
                         <i class="bi bi-check2-circle fs-2 text-success"></i>

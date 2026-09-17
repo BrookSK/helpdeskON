@@ -607,12 +607,26 @@ class BufferController extends Controller
     public function processQueue()
     {
         $this->requireRole(['super_admin']);
+        $result = $this->drainQueue(10);
+        $this->json(array_merge(['success' => true], $result));
+    }
+
+    /**
+     * Drena a fila de posts 'queued' (tenta reenviar ao Buffer, com fallback Meta).
+     * Reutilizável por endpoints manuais (processQueue) e pelo cron (CronController).
+     *
+     * Retorna ['processed' => int, 'results' => array, 'message' => string?].
+     * Não emite saída — o chamador decide o formato da resposta.
+     */
+    public function drainQueue($limit = 10)
+    {
         $db = Database::getInstance();
-        $queuedPosts = $db->fetchAll("SELECT * FROM buffer_posts WHERE status = 'queued' ORDER BY created_at ASC LIMIT 10");
+        $queuedPosts = $db->fetchAll(
+            "SELECT * FROM buffer_posts WHERE status = 'queued' ORDER BY created_at ASC LIMIT " . (int)$limit
+        );
 
         if (empty($queuedPosts)) {
-            $this->json(['success' => true, 'message' => 'Nenhum post na fila.', 'processed' => 0]);
-            return;
+            return ['message' => 'Nenhum post na fila.', 'processed' => 0, 'results' => []];
         }
 
         $allChannels = $this->data->getChannels(false);
@@ -684,7 +698,7 @@ class BufferController extends Controller
             usleep(1000000); // 1s entre posts
         }
 
-        $this->json(['success' => true, 'processed' => $processed, 'results' => $results]);
+        return ['processed' => $processed, 'results' => $results];
     }
 
     // API: sincronizar métricas dos posts enviados

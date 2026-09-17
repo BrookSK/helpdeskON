@@ -287,6 +287,16 @@ class CronController extends Controller
         // 3) Snapshot
         $stats['snapshots'] = $accountsModel->snapshotAllFollowers();
 
+        // 4) Drena a fila de posts do Buffer (status 'queued').
+        // Roda sempre — mesmo que o ciclo Buffer acima tenha sido pulado pelo guard de 6h —
+        // porque a fila é onde caem os posts que falharam por rate limit e precisam ser reenviados.
+        try {
+            $queueResult = (new BufferController())->drainQueue(20);
+            $stats['buffer_queue_processed'] = $queueResult['processed'] ?? 0;
+        } catch (\Throwable $e) {
+            $errors[] = 'Buffer queue: ' . $e->getMessage();
+        }
+
         $this->json([
             'success' => true,
             'stats' => $stats,
@@ -647,6 +657,29 @@ class CronController extends Controller
     }
 
     /**
+     * GET /cron/processBufferQueue?token=XXX
+     * Drena a fila de posts do Buffer em estado 'queued'.
+     *
+     * Esses posts só entram na fila quando o agendamento direto no Buffer falha
+     * (rate limit 429) e o fallback via Meta não está disponível. A UI promete
+     * publicação automática, mas até então o único drenador era um endpoint
+     * manual (buffer/processQueue). Este cron cumpre essa promessa.
+     */
+    public function processBufferQueue()
+    {
+        $this->validateToken();
+        @set_time_limit(300);
+
+        try {
+            $controller = new BufferController();
+            $result = $controller->drainQueue(20);
+            $this->json(array_merge(['success' => true], $result));
+        } catch (\Throwable $e) {
+            $this->json(['success' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
      * GET /cron/index
      * Página de status/info sobre os crons disponíveis.
      */
@@ -655,6 +688,7 @@ class CronController extends Controller
         $this->json([
             'endpoints' => [
                 'GET /cron/syncAll?token=XXX' => 'Sincronização completa (Buffer + Meta + LinkedIn + Snapshot)',
+                'GET /cron/processBufferQueue?token=XXX' => 'Drena a fila de posts do Buffer (status queued) — publica pendentes',
                 'GET /cron/captureLeads?token=XXX' => 'Coleta agendada de oportunidades (99Freelas)',
                 'GET /cron/runSequences?token=XXX' => 'Worker de follow-up: sequências + detecção de respostas',
                 'GET /cron/runProspecting?token=XXX' => 'Automação de prospecção Apollo (Search→reveal→CRM→sequência)',
