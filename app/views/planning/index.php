@@ -149,10 +149,43 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
         </div>
     </div>
 
+    <style>
+        /* Barra de rolagem horizontal fixa acima do Kanban */
+        #kanban-topscroll {
+            position: sticky;
+            top: 0;
+            z-index: 20;
+            overflow-x: auto;
+            overflow-y: hidden;
+            /* Mostra somente a barra de rolagem, sem conteúdo visível */
+            height: 16px;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+            margin-bottom: 8px;
+            /* Só aparece quando há transbordamento horizontal (controlado via JS) */
+            display: none;
+        }
+        #kanban-topscroll-inner {
+            height: 1px;
+        }
+        /* Deixa a barra de rolagem sempre visível e mais evidente (WebKit) */
+        #kanban-topscroll::-webkit-scrollbar { height: 12px; }
+        #kanban-topscroll::-webkit-scrollbar-track { background: #f1f1f4; border-radius: 8px; }
+        #kanban-topscroll::-webkit-scrollbar-thumb { background: #b9bcc9; border-radius: 8px; }
+        #kanban-topscroll::-webkit-scrollbar-thumb:hover { background: #9aa0b3; }
+        /* Firefox */
+        #kanban-topscroll { scrollbar-width: thin; scrollbar-color: #b9bcc9 #f1f1f4; }
+    </style>
+
     <!-- KANBAN VIEW -->
     <div id="kanban-view">
+        <!-- Barra de rolagem horizontal fixa (sincronizada com o Kanban abaixo) -->
+        <div id="kanban-topscroll" aria-hidden="true">
+            <div id="kanban-topscroll-inner"></div>
+        </div>
         <div class="kanban-scroll" style="overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:10px;">
-            <div class="d-flex gap-3" style="min-width:max-content;">
+            <div class="d-flex gap-3" id="kanban-track" style="min-width:max-content;">
                 <?php
                 // Se o usuário filtrou status específicos, mostra apenas essas colunas.
                 $visibleStatuses = !empty($selStatuses) ? array_intersect(array_keys($statusLabels), $selStatuses) : array_keys($statusLabels);
@@ -742,6 +775,56 @@ document.querySelectorAll('#view-toggle button').forEach(btn => {
         if (view === 'calendar') loadCalendar();
     });
 });
+
+// === BARRA DE ROLAGEM HORIZONTAL FIXA (sincronizada com o Kanban) ===
+(function() {
+    const scroll = document.querySelector('#kanban-view .kanban-scroll');
+    const track = document.getElementById('kanban-track');
+    const topBar = document.getElementById('kanban-topscroll');
+    const topInner = document.getElementById('kanban-topscroll-inner');
+    if (!scroll || !track || !topBar || !topInner) return;
+
+    let syncing = false;
+
+    // Ajusta a largura do "fantasma" da barra superior à largura real do Kanban
+    // e mostra/esconde a barra conforme houver transbordamento horizontal.
+    function refresh() {
+        const fullWidth = track.scrollWidth;         // largura total das colunas
+        const visible = scroll.clientWidth;           // largura visível
+        topInner.style.width = fullWidth + 'px';
+        const overflowing = fullWidth > visible + 1;
+        topBar.style.display = overflowing ? 'block' : 'none';
+        if (overflowing) topBar.scrollLeft = scroll.scrollLeft; // mantém alinhado
+    }
+
+    // Sincronização bidirecional (evita loop com a flag "syncing")
+    topBar.addEventListener('scroll', function() {
+        if (syncing) { syncing = false; return; }
+        syncing = true;
+        scroll.scrollLeft = topBar.scrollLeft;
+    });
+    scroll.addEventListener('scroll', function() {
+        if (syncing) { syncing = false; return; }
+        syncing = true;
+        topBar.scrollLeft = scroll.scrollLeft;
+    });
+
+    window.addEventListener('resize', refresh);
+
+    // Recalcula ao alternar de volta para a visão Kanban (larguras medem 0 quando oculto)
+    document.querySelectorAll('#view-toggle button').forEach(btn => {
+        btn.addEventListener('click', function() {
+            if (this.dataset.view === 'kanban') setTimeout(refresh, 50);
+        });
+    });
+
+    // Expõe globalmente para recomputar após adicionar/remover cards dinamicamente
+    window.refreshKanbanTopScroll = refresh;
+
+    document.addEventListener('DOMContentLoaded', refresh);
+    // Estado inicial (caso o DOM já esteja pronto)
+    refresh();
+})();
 
 // === KANBAN DRAG & DROP ===
 document.querySelectorAll('#kanban-view .kanban-list').forEach(list => {

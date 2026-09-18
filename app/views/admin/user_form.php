@@ -2,6 +2,20 @@
 <?php require APP_PATH . '/views/layouts/header.php'; ?>
 <?php require APP_PATH . '/views/layouts/sidebar.php'; ?>
 
+<style>
+    /* Barra de ações fixa no rodapé da viewport: o botão Atualizar/Cadastrar
+       fica sempre acessível, sem precisar rolar até o fim da página. */
+    .user-form-actions {
+        position: sticky;
+        bottom: 0;
+        z-index: 10;
+        background: #f8f9fa;
+        padding: 12px 0;
+        margin-top: 4px;
+        border-top: 1px solid #e6e8ec;
+    }
+</style>
+
 <div class="main-content">
     <div class="top-bar">
         <div>
@@ -278,7 +292,7 @@
                 </div>
                 <?php endif; ?>
 
-                <div class="d-flex justify-content-end gap-2">
+                <div class="user-form-actions d-flex justify-content-end gap-2">
                     <a href="<?= baseUrl('users') ?>" class="btn btn-outline-secondary px-4">Cancelar</a>
                     <button type="submit" class="btn btn-primary px-4">
                         <i class="bi bi-check-lg"></i> <?= $editUser ? 'Atualizar' : 'Cadastrar' ?>
