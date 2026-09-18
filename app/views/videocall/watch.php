@@ -175,15 +175,15 @@ async function startTranscription() {
     const btn = document.getElementById('tr-btn');
     if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Transcrevendo…'; }
     status = 'processing';
+    document.getElementById('tr-empty').innerHTML = '<p><span class="spin"></span> Transcrevendo em segundo plano… você pode fechar ou usar outras telas; ela continua processando.</p>';
     try {
         const r = await fetch(`${BASE}/videocall/transcribe/${REC_TOKEN}`, { method: 'POST' }).then(x => x.json());
         if (r.error) { document.getElementById('tr-empty').innerHTML = '<p class="text-danger">' + esc(r.error) + '</p>'; return; }
-        segments = r.segments || [];
-        summary = r.summary || '';
-        status = 'done';
-        renderSegments(); renderSummary();
+        // Agora roda em background: acompanha por polling.
+        pollStatus();
     } catch (e) {
-        document.getElementById('tr-empty').innerHTML = '<p class="text-danger">Falha ao transcrever.</p>';
+        // Mesmo com erro de rede aqui, o processamento pode ter começado: acompanha.
+        pollStatus();
     }
 }
 // Se outra pessoa iniciou a transcrição, acompanha o status.
@@ -199,7 +199,7 @@ function pollStatus() {
                 renderSegments(); renderSummary();
             } else if (r.status === 'error') {
                 clearInterval(pollTimer); pollTimer = null;
-                document.getElementById('tr-empty').innerHTML = '<p class="text-danger">A transcrição falhou. Tente novamente.</p>'
+                document.getElementById('tr-empty').innerHTML = '<p class="text-danger">' + esc(r.error_message || 'A transcrição falhou.') + '</p>'
                     + '<button class="btn btn-sm btn-brand" onclick="startTranscription()">Tentar de novo</button>';
             }
         } catch (e) {}

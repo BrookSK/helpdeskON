@@ -90,8 +90,13 @@ class VideocallController extends Controller
     /** URL pública da sala (respeita app_public_url se configurado). */
     private function publicUrl($token)
     {
-        $base = rtrim((string) Config::get('app_public_url'), '/') ?: rtrim(baseUrl(''), '/');
-        return $base . '/videocall/room/' . $token;
+        return $this->publicBase() . '/videocall/room/' . $token;
+    }
+
+    /** Base pública do sistema (respeita app_public_url, senão baseUrl). */
+    private function publicBase()
+    {
+        return rtrim((string) Config::get('app_public_url'), '/') ?: rtrim(baseUrl(''), '/');
     }
 
     // ============================================================
@@ -503,8 +508,9 @@ class VideocallController extends Controller
             'recorded_by_name' => $recordedName,
         ]);
 
-        $downloadUrl = rtrim(baseUrl(''), '/') . '/videocall/recording/' . $recToken;
-        $this->json(['success' => true, 'token' => $recToken, 'url' => $downloadUrl]);
+        // Link de compartilhamento (abre player + transcrição), no domínio público.
+        $shareUrl = $this->publicBase() . '/videocall/share/' . $recToken;
+        $this->json(['success' => true, 'token' => $recToken, 'url' => $shareUrl]);
     }
 
     /** Reproduz/baixa uma gravação salva (streaming simples com suporte a Range). */
@@ -564,11 +570,13 @@ class VideocallController extends Controller
         $rec = $recToken ? $this->model->findRecordingByToken($recToken) : null;
         if (!$rec) $this->json(['error' => 'Gravação não encontrada'], 404);
 
+        $st = $rec['transcribe_status'] ?? 'none';
         $this->json([
-            'status' => $rec['transcribe_status'] ?? 'none',
+            'status' => $st,
             'transcript' => $rec['transcript'] ?? null,
             'transcript_json' => $rec['transcript_json'] ? json_decode($rec['transcript_json'], true) : null,
-            'summary' => $rec['summary'] ?? null,
+            'summary' => ($st === 'error') ? null : ($rec['summary'] ?? null),
+            'error_message' => ($st === 'error') ? ($rec['summary'] ?? 'Falha ao transcrever.') : null,
             'url' => rtrim(baseUrl(''), '/') . '/videocall/recording/' . $rec['token'],
         ]);
     }
@@ -683,10 +691,30 @@ class VideocallController extends Controller
             $this->json(['error' => 'Arquivo da gravação indisponível.'], 404);
         }
 
+        // Marca como processando e RESPONDE JÁ ao cliente (a tela acompanha por
+        // polling). Assim não trava a interface nem estoura timeout do navegador.
         $this->model->updateRecording($recToken, ['transcribe_status' => 'processing']);
         $this->releaseSession();
-        @set_time_limit(0); // reuniões longas podem levar bastante tempo
+        @set_time_limit(0);
+        @ignore_user_abort(true);
+        // Envia a resposta e libera o navegador; o PHP continua processando abaixo.
+        http_response_code(200);
+        header('Content-Type: application/json');
+        echo json_encode(['status' => 'processing', 'message' => 'Transcrição iniciada. Você pode continuar usando o sistema; ela roda em segundo plano.']);
+        if (function_exists('fastcgi_finish_request')) {
+            fastcgi_finish_request();
+        } else {
+            // Fallback: fecha a conexão para o cliente não ficar esperando.
+            @ob_end_flush(); @flush();
+        }
 
+        // A partir daqui roda em segundo plano (resposta já foi enviada).
+        $this->runTranscription($recToken, $real, $ai);
+    }
+
+    /** Processa a transcrição (pesado). Roda após a resposta já ter sido enviada. */
+    private function runTranscription($recToken, $real, $ai)
+    {
         $ffmpeg = $this->ffmpegBin();
         $WHISPER_LIMIT = 24 * 1024 * 1024; // margem abaixo dos 25 MB
         $segments = [];
@@ -703,11 +731,11 @@ class VideocallController extends Controller
                 $pattern = $chunkDir . '/chunk_%03d.mp3';
                 $cmd = escapeshellarg($ffmpeg) . ' -y -i ' . escapeshellarg($real)
                     . ' -vn -ac 1 -ar 16000 -b:a 64k -f segment -segment_time ' . $chunkSec
-                    . ' ' . escapeshellarg($pattern) . ' 2>&1';
-                exec($cmd, $out, $code);
+                    . ' ' . escapeshellarg($pattern);
+                $this->runShell($cmd);
                 $chunks = glob($chunkDir . '/chunk_*.mp3');
                 sort($chunks);
-                if ($code !== 0 || empty($chunks)) {
+                if (empty($chunks)) {
                     throw new \RuntimeException('Falha ao preparar o áudio para transcrição.');
                 }
                 $offset = 0.0;
@@ -736,8 +764,12 @@ class VideocallController extends Controller
             }
         } catch (\Throwable $e) {
             foreach ($tmpFiles as $f) @unlink($f);
-            $this->model->updateRecording($recToken, ['transcribe_status' => 'error']);
-            $this->json(['error' => 'Falha ao transcrever: ' . $e->getMessage()], 502);
+            // Resposta já foi enviada: apenas registra o erro para a tela consultar.
+            $this->model->updateRecording($recToken, [
+                'transcribe_status' => 'error',
+                'summary' => 'Falha ao transcrever: ' . $e->getMessage(),
+            ]);
+            return;
         }
         foreach ($tmpFiles as $f) @unlink($f);
 
@@ -769,17 +801,42 @@ class VideocallController extends Controller
             'transcribe_status' => 'done',
             'transcribed_at' => date('Y-m-d H:i:s'),
         ]);
-
-        $this->json(['status' => 'done', 'transcript' => $transcript, 'segments' => $segments, 'summary' => $summary]);
+        // Resposta já foi enviada ao cliente; nada a retornar aqui.
     }
 
-    /** Localiza o binário do ffmpeg (Settings.ffmpeg_path ou PATH). */
+    /** Uma função de shell está realmente disponível (não desabilitada no PHP)? */
+    private function fnEnabled($name)
+    {
+        if (!function_exists($name)) return false;
+        $disabled = array_map('trim', explode(',', (string) ini_get('disable_functions')));
+        return !in_array($name, $disabled, true);
+    }
+
+    /** Executa um comando de shell com o mecanismo disponível; null se nenhum. */
+    private function runShell($cmd)
+    {
+        if ($this->fnEnabled('shell_exec')) return @shell_exec($cmd);
+        if ($this->fnEnabled('exec')) { $out = []; @exec($cmd . ' 2>&1', $out); return implode("\n", $out); }
+        if ($this->fnEnabled('proc_open')) {
+            $d = [1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
+            $p = @proc_open($cmd, $d, $pipes);
+            if (is_resource($p)) {
+                $o = stream_get_contents($pipes[1]); $e = stream_get_contents($pipes[2]);
+                foreach ($pipes as $pipe) fclose($pipe); proc_close($p);
+                return $o . $e;
+            }
+        }
+        return null;
+    }
+
+    /** Localiza o binário do ffmpeg (Settings.ffmpeg_path ou PATH). Null se indisponível. */
     private function ffmpegBin()
     {
+        // Sem função de shell habilitada, não há como usar o ffmpeg.
+        if (!$this->fnEnabled('shell_exec') && !$this->fnEnabled('exec') && !$this->fnEnabled('proc_open')) return null;
         $cfg = trim((string) Config::get('ffmpeg_path'));
         if ($cfg !== '' && @is_file($cfg)) return $cfg;
-        // Tenta no PATH.
-        $probe = @shell_exec('ffmpeg -version 2>&1');
+        $probe = $this->runShell('ffmpeg -version');
         if ($probe && stripos($probe, 'ffmpeg version') !== false) return 'ffmpeg';
         return null;
     }
@@ -787,7 +844,7 @@ class VideocallController extends Controller
     /** Duração (segundos) de um arquivo via ffmpeg. */
     private function mediaDuration($ffmpeg, $file)
     {
-        $out = @shell_exec(escapeshellarg($ffmpeg) . ' -i ' . escapeshellarg($file) . ' 2>&1');
+        $out = $this->runShell(escapeshellarg($ffmpeg) . ' -i ' . escapeshellarg($file));
         if ($out && preg_match('/Duration:\s*(\d+):(\d+):(\d+\.?\d*)/', $out, $m)) {
             return ((int)$m[1]) * 3600 + ((int)$m[2]) * 60 + (float)$m[3];
         }

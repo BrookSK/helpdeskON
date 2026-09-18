@@ -347,6 +347,7 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
             <button class="ctrl-caret" id="btn-rec-pause" onclick="togglePauseRecording()" title="Pausar/retomar gravação" style="display:none;"><i class="bi bi-pause-fill"></i></button>
         </div>
         <?php endif; ?>
+        <button class="ctrl" id="btn-pip" onclick="togglePip()" title="Abrir em janela flutuante"><i class="bi bi-pip"></i><span class="ctrl-label">Janela</span></button>
         <button class="ctrl" id="btn-copy" onclick="copyLink()" title="Copiar link"><i class="bi bi-link-45deg"></i><span class="ctrl-label">Link</span></button>
         <button class="ctrl hangup" onclick="hangup()" title="Sair"><i class="bi bi-telephone-x-fill"></i><span class="ctrl-label">Sair</span></button>
     </div>
@@ -420,19 +421,7 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
             <input type="text" class="form-control" id="rec-url" readonly>
             <button class="btn btn-sm btn-outline-light" onclick="copyRecUrl()"><i class="bi bi-clipboard"></i></button>
         </div>
-
-        <!-- Transcrição / Resumo (IA) -->
-        <div class="mt-3">
-            <div class="d-flex align-items-center justify-content-between mb-2">
-                <div class="rec-tabs">
-                    <button class="rec-tab active" id="tab-transcript-btn" onclick="showRecTab('transcript')">Transcrição</button>
-                    <button class="rec-tab" id="tab-summary-btn" onclick="showRecTab('summary')">Resumo</button>
-                </div>
-                <button class="btn btn-sm btn-primary" id="rec-transcribe-btn" onclick="startTranscription()"><i class="bi bi-magic"></i> Transcrever com IA</button>
-            </div>
-            <div id="rec-tab-transcript" class="rec-tab-body"><div class="text-secondary small">Ainda não transcrito. Clique em "Transcrever com IA".</div></div>
-            <div id="rec-tab-summary" class="rec-tab-body" style="display:none;"><div class="text-secondary small">O resumo aparece aqui após a transcrição.</div></div>
-        </div>
+        <p class="small text-secondary mt-2 mb-0">A transcrição e o resumo por IA ficam disponíveis ao abrir a gravação.</p>
 
         <div class="text-end mt-3">
             <a class="btn btn-sm btn-outline-light" id="rec-open" target="_blank"><i class="bi bi-box-arrow-up-right"></i> Abrir</a>
@@ -585,14 +574,19 @@ async function startBgPipeline() {
     await bgVideoEl.play().catch(() => {});
 
     bgProcessing = true;
-    const loop = async () => {
-        if (!bgProcessing) return;
+    let bgBusy = false;
+    // Usa setInterval (não requestAnimationFrame): rAF PARA quando a aba está em
+    // segundo plano, o que congelava a câmera para os outros. O interval segue
+    // rodando (com throttle em aba oculta, mas o stream não trava).
+    const tick = async () => {
+        if (!bgProcessing || bgBusy) return;
         if (bgVideoEl.readyState >= 2) {
+            bgBusy = true;
             try { await segmenter.send({ image: bgVideoEl }); } catch (e) {}
+            bgBusy = false;
         }
-        bgRafId = requestAnimationFrame(loop);
     };
-    loop();
+    bgRafId = setInterval(tick, 33); // ~30fps quando visível
 
     processedStream = bgCanvas.captureStream(30);
     return processedStream.getVideoTracks()[0];
@@ -600,7 +594,8 @@ async function startBgPipeline() {
 
 function stopBgPipeline() {
     bgProcessing = false;
-    if (bgRafId) cancelAnimationFrame(bgRafId);
+    if (bgRafId) clearInterval(bgRafId);
+    bgRafId = null;
     if (processedStream) { processedStream.getTracks().forEach(t => t.stop()); processedStream = null; }
 }
 
@@ -1745,12 +1740,18 @@ function drawComposite() {
         const tile = v.closest('.tile');
         const nm = tile ? (tile.querySelector('.name')?.textContent || '') : '';
         if (nm) {
+            // Nome menor e discreto no canto da célula.
+            const fs = Math.max(11, Math.min(16, Math.round(ch * 0.032)));
+            compCtx.font = '600 ' + fs + 'px Inter, sans-serif';
+            const padX = 8, padY = 5;
+            const tw = compCtx.measureText(nm).width + padX * 2;
+            const bh = fs + padY * 2;
             compCtx.fillStyle = 'rgba(0,0,0,.55)';
-            compCtx.font = '600 ' + Math.max(12, Math.round(ch * 0.05)) + 'px Inter, sans-serif';
-            const tw = compCtx.measureText(nm).width + 14;
-            compCtx.fillRect(cx + 8, cy + ch - 30, tw, 22);
+            compCtx.fillRect(cx + 8, cy + ch - bh - 8, tw, bh);
             compCtx.fillStyle = '#fff';
-            compCtx.fillText(nm, cx + 15, cy + ch - 14);
+            compCtx.textBaseline = 'middle';
+            compCtx.fillText(nm, cx + 8 + padX, cy + ch - 8 - bh / 2);
+            compCtx.textBaseline = 'alphabetic';
         }
     });
     compRaf = requestAnimationFrame(drawComposite);
@@ -1886,46 +1887,63 @@ async function uploadRecording() {
         if (res.error) { toast('Erro ao salvar: ' + res.error); return; }
         currentRecToken = res.token || null;
         document.getElementById('rec-url').value = res.url; document.getElementById('rec-open').href = res.url;
-        resetRecTabs();
         document.getElementById('rec-modal').style.display = 'flex';
     } catch (e) { toast('Falha ao enviar a gravação.'); }
 }
 
-// ---- Transcrição / Resumo (IA) ----
+// Token da última gravação (usado apenas para exibir o link no pop-up).
 let currentRecToken = null;
-function showRecTab(which) {
-    document.getElementById('tab-transcript-btn').classList.toggle('active', which === 'transcript');
-    document.getElementById('tab-summary-btn').classList.toggle('active', which === 'summary');
-    document.getElementById('rec-tab-transcript').style.display = (which === 'transcript') ? 'block' : 'none';
-    document.getElementById('rec-tab-summary').style.display = (which === 'summary') ? 'block' : 'none';
+
+// ==========================================================
+// PICTURE-IN-PICTURE (janelinha flutuante com a reunião toda)
+// ==========================================================
+let pipCanvas = null, pipCtx = null, pipVideo = null, pipStream = null, pipTimer = null;
+
+function pipSupported() {
+    return document.pictureInPictureEnabled || ('requestPictureInPicture' in document.createElement('video'));
 }
-function resetRecTabs() {
-    showRecTab('transcript');
-    document.getElementById('rec-tab-transcript').innerHTML = '<div class="text-secondary small">Ainda não transcrito. Clique em "Transcrever com IA".</div>';
-    document.getElementById('rec-tab-summary').innerHTML = '<div class="text-secondary small">O resumo aparece aqui após a transcrição.</div>';
-    const b = document.getElementById('rec-transcribe-btn');
-    b.disabled = false; b.innerHTML = '<i class="bi bi-magic"></i> Transcrever com IA';
+function pipDraw() {
+    if (!pipCtx) return;
+    const W = pipCanvas.width, H = pipCanvas.height;
+    pipCtx.fillStyle = '#0f1020'; pipCtx.fillRect(0, 0, W, H);
+    const vids = collectRecordingVideos();
+    const n = vids.length || 1;
+    const cols = Math.ceil(Math.sqrt(n));
+    const rows = Math.ceil(n / cols);
+    const cw = W / cols, ch = H / rows;
+    vids.forEach((v, i) => {
+        const cx = (i % cols) * cw, cy = Math.floor(i / cols) * ch;
+        const vw = v.videoWidth || 16, vh = v.videoHeight || 9;
+        const scale = Math.max(cw / vw, ch / vh);
+        const dw = vw * scale, dh = vh * scale;
+        const dx = cx + (cw - dw) / 2, dy = cy + (ch - dh) / 2;
+        pipCtx.save();
+        pipCtx.beginPath(); pipCtx.rect(cx + 1, cy + 1, cw - 2, ch - 2); pipCtx.clip();
+        try { pipCtx.drawImage(v, dx, dy, dw, dh); } catch (e) {}
+        pipCtx.restore();
+    });
 }
-async function startTranscription() {
-    if (!currentRecToken) { toast('Gravação ainda não disponível.'); return; }
-    const b = document.getElementById('rec-transcribe-btn');
-    b.disabled = true; b.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Transcrevendo…';
-    document.getElementById('rec-tab-transcript').innerHTML = '<div class="text-secondary small"><span class="spinner-border spinner-border-sm"></span> Transcrevendo o áudio… pode levar alguns minutos.</div>';
+async function togglePip() {
+    if (document.pictureInPictureElement) { try { await document.exitPictureInPicture(); } catch (e) {} return; }
+    if (!pipSupported()) { toast('Seu navegador não suporta janela flutuante.'); return; }
     try {
-        const r = await fetch(`${BASE}/videocall/transcribe/${currentRecToken}`, { method: 'POST' }).then(x => x.json());
-        if (r.error) {
-            document.getElementById('rec-tab-transcript').innerHTML = '<div class="text-danger small">' + escapeHtml(r.error) + '</div>';
-            b.disabled = false; b.innerHTML = '<i class="bi bi-magic"></i> Tentar novamente';
-            return;
-        }
-        document.getElementById('rec-tab-transcript').textContent = r.transcript || '(sem fala detectada)';
-        document.getElementById('rec-tab-summary').textContent = r.summary || '(sem resumo)';
-        b.innerHTML = '<i class="bi bi-check-lg"></i> Transcrito';
-        toast('Transcrição e resumo prontos.');
-    } catch (e) {
-        document.getElementById('rec-tab-transcript').innerHTML = '<div class="text-danger small">Falha ao transcrever.</div>';
-        b.disabled = false; b.innerHTML = '<i class="bi bi-magic"></i> Tentar novamente';
-    }
+        if (!pipCanvas) { pipCanvas = document.createElement('canvas'); pipCanvas.width = 640; pipCanvas.height = 360; pipCtx = pipCanvas.getContext('2d'); }
+        pipDraw();
+        pipStream = pipCanvas.captureStream(15);
+        if (!pipVideo) { pipVideo = document.createElement('video'); pipVideo.muted = true; pipVideo.playsInline = true; pipVideo.addEventListener('leavepictureinpicture', stopPip); }
+        pipVideo.srcObject = pipStream;
+        await pipVideo.play().catch(() => {});
+        if (pipTimer) clearInterval(pipTimer);
+        pipTimer = setInterval(pipDraw, 100); // segue rodando mesmo com a aba oculta
+        await pipVideo.requestPictureInPicture();
+        document.getElementById('btn-pip').classList.add('active');
+        toast('Reunião aberta em janela flutuante. Você pode usar outras abas.');
+    } catch (e) { toast('Não foi possível abrir a janela flutuante.'); stopPip(); }
+}
+function stopPip() {
+    if (pipTimer) { clearInterval(pipTimer); pipTimer = null; }
+    if (pipStream) { pipStream.getTracks().forEach(t => t.stop()); pipStream = null; }
+    const btn = document.getElementById('btn-pip'); if (btn) btn.classList.remove('active');
 }
 
 // ---- Link / sair ----
@@ -1940,6 +1958,8 @@ function teardown(headline, sub) {
     if (adminTimer) clearInterval(adminTimer);
     if (waitTimer) clearInterval(waitTimer);
     stopNetworkMonitor();
+    if (document.pictureInPictureElement) { try { document.exitPictureInPicture(); } catch (e) {} }
+    stopPip();
     if (mediaRecorder && mediaRecorder.state !== 'inactive') { try { stopRecording(); } catch (e) {} }
     stopBgPipeline();
     peers.forEach(e => { try { e.pc.close(); } catch (x) {} });

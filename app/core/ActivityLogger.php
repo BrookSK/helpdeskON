@@ -18,8 +18,11 @@ class ActivityLogger
 
     /** Controllers cujas ações não devem ser registradas. */
     private static $ignoredControllers = [
-        'track',
+        'track', 'videocall',
     ];
+
+    /** Desliga o log nesta requisição se a tabela de auditoria não existir. */
+    private static $tableMissing = false;
 
     /**
      * Registra um login bem-sucedido.
@@ -53,6 +56,7 @@ class ActivityLogger
      */
     public static function logAction($userId, $controller, $action, array $params = [])
     {
+        if (self::$tableMissing) return; // tabela ausente: não insiste nesta requisição
         try {
             $controller = strtolower($controller);
             $action = strtolower($action);
@@ -74,6 +78,12 @@ class ActivityLogger
                 'ip_address' => self::ip(),
             ]);
         } catch (\Throwable $e) {
+            // Se a tabela de auditoria não existe, desliga o log nesta requisição
+            // e não polui os logs do servidor com o mesmo aviso a cada chamada.
+            if (strpos($e->getMessage(), "doesn't exist") !== false || strpos($e->getMessage(), '42S02') !== false) {
+                self::$tableMissing = true;
+                return;
+            }
             Logger::warning('Falha ao registrar ação', ['error' => $e->getMessage()]);
         }
     }
