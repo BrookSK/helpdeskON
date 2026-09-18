@@ -38,6 +38,12 @@
                         <option value="<?= $m['id'] ?>"><?= escape($m['name']) ?></option>
                         <?php endforeach; ?>
                     </select>
+                    <?php elseif ((int)($user['id'] ?? 0) === 28): ?>
+                    <?php /* Permissão TEMPORÁRIA: Lauren Beirigo (id 28) pode ver também os contatos do Super Admin. */ ?>
+                    <select class="form-select form-select-sm flex-fill" id="filter-assigned" style="font-size:0.72rem;min-width:0;width:33%;">
+                        <option value="" selected><?= escape($user['name']) ?></option>
+                        <option value="1">Super Admin</option>
+                    </select>
                     <?php else: ?>
                     <select class="form-select form-select-sm flex-fill" id="filter-assigned" style="font-size:0.72rem;min-width:0;width:33%;">
                         <option value="" selected><?= escape($user['name']) ?></option>

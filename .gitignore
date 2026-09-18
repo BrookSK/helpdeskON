@@ -2,6 +2,10 @@
 public/uploads/tickets/*
 !public/uploads/tickets/.gitkeep
 
+# Gravações das videochamadas (arquivos grandes; não versionar)
+public/uploads/recordings/*
+!public/uploads/recordings/.gitkeep
+
 # Configuração local do banco
 # config/database.php
 
