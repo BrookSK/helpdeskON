@@ -1411,7 +1411,22 @@ async function toggleScreen() {
         toast('O administrador desativou o compartilhamento de tela nesta sala.');
         return;
     }
-    try { screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false }); } catch (e) { return; }
+    // A maioria dos navegadores de CELULAR não expõe getDisplayMedia (limitação
+    // do próprio navegador — o Meet no celular também só compartilha pelo app).
+    if (!navigator.mediaDevices || typeof navigator.mediaDevices.getDisplayMedia !== 'function') {
+        toast('Seu navegador não permite compartilhar a tela. No celular, isso costuma funcionar só em alguns navegadores (tente o Chrome mais recente) ou pelo computador.');
+        return;
+    }
+    try {
+        screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+    } catch (e) {
+        // NotAllowedError quando o usuário cancela a seleção (não avisa nada);
+        // outros erros indicam falta de suporte/permissão do dispositivo.
+        if (e && (e.name === 'NotAllowedError' || e.name === 'AbortError')) return;
+        toast('Não foi possível compartilhar a tela neste dispositivo.');
+        return;
+    }
+    if (!screenStream) return;
     sharing = true;
     document.getElementById('btn-screen').classList.add('active');
     const selfScreen = makeTile(peerId + '-screen', myName + ' (sua tela)', { screen: true });
