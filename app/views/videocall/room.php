@@ -397,6 +397,7 @@ function saveBgPref() {
 // ==========================================================
 let segmenter = null, bgCanvas = null, bgCtx = null, bgProcessing = false;
 let bgRafId = null, processedStream = null, bgImageEl = null;
+let maskCanvas = null, maskCtx = null; // máscara suavizada (bordas macias)
 const bgVideoEl = document.createElement('video'); // vídeo cru para alimentar o segmenter
 bgVideoEl.autoplay = true; bgVideoEl.muted = true; bgVideoEl.playsInline = true;
 
@@ -413,21 +414,35 @@ async function ensureSegmenter() {
 function onSegResults(results) {
     if (!bgCtx || !bgCanvas) return;
     const w = bgCanvas.width, h = bgCanvas.height;
+    // FONTE DA PESSOA: o vídeo ORIGINAL em alta (bgVideoEl), não results.image
+    // (que o MediaPipe entrega reduzido e deixava a pessoa borrada).
+    const personSrc = (bgVideoEl && bgVideoEl.readyState >= 2) ? bgVideoEl : results.image;
+
+    // Canvas auxiliar: máscara SUAVIZADA (elimina o serrilhado da borda, como no Meet).
+    if (!maskCanvas) { maskCanvas = document.createElement('canvas'); maskCtx = maskCanvas.getContext('2d'); }
+    if (maskCanvas.width !== w || maskCanvas.height !== h) { maskCanvas.width = w; maskCanvas.height = h; }
+    maskCtx.clearRect(0, 0, w, h);
+    // Um leve blur na máscara faz a transição pessoa↔fundo ficar macia.
+    maskCtx.filter = 'blur(3px)';
+    maskCtx.drawImage(results.segmentationMask, 0, 0, w, h);
+    maskCtx.filter = 'none';
+
     bgCtx.save();
     bgCtx.clearRect(0, 0, w, h);
-    // Desenha a pessoa
-    bgCtx.drawImage(results.image, 0, 0, w, h);
-    // Mantém apenas a pessoa (máscara)
+    bgCtx.imageSmoothingEnabled = true;
+    bgCtx.imageSmoothingQuality = 'high';
+    // 1) Pessoa em resolução cheia.
+    bgCtx.drawImage(personSrc, 0, 0, w, h);
+    // 2) Recorta com a máscara suavizada.
     bgCtx.globalCompositeOperation = 'destination-in';
-    bgCtx.drawImage(results.segmentationMask, 0, 0, w, h);
-    // Desenha o fundo atrás
+    bgCtx.drawImage(maskCanvas, 0, 0, w, h);
+    // 3) Fundo atrás.
     bgCtx.globalCompositeOperation = 'destination-over';
     if (bgMode === 'blur') {
-        bgCtx.filter = 'blur(12px)';
-        bgCtx.drawImage(results.image, 0, 0, w, h);
+        bgCtx.filter = 'blur(14px)';
+        bgCtx.drawImage(personSrc, 0, 0, w, h);
         bgCtx.filter = 'none';
     } else if (bgMode === 'image' && bgImageEl && bgImageEl.complete) {
-        // cobre mantendo proporção
         const ir = bgImageEl.width / bgImageEl.height, cr = w / h;
         let dw = w, dh = h, dx = 0, dy = 0;
         if (ir > cr) { dh = h; dw = h * ir; dx = (w - dw) / 2; } else { dw = w; dh = w / ir; dy = (h - dh) / 2; }
@@ -449,11 +464,11 @@ async function startBgPipeline() {
         bgCanvas = document.createElement('canvas');
         bgCtx = bgCanvas.getContext('2d');
     }
-    // Com fundo, limita a 720p: mantém boa nitidez sem travar a CPU (o modelo
-    // de segmentação é pesado; 1080p processado costuma engasgar).
+    // Canvas na resolução REAL da câmera: a pessoa é desenhada do vídeo original
+    // em alta, então não há perda de nitidez. Teto de segurança em 1920 de largura.
     const settings = vtrack.getSettings();
     let cw = settings.width || 1280, ch = settings.height || 720;
-    if (cw > 1280) { ch = Math.round(ch * (1280 / cw)); cw = 1280; }
+    if (cw > 1920) { ch = Math.round(ch * (1920 / cw)); cw = 1920; }
     bgCanvas.width = cw;
     bgCanvas.height = ch;
 
