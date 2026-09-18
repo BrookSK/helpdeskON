@@ -1103,7 +1103,7 @@ function makeTile(id, name, opts = {}) {
          <div class="reaction-badge"><span class="emo"></span><span class="who"></span></div>
          <div class="tile-tools">
             ${modTools}
-            <button title="Fixar/desafixar" onclick="togglePin('${id}')"><i class="bi bi-pin-angle"></i></button>
+            <button class="pin-btn" title="Fixar/desafixar" onclick="togglePin('${id}')"><i class="bi bi-pin-angle"></i></button>
          </div>
          ${zoomTools}
          <div class="badges">
@@ -1248,7 +1248,7 @@ function togglePin(id) {
 function updatePinIcon(id) {
     const t = tileEl(id); if (!t) return;
     const tools = t.querySelector('.tile-tools'); if (!tools) return;
-    const btn = tools.querySelector('button[title="Fixar/desafixar"]'); if (!btn) return;
+    const btn = tools.querySelector('.pin-btn'); if (!btn) return;
     const ic = btn.querySelector('i'); if (!ic) return;
     const fixed = pinned.has(id);
     ic.className = fixed ? 'bi bi-pin-angle-fill' : 'bi bi-pin-angle';
