@@ -1420,7 +1420,11 @@ async function toggleScreen() {
         return;
     }
     try {
-        screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+        // Pede a tela em alta resolução para o conteúdo ficar legível na gravação/PiP.
+        screenStream = await navigator.mediaDevices.getDisplayMedia({
+            video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 10, max: 15 } },
+            audio: false
+        });
     } catch (e) {
         // NotAllowedError quando o usuário cancela a seleção (não avisa nada);
         // outros erros indicam falta de suporte/permissão do dispositivo.
@@ -1784,17 +1788,20 @@ function drawTileVideo(ctx, v, x, y, w, h, opts) {
     const dw = vw * scale, dh = vh * scale;
     const dx = x + (w - dw) / 2, dy = y + (h - dh) / 2;
     ctx.save();
+    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
     ctx.beginPath(); ctx.rect(x + 2, y + 2, w - 4, h - 4); ctx.clip();
     if (opts.contain) { ctx.fillStyle = '#000'; ctx.fillRect(x, y, w, h); }
     try { ctx.drawImage(v, dx, dy, dw, dh); } catch (e) {}
     ctx.restore();
     if (opts.name) {
         const nm = opts.name;
-        const fs = Math.max(11, Math.min(16, Math.round(h * 0.045)));
-        ctx.font = '600 ' + fs + 'px Inter, sans-serif';
+        // Fonte pequena e fixa (escala levemente com a largura da célula), não com a altura,
+        // para o nome não ficar gigante quando a célula é alta (ex.: tela em tela cheia).
+        const fs = Math.max(12, Math.min(18, Math.round(w * 0.022)));
+        ctx.font = '600 ' + fs + 'px system-ui, Arial, sans-serif';
         const padX = 8;
         const tw = ctx.measureText(nm).width + padX * 2;
-        const bh = fs + 10;
+        const bh = fs + 8;
         ctx.fillStyle = 'rgba(0,0,0,.6)';
         ctx.fillRect(x + 8, y + h - bh - 8, tw, bh);
         ctx.fillStyle = '#fff';
@@ -1850,9 +1857,9 @@ function drawComposite() {
 }
 
 function buildRecordingStream() {
-    // Canvas de vídeo composto (720p).
+    // Canvas de vídeo composto em alta (para a tela compartilhada ficar legível).
     compCanvas = document.createElement('canvas');
-    compCanvas.width = 1280; compCanvas.height = 720;
+    compCanvas.width = 1920; compCanvas.height = 1080;
     compCtx = compCanvas.getContext('2d');
     drawComposite();
     compStream = compCanvas.captureStream(25);
@@ -2011,7 +2018,7 @@ async function togglePip() {
     if (!pipSupported()) { toast('Seu navegador não suporta janela flutuante.'); return; }
 
     // Prepara o canvas do mosaico (usado nos dois modos).
-    if (!pipCanvas) { pipCanvas = document.createElement('canvas'); pipCanvas.width = 640; pipCanvas.height = 360; pipCtx = pipCanvas.getContext('2d'); }
+    if (!pipCanvas) { pipCanvas = document.createElement('canvas'); pipCanvas.width = 1280; pipCanvas.height = 720; pipCtx = pipCanvas.getContext('2d'); }
     pipDraw();
     if (pipTimer) clearInterval(pipTimer);
     pipTimer = setInterval(pipDraw, 100);
@@ -2074,8 +2081,14 @@ function buildDocPip(win) {
 }
 // Ícones inline (a Document PiP não herda o Bootstrap Icons da página principal).
 function ico(kind) {
+    const s = 'width="20" height="20" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg"';
     const map = {
-        'mic': '🎙️', 'mic-off': '🔇', 'cam': '📹', 'cam-off': '🚫', 'rec': '⏺️', 'end': '📴'
+        'mic': `<svg ${s}><path d="M5 3a3 3 0 0 1 6 0v5a3 3 0 0 1-6 0z"/><path d="M3.5 6.5A.5.5 0 0 1 4 7v1a4 4 0 0 0 8 0V7a.5.5 0 0 1 1 0v1a5 5 0 0 1-4.5 4.975V15h2a.5.5 0 0 1 0 1h-5a.5.5 0 0 1 0-1h2v-2.025A5 5 0 0 1 3 8V7a.5.5 0 0 1 .5-.5"/></svg>`,
+        'mic-off': `<svg ${s}><path d="M13 8c0 .564-.094 1.107-.266 1.613l-.814-.814A4 4 0 0 0 12 8V7a.5.5 0 0 1 1 0zM8.5 3v3.879l-1-1V3a1.5 1.5 0 0 0-2.679-.929l-.72-.72A2.5 2.5 0 0 1 8.5 3M5 6.5V8a3 3 0 0 0 4.681 2.489l.717.717A4 4 0 0 1 4 8V6.5z"/><path d="M4 8V7l-.997-.003v.917A5 5 0 0 0 7.5 12.975V15h-2a.5.5 0 0 0 0 1h5a.5.5 0 0 0 0-1h-2v-2.025q.415-.04.809-.135l-.72-.72A4 4 0 0 1 4 8m8.646 6.354-12-12 .708-.708 12 12z"/></svg>`,
+        'cam': `<svg ${s}><path d="M0 5a2 2 0 0 1 2-2h7.5a2 2 0 0 1 1.983 1.738l3.11-1.382A1 1 0 0 1 16 4.269v7.462a1 1 0 0 1-1.406.913l-3.111-1.382A2 2 0 0 1 9.5 13H2a2 2 0 0 1-2-2z"/></svg>`,
+        'cam-off': `<svg ${s}><path d="M10.961 12.365 2.451 3.854A2 2 0 0 0 0 5v6a2 2 0 0 0 2 2h7.5a2 2 0 0 0 1.461-.635M11.5 6.5l3.11-1.382A1 1 0 0 1 16 4.269v7.462a1 1 0 0 1-.184.575zM13.646 14.354l-12-12 .708-.708 12 12z"/></svg>`,
+        'rec': `<svg ${s}><circle cx="8" cy="8" r="5"/></svg>`,
+        'end': `<svg ${s}><path d="M3.654 1.328a.678.678 0 0 0-1.015-.063L1.605 2.3c-.483.484-.661 1.169-.45 1.77a17.6 17.6 0 0 0 4.168 6.608 17.6 17.6 0 0 0 6.608 4.168c.601.211 1.286.033 1.77-.45l1.034-1.034a.678.678 0 0 0-.063-1.015l-2.307-1.794a.68.68 0 0 0-.58-.122l-2.19.547a1.75 1.75 0 0 1-1.657-.459L5.482 8.062a1.75 1.75 0 0 1-.46-1.657l.548-2.19a.68.68 0 0 0-.122-.58z"/></svg>`
     };
     return map[kind] || '';
 }
