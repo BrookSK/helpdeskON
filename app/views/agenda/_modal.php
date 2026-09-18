@@ -1,4 +1,63 @@
 <!-- Modal Reunião -->
+<style>
+    /* Opções de reunião: cartões quadrados separados, com borda suave */
+    .mt-mode-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+    }
+    .mt-mode-input {
+        position: absolute;
+        opacity: 0;
+        pointer-events: none;
+    }
+    .mt-mode-card {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        text-align: center;
+        padding: 14px 10px;
+        border: 1px solid #e2e5ec;
+        border-radius: 12px;
+        background: #fff;
+        cursor: pointer;
+        font-size: 0.82rem;
+        font-weight: 500;
+        color: #4b5266;
+        min-height: 76px;
+        transition: border-color 0.15s, box-shadow 0.15s, background 0.15s, color 0.15s;
+    }
+    .mt-mode-card i { font-size: 1.25rem; color: #8a90a2; transition: color 0.15s; }
+    .mt-mode-card:hover {
+        border-color: #c9cedb;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    }
+    /* Selecionado */
+    .mt-mode-input:checked + .mt-mode-card {
+        border-color: var(--primary, #00BFA6);
+        background: #f2fbf9;
+        color: #0b7f70;
+        box-shadow: 0 2px 10px rgba(0, 191, 166, 0.15);
+    }
+    .mt-mode-input:checked + .mt-mode-card i { color: var(--primary, #00BFA6); }
+    /* Desabilitado (ex.: Google não configurado) */
+    .mt-mode-input:disabled + .mt-mode-card {
+        opacity: 0.5;
+        cursor: not-allowed;
+        background: #f6f7f9;
+    }
+    /* Foco por teclado (acessibilidade) */
+    .mt-mode-input:focus-visible + .mt-mode-card {
+        outline: 2px solid var(--primary, #00BFA6);
+        outline-offset: 2px;
+    }
+    @media (max-width: 575.98px) {
+        .mt-mode-grid { grid-template-columns: 1fr; }
+    }
+</style>
+
 <div class="modal fade" id="meetingModal" tabindex="-1">
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
@@ -81,15 +140,24 @@
                     <!-- ===== Opções de reunião (uma OU outra — mutuamente exclusivas) ===== -->
                     <div class="col-12">
                         <label class="form-label small fw-medium mb-1"><i class="bi bi-camera-video"></i> Opções de reunião</label>
-                        <div class="btn-group btn-group-sm d-flex" role="group" aria-label="Opções de reunião">
-                            <input type="radio" class="btn-check" name="mt-meeting-mode" id="mt-mode-none" value="" checked>
-                            <label class="btn btn-outline-secondary" for="mt-mode-none"><i class="bi bi-slash-circle"></i> Nenhuma</label>
+                        <div class="mt-mode-grid" role="group" aria-label="Opções de reunião">
+                            <input type="radio" class="mt-mode-input" name="mt-meeting-mode" id="mt-mode-none" value="" checked onchange="onMeetingModeChange()">
+                            <label class="mt-mode-card" for="mt-mode-none">
+                                <i class="bi bi-slash-circle"></i>
+                                <span>Nenhuma</span>
+                            </label>
 
-                            <input type="radio" class="btn-check" name="mt-meeting-mode" id="mt-mode-meet" value="meet" onchange="onMeetingModeChange()">
-                            <label class="btn btn-outline-primary" for="mt-mode-meet"><i class="bi bi-camera-video"></i> Google Meet</label>
+                            <input type="radio" class="mt-mode-input" name="mt-meeting-mode" id="mt-mode-meet" value="meet" onchange="onMeetingModeChange()">
+                            <label class="mt-mode-card" for="mt-mode-meet">
+                                <i class="bi bi-camera-video"></i>
+                                <span>Google Meet</span>
+                            </label>
 
-                            <input type="radio" class="btn-check" name="mt-meeting-mode" id="mt-mode-room" value="room" onchange="onMeetingModeChange()">
-                            <label class="btn btn-outline-success" for="mt-mode-room"><i class="bi bi-camera-reels"></i> Sala de vídeo do sistema</label>
+                            <input type="radio" class="mt-mode-input" name="mt-meeting-mode" id="mt-mode-room" value="room" onchange="onMeetingModeChange()">
+                            <label class="mt-mode-card" for="mt-mode-room">
+                                <i class="bi bi-camera-reels"></i>
+                                <span>Sala de vídeo do sistema</span>
+                            </label>
                         </div>
                         <div class="mt-1"><span id="mt-meet-hint" style="font-size:0.78rem;"></span></div>
                     </div>
