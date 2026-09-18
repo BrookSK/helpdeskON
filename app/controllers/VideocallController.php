@@ -586,6 +586,30 @@ class VideocallController extends Controller
         $this->view('videocall/recordings', ['recs' => $recs, 'user' => $user]);
     }
 
+    /** Exclui uma gravação (arquivo + registro). Só quem tem acesso pode. */
+    public function deleteRecording($recToken = null)
+    {
+        $this->requireLogin();
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $recToken = $this->tokenFromUrl($recToken, 2);
+        $rec = $recToken ? $this->model->findRecordingByToken($recToken) : null;
+        if (!$rec) $this->json(['error' => 'Gravação não encontrada'], 404);
+
+        $user = $this->currentUser();
+        if (!$this->model->canUserSeeRecording($rec, $user['id'], $user['role'])) {
+            $this->json(['error' => 'Sem permissão para excluir esta gravação.'], 403);
+        }
+
+        // Remove o arquivo físico (com proteção de caminho).
+        $real = realpath(PUBLIC_PATH . '/uploads/' . ltrim($rec['file_path'], '/'));
+        $baseReal = realpath(PUBLIC_PATH . '/uploads/recordings');
+        if ($real && $baseReal && strpos($real, $baseReal) === 0 && is_file($real)) {
+            @unlink($real);
+        }
+        $this->model->deleteRecording($recToken);
+        $this->json(['success' => true]);
+    }
+
     /** Tela de detalhe (player + transcrição sincronizada) — logado, com permissão. */
     public function watch($recToken = null)
     {

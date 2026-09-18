@@ -229,6 +229,11 @@ class VideoRoom
         return $this->db->update('video_recordings', $data, 'token = ?', [$token]);
     }
 
+    public function deleteRecording($token)
+    {
+        return $this->db->delete('video_recordings', 'token = ?', [$token]);
+    }
+
     public function listRecordings($roomId)
     {
         return $this->db->fetchAll(

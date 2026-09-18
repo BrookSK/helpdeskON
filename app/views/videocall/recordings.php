@@ -74,6 +74,7 @@ function vc_fmt_size($b) {
                         <td class="text-end">
                             <a href="<?= $base ?>/videocall/watch/<?= escape($r['token']) ?>" class="btn btn-sm btn-primary"><i class="bi bi-play-fill"></i> Abrir</a>
                             <button class="btn btn-sm btn-outline-secondary" onclick="copyShare('<?= escape($r['token']) ?>')" title="Copiar link de compartilhamento"><i class="bi bi-link-45deg"></i></button>
+                            <button class="btn btn-sm btn-outline-danger" onclick="delRec('<?= escape($r['token']) ?>', this)" title="Excluir gravação"><i class="bi bi-trash"></i></button>
                         </td>
                     </tr>
                     <?php endforeach; ?>
@@ -92,6 +93,16 @@ function copyShare(token) {
         if (window.showToast) showToast('Link de compartilhamento copiado!');
         else alert('Link copiado:\n' + url);
     }).catch(() => alert(url));
+}
+function delRec(token, btn) {
+    if (!confirm('Excluir esta gravação? O arquivo, a transcrição e o resumo serão apagados do servidor. Esta ação não pode ser desfeita.')) return;
+    btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    fetch(VC_BASE + '/videocall/deleteRecording/' + token, { method: 'POST', headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json()).then(d => {
+            if (d.error) { alert(d.error); btn.disabled = false; btn.innerHTML = '<i class="bi bi-trash"></i>'; return; }
+            const tr = btn.closest('tr'); if (tr) tr.remove();
+        })
+        .catch(() => { alert('Erro ao excluir.'); btn.disabled = false; btn.innerHTML = '<i class="bi bi-trash"></i>'; });
 }
 </script>
 
