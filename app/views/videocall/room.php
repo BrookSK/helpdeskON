@@ -93,10 +93,17 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
         .filmstrip::-webkit-scrollbar-thumb { background:#33375a; border-radius:6px; }
 
         .tile { position:relative; background:#000; border-radius:14px; overflow:hidden; min-height:0; min-width:0; }
+        /* Animação do bloco surgindo/saindo (experiência estilo Meet). */
+        .tile.tile-in { animation:tileIn .28s cubic-bezier(.2,.8,.2,1); }
+        .tile.tile-out { animation:tileOut .22s ease forwards; }
+        @keyframes tileIn { from { opacity:0; transform:scale(.86); } to { opacity:1; transform:scale(1); } }
+        @keyframes tileOut { from { opacity:1; transform:scale(1); } to { opacity:0; transform:scale(.86); } }
         .tile .vwrap { position:absolute; inset:0; overflow:hidden; }
         .tile video { width:100%; height:100%; object-fit:cover; background:#000; transition:transform .12s ease; transform-origin:center center; }
         .tile.self video { transform:scaleX(-1); }
         .tile.screen video { object-fit:contain; }
+        /* Câmera em retrato (celular em pé) num tile largo: mostra inteira, sem cortar o rosto. */
+        .tile.portrait-cam video { object-fit:contain; }
         .tile .name { position:absolute; left:8px; bottom:8px; background:rgba(0,0,0,.55); padding:3px 9px; border-radius:8px; font-size:.78rem; max-width:80%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; z-index:3; }
         .tile .badges { position:absolute; right:8px; top:8px; display:flex; gap:5px; z-index:3; }
         .tile .badge-ic { background:rgba(0,0,0,.55); width:26px; height:26px; border-radius:8px; display:none; align-items:center; justify-content:center; font-size:.85rem; }
@@ -130,6 +137,8 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
         .filmstrip .tile-tools { transform:scale(.85); transform-origin:top left; }
 
         /* Barra de controles */
+        .controls-wrap { position:relative; }
+        .controls-more { display:none; }
         .controls { display:flex; align-items:center; justify-content:center; gap:10px; padding:14px; background:rgba(0,0,0,.3); flex-wrap:wrap; }
         .ctrl-group { position:relative; display:flex; align-items:flex-end; }
         .ctrl { width:52px; height:52px; border-radius:50%; border:none; background:var(--panel2); color:#fff; font-size:1.15rem; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:.15s; position:relative; }
@@ -227,8 +236,18 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
             .tile-tools { top:6px; left:6px; gap:4px; }
             .tile-tools button { width:34px; height:34px; font-size:1rem; }
             .tile-tools .zoom-val { height:34px; }
-            .controls { gap:8px; padding:10px 8px calc(10px + env(safe-area-inset-bottom)); flex-wrap:nowrap; overflow-x:auto; justify-content:flex-start; }
+            .controls { gap:8px; padding:10px 8px calc(10px + env(safe-area-inset-bottom)); flex-wrap:nowrap; overflow-x:auto; justify-content:flex-start; scroll-behavior:smooth; }
             .controls::-webkit-scrollbar { display:none; }
+            /* Dica de arraste: seta pulsante à direita quando há mais botões escondidos. */
+            .controls-more { display:none; }
+            .controls-wrap.has-overflow .controls-more {
+                display:flex; align-items:center; justify-content:center;
+                position:absolute; right:6px; bottom:calc(12px + env(safe-area-inset-bottom));
+                width:34px; height:34px; border-radius:50%; border:none;
+                background:var(--brand); color:#fff; font-size:1rem; z-index:6;
+                box-shadow:0 2px 10px rgba(0,0,0,.5); animation:moreNudge 1.2s ease-in-out infinite;
+            }
+            @keyframes moreNudge { 0%,100%{ transform:translateX(0); } 50%{ transform:translateX(4px); } }
             .ctrl { width:46px; height:46px; font-size:1.05rem; flex:0 0 auto; }
             .ctrl.hangup { width:52px; }
             .ctrl-label { display:none; }
@@ -329,7 +348,8 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
         <div class="grid" id="grid"></div>
         <div class="filmstrip" id="filmstrip" style="display:none;"></div>
     </div>
-    <div class="controls">
+    <div class="controls-wrap">
+    <div class="controls" id="controls">
         <div class="ctrl-group">
             <button class="ctrl" id="btn-mic" onclick="toggleMic()" title="Microfone"><i class="bi bi-mic-fill"></i><span class="ctrl-label">Mic</span></button>
             <button class="ctrl-caret" onclick="openMicMenu(event)" title="Escolher microfone"><i class="bi bi-chevron-up"></i></button>
@@ -355,7 +375,9 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
         <button class="ctrl" id="btn-copy" onclick="copyLink()" title="Copiar link"><i class="bi bi-link-45deg"></i><span class="ctrl-label">Link</span></button>
         <button class="ctrl hangup" onclick="hangup()" title="Sair"><i class="bi bi-telephone-x-fill"></i><span class="ctrl-label">Sair</span></button>
     </div>
-</div>
+    <!-- Dica: há mais botões ao arrastar para o lado (só aparece no celular quando há overflow) -->
+    <button type="button" class="controls-more" id="controls-more" onclick="scrollControls()" title="Mais opções"><i class="bi bi-chevron-right"></i></button>
+    </div>
 
 <!-- Popover da CÂMERA: escolher câmera + plano de fundo -->
 <div class="popover-menu" id="cam-menu">
@@ -979,6 +1001,7 @@ function enterCall(res) {
         startAdminPolling();
     }
     addSelfTile();
+    sfx('selfjoin'); // som de "você entrou"
     (res.peers || []).forEach(p => { ensurePeer(p.peer_id, p.name, true); });
     updateCount();
     startPolling();
@@ -1051,8 +1074,30 @@ function makeTile(id, name, opts = {}) {
          <div class="name">${escapeHtml(name)}${screen ? ' (tela)' : ''}</div>`;
     document.getElementById('grid').appendChild(div);
     tileZoom.set(id, 1);
+    // Animação de "bloco surgindo".
+    div.classList.add('tile-in');
+    setTimeout(() => div.classList.remove('tile-in'), 300);
+    // Ajusta o enquadramento quando o vídeo carrega (câmera retrato x paisagem).
+    const vEl = div.querySelector('video');
+    if (vEl) {
+        vEl.addEventListener('loadedmetadata', () => adjustTileFit(id));
+        vEl.addEventListener('resize', () => adjustTileFit(id));
+    }
     layoutGrid();
     return div;
+}
+
+// Decide entre "cover" (preenche) e "contain" (mostra inteiro) conforme a
+// orientação do vídeo x a do tile, para não cortar demais o rosto.
+function adjustTileFit(id) {
+    const t = tileEl(id); if (!t) return;
+    if (t.classList.contains('screen')) return; // tela sempre usa contain
+    const v = t.querySelector('video'); if (!v || !v.videoWidth) return;
+    const vertVideo = v.videoHeight > v.videoWidth * 1.15; // vídeo em pé (retrato)
+    const rect = t.getBoundingClientRect();
+    const wideTile = rect.width > rect.height * 1.1;               // tile deitado
+    // Câmera em pé dentro de um tile deitado: usa contain para caber inteira.
+    t.classList.toggle('portrait-cam', vertVideo && wideTile);
 }
 
 // Zoom (apenas tiles de tela). Visualização local de quem clica.
@@ -1132,6 +1177,39 @@ function enablePan(id) {
 
 function togglePin(id) { if (pinned.has(id)) pinned.delete(id); else pinned.add(id); layoutGrid(); }
 
+/**
+ * Aplica a grade preenchendo a ÚLTIMA linha incompleta: os tiles que sobram
+ * se esticam para ocupar a largura toda (sem "buraco" vazio). Ex.: 3 pessoas
+ * em 2 colunas => 2 em cima e a 3ª ocupando a linha inteira embaixo.
+ * Técnica: usa o dobro de colunas (subcolunas) e ajusta o "span" de cada tile.
+ */
+function applyGridSpans(tiles, cols) {
+    const n = tiles.length || 1;
+    grid.setAttribute('data-n', Math.min(n, 16));
+    const grid_ = document.getElementById('grid');
+    if (cols <= 1) {
+        grid_.style.gridTemplateColumns = '1fr';
+        grid_.style.gridTemplateRows = `repeat(${n}, 1fr)`;
+        tiles.forEach(t => { t.style.gridColumn = ''; });
+        return;
+    }
+    const sub = cols * 2; // subcolunas (para poder centralizar linhas incompletas)
+    const rows = Math.ceil(n / cols);
+    grid_.style.gridTemplateColumns = `repeat(${sub}, 1fr)`;
+    grid_.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+    const rest = n % cols; // quantos ficam na última linha (0 = cheia)
+    const fullRowsCount = rest === 0 ? n : (n - rest);
+    tiles.forEach((t, i) => {
+        if (i < fullRowsCount) {
+            // Linhas completas: cada tile ocupa 2 subcolunas.
+            t.style.gridColumn = 'span 2';
+        } else {
+            // Última linha incompleta: divide a largura toda entre os que sobraram.
+            t.style.gridColumn = 'span ' + Math.floor(sub / rest);
+        }
+    });
+}
+
 function layoutGrid() {
     const grid = document.getElementById('grid');
     const stage = document.getElementById('stage');
@@ -1150,26 +1228,35 @@ function layoutGrid() {
         const n = allTiles.length || 1;
         grid.setAttribute('data-n', Math.min(n, 16));
         // 1 participante => tela cheia (1 coluna, 1 linha).
-        let cols = 1;
-        if (n === 1) cols = 1;
-        else if (n === 2) cols = 2;
-        else if (n <= 4) cols = 2;
-        else if (n <= 9) cols = 3;
-        else cols = 4;
-        if (window.innerWidth <= 700) cols = (n === 1) ? 1 : 2;
-        grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-        grid.style.gridTemplateRows = `repeat(${Math.ceil(n / cols)}, 1fr)`;
+        const portrait = window.innerHeight >= window.innerWidth; // celular em pé
+        const small = window.innerWidth <= 820;
+        let cols;
+        if (small && portrait) {
+            // Celular em pé: empilha (uma câmera EM CIMA da outra), aproveita a altura.
+            if (n === 1) cols = 1;
+            else if (n <= 2) cols = 1;      // 2 pessoas: uma sobre a outra
+            else if (n <= 6) cols = 2;
+            else cols = 2;
+        } else {
+            if (n === 1) cols = 1;
+            else if (n === 2) cols = 2;
+            else if (n <= 4) cols = 2;
+            else if (n <= 9) cols = 3;
+            else cols = 4;
+            if (small) cols = (n === 1) ? 1 : 2; // celular deitado
+        }
+        applyGridSpans(allTiles, cols);
     } else {
         grid.style.display = 'none'; stage.style.display = 'grid';
-        featured.forEach(t => stage.appendChild(t));
+        featured.forEach(t => { t.style.gridColumn = ''; stage.appendChild(t); });
         const fn = featured.length;
         const scols = fn === 1 ? 1 : 2;
         stage.style.gridTemplateColumns = `repeat(${scols}, 1fr)`;
         stage.style.gridTemplateRows = `repeat(${Math.ceil(fn / scols)}, 1fr)`;
-        if (others.length) { strip.style.display = 'flex'; wrap.classList.add('with-strip'); others.forEach(t => strip.appendChild(t)); }
+        if (others.length) { strip.style.display = 'flex'; wrap.classList.add('with-strip'); others.forEach(t => { t.style.gridColumn = ''; strip.appendChild(t); }); }
         else { strip.style.display = 'none'; wrap.classList.remove('with-strip'); }
     }
-    allTiles.forEach(t => applyZoom(t.dataset.tid));
+    allTiles.forEach(t => { applyZoom(t.dataset.tid); adjustTileFit(t.dataset.tid); });
 }
 
 function addSelfTile() {
@@ -1346,7 +1433,7 @@ function autoEnableCam() {
 function ensurePeer(remoteId, name, initiator) {
     if (remoteId === peerId || peers.has(remoteId)) return peers.get(remoteId);
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-    const entry = { pc, name, polite: peerId < remoteId, makingOffer: false, tile: null, screenTile: null, pendingIce: [], hasCam: false };
+    const entry = { pc, name, polite: peerId < remoteId, makingOffer: false, tile: null, screenTile: null, pendingIce: [], hasCam: false, screenTrackIds: new Set() };
     peers.set(remoteId, entry);
 
     if (localStream) localStream.getTracks().forEach(t => { if (t.kind === 'video') t.contentHint = 'motion'; const s = pc.addTrack(t, localStream); tuneSender(s, t); });
@@ -1355,14 +1442,24 @@ function ensurePeer(remoteId, name, initiator) {
     pc.onicecandidate = (e) => { if (e.candidate) sendSignal(remoteId, 'ice', e.candidate); };
     pc.ontrack = (e) => {
         const stream = e.streams[0];
-        const isScreen = stream && stream.getAudioTracks().length === 0 && stream.getVideoTracks().length === 1 && entry.hasCam;
-        if (isScreen) {
-            if (!entry.screenTile) entry.screenTile = makeTile(remoteId + '-screen', name, { screen: true });
+        const track = e.track;
+        // A tela é identificada pelo trackId anunciado no sinal 'screen' (confiável,
+        // funciona mesmo quando a tela tem áudio). Fallback: heurística antiga.
+        const isScreen = (track && entry.screenTrackIds && entry.screenTrackIds.has(track.id))
+            || (stream && stream.getAudioTracks().length === 0 && stream.getVideoTracks().length === 1 && entry.hasCam && track && track.kind === 'video');
+        if (isScreen && track.kind === 'video') {
+            if (!entry.screenTile) entry.screenTile = makeTile(remoteId + '-screen', entry.name || name, { screen: true });
             entry.screenTile.querySelector('video').srcObject = stream;
-        } else {
+            // Se a track de tela do outro terminar, remove o tile automaticamente
+            // (evita a "tela congelada" caso o sinal de parada se perca).
+            track.onended = () => { removeTile(remoteId + '-screen'); entry.screenTile = null; };
+            track.onmute = () => { /* mantido; onended cobre a remoção */ };
+        } else if (track.kind === 'video') {
+            const novo = !entry.tile;
             entry.hasCam = true;
-            if (!entry.tile) entry.tile = makeTile(remoteId, name);
+            if (!entry.tile) entry.tile = makeTile(remoteId, entry.name || name);
             entry.tile.querySelector('video').srcObject = stream;
+            if (novo) sfx('join'); // som de alguém entrando (quando a câmera aparece)
         }
         updateCount();
     };
@@ -1370,6 +1467,24 @@ function ensurePeer(remoteId, name, initiator) {
         try { entry.makingOffer = true; await pc.setLocalDescription(await pc.createOffer()); sendSignal(remoteId, 'offer', pc.localDescription); }
         catch (err) { console.warn('negotiation', err); } finally { entry.makingOffer = false; }
     };
+    // Queda de conexão (F5, internet caiu): remove o peer QUASE INSTANTÂNEO,
+    // sem esperar o timeout de presença do servidor. Dá um pequeno prazo para
+    // reconexões momentâneas antes de derrubar.
+    const onConnDown = () => {
+        const st = pc.connectionState || pc.iceConnectionState;
+        if (st === 'failed' || st === 'closed') { dropPeer(remoteId); return; }
+        if (st === 'disconnected') {
+            if (entry._downTimer) return;
+            entry._downTimer = setTimeout(() => {
+                entry._downTimer = null;
+                const cur = pc.connectionState || pc.iceConnectionState;
+                if (cur === 'disconnected' || cur === 'failed' || cur === 'closed') dropPeer(remoteId);
+            }, 2500);
+        } else if (entry._downTimer) { clearTimeout(entry._downTimer); entry._downTimer = null; }
+    };
+    pc.onconnectionstatechange = onConnDown;
+    pc.oniceconnectionstatechange = onConnDown;
+
     if (initiator) pc.onnegotiationneeded();
     return entry;
 }
@@ -1401,7 +1516,17 @@ async function handleSignal(sig) {
         if (t && sig.payload) { t.classList.toggle('mic-off', !!sig.payload.micMuted); t.classList.toggle('cam-off', !!sig.payload.camOff); }
         return;
     }
-    if (sig.kind === 'screen') { if (sig.payload && sig.payload.stop) removeTile(from + '-screen'); return; }
+    if (sig.kind === 'screen') {
+        const entry = peers.get(from);
+        if (sig.payload && sig.payload.stop) {
+            removeTile(from + '-screen');
+            if (entry) { entry.screenTile = null; if (entry.screenTrackIds) entry.screenTrackIds.clear(); }
+        } else if (sig.payload && sig.payload.start && sig.payload.trackId) {
+            // Anuncia qual track é a tela, para o ontrack identificar com certeza.
+            if (entry) { entry.screenTrackIds = entry.screenTrackIds || new Set(); entry.screenTrackIds.add(sig.payload.trackId); }
+        }
+        return;
+    }
     if (sig.kind === 'reaction') {
         if (sig.payload && sig.payload.emoji) {
             spawnEmojiRain(sig.payload.emoji);
@@ -1438,7 +1563,18 @@ async function handleSignal(sig) {
 }
 
 async function drainIce(entry) { while (entry.pendingIce.length) { try { await entry.pc.addIceCandidate(new RTCIceCandidate(entry.pendingIce.shift())); } catch (e) {} } }
-function dropPeer(id) { const e = peers.get(id); if (e) { try { e.pc.close(); } catch (x) {} } peers.delete(id); removeTile(id); removeTile(id + '-screen'); if (raisedHands.delete(id)) renderHands(); updateCount(); }
+function dropPeer(id) {
+    const e = peers.get(id);
+    if (e) { if (e._downTimer) clearTimeout(e._downTimer); try { e.pc.close(); } catch (x) {} }
+    if (!peers.has(id)) return; // já removido
+    peers.delete(id);
+    peerNames.delete(id);
+    sfx('leave'); // som de alguém saindo
+    animateTileOut(id);
+    animateTileOut(id + '-screen');
+    if (raisedHands.delete(id)) renderHands();
+    updateCount();
+}
 function sendSignal(to, kind, payload) {
     fetch(`${BASE}/videocall/signal/${ROOM_TOKEN}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ from: peerId, to: to || '', kind, payload }) }).catch(() => {});
 }
@@ -1519,47 +1655,97 @@ function toggleCam() {
 }
 
 async function toggleScreen() {
-    if (sharing) { stopScreen(); return; }
-    // Restrição do admin: se apresentar está bloqueado, só admin compartilha tela.
-    if (!allowPresentation && !isAdmin) {
-        toast('O administrador desativou o compartilhamento de tela nesta sala.');
-        return;
+    // Se já está compartilhando, abre o menu (Parar / Trocar tela).
+    if (sharing) { openScreenMenu(); return; }
+    // Restrição do admin: revalida no servidor (à prova de sinal 'perm' perdido).
+    if (!isAdmin) {
+        try {
+            const pv = await fetch(`${BASE}/videocall/preview/${ROOM_TOKEN}`).then(x => x.json());
+            if (pv && typeof pv.allow_presentation !== 'undefined') { allowPresentation = !!pv.allow_presentation; applyPresentationPerm(allowPresentation); }
+        } catch (e) {}
+        if (!allowPresentation) {
+            toast('O administrador desativou o compartilhamento de tela nesta sala.');
+            return;
+        }
     }
-    // A maioria dos navegadores de CELULAR não expõe getDisplayMedia (limitação
-    // do próprio navegador — o Meet no celular também só compartilha pelo app).
     if (!navigator.mediaDevices || typeof navigator.mediaDevices.getDisplayMedia !== 'function') {
         toast('Seu navegador não permite compartilhar a tela. No celular, isso costuma funcionar só em alguns navegadores (tente o Chrome mais recente) ou pelo computador.');
         return;
     }
+    // Pergunta se quer transmitir o áudio da tela.
+    const withAudio = confirm('Compartilhar também o ÁUDIO da tela?\n\nOK = com áudio (útil para vídeos/apresentações com som)\nCancelar = só a imagem');
+    await startScreenShare(withAudio);
+}
+
+// Inicia (ou troca) o compartilhamento de tela. replaceExisting = trocar a tela atual.
+async function startScreenShare(withAudio, replaceExisting) {
+    let newStream;
     try {
-        // Pede a tela em alta resolução para o conteúdo ficar legível na gravação/PiP.
-        screenStream = await navigator.mediaDevices.getDisplayMedia({
+        newStream = await navigator.mediaDevices.getDisplayMedia({
             video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 10, max: 15 } },
-            audio: false
+            audio: withAudio ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false } : false
         });
     } catch (e) {
-        // NotAllowedError quando o usuário cancela a seleção (não avisa nada);
-        // outros erros indicam falta de suporte/permissão do dispositivo.
-        if (e && (e.name === 'NotAllowedError' || e.name === 'AbortError')) return;
+        if (e && (e.name === 'NotAllowedError' || e.name === 'AbortError')) return; // usuário cancelou
         toast('Não foi possível compartilhar a tela neste dispositivo.');
         return;
     }
-    if (!screenStream) return;
+    if (!newStream) return;
+
+    // Se estava compartilhando (trocar), encerra a anterior sem avisar "parou".
+    if (sharing && screenStream) { cleanupScreen(false); }
+
+    screenStream = newStream;
     sharing = true;
     document.getElementById('btn-screen').classList.add('active');
-    const selfScreen = makeTile(peerId + '-screen', myName + ' (sua tela)', { screen: true });
+
+    let selfScreen = tileEl(peerId + '-screen');
+    if (!selfScreen) selfScreen = makeTile(peerId + '-screen', myName + ' (sua tela)', { screen: true });
     selfScreen.querySelector('video').srcObject = screenStream;
+
     const screenTrack = screenStream.getVideoTracks()[0];
-    peers.forEach((entry) => { entry.pc.addTrack(screenTrack, screenStream); });
+    const screenAudio = screenStream.getAudioTracks()[0];
+    // Publica a tela (e o áudio dela) em todos e ANUNCIA o trackId da tela.
+    peers.forEach((entry) => {
+        entry.pc.addTrack(screenTrack, screenStream);
+        if (screenAudio) entry.pc.addTrack(screenAudio, screenStream);
+    });
+    broadcast('screen', { start: true, trackId: screenTrack.id });
+    sfx('screen');
+
+    // Quando o usuário para pelo controle nativo do navegador.
     screenTrack.onended = () => stopScreen();
 }
-function stopScreen() {
-    if (!sharing) return; sharing = false;
-    document.getElementById('btn-screen').classList.remove('active');
-    if (screenStream) {
-        screenStream.getTracks().forEach(t => { t.stop(); peers.forEach((entry) => { const s = entry.pc.getSenders().find(x => x.track === t); if (s) { try { entry.pc.removeTrack(s); } catch (e) {} } }); });
+
+// Menu ao clicar em compartilhar já ativo: Parar ou Trocar tela.
+function openScreenMenu() {
+    const trocar = confirm('Compartilhamento de tela ativo.\n\nOK = TROCAR a tela/janela compartilhada\nCancelar = PARAR de compartilhar');
+    if (trocar) {
+        const withAudio = !!(screenStream && screenStream.getAudioTracks().length);
+        startScreenShare(withAudio, true);
+    } else {
+        stopScreen();
     }
-    removeTile(peerId + '-screen'); screenStream = null; broadcast('screen', { stop: true });
+}
+
+// Encerra as tracks/tile da tela. announce=true avisa a sala que parou.
+function cleanupScreen(announce) {
+    if (screenStream) {
+        screenStream.getTracks().forEach(t => {
+            t.stop();
+            peers.forEach((entry) => { const s = entry.pc.getSenders().find(x => x.track === t); if (s) { try { entry.pc.removeTrack(s); } catch (e) {} } });
+        });
+    }
+    removeTile(peerId + '-screen');
+    screenStream = null;
+    if (announce) broadcast('screen', { stop: true });
+}
+
+function stopScreen() {
+    if (!sharing) return;
+    sharing = false;
+    document.getElementById('btn-screen').classList.remove('active');
+    cleanupScreen(true);
 }
 
 // Menu de câmera / dispositivos / fundo (popover)
@@ -1644,6 +1830,44 @@ function beep() {
         o.start(); o.frequency.setValueAtTime(660, audioCtx.currentTime + 0.12);
         o.stop(audioCtx.currentTime + 0.24);
     } catch (e) {}
+}
+
+// Sons curtos de experiência (entrar/sair/tela). Evita spam com throttle.
+let lastSfx = {};
+function sfx(kind) {
+    const now = Date.now();
+    if (lastSfx[kind] && now - lastSfx[kind] < 400) return; // não repete em rajada
+    lastSfx[kind] = now;
+    // Notas por evento (subindo = entrar/positivo; descendo = sair).
+    const tones = {
+        join:      [523, 784],   // dó->sol (alguém entrou)
+        leave:     [523, 349],   // dó->fá abaixo (alguém saiu)
+        selfjoin:  [523, 659, 784],
+        selfleave: [659, 392],
+        screen:    [440, 660],
+    };
+    const seq = tones[kind] || [600];
+    try {
+        audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+        const g = audioCtx.createGain(); g.connect(audioCtx.destination);
+        g.gain.value = 0.06;
+        const step = 0.09;
+        seq.forEach((f, i) => {
+            const o = audioCtx.createOscillator();
+            o.type = 'sine'; o.frequency.value = f;
+            o.connect(g);
+            o.start(audioCtx.currentTime + i * step);
+            o.stop(audioCtx.currentTime + i * step + step + 0.02);
+        });
+    } catch (e) {}
+}
+
+// Remove um tile com animação de saída.
+function animateTileOut(id) {
+    const t = tileEl(id);
+    if (!t) return;
+    t.classList.add('tile-out');
+    setTimeout(() => { if (t.parentNode) { t.remove(); tileZoom.delete(id); tilePan.delete(id); pinned.delete(id); layoutGrid(); } }, 220);
 }
 
 async function refreshAdminPanel() {
@@ -1774,18 +1998,26 @@ function showReactionBadge(pid, emoji, name) {
     reactionTimers.set(pid, setTimeout(() => { t.classList.remove('reacting'); reactionTimers.delete(pid); }, 4000));
 }
 
-// Chuva de emojis (poucos, subindo e sumindo).
+// Reações recentes (para desenhar também na GRAVAÇÃO/PiP).
+const activeReactions = [];
+// Chuva de emojis (leve; menos elementos no celular; limite global anti-travamento).
 function spawnEmojiRain(emoji) {
     const layer = document.getElementById('emoji-rain');
     if (!layer) return;
-    const count = 6;
+    // Registra para a gravação (some após 3,4s).
+    activeReactions.push({ emoji, born: Date.now() });
+    if (activeReactions.length > 30) activeReactions.splice(0, activeReactions.length - 30);
+
+    // Limite de elementos vivos na tela (evita travar em rajada).
+    if (layer.childElementCount > 40) return;
+    const count = IS_MOBILE ? 4 : 6;
     for (let i = 0; i < count; i++) {
         const el = document.createElement('div');
         el.className = 'rain-emoji';
         el.textContent = emoji;
         el.style.left = (10 + Math.random() * 80) + 'vw';
         el.style.fontSize = (1.4 + Math.random() * 1.4) + 'rem';
-        el.style.animationDelay = (Math.random() * 0.5) + 's';
+        el.style.animationDelay = (Math.random() * 0.4) + 's';
         layer.appendChild(el);
         setTimeout(() => el.remove(), 3600);
     }
@@ -1897,33 +2129,82 @@ function collectComposeSources() {
 // Desenha um vídeo numa região (x,y,w,h) com "cover" e o nome no canto.
 function drawTileVideo(ctx, v, x, y, w, h, opts) {
     opts = opts || {};
+    const tile = v.closest('.tile');
+    const camOff = tile && tile.classList.contains('cam-off');
+    const micOff = tile && tile.classList.contains('mic-off');
     const vw = v.videoWidth || 16, vh = v.videoHeight || 9;
-    // Tela usa "contain" (mostra tudo, sem cortar texto); câmera usa "cover".
-    const scale = opts.contain ? Math.min(w / vw, h / vh) : Math.max(w / vw, h / vh);
-    const dw = vw * scale, dh = vh * scale;
-    const dx = x + (w - dw) / 2, dy = y + (h - dh) / 2;
+
     ctx.save();
     ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
     ctx.beginPath(); ctx.rect(x + 2, y + 2, w - 4, h - 4); ctx.clip();
-    if (opts.contain) { ctx.fillStyle = '#000'; ctx.fillRect(x, y, w, h); }
-    try { ctx.drawImage(v, dx, dy, dw, dh); } catch (e) {}
+
+    if (camOff) {
+        // Câmera desligada: fundo + avatar com a inicial (igual à reunião).
+        ctx.fillStyle = '#23263d'; ctx.fillRect(x, y, w, h);
+        const nm = (opts.name || 'C').trim();
+        const initial = nm.replace(/\s*\(.*$/, '').trim().charAt(0).toUpperCase() || 'C';
+        const r = Math.max(24, Math.min(w, h) * 0.18);
+        const cx = x + w / 2, cy = y + h / 2;
+        ctx.fillStyle = '#00BFA6';
+        ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.font = '700 ' + Math.round(r) + 'px system-ui, Arial, sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(initial, cx, cy + 1);
+        ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
+    } else {
+        // Tela usa "contain" (mostra tudo); câmera usa "cover".
+        const scale = opts.contain ? Math.min(w / vw, h / vh) : Math.max(w / vw, h / vh);
+        const dw = vw * scale, dh = vh * scale;
+        const dx = x + (w - dw) / 2, dy = y + (h - dh) / 2;
+        if (opts.contain) { ctx.fillStyle = '#000'; ctx.fillRect(x, y, w, h); }
+        try { ctx.drawImage(v, dx, dy, dw, dh); } catch (e) {}
+    }
     ctx.restore();
+
     if (opts.name) {
         const nm = opts.name;
-        // Fonte pequena e fixa (escala levemente com a largura da célula), não com a altura,
-        // para o nome não ficar gigante quando a célula é alta (ex.: tela em tela cheia).
         const fs = Math.max(12, Math.min(18, Math.round(w * 0.022)));
         ctx.font = '600 ' + fs + 'px system-ui, Arial, sans-serif';
         const padX = 8;
-        const tw = ctx.measureText(nm).width + padX * 2;
+        // Deixa espaço para o ícone de mic mutado antes do nome.
+        const micIcoW = micOff ? (fs + 8) : 0;
+        const tw = ctx.measureText(nm).width + padX * 2 + micIcoW;
         const bh = fs + 8;
+        const bx = x + 8, by = y + h - bh - 8;
         ctx.fillStyle = 'rgba(0,0,0,.6)';
-        ctx.fillRect(x + 8, y + h - bh - 8, tw, bh);
+        ctx.fillRect(bx, by, tw, bh);
+        if (micOff) drawMicMutedIcon(ctx, bx + padX, by + bh / 2, fs);
         ctx.fillStyle = '#fff';
         ctx.textBaseline = 'middle';
-        ctx.fillText(nm, x + 8 + padX, y + h - 8 - bh / 2);
+        ctx.fillText(nm, bx + padX + micIcoW, by + bh / 2);
         ctx.textBaseline = 'alphabetic';
     }
+}
+
+// Desenha um ícone simples de "microfone mutado" (corpo do mic + barra diagonal).
+function drawMicMutedIcon(ctx, cx, cy, size) {
+    const s = size * 0.9;
+    ctx.save();
+    ctx.strokeStyle = '#ff9db0'; ctx.fillStyle = '#ff9db0';
+    ctx.lineWidth = Math.max(1.5, s * 0.09);
+    // corpo do microfone
+    const mw = s * 0.34, mh = s * 0.6;
+    const mx = cx + s * 0.15, my = cy - mh / 2;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(mx, my, mw, mh, mw / 2); else ctx.rect(mx, my, mw, mh);
+    ctx.fill();
+    // base
+    ctx.beginPath();
+    ctx.arc(mx + mw / 2, my + mh, mw * 0.8, 0, Math.PI, false);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(mx + mw / 2, my + mh + mw * 0.8); ctx.lineTo(mx + mw / 2, my + mh + mw * 1.2);
+    ctx.stroke();
+    // barra diagonal (mutado)
+    ctx.strokeStyle = '#ff5470'; ctx.lineWidth = Math.max(1.6, s * 0.1);
+    ctx.beginPath(); ctx.moveTo(cx + s * 0.02, cy - s * 0.5); ctx.lineTo(cx + s * 0.7, cy + s * 0.5); ctx.stroke();
+    ctx.restore();
 }
 
 function nameOf(v) { const t = v.closest('.tile'); return t ? (t.querySelector('.name')?.textContent || '') : ''; }
@@ -1962,6 +2243,29 @@ function composeLayout(ctx, W, H) {
         vids.forEach((v, i) => {
             drawTileVideo(ctx, v, (i % cols) * cw, Math.floor(i / cols) * ch, cw, ch, { name: nameOf(v) });
         });
+    }
+
+    // Reações também aparecem na gravação/PiP (emojis subindo).
+    drawReactionsOnCanvas(ctx, W, H);
+}
+
+// Desenha os emojis recentes subindo no canvas (reflete as reações na gravação).
+function drawReactionsOnCanvas(ctx, W, H) {
+    if (!activeReactions.length) return;
+    const now = Date.now();
+    for (let i = activeReactions.length - 1; i >= 0; i--) {
+        const r = activeReactions[i];
+        const age = now - r.born;
+        if (age > 3400) { activeReactions.splice(i, 1); continue; }
+        const p = age / 3400;               // 0..1
+        const y = H * (0.82 - p * 0.6);     // sobe
+        const x = W * (0.12 + ((i * 137) % 76) / 100); // espalha horizontalmente
+        ctx.save();
+        ctx.globalAlpha = p < 0.15 ? (p / 0.15) : (1 - Math.max(0, (p - 0.7) / 0.3));
+        ctx.font = Math.round(H * 0.06) + 'px system-ui, Arial, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(r.emoji, x, y);
+        ctx.restore();
     }
 }
 
@@ -2316,6 +2620,7 @@ function teardown(headline, sub) {
 }
 function hangup() {
     if (!joined) return; joined = false;
+    try { sfx('selfleave'); } catch (e) {}
     if (mediaRecorder && mediaRecorder.state !== 'inactive') stopRecording();
     try { navigator.sendBeacon(`${BASE}/videocall/leave/${ROOM_TOKEN}`, new URLSearchParams({ peer_id: peerId })); }
     catch (e) { fetch(`${BASE}/videocall/leave/${ROOM_TOKEN}`, { method: 'POST', body: new URLSearchParams({ peer_id: peerId }) }); }
@@ -2342,6 +2647,28 @@ if (IS_TOUCH) {
         if (tile) tile.classList.toggle('show-tools');
     });
 }
+
+// Dica de arraste nos controles (mobile): mostra a seta quando há botões escondidos.
+function updateControlsOverflow() {
+    const wrap = document.querySelector('.controls-wrap');
+    const bar = document.getElementById('controls');
+    if (!wrap || !bar) return;
+    const overflow = bar.scrollWidth > bar.clientWidth + 8;
+    const atEnd = bar.scrollLeft + bar.clientWidth >= bar.scrollWidth - 8;
+    wrap.classList.toggle('has-overflow', overflow && !atEnd);
+}
+function scrollControls() {
+    const bar = document.getElementById('controls');
+    if (bar) bar.scrollBy({ left: Math.round(bar.clientWidth * 0.6), behavior: 'smooth' });
+}
+(function () {
+    const bar = document.getElementById('controls');
+    if (bar) bar.addEventListener('scroll', updateControlsOverflow, { passive: true });
+    window.addEventListener('resize', updateControlsOverflow);
+    // Reavalia após o layout assentar.
+    setTimeout(updateControlsOverflow, 800);
+    setTimeout(updateControlsOverflow, 2500);
+})();
 
 initPreview();
 

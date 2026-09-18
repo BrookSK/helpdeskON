@@ -163,7 +163,12 @@ class VideocallController extends Controller
         $room = $this->requireActiveRoom($token, 2, true);
         $this->releaseSession();
         $peers = $this->formatPeers($this->model->activeParticipants($room['id']));
-        $this->json(['count' => count($peers), 'peers' => $peers, 'title' => $room['title']]);
+        $this->json([
+            'count' => count($peers),
+            'peers' => $peers,
+            'title' => $room['title'],
+            'allow_presentation' => (int)($room['allow_presentation'] ?? 1) === 1,
+        ]);
     }
 
     /** Lista as imagens de fundo padrão disponíveis (public/assets/vc-backgrounds). */
@@ -275,12 +280,14 @@ class VideocallController extends Controller
             $this->model->purgeOldSignals(30);
         }
 
-        $deadline = time() + 12;
+        // Long-poll curto (6s): devolve rápido para o cliente reconciliar a
+        // presença com frequência (quem saiu some mais rápido dos demais).
+        $deadline = time() + 6;
         $signals = [];
         do {
             $signals = $this->model->pullSignals($room['id'], $peerId);
             if (!empty($signals)) break;
-            usleep(300000); // 0,3s
+            usleep(250000); // 0,25s
         } while (time() < $deadline);
 
         $out = array_map(function ($s) {

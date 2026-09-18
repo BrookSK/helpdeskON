@@ -12,7 +12,7 @@ class VideoRoom
     private $db;
 
     /** Segundos sem heartbeat até considerar o participante "saiu". */
-    const PRESENCE_TIMEOUT = 15;
+    const PRESENCE_TIMEOUT = 10;
 
     public function __construct()
     {
