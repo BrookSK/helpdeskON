@@ -30,9 +30,14 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
 
         /* ---------- Lobby ---------- */
         #lobby { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; padding:20px; z-index:30; overflow:auto; }
-        .lobby-card { width:100%; max-width:440px; background:var(--panel); border-radius:20px; padding:28px 24px; box-shadow:0 20px 60px rgba(0,0,0,.45); }
+        .lobby-card { width:100%; max-width:860px; background:var(--panel); border-radius:20px; padding:26px 28px; box-shadow:0 20px 60px rgba(0,0,0,.45); }
         .lobby-card h1 { font-size:1.25rem; font-weight:700; margin:0 0 4px; }
-        .lobby-card .sub { color:#9aa2c0; font-size:.86rem; margin-bottom:16px; }
+        .lobby-card .sub { color:#9aa2c0; font-size:.86rem; margin-bottom:0; }
+        .lobby-head { margin-bottom:18px; }
+        .lobby-grid { display:grid; grid-template-columns:1.1fr 1fr; gap:24px; align-items:start; }
+        .lobby-left { min-width:0; }
+        .lobby-right { min-width:0; }
+        @media (max-width:760px){ .lobby-grid { grid-template-columns:1fr; gap:16px; } .lobby-card { max-width:440px; } }
         .private-badge { display:inline-flex; align-items:center; gap:5px; font-size:.72rem; background:rgba(0,191,166,.15); color:var(--brand); padding:3px 9px; border-radius:999px; margin-bottom:12px; }
         .lb-presence { display:flex; align-items:center; gap:10px; background:var(--panel2); border-radius:12px; padding:9px 12px; margin-bottom:14px; }
         .lb-presence-avatars { display:flex; }
@@ -55,10 +60,11 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
         .toggle-btn.off { background:#3a1620; border-color:#7a2436; color:#ff9db0; }
 
         /* Grade de fundos (lobby e menu) */
-        .bg-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:14px; }
-        .bg-opt { position:relative; aspect-ratio:1; border-radius:10px; overflow:hidden; cursor:pointer; border:2px solid transparent; background:var(--panel2) center/cover no-repeat; display:flex; align-items:center; justify-content:center; font-size:1.1rem; color:#9aa2c0; }
+        .bg-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:14px; }
+        .bg-opt { position:relative; aspect-ratio:16/10; border-radius:10px; overflow:hidden; cursor:pointer; border:2px solid transparent; background:var(--panel2) center/cover no-repeat; display:flex; align-items:center; justify-content:center; font-size:1.2rem; color:#9aa2c0; }
         .bg-opt.active { border-color:var(--brand); }
-        .bg-opt small { position:absolute; bottom:2px; left:0; right:0; text-align:center; font-size:.55rem; color:#fff; text-shadow:0 1px 2px #000; }
+        .bg-opt small { position:absolute; left:0; right:0; bottom:0; padding:4px 6px; text-align:center; font-size:.62rem; color:#fff;
+            background:linear-gradient(transparent, rgba(0,0,0,.75)); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
         /* ---------- Call ---------- */
         #call { position:fixed; inset:0; display:none; flex-direction:column; }
@@ -134,7 +140,7 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
         .controls .ctrl { margin-bottom:16px; }
 
         /* Popover (menu de câmera / dispositivos) */
-        .popover-menu { position:fixed; background:var(--panel); border:1px solid #33375a; border-radius:14px; padding:14px; width:300px; max-width:92vw; box-shadow:0 16px 50px rgba(0,0,0,.5); z-index:80; display:none; }
+        .popover-menu { position:fixed; background:var(--panel); border:1px solid #33375a; border-radius:14px; padding:14px; width:360px; max-width:94vw; max-height:70vh; overflow:auto; box-shadow:0 16px 50px rgba(0,0,0,.5); z-index:80; display:none; }
         .popover-menu h6 { font-size:.8rem; color:#9aa2c0; text-transform:uppercase; letter-spacing:.5px; margin:0 0 8px; }
         .popover-menu .mb-blk { margin-bottom:14px; }
 
@@ -247,45 +253,53 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
 <!-- ===================== LOBBY ===================== -->
 <div id="lobby">
     <div class="lobby-card">
-        <h1><i class="bi bi-camera-video"></i> <?= $roomTitle ?></h1>
-        <?php if ($visibility === 'private'): ?>
-        <div class="private-badge"><i class="bi bi-shield-lock-fill"></i> Sala privada — entrada com aprovação</div>
-        <?php endif; ?>
-        <div class="sub">Ajuste sua câmera, microfone e o plano de fundo antes de entrar.</div>
-        <div class="preview-wrap">
-            <video id="preview" autoplay muted playsinline class="mirror"></video>
-            <canvas id="preview-canvas" class="mirror hidden"></canvas>
+        <div class="lobby-head">
+            <h1><i class="bi bi-camera-video"></i> <?= $roomTitle ?></h1>
+            <?php if ($visibility === 'private'): ?>
+            <div class="private-badge"><i class="bi bi-shield-lock-fill"></i> Sala privada — entrada com aprovação</div>
+            <?php endif; ?>
+            <div class="sub">Ajuste sua câmera, microfone e o plano de fundo antes de entrar.</div>
         </div>
 
-        <!-- Quem já está na chamada -->
-        <div id="lb-presence" class="lb-presence" style="display:none;">
-            <div class="lb-presence-avatars" id="lb-presence-avatars"></div>
-            <div class="lb-presence-text" id="lb-presence-text"></div>
-        </div>
+        <div class="lobby-grid">
+            <!-- Coluna esquerda: preview + presença -->
+            <div class="lobby-left">
+                <div class="preview-wrap">
+                    <video id="preview" autoplay muted playsinline class="mirror"></video>
+                    <canvas id="preview-canvas" class="mirror hidden"></canvas>
+                </div>
+                <div class="lobby-toggles">
+                    <button type="button" class="toggle-btn" id="lb-mic" onclick="toggleLobby('mic')"><i class="bi bi-mic-fill"></i> Microfone</button>
+                    <button type="button" class="toggle-btn" id="lb-cam" onclick="toggleLobby('cam')"><i class="bi bi-camera-video-fill"></i> Câmera</button>
+                </div>
+                <div id="lb-presence" class="lb-presence" style="display:none;">
+                    <div class="lb-presence-avatars" id="lb-presence-avatars"></div>
+                    <div class="lb-presence-text" id="lb-presence-text"></div>
+                </div>
+            </div>
 
-        <div class="lobby-toggles">
-            <button type="button" class="toggle-btn" id="lb-mic" onclick="toggleLobby('mic')"><i class="bi bi-mic-fill"></i> Microfone</button>
-            <button type="button" class="toggle-btn" id="lb-cam" onclick="toggleLobby('cam')"><i class="bi bi-camera-video-fill"></i> Câmera</button>
-        </div>
+            <!-- Coluna direita: dispositivos, fundo, nome, entrar -->
+            <div class="lobby-right">
+                <div class="mb-blk" style="margin-bottom:12px;">
+                    <label class="form-label">Câmera</label>
+                    <select id="lb-cam-select" class="form-select" onchange="changeDevice('video', this.value)"></select>
+                </div>
+                <div class="mb-blk" style="margin-bottom:12px;">
+                    <label class="form-label">Microfone</label>
+                    <select id="lb-mic-select" class="form-select" onchange="changeDevice('audio', this.value)"></select>
+                </div>
 
-        <div class="mb-blk" style="margin-bottom:12px;">
-            <label class="form-label">Câmera</label>
-            <select id="lb-cam-select" class="form-select" onchange="changeDevice('video', this.value)"></select>
-        </div>
-        <div class="mb-blk" style="margin-bottom:14px;">
-            <label class="form-label">Microfone</label>
-            <select id="lb-mic-select" class="form-select" onchange="changeDevice('audio', this.value)"></select>
-        </div>
+                <label class="form-label"><i class="bi bi-image"></i> Plano de fundo</label>
+                <div class="bg-grid" id="lb-bg-grid"></div>
 
-        <label class="form-label"><i class="bi bi-image"></i> Plano de fundo</label>
-        <div class="bg-grid" id="lb-bg-grid"></div>
-
-        <div class="mb-3">
-            <label class="form-label">Seu nome</label>
-            <input type="text" id="lb-name" class="form-control" placeholder="Como quer aparecer?" value="<?= $suggested ?>" maxlength="120">
+                <div class="mb-3">
+                    <label class="form-label">Seu nome</label>
+                    <input type="text" id="lb-name" class="form-control" placeholder="Como quer aparecer?" value="<?= $suggested ?>" maxlength="120">
+                </div>
+                <button class="btn-join" id="lb-join" onclick="enterRoom()"><i class="bi bi-box-arrow-in-right"></i> <span id="lb-join-text">Entrar na chamada</span></button>
+                <div id="lb-error" class="text-danger small mt-2" style="display:none;"></div>
+            </div>
         </div>
-        <button class="btn-join" id="lb-join" onclick="enterRoom()"><i class="bi bi-box-arrow-in-right"></i> <span id="lb-join-text">Entrar na chamada</span></button>
-        <div id="lb-error" class="text-danger small mt-2" style="display:none;"></div>
     </div>
 </div>
 
