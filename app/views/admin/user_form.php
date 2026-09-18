@@ -340,12 +340,70 @@ function toggleSeeAll() {
     const template = document.getElementById('extra-company-template');
     if (!list || !addBtn || !template) return;
 
+    const form = list.closest('form');
+    const mainCompanySelect = document.getElementById('company-select');
+
+    // Mensagem de aviso (criada sob demanda, logo após a lista)
+    let warning = document.getElementById('extra-company-warning');
+    function ensureWarning() {
+        if (!warning) {
+            warning = document.createElement('div');
+            warning.id = 'extra-company-warning';
+            warning.className = 'text-danger small mt-2';
+            warning.style.display = 'none';
+            warning.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Essa empresa já foi selecionada. Remova a duplicata para continuar.';
+            list.insertAdjacentElement('afterend', warning);
+        }
+        return warning;
+    }
+
+    // Valida duplicatas entre os selects adicionais e contra a empresa principal.
+    // Retorna true se estiver tudo certo (sem duplicatas).
+    function validateDuplicates() {
+        const selects = Array.from(list.querySelectorAll('.extra-company-select'));
+        const seen = {};
+        // Empresa principal (se houver) também não pode ser repetida nas adicionais.
+        const mainVal = mainCompanySelect ? (mainCompanySelect.value || '') : '';
+
+        let hasDuplicate = false;
+
+        selects.forEach(function(sel) {
+            sel.classList.remove('is-invalid');
+            const v = sel.value || '';
+            if (v === '') return; // linha vazia não conta como duplicata
+
+            const isDupOfMain = (mainVal !== '' && v === mainVal);
+            if (seen[v] || isDupOfMain) {
+                hasDuplicate = true;
+                sel.classList.add('is-invalid');
+                // marca também a primeira ocorrência para deixar claro o par
+                if (seen[v]) seen[v].classList.add('is-invalid');
+            } else {
+                seen[v] = sel;
+            }
+        });
+
+        ensureWarning().style.display = hasDuplicate ? 'block' : 'none';
+        return !hasDuplicate;
+    }
+
     function addRow() {
         const clone = template.content.firstElementChild.cloneNode(true);
         list.appendChild(clone);
+        validateDuplicates();
     }
 
     addBtn.addEventListener('click', addRow);
+
+    // Revalida quando qualquer select adicional muda (delegação)
+    list.addEventListener('change', function(e) {
+        if (e.target.classList.contains('extra-company-select')) validateDuplicates();
+    });
+
+    // Se a empresa principal mudar, revalida (pode passar a colidir com uma adicional)
+    if (mainCompanySelect) {
+        mainCompanySelect.addEventListener('change', validateDuplicates);
+    }
 
     // Remover linha (delegação de evento)
     list.addEventListener('click', function(e) {
@@ -353,8 +411,24 @@ function toggleSeeAll() {
         if (btn) {
             const row = btn.closest('.extra-company-row');
             if (row) row.remove();
+            validateDuplicates();
         }
     });
+
+    // Impede a atualização/cadastro enquanto houver empresa repetida
+    if (form) {
+        form.addEventListener('submit', function(e) {
+            if (!validateDuplicates()) {
+                e.preventDefault();
+                // Leva o aviso à vista e foca o primeiro select duplicado
+                const firstInvalid = list.querySelector('.extra-company-select.is-invalid');
+                if (firstInvalid) firstInvalid.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        });
+    }
+
+    // Estado inicial (caso a página já venha com vínculos repetidos por algum motivo)
+    validateDuplicates();
 })();
 
 // Estado inicial
