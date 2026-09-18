@@ -140,15 +140,16 @@ class VideoRoom
     public function activeParticipants($roomId, $excludePeerId = null)
     {
         $cutoff = date('Y-m-d H:i:s', time() - self::PRESENCE_TIMEOUT);
-        $sql = "SELECT peer_id, display_name, user_id, role, joined_at
-                FROM video_room_participants
-                WHERE room_id = ? AND left_at IS NULL AND last_seen_at >= ?";
+        $sql = "SELECT p.peer_id, p.display_name, p.user_id, p.role, p.joined_at, u.avatar
+                FROM video_room_participants p
+                LEFT JOIN users u ON p.user_id = u.id
+                WHERE p.room_id = ? AND p.left_at IS NULL AND p.last_seen_at >= ?";
         $params = [$roomId, $cutoff];
         if ($excludePeerId !== null) {
-            $sql .= " AND peer_id <> ?";
+            $sql .= " AND p.peer_id <> ?";
             $params[] = $excludePeerId;
         }
-        $sql .= " ORDER BY joined_at ASC";
+        $sql .= " ORDER BY p.joined_at ASC";
         return $this->db->fetchAll($sql, $params);
     }
 
@@ -223,6 +224,11 @@ class VideoRoom
         return $this->db->fetch("SELECT * FROM video_recordings WHERE token = ? LIMIT 1", [$token]);
     }
 
+    public function updateRecording($token, $data)
+    {
+        return $this->db->update('video_recordings', $data, 'token = ?', [$token]);
+    }
+
     public function listRecordings($roomId)
     {
         return $this->db->fetchAll(
@@ -241,6 +247,46 @@ class VideoRoom
              ORDER BY r.id DESC LIMIT " . (int)$limit,
             [$userId]
         );
+    }
+
+    /**
+     * Gravações visíveis para um usuário:
+     * - Sala PÚBLICA: qualquer usuário logado da equipe vê.
+     * - Sala PRIVADA: apenas quem gravou (recorded_by) ou o criador da sala.
+     * super_admin vê todas.
+     */
+    public function listRecordingsVisibleTo($userId, $role = null, $limit = 200)
+    {
+        if ($role === 'super_admin') {
+            return $this->db->fetchAll(
+                "SELECT r.*, rm.title AS room_title, rm.visibility, rm.created_by AS room_owner, u.name AS recorder_name
+                 FROM video_recordings r
+                 JOIN video_rooms rm ON r.room_id = rm.id
+                 LEFT JOIN users u ON r.recorded_by = u.id
+                 ORDER BY r.id DESC LIMIT " . (int)$limit
+            );
+        }
+        return $this->db->fetchAll(
+            "SELECT r.*, rm.title AS room_title, rm.visibility, rm.created_by AS room_owner, u.name AS recorder_name
+             FROM video_recordings r
+             JOIN video_rooms rm ON r.room_id = rm.id
+             LEFT JOIN users u ON r.recorded_by = u.id
+             WHERE rm.visibility = 'public'
+                OR r.recorded_by = ?
+                OR rm.created_by = ?
+             ORDER BY r.id DESC LIMIT " . (int)$limit,
+            [$userId, $userId]
+        );
+    }
+
+    /** Um usuário pode ver esta gravação específica? */
+    public function canUserSeeRecording($rec, $userId, $role = null)
+    {
+        if ($role === 'super_admin') return true;
+        $room = $this->findById($rec['room_id']);
+        if (!$room) return false;
+        if (($room['visibility'] ?? 'public') === 'public') return true;
+        return ((int)$rec['recorded_by'] === (int)$userId) || ((int)$room['created_by'] === (int)$userId);
     }
 
     // ================= Administradores da sala =================

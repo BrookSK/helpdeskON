@@ -34,6 +34,12 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
         .lobby-card h1 { font-size:1.25rem; font-weight:700; margin:0 0 4px; }
         .lobby-card .sub { color:#9aa2c0; font-size:.86rem; margin-bottom:16px; }
         .private-badge { display:inline-flex; align-items:center; gap:5px; font-size:.72rem; background:rgba(0,191,166,.15); color:var(--brand); padding:3px 9px; border-radius:999px; margin-bottom:12px; }
+        .lb-presence { display:flex; align-items:center; gap:10px; background:var(--panel2); border-radius:12px; padding:9px 12px; margin-bottom:14px; }
+        .lb-presence-avatars { display:flex; }
+        .lb-presence-avatars .av { width:32px; height:32px; border-radius:50%; border:2px solid var(--panel); margin-left:-8px; background:var(--brand); color:#fff; display:flex; align-items:center; justify-content:center; font-size:.8rem; font-weight:700; overflow:hidden; background-size:cover; background-position:center; }
+        .lb-presence-avatars .av:first-child { margin-left:0; }
+        .lb-presence-avatars .more { background:#33375a; }
+        .lb-presence-text { font-size:.82rem; color:#cfd3e6; }
         .preview-wrap { position:relative; background:#000; border-radius:14px; overflow:hidden; aspect-ratio:16/9; margin-bottom:14px; }
         .preview-wrap video, .preview-wrap canvas { width:100%; height:100%; object-fit:cover; }
         .preview-wrap video.mirror, .preview-wrap canvas.mirror { transform:scaleX(-1); }
@@ -93,6 +99,19 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
         .tile .avatar span { width:72px; height:72px; border-radius:50%; background:var(--brand); display:flex; align-items:center; justify-content:center; font-size:1.8rem; font-weight:700; color:#fff; }
         .tile.pinned { outline:2px solid var(--brand); outline-offset:-2px; }
 
+        /* Reação recente na webcam (aparece por alguns segundos) */
+        .tile .reaction-badge { position:absolute; left:8px; top:8px; display:none; align-items:center; gap:6px;
+            background:rgba(10,12,24,.78); padding:5px 10px; border-radius:999px; z-index:5; max-width:70%; }
+        .tile .reaction-badge .emo { font-size:1.3rem; line-height:1; animation:reactPop .4s ease; }
+        .tile .reaction-badge .who { font-size:.72rem; color:#e8eaf1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .tile.reacting .reaction-badge { display:flex; }
+        @keyframes reactPop { 0%{ transform:scale(.4); } 60%{ transform:scale(1.25); } 100%{ transform:scale(1); } }
+
+        /* Mão levantada bem visível (badge maior + amarelo) */
+        .tile .badge-hand { color:#ffd54a; }
+        .tile.hand-up .badge-hand { display:flex; background:rgba(224,164,0,.28); }
+        .tile.hand-up { outline:2px solid #ffd54a; outline-offset:-2px; }
+
         .tile-tools { position:absolute; top:8px; left:8px; display:flex; gap:5px; opacity:0; transition:opacity .15s; z-index:4; }
         .tile:hover .tile-tools, .tile.show-tools .tile-tools { opacity:1; }
         .tile-tools button { width:30px; height:30px; border:none; border-radius:8px; background:rgba(10,12,24,.72); color:#fff; font-size:.9rem; cursor:pointer; display:flex; align-items:center; justify-content:center; }
@@ -141,6 +160,22 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
         .link-modal { position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:70; display:none; align-items:center; justify-content:center; padding:20px; }
         .link-modal .inner { background:var(--panel); border-radius:16px; padding:24px; max-width:520px; width:100%; }
         .rec-item { background:var(--panel2); border-radius:10px; padding:10px 12px; margin-bottom:8px; display:flex; align-items:center; gap:10px; }
+        .rec-tabs { display:flex; gap:4px; }
+        .rec-tab { border:none; background:var(--panel2); color:#cfd3e6; padding:6px 12px; border-radius:8px 8px 0 0; font-size:.8rem; cursor:pointer; }
+        .rec-tab.active { background:var(--brand); color:#fff; }
+        .rec-tab-body { background:var(--panel2); border-radius:0 10px 10px 10px; padding:12px; max-height:240px; overflow:auto; font-size:.85rem; white-space:pre-wrap; line-height:1.5; }
+
+        /* Tela de saída */
+        .exit-screen { height:100vh; display:flex; align-items:center; justify-content:center; padding:20px; }
+        .exit-card { background:var(--panel); border-radius:20px; padding:40px 32px; text-align:center; max-width:440px; width:100%; box-shadow:0 20px 60px rgba(0,0,0,.45); }
+        .exit-ic { font-size:3.2rem; }
+        .exit-card h3 { margin:14px 0 6px; }
+        .exit-sub { color:#9aa2c0; font-size:.9rem; margin-bottom:8px; }
+        .exit-actions { display:flex; flex-direction:column; gap:10px; margin-top:22px; }
+        .ex-btn { display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:12px 18px; border-radius:12px;
+            background:var(--panel2); color:#e8eaf1; border:1px solid #33375a; text-decoration:none; font-weight:600; font-size:.92rem; cursor:pointer; }
+        .ex-btn:hover { filter:brightness(1.15); }
+        .ex-btn.ex-primary { background:var(--brand); border-color:var(--brand); color:#fff; }
 
         /* Menu de reações (emojis) */
         .emoji-menu { position:fixed; background:var(--panel); border:1px solid #33375a; border-radius:999px; padding:8px 12px; display:none; gap:6px; z-index:80; box-shadow:0 12px 40px rgba(0,0,0,.5); }
@@ -222,6 +257,12 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
             <canvas id="preview-canvas" class="mirror hidden"></canvas>
         </div>
 
+        <!-- Quem já está na chamada -->
+        <div id="lb-presence" class="lb-presence" style="display:none;">
+            <div class="lb-presence-avatars" id="lb-presence-avatars"></div>
+            <div class="lb-presence-text" id="lb-presence-text"></div>
+        </div>
+
         <div class="lobby-toggles">
             <button type="button" class="toggle-btn" id="lb-mic" onclick="toggleLobby('mic')"><i class="bi bi-mic-fill"></i> Microfone</button>
             <button type="button" class="toggle-btn" id="lb-cam" onclick="toggleLobby('cam')"><i class="bi bi-camera-video-fill"></i> Câmera</button>
@@ -263,7 +304,7 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
     <div class="topbar">
         <span class="title"><i class="bi bi-camera-video"></i> <?= $roomTitle ?></span>
         <span class="count" id="peer-count-wrap" onclick="onCountClick()"><i class="bi bi-people-fill"></i> <span id="peer-count">1</span><span class="badge-dot" id="req-dot">0</span></span>
-        <span class="rec-dot" id="rec-indicator"><span class="dot"></span> Gravando <span id="rec-time">00:00</span></span>
+        <span class="rec-dot" id="rec-indicator"><span class="dot"></span> <span id="rec-label">Gravando</span> <span id="rec-time">00:00</span></span>
     </div>
     <div class="stage-wrap" id="stage-wrap">
         <div class="stage" id="stage" style="display:none;"></div>
@@ -273,10 +314,11 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
     <div class="controls">
         <div class="ctrl-group">
             <button class="ctrl" id="btn-mic" onclick="toggleMic()" title="Microfone"><i class="bi bi-mic-fill"></i><span class="ctrl-label">Mic</span></button>
+            <button class="ctrl-caret" onclick="openMicMenu(event)" title="Escolher microfone"><i class="bi bi-chevron-up"></i></button>
         </div>
         <div class="ctrl-group">
             <button class="ctrl" id="btn-cam" onclick="toggleCam()" title="Câmera"><i class="bi bi-camera-video-fill"></i><span class="ctrl-label">Câmera</span></button>
-            <button class="ctrl-caret" onclick="openCamMenu(event)" title="Opções de câmera e fundo"><i class="bi bi-chevron-up"></i></button>
+            <button class="ctrl-caret" onclick="openCamMenu(event)" title="Câmera e plano de fundo"><i class="bi bi-chevron-up"></i></button>
         </div>
         <button class="ctrl" id="btn-screen" onclick="toggleScreen()" title="Compartilhar tela"><i class="bi bi-display"></i><span class="ctrl-label">Tela</span></button>
         <button class="ctrl" id="btn-react" onclick="openEmojiMenu(event)" title="Reagir"><i class="bi bi-emoji-smile"></i><span class="ctrl-label">Reagir</span></button>
@@ -286,26 +328,33 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
             <span class="badge-dot" id="hands-count-dot" style="position:absolute;top:-2px;right:-2px;background:#e0a400;border-radius:999px;padding:1px 6px;font-size:.65rem;display:none;"></span>
         </div>
         <?php if ($canRecord): ?>
-        <button class="ctrl" id="btn-rec" onclick="toggleRecording()" title="Gravar"><i class="bi bi-record-circle"></i><span class="ctrl-label">Gravar</span></button>
+        <div class="ctrl-group">
+            <button class="ctrl" id="btn-rec" onclick="toggleRecording()" title="Gravar"><i class="bi bi-record-circle"></i><span class="ctrl-label">Gravar</span></button>
+            <button class="ctrl-caret" id="btn-rec-pause" onclick="togglePauseRecording()" title="Pausar/retomar gravação" style="display:none;"><i class="bi bi-pause-fill"></i></button>
+        </div>
         <?php endif; ?>
         <button class="ctrl" id="btn-copy" onclick="copyLink()" title="Copiar link"><i class="bi bi-link-45deg"></i><span class="ctrl-label">Link</span></button>
         <button class="ctrl hangup" onclick="hangup()" title="Sair"><i class="bi bi-telephone-x-fill"></i><span class="ctrl-label">Sair</span></button>
     </div>
 </div>
 
-<!-- Popover: câmera / dispositivos / fundo (dentro da call) -->
+<!-- Popover da CÂMERA: escolher câmera + plano de fundo -->
 <div class="popover-menu" id="cam-menu">
     <div class="mb-blk">
         <h6>Câmera</h6>
         <select id="cm-cam-select" class="form-select" onchange="changeDevice('video', this.value)"></select>
     </div>
-    <div class="mb-blk">
-        <h6>Microfone</h6>
-        <select id="cm-mic-select" class="form-select" onchange="changeDevice('audio', this.value)"></select>
-    </div>
     <div>
         <h6>Plano de fundo</h6>
         <div class="bg-grid" id="cm-bg-grid"></div>
+    </div>
+</div>
+
+<!-- Popover do MICROFONE: escolher microfone -->
+<div class="popover-menu" id="mic-menu">
+    <div>
+        <h6>Microfone</h6>
+        <select id="cm-mic-select" class="form-select" onchange="changeDevice('audio', this.value)"></select>
     </div>
 </div>
 
@@ -357,6 +406,20 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
             <input type="text" class="form-control" id="rec-url" readonly>
             <button class="btn btn-sm btn-outline-light" onclick="copyRecUrl()"><i class="bi bi-clipboard"></i></button>
         </div>
+
+        <!-- Transcrição / Resumo (IA) -->
+        <div class="mt-3">
+            <div class="d-flex align-items-center justify-content-between mb-2">
+                <div class="rec-tabs">
+                    <button class="rec-tab active" id="tab-transcript-btn" onclick="showRecTab('transcript')">Transcrição</button>
+                    <button class="rec-tab" id="tab-summary-btn" onclick="showRecTab('summary')">Resumo</button>
+                </div>
+                <button class="btn btn-sm btn-primary" id="rec-transcribe-btn" onclick="startTranscription()"><i class="bi bi-magic"></i> Transcrever com IA</button>
+            </div>
+            <div id="rec-tab-transcript" class="rec-tab-body"><div class="text-secondary small">Ainda não transcrito. Clique em "Transcrever com IA".</div></div>
+            <div id="rec-tab-summary" class="rec-tab-body" style="display:none;"><div class="text-secondary small">O resumo aparece aqui após a transcrição.</div></div>
+        </div>
+
         <div class="text-end mt-3">
             <a class="btn btn-sm btn-outline-light" id="rec-open" target="_blank"><i class="bi bi-box-arrow-up-right"></i> Abrir</a>
             <button class="btn btn-sm btn-primary" onclick="document.getElementById('rec-modal').style.display='none'">Fechar</button>
@@ -373,6 +436,7 @@ const ROOM_TOKEN = '<?= $roomToken ?>';
 const ICE_SERVERS = <?= $iceJson ?: '[]' ?>;
 const BACKGROUNDS = <?= $bgJson ?: '[]' ?>;
 const ROOM_VISIBILITY = '<?= $visibility ?>';
+const IS_LOGGED = <?= !empty($loggedUserId) ? 'true' : 'false' ?>;
 let isAdmin = <?= $isAdmin ? 'true' : 'false' ?>;
 let allowPresentation = <?= $allowPresentation ? 'true' : 'false' ?>;
 
@@ -602,6 +666,34 @@ async function initPreview() {
         syncLobbyButtons();
     }
     renderBgGrids();
+    loadLobbyPresence();
+    lobbyPresenceTimer = setInterval(loadLobbyPresence, 5000);
+}
+
+// Mostra no lobby quem já está na chamada (contagem + avatares + nomes).
+let lobbyPresenceTimer = null;
+async function loadLobbyPresence() {
+    if (joined) { if (lobbyPresenceTimer) clearInterval(lobbyPresenceTimer); return; }
+    try {
+        const r = await fetch(`${BASE}/videocall/preview/${ROOM_TOKEN}`).then(x => x.json());
+        const box = document.getElementById('lb-presence');
+        const peers = r.peers || [];
+        if (!peers.length) { box.style.display = 'none'; return; }
+        box.style.display = 'flex';
+        // Avatares (até 4) + "+N"
+        const avBox = document.getElementById('lb-presence-avatars');
+        const show = peers.slice(0, 4);
+        avBox.innerHTML = show.map(p => {
+            if (p.avatar) return `<div class="av" style="background-image:url('${p.avatar}')"></div>`;
+            return `<div class="av">${escapeHtml((p.name || 'C').trim().charAt(0).toUpperCase())}</div>`;
+        }).join('') + (peers.length > 4 ? `<div class="av more">+${peers.length - 4}</div>` : '');
+        // Texto: "5 pessoas na chamada · Lucas e mais 4"
+        const first = peers[0] ? peers[0].name : '';
+        let txt = peers.length === 1 ? '1 pessoa na chamada' : (peers.length + ' pessoas na chamada');
+        if (peers.length === 1) txt += ' · ' + first;
+        else if (peers.length > 1) txt += ' · ' + first + ' e mais ' + (peers.length - 1);
+        document.getElementById('lb-presence-text').textContent = txt;
+    } catch (e) {}
 }
 
 function updateLobbyPreview() {
@@ -773,6 +865,7 @@ function enterCall(res) {
     document.getElementById('waiting').style.display = 'none';
     document.getElementById('call').style.display = 'flex';
     joined = true; waiting = false;
+    if (lobbyPresenceTimer) clearInterval(lobbyPresenceTimer);
     // Admin vê o contador clicável (abre o painel de participantes/pedidos).
     if (isAdmin) {
         document.getElementById('peer-count-wrap').classList.add('clickable');
@@ -834,6 +927,7 @@ function makeTile(id, name, opts = {}) {
     div.innerHTML =
         `<div class="vwrap"><video autoplay playsinline ${opts.self ? 'muted' : ''}></video></div>
          <div class="avatar"><span>${initial}</span></div>
+         <div class="reaction-badge"><span class="emo"></span><span class="who"></span></div>
          <div class="tile-tools">
             ${zoomTools}
             <button title="Fixar/desafixar" onclick="togglePin('${id}')"><i class="bi bi-pin-angle"></i></button>
@@ -1163,8 +1257,15 @@ async function handleSignal(sig) {
         return;
     }
     if (sig.kind === 'screen') { if (sig.payload && sig.payload.stop) removeTile(from + '-screen'); return; }
-    if (sig.kind === 'reaction') { if (sig.payload && sig.payload.emoji) spawnEmojiRain(sig.payload.emoji); return; }
+    if (sig.kind === 'reaction') {
+        if (sig.payload && sig.payload.emoji) {
+            spawnEmojiRain(sig.payload.emoji);
+            showReactionBadge(from, sig.payload.emoji, sig.payload.name || (peers.get(from)?.name) || 'Convidado');
+        }
+        return;
+    }
     if (sig.kind === 'perm') { if (sig.payload) applyPresentationPerm(!!sig.payload.allow_presentation); return; }
+    if (sig.kind === 'rec') { showRemoteRecState(sig.payload || {}); return; }
     if (sig.kind === 'hand') {
         // Admin pediu para EU baixar a mão (sinal direcionado com force).
         if (sig.payload && sig.payload.force && sig.to === peerId) { if (handUp) toggleHand(); return; }
@@ -1214,6 +1315,27 @@ function reconcilePeers(activeList) {
     peers.forEach((_, id) => { if (!active.has(id)) dropPeer(id); });
     activeList.forEach(p => { if (p.peer_id !== peerId && !peers.has(p.peer_id)) ensurePeer(p.peer_id, p.name, false); });
     updateCount();
+    maybeAutoStopRecording();
+}
+
+// Se estou gravando e fiquei sozinho na sala (todos saíram), finaliza e envia.
+let autoStopTimer = null;
+function maybeAutoStopRecording() {
+    const recording = mediaRecorder && mediaRecorder.state !== 'inactive';
+    if (recording && peers.size === 0) {
+        if (!autoStopTimer) {
+            // aguarda 5s para evitar parar por uma reconexão momentânea
+            autoStopTimer = setTimeout(() => {
+                autoStopTimer = null;
+                if (mediaRecorder && mediaRecorder.state !== 'inactive' && peers.size === 0) {
+                    toast('Todos saíram: finalizando a gravação…');
+                    stopRecording();
+                }
+            }, 5000);
+        }
+    } else if (autoStopTimer) {
+        clearTimeout(autoStopTimer); autoStopTimer = null;
+    }
 }
 
 // ---- Controles de mídia ----
@@ -1270,21 +1392,34 @@ function stopScreen() {
 // Menu de câmera / dispositivos / fundo (popover)
 function openCamMenu(ev) {
     ev.stopPropagation();
-    const menu = document.getElementById('cam-menu');
-    const open = menu.style.display === 'block';
-    if (open) { menu.style.display = 'none'; return; }
     populateDevices(); renderBgGrids();
+    positionPopover('cam-menu', ev.currentTarget);
+}
+// Setinha do microfone: só a escolha do microfone.
+function openMicMenu(ev) {
+    ev.stopPropagation();
+    populateDevices();
+    positionPopover('mic-menu', ev.currentTarget);
+}
+function positionPopover(menuId, anchor) {
+    const menu = document.getElementById(menuId);
+    const open = menu.style.display === 'block';
+    // Fecha todos os popovers antes.
+    document.querySelectorAll('.popover-menu').forEach(m => m.style.display = 'none');
+    if (open) return;
     menu.style.display = 'block';
-    const r = ev.currentTarget.getBoundingClientRect();
-    let left = r.left - 130; if (left < 8) left = 8;
-    if (left + 300 > window.innerWidth) left = window.innerWidth - 308;
+    const r = anchor.getBoundingClientRect();
+    const mw = menu.offsetWidth || 300;
+    let left = r.left + r.width / 2 - mw / 2; if (left < 8) left = 8;
+    if (left + mw > window.innerWidth) left = window.innerWidth - mw - 8;
     menu.style.left = left + 'px';
     menu.style.bottom = (window.innerHeight - r.top + 10) + 'px';
     menu.style.top = 'auto';
 }
 document.addEventListener('click', (e) => {
-    const menu = document.getElementById('cam-menu');
-    if (menu && menu.style.display === 'block' && !menu.contains(e.target) && !e.target.closest('.ctrl-caret')) menu.style.display = 'none';
+    document.querySelectorAll('.popover-menu').forEach(menu => {
+        if (menu.style.display === 'block' && !menu.contains(e.target) && !e.target.closest('.ctrl-caret')) menu.style.display = 'none';
+    });
 });
 
 // ==========================================================
@@ -1446,8 +1581,24 @@ document.addEventListener('click', (e) => {
 
 function sendReaction(emoji) {
     document.getElementById('emoji-menu').classList.remove('open');
-    spawnEmojiRain(emoji);                 // mostra localmente
-    broadcast('reaction', { emoji });      // e para todos
+    spawnEmojiRain(emoji);                 // chuva local
+    showReactionBadge(peerId, emoji, myName + ' (você)'); // badge no meu tile
+    broadcast('reaction', { emoji, name: myName });        // e para todos (com origem)
+}
+
+// Mostra a reação na webcam de quem reagiu, por alguns segundos.
+const reactionTimers = new Map();
+function showReactionBadge(pid, emoji, name) {
+    const t = tileEl(pid); if (!t) return;
+    const badge = t.querySelector('.reaction-badge'); if (!badge) return;
+    badge.querySelector('.emo').textContent = emoji;
+    badge.querySelector('.who').textContent = name || '';
+    t.classList.add('reacting');
+    // reinicia a animação do emoji
+    const emo = badge.querySelector('.emo');
+    emo.style.animation = 'none'; void emo.offsetWidth; emo.style.animation = '';
+    if (reactionTimers.has(pid)) clearTimeout(reactionTimers.get(pid));
+    reactionTimers.set(pid, setTimeout(() => { t.classList.remove('reacting'); reactionTimers.delete(pid); }, 4000));
 }
 
 // Chuva de emojis (poucos, subindo e sumindo).
@@ -1537,13 +1688,98 @@ function toggleHandsPanel(force) {
 // GRAVAÇÃO
 // ==========================================================
 let mediaRecorder = null, recordedChunks = [], recStartTs = 0, recTimer = null;
-function buildRecordingStream() {
-    const mixed = new MediaStream();
-    if (localStream) localStream.getTracks().forEach(t => mixed.addTrack(t));
-    if (screenStream) screenStream.getVideoTracks().forEach(t => mixed.addTrack(t));
-    peers.forEach(entry => { const remote = entry.tile?.querySelector('video')?.srcObject; if (remote) remote.getAudioTracks().forEach(t => mixed.addTrack(t)); });
-    return mixed;
+// ---- Composição da gravação: grava a REUNIÃO TODA (todas as câmeras + telas
+// + áudios de todos) desenhando um mosaico num canvas e mixando o áudio. ----
+let compCanvas = null, compCtx = null, compRaf = null, compStream = null;
+let recAudioCtx = null, audioDest = null, audioSources = [];
+
+function collectRecordingVideos() {
+    // Coleta os elementos <video> visíveis (tiles) + a própria câmera.
+    const vids = [];
+    document.querySelectorAll('#stage .tile video, #grid .tile video, #filmstrip .tile video').forEach(v => {
+        if (v.srcObject && v.videoWidth > 0) vids.push(v);
+    });
+    if (!vids.length) {
+        const self = document.querySelector('#tile-' + peerId + ' video');
+        if (self) vids.push(self);
+    }
+    return vids;
 }
+
+function drawComposite() {
+    if (!compCtx) return;
+    const W = compCanvas.width, H = compCanvas.height;
+    compCtx.fillStyle = '#0f1020'; compCtx.fillRect(0, 0, W, H);
+    const vids = collectRecordingVideos();
+    const n = vids.length || 1;
+    // grade: colunas ~ sqrt(n)
+    const cols = Math.ceil(Math.sqrt(n));
+    const rows = Math.ceil(n / cols);
+    const cw = W / cols, ch = H / rows;
+    vids.forEach((v, i) => {
+        const cx = (i % cols) * cw, cy = Math.floor(i / cols) * ch;
+        // desenha mantendo proporção (cover)
+        const vw = v.videoWidth || 16, vh = v.videoHeight || 9;
+        const scale = Math.max(cw / vw, ch / vh);
+        const dw = vw * scale, dh = vh * scale;
+        const dx = cx + (cw - dw) / 2, dy = cy + (ch - dh) / 2;
+        compCtx.save();
+        compCtx.beginPath(); compCtx.rect(cx + 2, cy + 2, cw - 4, ch - 4); compCtx.clip();
+        try { compCtx.drawImage(v, dx, dy, dw, dh); } catch (e) {}
+        compCtx.restore();
+        // nome
+        const tile = v.closest('.tile');
+        const nm = tile ? (tile.querySelector('.name')?.textContent || '') : '';
+        if (nm) {
+            compCtx.fillStyle = 'rgba(0,0,0,.55)';
+            compCtx.font = '600 ' + Math.max(12, Math.round(ch * 0.05)) + 'px Inter, sans-serif';
+            const tw = compCtx.measureText(nm).width + 14;
+            compCtx.fillRect(cx + 8, cy + ch - 30, tw, 22);
+            compCtx.fillStyle = '#fff';
+            compCtx.fillText(nm, cx + 15, cy + ch - 14);
+        }
+    });
+    compRaf = requestAnimationFrame(drawComposite);
+}
+
+function buildRecordingStream() {
+    // Canvas de vídeo composto (720p).
+    compCanvas = document.createElement('canvas');
+    compCanvas.width = 1280; compCanvas.height = 720;
+    compCtx = compCanvas.getContext('2d');
+    drawComposite();
+    compStream = compCanvas.captureStream(25);
+
+    // Mixa TODOS os áudios (meu microfone + áudio de cada participante remoto).
+    recAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    audioDest = recAudioCtx.createMediaStreamDestination();
+    audioSources = [];
+    const addAudio = (stream) => {
+        if (!stream) return;
+        const at = stream.getAudioTracks();
+        if (!at.length) return;
+        try { const src = recAudioCtx.createMediaStreamSource(stream); src.connect(audioDest); audioSources.push(src); } catch (e) {}
+    };
+    if (rawStream) addAudio(rawStream);
+    peers.forEach(entry => { const remote = entry.tile?.querySelector('video')?.srcObject; if (remote) addAudio(remote); });
+
+    const out = new MediaStream();
+    compStream.getVideoTracks().forEach(t => out.addTrack(t));
+    audioDest.stream.getAudioTracks().forEach(t => out.addTrack(t));
+    return out;
+}
+
+function stopComposite() {
+    if (compRaf) cancelAnimationFrame(compRaf);
+    compRaf = null;
+    if (compStream) { compStream.getTracks().forEach(t => t.stop()); compStream = null; }
+    audioSources.forEach(s => { try { s.disconnect(); } catch (e) {} });
+    audioSources = [];
+    if (recAudioCtx) { try { recAudioCtx.close(); } catch (e) {} recAudioCtx = null; }
+    compCanvas = null; compCtx = null;
+}
+let recElapsedMs = 0, recResumeTs = 0; // controle de tempo com pausa
+
 function toggleRecording() { if (mediaRecorder && mediaRecorder.state !== 'inactive') { stopRecording(); return; } startRecording(); }
 function startRecording() {
     let mime = 'video/webm;codecs=vp9,opus';
@@ -1555,16 +1791,74 @@ function startRecording() {
     mediaRecorder.onstop = uploadRecording;
     mediaRecorder.start(1000);
     recStartTs = Date.now();
+    recElapsedMs = 0; recResumeTs = Date.now();
     document.getElementById('btn-rec').classList.add('off');
-    document.getElementById('rec-indicator').style.display = 'flex';
-    recTimer = setInterval(() => { const s = Math.floor((Date.now() - recStartTs) / 1000); document.getElementById('rec-time').textContent = String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'); }, 1000);
+    const pauseBtn = document.getElementById('btn-rec-pause');
+    if (pauseBtn) { pauseBtn.style.display = 'flex'; pauseBtn.innerHTML = '<i class="bi bi-pause-fill"></i>'; }
+    setRecIndicator('rec');
+    recTimer = setInterval(updateRecTime, 500);
     toast('Gravação iniciada. Mantenha esta aba aberta.');
+    broadcast('rec', { state: 'start', by: myName });
+}
+function updateRecTime() {
+    const ms = recElapsedMs + (recResumeTs ? (Date.now() - recResumeTs) : 0);
+    const s = Math.floor(ms / 1000);
+    document.getElementById('rec-time').textContent = String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+}
+function togglePauseRecording() {
+    if (!mediaRecorder) return;
+    const btn = document.getElementById('btn-rec-pause');
+    if (mediaRecorder.state === 'recording') {
+        mediaRecorder.pause();
+        recElapsedMs += (Date.now() - recResumeTs); recResumeTs = 0;
+        if (btn) btn.innerHTML = '<i class="bi bi-play-fill"></i>';
+        document.getElementById('rec-label').textContent = 'Pausado';
+        toast('Gravação pausada.');
+        broadcast('rec', { state: 'pause', by: myName });
+    } else if (mediaRecorder.state === 'paused') {
+        mediaRecorder.resume();
+        recResumeTs = Date.now();
+        if (btn) btn.innerHTML = '<i class="bi bi-pause-fill"></i>';
+        document.getElementById('rec-label').textContent = 'Gravando';
+        toast('Gravação retomada.');
+        broadcast('rec', { state: 'resume', by: myName });
+    }
 }
 function stopRecording() {
     if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
     clearInterval(recTimer);
+    recResumeTs = 0;
+    stopComposite();
     document.getElementById('btn-rec').classList.remove('off');
-    document.getElementById('rec-indicator').style.display = 'none';
+    const pauseBtn = document.getElementById('btn-rec-pause');
+    if (pauseBtn) pauseBtn.style.display = 'none';
+    document.getElementById('rec-label').textContent = 'Gravando';
+    setRecIndicator('off');
+    broadcast('rec', { state: 'stop', by: myName });
+}
+
+// Indicador global de gravação (mostra pra todos que a reunião está sendo gravada).
+function setRecIndicator(state) {
+    const ind = document.getElementById('rec-indicator');
+    if (!ind) return;
+    if (state === 'off') { ind.style.display = 'none'; return; }
+    ind.style.display = 'flex';
+    ind.style.opacity = (state === 'pause') ? '.6' : '1';
+}
+// Quando eu NÃO sou quem grava, mostro só o aviso "sendo gravada" (sem cronômetro editável).
+function showRemoteRecState(payload) {
+    const st = payload && payload.state;
+    const ind = document.getElementById('rec-indicator');
+    const label = document.getElementById('rec-label');
+    const timeEl = document.getElementById('rec-time');
+    if (!ind) return;
+    // Só reflete o estado remoto se EU não estiver gravando localmente.
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') return;
+    if (st === 'stop') { ind.style.display = 'none'; return; }
+    ind.style.display = 'flex';
+    if (timeEl) timeEl.textContent = '';
+    if (label) label.textContent = (st === 'pause') ? ('Gravação pausada' + (payload.by ? ' · ' + payload.by : '')) : ('Sendo gravada' + (payload.by ? ' · ' + payload.by : ''));
+    ind.style.opacity = (st === 'pause') ? '.6' : '1';
 }
 async function uploadRecording() {
     if (!recordedChunks.length) return;
@@ -1576,9 +1870,48 @@ async function uploadRecording() {
     try {
         const res = await fetch(`${BASE}/videocall/upload/${ROOM_TOKEN}`, { method: 'POST', body: fd }).then(r => r.json());
         if (res.error) { toast('Erro ao salvar: ' + res.error); return; }
+        currentRecToken = res.token || null;
         document.getElementById('rec-url').value = res.url; document.getElementById('rec-open').href = res.url;
+        resetRecTabs();
         document.getElementById('rec-modal').style.display = 'flex';
     } catch (e) { toast('Falha ao enviar a gravação.'); }
+}
+
+// ---- Transcrição / Resumo (IA) ----
+let currentRecToken = null;
+function showRecTab(which) {
+    document.getElementById('tab-transcript-btn').classList.toggle('active', which === 'transcript');
+    document.getElementById('tab-summary-btn').classList.toggle('active', which === 'summary');
+    document.getElementById('rec-tab-transcript').style.display = (which === 'transcript') ? 'block' : 'none';
+    document.getElementById('rec-tab-summary').style.display = (which === 'summary') ? 'block' : 'none';
+}
+function resetRecTabs() {
+    showRecTab('transcript');
+    document.getElementById('rec-tab-transcript').innerHTML = '<div class="text-secondary small">Ainda não transcrito. Clique em "Transcrever com IA".</div>';
+    document.getElementById('rec-tab-summary').innerHTML = '<div class="text-secondary small">O resumo aparece aqui após a transcrição.</div>';
+    const b = document.getElementById('rec-transcribe-btn');
+    b.disabled = false; b.innerHTML = '<i class="bi bi-magic"></i> Transcrever com IA';
+}
+async function startTranscription() {
+    if (!currentRecToken) { toast('Gravação ainda não disponível.'); return; }
+    const b = document.getElementById('rec-transcribe-btn');
+    b.disabled = true; b.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Transcrevendo…';
+    document.getElementById('rec-tab-transcript').innerHTML = '<div class="text-secondary small"><span class="spinner-border spinner-border-sm"></span> Transcrevendo o áudio… pode levar alguns minutos.</div>';
+    try {
+        const r = await fetch(`${BASE}/videocall/transcribe/${currentRecToken}`, { method: 'POST' }).then(x => x.json());
+        if (r.error) {
+            document.getElementById('rec-tab-transcript').innerHTML = '<div class="text-danger small">' + escapeHtml(r.error) + '</div>';
+            b.disabled = false; b.innerHTML = '<i class="bi bi-magic"></i> Tentar novamente';
+            return;
+        }
+        document.getElementById('rec-tab-transcript').textContent = r.transcript || '(sem fala detectada)';
+        document.getElementById('rec-tab-summary').textContent = r.summary || '(sem resumo)';
+        b.innerHTML = '<i class="bi bi-check-lg"></i> Transcrito';
+        toast('Transcrição e resumo prontos.');
+    } catch (e) {
+        document.getElementById('rec-tab-transcript').innerHTML = '<div class="text-danger small">Falha ao transcrever.</div>';
+        b.disabled = false; b.innerHTML = '<i class="bi bi-magic"></i> Tentar novamente';
+    }
 }
 
 // ---- Link / sair ----
@@ -1598,7 +1931,23 @@ function teardown(headline, sub) {
     peers.forEach(e => { try { e.pc.close(); } catch (x) {} });
     if (rawStream) rawStream.getTracks().forEach(t => t.stop());
     if (screenStream) screenStream.getTracks().forEach(t => t.stop());
-    document.body.innerHTML = '<div style="height:100vh;display:flex;align-items:center;justify-content:center;flex-direction:column;color:#e8eaf1;font-family:system-ui;text-align:center;padding:20px;"><div style="font-size:3rem;">' + (headline.icon || '👋') + '</div><h3 style="margin-top:12px;">' + headline.text + '</h3>' + (sub ? '<p style="color:#9aa2c0;margin-top:4px;max-width:320px;">' + sub + '</p>' : '') + '<a href="' + BASE + '/videocall/room/' + ROOM_TOKEN + '" style="color:#00BFA6;margin-top:10px;">Entrar novamente</a></div>';
+    // Botões de saída diferentes para logado (equipe) e convidado.
+    const rejoin = '<a class="ex-btn ex-primary" href="' + BASE + '/videocall/room/' + ROOM_TOKEN + '"><i class="bi bi-box-arrow-in-right"></i> Entrar novamente</a>';
+    let extra = '';
+    if (IS_LOGGED) {
+        extra = '<a class="ex-btn" href="' + BASE + '/dashboard"><i class="bi bi-house"></i> Voltar ao início</a>'
+              + '<a class="ex-btn" href="' + BASE + '/videocall/myRecordings"><i class="bi bi-collection-play"></i> Ver gravações</a>';
+    } else {
+        extra = '<a class="ex-btn" href="https://onsolutionsbrasil.com.br" target="_blank"><i class="bi bi-globe"></i> Ir para o site</a>'
+              + '<button class="ex-btn" onclick="try{window.close()}catch(e){};location.href=\'about:blank\'"><i class="bi bi-x-circle"></i> Fechar</button>';
+    }
+    document.body.innerHTML =
+        '<div class="exit-screen"><div class="exit-card">' +
+          '<div class="exit-ic">' + (headline.icon || '👋') + '</div>' +
+          '<h3>' + headline.text + '</h3>' +
+          (sub ? '<p class="exit-sub">' + sub + '</p>' : '') +
+          '<div class="exit-actions">' + rejoin + extra + '</div>' +
+        '</div></div>';
 }
 function hangup() {
     if (!joined) return; joined = false;

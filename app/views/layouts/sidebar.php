@@ -120,6 +120,13 @@
                 </a>
             </li>
             <?php endif; ?>
+            <?php if (in_array($user['role'] ?? '', ['super_admin', 'attendant', 'developer', 'analyst', 'comercial', 'marketing', 'whatsapp_agent'])): ?>
+            <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'videocall' ? 'active' : '' ?>" href="<?= baseUrl('videocall/myRecordings') ?>">
+                    <i class="bi bi-collection-play"></i> Gravações
+                </a>
+            </li>
+            <?php endif; ?>
             <?php if (in_array($user['role'] ?? '', ['super_admin', 'comercial', 'attendant'])): ?>
             <?php $perfSectionActive = in_array($currentPage ?? '', ['agenda_dashboard', 'performance_operacional']); ?>
             <li class="nav-item">
