@@ -88,6 +88,29 @@
                         <span id="mt-meet-hint" style="font-size:0.78rem;"></span>
                     </div>
 
+                    <!-- Opções da sala de vídeo do sistema (privacidade + administradores) -->
+                    <div class="col-12">
+                        <div class="d-flex flex-wrap align-items-center gap-3">
+                            <div class="form-check form-check-inline mb-0">
+                                <input class="form-check-input" type="radio" name="mt-room-visibility" id="mt-rv-public" value="public" checked onchange="onRoomVisibilityChange()">
+                                <label class="form-check-label small" for="mt-rv-public"><i class="bi bi-globe"></i> Pública</label>
+                            </div>
+                            <div class="form-check form-check-inline mb-0">
+                                <input class="form-check-input" type="radio" name="mt-room-visibility" id="mt-rv-private" value="private" onchange="onRoomVisibilityChange()">
+                                <label class="form-check-label small" for="mt-rv-private"><i class="bi bi-shield-lock"></i> Privada (entrada aprovada)</label>
+                            </div>
+                        </div>
+                        <div id="mt-room-admins-block" class="mt-2" style="display:none;">
+                            <label class="form-label small fw-medium mb-1">Administradores da sala (aprovam a entrada)</label>
+                            <select id="mt-room-admins" class="form-select form-select-sm" multiple size="4">
+                                <?php foreach (($team ?? []) as $tm): ?>
+                                <option value="<?= (int)$tm['id'] ?>"><?= escape($tm['name']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <small class="text-muted">Você já é admin. Segure Ctrl/Cmd para escolher mais de um.</small>
+                        </div>
+                    </div>
+
                     <!-- ===== Convite externo (demanda #210) ===== -->
                     <!-- Convidados que NÃO fazem parte do sistema: nome + e-mail e/ou telefone. -->
                     <div class="col-12 mt-external-only" style="display:none;">
@@ -788,6 +811,13 @@ function generateMeet(btn) {
         .catch(() => { btn.disabled = false; btn.innerHTML = original; alert('Erro ao gerar o link.'); });
 }
 
+// Mostra o seletor de administradores quando a sala de vídeo é privada.
+function onRoomVisibilityChange() {
+    const v = document.querySelector('input[name="mt-room-visibility"]:checked')?.value || 'public';
+    const blk = document.getElementById('mt-room-admins-block');
+    if (blk) blk.style.display = (v === 'private') ? '' : 'none';
+}
+
 // Gera uma SALA DE VÍDEO nativa do sistema (WebRTC em grupo, sem API externa).
 // O link público entra no campo do Meet (mt-meet-link), então já será enviado
 // nos convites por e-mail/WhatsApp e serve para o Fathom entrar e gravar.
@@ -798,9 +828,13 @@ function generateVideoRoom(btn) {
 
     const fd = new FormData();
     fd.append('title', document.getElementById('mt-title').value.trim() || 'Videochamada');
-    fd.append('max_participants', '8');
     const mid = document.getElementById('mt-id').value;
     if (mid) fd.append('meeting_id', mid);
+    const visibility = document.querySelector('input[name="mt-room-visibility"]:checked')?.value || 'public';
+    fd.append('visibility', visibility);
+    if (visibility === 'private') {
+        Array.from(document.getElementById('mt-room-admins').selectedOptions).forEach(o => fd.append('admins[]', o.value));
+    }
 
     fetch(`${BASE}videocall/create`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json()).then(d => {

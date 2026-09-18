@@ -95,6 +95,30 @@ $tempMeta = ['frio' => ['Frio', '#1565c0'], 'morno' => ['Morno', '#e65100'], 'qu
                         <input type="text" id="qr-title" class="form-control form-control-sm" placeholder="Ex.: Reunião rápida com o cliente" maxlength="120">
                         <small class="text-muted">Entram quantas pessoas forem chegando pelo link — você, o cliente, o Fathom, o que precisar.</small>
                     </div>
+
+                    <div class="mb-2">
+                        <label class="form-label small fw-medium">Tipo de sala</label>
+                        <div class="d-flex gap-2">
+                            <label class="flex-fill border rounded p-2 small mb-0" style="cursor:pointer;">
+                                <input type="radio" name="qr-visibility" value="public" checked onchange="onQrVisibilityChange()"> <i class="bi bi-globe"></i> Pública
+                                <div class="text-muted" style="font-size:.72rem;">Qualquer pessoa com o link entra direto.</div>
+                            </label>
+                            <label class="flex-fill border rounded p-2 small mb-0" style="cursor:pointer;">
+                                <input type="radio" name="qr-visibility" value="private" onchange="onQrVisibilityChange()"> <i class="bi bi-shield-lock"></i> Privada
+                                <div class="text-muted" style="font-size:.72rem;">Entrada aprovada por um administrador.</div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="mb-2" id="qr-admins-block" style="display:none;">
+                        <label class="form-label small fw-medium">Administradores da sala</label>
+                        <select id="qr-admins" class="form-select form-select-sm" multiple size="4">
+                            <?php foreach (($team ?? []) as $tm): ?>
+                            <option value="<?= (int)$tm['id'] ?>"><?= escape($tm['name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <small class="text-muted">Você já é admin. Segure Ctrl/Cmd para escolher mais de um. Eles aprovam quem pede para entrar.</small>
+                    </div>
                 </div>
                 <!-- Passo 2: link gerado -->
                 <div id="qr-result" style="display:none;">
@@ -133,10 +157,18 @@ function getQuickRoomModal() {
 function openQuickRoom() { resetQuickRoom(); getQuickRoomModal().show(); }
 function resetQuickRoom() {
     document.getElementById('qr-title').value = '';
+    const pub = document.querySelector('input[name="qr-visibility"][value="public"]');
+    if (pub) pub.checked = true;
+    Array.from(document.getElementById('qr-admins').options).forEach(o => o.selected = false);
+    onQrVisibilityChange();
     document.getElementById('qr-form').style.display = '';
     document.getElementById('qr-result').style.display = 'none';
     document.getElementById('qr-actions-form').style.display = '';
     document.getElementById('qr-actions-result').style.display = 'none';
+}
+function onQrVisibilityChange() {
+    const v = document.querySelector('input[name="qr-visibility"]:checked')?.value || 'public';
+    document.getElementById('qr-admins-block').style.display = (v === 'private') ? '' : 'none';
 }
 function createQuickRoom() {
     const btn = document.getElementById('qr-create-btn');
@@ -145,6 +177,11 @@ function createQuickRoom() {
 
     const fd = new FormData();
     fd.append('title', document.getElementById('qr-title').value.trim() || 'Sala rápida');
+    const visibility = document.querySelector('input[name="qr-visibility"]:checked')?.value || 'public';
+    fd.append('visibility', visibility);
+    if (visibility === 'private') {
+        Array.from(document.getElementById('qr-admins').selectedOptions).forEach(o => fd.append('admins[]', o.value));
+    }
 
     fetch(`${QR_BASE}videocall/create`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json()).then(d => {

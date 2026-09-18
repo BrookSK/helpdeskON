@@ -242,4 +242,91 @@ class VideoRoom
             [$userId]
         );
     }
+
+    // ================= Administradores da sala =================
+
+    public function setAdmins($roomId, array $userIds)
+    {
+        $this->db->delete('video_room_admins', 'room_id = ?', [$roomId]);
+        foreach (array_unique(array_filter(array_map('intval', $userIds))) as $uid) {
+            try {
+                $this->db->insert('video_room_admins', ['room_id' => $roomId, 'user_id' => $uid]);
+            } catch (\Throwable $e) { /* ignora duplicado */ }
+        }
+    }
+
+    public function getAdminIds($roomId)
+    {
+        $rows = $this->db->fetchAll("SELECT user_id FROM video_room_admins WHERE room_id = ?", [$roomId]);
+        return array_map('intval', array_column($rows, 'user_id'));
+    }
+
+    /** O usuário é moderador da sala? (criador ou admin explícito). */
+    public function isAdminUser($room, $userId)
+    {
+        if (!$userId) return false;
+        if ((int)$room['created_by'] === (int)$userId) return true;
+        return in_array((int)$userId, $this->getAdminIds($room['id']), true);
+    }
+
+    // ================= Pedidos de entrada (sala privada) =================
+
+    /** Cria/atualiza um pedido de entrada como 'pending'. */
+    public function requestJoin($roomId, $peerId, $displayName = null, $userId = null)
+    {
+        $now = date('Y-m-d H:i:s');
+        $existing = $this->db->fetch(
+            "SELECT id FROM video_room_join_requests WHERE room_id = ? AND peer_id = ? LIMIT 1",
+            [$roomId, $peerId]
+        );
+        if ($existing) {
+            $this->db->update('video_room_join_requests', [
+                'display_name' => $displayName,
+                'user_id' => $userId,
+                'status' => 'pending',
+                'requested_at' => $now,
+                'decided_at' => null,
+                'decided_by' => null,
+            ], 'id = ?', [$existing['id']]);
+            return (int)$existing['id'];
+        }
+        return $this->db->insert('video_room_join_requests', [
+            'room_id' => $roomId,
+            'peer_id' => $peerId,
+            'display_name' => $displayName,
+            'user_id' => $userId,
+            'status' => 'pending',
+            'requested_at' => $now,
+        ]);
+    }
+
+    public function getRequestStatus($roomId, $peerId)
+    {
+        $r = $this->db->fetch(
+            "SELECT status FROM video_room_join_requests WHERE room_id = ? AND peer_id = ? LIMIT 1",
+            [$roomId, $peerId]
+        );
+        return $r['status'] ?? null;
+    }
+
+    public function pendingRequests($roomId)
+    {
+        return $this->db->fetchAll(
+            "SELECT peer_id, display_name, user_id, requested_at
+             FROM video_room_join_requests
+             WHERE room_id = ? AND status = 'pending'
+             ORDER BY requested_at ASC",
+            [$roomId]
+        );
+    }
+
+    public function decideRequest($roomId, $peerId, $status, $decidedBy = null)
+    {
+        if (!in_array($status, ['admitted', 'denied'], true)) return 0;
+        return $this->db->update('video_room_join_requests', [
+            'status' => $status,
+            'decided_at' => date('Y-m-d H:i:s'),
+            'decided_by' => $decidedBy,
+        ], 'room_id = ? AND peer_id = ?', [$roomId, $peerId]);
+    }
 }

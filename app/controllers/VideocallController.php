@@ -55,6 +55,10 @@ class VideocallController extends Controller
         $meetingId = !empty($_POST['meeting_id']) ? (int)$_POST['meeting_id'] : null;
         $expiryDays = 30;
 
+        // Pública: qualquer pessoa com o link entra direto.
+        // Privada: a entrada precisa ser aprovada por um administrador da sala.
+        $visibility = (($_POST['visibility'] ?? 'public') === 'private') ? 'private' : 'public';
+
         $token = $this->model->create([
             'title' => $title,
             'created_by' => $user['id'],
@@ -63,10 +67,20 @@ class VideocallController extends Controller
             'max_participants' => $max,
             'allow_recording' => 1,
             'status' => 'active',
+            'visibility' => $visibility,
             'expires_at' => date('Y-m-d H:i:s', strtotime('+' . $expiryDays . ' days')),
         ]);
 
-        $this->json(['success' => true, 'token' => $token, 'url' => $this->publicUrl($token)]);
+        $room = $this->model->findByToken($token);
+
+        // Administradores da sala (só faz sentido em privada). O criador é sempre admin.
+        $adminIds = array_filter(array_map('intval', (array)($_POST['admins'] ?? [])));
+        $adminIds[] = (int)$user['id'];
+        if ($visibility === 'private') {
+            $this->model->setAdmins($room['id'], $adminIds);
+        }
+
+        $this->json(['success' => true, 'token' => $token, 'url' => $this->publicUrl($token), 'visibility' => $visibility]);
     }
 
     /** URL pública da sala (respeita app_public_url se configurado). */
@@ -102,11 +116,14 @@ class VideocallController extends Controller
         // Nome sugerido: se logado, usa o nome da sessão.
         $suggestedName = $_SESSION['user_name'] ?? '';
         $loggedUserId = $_SESSION['user_id'] ?? null;
+        $isAdmin = $this->model->isAdminUser($room, $loggedUserId);
 
         $this->view('videocall/room', [
             'room' => $room,
             'suggestedName' => $suggestedName,
             'loggedUserId' => $loggedUserId,
+            'isAdmin' => $isAdmin,
+            'backgrounds' => $this->backgroundList(),
             'iceServers' => $this->iceServers(),
         ]);
     }
@@ -128,6 +145,26 @@ class VideocallController extends Controller
             $servers[] = $entry;
         }
         return $servers;
+    }
+
+    /** Lista as imagens de fundo padrão disponíveis (public/assets/vc-backgrounds). */
+    private function backgroundList()
+    {
+        $dir = PUBLIC_PATH . '/assets/vc-backgrounds';
+        $out = [];
+        if (is_dir($dir)) {
+            foreach (scandir($dir) as $f) {
+                if (preg_match('/\.(jpe?g|png|webp)$/i', $f)) {
+                    $label = ucfirst(preg_replace('/[-_]+/', ' ', pathinfo($f, PATHINFO_FILENAME)));
+                    $out[] = [
+                        'id' => $f,
+                        'label' => $label,
+                        'url' => rtrim(baseUrl(''), '/') . '/assets/vc-backgrounds/' . rawurlencode($f),
+                    ];
+                }
+            }
+        }
+        return $out;
     }
 
     /** Registra a presença do peer e devolve os peers já ativos. */
@@ -161,14 +198,29 @@ class VideocallController extends Controller
             }
         }
 
+        $userId = $_SESSION['user_id'] ?? null;
+        $isAdmin = $this->model->isAdminUser($room, $userId);
+        $isHost = ($userId && (int)$userId === (int)$room['created_by']);
+
+        // Sala PRIVADA: quem não é admin precisa de aprovação. Se ainda não foi
+        // admitido, registra o pedido e responde "aguardando" (não entra na sala).
+        $visibility = $room['visibility'] ?? 'public';
+        if ($visibility === 'private' && !$isAdmin) {
+            $status = $this->model->getRequestStatus($room['id'], $peerId);
+            if ($status !== 'admitted') {
+                $this->model->requestJoin($room['id'], $peerId, $name, $userId);
+                // Avisa os admins presentes que há um novo pedido.
+                $this->model->pushSignal($room['id'], $peerId, null, 'request', ['name' => $name]);
+                $this->json(['awaiting' => true, 'message' => 'Aguardando aprovação de um administrador da sala.']);
+            }
+        }
+
         // Teto de participantes (não conta o próprio peer se já estava presente).
         $existing = $this->model->activeParticipants($room['id'], $peerId);
         if (count($existing) >= (int)$room['max_participants']) {
             $this->json(['error' => 'A sala atingiu o limite de participantes.'], 409);
         }
 
-        $userId = $_SESSION['user_id'] ?? null;
-        $isHost = ($userId && (int)$userId === (int)$room['created_by']);
         $this->model->joinPresence($room['id'], $peerId, $name, $userId, $isHost ? 'host' : 'participant', $browserId ?: null);
 
         // Avisa a sala que alguém entrou (broadcast).
@@ -176,9 +228,11 @@ class VideocallController extends Controller
 
         $this->json([
             'success' => true,
-            'self' => ['peer_id' => $peerId, 'name' => $name, 'is_host' => $isHost],
+            'self' => ['peer_id' => $peerId, 'name' => $name, 'is_host' => $isHost, 'is_admin' => $isAdmin],
             'peers' => $this->formatPeers($existing),
             'allow_recording' => (int)$room['allow_recording'] === 1,
+            'visibility' => $visibility,
+            'is_admin' => $isAdmin,
         ]);
     }
 
@@ -236,9 +290,14 @@ class VideocallController extends Controller
         $kind = (string)($body['kind'] ?? '');
         $payload = $body['payload'] ?? null;
 
-        $allowed = ['offer', 'answer', 'ice', 'join', 'leave', 'media', 'screen', 'end'];
+        $allowed = ['offer', 'answer', 'ice', 'join', 'leave', 'media', 'screen', 'end', 'reaction', 'hand'];
         if ($from === '' || !in_array($kind, $allowed, true)) {
             $this->json(['error' => 'Sinal inválido'], 400);
+        }
+        // 'end' encerra a sala para todos — só admin da sala pode.
+        if ($kind === 'end') {
+            $userId = $_SESSION['user_id'] ?? null;
+            if (!$this->model->isAdminUser($room, $userId)) $this->json(['error' => 'Sem permissão.'], 403);
         }
 
         $this->model->heartbeat($room['id'], $from);
@@ -257,6 +316,75 @@ class VideocallController extends Controller
             $this->model->leavePresence($room['id'], $peerId);
             $this->model->pushSignal($room['id'], $peerId, null, 'leave', null);
         }
+        $this->json(['success' => true]);
+    }
+
+    // ============================================================
+    // Moderação (sala privada)
+    // ============================================================
+
+    /** Consulta o status do próprio pedido de entrada (para a tela de espera). */
+    public function requestStatus($token = null)
+    {
+        $room = $this->requireActiveRoom($token, 2, true);
+        $peerId = $this->safePeerId($_GET['peer_id'] ?? '');
+        if ($peerId === '') $this->json(['error' => 'peer_id ausente'], 400);
+        // Mantém o pedido "vivo" enquanto a pessoa espera.
+        $status = $this->model->getRequestStatus($room['id'], $peerId) ?: 'pending';
+        $this->json(['status' => $status]);
+    }
+
+    /**
+     * Painel do admin: lista participantes ativos + fila de pedidos pendentes.
+     * Só um admin da sala (ou o criador) pode acessar.
+     */
+    public function roster($token = null)
+    {
+        $room = $this->requireActiveRoom($token, 2, true);
+        $userId = $_SESSION['user_id'] ?? null;
+        if (!$this->model->isAdminUser($room, $userId)) $this->json(['error' => 'Sem permissão.'], 403);
+
+        $participants = array_map(function ($p) {
+            return ['peer_id' => $p['peer_id'], 'name' => $p['display_name'] ?: 'Convidado', 'role' => $p['role']];
+        }, $this->model->activeParticipants($room['id']));
+
+        $requests = array_map(function ($r) {
+            return ['peer_id' => $r['peer_id'], 'name' => $r['display_name'] ?: 'Convidado', 'requested_at' => $r['requested_at']];
+        }, $this->model->pendingRequests($room['id']));
+
+        $this->json(['participants' => $participants, 'requests' => $requests]);
+    }
+
+    /** Admin autoriza a entrada de um peer que aguardava. */
+    public function admit($token = null)
+    {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $room = $this->requireActiveRoom($token, 2, true);
+        $userId = $_SESSION['user_id'] ?? null;
+        if (!$this->model->isAdminUser($room, $userId)) $this->json(['error' => 'Sem permissão.'], 403);
+
+        $target = $this->safePeerId($_POST['peer_id'] ?? '');
+        if ($target === '') $this->json(['error' => 'peer_id ausente'], 400);
+
+        $this->model->decideRequest($room['id'], $target, 'admitted', $userId);
+        // Avisa o solicitante que foi liberado (ele então faz o join de verdade).
+        $this->model->pushSignal($room['id'], 'admin', $target, 'admit', null);
+        $this->json(['success' => true]);
+    }
+
+    /** Admin recusa a entrada de um peer. */
+    public function deny($token = null)
+    {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $room = $this->requireActiveRoom($token, 2, true);
+        $userId = $_SESSION['user_id'] ?? null;
+        if (!$this->model->isAdminUser($room, $userId)) $this->json(['error' => 'Sem permissão.'], 403);
+
+        $target = $this->safePeerId($_POST['peer_id'] ?? '');
+        if ($target === '') $this->json(['error' => 'peer_id ausente'], 400);
+
+        $this->model->decideRequest($room['id'], $target, 'denied', $userId);
+        $this->model->pushSignal($room['id'], 'admin', $target, 'deny', null);
         $this->json(['success' => true]);
     }
 
