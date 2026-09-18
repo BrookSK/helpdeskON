@@ -155,6 +155,11 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
         /* Popover (menu de câmera / dispositivos) */
         .popover-menu { position:fixed; background:var(--panel); border:1px solid #33375a; border-radius:14px; padding:14px; width:360px; max-width:94vw; max-height:70vh; overflow:auto; box-shadow:0 16px 50px rgba(0,0,0,.5); z-index:80; display:none; }
         .popover-menu h6 { font-size:.8rem; color:#9aa2c0; text-transform:uppercase; letter-spacing:.5px; margin:0 0 8px; }
+        #screen-menu { width:250px; padding:8px; }
+        .screen-menu-item { display:flex; align-items:center; gap:10px; width:100%; text-align:left; border:none; background:transparent; color:#e8eaf1; padding:11px 12px; border-radius:10px; font-size:.9rem; cursor:pointer; }
+        .screen-menu-item:hover { background:var(--panel2); }
+        .screen-menu-item.stop { color:#ff9db0; }
+        .screen-menu-item i { font-size:1.1rem; }
         .popover-menu .mb-blk { margin-bottom:14px; }
 
         .toast-box { position:fixed; top:16px; left:50%; transform:translateX(-50%); z-index:90; }
@@ -397,6 +402,12 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
         <h6>Microfone</h6>
         <select id="cm-mic-select" class="form-select" onchange="changeDevice('audio', this.value)"></select>
     </div>
+</div>
+
+<!-- Menu da TELA (quando já está compartilhando): trocar ou parar -->
+<div class="popover-menu" id="screen-menu">
+    <button type="button" class="screen-menu-item" onclick="screenMenuAction('switch')"><i class="bi bi-arrow-repeat"></i> Trocar tela/janela</button>
+    <button type="button" class="screen-menu-item stop" onclick="screenMenuAction('stop')"><i class="bi bi-stop-circle"></i> Parar de compartilhar</button>
 </div>
 
 <!-- Menu de reações (emojis) -->
@@ -1593,7 +1604,16 @@ async function startPolling() {
 }
 function reconcilePeers(activeList) {
     const active = new Set(activeList.map(p => p.peer_id));
-    peers.forEach((_, id) => { if (!active.has(id)) dropPeer(id); });
+    peers.forEach((entry, id) => {
+        if (active.has(id)) return;
+        // NÃO remove se a conexão P2P ainda está viva: o participante pode só
+        // ter travado o heartbeat momentaneamente (ex.: seletor de tela aberto).
+        // A conexão WebRTC é a fonte da verdade; a remoção por queda real já é
+        // feita em onconnectionstatechange.
+        const st = entry.pc && (entry.pc.connectionState || entry.pc.iceConnectionState);
+        if (st === 'connected' || st === 'completed' || st === 'checking' || st === 'new') return;
+        dropPeer(id);
+    });
     activeList.forEach(p => {
         if (p.peer_id === peerId) return;
         // O backend conhece o nome real do participante (da presença): usa-o
@@ -1672,18 +1692,18 @@ async function toggleScreen() {
         toast('Seu navegador não permite compartilhar a tela. No celular, isso costuma funcionar só em alguns navegadores (tente o Chrome mais recente) ou pelo computador.');
         return;
     }
-    // Pergunta se quer transmitir o áudio da tela.
-    const withAudio = confirm('Compartilhar também o ÁUDIO da tela?\n\nOK = com áudio (útil para vídeos/apresentações com som)\nCancelar = só a imagem');
-    await startScreenShare(withAudio);
+    // O próprio seletor de tela do navegador já oferece a opção "compartilhar áudio".
+    await startScreenShare(true);
 }
 
 // Inicia (ou troca) o compartilhamento de tela. replaceExisting = trocar a tela atual.
+// Pedimos audio:true SEMPRE — quem decide é a caixa do navegador (marcar ou não).
 async function startScreenShare(withAudio, replaceExisting) {
     let newStream;
     try {
         newStream = await navigator.mediaDevices.getDisplayMedia({
             video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 10, max: 15 } },
-            audio: withAudio ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false } : false
+            audio: true
         });
     } catch (e) {
         if (e && (e.name === 'NotAllowedError' || e.name === 'AbortError')) return; // usuário cancelou
@@ -1717,15 +1737,18 @@ async function startScreenShare(withAudio, replaceExisting) {
     screenTrack.onended = () => stopScreen();
 }
 
-// Menu ao clicar em compartilhar já ativo: Parar ou Trocar tela.
+// Menu flutuante ao clicar em compartilhar já ativo: Trocar tela / Parar.
 function openScreenMenu() {
-    const trocar = confirm('Compartilhamento de tela ativo.\n\nOK = TROCAR a tela/janela compartilhada\nCancelar = PARAR de compartilhar');
-    if (trocar) {
-        const withAudio = !!(screenStream && screenStream.getAudioTracks().length);
-        startScreenShare(withAudio, true);
-    } else {
-        stopScreen();
-    }
+    const menu = document.getElementById('screen-menu');
+    if (!menu) { stopScreen(); return; }
+    if (menu.style.display === 'block') { menu.style.display = 'none'; return; }
+    positionPopover('screen-menu', document.getElementById('btn-screen'));
+}
+function screenMenuAction(act) {
+    const menu = document.getElementById('screen-menu');
+    if (menu) menu.style.display = 'none';
+    if (act === 'switch') startScreenShare(true, true);
+    else if (act === 'stop') stopScreen();
 }
 
 // Encerra as tracks/tile da tela. announce=true avisa a sala que parou.
