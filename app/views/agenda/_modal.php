@@ -56,6 +56,43 @@
     @media (max-width: 575.98px) {
         .mt-mode-grid { grid-template-columns: 1fr; }
     }
+
+    /* ===== Combobox unificado (Empresa / Contato): busca + seleção num só campo ===== */
+    .mt-combo { position: relative; }
+    .mt-combo-list {
+        position: absolute;
+        top: calc(100% + 2px);
+        left: 0;
+        right: 0;
+        z-index: 30;
+        max-height: 220px;
+        overflow-y: auto;
+        background: #fff;
+        border: 1px solid #e2e5ec;
+        border-radius: 10px;
+        box-shadow: 0 6px 20px rgba(0,0,0,0.10);
+        padding: 4px;
+        display: none;
+    }
+    .mt-combo-list.open { display: block; }
+    .mt-combo-item {
+        padding: 7px 10px;
+        border-radius: 7px;
+        font-size: 0.85rem;
+        color: #3a3f51;
+        cursor: pointer;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .mt-combo-item:hover,
+    .mt-combo-item.active { background: #f2fbf9; color: #0b7f70; }
+    .mt-combo-item.selected { font-weight: 600; }
+    .mt-combo-empty {
+        padding: 8px 10px;
+        font-size: 0.8rem;
+        color: #9aa0b3;
+    }
 </style>
 
 <div class="modal fade" id="meetingModal" tabindex="-1">
@@ -114,24 +151,31 @@
                     </div>
 
                     <!-- Origem = Empresa: Empresa → Contato (reutiliza users.company_id) -->
+                    <!-- Empresa: combobox unificado (buscar + selecionar num único campo) -->
                     <div class="col-md-4 mt-commercial-only mt-source-empresa" style="display:none;">
                         <label class="form-label small fw-medium">Empresa *</label>
-                        <input type="text" id="mt-company-search" class="form-control form-control-sm mb-1"
-                               placeholder="Pesquisar empresa por nome..." oninput="filterCompanyOptions()" autocomplete="off">
-                        <select id="mt-company" class="form-select form-select-sm" onchange="onCompanyChange()">
-                            <option value="">Selecione uma empresa...</option>
-                            <?php foreach ($companies as $co): ?>
-                            <option value="<?= $co['id'] ?>" data-name="<?= escape(mb_strtolower($co['name'])) ?>"><?= escape($co['name']) ?></option>
-                            <?php endforeach; ?>
-                        </select>
+                        <div class="mt-combo" id="mt-company-combo">
+                            <input type="hidden" id="mt-company" value="">
+                            <input type="text" id="mt-company-search" class="form-control form-control-sm mt-combo-input"
+                                   placeholder="Buscar e selecionar empresa..." autocomplete="off"
+                                   onfocus="openCompanyList()" oninput="filterCompanyOptions()">
+                            <div class="mt-combo-list" id="mt-company-list">
+                                <?php foreach ($companies as $co): ?>
+                                <div class="mt-combo-item" data-value="<?= $co['id'] ?>" data-name="<?= escape(mb_strtolower($co['name'])) ?>"><?= escape($co['name']) ?></div>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
                     </div>
+                    <!-- Contato: combobox unificado (carrega os contatos da empresa escolhida) -->
                     <div class="col-md-4 mt-commercial-only mt-source-empresa" style="display:none;">
                         <label class="form-label small fw-medium">Contato *</label>
-                        <input type="text" id="mt-contact-search" class="form-control form-control-sm mb-1"
-                               placeholder="Pesquisar contato por nome..." oninput="filterContactOptions()" autocomplete="off">
-                        <select id="mt-contact" class="form-select form-select-sm" onchange="onContactChange()" disabled>
-                            <option value="">Selecione uma empresa primeiro...</option>
-                        </select>
+                        <div class="mt-combo" id="mt-contact-combo">
+                            <input type="hidden" id="mt-contact" value="">
+                            <input type="text" id="mt-contact-search" class="form-control form-control-sm mt-combo-input"
+                                   placeholder="Selecione uma empresa primeiro..." autocomplete="off" disabled
+                                   onfocus="openContactList()" oninput="filterContactOptions()">
+                            <div class="mt-combo-list" id="mt-contact-list"></div>
+                        </div>
                     </div>
                     <div class="col-md-4">
                         <label class="form-label small fw-medium">Data e horário da reunião</label>
@@ -431,14 +475,17 @@ function resetMeetingForm() {
     if (roomAdminsBlk) roomAdminsBlk.style.display = 'none';
     ['mt-title','mt-meeting-at','mt-new-name','mt-new-phone','mt-notes','mt-client-email','mt-client-name','mt-client-phone'].forEach(f => document.getElementById(f).value = '');
     document.getElementById('mt-client').value = '';
-    // Reseta Empresa → Contato
-    const coSel = document.getElementById('mt-company');
-    if (coSel) coSel.value = '';
+    // Reseta o combobox de Empresa → Contato
+    const coHidden = document.getElementById('mt-company'); if (coHidden) coHidden.value = '';
     const coSearch = document.getElementById('mt-company-search'); if (coSearch) coSearch.value = '';
-    filterCompanyOptions();
-    const ctSearch = document.getElementById('mt-contact-search'); if (ctSearch) ctSearch.value = '';
-    const ctSel = document.getElementById('mt-contact');
-    if (ctSel) { ctSel.disabled = true; ctSel.innerHTML = '<option value="">Selecione uma empresa primeiro...</option>'; }
+    document.getElementById('mt-company-list')?.querySelectorAll('.mt-combo-item').forEach(i => { i.classList.remove('selected'); i.style.display = ''; });
+    closeCompanyList();
+    const ctHidden = document.getElementById('mt-contact'); if (ctHidden) ctHidden.value = '';
+    const ctSearch = document.getElementById('mt-contact-search');
+    if (ctSearch) { ctSearch.value = ''; ctSearch.disabled = true; ctSearch.placeholder = 'Selecione uma empresa primeiro...'; }
+    mtContactCache = [];
+    const ctList = document.getElementById('mt-contact-list'); if (ctList) ctList.innerHTML = '';
+    closeContactList();
     document.getElementById('mt-urgency').value = 'media';
     document.getElementById('mt-temperature').value = '';
     document.getElementById('mt-status').value = 'a_agendar';
@@ -739,82 +786,173 @@ function onClientChange() {
 
 // ===== Empresa → Contato (reutiliza users.company_id via Company::getUsers) =====
 
-// Filtra as opções do dropdown de empresa pelo nome digitado.
+// ===== Combobox de Empresa =====
+function openCompanyList() {
+    filterCompanyOptions();
+    document.getElementById('mt-company-list').classList.add('open');
+}
+function closeCompanyList() {
+    document.getElementById('mt-company-list').classList.remove('open');
+}
+
+// Filtra os itens da lista de empresa pelo texto digitado e mantém a lista aberta.
 function filterCompanyOptions() {
     const term = (document.getElementById('mt-company-search').value || '').trim().toLowerCase();
-    const sel = document.getElementById('mt-company');
-    Array.from(sel.options).forEach(o => {
-        if (!o.value) return; // mantém o placeholder
-        const name = o.getAttribute('data-name') || o.textContent.toLowerCase();
-        o.hidden = term !== '' && !name.includes(term);
+    const listEl = document.getElementById('mt-company-list');
+    listEl.classList.add('open');
+    let visible = 0;
+    listEl.querySelectorAll('.mt-combo-item').forEach(item => {
+        const name = item.getAttribute('data-name') || item.textContent.toLowerCase();
+        const show = term === '' || name.includes(term);
+        item.style.display = show ? '' : 'none';
+        if (show) visible++;
+    });
+    let empty = listEl.querySelector('.mt-combo-empty');
+    if (visible === 0) {
+        if (!empty) {
+            empty = document.createElement('div');
+            empty.className = 'mt-combo-empty';
+            empty.textContent = 'Nenhuma empresa encontrada';
+            listEl.appendChild(empty);
+        }
+        empty.style.display = '';
+    } else if (empty) {
+        empty.style.display = 'none';
+    }
+}
+
+// Seleciona uma empresa a partir do id (usado no clique e ao editar).
+function selectCompany(id, name) {
+    document.getElementById('mt-company').value = id || '';
+    document.getElementById('mt-company-search').value = name || '';
+    document.getElementById('mt-company-list').querySelectorAll('.mt-combo-item').forEach(i => {
+        i.classList.toggle('selected', i.getAttribute('data-value') === String(id));
+    });
+    closeCompanyList();
+    onCompanyChange();
+}
+
+// ===== Combobox de Contato =====
+let mtContactCache = []; // contatos carregados da empresa atual
+
+function openContactList() {
+    const input = document.getElementById('mt-contact-search');
+    if (input.disabled) return;
+    filterContactOptions();
+    document.getElementById('mt-contact-list').classList.add('open');
+}
+function closeContactList() {
+    document.getElementById('mt-contact-list').classList.remove('open');
+}
+
+// (Re)constrói a lista de contatos a partir do cache carregado.
+function renderContactList() {
+    const listEl = document.getElementById('mt-contact-list');
+    listEl.innerHTML = '';
+    mtContactCache.forEach(c => {
+        const item = document.createElement('div');
+        item.className = 'mt-combo-item';
+        item.setAttribute('data-value', c.id);
+        item.setAttribute('data-name', (c.name || '').toLowerCase());
+        item.setAttribute('data-email', c.email || '');
+        item.setAttribute('data-phone', c.phone || '');
+        item.setAttribute('data-contact-name', c.name || '');
+        item.textContent = c.name;
+        listEl.appendChild(item);
     });
 }
 
-// Filtra as opções do dropdown de contato pelo nome digitado.
 function filterContactOptions() {
     const term = (document.getElementById('mt-contact-search').value || '').trim().toLowerCase();
-    const sel = document.getElementById('mt-contact');
-    Array.from(sel.options).forEach(o => {
-        if (!o.value) return;
-        const name = o.getAttribute('data-name') || o.textContent.toLowerCase();
-        o.hidden = term !== '' && !name.includes(term);
+    const listEl = document.getElementById('mt-contact-list');
+    listEl.classList.add('open');
+    let visible = 0;
+    listEl.querySelectorAll('.mt-combo-item').forEach(item => {
+        const name = item.getAttribute('data-name') || item.textContent.toLowerCase();
+        const show = term === '' || name.includes(term);
+        item.style.display = show ? '' : 'none';
+        if (show) visible++;
     });
+    let empty = listEl.querySelector('.mt-combo-empty');
+    if (visible === 0) {
+        if (!empty) {
+            empty = document.createElement('div');
+            empty.className = 'mt-combo-empty';
+            listEl.appendChild(empty);
+        }
+        empty.textContent = mtContactCache.length ? 'Nenhum contato encontrado' : 'Nenhum contato nesta empresa';
+        empty.style.display = '';
+    } else if (empty) {
+        empty.style.display = 'none';
+    }
 }
 
 // Ao trocar a empresa: carrega os contatos (users) daquela empresa e reseta o contato.
 function onCompanyChange() {
     const companyId = document.getElementById('mt-company').value;
-    const contactSel = document.getElementById('mt-contact');
-    document.getElementById('mt-contact-search').value = '';
-    contactSel.innerHTML = '';
+    const contactInput = document.getElementById('mt-contact-search');
+    // Reseta o contato atual
+    document.getElementById('mt-contact').value = '';
+    contactInput.value = '';
+    mtContactCache = [];
+    document.getElementById('mt-contact-list').innerHTML = '';
+
     if (!companyId) {
-        contactSel.disabled = true;
-        contactSel.innerHTML = '<option value="">Selecione uma empresa primeiro...</option>';
+        contactInput.disabled = true;
+        contactInput.placeholder = 'Selecione uma empresa primeiro...';
         return;
     }
-    contactSel.disabled = true;
-    contactSel.innerHTML = '<option value="">Carregando...</option>';
+    contactInput.disabled = true;
+    contactInput.placeholder = 'Carregando contatos...';
     fetch(`${BASE}agenda/companyContacts/${companyId}`)
         .then(r => r.json())
         .then(d => {
-            const list = (d && d.contacts) ? d.contacts : [];
-            contactSel.innerHTML = '<option value="">Selecione um contato...</option>';
-            if (list.length === 0) {
-                contactSel.innerHTML = '<option value="">Nenhum contato nesta empresa</option>';
-                contactSel.disabled = true;
+            mtContactCache = (d && d.contacts) ? d.contacts : [];
+            renderContactList();
+            if (mtContactCache.length === 0) {
+                contactInput.disabled = true;
+                contactInput.placeholder = 'Nenhum contato nesta empresa';
                 return;
             }
-            list.forEach(c => {
-                const opt = document.createElement('option');
-                opt.value = c.id;
-                opt.textContent = c.name;
-                opt.setAttribute('data-name', (c.name || '').toLowerCase());
-                opt.setAttribute('data-email', c.email || '');
-                opt.setAttribute('data-phone', c.phone || '');
-                opt.setAttribute('data-contact-name', c.name || '');
-                contactSel.appendChild(opt);
-            });
-            contactSel.disabled = false;
+            contactInput.disabled = false;
+            contactInput.placeholder = 'Buscar e selecionar contato...';
         })
         .catch(() => {
-            contactSel.innerHTML = '<option value="">Erro ao carregar contatos</option>';
-            contactSel.disabled = true;
+            contactInput.disabled = true;
+            contactInput.placeholder = 'Erro ao carregar contatos';
         });
 }
 
-// Ao escolher o contato: preenche os campos snapshot (nome/telefone/email) já existentes.
+// Seleciona um contato: guarda o id e preenche o snapshot (nome/telefone/email).
 // NÃO altera o contact_id do CRM (agenda_meetings.contact_id continua apontando p/ whatsapp_contacts).
-function onContactChange() {
-    const sel = document.getElementById('mt-contact');
-    const opt = sel.options[sel.selectedIndex];
-    if (!opt || !opt.value) return;
-    const name  = opt.getAttribute('data-contact-name') || '';
-    const email = opt.getAttribute('data-email') || '';
-    const phone = opt.getAttribute('data-phone') || '';
+function selectContact(item) {
+    const id = item.getAttribute('data-value');
+    const name  = item.getAttribute('data-contact-name') || '';
+    const email = item.getAttribute('data-email') || '';
+    const phone = item.getAttribute('data-phone') || '';
+    document.getElementById('mt-contact').value = id || '';
+    document.getElementById('mt-contact-search').value = name;
+    document.getElementById('mt-contact-list').querySelectorAll('.mt-combo-item').forEach(i => {
+        i.classList.toggle('selected', i === item);
+    });
     document.getElementById('mt-client-name').value = name;
     document.getElementById('mt-client-phone').value = phone;
     if (email) document.getElementById('mt-client-email').value = email;
+    closeContactList();
 }
+
+// Clique nos itens das listas (delegação) + fechar ao clicar fora.
+document.addEventListener('click', function(e) {
+    const compItem = e.target.closest('#mt-company-list .mt-combo-item');
+    if (compItem) { selectCompany(compItem.getAttribute('data-value'), compItem.textContent); return; }
+
+    const contItem = e.target.closest('#mt-contact-list .mt-combo-item');
+    if (contItem) { selectContact(contItem); return; }
+
+    // Fecha as listas se o clique foi fora dos respectivos comboboxes
+    if (!e.target.closest('#mt-company-combo')) closeCompanyList();
+    if (!e.target.closest('#mt-contact-combo')) closeContactList();
+});
 
 // ===== Participantes (dropdown com multisseleção) =====
 
