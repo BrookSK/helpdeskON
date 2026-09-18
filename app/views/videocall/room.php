@@ -1388,6 +1388,7 @@ function toggleMic() {
     b.innerHTML = (micOn ? '<i class="bi bi-mic-fill"></i>' : '<i class="bi bi-mic-mute-fill"></i>') + '<span class="ctrl-label">Mic</span>';
     tileEl(peerId)?.classList.toggle('mic-off', !micOn);
     broadcast('media', { micMuted: !micOn, camOff: !camOn });
+    if (typeof syncPipButtons === 'function') syncPipButtons();
 }
 function toggleCam() {
     camOn = !camOn;
@@ -1402,6 +1403,7 @@ function toggleCam() {
     b.innerHTML = (camOn ? '<i class="bi bi-camera-video-fill"></i>' : '<i class="bi bi-camera-video-off-fill"></i>') + '<span class="ctrl-label">Câmera</span>';
     tileEl(peerId)?.classList.toggle('cam-off', !camOn);
     broadcast('media', { micMuted: !micOn, camOff: !camOn });
+    if (typeof syncPipButtons === 'function') syncPipButtons();
 }
 
 async function toggleScreen() {
@@ -1761,45 +1763,89 @@ function collectRecordingVideos() {
     return vids;
 }
 
+// Separa telas compartilhadas das câmeras (o tile de tela tem id terminando em -screen).
+function collectComposeSources() {
+    const all = collectRecordingVideos();
+    const screens = [], cams = [];
+    all.forEach(v => {
+        const tile = v.closest('.tile');
+        const id = tile ? tile.dataset.tid : '';
+        if (id && isScreenTile(id)) screens.push(v); else cams.push(v);
+    });
+    return { screens, cams };
+}
+
+// Desenha um vídeo numa região (x,y,w,h) com "cover" e o nome no canto.
+function drawTileVideo(ctx, v, x, y, w, h, opts) {
+    opts = opts || {};
+    const vw = v.videoWidth || 16, vh = v.videoHeight || 9;
+    // Tela usa "contain" (mostra tudo, sem cortar texto); câmera usa "cover".
+    const scale = opts.contain ? Math.min(w / vw, h / vh) : Math.max(w / vw, h / vh);
+    const dw = vw * scale, dh = vh * scale;
+    const dx = x + (w - dw) / 2, dy = y + (h - dh) / 2;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(x + 2, y + 2, w - 4, h - 4); ctx.clip();
+    if (opts.contain) { ctx.fillStyle = '#000'; ctx.fillRect(x, y, w, h); }
+    try { ctx.drawImage(v, dx, dy, dw, dh); } catch (e) {}
+    ctx.restore();
+    if (opts.name) {
+        const nm = opts.name;
+        const fs = Math.max(11, Math.min(16, Math.round(h * 0.045)));
+        ctx.font = '600 ' + fs + 'px Inter, sans-serif';
+        const padX = 8;
+        const tw = ctx.measureText(nm).width + padX * 2;
+        const bh = fs + 10;
+        ctx.fillStyle = 'rgba(0,0,0,.6)';
+        ctx.fillRect(x + 8, y + h - bh - 8, tw, bh);
+        ctx.fillStyle = '#fff';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(nm, x + 8 + padX, y + h - 8 - bh / 2);
+        ctx.textBaseline = 'alphabetic';
+    }
+}
+
+function nameOf(v) { const t = v.closest('.tile'); return t ? (t.querySelector('.name')?.textContent || '') : ''; }
+
+/**
+ * Layout de composição (usado na gravação e no PiP):
+ * - Com tela compartilhada: modo apresentador (tela grande + câmeras na faixa).
+ * - Sem tela: grade normal das câmeras.
+ */
+function composeLayout(ctx, W, H) {
+    ctx.fillStyle = '#0f1020'; ctx.fillRect(0, 0, W, H);
+    const { screens, cams } = collectComposeSources();
+
+    if (screens.length > 0) {
+        // ----- Modo apresentador -----
+        const others = cams.concat(screens.slice(1)); // câmeras + telas extras
+        const stripW = others.length ? Math.round(W * 0.24) : 0; // faixa à direita
+        const mainW = W - stripW;
+        // Tela principal ocupa a área grande (contain para ler o conteúdo).
+        drawTileVideo(ctx, screens[0], 0, 0, mainW, H, { contain: true, name: nameOf(screens[0]) });
+        // Faixa lateral com as câmeras (e telas extras), empilhadas.
+        if (others.length) {
+            const cellH = H / others.length;
+            others.forEach((v, i) => {
+                const scr = screens.indexOf(v) > 0;
+                drawTileVideo(ctx, v, mainW, i * cellH, stripW, cellH, { contain: scr, name: nameOf(v) });
+            });
+        }
+    } else {
+        // ----- Grade normal das câmeras -----
+        const vids = cams.length ? cams : collectRecordingVideos();
+        const n = vids.length || 1;
+        const cols = Math.ceil(Math.sqrt(n));
+        const rows = Math.ceil(n / cols);
+        const cw = W / cols, ch = H / rows;
+        vids.forEach((v, i) => {
+            drawTileVideo(ctx, v, (i % cols) * cw, Math.floor(i / cols) * ch, cw, ch, { name: nameOf(v) });
+        });
+    }
+}
+
 function drawComposite() {
     if (!compCtx) return;
-    const W = compCanvas.width, H = compCanvas.height;
-    compCtx.fillStyle = '#0f1020'; compCtx.fillRect(0, 0, W, H);
-    const vids = collectRecordingVideos();
-    const n = vids.length || 1;
-    // grade: colunas ~ sqrt(n)
-    const cols = Math.ceil(Math.sqrt(n));
-    const rows = Math.ceil(n / cols);
-    const cw = W / cols, ch = H / rows;
-    vids.forEach((v, i) => {
-        const cx = (i % cols) * cw, cy = Math.floor(i / cols) * ch;
-        // desenha mantendo proporção (cover)
-        const vw = v.videoWidth || 16, vh = v.videoHeight || 9;
-        const scale = Math.max(cw / vw, ch / vh);
-        const dw = vw * scale, dh = vh * scale;
-        const dx = cx + (cw - dw) / 2, dy = cy + (ch - dh) / 2;
-        compCtx.save();
-        compCtx.beginPath(); compCtx.rect(cx + 2, cy + 2, cw - 4, ch - 4); compCtx.clip();
-        try { compCtx.drawImage(v, dx, dy, dw, dh); } catch (e) {}
-        compCtx.restore();
-        // nome
-        const tile = v.closest('.tile');
-        const nm = tile ? (tile.querySelector('.name')?.textContent || '') : '';
-        if (nm) {
-            // Nome menor e discreto no canto da célula.
-            const fs = Math.max(11, Math.min(16, Math.round(ch * 0.032)));
-            compCtx.font = '600 ' + fs + 'px Inter, sans-serif';
-            const padX = 8, padY = 5;
-            const tw = compCtx.measureText(nm).width + padX * 2;
-            const bh = fs + padY * 2;
-            compCtx.fillStyle = 'rgba(0,0,0,.55)';
-            compCtx.fillRect(cx + 8, cy + ch - bh - 8, tw, bh);
-            compCtx.fillStyle = '#fff';
-            compCtx.textBaseline = 'middle';
-            compCtx.fillText(nm, cx + 8 + padX, cy + ch - 8 - bh / 2);
-            compCtx.textBaseline = 'alphabetic';
-        }
-    });
+    composeLayout(compCtx, compCanvas.width, compCanvas.height);
     compRaf = requestAnimationFrame(drawComposite);
 }
 
@@ -1860,6 +1906,7 @@ function startRecording() {
     recTimer = setInterval(updateRecTime, 500);
     toast('Gravação iniciada. Mantenha esta aba aberta.');
     broadcast('rec', { state: 'start', by: myName });
+    if (typeof syncPipButtons === 'function') syncPipButtons();
 }
 function updateRecTime() {
     const ms = recElapsedMs + (recResumeTs ? (Date.now() - recResumeTs) : 0);
@@ -1896,6 +1943,7 @@ function stopRecording() {
     document.getElementById('rec-label').textContent = 'Gravando';
     setRecIndicator('off');
     broadcast('rec', { state: 'stop', by: myName });
+    if (typeof syncPipButtons === 'function') syncPipButtons();
 }
 
 // Indicador global de gravação (mostra pra todos que a reunião está sendo gravada).
@@ -1945,50 +1993,107 @@ let currentRecToken = null;
 // ==========================================================
 let pipCanvas = null, pipCtx = null, pipVideo = null, pipStream = null, pipTimer = null;
 
+let docPipWin = null; // janela da Document PiP (com botões)
+
 function pipSupported() {
-    return document.pictureInPictureEnabled || ('requestPictureInPicture' in document.createElement('video'));
+    return ('documentPictureInPicture' in window) || document.pictureInPictureEnabled || ('requestPictureInPicture' in document.createElement('video'));
 }
 function pipDraw() {
     if (!pipCtx) return;
-    const W = pipCanvas.width, H = pipCanvas.height;
-    pipCtx.fillStyle = '#0f1020'; pipCtx.fillRect(0, 0, W, H);
-    const vids = collectRecordingVideos();
-    const n = vids.length || 1;
-    const cols = Math.ceil(Math.sqrt(n));
-    const rows = Math.ceil(n / cols);
-    const cw = W / cols, ch = H / rows;
-    vids.forEach((v, i) => {
-        const cx = (i % cols) * cw, cy = Math.floor(i / cols) * ch;
-        const vw = v.videoWidth || 16, vh = v.videoHeight || 9;
-        const scale = Math.max(cw / vw, ch / vh);
-        const dw = vw * scale, dh = vh * scale;
-        const dx = cx + (cw - dw) / 2, dy = cy + (ch - dh) / 2;
-        pipCtx.save();
-        pipCtx.beginPath(); pipCtx.rect(cx + 1, cy + 1, cw - 2, ch - 2); pipCtx.clip();
-        try { pipCtx.drawImage(v, dx, dy, dw, dh); } catch (e) {}
-        pipCtx.restore();
-    });
+    // Mesmo layout da gravação: com tela compartilhada, ela fica grande.
+    composeLayout(pipCtx, pipCanvas.width, pipCanvas.height);
 }
+
 async function togglePip() {
+    // Já aberto? fecha.
+    if (docPipWin) { try { docPipWin.close(); } catch (e) {} stopPip(); return; }
     if (document.pictureInPictureElement) { try { await document.exitPictureInPicture(); } catch (e) {} return; }
     if (!pipSupported()) { toast('Seu navegador não suporta janela flutuante.'); return; }
+
+    // Prepara o canvas do mosaico (usado nos dois modos).
+    if (!pipCanvas) { pipCanvas = document.createElement('canvas'); pipCanvas.width = 640; pipCanvas.height = 360; pipCtx = pipCanvas.getContext('2d'); }
+    pipDraw();
+    if (pipTimer) clearInterval(pipTimer);
+    pipTimer = setInterval(pipDraw, 100);
+
+    // 1) Document PiP (Chrome/Edge): janela com vídeo + BOTÕES funcionais.
+    if ('documentPictureInPicture' in window) {
+        try {
+            docPipWin = await window.documentPictureInPicture.requestWindow({ width: 340, height: 250 });
+            buildDocPip(docPipWin);
+            docPipWin.addEventListener('pagehide', () => { docPipWin = null; stopPip(); });
+            document.getElementById('btn-pip').classList.add('active');
+            toast('Reunião aberta em janela flutuante com controles.');
+            return;
+        } catch (e) { docPipWin = null; /* cai para o modo vídeo abaixo */ }
+    }
+
+    // 2) PiP clássico de vídeo (sem botões — Safari/celular).
     try {
-        if (!pipCanvas) { pipCanvas = document.createElement('canvas'); pipCanvas.width = 640; pipCanvas.height = 360; pipCtx = pipCanvas.getContext('2d'); }
-        pipDraw();
         pipStream = pipCanvas.captureStream(15);
         if (!pipVideo) { pipVideo = document.createElement('video'); pipVideo.muted = true; pipVideo.playsInline = true; pipVideo.addEventListener('leavepictureinpicture', stopPip); }
         pipVideo.srcObject = pipStream;
         await pipVideo.play().catch(() => {});
-        if (pipTimer) clearInterval(pipTimer);
-        pipTimer = setInterval(pipDraw, 100); // segue rodando mesmo com a aba oculta
         await pipVideo.requestPictureInPicture();
         document.getElementById('btn-pip').classList.add('active');
-        toast('Reunião aberta em janela flutuante. Você pode usar outras abas.');
+        toast('Reunião aberta em janela flutuante. (Controles disponíveis apenas no Chrome/Edge.)');
     } catch (e) { toast('Não foi possível abrir a janela flutuante.'); stopPip(); }
 }
+
+// Monta o conteúdo da Document PiP: vídeo do mosaico + botões de ação.
+function buildDocPip(win) {
+    const doc = win.document;
+    doc.body.style.cssText = 'margin:0;background:#0f1020;font-family:system-ui,Arial,sans-serif;display:flex;flex-direction:column;height:100vh;overflow:hidden;';
+    // Área do vídeo (canvas do mosaico via captureStream).
+    pipStream = pipCanvas.captureStream(15);
+    const v = doc.createElement('video');
+    v.autoplay = true; v.muted = true; v.playsInline = true; v.srcObject = pipStream;
+    v.style.cssText = 'flex:1;width:100%;object-fit:contain;background:#000;min-height:0;';
+    doc.body.appendChild(v);
+
+    // Barra de botões.
+    const bar = doc.createElement('div');
+    bar.style.cssText = 'display:flex;gap:8px;justify-content:center;align-items:center;padding:8px;background:rgba(0,0,0,.4);';
+    const mkBtn = (id, html, title) => {
+        const b = doc.createElement('button');
+        b.id = id; b.title = title; b.innerHTML = html;
+        b.style.cssText = 'width:42px;height:42px;border-radius:50%;border:none;background:#23263d;color:#fff;font-size:1.05rem;cursor:pointer;display:flex;align-items:center;justify-content:center;';
+        bar.appendChild(b); return b;
+    };
+    const bMic = mkBtn('pip-mic', ico(micOn ? 'mic' : 'mic-off'), 'Microfone');
+    const bCam = mkBtn('pip-cam', ico(camOn ? 'cam' : 'cam-off'), 'Câmera');
+    const bRec = mkBtn('pip-rec', ico('rec'), 'Gravar');
+    const bEnd = mkBtn('pip-end', ico('end'), 'Sair'); bEnd.style.background = '#e02a44';
+    doc.body.appendChild(bar);
+
+    bMic.onclick = () => { toggleMic(); syncPipButtons(); };
+    bCam.onclick = () => { toggleCam(); syncPipButtons(); };
+    bRec.onclick = () => { toggleRecording(); setTimeout(syncPipButtons, 100); };
+    bEnd.onclick = () => { try { win.close(); } catch (e) {} hangup(); };
+    syncPipButtons();
+}
+// Ícones inline (a Document PiP não herda o Bootstrap Icons da página principal).
+function ico(kind) {
+    const map = {
+        'mic': '🎙️', 'mic-off': '🔇', 'cam': '📹', 'cam-off': '🚫', 'rec': '⏺️', 'end': '📴'
+    };
+    return map[kind] || '';
+}
+// Reflete o estado atual (mic/câmera/gravando) nos botões da janelinha.
+function syncPipButtons() {
+    if (!docPipWin) return;
+    const d = docPipWin.document;
+    const m = d.getElementById('pip-mic'), c = d.getElementById('pip-cam'), r = d.getElementById('pip-rec');
+    if (m) { m.innerHTML = ico(micOn ? 'mic' : 'mic-off'); m.style.background = micOn ? '#23263d' : '#c0304a'; }
+    if (c) { c.innerHTML = ico(camOn ? 'cam' : 'cam-off'); c.style.background = camOn ? '#23263d' : '#c0304a'; }
+    const recing = mediaRecorder && mediaRecorder.state !== 'inactive';
+    if (r) { r.style.background = recing ? '#c0304a' : '#23263d'; r.title = recing ? 'Parar gravação' : 'Gravar'; }
+}
+
 function stopPip() {
     if (pipTimer) { clearInterval(pipTimer); pipTimer = null; }
     if (pipStream) { pipStream.getTracks().forEach(t => t.stop()); pipStream = null; }
+    if (docPipWin) { try { docPipWin.close(); } catch (e) {} docPipWin = null; }
     const btn = document.getElementById('btn-pip'); if (btn) btn.classList.remove('active');
 }
 
