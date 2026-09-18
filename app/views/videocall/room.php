@@ -47,22 +47,49 @@ $iceJson = json_encode($iceServers ?? [], JSON_UNESCAPED_SLASHES);
         .rec-dot .dot { width:9px; height:9px; border-radius:50%; background:#ff3b57; animation:pulse 1.2s infinite; }
         @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.3;} }
 
-        .grid { flex:1; display:grid; gap:8px; padding:8px; overflow:auto; align-content:center;
-            grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); }
-        .grid.share-mode { grid-template-columns:1fr; grid-template-rows:1fr auto; }
-        .tile { position:relative; background:#000; border-radius:14px; overflow:hidden; aspect-ratio:16/9; min-height:0; }
-        .tile video { width:100%; height:100%; object-fit:cover; background:#000; }
+        /* Área principal da chamada: pode virar stage + filmstrip quando há destaque. */
+        .stage-wrap { flex:1; display:flex; min-height:0; overflow:hidden; }
+        .stage-wrap.with-strip { flex-direction:column; }
+
+        /* Grade normal (nada em destaque) */
+        .grid { flex:1; display:grid; gap:8px; padding:8px; overflow:hidden; min-height:0;
+            grid-template-columns:1fr; grid-auto-rows:1fr; align-content:stretch; }
+
+        /* Palco (itens em destaque: tela compartilhada e/ou tiles fixados) */
+        .stage { flex:1; display:grid; gap:8px; padding:8px; min-height:0; min-width:0; overflow:hidden;
+            grid-auto-rows:1fr; }
+        /* Faixa de miniaturas (câmeras que não estão em destaque) */
+        .filmstrip { display:flex; gap:8px; padding:8px; overflow-x:auto; overflow-y:hidden; flex:0 0 auto; }
+        .stage-wrap.with-strip .filmstrip { height:132px; }
+        .filmstrip .tile { flex:0 0 auto; width:210px; height:118px; }
+        .filmstrip::-webkit-scrollbar { height:6px; }
+        .filmstrip::-webkit-scrollbar-thumb { background:#33375a; border-radius:6px; }
+
+        .tile { position:relative; background:#000; border-radius:14px; overflow:hidden; min-height:0; min-width:0; }
+        .tile .vwrap { position:absolute; inset:0; overflow:hidden; }
+        .tile video { width:100%; height:100%; object-fit:cover; background:#000; transition:transform .12s ease; transform-origin:center center; }
         .tile.self video { transform:scaleX(-1); }
+        .tile.self.zoomed video, .tile.self video.zoomed { /* self usa scaleX(-1) combinado no JS */ }
         .tile.screen video { object-fit:contain; }
-        .tile .name { position:absolute; left:8px; bottom:8px; background:rgba(0,0,0,.55); padding:3px 9px; border-radius:8px; font-size:.78rem; max-width:80%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-        .tile .badges { position:absolute; right:8px; top:8px; display:flex; gap:5px; }
+        .tile .name { position:absolute; left:8px; bottom:8px; background:rgba(0,0,0,.55); padding:3px 9px; border-radius:8px; font-size:.78rem; max-width:80%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; z-index:3; }
+        .tile .badges { position:absolute; right:8px; top:8px; display:flex; gap:5px; z-index:3; }
         .tile .badge-ic { background:rgba(0,0,0,.55); width:26px; height:26px; border-radius:8px; display:none; align-items:center; justify-content:center; font-size:.85rem; }
         .tile.mic-off .badge-mic { display:flex; color:#ff9db0; }
         .tile.cam-off .badge-cam { display:flex; color:#ffd27f; }
-        .tile .avatar { position:absolute; inset:0; display:none; align-items:center; justify-content:center; background:#23263d; }
+        .tile.pinned .badge-pin { display:flex; color:var(--brand); }
+        .tile .avatar { position:absolute; inset:0; display:none; align-items:center; justify-content:center; background:#23263d; z-index:1; }
         .tile.cam-off .avatar { display:flex; }
         .tile.cam-off video { visibility:hidden; }
         .tile .avatar span { width:72px; height:72px; border-radius:50%; background:var(--brand); display:flex; align-items:center; justify-content:center; font-size:1.8rem; font-weight:700; color:#fff; }
+        .tile.pinned { outline:2px solid var(--brand); outline-offset:-2px; }
+
+        /* Barra de ações do tile (aparece no hover): zoom e fixar */
+        .tile-tools { position:absolute; top:8px; left:8px; display:flex; gap:5px; opacity:0; transition:opacity .15s; z-index:4; }
+        .tile:hover .tile-tools, .tile.show-tools .tile-tools { opacity:1; }
+        .tile-tools button { width:30px; height:30px; border:none; border-radius:8px; background:rgba(10,12,24,.72); color:#fff; font-size:.9rem; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+        .tile-tools button:hover { background:var(--brand); }
+        .tile-tools .zoom-val { min-width:38px; padding:0 6px; height:30px; border-radius:8px; background:rgba(10,12,24,.72); color:#cfd3e6; font-size:.7rem; display:flex; align-items:center; justify-content:center; }
+        .filmstrip .tile-tools { transform:scale(.85); transform-origin:top left; }
 
         /* Barra de controles */
         .controls { display:flex; align-items:center; justify-content:center; gap:10px; padding:14px; background:rgba(0,0,0,.3); flex-wrap:wrap; }
@@ -81,7 +108,55 @@ $iceJson = json_encode($iceServers ?? [], JSON_UNESCAPED_SLASHES);
         .link-modal { position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:70; display:none; align-items:center; justify-content:center; padding:20px; }
         .link-modal .inner { background:var(--panel); border-radius:16px; padding:24px; max-width:520px; width:100%; }
         .rec-item { background:var(--panel2); border-radius:10px; padding:10px 12px; margin-bottom:8px; display:flex; align-items:center; gap:10px; }
-        @media (max-width:520px){ .ctrl-label{ display:none; } .controls .ctrl{ margin-bottom:0; } }
+        /* ================= MOBILE ================= */
+        @media (max-width:768px){
+            .topbar { padding:8px 12px; gap:8px; }
+            .topbar .title { font-size:.85rem; max-width:52vw; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+            .topbar .count { font-size:.72rem; }
+            .rec-dot { font-size:.72rem; }
+
+            .grid, .stage { gap:6px; padding:6px; }
+
+            /* Faixa de miniaturas menor no celular */
+            .stage-wrap.with-strip .filmstrip { height:96px; }
+            .filmstrip { gap:6px; padding:6px; }
+            .filmstrip .tile { width:150px; height:84px; }
+
+            /* Ferramentas de zoom/pin: no toque, mostradas via .show-tools */
+            .tile-tools { top:6px; left:6px; gap:4px; }
+            .tile-tools button { width:34px; height:34px; font-size:1rem; }
+            .tile-tools .zoom-val { height:34px; }
+
+            /* Controles: barra rolável horizontal, sem quebrar linha */
+            .controls { gap:8px; padding:10px 8px calc(10px + env(safe-area-inset-bottom)); flex-wrap:nowrap; overflow-x:auto; justify-content:flex-start; }
+            .controls::-webkit-scrollbar { display:none; }
+            .ctrl { width:46px; height:46px; font-size:1.05rem; flex:0 0 auto; }
+            .ctrl.hangup { width:52px; }
+            .ctrl-label { display:none; }
+            .controls .ctrl { margin-bottom:0; }
+            .tile .name { font-size:.7rem; padding:2px 7px; }
+        }
+
+        @media (max-width:768px) and (orientation:portrait){
+            /* Em retrato, palco fica em coluna única (tela grande em cima) */
+            .stage { grid-template-columns:1fr !important; }
+        }
+
+        /* Lobby no celular */
+        @media (max-width:520px){
+            #lobby { padding:12px; align-items:flex-start; }
+            .lobby-card { padding:20px 16px; border-radius:16px; margin-top:16px; }
+            .lobby-card h1 { font-size:1.1rem; }
+            .link-modal .inner { padding:18px; }
+        }
+
+        /* Telas muito baixas (celular deitado): reduz a faixa e controles */
+        @media (max-height:450px){
+            .stage-wrap.with-strip .filmstrip { height:78px; }
+            .filmstrip .tile { width:120px; height:66px; }
+            .controls { padding:6px 8px; }
+            .ctrl { width:42px; height:42px; }
+        }
     </style>
 </head>
 <body>
@@ -113,7 +188,11 @@ $iceJson = json_encode($iceServers ?? [], JSON_UNESCAPED_SLASHES);
         <span class="count"><i class="bi bi-people-fill"></i> <span id="peer-count">1</span></span>
         <span class="rec-dot" id="rec-indicator"><span class="dot"></span> Gravando <span id="rec-time">00:00</span></span>
     </div>
-    <div class="grid" id="grid"></div>
+    <div class="stage-wrap" id="stage-wrap">
+        <div class="stage" id="stage" style="display:none;"></div>
+        <div class="grid" id="grid"></div>
+        <div class="filmstrip" id="filmstrip" style="display:none;"></div>
+    </div>
     <div class="controls">
         <button class="ctrl" id="btn-mic" onclick="toggleMic()" title="Microfone"><i class="bi bi-mic-fill"></i><span class="ctrl-label">Mic</span></button>
         <button class="ctrl" id="btn-cam" onclick="toggleCam()" title="Câmera"><i class="bi bi-camera-video-fill"></i><span class="ctrl-label">Câmera</span></button>
@@ -149,7 +228,16 @@ const ROOM_TOKEN = '<?= $roomToken ?>';
 const ICE_SERVERS = <?= $iceJson ?: '[]' ?>;
 
 // ---- Estado global ----
+// peerId identifica ESTA aba/sessão. browserId é persistente por navegador
+// (compartilhado entre guias) — usado para impedir sessão duplicada no mesmo navegador.
 const peerId = 'p' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+const browserId = (function () {
+    try {
+        let b = localStorage.getItem('vc_browser_id');
+        if (!b) { b = 'b' + Math.random().toString(36).slice(2, 12) + Date.now().toString(36).slice(-4); localStorage.setItem('vc_browser_id', b); }
+        return b;
+    } catch (e) { return 'b' + Math.random().toString(36).slice(2, 12); }
+})();
 let myName = '<?= $suggested ?>' || 'Convidado';
 let localStream = null;      // câmera + microfone
 let screenStream = null;     // compartilhamento de tela (track adicional)
@@ -207,48 +295,165 @@ async function enterRoom() {
     btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Entrando…';
 
     try {
-        const res = await fetch(`${BASE}/videocall/join/${ROOM_TOKEN}`, {
-            method: 'POST',
-            headers: { 'X-Requested-With': 'XMLHttpRequest' },
-            body: new URLSearchParams({ peer_id: peerId, name: myName })
-        }).then(r => r.json());
-
-        if (res.error) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-box-arrow-in-right"></i> Entrar na chamada'; showLobbyError(res.error); return; }
-
-        document.getElementById('lobby').style.display = 'none';
-        document.getElementById('call').style.display = 'flex';
-        joined = true;
-
-        addSelfTile();
-        // Abre conexão com quem já está na sala. Regra de "quem chama":
-        // o novato inicia a oferta para os presentes (glare evitado por polite peer).
-        (res.peers || []).forEach(p => { ensurePeer(p.peer_id, p.name, true); });
-        updateCount();
-        startPolling();
+        await doJoin(false);
     } catch (e) {
         btn.disabled = false; btn.innerHTML = '<i class="bi bi-box-arrow-in-right"></i> Entrar na chamada';
         showLobbyError('Erro ao entrar na chamada. Tente novamente.');
     }
 }
 
+// Executa o join. takeover=true força mover a chamada para esta guia (derruba a outra).
+async function doJoin(takeover) {
+    const btn = document.getElementById('lb-join');
+    const params = { peer_id: peerId, name: myName, browser_id: browserId };
+    if (takeover) params.takeover = '1';
+
+    const res = await fetch(`${BASE}/videocall/join/${ROOM_TOKEN}`, {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        body: new URLSearchParams(params)
+    }).then(r => r.json());
+
+    // Já existe uma sessão deste MESMO navegador em outra guia.
+    if (res.duplicate) {
+        btn.disabled = false; btn.innerHTML = '<i class="bi bi-box-arrow-in-right"></i> Entrar na chamada';
+        const ok = confirm('Você já está nesta chamada em outra guia deste navegador.\n\nDeseja mover a chamada para esta aba? A outra guia será desconectada.');
+        if (ok) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Movendo…'; await doJoin(true); }
+        return;
+    }
+
+    if (res.error) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-box-arrow-in-right"></i> Entrar na chamada'; showLobbyError(res.error); return; }
+
+    document.getElementById('lobby').style.display = 'none';
+    document.getElementById('call').style.display = 'flex';
+    joined = true;
+
+    addSelfTile();
+    // Abre conexão com quem já está na sala. Regra de "quem chama":
+    // o novato inicia a oferta para os presentes (glare evitado por polite peer).
+    (res.peers || []).forEach(p => { ensurePeer(p.peer_id, p.name, true); });
+    updateCount();
+    startPolling();
+}
+
 // ---------- TILES (grade de vídeos) ----------
 function tileEl(id) { return document.getElementById('tile-' + id); }
+
+// Estado de zoom (fator por tile) e de fixação (pin).
+const tileZoom = new Map();   // id -> fator (1 = 100%)
+const pinned = new Set();     // ids fixados manualmente
 
 function makeTile(id, name, opts = {}) {
     const div = document.createElement('div');
     div.className = 'tile' + (opts.self ? ' self' : '') + (opts.screen ? ' screen' : '');
     div.id = 'tile-' + id;
+    div.dataset.tid = id;
     const initial = (name || 'C').trim().charAt(0).toUpperCase();
     div.innerHTML =
-        `<video autoplay playsinline ${opts.self ? 'muted' : ''}></video>
+        `<div class="vwrap"><video autoplay playsinline ${opts.self ? 'muted' : ''}></video></div>
          <div class="avatar"><span>${initial}</span></div>
+         <div class="tile-tools">
+            <button title="Diminuir zoom" onclick="zoomTile('${id}',-0.25)"><i class="bi bi-zoom-out"></i></button>
+            <span class="zoom-val" id="zoom-${id}">100%</span>
+            <button title="Aumentar zoom" onclick="zoomTile('${id}',0.25)"><i class="bi bi-zoom-in"></i></button>
+            <button title="Zoom padrão" onclick="resetZoom('${id}')"><i class="bi bi-arrow-counterclockwise"></i></button>
+            <button title="Fixar/desafixar" onclick="togglePin('${id}')"><i class="bi bi-pin-angle"></i></button>
+         </div>
          <div class="badges">
+            <div class="badge-ic badge-pin"><i class="bi bi-pin-angle-fill"></i></div>
             <div class="badge-ic badge-mic"><i class="bi bi-mic-mute-fill"></i></div>
             <div class="badge-ic badge-cam"><i class="bi bi-camera-video-off-fill"></i></div>
          </div>
          <div class="name">${escapeHtml(name)}${opts.screen ? ' (tela)' : ''}</div>`;
+    // Nasce no grid; o layoutGrid() reposiciona no stage/filmstrip conforme o destaque.
     document.getElementById('grid').appendChild(div);
+    tileZoom.set(id, 1);
+    layoutGrid();
     return div;
+}
+
+// ---------- Zoom por tile (só afeta a visualização local de quem clica) ----------
+function applyZoom(id) {
+    const t = tileEl(id); if (!t) return;
+    const v = t.querySelector('video'); if (!v) return;
+    const z = tileZoom.get(id) || 1;
+    const mirror = t.classList.contains('self') ? -1 : 1; // preserva o espelho do próprio vídeo
+    v.style.transform = `scaleX(${mirror}) scale(${z})`;
+    const label = document.getElementById('zoom-' + id);
+    if (label) label.textContent = Math.round(z * 100) + '%';
+}
+function zoomTile(id, delta) {
+    let z = (tileZoom.get(id) || 1) + delta;
+    z = Math.max(1, Math.min(4, Math.round(z * 100) / 100));
+    tileZoom.set(id, z);
+    applyZoom(id);
+}
+function resetZoom(id) { tileZoom.set(id, 1); applyZoom(id); }
+
+// ---------- Fixar (pin) ----------
+function togglePin(id) {
+    if (pinned.has(id)) pinned.delete(id); else pinned.add(id);
+    layoutGrid();
+}
+
+// Um tile de tela compartilhada é sempre destaque automático.
+function isScreenTile(id) { return id.endsWith('-screen'); }
+
+/**
+ * Distribui os tiles entre o "palco" (destaques) e a grade/faixa (demais),
+ * no estilo Meet: tela compartilhada e itens fixados ficam grandes; as câmeras
+ * restantes vão para uma faixa de miniaturas. Sem destaque, usa a grade cheia.
+ */
+function layoutGrid() {
+    const grid = document.getElementById('grid');
+    const stage = document.getElementById('stage');
+    const strip = document.getElementById('filmstrip');
+    const wrap = document.getElementById('stage-wrap');
+
+    const allTiles = Array.from(document.querySelectorAll('#stage .tile, #grid .tile, #filmstrip .tile'));
+
+    // Quem é destaque: qualquer tile de tela + qualquer fixado.
+    const featured = allTiles.filter(t => isScreenTile(t.dataset.tid) || pinned.has(t.dataset.tid));
+    const others = allTiles.filter(t => !featured.includes(t));
+
+    if (featured.length === 0) {
+        // ----- Modo grade normal (preenche a tela, sem scroll) -----
+        stage.style.display = 'none';
+        strip.style.display = 'none';
+        wrap.classList.remove('with-strip');
+        grid.style.display = 'grid';
+        allTiles.forEach(t => grid.appendChild(t));
+        const n = allTiles.length || 1;
+        grid.setAttribute('data-n', Math.min(n, 16));
+        let cols = 1;
+        if (n === 2) cols = 2;
+        else if (n <= 4) cols = 2;
+        else if (n <= 9) cols = 3;
+        else cols = 4;
+        if (window.innerWidth <= 700) cols = (n === 1) ? 1 : 2;
+        grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+        grid.style.gridTemplateRows = `repeat(${Math.ceil(n / cols)}, 1fr)`;
+    } else {
+        // ----- Modo apresentação: palco + faixa de miniaturas -----
+        grid.style.display = 'none';
+        stage.style.display = 'grid';
+        featured.forEach(t => stage.appendChild(t));
+        const fn = featured.length;
+        const scols = fn === 1 ? 1 : 2;
+        stage.style.gridTemplateColumns = `repeat(${scols}, 1fr)`;
+        stage.style.gridTemplateRows = `repeat(${Math.ceil(fn / scols)}, 1fr)`;
+
+        if (others.length) {
+            strip.style.display = 'flex';
+            wrap.classList.add('with-strip');
+            others.forEach(t => strip.appendChild(t));
+        } else {
+            strip.style.display = 'none';
+            wrap.classList.remove('with-strip');
+        }
+    }
+    // Reaplica o zoom de cada tile (o transform se mantém entre reposicionamentos).
+    allTiles.forEach(t => applyZoom(t.dataset.tid));
 }
 
 function addSelfTile() {
@@ -258,7 +463,10 @@ function addSelfTile() {
     div.classList.toggle('cam-off', !camOn);
 }
 
-function removeTile(id) { const t = tileEl(id); if (t) t.remove(); }
+function removeTile(id) {
+    const t = tileEl(id);
+    if (t) { t.remove(); tileZoom.delete(id); pinned.delete(id); layoutGrid(); }
+}
 
 function updateCount() { document.getElementById('peer-count').textContent = (peers.size + 1); }
 
@@ -323,6 +531,7 @@ async function handleSignal(sig) {
         if (!peers.has(from)) ensurePeer(from, (sig.payload && sig.payload.name) || 'Convidado', false);
         return;
     }
+    if (sig.kind === 'kick') { onKicked(); return; }
     if (sig.kind === 'leave' || sig.kind === 'end') { dropPeer(from); return; }
 
     if (sig.kind === 'media') {
@@ -437,9 +646,8 @@ async function toggleScreen() {
     } catch (e) { return; }
     sharing = true;
     document.getElementById('btn-screen').classList.add('active');
-    document.getElementById('grid').classList.add('share-mode');
 
-    // Mostra a própria tela num tile local.
+    // Mostra a própria tela num tile local (vai automaticamente para o palco).
     const selfScreen = makeTile(peerId + '-screen', myName + ' (sua tela)', { self: false, screen: true });
     selfScreen.querySelector('video').srcObject = screenStream;
 
@@ -452,7 +660,6 @@ function stopScreen() {
     if (!sharing) return;
     sharing = false;
     document.getElementById('btn-screen').classList.remove('active');
-    document.getElementById('grid').classList.remove('share-mode');
     if (screenStream) {
         screenStream.getTracks().forEach(t => {
             t.stop();
@@ -551,7 +758,18 @@ function copyRecUrl() {
     navigator.clipboard?.writeText(v).then(() => toast('Link da gravação copiado!'));
 }
 
+// Encerra as mídias/conexões desta guia e devolve uma mensagem de saída.
+function teardown(headline, sub) {
+    joined = false;
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') { try { stopRecording(); } catch (e) {} }
+    peers.forEach(e => { try { e.pc.close(); } catch (x) {} });
+    if (localStream) localStream.getTracks().forEach(t => t.stop());
+    if (screenStream) screenStream.getTracks().forEach(t => t.stop());
+    document.body.innerHTML = '<div style="height:100vh;display:flex;align-items:center;justify-content:center;flex-direction:column;color:#e8eaf1;font-family:system-ui;text-align:center;padding:20px;"><div style="font-size:3rem;">' + (headline.icon || '👋') + '</div><h3 style="margin-top:12px;">' + headline.text + '</h3>' + (sub ? '<p style="color:#9aa2c0;margin-top:4px;max-width:320px;">' + sub + '</p>' : '') + '<a href="' + BASE + '/videocall/room/' + ROOM_TOKEN + '" style="color:#00BFA6;margin-top:10px;">Entrar novamente</a></div>';
+}
+
 function hangup() {
+    if (!joined) return;
     joined = false;
     if (mediaRecorder && mediaRecorder.state !== 'inactive') { stopRecording(); }
     try {
@@ -559,10 +777,15 @@ function hangup() {
     } catch (e) {
         fetch(`${BASE}/videocall/leave/${ROOM_TOKEN}`, { method: 'POST', body: new URLSearchParams({ peer_id: peerId }) });
     }
-    peers.forEach(e => { try { e.pc.close(); } catch (x) {} });
-    if (localStream) localStream.getTracks().forEach(t => t.stop());
-    if (screenStream) screenStream.getTracks().forEach(t => t.stop());
-    document.body.innerHTML = '<div style="height:100vh;display:flex;align-items:center;justify-content:center;flex-direction:column;color:#e8eaf1;font-family:system-ui;"><i class="bi" style="font-size:3rem;">👋</i><h3 style="margin-top:12px;">Você saiu da chamada</h3><a href="' + BASE + '/videocall/room/' + ROOM_TOKEN + '" style="color:#00BFA6;margin-top:8px;">Entrar novamente</a></div>';
+    teardown({ icon: '👋', text: 'Você saiu da chamada' });
+}
+
+// Esta guia foi substituída por outra guia do mesmo navegador (takeover).
+function onKicked() {
+    if (!joined) return;
+    joined = false;
+    teardown({ icon: '↪️', text: 'Chamada movida para outra guia' },
+        'Você entrou nesta chamada em outra aba deste navegador. Esta sessão foi encerrada para evitar duplicidade.');
 }
 
 window.addEventListener('beforeunload', () => {
@@ -580,6 +803,22 @@ function toast(msg) {
     el.className = 'toast-msg'; el.textContent = msg;
     box.appendChild(el);
     setTimeout(() => el.remove(), 4000);
+}
+
+window.addEventListener('resize', () => { if (joined) layoutGrid(); });
+// Reajusta ao girar o celular (o resize às vezes não dispara no orientationchange).
+window.addEventListener('orientationchange', () => { setTimeout(() => { if (joined) layoutGrid(); }, 300); });
+
+// No celular não há hover: um toque no tile mostra/esconde os controles de zoom/pin.
+const IS_TOUCH = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+if (IS_TOUCH) {
+    document.addEventListener('click', (ev) => {
+        const tile = ev.target.closest('.tile');
+        // Toque em um botão das ferramentas não deve alternar a visibilidade.
+        if (ev.target.closest('.tile-tools')) return;
+        document.querySelectorAll('.tile.show-tools').forEach(t => { if (t !== tile) t.classList.remove('show-tools'); });
+        if (tile) tile.classList.toggle('show-tools');
+    });
 }
 
 initPreview();

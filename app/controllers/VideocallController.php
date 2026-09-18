@@ -140,6 +140,26 @@ class VideocallController extends Controller
         if ($peerId === '') $this->json(['error' => 'peer_id ausente'], 400);
 
         $name = trim(substr((string)($_POST['name'] ?? ''), 0, 120)) ?: 'Convidado';
+        $browserId = $this->safePeerId($_POST['browser_id'] ?? '');
+        $takeover = ((string)($_POST['takeover'] ?? '') === '1');
+
+        // Impede sessão DUPLICADA no MESMO navegador (ex.: abrir outra guia).
+        // Dispositivos diferentes têm browser_id distinto, então continuam livres.
+        if ($browserId !== '') {
+            $dupes = $this->model->activeByBrowser($room['id'], $browserId, $peerId);
+            if (!empty($dupes)) {
+                if (!$takeover) {
+                    // Frontend vai perguntar se deseja mover a chamada para esta guia.
+                    $this->json(['duplicate' => true, 'message' => 'Você já está nesta chamada em outra guia deste navegador.']);
+                }
+                // Takeover: derruba as sessões antigas deste mesmo navegador.
+                foreach ($dupes as $d) {
+                    $this->model->pushSignal($room['id'], $peerId, $d['peer_id'], 'kick', ['reason' => 'takeover']);
+                    $this->model->leavePresence($room['id'], $d['peer_id']);
+                    $this->model->pushSignal($room['id'], $d['peer_id'], null, 'leave', null);
+                }
+            }
+        }
 
         // Teto de participantes (não conta o próprio peer se já estava presente).
         $existing = $this->model->activeParticipants($room['id'], $peerId);
@@ -149,7 +169,7 @@ class VideocallController extends Controller
 
         $userId = $_SESSION['user_id'] ?? null;
         $isHost = ($userId && (int)$userId === (int)$room['created_by']);
-        $this->model->joinPresence($room['id'], $peerId, $name, $userId, $isHost ? 'host' : 'participant');
+        $this->model->joinPresence($room['id'], $peerId, $name, $userId, $isHost ? 'host' : 'participant', $browserId ?: null);
 
         // Avisa a sala que alguém entrou (broadcast).
         $this->model->pushSignal($room['id'], $peerId, null, 'join', ['name' => $name]);

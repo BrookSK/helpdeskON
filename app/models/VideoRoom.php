@@ -71,7 +71,7 @@ class VideoRoom
     /**
      * Registra/atualiza a presença de um peer na sala (upsert por room+peer).
      */
-    public function joinPresence($roomId, $peerId, $displayName = null, $userId = null, $role = 'participant')
+    public function joinPresence($roomId, $peerId, $displayName = null, $userId = null, $role = 'participant', $browserId = null)
     {
         $now = date('Y-m-d H:i:s');
         $existing = $this->db->fetch(
@@ -82,6 +82,7 @@ class VideoRoom
             $this->db->update('video_room_participants', [
                 'display_name' => $displayName,
                 'user_id' => $userId,
+                'browser_id' => $browserId,
                 'last_seen_at' => $now,
                 'left_at' => null,
             ], 'id = ?', [$existing['id']]);
@@ -90,12 +91,28 @@ class VideoRoom
         return $this->db->insert('video_room_participants', [
             'room_id' => $roomId,
             'peer_id' => $peerId,
+            'browser_id' => $browserId,
             'user_id' => $userId,
             'display_name' => $displayName,
             'role' => in_array($role, ['host', 'participant']) ? $role : 'participant',
             'joined_at' => $now,
             'last_seen_at' => $now,
         ]);
+    }
+
+    /**
+     * Sessões ATIVAS do mesmo navegador (browser_id) nesta sala, exceto o peer atual.
+     * Usado para impedir sessão duplicada no mesmo navegador (nova guia).
+     */
+    public function activeByBrowser($roomId, $browserId, $excludePeerId = null)
+    {
+        if (empty($browserId)) return [];
+        $cutoff = date('Y-m-d H:i:s', time() - self::PRESENCE_TIMEOUT);
+        $sql = "SELECT peer_id FROM video_room_participants
+                WHERE room_id = ? AND browser_id = ? AND left_at IS NULL AND last_seen_at >= ?";
+        $params = [$roomId, $browserId, $cutoff];
+        if ($excludePeerId !== null) { $sql .= " AND peer_id <> ?"; $params[] = $excludePeerId; }
+        return $this->db->fetchAll($sql, $params);
     }
 
     /** Atualiza o heartbeat de um peer (mantém presença viva). */
