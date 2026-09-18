@@ -4,6 +4,7 @@ $title = htmlspecialchars(($room['title'] ?? 'Gravação') ?: 'Gravação', ENT_
 $recToken = htmlspecialchars($rec['token'], ENT_QUOTES);
 $videoUrl = htmlspecialchars($videoUrl, ENT_QUOTES);
 $status = $rec['transcribe_status'] ?? 'none';
+$durationSec = (int)($rec['duration_sec'] ?? 0);
 $summary = (string)($rec['summary'] ?? '');
 $segJson = json_encode($segments ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 $shareUrl = $base . '/videocall/share/' . $recToken;
@@ -110,7 +111,39 @@ const SHARE_URL = '<?= htmlspecialchars($shareUrl, ENT_QUOTES) ?>';
 let segments = <?= $segJson ?: '[]' ?>;
 let summary = <?= json_encode($summary, JSON_UNESCAPED_UNICODE) ?>;
 let status = '<?= $status ?>';
+const KNOWN_DURATION = <?= $durationSec > 0 ? $durationSec : 'null' ?>; // do banco (se medido)
 const player = document.getElementById('player');
+
+// -------------------------------------------------------------------
+// Correção do "seek" (arrastar para qualquer minutagem):
+// gravações do MediaRecorder (WebM) NÃO trazem a duração no cabeçalho, então
+// o navegador reporta duration = Infinity e a barra não deixa pular no tempo.
+// Truque: dar um seek para um tempo enorme força o navegador a ler o arquivo
+// até o fim e descobrir a duração real; quando ela vira finita, voltamos ao 0.
+// A partir daí a barra fica correta e o seek funciona para qualquer ponto.
+// -------------------------------------------------------------------
+let durationFixed = false;
+function fixInfiniteDuration() {
+    if (durationFixed) return;
+    const d = player.duration;
+    if (d && isFinite(d) && d > 0) { durationFixed = true; return; }
+    // Ainda não sabe a duração: provoca a leitura até o fim.
+    const onDur = () => {
+        if (isFinite(player.duration) && player.duration > 0) {
+            durationFixed = true;
+            player.removeEventListener('durationchange', onDur);
+            // volta ao início sem começar a tocar
+            try { player.currentTime = 0; } catch (e) {}
+        }
+    };
+    player.addEventListener('durationchange', onDur);
+    try {
+        player.currentTime = 1e101; // dispara a varredura; o navegador ajusta para o fim real
+    } catch (e) {}
+}
+player.addEventListener('loadedmetadata', fixInfiniteDuration);
+// Alguns navegadores só expõem a duração ao começar a decodificar.
+player.addEventListener('loadeddata', fixInfiniteDuration);
 
 function fmt(t) {
     t = Math.max(0, Math.floor(t || 0));
@@ -134,7 +167,18 @@ function renderSegments() {
         `<div class="seg" id="seg-${i}" onclick="seek(${s.start})"><span class="t">${fmt(s.start)}</span><span>${esc(s.text)}</span></div>`
     ).join('');
 }
-function seek(t) { player.currentTime = t; player.play(); }
+function seek(t) {
+    // Garante que a duração já foi destravada antes de pular (senão o seek falha
+    // em WebM sem cabeçalho de duração).
+    if (!durationFixed && !isFinite(player.duration)) {
+        fixInfiniteDuration();
+        const go = () => { player.removeEventListener('durationchange', go); try { player.currentTime = t; player.play(); } catch (e) {} };
+        player.addEventListener('durationchange', go);
+        return;
+    }
+    try { player.currentTime = t; } catch (e) {}
+    player.play();
+}
 
 // Destaca o segmento conforme o vídeo avança.
 player.addEventListener('timeupdate', () => {
