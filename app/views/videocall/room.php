@@ -128,6 +128,11 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
         .tile .badge-hand { color:#ffd54a; }
         .tile.hand-up .badge-hand { display:flex; background:rgba(224,164,0,.28); }
         .tile.hand-up { outline:2px solid #ffd54a; outline-offset:-2px; }
+        /* Tela compartilhada em tela cheia real. */
+        .tile:fullscreen { width:100vw; height:100vh; border-radius:0; background:#000; }
+        .tile:-webkit-full-screen { width:100vw; height:100vh; border-radius:0; background:#000; }
+        .tile:fullscreen video { object-fit:contain; }
+        .tile:fullscreen .tile-zoom, .tile:fullscreen .tile-tools { opacity:1; } /* controles sempre visíveis em tela cheia */
         /* Quem está falando: borda destacada (verde) com brilho suave. */
         .tile.speaking { outline:3px solid #3ddc84; outline-offset:-3px; box-shadow:0 0 0 1px rgba(61,220,132,.5), 0 0 16px rgba(61,220,132,.55); }
         .tile.speaking.mic-off { outline:none; box-shadow:none; } /* mutado nunca "fala" */
@@ -1094,6 +1099,7 @@ function makeTile(id, name, opts = {}) {
              <span class="zoom-val" id="zoom-${id}">100%</span>
              <button title="Aumentar zoom" onclick="zoomTile('${id}',0.25)"><i class="bi bi-zoom-in"></i></button>
              <button title="Zoom padrão" onclick="resetZoom('${id}')"><i class="bi bi-arrow-counterclockwise"></i></button>
+             <button title="Tela cheia" onclick="toggleTileFullscreen('${id}')"><i class="bi bi-arrows-fullscreen"></i></button>
            </div>`
         : '';
     // Botão de mutar (admin muta o microfone de um participante). Só em tiles de
@@ -1198,6 +1204,37 @@ function zoomTile(id, delta) {
     enablePan(id);
 }
 function resetZoom(id) { tileZoom.set(id, 1); tilePan.set(id, { x: 0, y: 0 }); applyZoom(id); }
+
+// Abre/fecha o tile (tela compartilhada) em tela cheia real do navegador.
+function toggleTileFullscreen(id) {
+    const t = tileEl(id); if (!t) return;
+    const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+    if (fsEl) {
+        (document.exitFullscreen || document.webkitExitFullscreen || function(){}).call(document);
+        return;
+    }
+    const req = t.requestFullscreen || t.webkitRequestFullscreen || t.msRequestFullscreen;
+    if (req) {
+        try { req.call(t); } catch (e) { toast('Seu navegador não permitiu tela cheia.'); }
+    } else {
+        toast('Tela cheia não suportada neste navegador.');
+    }
+}
+// Atualiza o ícone do botão de tela cheia (entrar x sair) e reajusta o zoom.
+function onFullscreenChange() {
+    const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+    document.querySelectorAll('.tile-zoom button[title="Tela cheia"] i, .tile-zoom button[title="Sair da tela cheia"] i').forEach(ic => {
+        ic.className = 'bi bi-arrows-fullscreen';
+        ic.parentElement.title = 'Tela cheia';
+    });
+    if (fsEl && fsEl.classList && fsEl.classList.contains('tile')) {
+        const btn = fsEl.querySelector('.tile-zoom button[title="Tela cheia"]');
+        if (btn) { btn.querySelector('i').className = 'bi bi-fullscreen-exit'; btn.title = 'Sair da tela cheia'; }
+        applyZoom(fsEl.dataset.tid); // recalcula limites de pan para o novo tamanho
+    }
+}
+document.addEventListener('fullscreenchange', onFullscreenChange);
+document.addEventListener('webkitfullscreenchange', onFullscreenChange);
 
 // Habilita arrastar (mouse + toque) para mover a área ampliada.
 function enablePan(id) {
