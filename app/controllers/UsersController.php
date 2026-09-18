@@ -142,6 +142,31 @@ class UsersController extends Controller
     }
 
     /**
+     * Ficha de consulta (somente leitura) de um usuário: exibe os mesmos dados
+     * preenchidos no cadastro e as empresas vinculadas. A partir dela é possível
+     * abrir o formulário de edição já existente (users/edit/{id}).
+     * Acessível apenas pelo super_admin.
+     */
+    public function analisar($id = null)
+    {
+        $this->requireRole(['super_admin']);
+        if (!$id) $this->redirect('users');
+
+        $user = $this->currentUser();
+        $viewUser = $this->userModel->findById($id);
+        if (!$viewUser) {
+            flash('error', 'Usuário não encontrado.');
+            $this->redirect('users');
+        }
+
+        $this->view('admin/user_view', [
+            'user' => $user,
+            'viewUser' => $viewUser,
+            'linkedCompanies' => $this->userModel->getLinkedCompanies($id),
+        ]);
+    }
+
+    /**
      * Auditoria de um usuário: todos os logins e todas as ações executadas.
      * Acessível apenas pelo super_admin, a partir do perfil do usuário.
      */

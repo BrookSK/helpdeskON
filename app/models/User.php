@@ -21,9 +21,14 @@ class User
 
     public function getAll($role = null)
     {
+        // Subquery: nº de empresas ADICIONAIS (Multi-Empresas), sem contar a principal.
+        $extraCountSql = "(SELECT COUNT(*) FROM user_company_access uca
+                           WHERE uca.user_id = u.id
+                             AND (u.company_id IS NULL OR uca.company_id <> u.company_id))";
+
         if ($role) {
             return $this->db->fetchAll(
-                "SELECT u.*, comp.name as company_name
+                "SELECT u.*, comp.name as company_name, $extraCountSql AS extra_companies_count
                  FROM users u
                  LEFT JOIN companies comp ON u.company_id = comp.id
                  WHERE u.role = ? ORDER BY comp.name IS NULL, comp.name, u.name",
@@ -31,7 +36,7 @@ class User
             );
         }
         return $this->db->fetchAll(
-            "SELECT u.*, comp.name as company_name
+            "SELECT u.*, comp.name as company_name, $extraCountSql AS extra_companies_count
              FROM users u
              LEFT JOIN companies comp ON u.company_id = comp.id
              ORDER BY u.name ASC"
