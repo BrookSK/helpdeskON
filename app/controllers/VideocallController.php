@@ -323,12 +323,12 @@ class VideocallController extends Controller
         $kind = (string)($body['kind'] ?? '');
         $payload = $body['payload'] ?? null;
 
-        $allowed = ['offer', 'answer', 'ice', 'join', 'leave', 'media', 'screen', 'end', 'reaction', 'hand', 'rec', 'state'];
+        $allowed = ['offer', 'answer', 'ice', 'join', 'leave', 'media', 'screen', 'end', 'reaction', 'hand', 'rec', 'state', 'forcemute'];
         if ($from === '' || !in_array($kind, $allowed, true)) {
             $this->json(['error' => 'Sinal inválido'], 400);
         }
-        // 'end' encerra a sala para todos — só admin da sala pode.
-        if ($kind === 'end') {
+        // Ações de moderação (encerrar sala / silenciar alguém) — só admin da sala.
+        if ($kind === 'end' || $kind === 'forcemute') {
             if (!$this->model->isAdminUser($room, $endUserId)) $this->json(['error' => 'Sem permissão.'], 403);
         }
 

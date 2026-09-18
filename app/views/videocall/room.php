@@ -129,16 +129,25 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
         .tile.hand-up .badge-hand { display:flex; background:rgba(224,164,0,.28); }
         .tile.hand-up { outline:2px solid #ffd54a; outline-offset:-2px; }
 
+        /* Ferramentas do topo (fixar / mutar admin) — canto superior esquerdo. */
         .tile-tools { position:absolute; top:8px; left:8px; display:flex; gap:5px; opacity:0; transition:opacity .15s; z-index:4; }
         .tile:hover .tile-tools, .tile.show-tools .tile-tools { opacity:1; }
         .tile-tools button { width:30px; height:30px; border:none; border-radius:8px; background:rgba(10,12,24,.72); color:#fff; font-size:.9rem; cursor:pointer; display:flex; align-items:center; justify-content:center; }
         .tile-tools button:hover { background:var(--brand); }
-        .tile-tools .zoom-val { min-width:38px; padding:0 6px; height:30px; border-radius:8px; background:rgba(10,12,24,.72); color:#cfd3e6; font-size:.7rem; display:flex; align-items:center; justify-content:center; }
+        .tile-tools .tile-mod-btn:hover { background:#c0304a; }
         .filmstrip .tile-tools { transform:scale(.85); transform-origin:top left; }
+        /* Controles de zoom da TELA — canto inferior direito. */
+        .tile-zoom { position:absolute; right:8px; bottom:8px; display:flex; align-items:center; gap:5px; opacity:0; transition:opacity .15s; z-index:4; }
+        .tile:hover .tile-zoom, .tile.show-tools .tile-zoom { opacity:1; }
+        .tile-zoom button { width:30px; height:30px; border:none; border-radius:8px; background:rgba(10,12,24,.72); color:#fff; font-size:.9rem; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+        .tile-zoom button:hover { background:var(--brand); }
+        .tile-zoom .zoom-val { min-width:42px; padding:0 6px; height:30px; border-radius:8px; background:rgba(10,12,24,.72); color:#cfd3e6; font-size:.72rem; display:flex; align-items:center; justify-content:center; }
+        .filmstrip .tile-zoom { transform:scale(.85); transform-origin:bottom right; }
 
         /* Barra de controles */
         .controls-wrap { position:relative; }
         .controls-more { display:none; }
+        .controls-fade { display:none; }
         .controls { display:flex; align-items:center; justify-content:center; gap:10px; padding:14px; background:rgba(0,0,0,.3); flex-wrap:wrap; }
         .ctrl-group { position:relative; display:flex; align-items:flex-end; }
         .ctrl { width:52px; height:52px; border-radius:50%; border:none; background:var(--panel2); color:#fff; font-size:1.15rem; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:.15s; position:relative; }
@@ -240,11 +249,22 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
             .filmstrip .tile { width:150px; height:84px; }
             .tile-tools { top:6px; left:6px; gap:4px; }
             .tile-tools button { width:34px; height:34px; font-size:1rem; }
-            .tile-tools .zoom-val { height:34px; }
+            .tile-zoom { right:6px; bottom:6px; gap:4px; }
+            .tile-zoom button { width:34px; height:34px; font-size:1rem; }
+            .tile-zoom .zoom-val { height:34px; }
             .controls { gap:8px; padding:10px 8px calc(10px + env(safe-area-inset-bottom)); flex-wrap:nowrap; overflow-x:auto; justify-content:flex-start; scroll-behavior:smooth; }
             .controls::-webkit-scrollbar { display:none; }
             /* Dica de arraste: seta pulsante à direita quando há mais botões escondidos. */
             .controls-more { display:none; }
+            /* Faixa esfumaçada atrás da setinha: "apaga" os botões embaixo e
+               deixa claro que ali é a zona de rolar (não de clicar). */
+            .controls-fade { display:none; }
+            .controls-wrap.has-overflow .controls-fade {
+                display:block; position:absolute; right:0; top:0; bottom:0; width:64px;
+                pointer-events:none; z-index:5;
+                background:linear-gradient(to right, rgba(15,16,32,0), rgba(15,16,32,.55) 45%, rgba(15,16,32,.9));
+                backdrop-filter:blur(2px); -webkit-backdrop-filter:blur(2px);
+            }
             .controls-wrap.has-overflow .controls-more {
                 display:flex; align-items:center; justify-content:center;
                 position:absolute; right:6px; bottom:calc(12px + env(safe-area-inset-bottom));
@@ -381,6 +401,7 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
         <button class="ctrl hangup" onclick="hangup()" title="Sair"><i class="bi bi-telephone-x-fill"></i><span class="ctrl-label">Sair</span></button>
     </div>
     <!-- Dica: há mais botões ao arrastar para o lado (só aparece no celular quando há overflow) -->
+    <div class="controls-fade"></div>
     <button type="button" class="controls-more" id="controls-more" onclick="scrollControls()" title="Mais opções"><i class="bi bi-chevron-right"></i></button>
     </div>
 
@@ -1061,21 +1082,30 @@ function makeTile(id, name, opts = {}) {
     div.dataset.tid = id;
     const initial = (name || 'C').trim().charAt(0).toUpperCase();
     const screen = !!opts.screen;
-    // Zoom só existe em tiles de TELA. Fixar existe em ambos (câmera e tela).
+    // Zoom só existe em tiles de TELA. Fica no canto INFERIOR DIREITO.
     const zoomTools = screen
-        ? `<button title="Diminuir zoom" onclick="zoomTile('${id}',-0.25)"><i class="bi bi-zoom-out"></i></button>
-           <span class="zoom-val" id="zoom-${id}">100%</span>
-           <button title="Aumentar zoom" onclick="zoomTile('${id}',0.25)"><i class="bi bi-zoom-in"></i></button>
-           <button title="Zoom padrão" onclick="resetZoom('${id}')"><i class="bi bi-arrow-counterclockwise"></i></button>`
+        ? `<div class="tile-zoom">
+             <button title="Diminuir zoom" onclick="zoomTile('${id}',-0.25)"><i class="bi bi-zoom-out"></i></button>
+             <span class="zoom-val" id="zoom-${id}">100%</span>
+             <button title="Aumentar zoom" onclick="zoomTile('${id}',0.25)"><i class="bi bi-zoom-in"></i></button>
+             <button title="Zoom padrão" onclick="resetZoom('${id}')"><i class="bi bi-arrow-counterclockwise"></i></button>
+           </div>`
+        : '';
+    // Botão de mutar (admin muta o microfone de um participante). Só em tiles de
+    // CÂMERA de OUTRA pessoa e apenas quando eu sou admin.
+    const isOwnOrScreen = screen || (id === peerId) || id.endsWith('-screen');
+    const modTools = (isAdmin && !isOwnOrScreen)
+        ? `<button class="tile-mod-btn" title="Silenciar microfone deste participante" onclick="adminMute('${id}')"><i class="bi bi-mic-mute"></i></button>`
         : '';
     div.innerHTML =
         `<div class="vwrap"><video autoplay playsinline ${opts.self ? 'muted' : ''}></video></div>
          <div class="avatar"><span>${initial}</span></div>
          <div class="reaction-badge"><span class="emo"></span><span class="who"></span></div>
          <div class="tile-tools">
-            ${zoomTools}
+            ${modTools}
             <button title="Fixar/desafixar" onclick="togglePin('${id}')"><i class="bi bi-pin-angle"></i></button>
          </div>
+         ${zoomTools}
          <div class="badges">
             <div class="badge-ic badge-hand"><i class="bi bi-hand-index-thumb-fill"></i></div>
             <div class="badge-ic badge-pin"><i class="bi bi-pin-angle-fill"></i></div>
@@ -1120,11 +1150,34 @@ function applyZoom(id) {
     const v = t.querySelector('video'); if (!v) return;
     const z = tileZoom.get(id) || 1;
     const mirror = t.classList.contains('self') ? -1 : 1;
-    // Limita o pan ao que "sobra" após o zoom (não deixa arrastar pra fora).
     const pan = tilePan.get(id) || { x: 0, y: 0 };
-    const maxPct = (z > 1) ? (50 * (z - 1) / z) : 0; // % de translate permitido
-    const tx = Math.max(-maxPct, Math.min(maxPct, pan.x * maxPct));
-    const ty = Math.max(-maxPct, Math.min(maxPct, pan.y * maxPct));
+
+    // Limite do deslocamento (pan) em CADA eixo, considerando o tamanho REAL
+    // renderizado do vídeo dentro do tile (importante quando é "contain": a tela
+    // não preenche o tile, então o limite é diferente em X e Y — isso garante
+    // que dá para chegar às extremidades, inclusive topo/base).
+    const rect = t.getBoundingClientRect();
+    const W = rect.width || 1, H = rect.height || 1;
+    const vw = v.videoWidth || 16, vh = v.videoHeight || 9;
+    const isContain = t.classList.contains('screen') || t.classList.contains('portrait-cam');
+    // dimensão base do conteúdo dentro do tile (antes do scale)
+    let baseW, baseH;
+    if (isContain) {
+        const s = Math.min(W / vw, H / vh); baseW = vw * s; baseH = vh * s;
+    } else {
+        const s = Math.max(W / vw, H / vh); baseW = vw * s; baseH = vh * s;
+    }
+    // com o zoom aplicado
+    const contentW = baseW * z, contentH = baseH * z;
+    // excedente além do tile (px) em cada eixo; metade para cada lado
+    const overX = Math.max(0, (contentW - W) / 2);
+    const overY = Math.max(0, (contentH - H) / 2);
+    // translate é em % da altura/largura do ELEMENTO de vídeo (W×H)
+    const maxPctX = (overX / W) * 100;
+    const maxPctY = (overY / H) * 100;
+    const tx = Math.max(-maxPctX, Math.min(maxPctX, pan.x * maxPctX));
+    const ty = Math.max(-maxPctY, Math.min(maxPctY, pan.y * maxPctY));
+
     v.style.transform = `translate(${tx}%, ${ty}%) scaleX(${mirror}) scale(${z})`;
     v.style.cursor = (z > 1) ? 'grab' : '';
     const label = document.getElementById('zoom-' + id);
@@ -1187,6 +1240,16 @@ function enablePan(id) {
 }
 
 function togglePin(id) { if (pinned.has(id)) pinned.delete(id); else pinned.add(id); layoutGrid(); }
+
+// Admin silencia o microfone de um participante (ele pode reativar depois).
+function adminMute(id) {
+    if (!isAdmin || id === peerId) return;
+    sendSignal(id, 'forcemute', { by: myName });
+    const nm = peerNames.get(id) || (peers.get(id)?.name) || 'participante';
+    toast('Microfone de ' + nm + ' silenciado.');
+    // Reflete visualmente já (o estado real volta pelo heartbeat do peer).
+    tileEl(id)?.classList.add('mic-off');
+}
 
 /**
  * Aplica a grade preenchendo a ÚLTIMA linha incompleta: os tiles que sobram
@@ -1547,6 +1610,14 @@ async function handleSignal(sig) {
     }
     if (sig.kind === 'perm') { if (sig.payload) applyPresentationPerm(!!sig.payload.allow_presentation); return; }
     if (sig.kind === 'rec') { showRemoteRecState(sig.payload || {}); return; }
+    if (sig.kind === 'forcemute') {
+        // O admin pediu para EU silenciar meu microfone. Muto (se estiver aberto) e aviso.
+        if (sig.to === peerId) {
+            if (micOn) toggleMic();
+            toast('🔇 Um administrador silenciou seu microfone. Você pode reativá-lo quando quiser.');
+        }
+        return;
+    }
     if (sig.kind === 'hand') {
         // Admin pediu para EU baixar a mão (sinal direcionado com force).
         if (sig.payload && sig.payload.force && sig.to === peerId) { if (handUp) toggleHand(); return; }
@@ -1858,6 +1929,10 @@ function beep() {
 // Sons curtos de experiência (entrar/sair/tela). Evita spam com throttle.
 let lastSfx = {};
 function sfx(kind) {
+    // Se estou compartilhando a tela COM áudio do sistema, os efeitos sonoros
+    // sairiam pelos alto-falantes e seriam recapturados (loop de eco). Nesse
+    // caso, silencia só os efeitos de interface — o áudio das pessoas segue normal.
+    if (sharing && screenStream && screenStream.getAudioTracks().length > 0) return;
     const now = Date.now();
     if (lastSfx[kind] && now - lastSfx[kind] < 400) return; // não repete em rajada
     lastSfx[kind] = now;
@@ -1878,6 +1953,39 @@ function sfx(kind) {
         seq.forEach((f, i) => {
             const o = audioCtx.createOscillator();
             o.type = 'sine'; o.frequency.value = f;
+            o.connect(g);
+            o.start(audioCtx.currentTime + i * step);
+            o.stop(audioCtx.currentTime + i * step + step + 0.02);
+        });
+    } catch (e) {}
+}
+
+// Som curto e característico de cada emoji de reação (WebAudio, sem arquivos).
+let lastEmojiSound = 0;
+function emojiSound(emoji) {
+    // Não toca se estiver compartilhando tela COM áudio (evita loop de eco).
+    if (sharing && screenStream && screenStream.getAudioTracks().length > 0) return;
+    const now = Date.now();
+    if (now - lastEmojiSound < 120) return; // evita estouro em rajada
+    lastEmojiSound = now;
+    // Cada emoji tem uma "assinatura" sonora: [freq, tipo] por nota.
+    const map = {
+        '👍': { seq: [660, 880], type: 'triangle' },        // positivo, curto
+        '❤️': { seq: [523, 659, 784], type: 'sine' },        // suave, ascendente
+        '😂': { seq: [784, 659, 784, 659], type: 'square', step: 0.06 }, // saltitante
+        '🎉': { seq: [523, 784, 1047], type: 'triangle' },   // festivo
+        '👏': { seq: [700, 700], type: 'square', step: 0.08 }, // palma dupla
+        '😮': { seq: [880, 500], type: 'sine' },             // surpresa, cai
+    };
+    const cfg = map[emoji] || { seq: [700], type: 'sine' };
+    const step = cfg.step || 0.08;
+    try {
+        audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+        const g = audioCtx.createGain(); g.connect(audioCtx.destination);
+        g.gain.value = 0.05;
+        cfg.seq.forEach((f, i) => {
+            const o = audioCtx.createOscillator();
+            o.type = cfg.type; o.frequency.value = f;
             o.connect(g);
             o.start(audioCtx.currentTime + i * step);
             o.stop(audioCtx.currentTime + i * step + step + 0.02);
@@ -2027,6 +2135,8 @@ const activeReactions = [];
 function spawnEmojiRain(emoji) {
     const layer = document.getElementById('emoji-rain');
     if (!layer) return;
+    // Som curto e próprio de cada emoji, junto com a chuvinha.
+    emojiSound(emoji);
     // Registra para a gravação (some após 3,4s).
     activeReactions.push({ emoji, born: Date.now() });
     if (activeReactions.length > 30) activeReactions.splice(0, activeReactions.length - 30);
