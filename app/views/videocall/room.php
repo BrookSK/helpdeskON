@@ -449,6 +449,8 @@ let allowPresentation = <?= $allowPresentation ? 'true' : 'false' ?>;
 
 // ---- Detecção de dispositivo/rede (otimização mobile e 4G) ----
 const IS_MOBILE = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || (('ontouchstart' in window) && Math.min(screen.width, screen.height) < 820);
+// iOS (inclui iPad recente que se identifica como Mac com toque).
+const IS_IOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const NET = navigator.connection || navigator.mozConnection || navigator.webkitConnection || null;
 function isSlowNetwork() {
     if (!NET) return false;
@@ -478,6 +480,54 @@ let localStream = null;      // stream publicado (pode ser o processado com fund
 let screenStream = null;
 const peers = new Map();
 let micOn = true, camOn = true, sharing = false;
+// Nomes conhecidos por peer (nunca deixa cair para "Convidado" se já temos um nome).
+const peerNames = new Map();
+let stateHeartbeat = null;
+
+// Envia meu estado completo (mic/câmera/mão/nome) — usado ao mudar algo e no heartbeat.
+function broadcastMyState() {
+    broadcast('state', { micMuted: !micOn, camOff: !camOn, handUp: (typeof handUp !== 'undefined' ? handUp : false), name: myName });
+}
+// Reafirma o estado periodicamente para autocorrigir ícones perdidos/fora de ordem.
+function startStateHeartbeat() {
+    if (stateHeartbeat) return;
+    stateHeartbeat = setInterval(() => { if (joined) broadcastMyState(); }, 3000);
+}
+function stopStateHeartbeat() { if (stateHeartbeat) { clearInterval(stateHeartbeat); stateHeartbeat = null; } }
+
+// Aplica o estado recebido de um peer ao seu tile e à fila de mãos.
+function applyPeerState(from, p) {
+    if (!p) return;
+    if (p.name) { peerNames.set(from, p.name); refreshPeerName(from, p.name); }
+    const t = tileEl(from);
+    if (t) {
+        t.classList.toggle('mic-off', !!p.micMuted);
+        t.classList.toggle('cam-off', !!p.camOff);
+    }
+    // Mão levantada: sincroniza a fila com o estado real informado.
+    const nm = p.name || peerNames.get(from) || 'Convidado';
+    if (p.handUp) {
+        if (!raisedHands.has(from)) raisedHands.set(from, { name: nm, ts: Date.now() });
+        else raisedHands.get(from).name = nm;
+        tileEl(from)?.classList.add('hand-up');
+    } else {
+        if (raisedHands.delete(from)) tileEl(from)?.classList.remove('hand-up');
+    }
+    renderHands();
+}
+
+// Atualiza o nome exibido no tile de um peer (label + dataset), sem virar "Convidado".
+function refreshPeerName(id, name) {
+    if (!name) return;
+    const entry = peers.get(id);
+    if (entry) entry.name = name;
+    const t = tileEl(id);
+    if (t) {
+        const isScreen = t.classList.contains('screen');
+        const label = t.querySelector('.name');
+        if (label) label.textContent = name + (isScreen ? ' (tela)' : '');
+    }
+}
 let polling = false, joined = false, waiting = false;
 let curVideoDeviceId = null, curAudioDeviceId = null;
 
@@ -663,24 +713,66 @@ const VIDEO_CONSTRAINTS = (IS_MOBILE || isSlowNetwork())
     : { width: { ideal: 1920, max: 1920 }, height: { ideal: 1080, max: 1080 }, frameRate: { ideal: 30, max: 30 } };
 const AUDIO_CONSTRAINTS = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
 
+// Tenta obter câmera+microfone com fallback em cascata (compatível com iOS/Safari,
+// que falha se as constraints forem rígidas demais).
+async function getCameraStream() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new DOMException('getUserMedia indisponível', 'NotSupportedError');
+    }
+    const attempts = [
+        { video: VIDEO_CONSTRAINTS, audio: AUDIO_CONSTRAINTS },
+        // iOS costuma aceitar melhor "facingMode:user" do que largura/altura fixas.
+        { video: { facingMode: 'user' }, audio: true },
+        { video: true, audio: true },   // o mais simples
+        { video: false, audio: true },  // só áudio (sem câmera)
+    ];
+    let lastErr = null;
+    for (const c of attempts) {
+        try { return await navigator.mediaDevices.getUserMedia(c); }
+        catch (e) { lastErr = e; }
+    }
+    throw lastErr || new Error('Falha ao acessar mídia');
+}
+
 async function initPreview() {
     try {
-        rawStream = await navigator.mediaDevices.getUserMedia({ video: VIDEO_CONSTRAINTS, audio: AUDIO_CONSTRAINTS });
+        rawStream = await getCameraStream();
         const vt = rawStream.getVideoTracks()[0];
         if (vt) curVideoDeviceId = vt.getSettings().deviceId;
         const at = rawStream.getAudioTracks()[0];
         if (at) curAudioDeviceId = at.getSettings().deviceId;
+        // Se não veio vídeo (fallback só-áudio), reflete no lobby.
+        if (!vt) { lobbyCam = false; camOn = false; }
         await populateDevices();
         await rebuildLocalStream();
         syncLobbyButtons();
     } catch (e) {
         lobbyCam = false; camOn = false;
-        showLobbyError('Não foi possível acessar câmera/microfone. Verifique as permissões. Você ainda pode entrar sem enviar vídeo.');
+        showLobbyError(cameraErrorMessage(e));
         syncLobbyButtons();
     }
     renderBgGrids();
     loadLobbyPresence();
     lobbyPresenceTimer = setInterval(loadLobbyPresence, 5000);
+}
+
+// Mensagem de erro específica (ajuda muito no iPhone/Safari).
+function cameraErrorMessage(e) {
+    const name = e && e.name ? e.name : '';
+    if (name === 'NotAllowedError' || name === 'SecurityError') {
+        if (IS_IOS) return 'A permissão da câmera foi negada. No iPhone: toque em "aA" na barra de endereço do Safari → Ajustes do site → Câmera/Microfone = Permitir, e recarregue. Verifique também Ajustes do iOS → Safari → Câmera.';
+        return 'Permissão de câmera/microfone negada. Clique no cadeado ao lado do endereço e permita a câmera, depois recarregue.';
+    }
+    if (name === 'NotFoundError' || name === 'OverconstrainedError') {
+        return 'Nenhuma câmera compatível foi encontrada. Você ainda pode entrar só com áudio.';
+    }
+    if (name === 'NotReadableError') {
+        return 'A câmera está em uso por outro app (feche outras chamadas/apps que usam a câmera) e recarregue.';
+    }
+    if (name === 'NotSupportedError') {
+        return 'Este navegador não permite usar a câmera aqui. No iPhone, use o Safari e acesse por HTTPS.';
+    }
+    return 'Não foi possível acessar a câmera/microfone. Você ainda pode entrar sem vídeo.';
 }
 
 // Mostra no lobby quem já está na chamada (contagem + avatares + nomes).
@@ -727,6 +819,8 @@ function updateLobbyPreview() {
     } else {
         c.classList.add('hidden'); v.classList.remove('hidden');
         v.srcObject = localStream || rawStream;
+        // iOS às vezes exige play() explícito para o preview não ficar preto.
+        v.play && v.play().catch(() => {});
     }
 }
 
@@ -889,6 +983,9 @@ function enterCall(res) {
     updateCount();
     startPolling();
     startNetworkMonitor();
+    startStateHeartbeat();
+    // Anuncia meu estado inicial (nome/mic/câmera) para todos já sincronizarem.
+    setTimeout(broadcastMyState, 700);
 }
 
 // ---- Espera (sala privada) ----
@@ -1287,15 +1384,19 @@ async function handleSignal(sig) {
 
     if (from === peerId) return;
     if (sig.kind === 'join') {
-        if (!peers.has(from)) ensurePeer(from, (sig.payload && sig.payload.name) || 'Convidado', false);
-        // Se eu estou com a mão levantada, reavise a sala para o recém-chegado ver.
-        if (handUp) setTimeout(() => sendSignal(from, 'hand', { up: true, name: myName }), 800);
+        const nm = (sig.payload && sig.payload.name) || peerNames.get(from) || 'Convidado';
+        if (sig.payload && sig.payload.name) peerNames.set(from, sig.payload.name);
+        if (!peers.has(from)) ensurePeer(from, nm, false); else refreshPeerName(from, nm);
+        // Assim que alguém entra, mando meu estado completo para ele se sincronizar.
+        setTimeout(broadcastMyState, 500);
         return;
     }
+    if (sig.kind === 'state') { applyPeerState(from, sig.payload); return; }
     if (sig.kind === 'kick') { onKicked(); return; }
     if (sig.kind === 'end') { teardown({ icon: '📴', text: 'Chamada encerrada', }, 'O organizador encerrou a chamada.'); return; }
     if (sig.kind === 'leave') { dropPeer(from); return; }
     if (sig.kind === 'media') {
+        if (sig.payload && sig.payload.name) { peerNames.set(from, sig.payload.name); refreshPeerName(from, sig.payload.name); }
         const t = tileEl(from);
         if (t && sig.payload) { t.classList.toggle('mic-off', !!sig.payload.micMuted); t.classList.toggle('cam-off', !!sig.payload.camOff); }
         return;
@@ -1357,7 +1458,14 @@ async function startPolling() {
 function reconcilePeers(activeList) {
     const active = new Set(activeList.map(p => p.peer_id));
     peers.forEach((_, id) => { if (!active.has(id)) dropPeer(id); });
-    activeList.forEach(p => { if (p.peer_id !== peerId && !peers.has(p.peer_id)) ensurePeer(p.peer_id, p.name, false); });
+    activeList.forEach(p => {
+        if (p.peer_id === peerId) return;
+        // O backend conhece o nome real do participante (da presença): usa-o
+        // como fonte da verdade, para nunca ficar "Convidado".
+        if (p.name && p.name !== 'Convidado') { peerNames.set(p.peer_id, p.name); }
+        if (!peers.has(p.peer_id)) ensurePeer(p.peer_id, peerNames.get(p.peer_id) || p.name, false);
+        else refreshPeerName(p.peer_id, peerNames.get(p.peer_id) || p.name);
+    });
     updateCount();
     maybeAutoStopRecording();
 }
@@ -1391,7 +1499,7 @@ function toggleMic() {
     b.classList.toggle('off', !micOn);
     b.innerHTML = (micOn ? '<i class="bi bi-mic-fill"></i>' : '<i class="bi bi-mic-mute-fill"></i>') + '<span class="ctrl-label">Mic</span>';
     tileEl(peerId)?.classList.toggle('mic-off', !micOn);
-    broadcast('media', { micMuted: !micOn, camOff: !camOn });
+    broadcastMyState();
     if (typeof syncPipButtons === 'function') syncPipButtons();
 }
 function toggleCam() {
@@ -1406,7 +1514,7 @@ function toggleCam() {
     b.classList.toggle('off', !camOn);
     b.innerHTML = (camOn ? '<i class="bi bi-camera-video-fill"></i>' : '<i class="bi bi-camera-video-off-fill"></i>') + '<span class="ctrl-label">Câmera</span>';
     tileEl(peerId)?.classList.toggle('cam-off', !camOn);
-    broadcast('media', { micMuted: !micOn, camOff: !camOn });
+    broadcastMyState();
     if (typeof syncPipButtons === 'function') syncPipButtons();
 }
 
@@ -1695,16 +1803,19 @@ function toggleHand() {
     tileEl(peerId)?.classList.toggle('hand-up', handUp);
     if (handUp) raisedHands.set(peerId, { name: myName + ' (você)', ts: Date.now() });
     else raisedHands.delete(peerId);
+    // Sinal imediato (resposta rápida) + estado consolidado (autocorreção via heartbeat).
     broadcast('hand', { up: handUp, name: myName });
+    broadcastMyState();
     renderHands();
     if (handUp) toast('Você levantou a mão.');
 }
 
 function onRemoteHand(from, payload) {
     const up = !!(payload && payload.up);
-    const name = (payload && payload.name) || 'Convidado';
+    const name = (payload && payload.name) || peerNames.get(from) || 'Convidado';
+    if (payload && payload.name) peerNames.set(from, payload.name);
     tileEl(from)?.classList.toggle('hand-up', up);
-    if (up) { if (!raisedHands.has(from)) raisedHands.set(from, { name, ts: Date.now() }); }
+    if (up) { if (!raisedHands.has(from)) raisedHands.set(from, { name, ts: Date.now() }); else raisedHands.get(from).name = name; }
     else raisedHands.delete(from);
     renderHands();
 }
@@ -1905,9 +2016,20 @@ function startRecording() {
     if (!MediaRecorder.isTypeSupported(mime)) mime = 'video/webm';
     try { recordedChunks = []; mediaRecorder = new MediaRecorder(buildRecordingStream(), { mimeType: mime }); }
     catch (e) { toast('Este navegador não suporta gravação.'); return; }
-    mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size) recordedChunks.push(e.data); };
+
+    // Sessão de gravação: os pedaços são ENVIADOS progressivamente ao servidor.
+    // Se cair no meio, o que já subiu não se perde.
+    recSessId = 'r' + Math.random().toString(36).slice(2, 12) + Date.now().toString(36).slice(-4);
+    recUploadChain = Promise.resolve();
+
+    mediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size) {
+            recordedChunks.push(e.data);           // mantém cópia local (fallback)
+            uploadChunk(e.data);                   // e envia o pedaço já
+        }
+    };
     mediaRecorder.onstop = uploadRecording;
-    mediaRecorder.start(1000);
+    mediaRecorder.start(4000); // um pedaço a cada 4s
     recStartTs = Date.now();
     recElapsedMs = 0; recResumeTs = Date.now();
     document.getElementById('btn-rec').classList.add('off');
@@ -1980,10 +2102,49 @@ function showRemoteRecState(payload) {
     if (label) label.textContent = (st === 'pause') ? ('Gravação pausada' + (payload.by ? ' · ' + payload.by : '')) : ('Sendo gravada' + (payload.by ? ' · ' + payload.by : ''));
     ind.style.opacity = (st === 'pause') ? '.6' : '1';
 }
+// Envia um pedaço da gravação ao servidor (em fila, para manter a ordem).
+let recSessId = null, recUploadChain = Promise.resolve(), recChunksSent = 0;
+function uploadChunk(blob) {
+    if (!recSessId) return;
+    const sess = recSessId;
+    recUploadChain = recUploadChain.then(async () => {
+        const fd = new FormData();
+        fd.append('sess', sess);
+        fd.append('chunk', blob, 'c.webm');
+        try { await fetch(`${BASE}/videocall/recChunk/${ROOM_TOKEN}`, { method: 'POST', body: fd }); recChunksSent++; }
+        catch (e) { /* pedaço falhou; o fallback local (recordedChunks) cobre no fim */ }
+    });
+}
+
+// Ao parar: finaliza a gravação por streaming (junta os pedaços no servidor).
+// Se por algum motivo nada foi enviado por streaming, cai no upload do arquivo inteiro.
 async function uploadRecording() {
+    const durationSec = Math.floor((Date.now() - recStartTs) / 1000);
+    const sess = recSessId;
+    recSessId = null;
+
+    // Espera os pedaços pendentes subirem.
+    try { await recUploadChain; } catch (e) {}
+
+    if (sess && recChunksSent > 0) {
+        toast('Finalizando a gravação no servidor…');
+        try {
+            const fd = new FormData();
+            fd.append('sess', sess); fd.append('duration_sec', durationSec); fd.append('recorded_by_name', myName);
+            const res = await fetch(`${BASE}/videocall/recFinalize/${ROOM_TOKEN}`, { method: 'POST', body: fd }).then(r => r.json());
+            if (!res.error) {
+                currentRecToken = res.token || null;
+                document.getElementById('rec-url').value = res.url; document.getElementById('rec-open').href = res.url;
+                document.getElementById('rec-modal').style.display = 'flex';
+                recordedChunks = []; recChunksSent = 0;
+                return;
+            }
+        } catch (e) { /* cai para o upload inteiro abaixo */ }
+    }
+
+    // Fallback: envia o arquivo inteiro (gravações curtas ou se o streaming falhou).
     if (!recordedChunks.length) return;
     const blob = new Blob(recordedChunks, { type: 'video/webm' });
-    const durationSec = Math.floor((Date.now() - recStartTs) / 1000);
     toast('Enviando gravação para o servidor…');
     const fd = new FormData();
     fd.append('recording', blob, 'gravacao.webm'); fd.append('duration_sec', durationSec); fd.append('recorded_by_name', myName);
@@ -1994,6 +2155,7 @@ async function uploadRecording() {
         document.getElementById('rec-url').value = res.url; document.getElementById('rec-open').href = res.url;
         document.getElementById('rec-modal').style.display = 'flex';
     } catch (e) { toast('Falha ao enviar a gravação.'); }
+    recChunksSent = 0;
 }
 
 // Token da última gravação (usado apenas para exibir o link no pop-up).
@@ -2126,6 +2288,7 @@ function teardown(headline, sub) {
     if (adminTimer) clearInterval(adminTimer);
     if (waitTimer) clearInterval(waitTimer);
     stopNetworkMonitor();
+    stopStateHeartbeat();
     if (document.pictureInPictureElement) { try { document.exitPictureInPicture(); } catch (e) {} }
     stopPip();
     if (mediaRecorder && mediaRecorder.state !== 'inactive') { try { stopRecording(); } catch (e) {} }
@@ -2181,6 +2344,18 @@ if (IS_TOUCH) {
 }
 
 initPreview();
+
+// iOS: se a câmera não abriu (ex.: permissão concedida após um toque), um clique
+// no lobby tenta novamente. Não atrapalha os demais navegadores.
+(function () {
+    const lb = document.getElementById('lobby');
+    if (!lb) return;
+    lb.addEventListener('click', function (ev) {
+        if (ev.target.closest('button') || ev.target.closest('select') || ev.target.closest('input')) return;
+        const semVideo = !rawStream || rawStream.getVideoTracks().length === 0;
+        if (semVideo) initPreview();
+    }, { passive: true });
+})();
 </script>
 </body>
 </html>

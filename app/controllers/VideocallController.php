@@ -316,7 +316,7 @@ class VideocallController extends Controller
         $kind = (string)($body['kind'] ?? '');
         $payload = $body['payload'] ?? null;
 
-        $allowed = ['offer', 'answer', 'ice', 'join', 'leave', 'media', 'screen', 'end', 'reaction', 'hand', 'rec'];
+        $allowed = ['offer', 'answer', 'ice', 'join', 'leave', 'media', 'screen', 'end', 'reaction', 'hand', 'rec', 'state'];
         if ($from === '' || !in_array($kind, $allowed, true)) {
             $this->json(['error' => 'Sinal inválido'], 400);
         }
@@ -513,6 +513,91 @@ class VideocallController extends Controller
         $this->json(['success' => true, 'token' => $recToken, 'url' => $shareUrl]);
     }
 
+    /**
+     * Recebe um PEDAÇO da gravação e o ANEXA a um arquivo .part no servidor.
+     * A gravação é enviada progressivamente durante a chamada — assim, se quem
+     * grava cair (queda de internet/aba fechada), o que já foi enviado NÃO se perde.
+     */
+    public function recChunk($token = null)
+    {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $room = $this->requireActiveRoom($token, 2, true);
+        $userId = $_SESSION['user_id'] ?? null;
+        $this->releaseSession();
+
+        if ((int)$room['allow_recording'] !== 1) $this->json(['error' => 'Gravação não permitida.'], 403);
+        if (($room['visibility'] ?? 'public') === 'private' && !$this->model->isAdminUser($room, $userId)) {
+            $this->json(['error' => 'Sem permissão para gravar.'], 403);
+        }
+        $sess = $this->safePeerId($_POST['sess'] ?? '');
+        if ($sess === '') $this->json(['error' => 'Sessão inválida.'], 400);
+        if (empty($_FILES['chunk']) || $_FILES['chunk']['error'] !== UPLOAD_ERR_OK) {
+            $this->json(['error' => 'Pedaço ausente.'], 400);
+        }
+        // Limite por pedaço (8 MB) e teto acumulado (600 MB) por segurança.
+        if ((int)$_FILES['chunk']['size'] > 8 * 1024 * 1024) $this->json(['error' => 'Pedaço muito grande.'], 413);
+
+        $dir = PUBLIC_PATH . '/uploads/recordings';
+        if (!is_dir($dir)) @mkdir($dir, 0775, true);
+        $part = $dir . '/part_' . $room['id'] . '_' . $sess . '.webm';
+
+        if (is_file($part) && filesize($part) > 600 * 1024 * 1024) {
+            $this->json(['error' => 'Gravação muito grande.'], 413);
+        }
+        // Anexa os bytes do pedaço ao arquivo .part.
+        $in = fopen($_FILES['chunk']['tmp_name'], 'rb');
+        $out = fopen($part, 'ab');
+        if (!$in || !$out) $this->json(['error' => 'Falha ao gravar o pedaço.'], 500);
+        stream_copy_to_stream($in, $out);
+        fclose($in); fclose($out);
+
+        $this->json(['success' => true, 'size' => filesize($part)]);
+    }
+
+    /**
+     * Finaliza a gravação por streaming: transforma o .part no arquivo definitivo
+     * e cria o registro. Chamado ao parar de gravar (ou via beacon ao sair).
+     */
+    public function recFinalize($token = null)
+    {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $room = $this->requireActiveRoom($token, 2, true);
+        $userId = $_SESSION['user_id'] ?? null;
+        $userName = $_SESSION['user_name'] ?? null;
+        $this->releaseSession();
+
+        $sess = $this->safePeerId($_POST['sess'] ?? '');
+        if ($sess === '') $this->json(['error' => 'Sessão inválida.'], 400);
+
+        $dir = PUBLIC_PATH . '/uploads/recordings';
+        $part = $dir . '/part_' . $room['id'] . '_' . $sess . '.webm';
+        if (!is_file($part) || filesize($part) < 1024) {
+            $this->json(['error' => 'Nada gravado para finalizar.'], 404);
+        }
+
+        $recToken = $this->model->generateToken();
+        $fileName = 'rec_' . $room['id'] . '_' . $recToken . '.webm';
+        $dest = $dir . '/' . $fileName;
+        if (!@rename($part, $dest)) { @copy($part, $dest); @unlink($part); }
+
+        $recordedName = trim(substr((string)($_POST['recorded_by_name'] ?? ($userName ?? '')), 0, 120)) ?: null;
+        $duration = (int)($_POST['duration_sec'] ?? 0) ?: null;
+
+        $this->model->addRecording([
+            'room_id' => $room['id'],
+            'token' => $recToken,
+            'file_path' => 'recordings/' . $fileName,
+            'file_size' => filesize($dest) ?: null,
+            'mime_type' => 'video/webm',
+            'duration_sec' => $duration,
+            'recorded_by' => $userId,
+            'recorded_by_name' => $recordedName,
+        ]);
+
+        $shareUrl = $this->publicBase() . '/videocall/share/' . $recToken;
+        $this->json(['success' => true, 'token' => $recToken, 'url' => $shareUrl]);
+    }
+
     /** Reproduz/baixa uma gravação salva (streaming simples com suporte a Range). */
     public function recording($recToken = null)
     {
@@ -579,6 +664,105 @@ class VideocallController extends Controller
             'error_message' => ($st === 'error') ? ($rec['summary'] ?? 'Falha ao transcrever.') : null,
             'url' => rtrim(baseUrl(''), '/') . '/videocall/recording/' . $rec['token'],
         ]);
+    }
+
+    /**
+     * Transcreve UM PEDAÇO de áudio já cortado no navegador (WAV/webm) e devolve
+     * os segmentos com o tempo ajustado pelo offset. Assim reuniões longas são
+     * transcritas SEM depender de ffmpeg no servidor: o navegador corta o áudio.
+     */
+    public function transcribeChunk($recToken = null)
+    {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $recToken = $this->tokenFromUrl($recToken, 2);
+        $rec = $recToken ? $this->model->findRecordingByToken($recToken) : null;
+        if (!$rec) $this->json(['error' => 'Gravação não encontrada'], 404);
+
+        $ai = new OpenAiClient();
+        if (!$ai->isConfigured()) $this->json(['error' => 'IA (OpenAI) não configurada no sistema.'], 400);
+
+        if (empty($_FILES['audio']) || $_FILES['audio']['error'] !== UPLOAD_ERR_OK) {
+            $this->json(['error' => 'Pedaço de áudio ausente.'], 400);
+        }
+        if ((int)$_FILES['audio']['size'] > 25 * 1024 * 1024) {
+            $this->json(['error' => 'Pedaço acima de 25 MB. Reduza a duração do corte.'], 413);
+        }
+        $offset = (float)($_POST['offset'] ?? 0);
+
+        // Marca "processando" na primeira parte.
+        if ((int)($_POST['index'] ?? 0) === 0) {
+            $this->model->updateRecording($recToken, ['transcribe_status' => 'processing']);
+        }
+        $this->releaseSession();
+        @set_time_limit(0);
+
+        // Move para um temp com extensão adequada (o Whisper usa a extensão).
+        $ext = 'wav';
+        $tn = (string)($_FILES['audio']['name'] ?? '');
+        if (preg_match('/\.(webm|mp3|m4a|ogg|wav)$/i', $tn, $m)) $ext = strtolower($m[1]);
+        $tmp = sys_get_temp_dir() . '/vc_chunk_' . bin2hex(random_bytes(6)) . '.' . $ext;
+        if (!move_uploaded_file($_FILES['audio']['tmp_name'], $tmp)) {
+            $this->json(['error' => 'Falha ao processar o pedaço.'], 500);
+        }
+
+        $r = $ai->transcribe($tmp, ['language' => 'pt', 'verbose' => true, 'timeout' => 600]);
+        @unlink($tmp);
+        if (empty($r['success'])) $this->json(['error' => 'Falha ao transcrever o pedaço: ' . ($r['error'] ?? '')], 502);
+
+        $segs = array_map(function ($s) use ($offset) {
+            return ['start' => $s['start'] + $offset, 'end' => $s['end'] + $offset, 'text' => $s['text']];
+        }, $r['segments'] ?? []);
+
+        $this->json(['success' => true, 'text' => $r['text'], 'segments' => $segs]);
+    }
+
+    /**
+     * Salva a transcrição/segmentos montados no navegador e gera o resumo por IA.
+     */
+    public function saveTranscript($recToken = null)
+    {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $recToken = $this->tokenFromUrl($recToken, 2);
+        $rec = $recToken ? $this->model->findRecordingByToken($recToken) : null;
+        if (!$rec) $this->json(['error' => 'Gravação não encontrada'], 404);
+
+        $raw = file_get_contents('php://input');
+        $body = json_decode($raw, true);
+        if (!is_array($body)) $body = $_POST;
+
+        $segments = is_array($body['segments'] ?? null) ? $body['segments'] : [];
+        // Reconstrói o texto plano com marca de tempo (se não veio pronto).
+        $transcript = trim((string)($body['transcript'] ?? ''));
+        if ($transcript === '' && $segments) {
+            foreach ($segments as $s) {
+                $transcript .= '[' . $this->fmtTime((float)($s['start'] ?? 0)) . '] ' . trim((string)($s['text'] ?? '')) . "\n";
+            }
+            $transcript = trim($transcript);
+        }
+        if ($transcript === '') $this->json(['error' => 'Transcrição vazia.'], 400);
+
+        $this->releaseSession();
+        @set_time_limit(0);
+
+        // Resumo por IA.
+        $summary = '';
+        $ai = new OpenAiClient();
+        if ($ai->isConfigured()) {
+            $res = $ai->chat([
+                ['role' => 'system', 'content' => 'Você resume reuniões em português do Brasil. Produza: (1) um parágrafo geral, (2) tópicos principais em bullets, (3) decisões tomadas e (4) próximos passos / tarefas. Seja objetivo.'],
+                ['role' => 'user', 'content' => "Resuma a reunião a seguir (formato [mm:ss] texto):\n\n" . mb_substr($transcript, 0, 48000)],
+            ], ['model' => 'gpt-4o-mini', 'temperature' => 0.4, 'max_tokens' => 900]);
+            if (!empty($res['success'])) $summary = $res['content'];
+        }
+
+        $this->model->updateRecording($recToken, [
+            'transcript' => $transcript,
+            'transcript_json' => json_encode($segments, JSON_UNESCAPED_UNICODE),
+            'summary' => $summary,
+            'transcribe_status' => 'done',
+            'transcribed_at' => date('Y-m-d H:i:s'),
+        ]);
+        $this->json(['success' => true, 'summary' => $summary]);
     }
 
     // ============================================================
