@@ -78,18 +78,25 @@
                         <label class="form-label small fw-medium">Data e horário da reunião</label>
                         <input type="datetime-local" id="mt-meeting-at" class="form-control form-control-sm">
                     </div>
-                    <div class="col-12 d-flex flex-wrap align-items-center gap-2">
-                        <button type="button" class="btn btn-sm btn-outline-primary" id="mt-gen-meet" onclick="generateMeet(this)">
-                            <i class="bi bi-camera-video"></i> Gerar link do Meet
-                        </button>
-                        <button type="button" class="btn btn-sm btn-outline-success" id="mt-gen-room" onclick="generateVideoRoom(this)">
-                            <i class="bi bi-camera-reels"></i> Sala de vídeo do sistema
-                        </button>
-                        <span id="mt-meet-hint" style="font-size:0.78rem;"></span>
+                    <!-- ===== Opções de reunião (uma OU outra — mutuamente exclusivas) ===== -->
+                    <div class="col-12">
+                        <label class="form-label small fw-medium mb-1"><i class="bi bi-camera-video"></i> Opções de reunião</label>
+                        <div class="btn-group btn-group-sm d-flex" role="group" aria-label="Opções de reunião">
+                            <input type="radio" class="btn-check" name="mt-meeting-mode" id="mt-mode-none" value="" checked>
+                            <label class="btn btn-outline-secondary" for="mt-mode-none"><i class="bi bi-slash-circle"></i> Nenhuma</label>
+
+                            <input type="radio" class="btn-check" name="mt-meeting-mode" id="mt-mode-meet" value="meet" onchange="onMeetingModeChange()">
+                            <label class="btn btn-outline-primary" for="mt-mode-meet"><i class="bi bi-camera-video"></i> Google Meet</label>
+
+                            <input type="radio" class="btn-check" name="mt-meeting-mode" id="mt-mode-room" value="room" onchange="onMeetingModeChange()">
+                            <label class="btn btn-outline-success" for="mt-mode-room"><i class="bi bi-camera-reels"></i> Sala de vídeo do sistema</label>
+                        </div>
+                        <div class="mt-1"><span id="mt-meet-hint" style="font-size:0.78rem;"></span></div>
                     </div>
 
                     <!-- Opções da sala de vídeo do sistema (privacidade + administradores) -->
-                    <div class="col-12">
+                    <!-- Só aparece quando a opção "Sala de vídeo do sistema" está selecionada. -->
+                    <div class="col-12" id="mt-room-options" style="display:none;">
                         <div class="d-flex flex-wrap align-items-center gap-3">
                             <div class="form-check form-check-inline mb-0">
                                 <input class="form-check-input" type="radio" name="mt-room-visibility" id="mt-rv-public" value="public" checked onchange="onRoomVisibilityChange()">
@@ -108,6 +115,9 @@
                                 <?php endforeach; ?>
                             </select>
                             <small class="text-muted">Você já é admin. Segure Ctrl/Cmd para escolher mais de um.</small>
+                            <button type="button" class="btn btn-sm btn-outline-success mt-2" id="mt-gen-room-private" onclick="generateVideoRoom(this)">
+                                <i class="bi bi-camera-reels"></i> Criar sala privada
+                            </button>
                         </div>
                     </div>
 
@@ -263,7 +273,7 @@
                     </div>
                     <div class="col-md-6">
                         <label class="form-label small mb-1">Faixa de investimento</label>
-                        <input type="text" id="bf-investment_range" class="form-control form-control-sm" placeholder="R$ 0,00">
+                        <input type="text" id="bf-investment_range" class="form-control form-control-sm" placeholder="R$ 0,00" inputmode="numeric" oninput="maskCurrency(this)">
                     </div>
                     <div class="col-md-4">
                         <label class="form-label small mb-1">Urgência</label>
@@ -342,6 +352,15 @@ function resetMeetingForm() {
     document.getElementById('mt-google-event-id').value = '';
     document.getElementById('mt-meet-link').value = '';
     document.getElementById('mt-meet-hint').innerHTML = '';
+    // Opções de reunião: volta para "Nenhuma" e esconde os controles da sala do sistema.
+    const modeNone = document.getElementById('mt-mode-none');
+    if (modeNone) modeNone.checked = true;
+    const roomOpts = document.getElementById('mt-room-options');
+    if (roomOpts) roomOpts.style.display = 'none';
+    const rvPublic = document.getElementById('mt-rv-public');
+    if (rvPublic) rvPublic.checked = true;
+    const roomAdminsBlk = document.getElementById('mt-room-admins-block');
+    if (roomAdminsBlk) roomAdminsBlk.style.display = 'none';
     ['mt-title','mt-meeting-at','mt-new-name','mt-new-phone','mt-notes','mt-client-email','mt-client-name','mt-client-phone'].forEach(f => document.getElementById(f).value = '');
     document.getElementById('mt-client').value = '';
     // Reseta Empresa → Contato
@@ -463,6 +482,22 @@ function fillBriefing(bf) {
     clearBriefing();
     if (!bf) return;
     BF_FIELDS.forEach(k => { const el = document.getElementById('bf-' + k); if (el && bf[k] != null) el.value = bf[k]; });
+    // Normaliza a faixa de investimento para o formato monetário (BR), inclusive
+    // valores antigos salvos "crus" (ex.: "50000" -> "R$ 50.000,00").
+    const inv = document.getElementById('bf-investment_range');
+    if (inv && inv.value) maskCurrency(inv);
+}
+
+// Máscara de moeda (Real): formata o que é digitado a partir dos centavos.
+// Ex.: digitar 5000000 -> "R$ 50.000,00". Guarda apenas os dígitos e reconstrói.
+function maskCurrency(el) {
+    let digits = (el.value || '').replace(/\D/g, '');
+    if (digits === '') { el.value = ''; return; }
+    // Limita para evitar números absurdos (até 999.999.999,99)
+    digits = digits.slice(0, 11);
+    const cents = parseInt(digits, 10);
+    const formatted = (cents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    el.value = 'R$ ' + formatted;
 }
 // Converte a urgência textual do briefing (ex: "Baixa") para o enum da reunião ("baixa").
 const URGENCY_TO_ENUM = { 'baixa':'baixa', 'média':'media', 'media':'media', 'alta':'alta', 'urgente':'urgente' };
@@ -494,15 +529,30 @@ function checkGoogleReady() {
     }).catch(() => { GOOGLE_READY = false; applyGoogleReady(); });
 }
 function applyGoogleReady() {
-    const btn = document.getElementById('mt-gen-meet');
-    if (!btn) return;
+    // A opção "Google Meet" só fica disponível se a integração Google estiver configurada.
+    const meetRadio = document.getElementById('mt-mode-meet');
+    const meetLabel = document.querySelector('label[for="mt-mode-meet"]');
+    if (!meetRadio) return;
     if (GOOGLE_READY) {
-        btn.disabled = false; btn.title = '';
+        meetRadio.disabled = false;
+        if (meetLabel) { meetLabel.classList.remove('disabled'); meetLabel.title = ''; }
     } else {
-        btn.disabled = true;
-        btn.title = 'Configure a integração Google em Configurações';
-        document.getElementById('mt-meet-hint').innerHTML = '<span class="text-muted"><i class="bi bi-info-circle"></i> Google não configurado</span>';
+        meetRadio.disabled = true;
+        if (meetLabel) {
+            meetLabel.classList.add('disabled');
+            meetLabel.title = 'Configure a integração Google em Configurações';
+        }
     }
+}
+
+// Define o "min" do seletor de data como o instante atual (formato datetime-local),
+// reforçando visualmente que reunião nova não pode ser no passado.
+function setMeetingAtMinNow() {
+    const el = document.getElementById('mt-meeting-at');
+    if (!el) return;
+    const now = new Date();
+    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+    el.min = now.toISOString().slice(0, 16);
 }
 
 function openMeetingModal(id = null, dateStr = null) {
@@ -510,12 +560,16 @@ function openMeetingModal(id = null, dateStr = null) {
     checkGoogleReady();
     if (dateStr) document.getElementById('mt-meeting-at').value = dateStr + 'T09:00';
     if (id) {
+        // Edição: permite data retroativa (registro de reunião já ocorrida).
+        document.getElementById('mt-meeting-at').removeAttribute('min');
         fetch(`${BASE}agenda/get/${id}`).then(r => r.json()).then(d => {
             if (d.error) { alert(d.error); return; }
             fillMeeting(d.meeting);
             getMeetingModal().show();
         });
     } else {
+        // Nova reunião: bloqueia datas passadas no próprio seletor.
+        setMeetingAtMinNow();
         document.getElementById('meeting-modal-title').textContent = 'Nova reunião';
         getMeetingModal().show();
     }
@@ -542,6 +596,18 @@ function fillMeeting(m) {
     document.getElementById('mt-client-email').value = m.client_email || '';
     document.getElementById('mt-google-event-id').value = m.google_event_id || '';
     document.getElementById('mt-meet-link').value = m.meet_link || '';
+    // Reflete a opção de reunião já existente (sem regenerar o link).
+    // Sala do sistema: link aponta para o próprio site (videocall). Caso contrário, Google Meet.
+    (function() {
+        const link = m.meet_link || '';
+        if (!link) { showMeetLink(''); return; }
+        const isSystemRoom = link.indexOf('videocall') !== -1 || (link.indexOf(BASE) === 0);
+        const modeRadio = document.getElementById(isSystemRoom ? 'mt-mode-room' : 'mt-mode-meet');
+        if (modeRadio && !modeRadio.disabled) modeRadio.checked = true;
+        const roomOpts = document.getElementById('mt-room-options');
+        if (roomOpts) roomOpts.style.display = isSystemRoom ? '' : 'none';
+        showMeetLink(link);
+    })();
     // Preenche participantes selecionados (select fonte de verdade + checkboxes do dropdown)
     const ptSel = document.getElementById('mt-participants');
     if (ptSel && m.participants) {
@@ -781,13 +847,52 @@ function showMeetLink(link) {
     }
 }
 
-// Gera o link do Meet no Google antes de salvar
+// ===== Opções de reunião (uma OU outra) =====
+// Selecionar "Google Meet" gera o link do Meet imediatamente.
+// Selecionar "Sala de vídeo do sistema" cria a sala imediatamente (quando pública);
+// se for privada, gera após escolher os administradores.
+// Como Meet e Sala compartilham o mesmo campo (mt-meet-link), trocar de opção
+// SEMPRE limpa o link anterior — garantindo que nunca existam os dois ao mesmo tempo.
+function clearMeetingLink() {
+    document.getElementById('mt-meet-link').value = '';
+    document.getElementById('mt-google-event-id').value = '';
+    document.getElementById('mt-meet-hint').innerHTML = '';
+}
+
+function onMeetingModeChange() {
+    const mode = document.querySelector('input[name="mt-meeting-mode"]:checked')?.value || '';
+    const roomOptions = document.getElementById('mt-room-options');
+
+    // Toda troca de opção descarta o link gerado anteriormente (exclusividade).
+    clearMeetingLink();
+
+    // Mostra os controles da sala do sistema apenas no modo "room".
+    if (roomOptions) roomOptions.style.display = (mode === 'room') ? '' : 'none';
+
+    if (mode === 'meet') {
+        generateMeet();
+    } else if (mode === 'room') {
+        onRoomVisibilityChange();
+        // Sala pública: gera com 1 clique. Sala privada: aguarda escolher admins.
+        const visibility = document.querySelector('input[name="mt-room-visibility"]:checked')?.value || 'public';
+        if (visibility === 'public') generateVideoRoom();
+    }
+}
+
+// Gera o link do Meet no Google antes de salvar.
+// Pode ser chamada sem botão (a partir do seletor de opções).
 function generateMeet(btn) {
     const meetingAt = document.getElementById('mt-meeting-at').value;
-    if (!meetingAt) { alert('Informe a data e o horário da reunião primeiro.'); return; }
-    const original = btn.innerHTML;
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Gerando...';
+    if (!meetingAt) {
+        alert('Informe a data e o horário da reunião primeiro.');
+        // Reverte a seleção, pois não foi possível gerar.
+        document.getElementById('mt-mode-none').checked = true;
+        onMeetingModeChange();
+        return;
+    }
+    const hint = document.getElementById('mt-meet-hint');
+    hint.innerHTML = '<span class="text-muted"><i class="bi bi-hourglass-split"></i> Gerando link do Meet...</span>';
+    if (btn) { btn.disabled = true; }
 
     const fd = new FormData();
     fd.append('title', document.getElementById('mt-title').value.trim() || 'Reunião');
@@ -802,13 +907,13 @@ function generateMeet(btn) {
 
     fetch(`${BASE}agenda/generateMeet`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json()).then(d => {
-            btn.disabled = false; btn.innerHTML = original;
-            if (d.error) { alert(d.error); return; }
+            if (btn) { btn.disabled = false; }
+            if (d.error) { alert(d.error); clearMeetingLink(); return; }
             document.getElementById('mt-google-event-id').value = d.event_id || '';
             document.getElementById('mt-meet-link').value = d.meet_link || '';
             showMeetLink(d.meet_link);
         })
-        .catch(() => { btn.disabled = false; btn.innerHTML = original; alert('Erro ao gerar o link.'); });
+        .catch(() => { if (btn) { btn.disabled = false; } clearMeetingLink(); alert('Erro ao gerar o link.'); });
 }
 
 // Mostra o seletor de administradores quando a sala de vídeo é privada.
@@ -816,15 +921,20 @@ function onRoomVisibilityChange() {
     const v = document.querySelector('input[name="mt-room-visibility"]:checked')?.value || 'public';
     const blk = document.getElementById('mt-room-admins-block');
     if (blk) blk.style.display = (v === 'private') ? '' : 'none';
+    // Trocar entre pública/privada invalida o link anterior da sala.
+    clearMeetingLink();
+    // Pública gera direto; privada espera a escolha dos admins.
+    if (v === 'public') generateVideoRoom();
 }
 
 // Gera uma SALA DE VÍDEO nativa do sistema (WebRTC em grupo, sem API externa).
 // O link público entra no campo do Meet (mt-meet-link), então já será enviado
 // nos convites por e-mail/WhatsApp e serve para o Fathom entrar e gravar.
+// Pode ser chamada sem botão (a partir do seletor de opções).
 function generateVideoRoom(btn) {
-    const original = btn.innerHTML;
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Criando...';
+    const hint = document.getElementById('mt-meet-hint');
+    hint.innerHTML = '<span class="text-muted"><i class="bi bi-hourglass-split"></i> Criando sala de vídeo...</span>';
+    if (btn) { btn.disabled = true; }
 
     const fd = new FormData();
     fd.append('title', document.getElementById('mt-title').value.trim() || 'Videochamada');
@@ -838,19 +948,32 @@ function generateVideoRoom(btn) {
 
     fetch(`${BASE}videocall/create`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json()).then(d => {
-            btn.disabled = false; btn.innerHTML = original;
-            if (d.error) { alert(d.error); return; }
+            if (btn) { btn.disabled = false; }
+            if (d.error) { alert(d.error); clearMeetingLink(); return; }
             // Reaproveita o campo do Meet para o link da chamada (vai nos convites).
             document.getElementById('mt-meet-link').value = d.url || '';
             document.getElementById('mt-google-event-id').value = '';
             showMeetLink(d.url);
         })
-        .catch(() => { btn.disabled = false; btn.innerHTML = original; alert('Erro ao criar a sala de vídeo.'); });
+        .catch(() => { if (btn) { btn.disabled = false; } clearMeetingLink(); alert('Erro ao criar a sala de vídeo.'); });
 }
 
 function saveMeeting() {
     const title = document.getElementById('mt-title').value.trim();
     if (!title) { alert('Informe o título.'); return; }
+
+    // Data no passado: bloqueia apenas em reunião NOVA (sem id). Ao editar uma reunião
+    // já existente permitimos data anterior a agora (registro retroativo).
+    const meetingId = document.getElementById('mt-id').value;
+    const meetingAtVal = document.getElementById('mt-meeting-at').value;
+    if (!meetingId && meetingAtVal) {
+        const when = new Date(meetingAtVal);
+        if (!isNaN(when.getTime()) && when.getTime() < Date.now()) {
+            alert('A data e o horário da reunião não podem estar no passado.');
+            document.getElementById('mt-meeting-at').focus();
+            return;
+        }
+    }
 
     const meetingType = document.getElementById('mt-type').value;
     const isOperational = meetingType === 'operacional';
