@@ -93,8 +93,39 @@
     <script>
     (function() {
         const WPP_BASE = '<?= baseUrl("") ?>';
+        // Namespace por usuário: notificações dispensadas não devem "vazar" entre contas
+        // que compartilham o mesmo navegador.
+        const WPP_USER_ID = '<?= (int)($_SESSION["user_id"] ?? 0) ?>';
+        const WPP_DISMISS_KEY = 'wppDismissedNotifs_' + WPP_USER_ID;
+
         let wppLastNotifIds = new Set();
         let wppNotifAudio = null;
+
+        // Notificações que o usuário já fechou (clicou no X). Persistido em localStorage
+        // para sobreviver à navegação entre telas (cada tela recarrega a página).
+        // Chave = contact_id + '-' + timestamp da última mensagem. Uma mensagem mais nova
+        // gera uma chave diferente e volta a notificar normalmente.
+        function loadDismissed() {
+            try {
+                const raw = localStorage.getItem(WPP_DISMISS_KEY);
+                return raw ? new Set(JSON.parse(raw)) : new Set();
+            } catch (e) { return new Set(); }
+        }
+
+        function saveDismissed(set) {
+            try {
+                // Mantém apenas as 100 chaves mais recentes para não crescer indefinidamente.
+                const arr = Array.from(set).slice(-100);
+                localStorage.setItem(WPP_DISMISS_KEY, JSON.stringify(arr));
+            } catch (e) {}
+        }
+
+        let wppDismissed = loadDismissed();
+
+        function dismissNotif(key) {
+            wppDismissed.add(key);
+            saveDismissed(wppDismissed);
+        }
 
         function checkWhatsappNotifications() {
             fetch(WPP_BASE + 'whatsapp/notifications', { headers: {'X-Requested-With': 'XMLHttpRequest'} })
@@ -103,9 +134,10 @@
                 if (!notifications || !notifications.length) return;
                 notifications.forEach(n => {
                     const key = n.contact_id + '-' + n.timestamp;
-                    if (wppLastNotifIds.has(key)) return;
+                    // Já exibida nesta sessão de página, ou dispensada pelo usuário anteriormente.
+                    if (wppLastNotifIds.has(key) || wppDismissed.has(key)) return;
                     wppLastNotifIds.add(key);
-                    showWhatsappToast(n);
+                    showWhatsappToast(n, key);
                 });
                 // Limpar cache antigo (manter últimos 50)
                 if (wppLastNotifIds.size > 50) {
@@ -116,28 +148,52 @@
             .catch(() => {});
         }
 
-        function showWhatsappToast(n) {
+        function showWhatsappToast(n, key) {
             const container = getToastContainer();
             const toast = document.createElement('div');
             toast.className = 'wpp-push-toast';
-            toast.innerHTML = `
-                <div class="wpp-push-header">
-                    <i class="bi bi-whatsapp text-success"></i>
-                    <strong>${escapeH(n.contact_name)}</strong>
-                    <button onclick="this.parentElement.parentElement.remove()" class="btn-close btn-close-sm ms-auto"></button>
-                </div>
-                <div class="wpp-push-body" onclick="window.location='${WPP_BASE}whatsapp/chat/${n.contact_id}'">
-                    <span class="wpp-push-msg">${escapeH(n.message)}</span>
-                    <small class="wpp-push-time">${n.unread_count} não lida${n.unread_count > 1 ? 's' : ''}</small>
-                </div>
+
+            const closeBtn = document.createElement('button');
+            closeBtn.className = 'btn-close btn-close-sm ms-auto';
+            closeBtn.setAttribute('aria-label', 'Fechar notificação');
+            // Fechar registra a dispensa para AQUELE usuário, evitando que a mesma
+            // notificação volte a pipocar ao navegar entre telas.
+            closeBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                dismissNotif(key);
+                toast.remove();
+            });
+
+            const header = document.createElement('div');
+            header.className = 'wpp-push-header';
+            header.innerHTML = `<i class="bi bi-whatsapp text-success"></i><strong>${escapeH(n.contact_name)}</strong>`;
+            header.appendChild(closeBtn);
+
+            const body = document.createElement('div');
+            body.className = 'wpp-push-body';
+            body.innerHTML = `
+                <span class="wpp-push-msg">${escapeH(n.message)}</span>
+                <small class="wpp-push-time">${n.unread_count} não lida${n.unread_count > 1 ? 's' : ''}</small>
             `;
+            body.addEventListener('click', function() {
+                window.location = WPP_BASE + 'whatsapp/chat/' + n.contact_id;
+            });
+
+            toast.appendChild(header);
+            toast.appendChild(body);
             container.appendChild(toast);
 
             // Tocar som suave
             playNotifSound();
 
-            // Remover após 8 segundos
-            setTimeout(() => { if (toast.parentElement) toast.remove(); }, 8000);
+            // Auto-hide após 8 segundos: tempo suficiente para quem está na mesma tela
+            // perceber a mensagem. Ao sumir, também marcamos como dispensada para que
+            // NÃO volte a pipocar ao navegar entre telas — só reaparece se chegar uma
+            // mensagem nova daquele contato (timestamp diferente = chave diferente).
+            setTimeout(() => {
+                dismissNotif(key);
+                if (toast.parentElement) toast.remove();
+            }, 8000);
         }
 
         function getToastContainer() {
