@@ -90,8 +90,13 @@ class VideocallController extends Controller
     /** URL pública da sala (respeita app_public_url se configurado). */
     private function publicUrl($token)
     {
-        $base = rtrim((string) Config::get('app_public_url'), '/') ?: rtrim(baseUrl(''), '/');
-        return $base . '/videocall/room/' . $token;
+        return $this->publicBase() . '/videocall/room/' . $token;
+    }
+
+    /** Base pública do sistema (respeita app_public_url, senão baseUrl). */
+    private function publicBase()
+    {
+        return rtrim((string) Config::get('app_public_url'), '/') ?: rtrim(baseUrl(''), '/');
     }
 
     // ============================================================
@@ -150,6 +155,15 @@ class VideocallController extends Controller
             $servers[] = $entry;
         }
         return $servers;
+    }
+
+    /** Preview público da sala (para o lobby): quem já está e quantos. */
+    public function preview($token = null)
+    {
+        $room = $this->requireActiveRoom($token, 2, true);
+        $this->releaseSession();
+        $peers = $this->formatPeers($this->model->activeParticipants($room['id']));
+        $this->json(['count' => count($peers), 'peers' => $peers, 'title' => $room['title']]);
     }
 
     /** Lista as imagens de fundo padrão disponíveis (public/assets/vc-backgrounds). */
@@ -302,7 +316,7 @@ class VideocallController extends Controller
         $kind = (string)($body['kind'] ?? '');
         $payload = $body['payload'] ?? null;
 
-        $allowed = ['offer', 'answer', 'ice', 'join', 'leave', 'media', 'screen', 'end', 'reaction', 'hand'];
+        $allowed = ['offer', 'answer', 'ice', 'join', 'leave', 'media', 'screen', 'end', 'reaction', 'hand', 'rec'];
         if ($from === '' || !in_array($kind, $allowed, true)) {
             $this->json(['error' => 'Sinal inválido'], 400);
         }
@@ -494,8 +508,9 @@ class VideocallController extends Controller
             'recorded_by_name' => $recordedName,
         ]);
 
-        $downloadUrl = rtrim(baseUrl(''), '/') . '/videocall/recording/' . $recToken;
-        $this->json(['success' => true, 'token' => $recToken, 'url' => $downloadUrl]);
+        // Link de compartilhamento (abre player + transcrição), no domínio público.
+        $shareUrl = $this->publicBase() . '/videocall/share/' . $recToken;
+        $this->json(['success' => true, 'token' => $recToken, 'url' => $shareUrl]);
     }
 
     /** Reproduz/baixa uma gravação salva (streaming simples com suporte a Range). */
@@ -542,6 +557,306 @@ class VideocallController extends Controller
         }, $this->model->listRecordings($room['id']));
 
         $this->json(['recordings' => $list]);
+    }
+
+    // ============================================================
+    // Transcrição + Resumo (IA)
+    // ============================================================
+
+    /** Consulta o estado atual de transcrição/resumo de uma gravação. */
+    public function recordingInfo($recToken = null)
+    {
+        $recToken = $this->tokenFromUrl($recToken, 2);
+        $rec = $recToken ? $this->model->findRecordingByToken($recToken) : null;
+        if (!$rec) $this->json(['error' => 'Gravação não encontrada'], 404);
+
+        $st = $rec['transcribe_status'] ?? 'none';
+        $this->json([
+            'status' => $st,
+            'transcript' => $rec['transcript'] ?? null,
+            'transcript_json' => $rec['transcript_json'] ? json_decode($rec['transcript_json'], true) : null,
+            'summary' => ($st === 'error') ? null : ($rec['summary'] ?? null),
+            'error_message' => ($st === 'error') ? ($rec['summary'] ?? 'Falha ao transcrever.') : null,
+            'url' => rtrim(baseUrl(''), '/') . '/videocall/recording/' . $rec['token'],
+        ]);
+    }
+
+    // ============================================================
+    // Tela de gravações no Helpdesk (logado) + compartilhamento
+    // ============================================================
+
+    /** Lista as gravações que o usuário pode ver (respeitando privacidade). */
+    public function myRecordings()
+    {
+        $this->requireLogin();
+        $user = $this->currentUser();
+        $recs = $this->model->listRecordingsVisibleTo($user['id'], $user['role']);
+        $this->view('videocall/recordings', ['recs' => $recs, 'user' => $user]);
+    }
+
+    /** Exclui uma gravação (arquivo + registro). Só quem tem acesso pode. */
+    public function deleteRecording($recToken = null)
+    {
+        $this->requireLogin();
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $recToken = $this->tokenFromUrl($recToken, 2);
+        $rec = $recToken ? $this->model->findRecordingByToken($recToken) : null;
+        if (!$rec) $this->json(['error' => 'Gravação não encontrada'], 404);
+
+        $user = $this->currentUser();
+        if (!$this->model->canUserSeeRecording($rec, $user['id'], $user['role'])) {
+            $this->json(['error' => 'Sem permissão para excluir esta gravação.'], 403);
+        }
+
+        // Remove o arquivo físico (com proteção de caminho).
+        $real = realpath(PUBLIC_PATH . '/uploads/' . ltrim($rec['file_path'], '/'));
+        $baseReal = realpath(PUBLIC_PATH . '/uploads/recordings');
+        if ($real && $baseReal && strpos($real, $baseReal) === 0 && is_file($real)) {
+            @unlink($real);
+        }
+        $this->model->deleteRecording($recToken);
+        $this->json(['success' => true]);
+    }
+
+    /** Tela de detalhe (player + transcrição sincronizada) — logado, com permissão. */
+    public function watch($recToken = null)
+    {
+        $this->requireLogin();
+        $recToken = $this->tokenFromUrl($recToken, 2);
+        $rec = $recToken ? $this->model->findRecordingByToken($recToken) : null;
+        if (!$rec) { $this->renderMessage('Gravação não encontrada', 'Este link de gravação não é válido.'); return; }
+
+        $user = $this->currentUser();
+        if (!$this->model->canUserSeeRecording($rec, $user['id'], $user['role'])) {
+            $this->renderMessage('Sem acesso', 'Você não tem permissão para ver esta gravação.');
+            return;
+        }
+        $this->renderPlayer($rec, false);
+    }
+
+    /**
+     * Página PÚBLICA de compartilhamento por token (sem login). Quem tem o link
+     * acessa a gravação, transcrição e resumo. É o link para enviar a terceiros.
+     */
+    public function share($recToken = null)
+    {
+        $recToken = $this->tokenFromUrl($recToken, 2);
+        $rec = $recToken ? $this->model->findRecordingByToken($recToken) : null;
+        if (!$rec) { $this->renderMessage('Gravação não encontrada', 'Este link de gravação não é válido.'); return; }
+        $this->renderPlayer($rec, true);
+    }
+
+    /** Renderiza a view do player com os dados da gravação. */
+    private function renderPlayer($rec, $isPublic)
+    {
+        $room = $this->model->findById($rec['room_id']);
+        $this->view('videocall/watch', [
+            'rec' => $rec,
+            'room' => $room,
+            'isPublic' => $isPublic,
+            'videoUrl' => rtrim(baseUrl(''), '/') . '/videocall/recording/' . $rec['token'],
+            'segments' => $rec['transcript_json'] ? json_decode($rec['transcript_json'], true) : [],
+        ]);
+    }
+
+    /**
+     * Transcreve a gravação (Whisper) e gera um resumo (chat), salvando ambos.
+     * Roda de forma síncrona: pode levar de segundos a alguns minutos conforme
+     * a duração do áudio. Usa a integração OpenAI já existente no sistema.
+     */
+    public function transcribe($recToken = null)
+    {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $recToken = $this->tokenFromUrl($recToken, 2);
+        $rec = $recToken ? $this->model->findRecordingByToken($recToken) : null;
+        if (!$rec) $this->json(['error' => 'Gravação não encontrada'], 404);
+
+        // Evita reprocessar se já está em andamento ou concluída.
+        if (($rec['transcribe_status'] ?? 'none') === 'processing') {
+            $this->json(['status' => 'processing', 'message' => 'Transcrição já em andamento.']);
+        }
+        if (($rec['transcribe_status'] ?? 'none') === 'done' && empty($_POST['force'])) {
+            $this->json(['status' => 'done', 'transcript' => $rec['transcript'], 'summary' => $rec['summary']]);
+        }
+
+        $ai = new OpenAiClient();
+        if (!$ai->isConfigured()) {
+            $this->json(['error' => 'A integração com IA (OpenAI) não está configurada no sistema.'], 400);
+        }
+
+        $path = PUBLIC_PATH . '/uploads/' . ltrim($rec['file_path'], '/');
+        $real = realpath($path);
+        $baseReal = realpath(PUBLIC_PATH . '/uploads/recordings');
+        if (!$real || !$baseReal || strpos($real, $baseReal) !== 0 || !is_file($real)) {
+            $this->json(['error' => 'Arquivo da gravação indisponível.'], 404);
+        }
+
+        // Marca como processando e RESPONDE JÁ ao cliente (a tela acompanha por
+        // polling). Assim não trava a interface nem estoura timeout do navegador.
+        $this->model->updateRecording($recToken, ['transcribe_status' => 'processing']);
+        $this->releaseSession();
+        @set_time_limit(0);
+        @ignore_user_abort(true);
+        // Envia a resposta e libera o navegador; o PHP continua processando abaixo.
+        http_response_code(200);
+        header('Content-Type: application/json');
+        echo json_encode(['status' => 'processing', 'message' => 'Transcrição iniciada. Você pode continuar usando o sistema; ela roda em segundo plano.']);
+        if (function_exists('fastcgi_finish_request')) {
+            fastcgi_finish_request();
+        } else {
+            // Fallback: fecha a conexão para o cliente não ficar esperando.
+            @ob_end_flush(); @flush();
+        }
+
+        // A partir daqui roda em segundo plano (resposta já foi enviada).
+        $this->runTranscription($recToken, $real, $ai);
+    }
+
+    /** Processa a transcrição (pesado). Roda após a resposta já ter sido enviada. */
+    private function runTranscription($recToken, $real, $ai)
+    {
+        $ffmpeg = $this->ffmpegBin();
+        $WHISPER_LIMIT = 24 * 1024 * 1024; // margem abaixo dos 25 MB
+        $segments = [];
+        $transcriptParts = [];
+        $tmpFiles = [];
+
+        try {
+            if ($ffmpeg && filesize($real) > $WHISPER_LIMIT) {
+                // Reunião grande: extrai só o áudio (mp3 mono 16kHz, bem menor) e
+                // corta em pedaços por tempo, transcrevendo cada um com timestamps.
+                $chunkDir = sys_get_temp_dir() . '/vc_tr_' . $recToken;
+                @mkdir($chunkDir, 0700, true);
+                $chunkSec = 600; // 10 min por pedaço
+                $pattern = $chunkDir . '/chunk_%03d.mp3';
+                $cmd = escapeshellarg($ffmpeg) . ' -y -i ' . escapeshellarg($real)
+                    . ' -vn -ac 1 -ar 16000 -b:a 64k -f segment -segment_time ' . $chunkSec
+                    . ' ' . escapeshellarg($pattern);
+                $this->runShell($cmd);
+                $chunks = glob($chunkDir . '/chunk_*.mp3');
+                sort($chunks);
+                if (empty($chunks)) {
+                    throw new \RuntimeException('Falha ao preparar o áudio para transcrição.');
+                }
+                $offset = 0.0;
+                foreach ($chunks as $i => $chunk) {
+                    $tmpFiles[] = $chunk;
+                    $r = $ai->transcribe($chunk, ['language' => 'pt', 'verbose' => true, 'timeout' => 600]);
+                    if (empty($r['success'])) throw new \RuntimeException($r['error'] ?? 'erro no pedaço ' . $i);
+                    $transcriptParts[] = $r['text'];
+                    foreach (($r['segments'] ?? []) as $s) {
+                        $segments[] = ['start' => $s['start'] + $offset, 'end' => $s['end'] + $offset, 'text' => $s['text']];
+                    }
+                    // Avança o offset pela duração real do pedaço (ou 10 min).
+                    $dur = $this->mediaDuration($ffmpeg, $chunk);
+                    $offset += ($dur > 0 ? $dur : $chunkSec);
+                }
+                @rmdir($chunkDir);
+            } else {
+                // Arquivo pequeno (ou sem ffmpeg): transcreve direto com timestamps.
+                if (!$ffmpeg && filesize($real) > 25 * 1024 * 1024) {
+                    throw new \RuntimeException('A gravação passou de 25 MB e o servidor não tem ffmpeg para cortá-la. Instale o ffmpeg para transcrever reuniões longas.');
+                }
+                $r = $ai->transcribe($real, ['language' => 'pt', 'verbose' => true, 'timeout' => 600]);
+                if (empty($r['success'])) throw new \RuntimeException($r['error'] ?? 'desconhecido');
+                $transcriptParts[] = $r['text'];
+                $segments = $r['segments'] ?? [];
+            }
+        } catch (\Throwable $e) {
+            foreach ($tmpFiles as $f) @unlink($f);
+            // Resposta já foi enviada: apenas registra o erro para a tela consultar.
+            $this->model->updateRecording($recToken, [
+                'transcribe_status' => 'error',
+                'summary' => 'Falha ao transcrever: ' . $e->getMessage(),
+            ]);
+            return;
+        }
+        foreach ($tmpFiles as $f) @unlink($f);
+
+        // Texto plano com marca de tempo por linha (fácil de copiar/colar no GPT).
+        $transcript = '';
+        if (!empty($segments)) {
+            foreach ($segments as $s) {
+                $transcript .= '[' . $this->fmtTime($s['start']) . '] ' . $s['text'] . "\n";
+            }
+        } else {
+            $transcript = trim(implode("\n", $transcriptParts));
+        }
+        $transcript = trim($transcript);
+
+        // Resumo a partir da transcrição.
+        $summary = '';
+        if ($transcript !== '') {
+            $res = $ai->chat([
+                ['role' => 'system', 'content' => 'Você resume reuniões em português do Brasil. Produza: (1) um parágrafo geral, (2) tópicos principais em bullets, (3) decisões tomadas e (4) próximos passos / tarefas. Seja objetivo.'],
+                ['role' => 'user', 'content' => "Resuma a reunião a seguir (formato [mm:ss] texto):\n\n" . mb_substr($transcript, 0, 48000)],
+            ], ['model' => 'gpt-4o-mini', 'temperature' => 0.4, 'max_tokens' => 900]);
+            if (!empty($res['success'])) $summary = $res['content'];
+        }
+
+        $this->model->updateRecording($recToken, [
+            'transcript' => $transcript,
+            'transcript_json' => json_encode($segments, JSON_UNESCAPED_UNICODE),
+            'summary' => $summary,
+            'transcribe_status' => 'done',
+            'transcribed_at' => date('Y-m-d H:i:s'),
+        ]);
+        // Resposta já foi enviada ao cliente; nada a retornar aqui.
+    }
+
+    /** Uma função de shell está realmente disponível (não desabilitada no PHP)? */
+    private function fnEnabled($name)
+    {
+        if (!function_exists($name)) return false;
+        $disabled = array_map('trim', explode(',', (string) ini_get('disable_functions')));
+        return !in_array($name, $disabled, true);
+    }
+
+    /** Executa um comando de shell com o mecanismo disponível; null se nenhum. */
+    private function runShell($cmd)
+    {
+        if ($this->fnEnabled('shell_exec')) return @shell_exec($cmd);
+        if ($this->fnEnabled('exec')) { $out = []; @exec($cmd . ' 2>&1', $out); return implode("\n", $out); }
+        if ($this->fnEnabled('proc_open')) {
+            $d = [1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
+            $p = @proc_open($cmd, $d, $pipes);
+            if (is_resource($p)) {
+                $o = stream_get_contents($pipes[1]); $e = stream_get_contents($pipes[2]);
+                foreach ($pipes as $pipe) fclose($pipe); proc_close($p);
+                return $o . $e;
+            }
+        }
+        return null;
+    }
+
+    /** Localiza o binário do ffmpeg (Settings.ffmpeg_path ou PATH). Null se indisponível. */
+    private function ffmpegBin()
+    {
+        // Sem função de shell habilitada, não há como usar o ffmpeg.
+        if (!$this->fnEnabled('shell_exec') && !$this->fnEnabled('exec') && !$this->fnEnabled('proc_open')) return null;
+        $cfg = trim((string) Config::get('ffmpeg_path'));
+        if ($cfg !== '' && @is_file($cfg)) return $cfg;
+        $probe = $this->runShell('ffmpeg -version');
+        if ($probe && stripos($probe, 'ffmpeg version') !== false) return 'ffmpeg';
+        return null;
+    }
+
+    /** Duração (segundos) de um arquivo via ffmpeg. */
+    private function mediaDuration($ffmpeg, $file)
+    {
+        $out = $this->runShell(escapeshellarg($ffmpeg) . ' -i ' . escapeshellarg($file));
+        if ($out && preg_match('/Duration:\s*(\d+):(\d+):(\d+\.?\d*)/', $out, $m)) {
+            return ((int)$m[1]) * 3600 + ((int)$m[2]) * 60 + (float)$m[3];
+        }
+        return 0;
+    }
+
+    /** Formata segundos como mm:ss (ou hh:mm:ss). */
+    private function fmtTime($sec)
+    {
+        $sec = (int) round($sec);
+        $h = intdiv($sec, 3600); $m = intdiv($sec % 3600, 60); $s = $sec % 60;
+        return $h > 0 ? sprintf('%d:%02d:%02d', $h, $m, $s) : sprintf('%02d:%02d', $m, $s);
     }
 
     // ============================================================
@@ -601,6 +916,7 @@ class VideocallController extends Controller
                 'peer_id' => $p['peer_id'],
                 'name' => $p['display_name'] ?: 'Convidado',
                 'role' => $p['role'],
+                'avatar' => !empty($p['avatar']) ? (rtrim(baseUrl(''), '/') . '/uploads/' . ltrim($p['avatar'], '/')) : null,
             ];
         }, $rows);
     }
@@ -647,12 +963,15 @@ class VideocallController extends Controller
     {
         $t = htmlspecialchars($title, ENT_QUOTES);
         $m = htmlspecialchars($message, ENT_QUOTES);
+        $fav = Config::get('app_favicon');
+        $favTag = $fav ? '<link rel="icon" href="' . htmlspecialchars(baseUrl($fav), ENT_QUOTES) . '"><link rel="shortcut icon" href="' . htmlspecialchars(baseUrl($fav), ENT_QUOTES) . '">' : '';
         http_response_code(200);
         echo <<<HTML
 <!DOCTYPE html>
 <html lang="pt-BR"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{$t} · ON Solutions Brasil</title>
+{$favTag}
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
 <style>body{background:#0f1020;color:#e8eaf1;font-family:'Segoe UI',system-ui,Arial,sans-serif;}

@@ -19,6 +19,10 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
     <meta name="theme-color" content="#0f1020">
     <title><?= $roomTitle ?> · Videochamada</title>
+    <?php $faviconUrl = Config::get('app_favicon'); if ($faviconUrl): ?>
+    <link rel="icon" href="<?= baseUrl($faviconUrl) ?>" type="image/x-icon">
+    <link rel="shortcut icon" href="<?= baseUrl($faviconUrl) ?>">
+    <?php endif; ?>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
     <style>
@@ -30,10 +34,21 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
 
         /* ---------- Lobby ---------- */
         #lobby { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; padding:20px; z-index:30; overflow:auto; }
-        .lobby-card { width:100%; max-width:440px; background:var(--panel); border-radius:20px; padding:28px 24px; box-shadow:0 20px 60px rgba(0,0,0,.45); }
+        .lobby-card { width:100%; max-width:860px; background:var(--panel); border-radius:20px; padding:26px 28px; box-shadow:0 20px 60px rgba(0,0,0,.45); }
         .lobby-card h1 { font-size:1.25rem; font-weight:700; margin:0 0 4px; }
-        .lobby-card .sub { color:#9aa2c0; font-size:.86rem; margin-bottom:16px; }
+        .lobby-card .sub { color:#9aa2c0; font-size:.86rem; margin-bottom:0; }
+        .lobby-head { margin-bottom:18px; }
+        .lobby-grid { display:grid; grid-template-columns:1.1fr 1fr; gap:24px; align-items:start; }
+        .lobby-left { min-width:0; }
+        .lobby-right { min-width:0; }
+        @media (max-width:760px){ .lobby-grid { grid-template-columns:1fr; gap:16px; } .lobby-card { max-width:440px; } }
         .private-badge { display:inline-flex; align-items:center; gap:5px; font-size:.72rem; background:rgba(0,191,166,.15); color:var(--brand); padding:3px 9px; border-radius:999px; margin-bottom:12px; }
+        .lb-presence { display:flex; align-items:center; gap:10px; background:var(--panel2); border-radius:12px; padding:9px 12px; margin-bottom:14px; }
+        .lb-presence-avatars { display:flex; }
+        .lb-presence-avatars .av { width:32px; height:32px; border-radius:50%; border:2px solid var(--panel); margin-left:-8px; background:var(--brand); color:#fff; display:flex; align-items:center; justify-content:center; font-size:.8rem; font-weight:700; overflow:hidden; background-size:cover; background-position:center; }
+        .lb-presence-avatars .av:first-child { margin-left:0; }
+        .lb-presence-avatars .more { background:#33375a; }
+        .lb-presence-text { font-size:.82rem; color:#cfd3e6; }
         .preview-wrap { position:relative; background:#000; border-radius:14px; overflow:hidden; aspect-ratio:16/9; margin-bottom:14px; }
         .preview-wrap video, .preview-wrap canvas { width:100%; height:100%; object-fit:cover; }
         .preview-wrap video.mirror, .preview-wrap canvas.mirror { transform:scaleX(-1); }
@@ -49,10 +64,11 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
         .toggle-btn.off { background:#3a1620; border-color:#7a2436; color:#ff9db0; }
 
         /* Grade de fundos (lobby e menu) */
-        .bg-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:14px; }
-        .bg-opt { position:relative; aspect-ratio:1; border-radius:10px; overflow:hidden; cursor:pointer; border:2px solid transparent; background:var(--panel2) center/cover no-repeat; display:flex; align-items:center; justify-content:center; font-size:1.1rem; color:#9aa2c0; }
+        .bg-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:14px; }
+        .bg-opt { position:relative; aspect-ratio:16/10; border-radius:10px; overflow:hidden; cursor:pointer; border:2px solid transparent; background:var(--panel2) center/cover no-repeat; display:flex; align-items:center; justify-content:center; font-size:1.2rem; color:#9aa2c0; }
         .bg-opt.active { border-color:var(--brand); }
-        .bg-opt small { position:absolute; bottom:2px; left:0; right:0; text-align:center; font-size:.55rem; color:#fff; text-shadow:0 1px 2px #000; }
+        .bg-opt small { position:absolute; left:0; right:0; bottom:0; padding:4px 6px; text-align:center; font-size:.62rem; color:#fff;
+            background:linear-gradient(transparent, rgba(0,0,0,.75)); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
         /* ---------- Call ---------- */
         #call { position:fixed; inset:0; display:none; flex-direction:column; }
@@ -93,6 +109,19 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
         .tile .avatar span { width:72px; height:72px; border-radius:50%; background:var(--brand); display:flex; align-items:center; justify-content:center; font-size:1.8rem; font-weight:700; color:#fff; }
         .tile.pinned { outline:2px solid var(--brand); outline-offset:-2px; }
 
+        /* Reação recente na webcam (aparece por alguns segundos) */
+        .tile .reaction-badge { position:absolute; left:8px; top:8px; display:none; align-items:center; gap:6px;
+            background:rgba(10,12,24,.78); padding:5px 10px; border-radius:999px; z-index:5; max-width:70%; }
+        .tile .reaction-badge .emo { font-size:1.3rem; line-height:1; animation:reactPop .4s ease; }
+        .tile .reaction-badge .who { font-size:.72rem; color:#e8eaf1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .tile.reacting .reaction-badge { display:flex; }
+        @keyframes reactPop { 0%{ transform:scale(.4); } 60%{ transform:scale(1.25); } 100%{ transform:scale(1); } }
+
+        /* Mão levantada bem visível (badge maior + amarelo) */
+        .tile .badge-hand { color:#ffd54a; }
+        .tile.hand-up .badge-hand { display:flex; background:rgba(224,164,0,.28); }
+        .tile.hand-up { outline:2px solid #ffd54a; outline-offset:-2px; }
+
         .tile-tools { position:absolute; top:8px; left:8px; display:flex; gap:5px; opacity:0; transition:opacity .15s; z-index:4; }
         .tile:hover .tile-tools, .tile.show-tools .tile-tools { opacity:1; }
         .tile-tools button { width:30px; height:30px; border:none; border-radius:8px; background:rgba(10,12,24,.72); color:#fff; font-size:.9rem; cursor:pointer; display:flex; align-items:center; justify-content:center; }
@@ -115,7 +144,7 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
         .controls .ctrl { margin-bottom:16px; }
 
         /* Popover (menu de câmera / dispositivos) */
-        .popover-menu { position:fixed; background:var(--panel); border:1px solid #33375a; border-radius:14px; padding:14px; width:300px; max-width:92vw; box-shadow:0 16px 50px rgba(0,0,0,.5); z-index:80; display:none; }
+        .popover-menu { position:fixed; background:var(--panel); border:1px solid #33375a; border-radius:14px; padding:14px; width:360px; max-width:94vw; max-height:70vh; overflow:auto; box-shadow:0 16px 50px rgba(0,0,0,.5); z-index:80; display:none; }
         .popover-menu h6 { font-size:.8rem; color:#9aa2c0; text-transform:uppercase; letter-spacing:.5px; margin:0 0 8px; }
         .popover-menu .mb-blk { margin-bottom:14px; }
 
@@ -141,6 +170,22 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
         .link-modal { position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:70; display:none; align-items:center; justify-content:center; padding:20px; }
         .link-modal .inner { background:var(--panel); border-radius:16px; padding:24px; max-width:520px; width:100%; }
         .rec-item { background:var(--panel2); border-radius:10px; padding:10px 12px; margin-bottom:8px; display:flex; align-items:center; gap:10px; }
+        .rec-tabs { display:flex; gap:4px; }
+        .rec-tab { border:none; background:var(--panel2); color:#cfd3e6; padding:6px 12px; border-radius:8px 8px 0 0; font-size:.8rem; cursor:pointer; }
+        .rec-tab.active { background:var(--brand); color:#fff; }
+        .rec-tab-body { background:var(--panel2); border-radius:0 10px 10px 10px; padding:12px; max-height:240px; overflow:auto; font-size:.85rem; white-space:pre-wrap; line-height:1.5; }
+
+        /* Tela de saída */
+        .exit-screen { height:100vh; display:flex; align-items:center; justify-content:center; padding:20px; }
+        .exit-card { background:var(--panel); border-radius:20px; padding:40px 32px; text-align:center; max-width:440px; width:100%; box-shadow:0 20px 60px rgba(0,0,0,.45); }
+        .exit-ic { font-size:3.2rem; }
+        .exit-card h3 { margin:14px 0 6px; }
+        .exit-sub { color:#9aa2c0; font-size:.9rem; margin-bottom:8px; }
+        .exit-actions { display:flex; flex-direction:column; gap:10px; margin-top:22px; }
+        .ex-btn { display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:12px 18px; border-radius:12px;
+            background:var(--panel2); color:#e8eaf1; border:1px solid #33375a; text-decoration:none; font-weight:600; font-size:.92rem; cursor:pointer; }
+        .ex-btn:hover { filter:brightness(1.15); }
+        .ex-btn.ex-primary { background:var(--brand); border-color:var(--brand); color:#fff; }
 
         /* Menu de reações (emojis) */
         .emoji-menu { position:fixed; background:var(--panel); border:1px solid #33375a; border-radius:999px; padding:8px 12px; display:none; gap:6px; z-index:80; box-shadow:0 12px 40px rgba(0,0,0,.5); }
@@ -212,39 +257,53 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
 <!-- ===================== LOBBY ===================== -->
 <div id="lobby">
     <div class="lobby-card">
-        <h1><i class="bi bi-camera-video"></i> <?= $roomTitle ?></h1>
-        <?php if ($visibility === 'private'): ?>
-        <div class="private-badge"><i class="bi bi-shield-lock-fill"></i> Sala privada — entrada com aprovação</div>
-        <?php endif; ?>
-        <div class="sub">Ajuste sua câmera, microfone e o plano de fundo antes de entrar.</div>
-        <div class="preview-wrap">
-            <video id="preview" autoplay muted playsinline class="mirror"></video>
-            <canvas id="preview-canvas" class="mirror hidden"></canvas>
+        <div class="lobby-head">
+            <h1><i class="bi bi-camera-video"></i> <?= $roomTitle ?></h1>
+            <?php if ($visibility === 'private'): ?>
+            <div class="private-badge"><i class="bi bi-shield-lock-fill"></i> Sala privada — entrada com aprovação</div>
+            <?php endif; ?>
+            <div class="sub">Ajuste sua câmera, microfone e o plano de fundo antes de entrar.</div>
         </div>
 
-        <div class="lobby-toggles">
-            <button type="button" class="toggle-btn" id="lb-mic" onclick="toggleLobby('mic')"><i class="bi bi-mic-fill"></i> Microfone</button>
-            <button type="button" class="toggle-btn" id="lb-cam" onclick="toggleLobby('cam')"><i class="bi bi-camera-video-fill"></i> Câmera</button>
-        </div>
+        <div class="lobby-grid">
+            <!-- Coluna esquerda: preview + presença -->
+            <div class="lobby-left">
+                <div class="preview-wrap">
+                    <video id="preview" autoplay muted playsinline class="mirror"></video>
+                    <canvas id="preview-canvas" class="mirror hidden"></canvas>
+                </div>
+                <div class="lobby-toggles">
+                    <button type="button" class="toggle-btn" id="lb-mic" onclick="toggleLobby('mic')"><i class="bi bi-mic-fill"></i> Microfone</button>
+                    <button type="button" class="toggle-btn" id="lb-cam" onclick="toggleLobby('cam')"><i class="bi bi-camera-video-fill"></i> Câmera</button>
+                </div>
+                <div id="lb-presence" class="lb-presence" style="display:none;">
+                    <div class="lb-presence-avatars" id="lb-presence-avatars"></div>
+                    <div class="lb-presence-text" id="lb-presence-text"></div>
+                </div>
+            </div>
 
-        <div class="mb-blk" style="margin-bottom:12px;">
-            <label class="form-label">Câmera</label>
-            <select id="lb-cam-select" class="form-select" onchange="changeDevice('video', this.value)"></select>
-        </div>
-        <div class="mb-blk" style="margin-bottom:14px;">
-            <label class="form-label">Microfone</label>
-            <select id="lb-mic-select" class="form-select" onchange="changeDevice('audio', this.value)"></select>
-        </div>
+            <!-- Coluna direita: dispositivos, fundo, nome, entrar -->
+            <div class="lobby-right">
+                <div class="mb-blk" style="margin-bottom:12px;">
+                    <label class="form-label">Câmera</label>
+                    <select id="lb-cam-select" class="form-select" onchange="changeDevice('video', this.value)"></select>
+                </div>
+                <div class="mb-blk" style="margin-bottom:12px;">
+                    <label class="form-label">Microfone</label>
+                    <select id="lb-mic-select" class="form-select" onchange="changeDevice('audio', this.value)"></select>
+                </div>
 
-        <label class="form-label"><i class="bi bi-image"></i> Plano de fundo</label>
-        <div class="bg-grid" id="lb-bg-grid"></div>
+                <label class="form-label"><i class="bi bi-image"></i> Plano de fundo</label>
+                <div class="bg-grid" id="lb-bg-grid"></div>
 
-        <div class="mb-3">
-            <label class="form-label">Seu nome</label>
-            <input type="text" id="lb-name" class="form-control" placeholder="Como quer aparecer?" value="<?= $suggested ?>" maxlength="120">
+                <div class="mb-3">
+                    <label class="form-label">Seu nome</label>
+                    <input type="text" id="lb-name" class="form-control" placeholder="Como quer aparecer?" value="<?= $suggested ?>" maxlength="120">
+                </div>
+                <button class="btn-join" id="lb-join" onclick="enterRoom()"><i class="bi bi-box-arrow-in-right"></i> <span id="lb-join-text">Entrar na chamada</span></button>
+                <div id="lb-error" class="text-danger small mt-2" style="display:none;"></div>
+            </div>
         </div>
-        <button class="btn-join" id="lb-join" onclick="enterRoom()"><i class="bi bi-box-arrow-in-right"></i> <span id="lb-join-text">Entrar na chamada</span></button>
-        <div id="lb-error" class="text-danger small mt-2" style="display:none;"></div>
     </div>
 </div>
 
@@ -263,7 +322,7 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
     <div class="topbar">
         <span class="title"><i class="bi bi-camera-video"></i> <?= $roomTitle ?></span>
         <span class="count" id="peer-count-wrap" onclick="onCountClick()"><i class="bi bi-people-fill"></i> <span id="peer-count">1</span><span class="badge-dot" id="req-dot">0</span></span>
-        <span class="rec-dot" id="rec-indicator"><span class="dot"></span> Gravando <span id="rec-time">00:00</span></span>
+        <span class="rec-dot" id="rec-indicator"><span class="dot"></span> <span id="rec-label">Gravando</span> <span id="rec-time">00:00</span></span>
     </div>
     <div class="stage-wrap" id="stage-wrap">
         <div class="stage" id="stage" style="display:none;"></div>
@@ -273,10 +332,11 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
     <div class="controls">
         <div class="ctrl-group">
             <button class="ctrl" id="btn-mic" onclick="toggleMic()" title="Microfone"><i class="bi bi-mic-fill"></i><span class="ctrl-label">Mic</span></button>
+            <button class="ctrl-caret" onclick="openMicMenu(event)" title="Escolher microfone"><i class="bi bi-chevron-up"></i></button>
         </div>
         <div class="ctrl-group">
             <button class="ctrl" id="btn-cam" onclick="toggleCam()" title="Câmera"><i class="bi bi-camera-video-fill"></i><span class="ctrl-label">Câmera</span></button>
-            <button class="ctrl-caret" onclick="openCamMenu(event)" title="Opções de câmera e fundo"><i class="bi bi-chevron-up"></i></button>
+            <button class="ctrl-caret" onclick="openCamMenu(event)" title="Câmera e plano de fundo"><i class="bi bi-chevron-up"></i></button>
         </div>
         <button class="ctrl" id="btn-screen" onclick="toggleScreen()" title="Compartilhar tela"><i class="bi bi-display"></i><span class="ctrl-label">Tela</span></button>
         <button class="ctrl" id="btn-react" onclick="openEmojiMenu(event)" title="Reagir"><i class="bi bi-emoji-smile"></i><span class="ctrl-label">Reagir</span></button>
@@ -286,26 +346,34 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
             <span class="badge-dot" id="hands-count-dot" style="position:absolute;top:-2px;right:-2px;background:#e0a400;border-radius:999px;padding:1px 6px;font-size:.65rem;display:none;"></span>
         </div>
         <?php if ($canRecord): ?>
-        <button class="ctrl" id="btn-rec" onclick="toggleRecording()" title="Gravar"><i class="bi bi-record-circle"></i><span class="ctrl-label">Gravar</span></button>
+        <div class="ctrl-group">
+            <button class="ctrl" id="btn-rec" onclick="toggleRecording()" title="Gravar"><i class="bi bi-record-circle"></i><span class="ctrl-label">Gravar</span></button>
+            <button class="ctrl-caret" id="btn-rec-pause" onclick="togglePauseRecording()" title="Pausar/retomar gravação" style="display:none;"><i class="bi bi-pause-fill"></i></button>
+        </div>
         <?php endif; ?>
+        <button class="ctrl" id="btn-pip" onclick="togglePip()" title="Abrir em janela flutuante"><i class="bi bi-pip"></i><span class="ctrl-label">Janela</span></button>
         <button class="ctrl" id="btn-copy" onclick="copyLink()" title="Copiar link"><i class="bi bi-link-45deg"></i><span class="ctrl-label">Link</span></button>
         <button class="ctrl hangup" onclick="hangup()" title="Sair"><i class="bi bi-telephone-x-fill"></i><span class="ctrl-label">Sair</span></button>
     </div>
 </div>
 
-<!-- Popover: câmera / dispositivos / fundo (dentro da call) -->
+<!-- Popover da CÂMERA: escolher câmera + plano de fundo -->
 <div class="popover-menu" id="cam-menu">
     <div class="mb-blk">
         <h6>Câmera</h6>
         <select id="cm-cam-select" class="form-select" onchange="changeDevice('video', this.value)"></select>
     </div>
-    <div class="mb-blk">
-        <h6>Microfone</h6>
-        <select id="cm-mic-select" class="form-select" onchange="changeDevice('audio', this.value)"></select>
-    </div>
     <div>
         <h6>Plano de fundo</h6>
         <div class="bg-grid" id="cm-bg-grid"></div>
+    </div>
+</div>
+
+<!-- Popover do MICROFONE: escolher microfone -->
+<div class="popover-menu" id="mic-menu">
+    <div>
+        <h6>Microfone</h6>
+        <select id="cm-mic-select" class="form-select" onchange="changeDevice('audio', this.value)"></select>
     </div>
 </div>
 
@@ -357,6 +425,8 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
             <input type="text" class="form-control" id="rec-url" readonly>
             <button class="btn btn-sm btn-outline-light" onclick="copyRecUrl()"><i class="bi bi-clipboard"></i></button>
         </div>
+        <p class="small text-secondary mt-2 mb-0">A transcrição e o resumo por IA ficam disponíveis ao abrir a gravação.</p>
+
         <div class="text-end mt-3">
             <a class="btn btn-sm btn-outline-light" id="rec-open" target="_blank"><i class="bi bi-box-arrow-up-right"></i> Abrir</a>
             <button class="btn btn-sm btn-primary" onclick="document.getElementById('rec-modal').style.display='none'">Fechar</button>
@@ -373,6 +443,7 @@ const ROOM_TOKEN = '<?= $roomToken ?>';
 const ICE_SERVERS = <?= $iceJson ?: '[]' ?>;
 const BACKGROUNDS = <?= $bgJson ?: '[]' ?>;
 const ROOM_VISIBILITY = '<?= $visibility ?>';
+const IS_LOGGED = <?= !empty($loggedUserId) ? 'true' : 'false' ?>;
 let isAdmin = <?= $isAdmin ? 'true' : 'false' ?>;
 let allowPresentation = <?= $allowPresentation ? 'true' : 'false' ?>;
 
@@ -507,14 +578,19 @@ async function startBgPipeline() {
     await bgVideoEl.play().catch(() => {});
 
     bgProcessing = true;
-    const loop = async () => {
-        if (!bgProcessing) return;
+    let bgBusy = false;
+    // Usa setInterval (não requestAnimationFrame): rAF PARA quando a aba está em
+    // segundo plano, o que congelava a câmera para os outros. O interval segue
+    // rodando (com throttle em aba oculta, mas o stream não trava).
+    const tick = async () => {
+        if (!bgProcessing || bgBusy) return;
         if (bgVideoEl.readyState >= 2) {
+            bgBusy = true;
             try { await segmenter.send({ image: bgVideoEl }); } catch (e) {}
+            bgBusy = false;
         }
-        bgRafId = requestAnimationFrame(loop);
     };
-    loop();
+    bgRafId = setInterval(tick, 33); // ~30fps quando visível
 
     processedStream = bgCanvas.captureStream(30);
     return processedStream.getVideoTracks()[0];
@@ -522,7 +598,8 @@ async function startBgPipeline() {
 
 function stopBgPipeline() {
     bgProcessing = false;
-    if (bgRafId) cancelAnimationFrame(bgRafId);
+    if (bgRafId) clearInterval(bgRafId);
+    bgRafId = null;
     if (processedStream) { processedStream.getTracks().forEach(t => t.stop()); processedStream = null; }
 }
 
@@ -602,6 +679,34 @@ async function initPreview() {
         syncLobbyButtons();
     }
     renderBgGrids();
+    loadLobbyPresence();
+    lobbyPresenceTimer = setInterval(loadLobbyPresence, 5000);
+}
+
+// Mostra no lobby quem já está na chamada (contagem + avatares + nomes).
+let lobbyPresenceTimer = null;
+async function loadLobbyPresence() {
+    if (joined) { if (lobbyPresenceTimer) clearInterval(lobbyPresenceTimer); return; }
+    try {
+        const r = await fetch(`${BASE}/videocall/preview/${ROOM_TOKEN}`).then(x => x.json());
+        const box = document.getElementById('lb-presence');
+        const peers = r.peers || [];
+        if (!peers.length) { box.style.display = 'none'; return; }
+        box.style.display = 'flex';
+        // Avatares (até 4) + "+N"
+        const avBox = document.getElementById('lb-presence-avatars');
+        const show = peers.slice(0, 4);
+        avBox.innerHTML = show.map(p => {
+            if (p.avatar) return `<div class="av" style="background-image:url('${p.avatar}')"></div>`;
+            return `<div class="av">${escapeHtml((p.name || 'C').trim().charAt(0).toUpperCase())}</div>`;
+        }).join('') + (peers.length > 4 ? `<div class="av more">+${peers.length - 4}</div>` : '');
+        // Texto: "5 pessoas na chamada · Lucas e mais 4"
+        const first = peers[0] ? peers[0].name : '';
+        let txt = peers.length === 1 ? '1 pessoa na chamada' : (peers.length + ' pessoas na chamada');
+        if (peers.length === 1) txt += ' · ' + first;
+        else if (peers.length > 1) txt += ' · ' + first + ' e mais ' + (peers.length - 1);
+        document.getElementById('lb-presence-text').textContent = txt;
+    } catch (e) {}
 }
 
 function updateLobbyPreview() {
@@ -773,6 +878,7 @@ function enterCall(res) {
     document.getElementById('waiting').style.display = 'none';
     document.getElementById('call').style.display = 'flex';
     joined = true; waiting = false;
+    if (lobbyPresenceTimer) clearInterval(lobbyPresenceTimer);
     // Admin vê o contador clicável (abre o painel de participantes/pedidos).
     if (isAdmin) {
         document.getElementById('peer-count-wrap').classList.add('clickable');
@@ -834,6 +940,7 @@ function makeTile(id, name, opts = {}) {
     div.innerHTML =
         `<div class="vwrap"><video autoplay playsinline ${opts.self ? 'muted' : ''}></video></div>
          <div class="avatar"><span>${initial}</span></div>
+         <div class="reaction-badge"><span class="emo"></span><span class="who"></span></div>
          <div class="tile-tools">
             ${zoomTools}
             <button title="Fixar/desafixar" onclick="togglePin('${id}')"><i class="bi bi-pin-angle"></i></button>
@@ -975,7 +1082,18 @@ function addSelfTile() {
     div.classList.toggle('cam-off', !camOn);
 }
 function removeTile(id) { const t = tileEl(id); if (t) { t.remove(); tileZoom.delete(id); tilePan.delete(id); pinned.delete(id); layoutGrid(); } }
-function updateCount() { document.getElementById('peer-count').textContent = (peers.size + 1); }
+let lastQualityFloor = -1;
+function updateCount() {
+    document.getElementById('peer-count').textContent = (peers.size + 1);
+    // Ajusta o teto de qualidade quando o nº de participantes muda de faixa.
+    if (joined) {
+        const floor = participantQualityFloor();
+        if (floor !== lastQualityFloor) {
+            lastQualityFloor = floor;
+            if (typeof applyQualityToAll === 'function') applyQualityToAll();
+        }
+    }
+}
 
 // ==========================================================
 // WebRTC mesh
@@ -993,6 +1111,21 @@ let qualityIndex = (IS_MOBILE || isSlowNetwork()) ? 2 : 0;
 let autoCamOff = false;        // câmera desligada AUTOMATICAMENTE por rede ruim
 let camOffByUser = false;      // usuário desligou manualmente (não religa sozinho)
 
+// TETO de qualidade conforme o nº de participantes (mesh: mais gente = cada
+// stream precisa ser mais leve para o upload/CPU de todos aguentar).
+// Retorna o índice MÍNIMO de QUALITY_LEVELS permitido (quanto maior, mais leve).
+function participantQualityFloor() {
+    const total = peers.size + 1; // eu + remotos
+    if (total <= 2) return 0;     // 1:1 -> pode 1080p
+    if (total <= 4) return 1;     // 3-4 -> teto 720p
+    if (total <= 6) return 2;     // 5-6 -> teto 480p
+    return 3;                     // 7+  -> teto 360p
+}
+// Nível efetivo = o mais LEVE entre o adaptativo (rede) e o teto (participantes).
+function effectiveQualityIndex() {
+    return Math.max(qualityIndex, participantQualityFloor());
+}
+
 // Aplica o nível atual de qualidade a um sender de vídeo (câmera; a tela mantém detalhe).
 async function tuneSender(sender, track) {
     if (!sender || !track || track.kind !== 'video') return;
@@ -1005,7 +1138,7 @@ async function tuneSender(sender, track) {
             delete params.encodings[0].scaleResolutionDownBy;
             params.degradationPreference = 'maintain-resolution';
         } else {
-            const lv = QUALITY_LEVELS[qualityIndex];
+            const lv = QUALITY_LEVELS[effectiveQualityIndex()];
             params.encodings[0].maxBitrate = lv.maxBitrate;
             params.encodings[0].maxFramerate = lv.maxFramerate;
             params.encodings[0].scaleResolutionDownBy = lv.scaleDown;
@@ -1061,18 +1194,23 @@ async function monitorNetwork() {
 
         // Rede ruim persistente: baixa a qualidade em degraus.
         if (badStreak >= 1 && qualityIndex < QUALITY_LEVELS.length - 1) {
+            const before = effectiveQualityIndex();
             qualityIndex++; applyQualityToAll(); badStreak = 0;
-            toast('Conexão instável: qualidade reduzida para ' + QUALITY_LEVELS[qualityIndex].name + '.');
+            if (effectiveQualityIndex() !== before) toast('Conexão instável: qualidade em ' + QUALITY_LEVELS[effectiveQualityIndex()].name + '.');
         }
         // Já no pior nível e ainda ruim: desliga a câmera automaticamente.
         else if (badStreak >= 2 && qualityIndex >= QUALITY_LEVELS.length - 1 && camOn && !camOffByUser) {
             autoDisableCam();
             badStreak = 0;
         }
-        // Rede boa por um tempo: sobe a qualidade de volta.
+        // Rede boa por um tempo: sobe a qualidade de volta (respeitando o teto de participantes).
         if (goodStreak >= 3) {
             if (autoCamOff) { autoEnableCam(); goodStreak = 0; }
-            else if (qualityIndex > 0) { qualityIndex--; applyQualityToAll(); goodStreak = 0; toast('Conexão melhorou: qualidade em ' + QUALITY_LEVELS[qualityIndex].name + '.'); }
+            else if (qualityIndex > 0) {
+                const before = effectiveQualityIndex();
+                qualityIndex--; applyQualityToAll(); goodStreak = 0;
+                if (effectiveQualityIndex() !== before) toast('Conexão melhorou: qualidade em ' + QUALITY_LEVELS[effectiveQualityIndex()].name + '.');
+            }
         }
     }
     lastStats = { ts: now, packetsSent, packetsLost };
@@ -1114,7 +1252,7 @@ function ensurePeer(remoteId, name, initiator) {
     const entry = { pc, name, polite: peerId < remoteId, makingOffer: false, tile: null, screenTile: null, pendingIce: [], hasCam: false };
     peers.set(remoteId, entry);
 
-    if (localStream) localStream.getTracks().forEach(t => { const s = pc.addTrack(t, localStream); tuneSender(s, t); });
+    if (localStream) localStream.getTracks().forEach(t => { if (t.kind === 'video') t.contentHint = 'motion'; const s = pc.addTrack(t, localStream); tuneSender(s, t); });
     if (screenStream) screenStream.getVideoTracks().forEach(t => { const s = pc.addTrack(t, screenStream); if (t) t.contentHint = 'detail'; tuneSender(s, t); });
 
     pc.onicecandidate = (e) => { if (e.candidate) sendSignal(remoteId, 'ice', e.candidate); };
@@ -1163,8 +1301,15 @@ async function handleSignal(sig) {
         return;
     }
     if (sig.kind === 'screen') { if (sig.payload && sig.payload.stop) removeTile(from + '-screen'); return; }
-    if (sig.kind === 'reaction') { if (sig.payload && sig.payload.emoji) spawnEmojiRain(sig.payload.emoji); return; }
+    if (sig.kind === 'reaction') {
+        if (sig.payload && sig.payload.emoji) {
+            spawnEmojiRain(sig.payload.emoji);
+            showReactionBadge(from, sig.payload.emoji, sig.payload.name || (peers.get(from)?.name) || 'Convidado');
+        }
+        return;
+    }
     if (sig.kind === 'perm') { if (sig.payload) applyPresentationPerm(!!sig.payload.allow_presentation); return; }
+    if (sig.kind === 'rec') { showRemoteRecState(sig.payload || {}); return; }
     if (sig.kind === 'hand') {
         // Admin pediu para EU baixar a mão (sinal direcionado com force).
         if (sig.payload && sig.payload.force && sig.to === peerId) { if (handUp) toggleHand(); return; }
@@ -1214,6 +1359,27 @@ function reconcilePeers(activeList) {
     peers.forEach((_, id) => { if (!active.has(id)) dropPeer(id); });
     activeList.forEach(p => { if (p.peer_id !== peerId && !peers.has(p.peer_id)) ensurePeer(p.peer_id, p.name, false); });
     updateCount();
+    maybeAutoStopRecording();
+}
+
+// Se estou gravando e fiquei sozinho na sala (todos saíram), finaliza e envia.
+let autoStopTimer = null;
+function maybeAutoStopRecording() {
+    const recording = mediaRecorder && mediaRecorder.state !== 'inactive';
+    if (recording && peers.size === 0) {
+        if (!autoStopTimer) {
+            // aguarda 5s para evitar parar por uma reconexão momentânea
+            autoStopTimer = setTimeout(() => {
+                autoStopTimer = null;
+                if (mediaRecorder && mediaRecorder.state !== 'inactive' && peers.size === 0) {
+                    toast('Todos saíram: finalizando a gravação…');
+                    stopRecording();
+                }
+            }, 5000);
+        }
+    } else if (autoStopTimer) {
+        clearTimeout(autoStopTimer); autoStopTimer = null;
+    }
 }
 
 // ---- Controles de mídia ----
@@ -1226,6 +1392,7 @@ function toggleMic() {
     b.innerHTML = (micOn ? '<i class="bi bi-mic-fill"></i>' : '<i class="bi bi-mic-mute-fill"></i>') + '<span class="ctrl-label">Mic</span>';
     tileEl(peerId)?.classList.toggle('mic-off', !micOn);
     broadcast('media', { micMuted: !micOn, camOff: !camOn });
+    if (typeof syncPipButtons === 'function') syncPipButtons();
 }
 function toggleCam() {
     camOn = !camOn;
@@ -1240,6 +1407,7 @@ function toggleCam() {
     b.innerHTML = (camOn ? '<i class="bi bi-camera-video-fill"></i>' : '<i class="bi bi-camera-video-off-fill"></i>') + '<span class="ctrl-label">Câmera</span>';
     tileEl(peerId)?.classList.toggle('cam-off', !camOn);
     broadcast('media', { micMuted: !micOn, camOff: !camOn });
+    if (typeof syncPipButtons === 'function') syncPipButtons();
 }
 
 async function toggleScreen() {
@@ -1249,7 +1417,26 @@ async function toggleScreen() {
         toast('O administrador desativou o compartilhamento de tela nesta sala.');
         return;
     }
-    try { screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false }); } catch (e) { return; }
+    // A maioria dos navegadores de CELULAR não expõe getDisplayMedia (limitação
+    // do próprio navegador — o Meet no celular também só compartilha pelo app).
+    if (!navigator.mediaDevices || typeof navigator.mediaDevices.getDisplayMedia !== 'function') {
+        toast('Seu navegador não permite compartilhar a tela. No celular, isso costuma funcionar só em alguns navegadores (tente o Chrome mais recente) ou pelo computador.');
+        return;
+    }
+    try {
+        // Pede a tela em alta resolução para o conteúdo ficar legível na gravação/PiP.
+        screenStream = await navigator.mediaDevices.getDisplayMedia({
+            video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 10, max: 15 } },
+            audio: false
+        });
+    } catch (e) {
+        // NotAllowedError quando o usuário cancela a seleção (não avisa nada);
+        // outros erros indicam falta de suporte/permissão do dispositivo.
+        if (e && (e.name === 'NotAllowedError' || e.name === 'AbortError')) return;
+        toast('Não foi possível compartilhar a tela neste dispositivo.');
+        return;
+    }
+    if (!screenStream) return;
     sharing = true;
     document.getElementById('btn-screen').classList.add('active');
     const selfScreen = makeTile(peerId + '-screen', myName + ' (sua tela)', { screen: true });
@@ -1270,21 +1457,34 @@ function stopScreen() {
 // Menu de câmera / dispositivos / fundo (popover)
 function openCamMenu(ev) {
     ev.stopPropagation();
-    const menu = document.getElementById('cam-menu');
-    const open = menu.style.display === 'block';
-    if (open) { menu.style.display = 'none'; return; }
     populateDevices(); renderBgGrids();
+    positionPopover('cam-menu', ev.currentTarget);
+}
+// Setinha do microfone: só a escolha do microfone.
+function openMicMenu(ev) {
+    ev.stopPropagation();
+    populateDevices();
+    positionPopover('mic-menu', ev.currentTarget);
+}
+function positionPopover(menuId, anchor) {
+    const menu = document.getElementById(menuId);
+    const open = menu.style.display === 'block';
+    // Fecha todos os popovers antes.
+    document.querySelectorAll('.popover-menu').forEach(m => m.style.display = 'none');
+    if (open) return;
     menu.style.display = 'block';
-    const r = ev.currentTarget.getBoundingClientRect();
-    let left = r.left - 130; if (left < 8) left = 8;
-    if (left + 300 > window.innerWidth) left = window.innerWidth - 308;
+    const r = anchor.getBoundingClientRect();
+    const mw = menu.offsetWidth || 300;
+    let left = r.left + r.width / 2 - mw / 2; if (left < 8) left = 8;
+    if (left + mw > window.innerWidth) left = window.innerWidth - mw - 8;
     menu.style.left = left + 'px';
     menu.style.bottom = (window.innerHeight - r.top + 10) + 'px';
     menu.style.top = 'auto';
 }
 document.addEventListener('click', (e) => {
-    const menu = document.getElementById('cam-menu');
-    if (menu && menu.style.display === 'block' && !menu.contains(e.target) && !e.target.closest('.ctrl-caret')) menu.style.display = 'none';
+    document.querySelectorAll('.popover-menu').forEach(menu => {
+        if (menu.style.display === 'block' && !menu.contains(e.target) && !e.target.closest('.ctrl-caret')) menu.style.display = 'none';
+    });
 });
 
 // ==========================================================
@@ -1446,8 +1646,24 @@ document.addEventListener('click', (e) => {
 
 function sendReaction(emoji) {
     document.getElementById('emoji-menu').classList.remove('open');
-    spawnEmojiRain(emoji);                 // mostra localmente
-    broadcast('reaction', { emoji });      // e para todos
+    spawnEmojiRain(emoji);                 // chuva local
+    showReactionBadge(peerId, emoji, myName + ' (você)'); // badge no meu tile
+    broadcast('reaction', { emoji, name: myName });        // e para todos (com origem)
+}
+
+// Mostra a reação na webcam de quem reagiu, por alguns segundos.
+const reactionTimers = new Map();
+function showReactionBadge(pid, emoji, name) {
+    const t = tileEl(pid); if (!t) return;
+    const badge = t.querySelector('.reaction-badge'); if (!badge) return;
+    badge.querySelector('.emo').textContent = emoji;
+    badge.querySelector('.who').textContent = name || '';
+    t.classList.add('reacting');
+    // reinicia a animação do emoji
+    const emo = badge.querySelector('.emo');
+    emo.style.animation = 'none'; void emo.offsetWidth; emo.style.animation = '';
+    if (reactionTimers.has(pid)) clearTimeout(reactionTimers.get(pid));
+    reactionTimers.set(pid, setTimeout(() => { t.classList.remove('reacting'); reactionTimers.delete(pid); }, 4000));
 }
 
 // Chuva de emojis (poucos, subindo e sumindo).
@@ -1537,13 +1753,151 @@ function toggleHandsPanel(force) {
 // GRAVAÇÃO
 // ==========================================================
 let mediaRecorder = null, recordedChunks = [], recStartTs = 0, recTimer = null;
-function buildRecordingStream() {
-    const mixed = new MediaStream();
-    if (localStream) localStream.getTracks().forEach(t => mixed.addTrack(t));
-    if (screenStream) screenStream.getVideoTracks().forEach(t => mixed.addTrack(t));
-    peers.forEach(entry => { const remote = entry.tile?.querySelector('video')?.srcObject; if (remote) remote.getAudioTracks().forEach(t => mixed.addTrack(t)); });
-    return mixed;
+// ---- Composição da gravação: grava a REUNIÃO TODA (todas as câmeras + telas
+// + áudios de todos) desenhando um mosaico num canvas e mixando o áudio. ----
+let compCanvas = null, compCtx = null, compRaf = null, compStream = null;
+let recAudioCtx = null, audioDest = null, audioSources = [];
+
+function collectRecordingVideos() {
+    // Coleta os elementos <video> visíveis (tiles) + a própria câmera.
+    const vids = [];
+    document.querySelectorAll('#stage .tile video, #grid .tile video, #filmstrip .tile video').forEach(v => {
+        if (v.srcObject && v.videoWidth > 0) vids.push(v);
+    });
+    if (!vids.length) {
+        const self = document.querySelector('#tile-' + peerId + ' video');
+        if (self) vids.push(self);
+    }
+    return vids;
 }
+
+// Separa telas compartilhadas das câmeras (o tile de tela tem id terminando em -screen).
+function collectComposeSources() {
+    const all = collectRecordingVideos();
+    const screens = [], cams = [];
+    all.forEach(v => {
+        const tile = v.closest('.tile');
+        const id = tile ? tile.dataset.tid : '';
+        if (id && isScreenTile(id)) screens.push(v); else cams.push(v);
+    });
+    return { screens, cams };
+}
+
+// Desenha um vídeo numa região (x,y,w,h) com "cover" e o nome no canto.
+function drawTileVideo(ctx, v, x, y, w, h, opts) {
+    opts = opts || {};
+    const vw = v.videoWidth || 16, vh = v.videoHeight || 9;
+    // Tela usa "contain" (mostra tudo, sem cortar texto); câmera usa "cover".
+    const scale = opts.contain ? Math.min(w / vw, h / vh) : Math.max(w / vw, h / vh);
+    const dw = vw * scale, dh = vh * scale;
+    const dx = x + (w - dw) / 2, dy = y + (h - dh) / 2;
+    ctx.save();
+    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+    ctx.beginPath(); ctx.rect(x + 2, y + 2, w - 4, h - 4); ctx.clip();
+    if (opts.contain) { ctx.fillStyle = '#000'; ctx.fillRect(x, y, w, h); }
+    try { ctx.drawImage(v, dx, dy, dw, dh); } catch (e) {}
+    ctx.restore();
+    if (opts.name) {
+        const nm = opts.name;
+        // Fonte pequena e fixa (escala levemente com a largura da célula), não com a altura,
+        // para o nome não ficar gigante quando a célula é alta (ex.: tela em tela cheia).
+        const fs = Math.max(12, Math.min(18, Math.round(w * 0.022)));
+        ctx.font = '600 ' + fs + 'px system-ui, Arial, sans-serif';
+        const padX = 8;
+        const tw = ctx.measureText(nm).width + padX * 2;
+        const bh = fs + 8;
+        ctx.fillStyle = 'rgba(0,0,0,.6)';
+        ctx.fillRect(x + 8, y + h - bh - 8, tw, bh);
+        ctx.fillStyle = '#fff';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(nm, x + 8 + padX, y + h - 8 - bh / 2);
+        ctx.textBaseline = 'alphabetic';
+    }
+}
+
+function nameOf(v) { const t = v.closest('.tile'); return t ? (t.querySelector('.name')?.textContent || '') : ''; }
+
+/**
+ * Layout de composição (usado na gravação e no PiP):
+ * - Com tela compartilhada: modo apresentador (tela grande + câmeras na faixa).
+ * - Sem tela: grade normal das câmeras.
+ */
+function composeLayout(ctx, W, H) {
+    ctx.fillStyle = '#0f1020'; ctx.fillRect(0, 0, W, H);
+    const { screens, cams } = collectComposeSources();
+
+    if (screens.length > 0) {
+        // ----- Modo apresentador -----
+        const others = cams.concat(screens.slice(1)); // câmeras + telas extras
+        const stripW = others.length ? Math.round(W * 0.24) : 0; // faixa à direita
+        const mainW = W - stripW;
+        // Tela principal ocupa a área grande (contain para ler o conteúdo).
+        drawTileVideo(ctx, screens[0], 0, 0, mainW, H, { contain: true, name: nameOf(screens[0]) });
+        // Faixa lateral com as câmeras (e telas extras), empilhadas.
+        if (others.length) {
+            const cellH = H / others.length;
+            others.forEach((v, i) => {
+                const scr = screens.indexOf(v) > 0;
+                drawTileVideo(ctx, v, mainW, i * cellH, stripW, cellH, { contain: scr, name: nameOf(v) });
+            });
+        }
+    } else {
+        // ----- Grade normal das câmeras -----
+        const vids = cams.length ? cams : collectRecordingVideos();
+        const n = vids.length || 1;
+        const cols = Math.ceil(Math.sqrt(n));
+        const rows = Math.ceil(n / cols);
+        const cw = W / cols, ch = H / rows;
+        vids.forEach((v, i) => {
+            drawTileVideo(ctx, v, (i % cols) * cw, Math.floor(i / cols) * ch, cw, ch, { name: nameOf(v) });
+        });
+    }
+}
+
+function drawComposite() {
+    if (!compCtx) return;
+    composeLayout(compCtx, compCanvas.width, compCanvas.height);
+    compRaf = requestAnimationFrame(drawComposite);
+}
+
+function buildRecordingStream() {
+    // Canvas de vídeo composto em alta (para a tela compartilhada ficar legível).
+    compCanvas = document.createElement('canvas');
+    compCanvas.width = 1920; compCanvas.height = 1080;
+    compCtx = compCanvas.getContext('2d');
+    drawComposite();
+    compStream = compCanvas.captureStream(25);
+
+    // Mixa TODOS os áudios (meu microfone + áudio de cada participante remoto).
+    recAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    audioDest = recAudioCtx.createMediaStreamDestination();
+    audioSources = [];
+    const addAudio = (stream) => {
+        if (!stream) return;
+        const at = stream.getAudioTracks();
+        if (!at.length) return;
+        try { const src = recAudioCtx.createMediaStreamSource(stream); src.connect(audioDest); audioSources.push(src); } catch (e) {}
+    };
+    if (rawStream) addAudio(rawStream);
+    peers.forEach(entry => { const remote = entry.tile?.querySelector('video')?.srcObject; if (remote) addAudio(remote); });
+
+    const out = new MediaStream();
+    compStream.getVideoTracks().forEach(t => out.addTrack(t));
+    audioDest.stream.getAudioTracks().forEach(t => out.addTrack(t));
+    return out;
+}
+
+function stopComposite() {
+    if (compRaf) cancelAnimationFrame(compRaf);
+    compRaf = null;
+    if (compStream) { compStream.getTracks().forEach(t => t.stop()); compStream = null; }
+    audioSources.forEach(s => { try { s.disconnect(); } catch (e) {} });
+    audioSources = [];
+    if (recAudioCtx) { try { recAudioCtx.close(); } catch (e) {} recAudioCtx = null; }
+    compCanvas = null; compCtx = null;
+}
+let recElapsedMs = 0, recResumeTs = 0; // controle de tempo com pausa
+
 function toggleRecording() { if (mediaRecorder && mediaRecorder.state !== 'inactive') { stopRecording(); return; } startRecording(); }
 function startRecording() {
     let mime = 'video/webm;codecs=vp9,opus';
@@ -1555,16 +1909,76 @@ function startRecording() {
     mediaRecorder.onstop = uploadRecording;
     mediaRecorder.start(1000);
     recStartTs = Date.now();
+    recElapsedMs = 0; recResumeTs = Date.now();
     document.getElementById('btn-rec').classList.add('off');
-    document.getElementById('rec-indicator').style.display = 'flex';
-    recTimer = setInterval(() => { const s = Math.floor((Date.now() - recStartTs) / 1000); document.getElementById('rec-time').textContent = String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'); }, 1000);
+    const pauseBtn = document.getElementById('btn-rec-pause');
+    if (pauseBtn) { pauseBtn.style.display = 'flex'; pauseBtn.innerHTML = '<i class="bi bi-pause-fill"></i>'; }
+    setRecIndicator('rec');
+    recTimer = setInterval(updateRecTime, 500);
     toast('Gravação iniciada. Mantenha esta aba aberta.');
+    broadcast('rec', { state: 'start', by: myName });
+    if (typeof syncPipButtons === 'function') syncPipButtons();
+}
+function updateRecTime() {
+    const ms = recElapsedMs + (recResumeTs ? (Date.now() - recResumeTs) : 0);
+    const s = Math.floor(ms / 1000);
+    document.getElementById('rec-time').textContent = String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+}
+function togglePauseRecording() {
+    if (!mediaRecorder) return;
+    const btn = document.getElementById('btn-rec-pause');
+    if (mediaRecorder.state === 'recording') {
+        mediaRecorder.pause();
+        recElapsedMs += (Date.now() - recResumeTs); recResumeTs = 0;
+        if (btn) btn.innerHTML = '<i class="bi bi-play-fill"></i>';
+        document.getElementById('rec-label').textContent = 'Pausado';
+        toast('Gravação pausada.');
+        broadcast('rec', { state: 'pause', by: myName });
+    } else if (mediaRecorder.state === 'paused') {
+        mediaRecorder.resume();
+        recResumeTs = Date.now();
+        if (btn) btn.innerHTML = '<i class="bi bi-pause-fill"></i>';
+        document.getElementById('rec-label').textContent = 'Gravando';
+        toast('Gravação retomada.');
+        broadcast('rec', { state: 'resume', by: myName });
+    }
 }
 function stopRecording() {
     if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
     clearInterval(recTimer);
+    recResumeTs = 0;
+    stopComposite();
     document.getElementById('btn-rec').classList.remove('off');
-    document.getElementById('rec-indicator').style.display = 'none';
+    const pauseBtn = document.getElementById('btn-rec-pause');
+    if (pauseBtn) pauseBtn.style.display = 'none';
+    document.getElementById('rec-label').textContent = 'Gravando';
+    setRecIndicator('off');
+    broadcast('rec', { state: 'stop', by: myName });
+    if (typeof syncPipButtons === 'function') syncPipButtons();
+}
+
+// Indicador global de gravação (mostra pra todos que a reunião está sendo gravada).
+function setRecIndicator(state) {
+    const ind = document.getElementById('rec-indicator');
+    if (!ind) return;
+    if (state === 'off') { ind.style.display = 'none'; return; }
+    ind.style.display = 'flex';
+    ind.style.opacity = (state === 'pause') ? '.6' : '1';
+}
+// Quando eu NÃO sou quem grava, mostro só o aviso "sendo gravada" (sem cronômetro editável).
+function showRemoteRecState(payload) {
+    const st = payload && payload.state;
+    const ind = document.getElementById('rec-indicator');
+    const label = document.getElementById('rec-label');
+    const timeEl = document.getElementById('rec-time');
+    if (!ind) return;
+    // Só reflete o estado remoto se EU não estiver gravando localmente.
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') return;
+    if (st === 'stop') { ind.style.display = 'none'; return; }
+    ind.style.display = 'flex';
+    if (timeEl) timeEl.textContent = '';
+    if (label) label.textContent = (st === 'pause') ? ('Gravação pausada' + (payload.by ? ' · ' + payload.by : '')) : ('Sendo gravada' + (payload.by ? ' · ' + payload.by : ''));
+    ind.style.opacity = (st === 'pause') ? '.6' : '1';
 }
 async function uploadRecording() {
     if (!recordedChunks.length) return;
@@ -1576,9 +1990,128 @@ async function uploadRecording() {
     try {
         const res = await fetch(`${BASE}/videocall/upload/${ROOM_TOKEN}`, { method: 'POST', body: fd }).then(r => r.json());
         if (res.error) { toast('Erro ao salvar: ' + res.error); return; }
+        currentRecToken = res.token || null;
         document.getElementById('rec-url').value = res.url; document.getElementById('rec-open').href = res.url;
         document.getElementById('rec-modal').style.display = 'flex';
     } catch (e) { toast('Falha ao enviar a gravação.'); }
+}
+
+// Token da última gravação (usado apenas para exibir o link no pop-up).
+let currentRecToken = null;
+
+// ==========================================================
+// PICTURE-IN-PICTURE (janelinha flutuante com a reunião toda)
+// ==========================================================
+let pipCanvas = null, pipCtx = null, pipVideo = null, pipStream = null, pipTimer = null;
+
+let docPipWin = null; // janela da Document PiP (com botões)
+
+function pipSupported() {
+    return ('documentPictureInPicture' in window) || document.pictureInPictureEnabled || ('requestPictureInPicture' in document.createElement('video'));
+}
+function pipDraw() {
+    if (!pipCtx) return;
+    // Mesmo layout da gravação: com tela compartilhada, ela fica grande.
+    composeLayout(pipCtx, pipCanvas.width, pipCanvas.height);
+}
+
+async function togglePip() {
+    // Já aberto? fecha.
+    if (docPipWin) { try { docPipWin.close(); } catch (e) {} stopPip(); return; }
+    if (document.pictureInPictureElement) { try { await document.exitPictureInPicture(); } catch (e) {} return; }
+    if (!pipSupported()) { toast('Seu navegador não suporta janela flutuante.'); return; }
+
+    // Prepara o canvas do mosaico (usado nos dois modos).
+    if (!pipCanvas) { pipCanvas = document.createElement('canvas'); pipCanvas.width = 1280; pipCanvas.height = 720; pipCtx = pipCanvas.getContext('2d'); }
+    pipDraw();
+    if (pipTimer) clearInterval(pipTimer);
+    pipTimer = setInterval(pipDraw, 100);
+
+    // 1) Document PiP (Chrome/Edge): janela com vídeo + BOTÕES funcionais.
+    if ('documentPictureInPicture' in window) {
+        try {
+            docPipWin = await window.documentPictureInPicture.requestWindow({ width: 340, height: 250 });
+            buildDocPip(docPipWin);
+            docPipWin.addEventListener('pagehide', () => { docPipWin = null; stopPip(); });
+            document.getElementById('btn-pip').classList.add('active');
+            toast('Reunião aberta em janela flutuante com controles.');
+            return;
+        } catch (e) { docPipWin = null; /* cai para o modo vídeo abaixo */ }
+    }
+
+    // 2) PiP clássico de vídeo (sem botões — Safari/celular).
+    try {
+        pipStream = pipCanvas.captureStream(15);
+        if (!pipVideo) { pipVideo = document.createElement('video'); pipVideo.muted = true; pipVideo.playsInline = true; pipVideo.addEventListener('leavepictureinpicture', stopPip); }
+        pipVideo.srcObject = pipStream;
+        await pipVideo.play().catch(() => {});
+        await pipVideo.requestPictureInPicture();
+        document.getElementById('btn-pip').classList.add('active');
+        toast('Reunião aberta em janela flutuante. (Controles disponíveis apenas no Chrome/Edge.)');
+    } catch (e) { toast('Não foi possível abrir a janela flutuante.'); stopPip(); }
+}
+
+// Monta o conteúdo da Document PiP: vídeo do mosaico + botões de ação.
+function buildDocPip(win) {
+    const doc = win.document;
+    doc.body.style.cssText = 'margin:0;background:#0f1020;font-family:system-ui,Arial,sans-serif;display:flex;flex-direction:column;height:100vh;overflow:hidden;';
+    // Área do vídeo (canvas do mosaico via captureStream).
+    pipStream = pipCanvas.captureStream(15);
+    const v = doc.createElement('video');
+    v.autoplay = true; v.muted = true; v.playsInline = true; v.srcObject = pipStream;
+    v.style.cssText = 'flex:1;width:100%;object-fit:contain;background:#000;min-height:0;';
+    doc.body.appendChild(v);
+
+    // Barra de botões.
+    const bar = doc.createElement('div');
+    bar.style.cssText = 'display:flex;gap:8px;justify-content:center;align-items:center;padding:8px;background:rgba(0,0,0,.4);';
+    const mkBtn = (id, html, title) => {
+        const b = doc.createElement('button');
+        b.id = id; b.title = title; b.innerHTML = html;
+        b.style.cssText = 'width:42px;height:42px;border-radius:50%;border:none;background:#23263d;color:#fff;font-size:1.05rem;cursor:pointer;display:flex;align-items:center;justify-content:center;';
+        bar.appendChild(b); return b;
+    };
+    const bMic = mkBtn('pip-mic', ico(micOn ? 'mic' : 'mic-off'), 'Microfone');
+    const bCam = mkBtn('pip-cam', ico(camOn ? 'cam' : 'cam-off'), 'Câmera');
+    const bRec = mkBtn('pip-rec', ico('rec'), 'Gravar');
+    const bEnd = mkBtn('pip-end', ico('end'), 'Sair'); bEnd.style.background = '#e02a44';
+    doc.body.appendChild(bar);
+
+    bMic.onclick = () => { toggleMic(); syncPipButtons(); };
+    bCam.onclick = () => { toggleCam(); syncPipButtons(); };
+    bRec.onclick = () => { toggleRecording(); setTimeout(syncPipButtons, 100); };
+    bEnd.onclick = () => { try { win.close(); } catch (e) {} hangup(); };
+    syncPipButtons();
+}
+// Ícones inline (a Document PiP não herda o Bootstrap Icons da página principal).
+function ico(kind) {
+    const s = 'width="20" height="20" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg"';
+    const map = {
+        'mic': `<svg ${s}><path d="M5 3a3 3 0 0 1 6 0v5a3 3 0 0 1-6 0z"/><path d="M3.5 6.5A.5.5 0 0 1 4 7v1a4 4 0 0 0 8 0V7a.5.5 0 0 1 1 0v1a5 5 0 0 1-4.5 4.975V15h2a.5.5 0 0 1 0 1h-5a.5.5 0 0 1 0-1h2v-2.025A5 5 0 0 1 3 8V7a.5.5 0 0 1 .5-.5"/></svg>`,
+        'mic-off': `<svg ${s}><path d="M13 8c0 .564-.094 1.107-.266 1.613l-.814-.814A4 4 0 0 0 12 8V7a.5.5 0 0 1 1 0zM8.5 3v3.879l-1-1V3a1.5 1.5 0 0 0-2.679-.929l-.72-.72A2.5 2.5 0 0 1 8.5 3M5 6.5V8a3 3 0 0 0 4.681 2.489l.717.717A4 4 0 0 1 4 8V6.5z"/><path d="M4 8V7l-.997-.003v.917A5 5 0 0 0 7.5 12.975V15h-2a.5.5 0 0 0 0 1h5a.5.5 0 0 0 0-1h-2v-2.025q.415-.04.809-.135l-.72-.72A4 4 0 0 1 4 8m8.646 6.354-12-12 .708-.708 12 12z"/></svg>`,
+        'cam': `<svg ${s}><path d="M0 5a2 2 0 0 1 2-2h7.5a2 2 0 0 1 1.983 1.738l3.11-1.382A1 1 0 0 1 16 4.269v7.462a1 1 0 0 1-1.406.913l-3.111-1.382A2 2 0 0 1 9.5 13H2a2 2 0 0 1-2-2z"/></svg>`,
+        'cam-off': `<svg ${s}><path d="M10.961 12.365 2.451 3.854A2 2 0 0 0 0 5v6a2 2 0 0 0 2 2h7.5a2 2 0 0 0 1.461-.635M11.5 6.5l3.11-1.382A1 1 0 0 1 16 4.269v7.462a1 1 0 0 1-.184.575zM13.646 14.354l-12-12 .708-.708 12 12z"/></svg>`,
+        'rec': `<svg ${s}><circle cx="8" cy="8" r="5"/></svg>`,
+        'end': `<svg ${s}><path d="M3.654 1.328a.678.678 0 0 0-1.015-.063L1.605 2.3c-.483.484-.661 1.169-.45 1.77a17.6 17.6 0 0 0 4.168 6.608 17.6 17.6 0 0 0 6.608 4.168c.601.211 1.286.033 1.77-.45l1.034-1.034a.678.678 0 0 0-.063-1.015l-2.307-1.794a.68.68 0 0 0-.58-.122l-2.19.547a1.75 1.75 0 0 1-1.657-.459L5.482 8.062a1.75 1.75 0 0 1-.46-1.657l.548-2.19a.68.68 0 0 0-.122-.58z"/></svg>`
+    };
+    return map[kind] || '';
+}
+// Reflete o estado atual (mic/câmera/gravando) nos botões da janelinha.
+function syncPipButtons() {
+    if (!docPipWin) return;
+    const d = docPipWin.document;
+    const m = d.getElementById('pip-mic'), c = d.getElementById('pip-cam'), r = d.getElementById('pip-rec');
+    if (m) { m.innerHTML = ico(micOn ? 'mic' : 'mic-off'); m.style.background = micOn ? '#23263d' : '#c0304a'; }
+    if (c) { c.innerHTML = ico(camOn ? 'cam' : 'cam-off'); c.style.background = camOn ? '#23263d' : '#c0304a'; }
+    const recing = mediaRecorder && mediaRecorder.state !== 'inactive';
+    if (r) { r.style.background = recing ? '#c0304a' : '#23263d'; r.title = recing ? 'Parar gravação' : 'Gravar'; }
+}
+
+function stopPip() {
+    if (pipTimer) { clearInterval(pipTimer); pipTimer = null; }
+    if (pipStream) { pipStream.getTracks().forEach(t => t.stop()); pipStream = null; }
+    if (docPipWin) { try { docPipWin.close(); } catch (e) {} docPipWin = null; }
+    const btn = document.getElementById('btn-pip'); if (btn) btn.classList.remove('active');
 }
 
 // ---- Link / sair ----
@@ -1593,12 +2126,30 @@ function teardown(headline, sub) {
     if (adminTimer) clearInterval(adminTimer);
     if (waitTimer) clearInterval(waitTimer);
     stopNetworkMonitor();
+    if (document.pictureInPictureElement) { try { document.exitPictureInPicture(); } catch (e) {} }
+    stopPip();
     if (mediaRecorder && mediaRecorder.state !== 'inactive') { try { stopRecording(); } catch (e) {} }
     stopBgPipeline();
     peers.forEach(e => { try { e.pc.close(); } catch (x) {} });
     if (rawStream) rawStream.getTracks().forEach(t => t.stop());
     if (screenStream) screenStream.getTracks().forEach(t => t.stop());
-    document.body.innerHTML = '<div style="height:100vh;display:flex;align-items:center;justify-content:center;flex-direction:column;color:#e8eaf1;font-family:system-ui;text-align:center;padding:20px;"><div style="font-size:3rem;">' + (headline.icon || '👋') + '</div><h3 style="margin-top:12px;">' + headline.text + '</h3>' + (sub ? '<p style="color:#9aa2c0;margin-top:4px;max-width:320px;">' + sub + '</p>' : '') + '<a href="' + BASE + '/videocall/room/' + ROOM_TOKEN + '" style="color:#00BFA6;margin-top:10px;">Entrar novamente</a></div>';
+    // Botões de saída diferentes para logado (equipe) e convidado.
+    const rejoin = '<a class="ex-btn ex-primary" href="' + BASE + '/videocall/room/' + ROOM_TOKEN + '"><i class="bi bi-box-arrow-in-right"></i> Entrar novamente</a>';
+    let extra = '';
+    if (IS_LOGGED) {
+        extra = '<a class="ex-btn" href="' + BASE + '/dashboard"><i class="bi bi-house"></i> Voltar ao início</a>'
+              + '<a class="ex-btn" href="' + BASE + '/videocall/myRecordings"><i class="bi bi-collection-play"></i> Ver gravações</a>';
+    } else {
+        extra = '<a class="ex-btn" href="https://onsolutionsbrasil.com.br" target="_blank"><i class="bi bi-globe"></i> Ir para o site</a>'
+              + '<button class="ex-btn" onclick="try{window.close()}catch(e){};location.href=\'about:blank\'"><i class="bi bi-x-circle"></i> Fechar</button>';
+    }
+    document.body.innerHTML =
+        '<div class="exit-screen"><div class="exit-card">' +
+          '<div class="exit-ic">' + (headline.icon || '👋') + '</div>' +
+          '<h3>' + headline.text + '</h3>' +
+          (sub ? '<p class="exit-sub">' + sub + '</p>' : '') +
+          '<div class="exit-actions">' + rejoin + extra + '</div>' +
+        '</div></div>';
 }
 function hangup() {
     if (!joined) return; joined = false;

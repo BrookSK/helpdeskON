@@ -191,8 +191,11 @@ class BufferApi
      * Cria um post agendado num canal.
      * $dueAtIso: ISO 8601 UTC (ex: 2026-03-10T15:00:00.000Z). Se vazio, entra na fila.
      * $assets: lista de URLs públicas de imagem (opcional).
+     * $service: rede social do canal (ex: 'instagram', 'facebook'). Necessário para
+     *           enviar o metadata específico exigido por cada rede — em especial o
+     *           Instagram, que rejeita o post sem metadata.instagram.type.
      */
-    public function createPost($channelId, $text, $dueAtIso = null, $assets = [])
+    public function createPost($channelId, $text, $dueAtIso = null, $assets = [], $service = null)
     {
         // Modo teste/simulação: não chama a API real do Buffer (não consome cota).
         // Retorna o mesmo formato de sucesso que a API devolveria, permitindo validar
@@ -217,14 +220,37 @@ class BufferApi
             'channelId' => $channelId,
             'schedulingType' => 'automatic',
         ];
-        if ($dueAtIso) {
+
+        // Agendamento: só usa 'customScheduled' com dueAt quando a data ainda está no
+        // FUTURO. Uma data no passado faz o Buffer recusar com "Scheduled time must be
+        // in the future" — situação comum quando um post preso na fila é reenviado
+        // depois do horário original. Nesse caso caímos para 'addToQueue' (publica no
+        // próximo horário disponível da fila do canal) em vez de falhar.
+        $isFuture = $dueAtIso && (strtotime($dueAtIso) > time());
+        if ($isFuture) {
             $input['mode'] = 'customScheduled';
             $input['dueAt'] = $dueAtIso;
         } else {
             $input['mode'] = 'addToQueue';
         }
+
         if (!empty($assets)) {
-            $input['assets'] = array_map(fn($url) => ['image' => ['url' => $url]], $assets);
+            $input['assets'] = array_map(function ($url) {
+                return ['image' => [
+                    'url' => $url,
+                    // altText é recomendado pela API sempre que há metadata de imagem.
+                    'metadata' => ['altText' => 'Imagem do post'],
+                ]];
+            }, $assets);
+        }
+
+        // Metadata específico por rede. O Instagram EXIGE o campo 'type'
+        // (post, story ou reel); sem ele a API responde HTTP 200 mas com
+        // "Instagram posts require a type (post, story, or reel)" e nada é publicado.
+        // Publicamos como 'post' de feed por padrão.
+        $svc = strtolower((string) $service);
+        if ($svc === 'instagram') {
+            $input['metadata'] = ['instagram' => ['type' => 'post', 'shouldShareToFeed' => true]];
         }
 
         $q = 'mutation CreatePost($input: CreatePostInput!) {
