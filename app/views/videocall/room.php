@@ -19,6 +19,10 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
     <meta name="theme-color" content="#0f1020">
     <title><?= $roomTitle ?> · Videochamada</title>
+    <?php $faviconUrl = Config::get('app_favicon'); if ($faviconUrl): ?>
+    <link rel="icon" href="<?= baseUrl($faviconUrl) ?>" type="image/x-icon">
+    <link rel="shortcut icon" href="<?= baseUrl($faviconUrl) ?>">
+    <?php endif; ?>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
     <style>
