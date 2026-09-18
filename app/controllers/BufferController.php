@@ -479,7 +479,8 @@ class BufferController extends Controller
 
             $api = new BufferApi($apiKey);
 
-            $res = $api->createPost($channelId, $text, $dueAtIso, $assets);
+            $channelService = $channelMap[$channelId]['service'] ?? null;
+            $res = $api->createPost($channelId, $text, $dueAtIso, $assets, $channelService);
 
             // Log para diagnóstico de erros da API Buffer
             $this->logBufferResponse($res, $channelId);
@@ -655,7 +656,22 @@ class BufferController extends Controller
                 $dueAtIso = $dt->format('Y-m-d\TH:i:s.000\Z');
             }
 
-            $res = $api->createPost($qp['channel_id'], $qp['text'], $dueAtIso);
+            // Recupera a imagem do post enfileirado. O enfileiramento não guarda os
+            // assets, então buscamos o anexo de imagem da demanda de marketing de origem.
+            // Sem isso o Instagram recusa o reenvio ("requires at least one image").
+            $qAssets = [];
+            if (!empty($qp['marketing_item_id'])) {
+                $att = $db->fetch(
+                    "SELECT file_path FROM marketing_attachments
+                     WHERE item_id = ? AND file_type LIKE 'image/%'
+                     ORDER BY id DESC LIMIT 1",
+                    [$qp['marketing_item_id']]
+                );
+                if ($att && !empty($att['file_path'])) $qAssets = [baseUrl($att['file_path'])];
+            }
+
+            $qService = $chMap[$qp['channel_id']]['service'] ?? ($qp['service'] ?? null);
+            $res = $api->createPost($qp['channel_id'], $qp['text'], $dueAtIso, $qAssets, $qService);
             $this->logBufferResponse($res, 'queue_' . $qp['channel_id']);
 
             if (($res['http'] ?? 0) === 429) {
