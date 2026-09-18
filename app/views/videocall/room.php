@@ -218,8 +218,8 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
 
         /* Chuva de emojis */
         #emoji-rain { position:fixed; inset:0; pointer-events:none; z-index:88; overflow:hidden; }
-        .rain-emoji { position:absolute; bottom:80px; font-size:2rem; animation:rainUp 3s ease-out forwards; will-change:transform,opacity; }
-        @keyframes rainUp { 0%{ transform:translateY(0) scale(.6); opacity:0; } 12%{ opacity:1; } 100%{ transform:translateY(-70vh) scale(1.1); opacity:0; } }
+        .rain-emoji { position:absolute; top:-8vh; font-size:2rem; animation:rainDown 3.2s ease-in forwards; will-change:transform,opacity; }
+        @keyframes rainDown { 0%{ transform:translateY(0) scale(.7); opacity:0; } 10%{ opacity:1; } 90%{ opacity:1; } 100%{ transform:translateY(88vh) scale(1.05); opacity:0; } }
 
         /* Mão levantada no tile */
         .tile .badge-hand { display:none; color:#ffd54a; }
@@ -383,7 +383,7 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
             <button class="ctrl" id="btn-cam" onclick="toggleCam()" title="Câmera"><i class="bi bi-camera-video-fill"></i><span class="ctrl-label">Câmera</span></button>
             <button class="ctrl-caret" onclick="openCamMenu(event)" title="Câmera e plano de fundo"><i class="bi bi-chevron-up"></i></button>
         </div>
-        <button class="ctrl" id="btn-screen" onclick="toggleScreen()" title="Compartilhar tela"><i class="bi bi-display"></i><span class="ctrl-label">Tela</span></button>
+        <button class="ctrl" id="btn-screen" onclick="toggleScreen(event)" title="Compartilhar tela"><i class="bi bi-display"></i><span class="ctrl-label">Tela</span></button>
         <button class="ctrl" id="btn-react" onclick="openEmojiMenu(event)" title="Reagir"><i class="bi bi-emoji-smile"></i><span class="ctrl-label">Reagir</span></button>
         <button class="ctrl" id="btn-hand" onclick="toggleHand()" title="Levantar a mão"><i class="bi bi-hand-index-thumb"></i><span class="ctrl-label">Mão</span></button>
         <div class="ctrl-group">
@@ -1239,7 +1239,21 @@ function enablePan(id) {
     t.addEventListener('touchend', up);
 }
 
-function togglePin(id) { if (pinned.has(id)) pinned.delete(id); else pinned.add(id); layoutGrid(); }
+function togglePin(id) {
+    if (pinned.has(id)) pinned.delete(id); else pinned.add(id);
+    updatePinIcon(id);
+    layoutGrid();
+}
+// Troca o ícone do botão de fixar: alfinete inclinado (não fixado) x preenchido (fixado).
+function updatePinIcon(id) {
+    const t = tileEl(id); if (!t) return;
+    const tools = t.querySelector('.tile-tools'); if (!tools) return;
+    const btn = tools.querySelector('button[title="Fixar/desafixar"]'); if (!btn) return;
+    const ic = btn.querySelector('i'); if (!ic) return;
+    const fixed = pinned.has(id);
+    ic.className = fixed ? 'bi bi-pin-angle-fill' : 'bi bi-pin-angle';
+    btn.title = fixed ? 'Desafixar' : 'Fixar/desafixar';
+}
 
 // Admin silencia o microfone de um participante (ele pode reativar depois).
 function adminMute(id) {
@@ -1745,9 +1759,9 @@ function toggleCam() {
     if (typeof syncPipButtons === 'function') syncPipButtons();
 }
 
-async function toggleScreen() {
+async function toggleScreen(ev) {
     // Se já está compartilhando, abre o menu (Parar / Trocar tela).
-    if (sharing) { openScreenMenu(); return; }
+    if (sharing) { openScreenMenu(ev); return; }
     // Restrição do admin: revalida no servidor (à prova de sinal 'perm' perdido).
     if (!isAdmin) {
         try {
@@ -1809,7 +1823,8 @@ async function startScreenShare(withAudio, replaceExisting) {
 }
 
 // Menu flutuante ao clicar em compartilhar já ativo: Trocar tela / Parar.
-function openScreenMenu() {
+function openScreenMenu(ev) {
+    if (ev) ev.stopPropagation(); // evita que o listener global feche no mesmo clique
     const menu = document.getElementById('screen-menu');
     if (!menu) { stopScreen(); return; }
     if (menu.style.display === 'block') { menu.style.display = 'none'; return; }
@@ -1871,7 +1886,7 @@ function positionPopover(menuId, anchor) {
 }
 document.addEventListener('click', (e) => {
     document.querySelectorAll('.popover-menu').forEach(menu => {
-        if (menu.style.display === 'block' && !menu.contains(e.target) && !e.target.closest('.ctrl-caret')) menu.style.display = 'none';
+        if (menu.style.display === 'block' && !menu.contains(e.target) && !e.target.closest('.ctrl-caret') && !e.target.closest('#btn-screen')) menu.style.display = 'none';
     });
 });
 
@@ -1968,28 +1983,84 @@ function emojiSound(emoji) {
     const now = Date.now();
     if (now - lastEmojiSound < 120) return; // evita estouro em rajada
     lastEmojiSound = now;
-    // Cada emoji tem uma "assinatura" sonora: [freq, tipo] por nota.
-    const map = {
-        '👍': { seq: [660, 880], type: 'triangle' },        // positivo, curto
-        '❤️': { seq: [523, 659, 784], type: 'sine' },        // suave, ascendente
-        '😂': { seq: [784, 659, 784, 659], type: 'square', step: 0.06 }, // saltitante
-        '🎉': { seq: [523, 784, 1047], type: 'triangle' },   // festivo
-        '👏': { seq: [700, 700], type: 'square', step: 0.08 }, // palma dupla
-        '😮': { seq: [880, 500], type: 'sine' },             // surpresa, cai
-    };
-    const cfg = map[emoji] || { seq: [700], type: 'sine' };
-    const step = cfg.step || 0.08;
     try {
         audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-        const g = audioCtx.createGain(); g.connect(audioCtx.destination);
-        g.gain.value = 0.05;
-        cfg.seq.forEach((f, i) => {
-            const o = audioCtx.createOscillator();
-            o.type = cfg.type; o.frequency.value = f;
-            o.connect(g);
-            o.start(audioCtx.currentTime + i * step);
-            o.stop(audioCtx.currentTime + i * step + step + 0.02);
-        });
+        const ctx = audioCtx;
+        if (ctx.state === 'suspended') ctx.resume();
+
+        // --- Blocos de síntese reutilizáveis (som mais orgânico, menos "beep") ---
+
+        // Nota com envelope suave (attack/release) + filtro passa-baixa.
+        // Timbre "sino/marimba" em vez de onda crua. Pequeno detune dá naturalidade.
+        function note(freq, at, dur, gain, type) {
+            const o = ctx.createOscillator();
+            const o2 = ctx.createOscillator(); // 2ª voz levemente desafinada
+            const g = ctx.createGain();
+            const lp = ctx.createBiquadFilter();
+            lp.type = 'lowpass'; lp.frequency.value = Math.min(6000, freq * 6);
+            o.type = type || 'triangle'; o.frequency.value = freq;
+            o2.type = 'sine'; o2.frequency.value = freq * 1.005;
+            o.connect(lp); o2.connect(lp); lp.connect(g); g.connect(ctx.destination);
+            const t = ctx.currentTime + at;
+            g.gain.setValueAtTime(0.0001, t);
+            g.gain.exponentialRampToValueAtTime(gain, t + 0.012);      // attack rápido
+            g.gain.exponentialRampToValueAtTime(0.0001, t + dur);      // release natural
+            o.start(t); o2.start(t); o.stop(t + dur + 0.02); o2.stop(t + dur + 0.02);
+        }
+
+        // Rajada de ruído filtrado — base para "palma" e "confete/festa".
+        function noiseBurst(at, dur, peak, freq, q) {
+            const n = Math.floor(ctx.sampleRate * dur);
+            const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+            const d = buf.getChannelData(0);
+            for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1);
+            const src = ctx.createBufferSource(); src.buffer = buf;
+            const bp = ctx.createBiquadFilter(); bp.type = 'bandpass';
+            bp.frequency.value = freq || 1800; bp.Q.value = q || 0.9;
+            const g = ctx.createGain();
+            src.connect(bp); bp.connect(g); g.connect(ctx.destination);
+            const t = ctx.currentTime + at;
+            g.gain.setValueAtTime(0.0001, t);
+            g.gain.exponentialRampToValueAtTime(peak, t + 0.004);      // transiente seco
+            g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+            src.start(t); src.stop(t + dur + 0.02);
+        }
+
+        switch (emoji) {
+            case '👏': { // palmas de verdade: várias batidas de ruído (aplauso/festa)
+                const times = [0, 0.11, 0.21, 0.30, 0.40, 0.52];
+                times.forEach((tt, i) => noiseBurst(tt, 0.09, 0.16 - i * 0.012, 1900 + Math.random() * 500, 0.7));
+                break;
+            }
+            case '🎉': { // festa: "confete" (ruído) + acorde alegre ascendente
+                noiseBurst(0, 0.22, 0.10, 3200, 0.5);
+                noiseBurst(0.02, 0.3, 0.06, 1400, 0.6);
+                [523, 659, 784, 1047].forEach((f, i) => note(f, 0.02 + i * 0.05, 0.32, 0.09, 'triangle'));
+                break;
+            }
+            case '❤️': { // acorde suave e caloroso
+                [392, 523, 659].forEach((f, i) => note(f, i * 0.015, 0.55, 0.08, 'sine'));
+                break;
+            }
+            case '😂': { // risada saltitante (notas curtas alternadas)
+                [784, 988, 784, 988, 660].forEach((f, i) => note(f, i * 0.07, 0.14, 0.08, 'triangle'));
+                break;
+            }
+            case '👍': { // positivo, dois toques ascendentes
+                note(660, 0, 0.16, 0.09, 'triangle');
+                note(990, 0.09, 0.22, 0.09, 'triangle');
+                break;
+            }
+            case '😮': { // surpresa: sobe e segura
+                note(523, 0, 0.14, 0.08, 'sine');
+                note(880, 0.09, 0.30, 0.08, 'sine');
+                break;
+            }
+            default: {
+                note(700, 0, 0.2, 0.08, 'triangle');
+                note(1050, 0.08, 0.24, 0.07, 'triangle');
+            }
+        }
     } catch (e) {}
 }
 
