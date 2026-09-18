@@ -540,9 +540,19 @@ class VideocallController extends Controller
         $dir = PUBLIC_PATH . '/uploads/recordings';
         if (!is_dir($dir)) @mkdir($dir, 0775, true);
         $part = $dir . '/part_' . $room['id'] . '_' . $sess . '.webm';
+        $meta = $dir . '/part_' . $room['id'] . '_' . $sess . '.json';
 
         if (is_file($part) && filesize($part) > 600 * 1024 * 1024) {
             $this->json(['error' => 'Gravação muito grande.'], 413);
+        }
+        // No primeiro pedaço, guarda quem grava (para recuperar se cair sem finalizar).
+        if (!is_file($meta)) {
+            @file_put_contents($meta, json_encode([
+                'room_id' => (int)$room['id'],
+                'recorded_by' => $userId,
+                'recorded_by_name' => trim(substr((string)($_POST['recorded_by_name'] ?? ($_SESSION['user_name'] ?? '')), 0, 120)) ?: null,
+                'started_at' => date('Y-m-d H:i:s'),
+            ], JSON_UNESCAPED_UNICODE));
         }
         // Anexa os bytes do pedaço ao arquivo .part.
         $in = fopen($_FILES['chunk']['tmp_name'], 'rb');
@@ -571,6 +581,7 @@ class VideocallController extends Controller
 
         $dir = PUBLIC_PATH . '/uploads/recordings';
         $part = $dir . '/part_' . $room['id'] . '_' . $sess . '.webm';
+        $meta = $dir . '/part_' . $room['id'] . '_' . $sess . '.json';
         if (!is_file($part) || filesize($part) < 1024) {
             $this->json(['error' => 'Nada gravado para finalizar.'], 404);
         }
@@ -579,6 +590,7 @@ class VideocallController extends Controller
         $fileName = 'rec_' . $room['id'] . '_' . $recToken . '.webm';
         $dest = $dir . '/' . $fileName;
         if (!@rename($part, $dest)) { @copy($part, $dest); @unlink($part); }
+        @unlink($meta); // finalizado normalmente: não é mais órfão
 
         $recordedName = trim(substr((string)($_POST['recorded_by_name'] ?? ($userName ?? '')), 0, 120)) ?: null;
         $duration = (int)($_POST['duration_sec'] ?? 0) ?: null;
@@ -774,8 +786,52 @@ class VideocallController extends Controller
     {
         $this->requireLogin();
         $user = $this->currentUser();
+        // Recupera gravações que ficaram "órfãs" (quem gravava caiu sem finalizar).
+        $this->recoverOrphanRecordings();
         $recs = $this->model->listRecordingsVisibleTo($user['id'], $user['role']);
         $this->view('videocall/recordings', ['recs' => $recs, 'user' => $user]);
+    }
+
+    /**
+     * Finaliza automaticamente gravações interrompidas: se um arquivo .part não
+     * recebe pedaços há alguns minutos, o gravador provavelmente caiu — então
+     * salvamos o que já foi enviado como uma gravação normal (nada se perde).
+     */
+    private function recoverOrphanRecordings()
+    {
+        $dir = PUBLIC_PATH . '/uploads/recordings';
+        if (!is_dir($dir)) return;
+        $idleSecs = 120; // 2 min sem novos pedaços = considerado interrompido
+        foreach (glob($dir . '/part_*.webm') as $part) {
+            if (!is_file($part)) continue;
+            if (time() - filemtime($part) < $idleSecs) continue; // ainda gravando
+            if (filesize($part) < 1024) { @unlink($part); continue; }
+
+            // Extrai room_id e sess do nome: part_<roomId>_<sess>.webm
+            if (!preg_match('/part_(\d+)_([A-Za-z0-9_-]+)\.webm$/', basename($part), $m)) continue;
+            $roomId = (int)$m[1];
+            $metaFile = $dir . '/part_' . $roomId . '_' . $m[2] . '.json';
+            $meta = is_file($metaFile) ? json_decode((string)file_get_contents($metaFile), true) : [];
+
+            $recToken = $this->model->generateToken();
+            $fileName = 'rec_' . $roomId . '_' . $recToken . '.webm';
+            $dest = $dir . '/' . $fileName;
+            if (!@rename($part, $dest)) { @copy($part, $dest); @unlink($part); }
+            @unlink($metaFile);
+
+            try {
+                $this->model->addRecording([
+                    'room_id' => $roomId,
+                    'token' => $recToken,
+                    'file_path' => 'recordings/' . $fileName,
+                    'file_size' => filesize($dest) ?: null,
+                    'mime_type' => 'video/webm',
+                    'duration_sec' => null,
+                    'recorded_by' => $meta['recorded_by'] ?? null,
+                    'recorded_by_name' => ($meta['recorded_by_name'] ?? null) ? ($meta['recorded_by_name'] . ' (recuperada)') : 'Gravação recuperada',
+                ]);
+            } catch (\Throwable $e) { /* ignora entradas problemáticas */ }
+        }
     }
 
     /** Exclui uma gravação (arquivo + registro). Só quem tem acesso pode. */
