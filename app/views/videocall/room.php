@@ -128,6 +128,9 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
         .tile .badge-hand { color:#ffd54a; }
         .tile.hand-up .badge-hand { display:flex; background:rgba(224,164,0,.28); }
         .tile.hand-up { outline:2px solid #ffd54a; outline-offset:-2px; }
+        /* Quem está falando: borda destacada (verde) com brilho suave. */
+        .tile.speaking { outline:3px solid #3ddc84; outline-offset:-3px; box-shadow:0 0 0 1px rgba(61,220,132,.5), 0 0 16px rgba(61,220,132,.55); }
+        .tile.speaking.mic-off { outline:none; box-shadow:none; } /* mutado nunca "fala" */
 
         /* Ferramentas do topo (fixar / mutar admin) — canto superior esquerdo. */
         .tile-tools { position:absolute; top:8px; left:8px; display:flex; gap:5px; opacity:0; transition:opacity .15s; z-index:4; }
@@ -743,6 +746,8 @@ async function rebuildLocalStream() {
     // Atualiza o tile próprio
     const selfV = document.querySelector('#tile-' + peerId + ' video');
     if (selfV) selfV.srcObject = localStream;
+    // Re-pluga o detector de "quem está falando" no novo stream de áudio.
+    if (audioTrack) attachSpeaking(peerId, localStream);
 
     // Substitui a track de vídeo publicada em cada peer (sem renegociar)
     if (joined && videoTrack) {
@@ -1352,8 +1357,9 @@ function addSelfTile() {
     div.querySelector('video').srcObject = localStream;
     div.classList.toggle('mic-off', !micOn);
     div.classList.toggle('cam-off', !camOn);
+    attachSpeaking(peerId, localStream);
 }
-function removeTile(id) { const t = tileEl(id); if (t) { t.remove(); tileZoom.delete(id); tilePan.delete(id); pinned.delete(id); layoutGrid(); } }
+function removeTile(id) { detachSpeaking(id); const t = tileEl(id); if (t) { t.remove(); tileZoom.delete(id); tilePan.delete(id); pinned.delete(id); layoutGrid(); } }
 let lastQualityFloor = -1;
 function updateCount() {
     document.getElementById('peer-count').textContent = (peers.size + 1);
@@ -1548,6 +1554,10 @@ function ensurePeer(remoteId, name, initiator) {
             if (!entry.tile) entry.tile = makeTile(remoteId, entry.name || name);
             entry.tile.querySelector('video').srcObject = stream;
             if (novo) sfx('join'); // som de alguém entrando (quando a câmera aparece)
+        }
+        // Detector de "quem está falando": pluga no áudio da CÂMERA (não da tela).
+        if (track.kind === 'audio' && !isScreen) {
+            attachSpeaking(remoteId, stream);
         }
         updateCount();
     };
@@ -2064,10 +2074,73 @@ function emojiSound(emoji) {
     } catch (e) {}
 }
 
+// =====================================================================
+// Indicador de "quem está falando" (borda no tile), estilo Google Meet.
+// Analisa o nível de áudio de cada stream (local + remotos) via WebAudio e
+// alterna a classe .speaking no tile, com histerese para não piscar.
+// =====================================================================
+const speakingMon = new Map(); // id -> { analyser, data, src, speaking, silentFrames }
+let speakingLoopOn = false;
+
+function attachSpeaking(id, stream) {
+    try {
+        if (!stream || stream.getAudioTracks().length === 0) return;
+        audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        // Remove um monitor anterior deste id (ex.: troca de microfone).
+        detachSpeaking(id);
+        const src = audioCtx.createMediaStreamSource(stream);
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 512;
+        analyser.smoothingTimeConstant = 0.6;
+        src.connect(analyser); // não conecta ao destino (evita eco/duplicar áudio)
+        speakingMon.set(id, { analyser, data: new Uint8Array(analyser.fftSize), src, speaking: false, silentFrames: 0 });
+        if (!speakingLoopOn) { speakingLoopOn = true; requestAnimationFrame(speakingLoop); }
+    } catch (e) {}
+}
+
+function detachSpeaking(id) {
+    const m = speakingMon.get(id);
+    if (m) { try { m.src.disconnect(); } catch (e) {} speakingMon.delete(id); }
+    tileEl(id)?.classList.remove('speaking');
+}
+
+let _spkLast = 0;
+function speakingLoop(ts) {
+    if (!speakingLoopOn) return;
+    // ~15 fps é suficiente e leve para o celular.
+    if (ts - _spkLast >= 66) {
+        _spkLast = ts;
+        speakingMon.forEach((m, id) => {
+            const t = tileEl(id);
+            if (!t) return;
+            // Se estiver mutado, nunca marca como falando.
+            const muted = (id === peerId) ? !micOn : t.classList.contains('mic-off');
+            let level = 0;
+            if (!muted) {
+                m.analyser.getByteTimeDomainData(m.data);
+                let sum = 0;
+                for (let i = 0; i < m.data.length; i++) { const v = (m.data[i] - 128) / 128; sum += v * v; }
+                level = Math.sqrt(sum / m.data.length); // RMS 0..1
+            }
+            const THRESH = 0.045; // limiar de voz
+            if (level > THRESH) {
+                m.silentFrames = 0;
+                if (!m.speaking) { m.speaking = true; t.classList.add('speaking'); }
+            } else {
+                // Histerese: só apaga após alguns quadros em silêncio (evita piscar).
+                if (m.speaking && ++m.silentFrames > 8) { m.speaking = false; t.classList.remove('speaking'); }
+            }
+        });
+    }
+    requestAnimationFrame(speakingLoop);
+}
+
 // Remove um tile com animação de saída.
 function animateTileOut(id) {
     const t = tileEl(id);
     if (!t) return;
+    detachSpeaking(id);
     t.classList.add('tile-out');
     setTimeout(() => { if (t.parentNode) { t.remove(); tileZoom.delete(id); tilePan.delete(id); pinned.delete(id); layoutGrid(); } }, 220);
 }
