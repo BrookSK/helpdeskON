@@ -246,6 +246,9 @@ class VideocallController extends Controller
         $peerId = $this->safePeerId($_GET['peer_id'] ?? '');
         if ($peerId === '') $this->json(['error' => 'peer_id ausente'], 400);
 
+        // Long-poll: libera o lock da sessão para não travar as outras chamadas.
+        $this->releaseSession();
+
         $this->model->heartbeat($room['id'], $peerId);
 
         // Higiene esporádica da fila de sinais.
@@ -253,12 +256,12 @@ class VideocallController extends Controller
             $this->model->purgeOldSignals(30);
         }
 
-        $deadline = time() + 20;
+        $deadline = time() + 12;
         $signals = [];
         do {
             $signals = $this->model->pullSignals($room['id'], $peerId);
             if (!empty($signals)) break;
-            usleep(400000); // 0,4s
+            usleep(300000); // 0,3s
         } while (time() < $deadline);
 
         $out = array_map(function ($s) {
@@ -281,6 +284,10 @@ class VideocallController extends Controller
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
         $room = $this->requireActiveRoom($token, 2, true);
 
+        // 'end' precisa checar admin (usa a sessão); os demais sinais não usam.
+        $endUserId = $_SESSION['user_id'] ?? null;
+        $this->releaseSession();
+
         $raw = file_get_contents('php://input');
         $body = json_decode($raw, true);
         if (!is_array($body)) $body = $_POST;
@@ -296,8 +303,7 @@ class VideocallController extends Controller
         }
         // 'end' encerra a sala para todos — só admin da sala pode.
         if ($kind === 'end') {
-            $userId = $_SESSION['user_id'] ?? null;
-            if (!$this->model->isAdminUser($room, $userId)) $this->json(['error' => 'Sem permissão.'], 403);
+            if (!$this->model->isAdminUser($room, $endUserId)) $this->json(['error' => 'Sem permissão.'], 403);
         }
 
         $this->model->heartbeat($room['id'], $from);
@@ -327,6 +333,7 @@ class VideocallController extends Controller
     public function requestStatus($token = null)
     {
         $room = $this->requireActiveRoom($token, 2, true);
+        $this->releaseSession();
         $peerId = $this->safePeerId($_GET['peer_id'] ?? '');
         if ($peerId === '') $this->json(['error' => 'peer_id ausente'], 400);
         // Mantém o pedido "vivo" enquanto a pessoa espera.
@@ -342,6 +349,7 @@ class VideocallController extends Controller
     {
         $room = $this->requireActiveRoom($token, 2, true);
         $userId = $_SESSION['user_id'] ?? null;
+        $this->releaseSession();
         if (!$this->model->isAdminUser($room, $userId)) $this->json(['error' => 'Sem permissão.'], 403);
 
         $participants = array_map(function ($p) {
@@ -361,6 +369,7 @@ class VideocallController extends Controller
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
         $room = $this->requireActiveRoom($token, 2, true);
         $userId = $_SESSION['user_id'] ?? null;
+        $this->releaseSession();
         if (!$this->model->isAdminUser($room, $userId)) $this->json(['error' => 'Sem permissão.'], 403);
 
         $target = $this->safePeerId($_POST['peer_id'] ?? '');
@@ -378,6 +387,7 @@ class VideocallController extends Controller
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
         $room = $this->requireActiveRoom($token, 2, true);
         $userId = $_SESSION['user_id'] ?? null;
+        $this->releaseSession();
         if (!$this->model->isAdminUser($room, $userId)) $this->json(['error' => 'Sem permissão.'], 403);
 
         $target = $this->safePeerId($_POST['peer_id'] ?? '');
@@ -531,6 +541,22 @@ class VideocallController extends Controller
             $this->json(['error' => 'Link expirado'], 410);
         }
         return $room;
+    }
+
+    /**
+     * Libera o lock do arquivo de sessão do PHP.
+     *
+     * O long-polling segura a requisição por ~20s. Enquanto a sessão está
+     * "aberta", o PHP bloqueia TODAS as outras requisições do mesmo usuário
+     * (session lock), o que fazia admit/roster/signal demorarem muito. Como
+     * estas ações já leram o que precisavam de $_SESSION e não escrevem mais
+     * nela, fechamos a sessão para não travar as demais chamadas em paralelo.
+     */
+    private function releaseSession()
+    {
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_write_close();
+        }
     }
 
     /** Sanitiza o peer_id (apenas hex/alfanumérico, até 64 chars). */

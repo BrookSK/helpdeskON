@@ -449,9 +449,13 @@ async function startBgPipeline() {
         bgCanvas = document.createElement('canvas');
         bgCtx = bgCanvas.getContext('2d');
     }
+    // Com fundo, limita a 720p: mantém boa nitidez sem travar a CPU (o modelo
+    // de segmentação é pesado; 1080p processado costuma engasgar).
     const settings = vtrack.getSettings();
-    bgCanvas.width = settings.width || 640;
-    bgCanvas.height = settings.height || 480;
+    let cw = settings.width || 1280, ch = settings.height || 720;
+    if (cw > 1280) { ch = Math.round(ch * (1280 / cw)); cw = 1280; }
+    bgCanvas.width = cw;
+    bgCanvas.height = ch;
 
     bgVideoEl.srcObject = new MediaStream([vtrack]);
     await bgVideoEl.play().catch(() => {});
@@ -466,7 +470,7 @@ async function startBgPipeline() {
     };
     loop();
 
-    processedStream = bgCanvas.captureStream(24);
+    processedStream = bgCanvas.captureStream(30);
     return processedStream.getVideoTracks()[0];
 }
 
@@ -517,7 +521,7 @@ async function rebuildLocalStream() {
     if (joined && videoTrack) {
         peers.forEach(entry => {
             const sender = entry.pc.getSenders().find(s => s.track && s.track.kind === 'video' && (!screenStream || !screenStream.getTracks().includes(s.track)));
-            if (sender) sender.replaceTrack(videoTrack).catch(() => {});
+            if (sender) sender.replaceTrack(videoTrack).then(() => tuneSender(sender, videoTrack)).catch(() => {});
         });
     }
     // Preview do lobby
@@ -529,9 +533,17 @@ async function rebuildLocalStream() {
 // ==========================================================
 let lobbyMic = true, lobbyCam = true;
 
+// Restrições de vídeo em alta qualidade (HD, tende a 1080p quando a câmera permite).
+const VIDEO_CONSTRAINTS = {
+    width: { ideal: 1920, max: 1920 },
+    height: { ideal: 1080, max: 1080 },
+    frameRate: { ideal: 30, max: 30 },
+};
+const AUDIO_CONSTRAINTS = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+
 async function initPreview() {
     try {
-        rawStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        rawStream = await navigator.mediaDevices.getUserMedia({ video: VIDEO_CONSTRAINTS, audio: AUDIO_CONSTRAINTS });
         const vt = rawStream.getVideoTracks()[0];
         if (vt) curVideoDeviceId = vt.getSettings().deviceId;
         const at = rawStream.getAudioTracks()[0];
@@ -596,8 +608,8 @@ async function changeDevice(kind, deviceId) {
     if (!deviceId) return;
     try {
         const constraints = kind === 'video'
-            ? { video: { deviceId: { exact: deviceId } }, audio: false }
-            : { audio: { deviceId: { exact: deviceId } }, video: false };
+            ? { video: Object.assign({ deviceId: { exact: deviceId } }, VIDEO_CONSTRAINTS), audio: false }
+            : { audio: Object.assign({ deviceId: { exact: deviceId } }, AUDIO_CONSTRAINTS), video: false };
         const ns = await navigator.mediaDevices.getUserMedia(constraints);
         const newTrack = (kind === 'video' ? ns.getVideoTracks() : ns.getAudioTracks())[0];
         if (!newTrack) return;
@@ -719,6 +731,7 @@ function enterCall(res) {
     (res.peers || []).forEach(p => { ensurePeer(p.peer_id, p.name, true); });
     updateCount();
     startPolling();
+    startNetworkMonitor();
 }
 
 // ---- Espera (sala privada) ----
@@ -733,7 +746,7 @@ function startWaiting() {
             if (r.status === 'admitted') { clearInterval(waitTimer); await doJoin(false); }
             else if (r.status === 'denied') { clearInterval(waitTimer); teardown({ icon: '🚫', text: 'Entrada recusada' }, 'Um administrador não autorizou sua entrada nesta chamada.'); }
         } catch (e) {}
-    }, 2500);
+    }, 1500);
 }
 function cancelWaiting() {
     if (waitTimer) clearInterval(waitTimer);
@@ -859,14 +872,141 @@ function updateCount() { document.getElementById('peer-count').textContent = (pe
 // ==========================================================
 // WebRTC mesh
 // ==========================================================
+// ---- Qualidade adaptativa (estilo Meet) ----
+// Níveis do melhor para o pior. scaleDown reduz a resolução enviada.
+const QUALITY_LEVELS = [
+    { name: '1080p', maxBitrate: 2500000, scaleDown: 1,   maxFramerate: 30 },
+    { name: '720p',  maxBitrate: 1200000, scaleDown: 1.5, maxFramerate: 30 },
+    { name: '480p',  maxBitrate: 600000,  scaleDown: 2.5, maxFramerate: 25 },
+    { name: '360p',  maxBitrate: 300000,  scaleDown: 3.5, maxFramerate: 20 },
+];
+let qualityIndex = 0;          // começa no melhor
+let autoCamOff = false;        // câmera desligada AUTOMATICAMENTE por rede ruim
+let camOffByUser = false;      // usuário desligou manualmente (não religa sozinho)
+
+// Aplica o nível atual de qualidade a um sender de vídeo (câmera; a tela mantém detalhe).
+async function tuneSender(sender, track) {
+    if (!sender || !track || track.kind !== 'video') return;
+    const isScreen = screenStream && screenStream.getTracks().includes(track);
+    try {
+        const params = sender.getParameters();
+        if (!params.encodings || !params.encodings.length) params.encodings = [{}];
+        if (isScreen) {
+            params.encodings[0].maxBitrate = 2500000;
+            delete params.encodings[0].scaleResolutionDownBy;
+            params.degradationPreference = 'maintain-resolution';
+        } else {
+            const lv = QUALITY_LEVELS[qualityIndex];
+            params.encodings[0].maxBitrate = lv.maxBitrate;
+            params.encodings[0].maxFramerate = lv.maxFramerate;
+            params.encodings[0].scaleResolutionDownBy = lv.scaleDown;
+            params.degradationPreference = 'balanced';
+        }
+        await sender.setParameters(params);
+    } catch (e) { /* nem todo navegador aceita; ignora */ }
+}
+
+// Reaplica o nível atual em todos os senders de câmera.
+function applyQualityToAll() {
+    peers.forEach(entry => {
+        entry.pc.getSenders().forEach(s => {
+            if (s.track && s.track.kind === 'video' && (!screenStream || !screenStream.getTracks().includes(s.track))) tuneSender(s, s.track);
+        });
+    });
+}
+
+// ---- Monitor de rede: sobe/baixa qualidade e desliga a câmera se travar ----
+let netTimer = null;
+let lastStats = { ts: 0, packetsSent: 0, packetsLost: 0 };
+let goodStreak = 0, badStreak = 0;
+
+function startNetworkMonitor() {
+    if (netTimer) return;
+    netTimer = setInterval(monitorNetwork, 4000);
+}
+function stopNetworkMonitor() { if (netTimer) { clearInterval(netTimer); netTimer = null; } }
+
+async function monitorNetwork() {
+    if (!joined || peers.size === 0) return;
+    // Agrega estatísticas de envio de vídeo de todas as conexões.
+    let packetsSent = 0, packetsLost = 0, nack = 0;
+    for (const entry of peers.values()) {
+        try {
+            const stats = await entry.pc.getStats();
+            stats.forEach(r => {
+                if (r.type === 'outbound-rtp' && r.kind === 'video') { packetsSent += (r.packetsSent || 0); nack += (r.nackCount || 0); }
+                if (r.type === 'remote-inbound-rtp' && r.kind === 'video') { packetsLost += (r.packetsLost || 0); }
+            });
+        } catch (e) {}
+    }
+    const now = Date.now();
+    if (lastStats.ts) {
+        const dSent = packetsSent - lastStats.packetsSent;
+        const dLost = packetsLost - lastStats.packetsLost;
+        const total = dSent + dLost;
+        const lossRate = total > 0 ? (dLost / total) : 0;
+
+        if (lossRate > 0.08) { badStreak++; goodStreak = 0; }        // >8% perda = ruim
+        else if (lossRate < 0.02) { goodStreak++; badStreak = 0; }   // <2% = bom
+        else { goodStreak = 0; badStreak = 0; }                      // zona neutra
+
+        // Rede ruim persistente: baixa a qualidade em degraus.
+        if (badStreak >= 1 && qualityIndex < QUALITY_LEVELS.length - 1) {
+            qualityIndex++; applyQualityToAll(); badStreak = 0;
+            toast('Conexão instável: qualidade reduzida para ' + QUALITY_LEVELS[qualityIndex].name + '.');
+        }
+        // Já no pior nível e ainda ruim: desliga a câmera automaticamente.
+        else if (badStreak >= 2 && qualityIndex >= QUALITY_LEVELS.length - 1 && camOn && !camOffByUser) {
+            autoDisableCam();
+            badStreak = 0;
+        }
+        // Rede boa por um tempo: sobe a qualidade de volta.
+        if (goodStreak >= 3) {
+            if (autoCamOff) { autoEnableCam(); goodStreak = 0; }
+            else if (qualityIndex > 0) { qualityIndex--; applyQualityToAll(); goodStreak = 0; toast('Conexão melhorou: qualidade em ' + QUALITY_LEVELS[qualityIndex].name + '.'); }
+        }
+    }
+    lastStats = { ts: now, packetsSent, packetsLost };
+}
+
+// Desliga a câmera por causa da rede (avisa e lembra que foi automático).
+function autoDisableCam() {
+    if (!camOn) return;
+    autoCamOff = true;
+    camOn = false;
+    if (localStream) localStream.getVideoTracks().forEach(t => t.enabled = false);
+    if (rawStream) rawStream.getVideoTracks().forEach(t => t.enabled = false);
+    const b = document.getElementById('btn-cam');
+    b.classList.add('off');
+    b.innerHTML = '<i class="bi bi-camera-video-off-fill"></i><span class="ctrl-label">Câmera</span>';
+    tileEl(peerId)?.classList.add('cam-off');
+    broadcast('media', { micMuted: !micOn, camOff: true });
+    toast('Sua câmera foi desligada por causa da conexão. Ela volta sozinha quando a internet melhorar.');
+}
+// Religa a câmera quando a rede se recupera (só se foi desligada automaticamente).
+function autoEnableCam() {
+    if (!autoCamOff) return;
+    autoCamOff = false;
+    camOn = true;
+    // Volta subindo a qualidade gradualmente (do pior para melhorar aos poucos).
+    if (localStream) localStream.getVideoTracks().forEach(t => t.enabled = true);
+    if (rawStream) rawStream.getVideoTracks().forEach(t => t.enabled = true);
+    const b = document.getElementById('btn-cam');
+    b.classList.remove('off');
+    b.innerHTML = '<i class="bi bi-camera-video-fill"></i><span class="ctrl-label">Câmera</span>';
+    tileEl(peerId)?.classList.remove('cam-off');
+    broadcast('media', { micMuted: !micOn, camOff: false });
+    toast('Sua internet melhorou: câmera religada.');
+}
+
 function ensurePeer(remoteId, name, initiator) {
     if (remoteId === peerId || peers.has(remoteId)) return peers.get(remoteId);
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
     const entry = { pc, name, polite: peerId < remoteId, makingOffer: false, tile: null, screenTile: null, pendingIce: [], hasCam: false };
     peers.set(remoteId, entry);
 
-    if (localStream) localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
-    if (screenStream) screenStream.getVideoTracks().forEach(t => pc.addTrack(t, screenStream));
+    if (localStream) localStream.getTracks().forEach(t => { const s = pc.addTrack(t, localStream); tuneSender(s, t); });
+    if (screenStream) screenStream.getVideoTracks().forEach(t => { const s = pc.addTrack(t, screenStream); if (t) t.contentHint = 'detail'; tuneSender(s, t); });
 
     pc.onicecandidate = (e) => { if (e.candidate) sendSignal(remoteId, 'ice', e.candidate); };
     pc.ontrack = (e) => {
@@ -979,6 +1119,10 @@ function toggleMic() {
 }
 function toggleCam() {
     camOn = !camOn;
+    // Marca intenção manual: se o usuário desligou, o automático não religa;
+    // se ligou de volta, limpa o estado "desligado pela rede".
+    camOffByUser = !camOn;
+    autoCamOff = false;
     if (localStream) localStream.getVideoTracks().forEach(t => t.enabled = camOn);
     if (rawStream) rawStream.getVideoTracks().forEach(t => t.enabled = camOn);
     const b = document.getElementById('btn-cam');
@@ -1042,42 +1186,88 @@ function toggleAdminPanel(force) {
 function bumpReqDot() { document.getElementById('peer-count-wrap').classList.add('has-req'); }
 function startAdminPolling() {
     if (adminTimer) return;
-    adminTimer = setInterval(refreshAdminPanel, 4000);
+    // Polling curto (2s) para o admin ver os pedidos rápido.
+    adminTimer = setInterval(refreshAdminPanel, 2000);
     refreshAdminPanel();
 }
+
+let knownReqPeers = new Set();
+function notifyNewRequests(requests) {
+    // Toca som + toast chamativo apenas para pedidos novos.
+    const current = new Set(requests.map(q => q.peer_id));
+    let novos = requests.filter(q => !knownReqPeers.has(q.peer_id));
+    if (novos.length) {
+        beep();
+        novos.forEach(q => toast('✋ ' + q.name + ' pediu para entrar na chamada.'));
+        // Destaca visualmente o contador e abre o painel na primeira vez.
+        flashCountButton();
+        if (!document.getElementById('admin-panel').classList.contains('open')) toggleAdminPanel(true);
+    }
+    knownReqPeers = current;
+}
+function flashCountButton() {
+    const el = document.getElementById('peer-count-wrap');
+    el.style.transition = 'background .2s'; el.style.background = '#e0a400'; el.style.borderRadius = '8px'; el.style.padding = '2px 6px';
+    setTimeout(() => { el.style.background = ''; }, 1200);
+}
+// Bip curto via WebAudio (sem arquivo).
+let audioCtx = null;
+function beep() {
+    try {
+        audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+        const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+        o.connect(g); g.connect(audioCtx.destination);
+        o.type = 'sine'; o.frequency.value = 880; g.gain.value = 0.08;
+        o.start(); o.frequency.setValueAtTime(660, audioCtx.currentTime + 0.12);
+        o.stop(audioCtx.currentTime + 0.24);
+    } catch (e) {}
+}
+
 async function refreshAdminPanel() {
     if (!isAdmin || !joined) return;
     try {
         const r = await fetch(`${BASE}/videocall/roster/${ROOM_TOKEN}`).then(x => x.json());
         if (r.error) return;
-        pendingReqCount = (r.requests || []).length;
+        const requests = r.requests || [];
+        pendingReqCount = requests.length;
         const dot = document.getElementById('req-dot');
         dot.textContent = pendingReqCount;
         document.getElementById('peer-count-wrap').classList.toggle('has-req', pendingReqCount > 0);
 
-        // Pedidos
+        notifyNewRequests(requests);
+
         const reqBlock = document.getElementById('sp-requests-block');
         const reqBox = document.getElementById('sp-requests');
         if (pendingReqCount > 0) {
             reqBlock.classList.remove('hidden');
-            reqBox.innerHTML = (r.requests || []).map(q =>
-                `<div class="sp-item"><span class="nm">${escapeHtml(q.name)}</span>
+            reqBox.innerHTML = requests.map(q =>
+                `<div class="sp-item" id="req-${q.peer_id}"><span class="nm">✋ ${escapeHtml(q.name)}</span>
                   <button class="btn btn-success btn-sm" onclick="admit('${q.peer_id}')">Admitir</button>
                   <button class="btn btn-outline-danger btn-sm" onclick="deny('${q.peer_id}')">Recusar</button></div>`).join('');
         } else { reqBlock.classList.add('hidden'); reqBox.innerHTML = ''; }
 
-        // Participantes
         document.getElementById('sp-count').textContent = (r.participants || []).length;
         document.getElementById('sp-participants').innerHTML = (r.participants || []).map(p =>
             `<div class="sp-item"><span class="nm">${escapeHtml(p.name)}${p.role === 'host' ? ' <small class="text-muted">(host)</small>' : ''}</span></div>`).join('');
     } catch (e) {}
 }
+
+// Feedback imediato: remove o item da lista na hora e não espera o refresh.
+function markDecided(pid) {
+    const row = document.getElementById('req-' + pid);
+    if (row) { row.querySelectorAll('button').forEach(b => b.disabled = true); row.style.opacity = '.5'; setTimeout(() => row.remove(), 400); }
+    knownReqPeers.delete(pid);
+}
 async function admit(pid) {
-    await fetch(`${BASE}/videocall/admit/${ROOM_TOKEN}`, { method: 'POST', body: new URLSearchParams({ peer_id: pid }) });
+    markDecided(pid);
+    try { await fetch(`${BASE}/videocall/admit/${ROOM_TOKEN}`, { method: 'POST', body: new URLSearchParams({ peer_id: pid }) }); toast('Entrada autorizada.'); }
+    catch (e) { toast('Erro ao autorizar.'); }
     refreshAdminPanel();
 }
 async function deny(pid) {
-    await fetch(`${BASE}/videocall/deny/${ROOM_TOKEN}`, { method: 'POST', body: new URLSearchParams({ peer_id: pid }) });
+    markDecided(pid);
+    try { await fetch(`${BASE}/videocall/deny/${ROOM_TOKEN}`, { method: 'POST', body: new URLSearchParams({ peer_id: pid }) }); }
+    catch (e) {}
     refreshAdminPanel();
 }
 
@@ -1256,6 +1446,7 @@ function teardown(headline, sub) {
     joined = false; waiting = false;
     if (adminTimer) clearInterval(adminTimer);
     if (waitTimer) clearInterval(waitTimer);
+    stopNetworkMonitor();
     if (mediaRecorder && mediaRecorder.state !== 'inactive') { try { stopRecording(); } catch (e) {} }
     stopBgPipeline();
     peers.forEach(e => { try { e.pc.close(); } catch (x) {} });
