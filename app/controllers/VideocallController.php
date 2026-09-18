@@ -963,12 +963,15 @@ class VideocallController extends Controller
     {
         $t = htmlspecialchars($title, ENT_QUOTES);
         $m = htmlspecialchars($message, ENT_QUOTES);
+        $fav = Config::get('app_favicon');
+        $favTag = $fav ? '<link rel="icon" href="' . htmlspecialchars(baseUrl($fav), ENT_QUOTES) . '"><link rel="shortcut icon" href="' . htmlspecialchars(baseUrl($fav), ENT_QUOTES) . '">' : '';
         http_response_code(200);
         echo <<<HTML
 <!DOCTYPE html>
 <html lang="pt-BR"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{$t} · ON Solutions Brasil</title>
+{$favTag}
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
 <style>body{background:#0f1020;color:#e8eaf1;font-family:'Segoe UI',system-ui,Arial,sans-serif;}
