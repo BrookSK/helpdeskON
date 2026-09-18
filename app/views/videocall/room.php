@@ -1078,7 +1078,18 @@ function addSelfTile() {
     div.classList.toggle('cam-off', !camOn);
 }
 function removeTile(id) { const t = tileEl(id); if (t) { t.remove(); tileZoom.delete(id); tilePan.delete(id); pinned.delete(id); layoutGrid(); } }
-function updateCount() { document.getElementById('peer-count').textContent = (peers.size + 1); }
+let lastQualityFloor = -1;
+function updateCount() {
+    document.getElementById('peer-count').textContent = (peers.size + 1);
+    // Ajusta o teto de qualidade quando o nº de participantes muda de faixa.
+    if (joined) {
+        const floor = participantQualityFloor();
+        if (floor !== lastQualityFloor) {
+            lastQualityFloor = floor;
+            if (typeof applyQualityToAll === 'function') applyQualityToAll();
+        }
+    }
+}
 
 // ==========================================================
 // WebRTC mesh
@@ -1096,6 +1107,21 @@ let qualityIndex = (IS_MOBILE || isSlowNetwork()) ? 2 : 0;
 let autoCamOff = false;        // câmera desligada AUTOMATICAMENTE por rede ruim
 let camOffByUser = false;      // usuário desligou manualmente (não religa sozinho)
 
+// TETO de qualidade conforme o nº de participantes (mesh: mais gente = cada
+// stream precisa ser mais leve para o upload/CPU de todos aguentar).
+// Retorna o índice MÍNIMO de QUALITY_LEVELS permitido (quanto maior, mais leve).
+function participantQualityFloor() {
+    const total = peers.size + 1; // eu + remotos
+    if (total <= 2) return 0;     // 1:1 -> pode 1080p
+    if (total <= 4) return 1;     // 3-4 -> teto 720p
+    if (total <= 6) return 2;     // 5-6 -> teto 480p
+    return 3;                     // 7+  -> teto 360p
+}
+// Nível efetivo = o mais LEVE entre o adaptativo (rede) e o teto (participantes).
+function effectiveQualityIndex() {
+    return Math.max(qualityIndex, participantQualityFloor());
+}
+
 // Aplica o nível atual de qualidade a um sender de vídeo (câmera; a tela mantém detalhe).
 async function tuneSender(sender, track) {
     if (!sender || !track || track.kind !== 'video') return;
@@ -1108,7 +1134,7 @@ async function tuneSender(sender, track) {
             delete params.encodings[0].scaleResolutionDownBy;
             params.degradationPreference = 'maintain-resolution';
         } else {
-            const lv = QUALITY_LEVELS[qualityIndex];
+            const lv = QUALITY_LEVELS[effectiveQualityIndex()];
             params.encodings[0].maxBitrate = lv.maxBitrate;
             params.encodings[0].maxFramerate = lv.maxFramerate;
             params.encodings[0].scaleResolutionDownBy = lv.scaleDown;
@@ -1164,18 +1190,23 @@ async function monitorNetwork() {
 
         // Rede ruim persistente: baixa a qualidade em degraus.
         if (badStreak >= 1 && qualityIndex < QUALITY_LEVELS.length - 1) {
+            const before = effectiveQualityIndex();
             qualityIndex++; applyQualityToAll(); badStreak = 0;
-            toast('Conexão instável: qualidade reduzida para ' + QUALITY_LEVELS[qualityIndex].name + '.');
+            if (effectiveQualityIndex() !== before) toast('Conexão instável: qualidade em ' + QUALITY_LEVELS[effectiveQualityIndex()].name + '.');
         }
         // Já no pior nível e ainda ruim: desliga a câmera automaticamente.
         else if (badStreak >= 2 && qualityIndex >= QUALITY_LEVELS.length - 1 && camOn && !camOffByUser) {
             autoDisableCam();
             badStreak = 0;
         }
-        // Rede boa por um tempo: sobe a qualidade de volta.
+        // Rede boa por um tempo: sobe a qualidade de volta (respeitando o teto de participantes).
         if (goodStreak >= 3) {
             if (autoCamOff) { autoEnableCam(); goodStreak = 0; }
-            else if (qualityIndex > 0) { qualityIndex--; applyQualityToAll(); goodStreak = 0; toast('Conexão melhorou: qualidade em ' + QUALITY_LEVELS[qualityIndex].name + '.'); }
+            else if (qualityIndex > 0) {
+                const before = effectiveQualityIndex();
+                qualityIndex--; applyQualityToAll(); goodStreak = 0;
+                if (effectiveQualityIndex() !== before) toast('Conexão melhorou: qualidade em ' + QUALITY_LEVELS[effectiveQualityIndex()].name + '.');
+            }
         }
     }
     lastStats = { ts: now, packetsSent, packetsLost };
@@ -1217,7 +1248,7 @@ function ensurePeer(remoteId, name, initiator) {
     const entry = { pc, name, polite: peerId < remoteId, makingOffer: false, tile: null, screenTile: null, pendingIce: [], hasCam: false };
     peers.set(remoteId, entry);
 
-    if (localStream) localStream.getTracks().forEach(t => { const s = pc.addTrack(t, localStream); tuneSender(s, t); });
+    if (localStream) localStream.getTracks().forEach(t => { if (t.kind === 'video') t.contentHint = 'motion'; const s = pc.addTrack(t, localStream); tuneSender(s, t); });
     if (screenStream) screenStream.getVideoTracks().forEach(t => { const s = pc.addTrack(t, screenStream); if (t) t.contentHint = 'detail'; tuneSender(s, t); });
 
     pc.onicecandidate = (e) => { if (e.candidate) sendSignal(remoteId, 'ice', e.candidate); };
