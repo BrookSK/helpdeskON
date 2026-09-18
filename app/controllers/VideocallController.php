@@ -59,6 +59,9 @@ class VideocallController extends Controller
         // Privada: a entrada precisa ser aprovada por um administrador da sala.
         $visibility = (($_POST['visibility'] ?? 'public') === 'private') ? 'private' : 'public';
 
+        // Permitir apresentar (compartilhar tela): padrão sim. O admin pode mudar depois.
+        $allowPresentation = (($_POST['allow_presentation'] ?? '1') === '0') ? 0 : 1;
+
         $token = $this->model->create([
             'title' => $title,
             'created_by' => $user['id'],
@@ -66,6 +69,7 @@ class VideocallController extends Controller
             'meeting_id' => $meetingId,
             'max_participants' => $max,
             'allow_recording' => 1,
+            'allow_presentation' => $allowPresentation,
             'status' => 'active',
             'visibility' => $visibility,
             'expires_at' => date('Y-m-d H:i:s', strtotime('+' . $expiryDays . ' days')),
@@ -123,6 +127,7 @@ class VideocallController extends Controller
             'suggestedName' => $suggestedName,
             'loggedUserId' => $loggedUserId,
             'isAdmin' => $isAdmin,
+            'allowPresentation' => (int)($room['allow_presentation'] ?? 1) === 1,
             'backgrounds' => $this->backgroundList(),
             'iceServers' => $this->iceServers(),
         ]);
@@ -398,6 +403,22 @@ class VideocallController extends Controller
         $this->json(['success' => true]);
     }
 
+    /** Admin liga/desliga a permissão de apresentar (compartilhar tela). */
+    public function setPresentation($token = null)
+    {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $room = $this->requireActiveRoom($token, 2, true);
+        $userId = $_SESSION['user_id'] ?? null;
+        $this->releaseSession();
+        if (!$this->model->isAdminUser($room, $userId)) $this->json(['error' => 'Sem permissão.'], 403);
+
+        $allow = (($_POST['allow'] ?? '1') === '1') ? 1 : 0;
+        $this->model->update($room['id'], ['allow_presentation' => $allow]);
+        // Propaga em tempo real para todos.
+        $this->model->pushSignal($room['id'], 'admin', null, 'perm', ['allow_presentation' => $allow]);
+        $this->json(['success' => true, 'allow_presentation' => $allow]);
+    }
+
     // ============================================================
     // Gravação
     // ============================================================
@@ -410,9 +431,14 @@ class VideocallController extends Controller
     {
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
         $room = $this->requireActiveRoom($token, 2, true);
+        $userId = $_SESSION['user_id'] ?? null;
 
         if ((int)$room['allow_recording'] !== 1) {
             $this->json(['error' => 'Gravação não permitida nesta sala.'], 403);
+        }
+        // Sala privada: só administradores podem gravar.
+        if (($room['visibility'] ?? 'public') === 'private' && !$this->model->isAdminUser($room, $userId)) {
+            $this->json(['error' => 'Apenas administradores podem gravar nesta sala.'], 403);
         }
         if (empty($_FILES['recording']) || $_FILES['recording']['error'] !== UPLOAD_ERR_OK) {
             $this->json(['error' => 'Arquivo de gravação ausente ou inválido.'], 400);

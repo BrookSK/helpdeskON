@@ -6,6 +6,9 @@ $suggested = htmlspecialchars($suggestedName ?? '', ENT_QUOTES);
 $allowRec = (int)($room['allow_recording'] ?? 1) === 1;
 $visibility = ($room['visibility'] ?? 'public');
 $isAdmin = !empty($isAdmin);
+$allowPresentation = !isset($allowPresentation) ? true : (bool)$allowPresentation;
+// Em sala privada, gravar é só para administradores.
+$canRecord = $allowRec && !($visibility === 'private' && !$isAdmin);
 $iceJson = json_encode($iceServers ?? [], JSON_UNESCAPED_SLASHES);
 $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
 ?>
@@ -105,6 +108,7 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
         .ctrl.off { background:#c0304a; }
         .ctrl.active { background:var(--brand); }
         .ctrl.hangup { background:#e02a44; width:60px; }
+        .ctrl.disabled-ctrl { opacity:.45; }
         .ctrl-caret { width:22px; height:22px; border-radius:50%; border:none; background:var(--panel2); color:#cfd3e6; font-size:.7rem; cursor:pointer; position:absolute; top:-4px; right:-4px; display:flex; align-items:center; justify-content:center; }
         .ctrl-caret:hover { background:var(--brand); color:#fff; }
         .ctrl-label { position:absolute; bottom:-18px; left:50%; transform:translateX(-50%); font-size:.62rem; color:#9aa2c0; white-space:nowrap; }
@@ -281,7 +285,7 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
             <button class="ctrl" id="btn-hands-list" onclick="toggleHandsPanel()" title="Quem levantou a mão"><i class="bi bi-list-ol"></i><span class="ctrl-label">Fila</span></button>
             <span class="badge-dot" id="hands-count-dot" style="position:absolute;top:-2px;right:-2px;background:#e0a400;border-radius:999px;padding:1px 6px;font-size:.65rem;display:none;"></span>
         </div>
-        <?php if ($allowRec): ?>
+        <?php if ($canRecord): ?>
         <button class="ctrl" id="btn-rec" onclick="toggleRecording()" title="Gravar"><i class="bi bi-record-circle"></i><span class="ctrl-label">Gravar</span></button>
         <?php endif; ?>
         <button class="ctrl" id="btn-copy" onclick="copyLink()" title="Copiar link"><i class="bi bi-link-45deg"></i><span class="ctrl-label">Link</span></button>
@@ -328,6 +332,16 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
             <div id="sp-requests"></div>
             <hr style="border-color:#2a2d44;">
         </div>
+
+        <?php if ($isAdmin): ?>
+        <div class="sp-section-title">Controles da sala</div>
+        <div class="sp-item" style="flex-wrap:wrap;">
+            <span class="nm"><i class="bi bi-easel"></i> Apresentar tela<br><small class="text-muted" id="sp-perm-state"><?= $allowPresentation ? 'Qualquer um pode apresentar' : 'Só administradores apresentam' ?></small></span>
+            <button id="sp-perm-btn" class="btn btn-sm <?= $allowPresentation ? 'btn-outline-warning' : 'btn-success' ?>" onclick="togglePresentationPerm()"><?= $allowPresentation ? 'Desativar apresentação' : 'Ativar apresentação' ?></button>
+        </div>
+        <hr style="border-color:#2a2d44;">
+        <?php endif; ?>
+
         <div class="sp-section-title">Na chamada (<span id="sp-count">0</span>)</div>
         <div id="sp-participants"></div>
     </div>
@@ -360,6 +374,21 @@ const ICE_SERVERS = <?= $iceJson ?: '[]' ?>;
 const BACKGROUNDS = <?= $bgJson ?: '[]' ?>;
 const ROOM_VISIBILITY = '<?= $visibility ?>';
 let isAdmin = <?= $isAdmin ? 'true' : 'false' ?>;
+let allowPresentation = <?= $allowPresentation ? 'true' : 'false' ?>;
+
+// ---- Detecção de dispositivo/rede (otimização mobile e 4G) ----
+const IS_MOBILE = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || (('ontouchstart' in window) && Math.min(screen.width, screen.height) < 820);
+const NET = navigator.connection || navigator.mozConnection || navigator.webkitConnection || null;
+function isSlowNetwork() {
+    if (!NET) return false;
+    const t = NET.effectiveType || '';
+    if (t.includes('2g') || t === '3g') return true;
+    if (NET.saveData) return true;
+    if (NET.downlink && NET.downlink < 2) return true; // < 2 Mbps
+    return false;
+}
+// No celular, o processamento de fundo (MediaPipe) é o que mais trava: desliga por padrão.
+const BG_ALLOWED = !IS_MOBILE;
 
 // ---- Identidade ----
 const peerId = 'p' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
@@ -388,6 +417,8 @@ try {
     bgMode = localStorage.getItem('vc_bg_mode') || 'none';
     bgImageId = localStorage.getItem('vc_bg_image') || null;
 } catch (e) {}
+// No celular o efeito de fundo trava demais: desliga por padrão (ignora preferência salva).
+if (!BG_ALLOWED) { bgMode = 'none'; bgImageId = null; }
 function saveBgPref() {
     try { localStorage.setItem('vc_bg_mode', bgMode); if (bgImageId) localStorage.setItem('vc_bg_image', bgImageId); else localStorage.removeItem('vc_bg_image'); } catch (e) {}
 }
@@ -548,12 +579,11 @@ async function rebuildLocalStream() {
 // ==========================================================
 let lobbyMic = true, lobbyCam = true;
 
-// Restrições de vídeo em alta qualidade (HD, tende a 1080p quando a câmera permite).
-const VIDEO_CONSTRAINTS = {
-    width: { ideal: 1920, max: 1920 },
-    height: { ideal: 1080, max: 1080 },
-    frameRate: { ideal: 30, max: 30 },
-};
+// Restrições de vídeo. No PC busca alta (1080p); no celular/4G começa leve (720/480)
+// para não travar e aguentar rede móvel.
+const VIDEO_CONSTRAINTS = (IS_MOBILE || isSlowNetwork())
+    ? { width: { ideal: 640, max: 1280 }, height: { ideal: 480, max: 720 }, frameRate: { ideal: 24, max: 30 } }
+    : { width: { ideal: 1920, max: 1920 }, height: { ideal: 1080, max: 1080 }, frameRate: { ideal: 30, max: 30 } };
 const AUDIO_CONSTRAINTS = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
 
 async function initPreview() {
@@ -663,6 +693,12 @@ function renderBgGrids() { ['lb-bg-grid', 'cm-bg-grid'].forEach(renderBgGrid); }
 function renderBgGrid(gridId) {
     const grid = document.getElementById(gridId);
     if (!grid) return;
+    // No celular, o efeito de fundo é desativado para não travar a chamada.
+    if (!BG_ALLOWED) {
+        grid.style.display = 'block';
+        grid.innerHTML = '<div style="grid-column:1/-1;color:#9aa2c0;font-size:.78rem;background:var(--panel2);padding:8px 10px;border-radius:10px;"><i class="bi bi-info-circle"></i> Plano de fundo indisponível no celular (para manter a chamada fluida).</div>';
+        return;
+    }
     let html = '';
     html += bgOpt('none', 'Nenhum', '<i class="bi bi-slash-circle"></i>');
     html += bgOpt('blur', 'Desfoque', '<i class="bi bi-badge-hd"></i>', '', true);
@@ -816,12 +852,21 @@ function makeTile(id, name, opts = {}) {
 }
 
 // Zoom (apenas tiles de tela). Visualização local de quem clica.
+// Deslocamento (pan) por tile: {x,y} em fração (-1..1) da área excedente.
+const tilePan = new Map();
+
 function applyZoom(id) {
     const t = tileEl(id); if (!t) return;
     const v = t.querySelector('video'); if (!v) return;
     const z = tileZoom.get(id) || 1;
     const mirror = t.classList.contains('self') ? -1 : 1;
-    v.style.transform = `scaleX(${mirror}) scale(${z})`;
+    // Limita o pan ao que "sobra" após o zoom (não deixa arrastar pra fora).
+    const pan = tilePan.get(id) || { x: 0, y: 0 };
+    const maxPct = (z > 1) ? (50 * (z - 1) / z) : 0; // % de translate permitido
+    const tx = Math.max(-maxPct, Math.min(maxPct, pan.x * maxPct));
+    const ty = Math.max(-maxPct, Math.min(maxPct, pan.y * maxPct));
+    v.style.transform = `translate(${tx}%, ${ty}%) scaleX(${mirror}) scale(${z})`;
+    v.style.cursor = (z > 1) ? 'grab' : '';
     const label = document.getElementById('zoom-' + id);
     if (label) label.textContent = Math.round(z * 100) + '%';
 }
@@ -829,9 +874,57 @@ function zoomTile(id, delta) {
     if (!isScreenTile(id)) return; // zoom só em tela
     let z = (tileZoom.get(id) || 1) + delta;
     z = Math.max(1, Math.min(4, Math.round(z * 100) / 100));
-    tileZoom.set(id, z); applyZoom(id);
+    tileZoom.set(id, z);
+    if (z === 1) tilePan.set(id, { x: 0, y: 0 }); // resetou o zoom, centraliza
+    applyZoom(id);
+    enablePan(id);
 }
-function resetZoom(id) { tileZoom.set(id, 1); applyZoom(id); }
+function resetZoom(id) { tileZoom.set(id, 1); tilePan.set(id, { x: 0, y: 0 }); applyZoom(id); }
+
+// Habilita arrastar (mouse + toque) para mover a área ampliada.
+function enablePan(id) {
+    const t = tileEl(id); if (!t || t.dataset.panBound) return;
+    t.dataset.panBound = '1';
+    let dragging = false, sx = 0, sy = 0, startPan = { x: 0, y: 0 };
+    const v = t.querySelector('video');
+
+    const getPoint = (e) => e.touches ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : { x: e.clientX, y: e.clientY };
+    const down = (e) => {
+        const z = tileZoom.get(id) || 1;
+        if (z <= 1) return;               // só arrasta com zoom
+        if (e.target.closest('.tile-tools')) return;
+        dragging = true;
+        const p = getPoint(e); sx = p.x; sy = p.y;
+        startPan = Object.assign({ x: 0, y: 0 }, tilePan.get(id));
+        if (v) v.style.cursor = 'grabbing';
+        e.preventDefault();
+    };
+    const move = (e) => {
+        if (!dragging) return;
+        const z = tileZoom.get(id) || 1;
+        const rect = t.getBoundingClientRect();
+        const p = getPoint(e);
+        // Converte o arrasto em fração; o sinal segue o dedo/mouse.
+        const dx = (p.x - sx) / rect.width;
+        const dy = (p.y - sy) / rect.height;
+        const mirror = t.classList.contains('self') ? -1 : 1;
+        let nx = startPan.x + (dx * 2 * mirror);
+        let ny = startPan.y + (dy * 2);
+        nx = Math.max(-1, Math.min(1, nx));
+        ny = Math.max(-1, Math.min(1, ny));
+        tilePan.set(id, { x: nx, y: ny });
+        applyZoom(id);
+        e.preventDefault();
+    };
+    const up = () => { dragging = false; if (v) v.style.cursor = (tileZoom.get(id) > 1) ? 'grab' : ''; };
+
+    t.addEventListener('mousedown', down);
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+    t.addEventListener('touchstart', down, { passive: false });
+    t.addEventListener('touchmove', move, { passive: false });
+    t.addEventListener('touchend', up);
+}
 
 function togglePin(id) { if (pinned.has(id)) pinned.delete(id); else pinned.add(id); layoutGrid(); }
 
@@ -881,7 +974,7 @@ function addSelfTile() {
     div.classList.toggle('mic-off', !micOn);
     div.classList.toggle('cam-off', !camOn);
 }
-function removeTile(id) { const t = tileEl(id); if (t) { t.remove(); tileZoom.delete(id); pinned.delete(id); layoutGrid(); } }
+function removeTile(id) { const t = tileEl(id); if (t) { t.remove(); tileZoom.delete(id); tilePan.delete(id); pinned.delete(id); layoutGrid(); } }
 function updateCount() { document.getElementById('peer-count').textContent = (peers.size + 1); }
 
 // ==========================================================
@@ -895,7 +988,8 @@ const QUALITY_LEVELS = [
     { name: '480p',  maxBitrate: 600000,  scaleDown: 2.5, maxFramerate: 25 },
     { name: '360p',  maxBitrate: 300000,  scaleDown: 3.5, maxFramerate: 20 },
 ];
-let qualityIndex = 0;          // começa no melhor
+// Começa em nível mais baixo no celular/4G (2=480p) e no melhor no PC (0=1080p).
+let qualityIndex = (IS_MOBILE || isSlowNetwork()) ? 2 : 0;
 let autoCamOff = false;        // câmera desligada AUTOMATICAMENTE por rede ruim
 let camOffByUser = false;      // usuário desligou manualmente (não religa sozinho)
 
@@ -1070,6 +1164,7 @@ async function handleSignal(sig) {
     }
     if (sig.kind === 'screen') { if (sig.payload && sig.payload.stop) removeTile(from + '-screen'); return; }
     if (sig.kind === 'reaction') { if (sig.payload && sig.payload.emoji) spawnEmojiRain(sig.payload.emoji); return; }
+    if (sig.kind === 'perm') { if (sig.payload) applyPresentationPerm(!!sig.payload.allow_presentation); return; }
     if (sig.kind === 'hand') {
         // Admin pediu para EU baixar a mão (sinal direcionado com force).
         if (sig.payload && sig.payload.force && sig.to === peerId) { if (handUp) toggleHand(); return; }
@@ -1149,6 +1244,11 @@ function toggleCam() {
 
 async function toggleScreen() {
     if (sharing) { stopScreen(); return; }
+    // Restrição do admin: se apresentar está bloqueado, só admin compartilha tela.
+    if (!allowPresentation && !isAdmin) {
+        toast('O administrador desativou o compartilhamento de tela nesta sala.');
+        return;
+    }
     try { screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false }); } catch (e) { return; }
     sharing = true;
     document.getElementById('btn-screen').classList.add('active');
@@ -1284,6 +1384,37 @@ async function deny(pid) {
     try { await fetch(`${BASE}/videocall/deny/${ROOM_TOKEN}`, { method: 'POST', body: new URLSearchParams({ peer_id: pid }) }); }
     catch (e) {}
     refreshAdminPanel();
+}
+
+// ---- Permissão de apresentar (compartilhar tela) ----
+function applyPresentationPerm(allow) {
+    allowPresentation = allow;
+    // Se compartilhar foi bloqueado e um não-admin está compartilhando, para.
+    if (!allow && !isAdmin && sharing) { stopScreen(); toast('O administrador desativou o compartilhamento de tela.'); }
+    const btn = document.getElementById('btn-screen');
+    if (btn) {
+        const blocked = (!allow && !isAdmin);
+        btn.classList.toggle('disabled-ctrl', blocked);
+        btn.title = blocked ? 'Compartilhamento desativado pelo administrador' : 'Compartilhar tela';
+    }
+    updateAdminPermButton();
+}
+function updateAdminPermButton() {
+    const b = document.getElementById('sp-perm-btn');
+    if (!b) return;
+    b.textContent = allowPresentation ? 'Desativar apresentação' : 'Ativar apresentação';
+    b.className = 'btn btn-sm ' + (allowPresentation ? 'btn-outline-warning' : 'btn-success');
+    const st = document.getElementById('sp-perm-state');
+    if (st) st.textContent = allowPresentation ? 'Qualquer um pode apresentar' : 'Só administradores apresentam';
+}
+async function togglePresentationPerm() {
+    const novo = allowPresentation ? '0' : '1';
+    try {
+        const r = await fetch(`${BASE}/videocall/setPresentation/${ROOM_TOKEN}`, { method: 'POST', body: new URLSearchParams({ allow: novo }) }).then(x => x.json());
+        if (r.error) { toast(r.error); return; }
+        applyPresentationPerm(!!r.allow_presentation);
+        toast(allowPresentation ? 'Apresentação liberada para todos.' : 'Apresentação restrita aos administradores.');
+    } catch (e) { toast('Erro ao alterar a permissão.'); }
 }
 
 // ==========================================================
