@@ -294,6 +294,7 @@ class PlanningController extends Controller
         if (isset($_POST['cx_hub_number'])) $data['cx_hub_number'] = trim($_POST['cx_hub_number']) ?: null;
         if (isset($_POST['cx_hub_name'])) $data['cx_hub_name'] = trim($_POST['cx_hub_name']) ?: null;
         if (isset($_POST['branch_name'])) $data['branch_name'] = trim($_POST['branch_name']) ?: null;
+        if (isset($_POST['branch_name_2'])) $data['branch_name_2'] = trim($_POST['branch_name_2']) ?: null;
         if (isset($_POST['pr_number'])) $data['pr_number'] = trim($_POST['pr_number']) ?: null;
 
         if (empty($data)) {
@@ -876,6 +877,7 @@ class PlanningController extends Controller
         if (!empty($_POST['cx_hub_number'])) $data['cx_hub_number'] = trim($_POST['cx_hub_number']);
         if (!empty($_POST['cx_hub_name'])) $data['cx_hub_name'] = trim($_POST['cx_hub_name']);
         if (!empty($_POST['branch_name'])) $data['branch_name'] = trim($_POST['branch_name']);
+        if (isset($_POST['branch_name_2'])) $data['branch_name_2'] = trim($_POST['branch_name_2']) ?: null;
 
         $previousStatus = $card['status'];
         $this->cardModel->update($id, $data);
@@ -942,6 +944,7 @@ class PlanningController extends Controller
 
         $prNumber = $card['pr_number'] ?? '';
         $branchName = $card['branch_name'] ?? '';
+        $branchName2 = $card['branch_name_2'] ?? '';
         $cxNumber = $card['cx_hub_number'] ?? '';
         $cxName = $card['cx_hub_name'] ?? '';
 
@@ -974,6 +977,7 @@ class PlanningController extends Controller
                 . "━━━━━━━━━━━━━━━━━━━\n"
                 . "🔀 *PR:* #{$prNumber}\n"
                 . ($branchName ? "🌿 *Branch:* {$branchName}\n" : '')
+                . ($branchName2 ? "🌿 *Branch 2:* {$branchName2}\n" : '')
                 . ($cxNumber ? "📋 *CX Hub:* #{$cxNumber}" . ($cxName ? " — {$cxName}" : '') . "\n" : '')
                 . "━━━━━━━━━━━━━━━━━━━\n"
                 . "📌 *Status:* Em Revisão Interna\n"

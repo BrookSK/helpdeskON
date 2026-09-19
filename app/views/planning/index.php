@@ -621,6 +621,10 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                                     <label class="form-label small fw-medium text-muted">Branch</label>
                                     <input type="text" id="detail-branch-name" class="form-control form-control-sm" placeholder="Ex: feature/1234-nome-da-branch">
                                 </div>
+                                <div class="mb-2">
+                                    <label class="form-label small fw-medium text-muted">Branch</label>
+                                    <input type="text" id="detail-branch-name-2" class="form-control form-control-sm" placeholder="Ex: feature/1234-nome-da-branch">
+                                </div>
                                 <div class="row g-2 mb-2 align-items-end">
                                     <div class="col">
                                         <label class="form-label small fw-medium text-muted">Nº do PR</label>
@@ -1036,6 +1040,7 @@ function openCardModal(id) {
         document.getElementById('detail-cx-hub-number').value = c.cx_hub_number || '';
         document.getElementById('detail-cx-hub-name').value = c.cx_hub_name || '';
         document.getElementById('detail-branch-name').value = c.branch_name || '';
+        document.getElementById('detail-branch-name-2').value = c.branch_name_2 || '';
         document.getElementById('detail-pr-number').value = c.pr_number || '';
 
         // Link individual do card (para compartilhamento)
@@ -1230,6 +1235,7 @@ function saveCard() {
     formData.append('cx_hub_number', document.getElementById('detail-cx-hub-number').value);
     formData.append('cx_hub_name', document.getElementById('detail-cx-hub-name').value);
     formData.append('branch_name', document.getElementById('detail-branch-name').value);
+    formData.append('branch_name_2', document.getElementById('detail-branch-name-2').value);
     formData.append('pr_number', document.getElementById('detail-pr-number').value);
 
     // Enviar descrição como arquivo Blob para contornar limite do ModSecurity
@@ -1288,6 +1294,7 @@ function prDone() {
     formData.append('cx_hub_number', document.getElementById('detail-cx-hub-number').value);
     formData.append('cx_hub_name', document.getElementById('detail-cx-hub-name').value);
     formData.append('branch_name', document.getElementById('detail-branch-name').value);
+    formData.append('branch_name_2', document.getElementById('detail-branch-name-2').value);
 
     fetch(BASE + 'planning/prDone/' + currentCardId, {
         method: 'POST',
