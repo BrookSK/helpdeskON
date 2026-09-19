@@ -621,9 +621,15 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                                     <label class="form-label small fw-medium text-muted">Branch</label>
                                     <input type="text" id="detail-branch-name" class="form-control form-control-sm" placeholder="Ex: feature/1234-nome-da-branch">
                                 </div>
-                                <div class="mb-2">
+                                <!-- Segunda branch: escondida até o usuário acionar "+ segunda branch" -->
+                                <div class="mb-2" id="detail-branch-2-wrapper" style="display:none;">
                                     <label class="form-label small fw-medium text-muted">Branch</label>
                                     <input type="text" id="detail-branch-name-2" class="form-control form-control-sm" placeholder="Ex: feature/1234-nome-da-branch">
+                                </div>
+                                <div class="mb-2" id="detail-branch-2-toggle-wrapper">
+                                    <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none" onclick="showSecondBranch()">
+                                        <i class="bi bi-plus-lg"></i> segunda branch
+                                    </button>
                                 </div>
                                 <div class="row g-2 mb-2 align-items-end">
                                     <div class="col">
@@ -974,6 +980,21 @@ function addCardToBoard(card) {
     updateKanbanCounts();
 }
 
+// Mostra o campo da segunda branch e esconde o botão "+ segunda branch".
+function showSecondBranch() {
+    const wrap = document.getElementById('detail-branch-2-wrapper');
+    const toggle = document.getElementById('detail-branch-2-toggle-wrapper');
+    if (wrap) wrap.style.display = '';
+    if (toggle) toggle.style.display = 'none';
+}
+// Colapsa a segunda branch (usado ao abrir um card que não tem branch 2).
+function hideSecondBranch() {
+    const wrap = document.getElementById('detail-branch-2-wrapper');
+    const toggle = document.getElementById('detail-branch-2-toggle-wrapper');
+    if (wrap) wrap.style.display = 'none';
+    if (toggle) toggle.style.display = '';
+}
+
 // Copia o link individual do card para a área de transferência.
 function copyCardLink() {
     const input = document.getElementById('detail-card-link');
@@ -1041,6 +1062,8 @@ function openCardModal(id) {
         document.getElementById('detail-cx-hub-name').value = c.cx_hub_name || '';
         document.getElementById('detail-branch-name').value = c.branch_name || '';
         document.getElementById('detail-branch-name-2').value = c.branch_name_2 || '';
+        // Mostra a segunda branch já expandida se o card tiver valor; senão, colapsada.
+        if (c.branch_name_2) { showSecondBranch(); } else { hideSecondBranch(); }
         document.getElementById('detail-pr-number').value = c.pr_number || '';
 
         // Link individual do card (para compartilhamento)
