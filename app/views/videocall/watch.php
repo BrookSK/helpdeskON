@@ -33,15 +33,7 @@ $shareUrl = $base . '/videocall/share/' . $recToken;
         .wrap { display:grid; grid-template-columns:1fr 380px; gap:16px; padding:16px; max-width:1400px; margin:0 auto; }
         @media (max-width:900px){ .wrap { grid-template-columns:1fr; } }
         .player-col video { width:100%; border-radius:14px; background:#000; max-height:64vh; }
-        .player-box { position:relative; }
-        .prep-overlay { position:absolute; left:0; right:0; bottom:0; padding:10px 14px; background:linear-gradient(180deg, rgba(15,16,32,0) 0%, rgba(15,16,32,.82) 55%); border-radius:0 0 14px 14px; display:flex; justify-content:center; }
-        .prep-inner { display:flex; align-items:center; gap:10px; max-width:640px; width:100%; }
-        .prep-label { color:#e8eaf1; font-size:.8rem; white-space:nowrap; }
-        .prep-bar { flex:1; height:6px; background:rgba(255,255,255,.18); border-radius:6px; overflow:hidden; }
-        .prep-fill { height:100%; width:0; background:var(--brand); transition:width .2s ease; }
-        .prep-skip { background:transparent; border:1px solid rgba(255,255,255,.35); color:#e8eaf1; font-size:.72rem; border-radius:8px; padding:3px 8px; cursor:pointer; white-space:nowrap; }
-        .prep-skip:hover { background:rgba(255,255,255,.12); }
-        @media (max-width:560px){ .prep-label { display:none; } }
+
         .speed-bar { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-top:10px; }
         .speed-bar .lbl { color:#9aa2c0; font-size:.8rem; margin-right:4px; }
         .speed-btn { background:var(--panel2); border:1px solid #33375a; color:#e8eaf1; border-radius:8px; padding:4px 10px; font-size:.8rem; cursor:pointer; }
@@ -77,17 +69,7 @@ $shareUrl = $base . '/videocall/share/' . $recToken;
 
 <div class="wrap">
     <div class="player-col">
-        <div class="player-box">
-            <video id="player" controls playsinline preload="auto" src="<?= $videoUrl ?>"></video>
-            <div id="prep-overlay" class="prep-overlay">
-                <div class="prep-inner">
-                    <span class="spin"></span>
-                    <div class="prep-label">Preparando a gravação para navegação livre… <span id="prep-pct">0%</span></div>
-                    <div class="prep-bar"><div id="prep-fill" class="prep-fill"></div></div>
-                    <button class="prep-skip" onclick="skipPrepare()">Assistir agora</button>
-                </div>
-            </div>
-        </div>
+        <video id="player" controls playsinline preload="metadata" src="<?= $videoUrl ?>"></video>
         <div class="speed-bar">
             <span class="lbl"><i class="bi bi-speedometer2"></i> Velocidade:</span>
             <button class="speed-btn" data-s="0.5" onclick="setSpeed(0.5,this)">0.5x</button>
@@ -133,206 +115,14 @@ let status = '<?= $status ?>';
 const player = document.getElementById('player');
 
 // -------------------------------------------------------------------
-// Seek confiável em qualquer minutagem.
-// As gravações do MediaRecorder (WebM) não gravam o campo Duration no cabeçalho
-// nem índice de busca. Sem Duration, o navegador reporta duration=Infinity e o
-// seek não funciona direito. A correção definitiva é INJETAR a duração real nos
-// bytes do WebM (calculada a partir dos timecodes dos clusters) e entregar ao
-// player um blob já com Duration válido. Aí a barra/tempo ficam corretos e o
-// seek funciona em qualquer ponto, SEM truques de seek gigante.
+// Seek em qualquer minutagem.
+// As gravações do MediaRecorder (WebM) não gravavam o campo Duration nem índice
+// de busca — por isso o seek travava. A duração agora é INJETADA no arquivo pelo
+// SERVIDOR ao finalizar a gravação (e nas antigas, na primeira reprodução), e o
+// vídeo é servido com suporte a HTTP Range. Assim a barra fica correta e o seek
+// funciona para qualquer ponto SEM precisar baixar o arquivo inteiro (o que
+// travava em gravações longas de ~1h).
 // -------------------------------------------------------------------
-let prepAborter = null;
-
-function hidePrepOverlay() {
-    const ov = document.getElementById('prep-overlay');
-    if (ov) ov.style.display = 'none';
-}
-function skipPrepare() {
-    if (prepAborter) { try { prepAborter.abort(); } catch (e) {} }
-    hidePrepOverlay();
-}
-
-async function prepareForSeek() {
-    try {
-        prepAborter = new AbortController();
-        const resp = await fetch(VIDEO_URL, { signal: prepAborter.signal });
-        if (!resp.ok || !resp.body) { hidePrepOverlay(); return; }
-        const total = Number(resp.headers.get('Content-Length')) || 0;
-        const reader = resp.body.getReader();
-        const parts = [];
-        let received = 0;
-        const fill = document.getElementById('prep-fill');
-        const pct = document.getElementById('prep-pct');
-        for (;;) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            parts.push(value);
-            received += value.length;
-            if (total) {
-                const p = Math.min(100, Math.round(received / total * 100));
-                if (fill) fill.style.width = p + '%';
-                if (pct) pct.textContent = p + '%';
-            } else if (pct) {
-                pct.textContent = (received / 1048576).toFixed(1) + ' MB';
-            }
-        }
-        // Junta tudo num único ArrayBuffer.
-        let len = 0; parts.forEach(p => len += p.length);
-        const bytes = new Uint8Array(len);
-        let off = 0; parts.forEach(p => { bytes.set(p, off); off += p.length; });
-
-        const wasTime = player.currentTime || 0;
-        const wasPlaying = !player.paused;
-
-        // Injeta a duração no WebM (se ainda não tiver). Se algo falhar, usa cru.
-        let outBytes = bytes;
-        try { outBytes = injectWebmDuration(bytes); } catch (e) { outBytes = bytes; }
-
-        const blob = new Blob([outBytes], { type: 'video/webm' });
-        const url = URL.createObjectURL(blob);
-        player.src = url;
-        player.load();
-        player.addEventListener('loadeddata', () => {
-            try { if (wasTime > 0 && isFinite(player.duration)) player.currentTime = Math.min(wasTime, player.duration - 0.1); } catch (e) {}
-            if (wasPlaying) player.play().catch(() => {});
-            hidePrepOverlay();
-        }, { once: true });
-    } catch (e) {
-        hidePrepOverlay(); // abortado/falhou: segue no streaming normal
-    }
-}
-window.addEventListener('load', prepareForSeek);
-
-// --- Injeção da duração no WebM (parser EBML mínimo) ------------------
-// Lê os IDs EBML necessários, calcula a duração pelo último timecode de cluster
-// e escreve um elemento Duration dentro de Segment/Info. Baseado na técnica
-// pública "fix-webm-duration". Retorna um Uint8Array pronto para reprodução.
-function injectWebmDuration(data) {
-    const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-
-    // Lê um VINT (tamanho/ID EBML). Retorna { value, length, raw }.
-    function readVint(pos, keepMarker) {
-        const first = view.getUint8(pos);
-        let mask = 0x80, length = 1;
-        while (length <= 8 && !(first & mask)) { mask >>= 1; length++; }
-        if (length > 8) return null;
-        let value = keepMarker ? first : (first & (mask - 1));
-        for (let i = 1; i < length; i++) value = value * 256 + view.getUint8(pos + i);
-        return { value, length };
-    }
-
-    const SEGMENT = 0x18538067, INFO = 0x1549A966, TIMECODESCALE = 0x2AD7B1,
-          DURATION = 0x4489, CLUSTER = 0x1F43B675, TIMECODE = 0xE7;
-
-    // Encontra o início do conteúdo de um master element por ID, dentro de [start,end).
-    function findElement(id, start, end) {
-        let pos = start;
-        while (pos < end) {
-            const idv = readVint(pos, true); if (!idv) break;
-            const sizePos = pos + idv.length;
-            const sz = readVint(sizePos, false); if (!sz) break;
-            const contentPos = sizePos + sz.length;
-            if (idv.value === id) return { contentPos, size: sz.value, headerStart: pos, sizePos, sizeLen: sz.length };
-            pos = contentPos + sz.value;
-        }
-        return null;
-    }
-
-    // Fim "real" de um elemento: se o size for desconhecido (todos os bits 1),
-    // vai até o fim do arquivo.
-    function elemEnd(el) {
-        const maxBits = el.sizeLen * 7;
-        if (el.size >= (Math.pow(2, maxBits) - 1)) return data.byteLength;
-        return Math.min(el.contentPos + el.size, data.byteLength);
-    }
-
-    // 1) acha o Segment
-    const seg = findElement(SEGMENT, 0, data.byteLength);
-    if (!seg) return data;
-    const segEnd = elemEnd(seg);
-
-    // 2) acha o Info dentro do Segment
-    const info = findElement(INFO, seg.contentPos, segEnd);
-    if (!info) return data;
-    const infoEnd = elemEnd(info);
-
-    // Se já existe Duration, não mexe.
-    if (findElement(DURATION, info.contentPos, infoEnd)) return data;
-
-    // TimecodeScale (default 1.000.000 ns = 1 ms)
-    let timecodeScale = 1000000;
-    const tcs = findElement(TIMECODESCALE, info.contentPos, infoEnd);
-    if (tcs) { let v = 0; for (let i = 0; i < tcs.size; i++) v = v * 256 + view.getUint8(tcs.contentPos + i); timecodeScale = v || timecodeScale; }
-
-    // 3) varre TODOS os Clusters e pega o MAIOR Timecode. Como o MediaRecorder
-    //    costuma gravar Segment/Clusters com tamanho "desconhecido" (não dá para
-    //    pular pelo size), procuramos a assinatura do ID do Cluster (0x1F43B675)
-    //    byte a byte e lemos o elemento Timecode (0xE7) que vem logo no início.
-    let maxTimecode = 0, found = false;
-    for (let p = seg.contentPos; p + 4 < segEnd; p++) {
-        if (view.getUint8(p) === 0x1F && view.getUint8(p + 1) === 0x43 &&
-            view.getUint8(p + 2) === 0xB6 && view.getUint8(p + 3) === 0x75) {
-            const idLen = 4;
-            const sz = readVint(p + idLen, false); if (!sz) continue;
-            const contentPos = p + idLen + sz.length;
-            // Timecode é o primeiro filho do Cluster: id 0xE7 + size + valor.
-            if (contentPos < segEnd && view.getUint8(contentPos) === 0xE7) {
-                const tsz = readVint(contentPos + 1, false);
-                if (tsz) {
-                    const vpos = contentPos + 1 + tsz.length;
-                    let v = 0; for (let i = 0; i < tsz.value; i++) v = v * 256 + view.getUint8(vpos + i);
-                    if (v >= maxTimecode) { maxTimecode = v; found = true; }
-                }
-            }
-        }
-    }
-    if (!found) return data;
-
-    // Duration é expresso em "Segment Ticks" (unidades de TimecodeScale), igual ao
-    // timecode do cluster. Acrescentamos uma pequena folga para o último frame.
-    const framePad = Math.round(200 / (timecodeScale / 1000000)); // ~200ms em ticks
-    const durationTicks = maxTimecode + framePad;
-
-    // 4) monta o elemento Duration (ID 0x4489) com valor float64 (8 bytes)
-    const durEl = new Uint8Array(11);
-    durEl[0] = 0x44; durEl[1] = 0x89;         // ID
-    durEl[2] = 0x88;                           // size = 8 (0x88 = 1000 1000)
-    new DataView(durEl.buffer).setFloat64(3, durationTicks, false);
-
-    // 5) insere o Duration logo no início do conteúdo de Info e corrige os tamanhos
-    //    dos elementos Info e Segment (que cresceram durationEl.length bytes).
-    const add = durEl.length;
-
-    // Um VINT de tamanho "desconhecido" tem todos os bits de dados = 1.
-    // Nesses casos NÃO se corrige o tamanho (já é aberto/válido até o fim).
-    function isUnknownSize(el) {
-        const maxBits = el.sizeLen * 7;
-        // valor máximo representável = 2^(7*len) - 1
-        return el.size >= (Math.pow(2, maxBits) - 1);
-    }
-    // Reescreve o tamanho (size VINT) de um elemento aumentando 'add' bytes,
-    // mantendo o MESMO comprimento de VINT (para não deslocar mais offsets).
-    function bumpSize(el) {
-        const newVal = el.size + add;
-        const bytesArr = new Uint8Array(el.sizeLen);
-        let tmp = newVal;
-        for (let i = el.sizeLen - 1; i >= 0; i--) { bytesArr[i] = tmp & 0xff; tmp = Math.floor(tmp / 256); }
-        bytesArr[0] |= (0x80 >> (el.sizeLen - 1)); // recoloca o bit marcador
-        return bytesArr;
-    }
-
-    const out = new Uint8Array(data.byteLength + add);
-    // parte antes do conteúdo do Info
-    out.set(data.subarray(0, info.contentPos), 0);
-    // Duration injetado
-    out.set(durEl, info.contentPos);
-    // restante do arquivo
-    out.set(data.subarray(info.contentPos), info.contentPos + add);
-    // corrige o size do Info e do Segment (a menos que sejam "unknown size")
-    if (!isUnknownSize(info)) out.set(bumpSize(info), info.sizePos);
-    if (!isUnknownSize(seg)) out.set(bumpSize(seg), seg.sizePos);
-    return out;
-}
 
 function fmt(t) {
     t = Math.max(0, Math.floor(t || 0));

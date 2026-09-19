@@ -602,6 +602,11 @@ class VideocallController extends Controller
         $recordedName = trim(substr((string)($_POST['recorded_by_name'] ?? ($userName ?? '')), 0, 120)) ?: null;
         $duration = (int)($_POST['duration_sec'] ?? 0) ?: null;
 
+        // Injeta a duração no WebM para o player permitir seek em qualquer ponto.
+        // Se o cliente não informou a duração, usa a calculada pelos timecodes.
+        $calcDur = $this->injectWebmDuration($dest);
+        if ($calcDur !== null && !$duration) $duration = (int)round($calcDur);
+
         $this->model->addRecording([
             'room_id' => $room['id'],
             'token' => $recToken,
@@ -636,6 +641,17 @@ class VideocallController extends Controller
             http_response_code(404);
             echo 'Arquivo de gravação indisponível.';
             return;
+        }
+
+        // Migração preguiçosa: gravações antigas foram salvas sem o campo Duration
+        // no WebM (seek não funcionava). Injeta uma única vez, quando ainda não há
+        // duração registrada. Só corre para requisições SEM Range (a 1ª carga),
+        // para não reescrever o arquivo durante um seek em andamento.
+        if (empty($_SERVER['HTTP_RANGE']) && (int)($rec['duration_sec'] ?? 0) <= 0) {
+            $calcDur = $this->injectWebmDuration($real);
+            if ($calcDur !== null) {
+                $this->model->updateRecording($rec['token'], ['duration_sec' => (int)round($calcDur)]);
+            }
         }
 
         $this->streamFile($real, $rec['mime_type'] ?: 'video/webm');
@@ -731,6 +747,7 @@ class VideocallController extends Controller
         $segs = array_map(function ($s) use ($offset) {
             return ['start' => $s['start'] + $offset, 'end' => $s['end'] + $offset, 'text' => $s['text']];
         }, $r['segments'] ?? []);
+        $segs = $this->cleanTranscriptSegments($segs); // remove "pontinhos"/silêncio
 
         $this->json(['success' => true, 'text' => $r['text'], 'segments' => $segs]);
     }
@@ -750,6 +767,7 @@ class VideocallController extends Controller
         if (!is_array($body)) $body = $_POST;
 
         $segments = is_array($body['segments'] ?? null) ? $body['segments'] : [];
+        $segments = $this->cleanTranscriptSegments($segments);
         // Reconstrói o texto plano com marca de tempo (se não veio pronto).
         $transcript = trim((string)($body['transcript'] ?? ''));
         if ($transcript === '' && $segments) {
@@ -826,6 +844,8 @@ class VideocallController extends Controller
             if (!@rename($part, $dest)) { @copy($part, $dest); @unlink($part); }
             @unlink($metaFile);
 
+            $calcDur = $this->injectWebmDuration($dest); // habilita o seek
+
             try {
                 $this->model->addRecording([
                     'room_id' => $roomId,
@@ -833,7 +853,7 @@ class VideocallController extends Controller
                     'file_path' => 'recordings/' . $fileName,
                     'file_size' => filesize($dest) ?: null,
                     'mime_type' => 'video/webm',
-                    'duration_sec' => null,
+                    'duration_sec' => $calcDur !== null ? (int)round($calcDur) : null,
                     'recorded_by' => $meta['recorded_by'] ?? null,
                     'recorded_by_name' => ($meta['recorded_by_name'] ?? null) ? ($meta['recorded_by_name'] . ' (recuperada)') : 'Gravação recuperada',
                 ]);
@@ -1106,6 +1126,43 @@ class VideocallController extends Controller
         return $h > 0 ? sprintf('%d:%02d:%02d', $h, $m, $s) : sprintf('%02d:%02d', $m, $s);
     }
 
+    /**
+     * Limpa/normaliza os segmentos de transcrição:
+     *  - remove trechos vazios ou só com pontuação (os "pontinhos" que o Whisper
+     *    gera em silêncio);
+     *  - ordena por tempo de início (corrige o embaralhamento quando o modelo
+     *    devolve segmentos fora de ordem, comum em gravações longas);
+     *  - descarta duplicados/sobrepostos com o mesmo texto.
+     */
+    private function cleanTranscriptSegments($segments)
+    {
+        if (!is_array($segments)) return [];
+        $clean = [];
+        foreach ($segments as $s) {
+            $text = trim((string)($s['text'] ?? ''));
+            // remove segmentos vazios ou compostos só de pontuação/reticências
+            $stripped = preg_replace('/[\p{P}\p{Z}\s]+/u', '', $text);
+            if ($stripped === '' || $stripped === null) continue;
+            $start = (float)($s['start'] ?? 0);
+            $end = (float)($s['end'] ?? $start);
+            if ($end < $start) $end = $start;
+            $clean[] = ['start' => $start, 'end' => $end, 'text' => $text];
+        }
+        // ordena por início (e por fim como desempate)
+        usort($clean, function ($a, $b) {
+            if ($a['start'] === $b['start']) return $a['end'] <=> $b['end'];
+            return $a['start'] <=> $b['start'];
+        });
+        // remove repetições consecutivas do mesmo texto no ~mesmo tempo
+        $out = [];
+        foreach ($clean as $seg) {
+            $prev = end($out);
+            if ($prev !== false && $prev['text'] === $seg['text'] && abs($prev['start'] - $seg['start']) < 1.0) continue;
+            $out[] = $seg;
+        }
+        return $out;
+    }
+
     // ============================================================
     // Helpers
     // ============================================================
@@ -1166,6 +1223,143 @@ class VideocallController extends Controller
                 'avatar' => !empty($p['avatar']) ? (rtrim(baseUrl(''), '/') . '/uploads/' . ltrim($p['avatar'], '/')) : null,
             ];
         }, $rows);
+    }
+
+    /**
+     * Injeta o campo Duration no cabeçalho de um WebM gerado pelo MediaRecorder
+     * (que não grava a duração). Sem isso, o player mostra duração "Infinity" e o
+     * seek não funciona para qualquer minutagem. Trabalha apenas nos bytes do
+     * cabeçalho/timecodes (não decodifica mídia, não precisa de ffmpeg).
+     *
+     * Retorna a duração em segundos (float) ou null se não foi possível calcular.
+     * Reescreve $path no lugar quando injeta com sucesso.
+     */
+    private function injectWebmDuration($path)
+    {
+        $data = @file_get_contents($path);
+        if ($data === false || strlen($data) < 64) return null;
+        $len = strlen($data);
+        $u8 = function ($p) use ($data) { return ord($data[$p]); };
+
+        // Lê um VINT (EBML). $keepMarker mantém o bit marcador (para IDs).
+        $readVint = function ($pos) use ($u8, $len) {
+            if ($pos >= $len) return null;
+            $first = $u8($pos);
+            $mask = 0x80; $length = 1;
+            while ($length <= 8 && !($first & $mask)) { $mask >>= 1; $length++; }
+            if ($length > 8) return null;
+            $value = $first & ($mask - 1);
+            for ($i = 1; $i < $length; $i++) { if ($pos + $i >= $len) return null; $value = $value * 256 + $u8($pos + $i); }
+            return ['value' => $value, 'length' => $length];
+        };
+        $readVintId = function ($pos) use ($u8, $len) {
+            if ($pos >= $len) return null;
+            $first = $u8($pos);
+            $mask = 0x80; $length = 1;
+            while ($length <= 8 && !($first & $mask)) { $mask >>= 1; $length++; }
+            if ($length > 8) return null;
+            $value = $first;
+            for ($i = 1; $i < $length; $i++) { if ($pos + $i >= $len) return null; $value = $value * 256 + $u8($pos + $i); }
+            return ['value' => $value, 'length' => $length];
+        };
+
+        $SEGMENT = 0x18538067; $INFO = 0x1549A966; $TIMECODESCALE = 0x2AD7B1; $DURATION = 0x4489;
+
+        // Localiza um elemento por ID dentro de [start,end).
+        $findElement = function ($id, $start, $end) use ($readVintId, $readVint) {
+            $pos = $start;
+            while ($pos < $end) {
+                $idv = $readVintId($pos); if (!$idv) break;
+                $sizePos = $pos + $idv['length'];
+                $sz = $readVint($sizePos); if (!$sz) break;
+                $contentPos = $sizePos + $sz['length'];
+                if ($idv['value'] === $id) {
+                    return ['contentPos' => $contentPos, 'size' => $sz['value'], 'sizePos' => $sizePos, 'sizeLen' => $sz['length']];
+                }
+                $pos = $contentPos + $sz['value'];
+            }
+            return null;
+        };
+        $elemEnd = function ($el) use ($len) {
+            $maxBits = $el['sizeLen'] * 7;
+            if ($el['size'] >= (pow(2, $maxBits) - 1)) return $len;
+            return min($el['contentPos'] + $el['size'], $len);
+        };
+
+        $seg = $findElement($SEGMENT, 0, $len);
+        if (!$seg) return null;
+        $segEnd = $elemEnd($seg);
+        $info = $findElement($INFO, $seg['contentPos'], $segEnd);
+        if (!$info) return null;
+        $infoEnd = $elemEnd($info);
+        if ($findElement($DURATION, $info['contentPos'], $infoEnd)) {
+            // Já tem Duration: apenas devolve o valor em segundos, sem reescrever.
+            return null;
+        }
+
+        // TimecodeScale (default 1.000.000 ns).
+        $timecodeScale = 1000000;
+        $tcs = $findElement($TIMECODESCALE, $info['contentPos'], $infoEnd);
+        if ($tcs) { $v = 0; for ($i = 0; $i < $tcs['size']; $i++) $v = $v * 256 + $u8($tcs['contentPos'] + $i); if ($v > 0) $timecodeScale = $v; }
+
+        // Varre a assinatura do Cluster (0x1F43B675) e pega o MAIOR Timecode (0xE7).
+        $maxTimecode = 0; $found = false;
+        for ($p = $seg['contentPos']; $p + 4 < $segEnd; $p++) {
+            if ($u8($p) === 0x1F && $u8($p + 1) === 0x43 && $u8($p + 2) === 0xB6 && $u8($p + 3) === 0x75) {
+                $sz = $readVint($p + 4); if (!$sz) continue;
+                $contentPos = $p + 4 + $sz['length'];
+                if ($contentPos < $segEnd && $u8($contentPos) === 0xE7) {
+                    $tsz = $readVint($contentPos + 1);
+                    if ($tsz) {
+                        $vpos = $contentPos + 1 + $tsz['length'];
+                        $v = 0; for ($i = 0; $i < $tsz['value']; $i++) $v = $v * 256 + $u8($vpos + $i);
+                        if ($v >= $maxTimecode) { $maxTimecode = $v; $found = true; }
+                    }
+                }
+            }
+        }
+        if (!$found || $maxTimecode <= 0) return null;
+
+        $framePad = (int)round(200 / ($timecodeScale / 1000000)); // ~200ms em ticks
+        $durationTicks = $maxTimecode + $framePad;
+        $durationSec = ($durationTicks * $timecodeScale) / 1000000000.0; // ticks -> ns -> s
+
+        // Monta o elemento Duration (ID 0x4489, size 8, float64 big-endian).
+        $durEl = chr(0x44) . chr(0x89) . chr(0x88) . pack('E', (float)$durationTicks);
+        // pack('E') = double big-endian (PHP 7.0.15+/7.1+). Fallback manual se ausente.
+        if (strlen($durEl) !== 11) {
+            $packed = pack('d', (float)$durationTicks);
+            if (pack('S', 1) === "\x00\x01") { /* já big-endian */ } else { $packed = strrev($packed); }
+            $durEl = chr(0x44) . chr(0x89) . chr(0x88) . $packed;
+        }
+        $add = strlen($durEl); // 11
+
+        // Recalcula os tamanhos (size VINT) de Info e Segment, salvo "unknown size".
+        $isUnknown = function ($el) { $maxBits = $el['sizeLen'] * 7; return $el['size'] >= (pow(2, $maxBits) - 1); };
+        $bumpSize = function ($el) use ($add) {
+            $newVal = $el['size'] + $add;
+            $bytes = array_fill(0, $el['sizeLen'], 0);
+            $tmp = $newVal;
+            for ($i = $el['sizeLen'] - 1; $i >= 0; $i--) { $bytes[$i] = $tmp & 0xff; $tmp = (int)floor($tmp / 256); }
+            $bytes[0] |= (0x80 >> ($el['sizeLen'] - 1));
+            $s = ''; foreach ($bytes as $b) $s .= chr($b);
+            return $s;
+        };
+
+        // Constrói o novo conteúdo: insere o Duration no início do conteúdo do Info.
+        $out = substr($data, 0, $info['contentPos']) . $durEl . substr($data, $info['contentPos']);
+        // Corrige os sizes (as posições de sizePos não mudam pois vêm ANTES do contentPos do Info).
+        if (!$isUnknown($info)) {
+            $ns = $bumpSize($info);
+            $out = substr($out, 0, $info['sizePos']) . $ns . substr($out, $info['sizePos'] + strlen($ns));
+        }
+        if (!$isUnknown($seg)) {
+            $ns = $bumpSize($seg);
+            $out = substr($out, 0, $seg['sizePos']) . $ns . substr($out, $seg['sizePos'] + strlen($ns));
+        }
+
+        if (@file_put_contents($path, $out) === false) return null;
+        return $durationSec;
     }
 
     /** Streaming de arquivo com suporte a HTTP Range (seek no player). */
