@@ -33,6 +33,15 @@ $shareUrl = $base . '/videocall/share/' . $recToken;
         .wrap { display:grid; grid-template-columns:1fr 380px; gap:16px; padding:16px; max-width:1400px; margin:0 auto; }
         @media (max-width:900px){ .wrap { grid-template-columns:1fr; } }
         .player-col video { width:100%; border-radius:14px; background:#000; max-height:64vh; }
+        .player-box { position:relative; }
+        .prep-overlay { position:absolute; left:0; right:0; bottom:0; padding:10px 14px; background:linear-gradient(180deg, rgba(15,16,32,0) 0%, rgba(15,16,32,.82) 55%); border-radius:0 0 14px 14px; display:flex; justify-content:center; }
+        .prep-inner { display:flex; align-items:center; gap:10px; max-width:640px; width:100%; }
+        .prep-label { color:#e8eaf1; font-size:.8rem; white-space:nowrap; }
+        .prep-bar { flex:1; height:6px; background:rgba(255,255,255,.18); border-radius:6px; overflow:hidden; }
+        .prep-fill { height:100%; width:0; background:var(--brand); transition:width .2s ease; }
+        .prep-skip { background:transparent; border:1px solid rgba(255,255,255,.35); color:#e8eaf1; font-size:.72rem; border-radius:8px; padding:3px 8px; cursor:pointer; white-space:nowrap; }
+        .prep-skip:hover { background:rgba(255,255,255,.12); }
+        @media (max-width:560px){ .prep-label { display:none; } }
         .speed-bar { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-top:10px; }
         .speed-bar .lbl { color:#9aa2c0; font-size:.8rem; margin-right:4px; }
         .speed-btn { background:var(--panel2); border:1px solid #33375a; color:#e8eaf1; border-radius:8px; padding:4px 10px; font-size:.8rem; cursor:pointer; }
@@ -68,7 +77,17 @@ $shareUrl = $base . '/videocall/share/' . $recToken;
 
 <div class="wrap">
     <div class="player-col">
-        <video id="player" controls playsinline src="<?= $videoUrl ?>"></video>
+        <div class="player-box">
+            <video id="player" controls playsinline preload="auto" src="<?= $videoUrl ?>"></video>
+            <div id="prep-overlay" class="prep-overlay">
+                <div class="prep-inner">
+                    <span class="spin"></span>
+                    <div class="prep-label">Preparando a gravação para navegação livre… <span id="prep-pct">0%</span></div>
+                    <div class="prep-bar"><div id="prep-fill" class="prep-fill"></div></div>
+                    <button class="prep-skip" onclick="skipPrepare()">Assistir agora</button>
+                </div>
+            </div>
+        </div>
         <div class="speed-bar">
             <span class="lbl"><i class="bi bi-speedometer2"></i> Velocidade:</span>
             <button class="speed-btn" data-s="0.5" onclick="setSpeed(0.5,this)">0.5x</button>
@@ -111,39 +130,82 @@ const SHARE_URL = '<?= htmlspecialchars($shareUrl, ENT_QUOTES) ?>';
 let segments = <?= $segJson ?: '[]' ?>;
 let summary = <?= json_encode($summary, JSON_UNESCAPED_UNICODE) ?>;
 let status = '<?= $status ?>';
-const KNOWN_DURATION = <?= $durationSec > 0 ? $durationSec : 'null' ?>; // do banco (se medido)
 const player = document.getElementById('player');
 
 // -------------------------------------------------------------------
-// Correção do "seek" (arrastar para qualquer minutagem):
-// gravações do MediaRecorder (WebM) NÃO trazem a duração no cabeçalho, então
-// o navegador reporta duration = Infinity e a barra não deixa pular no tempo.
-// Truque: dar um seek para um tempo enorme força o navegador a ler o arquivo
-// até o fim e descobrir a duração real; quando ela vira finita, voltamos ao 0.
-// A partir daí a barra fica correta e o seek funciona para qualquer ponto.
+// Seek confiável em qualquer minutagem.
+// As gravações do MediaRecorder (WebM) NÃO têm índice de busca (Cues), então o
+// navegador só consegue pular para trechos JÁ baixados em sequência — arrastar
+// para um ponto ainda não carregado trava. A solução mais robusta é baixar o
+// arquivo inteiro uma vez e reproduzi-lo como blob local: com todos os bytes em
+// memória, o navegador navega livremente para qualquer ponto e a duração fica
+// correta. Mostramos uma barrinha de progresso enquanto prepara.
 // -------------------------------------------------------------------
-let durationFixed = false;
-function fixInfiniteDuration() {
-    if (durationFixed) return;
-    const d = player.duration;
-    if (d && isFinite(d) && d > 0) { durationFixed = true; return; }
-    // Ainda não sabe a duração: provoca a leitura até o fim.
-    const onDur = () => {
-        if (isFinite(player.duration) && player.duration > 0) {
-            durationFixed = true;
-            player.removeEventListener('durationchange', onDur);
-            // volta ao início sem começar a tocar
-            try { player.currentTime = 0; } catch (e) {}
-        }
-    };
-    player.addEventListener('durationchange', onDur);
-    try {
-        player.currentTime = 1e101; // dispara a varredura; o navegador ajusta para o fim real
-    } catch (e) {}
+let durationFixed = false;   // duração já conhecida?
+let fullyLoaded = false;     // arquivo já está como blob local (seek livre)?
+let prepAborter = null;
+
+function markDurationKnown() {
+    if (isFinite(player.duration) && player.duration > 0) durationFixed = true;
 }
-player.addEventListener('loadedmetadata', fixInfiniteDuration);
-// Alguns navegadores só expõem a duração ao começar a decodificar.
-player.addEventListener('loadeddata', fixInfiniteDuration);
+player.addEventListener('loadedmetadata', markDurationKnown);
+player.addEventListener('durationchange', markDurationKnown);
+
+function hidePrepOverlay() {
+    const ov = document.getElementById('prep-overlay');
+    if (ov) ov.style.display = 'none';
+}
+function skipPrepare() {
+    // Usuário optou por assistir já; aborta o download em segundo plano.
+    if (prepAborter) { try { prepAborter.abort(); } catch (e) {} }
+    hidePrepOverlay();
+}
+
+async function prepareForSeek() {
+    // Baixa o arquivo com progresso e troca o src por um blob local.
+    try {
+        prepAborter = new AbortController();
+        const resp = await fetch(VIDEO_URL, { signal: prepAborter.signal });
+        if (!resp.ok || !resp.body) { hidePrepOverlay(); return; }
+        const total = Number(resp.headers.get('Content-Length')) || 0;
+        const reader = resp.body.getReader();
+        const parts = [];
+        let received = 0;
+        const fill = document.getElementById('prep-fill');
+        const pct = document.getElementById('prep-pct');
+        for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            parts.push(value);
+            received += value.length;
+            if (total) {
+                const p = Math.min(100, Math.round(received / total * 100));
+                if (fill) fill.style.width = p + '%';
+                if (pct) pct.textContent = p + '%';
+            } else if (pct) {
+                pct.textContent = (received / 1048576).toFixed(1) + ' MB';
+            }
+        }
+        const blob = new Blob(parts, { type: 'video/webm' });
+        const url = URL.createObjectURL(blob);
+        // Preserva a posição atual ao trocar a fonte.
+        const wasTime = player.currentTime || 0;
+        const wasPlaying = !player.paused;
+        player.src = url;
+        player.addEventListener('loadedmetadata', () => {
+            fullyLoaded = true; durationFixed = true;
+            try { if (wasTime > 0 && isFinite(player.duration)) player.currentTime = Math.min(wasTime, player.duration - 0.1); } catch (e) {}
+            if (wasPlaying) player.play().catch(() => {});
+            hidePrepOverlay();
+        }, { once: true });
+        player.load();
+    } catch (e) {
+        // Abortado ou falhou: segue com o streaming normal (seek só no já baixado).
+        hidePrepOverlay();
+    }
+}
+// Começa a preparar assim que a página carrega.
+window.addEventListener('load', prepareForSeek);
 
 function fmt(t) {
     t = Math.max(0, Math.floor(t || 0));
@@ -168,16 +230,8 @@ function renderSegments() {
     ).join('');
 }
 function seek(t) {
-    // Garante que a duração já foi destravada antes de pular (senão o seek falha
-    // em WebM sem cabeçalho de duração).
-    if (!durationFixed && !isFinite(player.duration)) {
-        fixInfiniteDuration();
-        const go = () => { player.removeEventListener('durationchange', go); try { player.currentTime = t; player.play(); } catch (e) {} };
-        player.addEventListener('durationchange', go);
-        return;
-    }
     try { player.currentTime = t; } catch (e) {}
-    player.play();
+    player.play().catch(() => {});
 }
 
 // Destaca o segmento conforme o vídeo avança.
