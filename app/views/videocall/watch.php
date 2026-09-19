@@ -193,16 +193,44 @@ async function prepareForSeek() {
         const wasPlaying = !player.paused;
         player.src = url;
         player.addEventListener('loadedmetadata', () => {
-            fullyLoaded = true; durationFixed = true;
-            try { if (wasTime > 0 && isFinite(player.duration)) player.currentTime = Math.min(wasTime, player.duration - 0.1); } catch (e) {}
-            if (wasPlaying) player.play().catch(() => {});
-            hidePrepOverlay();
+            fullyLoaded = true;
+            // O WebM continua SEM duração no cabeçalho mesmo como blob: forçamos a
+            // leitura da duração real com um seek para o fim. Agora é seguro porque
+            // o arquivo inteiro está local (não trava). Ao descobrir a duração,
+            // voltamos para a posição desejada.
+            resolveBlobDuration(wasTime, wasPlaying);
         }, { once: true });
         player.load();
     } catch (e) {
         // Abortado ou falhou: segue com o streaming normal (seek só no já baixado).
         hidePrepOverlay();
     }
+}
+
+// Força o navegador a calcular a duração real do blob e depois restaura a posição.
+function resolveBlobDuration(wantTime, wantPlaying) {
+    const finish = () => {
+        durationFixed = true;
+        try {
+            const d = isFinite(player.duration) ? player.duration : 0;
+            const target = (wantTime > 0 && d > 0) ? Math.min(wantTime, d - 0.1) : 0;
+            player.currentTime = target < 0 ? 0 : target;
+        } catch (e) {}
+        if (wantPlaying) player.play().catch(() => {});
+        hidePrepOverlay();
+    };
+    if (isFinite(player.duration) && player.duration > 0) { finish(); return; }
+    const onDur = () => {
+        if (isFinite(player.duration) && player.duration > 0) {
+            player.removeEventListener('durationchange', onDur);
+            finish();
+        }
+    };
+    player.addEventListener('durationchange', onDur);
+    // Dispara a varredura até o fim (o navegador ajusta para o último frame real).
+    try { player.currentTime = 1e101; } catch (e) { finish(); }
+    // Rede de segurança: se em 4s não resolver, segue mesmo assim.
+    setTimeout(() => { player.removeEventListener('durationchange', onDur); if (!durationFixed) finish(); }, 4000);
 }
 // Começa a preparar assim que a página carrega.
 window.addEventListener('load', prepareForSeek);
