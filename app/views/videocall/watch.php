@@ -134,35 +134,25 @@ const player = document.getElementById('player');
 
 // -------------------------------------------------------------------
 // Seek confiável em qualquer minutagem.
-// As gravações do MediaRecorder (WebM) NÃO têm índice de busca (Cues), então o
-// navegador só consegue pular para trechos JÁ baixados em sequência — arrastar
-// para um ponto ainda não carregado trava. A solução mais robusta é baixar o
-// arquivo inteiro uma vez e reproduzi-lo como blob local: com todos os bytes em
-// memória, o navegador navega livremente para qualquer ponto e a duração fica
-// correta. Mostramos uma barrinha de progresso enquanto prepara.
+// As gravações do MediaRecorder (WebM) não gravam o campo Duration no cabeçalho
+// nem índice de busca. Sem Duration, o navegador reporta duration=Infinity e o
+// seek não funciona direito. A correção definitiva é INJETAR a duração real nos
+// bytes do WebM (calculada a partir dos timecodes dos clusters) e entregar ao
+// player um blob já com Duration válido. Aí a barra/tempo ficam corretos e o
+// seek funciona em qualquer ponto, SEM truques de seek gigante.
 // -------------------------------------------------------------------
-let durationFixed = false;   // duração já conhecida?
-let fullyLoaded = false;     // arquivo já está como blob local (seek livre)?
 let prepAborter = null;
-
-function markDurationKnown() {
-    if (isFinite(player.duration) && player.duration > 0) durationFixed = true;
-}
-player.addEventListener('loadedmetadata', markDurationKnown);
-player.addEventListener('durationchange', markDurationKnown);
 
 function hidePrepOverlay() {
     const ov = document.getElementById('prep-overlay');
     if (ov) ov.style.display = 'none';
 }
 function skipPrepare() {
-    // Usuário optou por assistir já; aborta o download em segundo plano.
     if (prepAborter) { try { prepAborter.abort(); } catch (e) {} }
     hidePrepOverlay();
 }
 
 async function prepareForSeek() {
-    // Baixa o arquivo com progresso e troca o src por um blob local.
     try {
         prepAborter = new AbortController();
         const resp = await fetch(VIDEO_URL, { signal: prepAborter.signal });
@@ -186,54 +176,163 @@ async function prepareForSeek() {
                 pct.textContent = (received / 1048576).toFixed(1) + ' MB';
             }
         }
-        const blob = new Blob(parts, { type: 'video/webm' });
-        const url = URL.createObjectURL(blob);
-        // Preserva a posição atual ao trocar a fonte.
+        // Junta tudo num único ArrayBuffer.
+        let len = 0; parts.forEach(p => len += p.length);
+        const bytes = new Uint8Array(len);
+        let off = 0; parts.forEach(p => { bytes.set(p, off); off += p.length; });
+
         const wasTime = player.currentTime || 0;
         const wasPlaying = !player.paused;
+
+        // Injeta a duração no WebM (se ainda não tiver). Se algo falhar, usa cru.
+        let outBytes = bytes;
+        try { outBytes = injectWebmDuration(bytes); } catch (e) { outBytes = bytes; }
+
+        const blob = new Blob([outBytes], { type: 'video/webm' });
+        const url = URL.createObjectURL(blob);
         player.src = url;
-        player.addEventListener('loadedmetadata', () => {
-            fullyLoaded = true;
-            // O WebM continua SEM duração no cabeçalho mesmo como blob: forçamos a
-            // leitura da duração real com um seek para o fim. Agora é seguro porque
-            // o arquivo inteiro está local (não trava). Ao descobrir a duração,
-            // voltamos para a posição desejada.
-            resolveBlobDuration(wasTime, wasPlaying);
-        }, { once: true });
         player.load();
+        player.addEventListener('loadeddata', () => {
+            try { if (wasTime > 0 && isFinite(player.duration)) player.currentTime = Math.min(wasTime, player.duration - 0.1); } catch (e) {}
+            if (wasPlaying) player.play().catch(() => {});
+            hidePrepOverlay();
+        }, { once: true });
     } catch (e) {
-        // Abortado ou falhou: segue com o streaming normal (seek só no já baixado).
-        hidePrepOverlay();
+        hidePrepOverlay(); // abortado/falhou: segue no streaming normal
     }
 }
-
-// Força o navegador a calcular a duração real do blob e depois restaura a posição.
-function resolveBlobDuration(wantTime, wantPlaying) {
-    const finish = () => {
-        durationFixed = true;
-        try {
-            const d = isFinite(player.duration) ? player.duration : 0;
-            const target = (wantTime > 0 && d > 0) ? Math.min(wantTime, d - 0.1) : 0;
-            player.currentTime = target < 0 ? 0 : target;
-        } catch (e) {}
-        if (wantPlaying) player.play().catch(() => {});
-        hidePrepOverlay();
-    };
-    if (isFinite(player.duration) && player.duration > 0) { finish(); return; }
-    const onDur = () => {
-        if (isFinite(player.duration) && player.duration > 0) {
-            player.removeEventListener('durationchange', onDur);
-            finish();
-        }
-    };
-    player.addEventListener('durationchange', onDur);
-    // Dispara a varredura até o fim (o navegador ajusta para o último frame real).
-    try { player.currentTime = 1e101; } catch (e) { finish(); }
-    // Rede de segurança: se em 4s não resolver, segue mesmo assim.
-    setTimeout(() => { player.removeEventListener('durationchange', onDur); if (!durationFixed) finish(); }, 4000);
-}
-// Começa a preparar assim que a página carrega.
 window.addEventListener('load', prepareForSeek);
+
+// --- Injeção da duração no WebM (parser EBML mínimo) ------------------
+// Lê os IDs EBML necessários, calcula a duração pelo último timecode de cluster
+// e escreve um elemento Duration dentro de Segment/Info. Baseado na técnica
+// pública "fix-webm-duration". Retorna um Uint8Array pronto para reprodução.
+function injectWebmDuration(data) {
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+
+    // Lê um VINT (tamanho/ID EBML). Retorna { value, length, raw }.
+    function readVint(pos, keepMarker) {
+        const first = view.getUint8(pos);
+        let mask = 0x80, length = 1;
+        while (length <= 8 && !(first & mask)) { mask >>= 1; length++; }
+        if (length > 8) return null;
+        let value = keepMarker ? first : (first & (mask - 1));
+        for (let i = 1; i < length; i++) value = value * 256 + view.getUint8(pos + i);
+        return { value, length };
+    }
+
+    const SEGMENT = 0x18538067, INFO = 0x1549A966, TIMECODESCALE = 0x2AD7B1,
+          DURATION = 0x4489, CLUSTER = 0x1F43B675, TIMECODE = 0xE7;
+
+    // Encontra o início do conteúdo de um master element por ID, dentro de [start,end).
+    function findElement(id, start, end) {
+        let pos = start;
+        while (pos < end) {
+            const idv = readVint(pos, true); if (!idv) break;
+            const sizePos = pos + idv.length;
+            const sz = readVint(sizePos, false); if (!sz) break;
+            const contentPos = sizePos + sz.length;
+            if (idv.value === id) return { contentPos, size: sz.value, headerStart: pos, sizePos, sizeLen: sz.length };
+            pos = contentPos + sz.value;
+        }
+        return null;
+    }
+
+    // Fim "real" de um elemento: se o size for desconhecido (todos os bits 1),
+    // vai até o fim do arquivo.
+    function elemEnd(el) {
+        const maxBits = el.sizeLen * 7;
+        if (el.size >= (Math.pow(2, maxBits) - 1)) return data.byteLength;
+        return Math.min(el.contentPos + el.size, data.byteLength);
+    }
+
+    // 1) acha o Segment
+    const seg = findElement(SEGMENT, 0, data.byteLength);
+    if (!seg) return data;
+    const segEnd = elemEnd(seg);
+
+    // 2) acha o Info dentro do Segment
+    const info = findElement(INFO, seg.contentPos, segEnd);
+    if (!info) return data;
+    const infoEnd = elemEnd(info);
+
+    // Se já existe Duration, não mexe.
+    if (findElement(DURATION, info.contentPos, infoEnd)) return data;
+
+    // TimecodeScale (default 1.000.000 ns = 1 ms)
+    let timecodeScale = 1000000;
+    const tcs = findElement(TIMECODESCALE, info.contentPos, infoEnd);
+    if (tcs) { let v = 0; for (let i = 0; i < tcs.size; i++) v = v * 256 + view.getUint8(tcs.contentPos + i); timecodeScale = v || timecodeScale; }
+
+    // 3) varre TODOS os Clusters e pega o MAIOR Timecode. Como o MediaRecorder
+    //    costuma gravar Segment/Clusters com tamanho "desconhecido" (não dá para
+    //    pular pelo size), procuramos a assinatura do ID do Cluster (0x1F43B675)
+    //    byte a byte e lemos o elemento Timecode (0xE7) que vem logo no início.
+    let maxTimecode = 0, found = false;
+    for (let p = seg.contentPos; p + 4 < segEnd; p++) {
+        if (view.getUint8(p) === 0x1F && view.getUint8(p + 1) === 0x43 &&
+            view.getUint8(p + 2) === 0xB6 && view.getUint8(p + 3) === 0x75) {
+            const idLen = 4;
+            const sz = readVint(p + idLen, false); if (!sz) continue;
+            const contentPos = p + idLen + sz.length;
+            // Timecode é o primeiro filho do Cluster: id 0xE7 + size + valor.
+            if (contentPos < segEnd && view.getUint8(contentPos) === 0xE7) {
+                const tsz = readVint(contentPos + 1, false);
+                if (tsz) {
+                    const vpos = contentPos + 1 + tsz.length;
+                    let v = 0; for (let i = 0; i < tsz.value; i++) v = v * 256 + view.getUint8(vpos + i);
+                    if (v >= maxTimecode) { maxTimecode = v; found = true; }
+                }
+            }
+        }
+    }
+    if (!found) return data;
+
+    // Duration é expresso em "Segment Ticks" (unidades de TimecodeScale), igual ao
+    // timecode do cluster. Acrescentamos uma pequena folga para o último frame.
+    const framePad = Math.round(200 / (timecodeScale / 1000000)); // ~200ms em ticks
+    const durationTicks = maxTimecode + framePad;
+
+    // 4) monta o elemento Duration (ID 0x4489) com valor float64 (8 bytes)
+    const durEl = new Uint8Array(11);
+    durEl[0] = 0x44; durEl[1] = 0x89;         // ID
+    durEl[2] = 0x88;                           // size = 8 (0x88 = 1000 1000)
+    new DataView(durEl.buffer).setFloat64(3, durationTicks, false);
+
+    // 5) insere o Duration logo no início do conteúdo de Info e corrige os tamanhos
+    //    dos elementos Info e Segment (que cresceram durationEl.length bytes).
+    const add = durEl.length;
+
+    // Um VINT de tamanho "desconhecido" tem todos os bits de dados = 1.
+    // Nesses casos NÃO se corrige o tamanho (já é aberto/válido até o fim).
+    function isUnknownSize(el) {
+        const maxBits = el.sizeLen * 7;
+        // valor máximo representável = 2^(7*len) - 1
+        return el.size >= (Math.pow(2, maxBits) - 1);
+    }
+    // Reescreve o tamanho (size VINT) de um elemento aumentando 'add' bytes,
+    // mantendo o MESMO comprimento de VINT (para não deslocar mais offsets).
+    function bumpSize(el) {
+        const newVal = el.size + add;
+        const bytesArr = new Uint8Array(el.sizeLen);
+        let tmp = newVal;
+        for (let i = el.sizeLen - 1; i >= 0; i--) { bytesArr[i] = tmp & 0xff; tmp = Math.floor(tmp / 256); }
+        bytesArr[0] |= (0x80 >> (el.sizeLen - 1)); // recoloca o bit marcador
+        return bytesArr;
+    }
+
+    const out = new Uint8Array(data.byteLength + add);
+    // parte antes do conteúdo do Info
+    out.set(data.subarray(0, info.contentPos), 0);
+    // Duration injetado
+    out.set(durEl, info.contentPos);
+    // restante do arquivo
+    out.set(data.subarray(info.contentPos), info.contentPos + add);
+    // corrige o size do Info e do Segment (a menos que sejam "unknown size")
+    if (!isUnknownSize(info)) out.set(bumpSize(info), info.sizePos);
+    if (!isUnknownSize(seg)) out.set(bumpSize(seg), seg.sizePos);
+    return out;
+}
 
 function fmt(t) {
     t = Math.max(0, Math.floor(t || 0));
