@@ -16,3 +16,4 @@ public/uploads/recordings/*
 # OS
 .DS_Store
 Thumbs.db
+logs/app-error.log
