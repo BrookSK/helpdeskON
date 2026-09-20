@@ -52,6 +52,11 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
         .preview-wrap { position:relative; background:#000; border-radius:14px; overflow:hidden; aspect-ratio:16/9; margin-bottom:14px; }
         .preview-wrap video, .preview-wrap canvas { width:100%; height:100%; object-fit:cover; }
         .preview-wrap video.mirror, .preview-wrap canvas.mirror { transform:scaleX(-1); }
+        /* Overlay de "câmera desligada" no preview do lobby */
+        .preview-off { position:absolute; inset:0; display:none; flex-direction:column; align-items:center; justify-content:center; gap:12px; background:#12131f; color:#9aa2c0; }
+        .preview-wrap.cam-off .preview-off { display:flex; }
+        .preview-off-avatar { width:76px; height:76px; border-radius:50%; background:#23263d; display:flex; align-items:center; justify-content:center; font-size:2rem; color:#8b90ad; }
+        .preview-off-text { font-size:.9rem; font-weight:600; }
         .form-label { font-size:.78rem; font-weight:600; color:#9aa2c0; margin-bottom:5px; }
         .form-control, .form-select { background:var(--panel2); border:1.5px solid #33375a; color:#fff; border-radius:12px; padding:10px 12px; font-size:.9rem; }
         .form-control:focus, .form-select:focus { background:var(--panel2); color:#fff; border-color:var(--brand); box-shadow:0 0 0 3px rgba(0,191,166,.2); }
@@ -323,6 +328,10 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
                 <div class="preview-wrap">
                     <video id="preview" autoplay muted playsinline class="mirror"></video>
                     <canvas id="preview-canvas" class="mirror hidden"></canvas>
+                    <div id="preview-off" class="preview-off">
+                        <div class="preview-off-avatar"><i class="bi bi-camera-video-off-fill"></i></div>
+                        <div class="preview-off-text">Câmera desligada</div>
+                    </div>
                 </div>
                 <div class="lobby-toggles">
                     <button type="button" class="toggle-btn" id="lb-mic" onclick="toggleLobby('mic')"><i class="bi bi-mic-fill"></i> Microfone</button>
@@ -996,6 +1005,9 @@ function syncLobbyButtons() {
     m.innerHTML = lobbyMic ? '<i class="bi bi-mic-fill"></i> Microfone' : '<i class="bi bi-mic-mute-fill"></i> Mudo';
     c.classList.toggle('off', !lobbyCam);
     c.innerHTML = lobbyCam ? '<i class="bi bi-camera-video-fill"></i> Câmera' : '<i class="bi bi-camera-video-off-fill"></i> Sem vídeo';
+    // Reflete no preview: mostra o placeholder quando a câmera está desligada.
+    const pw = document.querySelector('.preview-wrap');
+    if (pw) pw.classList.toggle('cam-off', !lobbyCam);
 }
 
 async function enterRoom() {
