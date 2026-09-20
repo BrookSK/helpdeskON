@@ -1223,40 +1223,16 @@ function zoomTile(id, delta) {
 function resetZoom(id) { tileZoom.set(id, 1); tilePan.set(id, { x: 0, y: 0 }); applyZoom(id); }
 
 // Abre/fecha o tile (tela compartilhada) em tela cheia.
-// Tenta o fullscreen NATIVO do navegador; se ele for negado (ex.: Permissions
-// Policy, iframe sem allow, ou o navegador rejeitar a Promise), cai para um
-// modo "tela cheia na aba" via CSS (position:fixed cobrindo a viewport), que
-// funciona sempre — inclusive sem precisar que o usuário aperte F11 antes.
+// IMPORTANTE: usamos tela cheia via CSS (position:fixed cobrindo a viewport),
+// e NÃO a API nativa de fullscreen do elemento. Motivo: a sala refaz o layout
+// (layoutGrid faz appendChild dos tiles) a cada poll/reação/entrada-saída, e
+// mover um elemento no DOM enquanto ele está em fullscreen nativo faz o
+// navegador SAIR do fullscreen na hora — era o "pisca e não abre". O modo CSS é
+// imune a isso e funciona sempre, sem depender de F11.
 function toggleTileFullscreen(id) {
     const t = tileEl(id); if (!t) return;
-
-    // Já em modo CSS? sai dele.
-    if (t.classList.contains('css-fullscreen')) { exitCssFullscreen(t); return; }
-
-    const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
-    if (fsEl) { // já em fullscreen nativo: sai
-        (document.exitFullscreen || document.webkitExitFullscreen || function(){}).call(document);
-        return;
-    }
-
-    const req = t.requestFullscreen || t.webkitRequestFullscreen || t.msRequestFullscreen;
-    if (!req) { enterCssFullscreen(t); return; } // navegador sem API: usa CSS
-
-    try {
-        const p = req.call(t);
-        // requestFullscreen retorna Promise: se rejeitar (bloqueado), usa o fallback.
-        if (p && typeof p.then === 'function') {
-            p.catch(() => enterCssFullscreen(t));
-        } else {
-            // Sem Promise (APIs antigas): confirma no próximo tick se entrou mesmo.
-            setTimeout(() => {
-                const active = document.fullscreenElement || document.webkitFullscreenElement;
-                if (!active) enterCssFullscreen(t);
-            }, 150);
-        }
-    } catch (e) {
-        enterCssFullscreen(t);
-    }
+    if (t.classList.contains('css-fullscreen')) exitCssFullscreen(t);
+    else enterCssFullscreen(t);
 }
 // Fallback: tela cheia dentro da aba (sem depender da API de fullscreen).
 function enterCssFullscreen(t) {
@@ -1288,22 +1264,6 @@ function updateFsButtonIcon(t, isFull) {
     btn.querySelector('i').className = isFull ? 'bi bi-fullscreen-exit' : 'bi bi-arrows-fullscreen';
     btn.title = isFull ? 'Sair da tela cheia' : 'Tela cheia';
 }
-// Atualiza o ícone do botão de tela cheia (entrar x sair) e reajusta o zoom.
-function onFullscreenChange() {
-    const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
-    document.querySelectorAll('.tile-zoom button[title="Tela cheia"] i, .tile-zoom button[title="Sair da tela cheia"] i').forEach(ic => {
-        ic.className = 'bi bi-arrows-fullscreen';
-        ic.parentElement.title = 'Tela cheia';
-    });
-    if (fsEl && fsEl.classList && fsEl.classList.contains('tile')) {
-        const btn = fsEl.querySelector('.tile-zoom button[title="Tela cheia"]');
-        if (btn) { btn.querySelector('i').className = 'bi bi-fullscreen-exit'; btn.title = 'Sair da tela cheia'; }
-        applyZoom(fsEl.dataset.tid); // recalcula limites de pan para o novo tamanho
-    }
-}
-document.addEventListener('fullscreenchange', onFullscreenChange);
-document.addEventListener('webkitfullscreenchange', onFullscreenChange);
-
 // Habilita arrastar (mouse + toque) para mover a área ampliada.
 function enablePan(id) {
     const t = tileEl(id); if (!t || t.dataset.panBound) return;
