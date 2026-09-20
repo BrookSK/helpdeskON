@@ -4,11 +4,15 @@
  * Configuração do banco de dados com detecção automática de ambiente.
  *
  * Regra final: branch "main" = PRODUÇÃO; qualquer outra branch = BETA.
+ * Ambiente LOCAL é detectado pelo host (localhost/127.0.0.1/.test/.local)
+ * e tem prioridade máxima.
  *
- * A branch é decidida em duas camadas, com prioridade:
- *   1) (prioridade) Domínio da requisição HTTP. Se o host contiver
- *      "plesk.page" ou "beta", assume ambiente beta imediatamente.
- *   2) (fallback) Leitura do arquivo <raiz>/.git/HEAD para descobrir
+ * A definição do ambiente segue esta ordem de prioridade:
+ *   1) (prioridade máxima) Host local: se o host for "localhost",
+ *      "127.0.0.1", "::1" ou terminar em ".test"/".local", assume LOCAL.
+ *   2) Domínio da requisição HTTP. Se o host contiver "plesk.page"
+ *      ou "beta", assume ambiente beta imediatamente.
+ *   3) (fallback) Leitura do arquivo <raiz>/.git/HEAD para descobrir
  *      a branch atual (funciona sem o Git instalado, só leitura de texto).
  *
  * Default = "main" (assume produção em caso de dúvida).
@@ -21,12 +25,22 @@ return (function () {
 
     $branch = 'main'; // default: assume produção
 
-    // Camada 1 (prioridade): detecção pelo domínio (HTTP host)
+    // Host da requisição (remove porta, se houver, e normaliza)
     $host = $_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? '';
-    if (str_contains($host, 'plesk.page') || str_contains($host, 'beta')) {
+    $hostName = strtolower(explode(':', $host)[0]);
+
+    // Camada 1 (prioridade máxima): detecção de ambiente LOCAL
+    $isLocal = in_array($hostName, ['localhost', '127.0.0.1', '::1'], true)
+        || str_ends_with($hostName, '.test')
+        || str_ends_with($hostName, '.local');
+
+    if ($isLocal) {
+        $branch = 'local';
+    } elseif (str_contains($host, 'plesk.page') || str_contains($host, 'beta')) {
+        // Camada 2: detecção pelo domínio (HTTP host)
         $branch = 'beta';
     } else {
-        // Camada 2 (fallback): leitura do arquivo .git/HEAD
+        // Camada 3 (fallback): leitura do arquivo .git/HEAD
         $headFile = $rootPath . '/.git/HEAD';
         if (file_exists($headFile)) {
             $head = trim(file_get_contents($headFile));
@@ -34,6 +48,17 @@ return (function () {
                 $branch = substr($head, strlen('ref: refs/heads/'));
             }
         }
+    }
+
+    if ($branch === 'local') {
+        // ===== LOCAL / desenvolvimento =====
+        return [
+            'host'     => '127.0.0.1',
+            'port'     => '3306',
+            'database' => 'helpdesk_on',
+            'username' => 'root',
+            'password' => '',
+        ];
     }
 
     if ($branch === 'main') {
