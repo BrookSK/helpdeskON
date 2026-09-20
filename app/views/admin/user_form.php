@@ -104,6 +104,44 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Acesso externo (PIN) — apenas para papéis de equipe (não clientes) -->
+                <?php $teamRolesList = ['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial', 'marketing']; ?>
+                <div id="external-pin-field" class="card mb-3" style="<?= in_array($editUser['role'] ?? '', $teamRolesList) ? '' : 'display:none' ?>">
+                    <div class="card-header bg-white fw-medium" style="font-size:0.9rem">
+                        <i class="bi bi-key"></i> Acesso externo (PIN)
+                    </div>
+                    <div class="card-body">
+                        <p class="small text-muted mb-2">
+                            PIN de <strong>4 dígitos</strong> usado por clientes na página de <strong>solicitação externa</strong>
+                            para criar demandas em seu nome. Deve ser único entre todos os usuários.
+                        </p>
+                        <?php $hasPin = !empty($editUser['external_pin']); ?>
+                        <div class="d-flex align-items-center gap-2 mb-2">
+                            <span class="badge <?= $hasPin ? 'bg-success' : 'bg-secondary' ?>">
+                                <i class="bi bi-<?= $hasPin ? 'check-circle' : 'dash-circle' ?>"></i>
+                                <?= $hasPin ? 'PIN cadastrado' : 'Sem PIN' ?>
+                            </span>
+                            <button type="button" class="btn btn-sm btn-outline-primary" id="btn-create-pin" onclick="togglePinInput()">
+                                <i class="bi bi-key"></i> <?= $hasPin ? 'Alterar PIN' : 'Criar PIN' ?>
+                            </button>
+                        </div>
+                        <!-- O valor do PIN nunca é exibido; o campo começa vazio. -->
+                        <div id="pin-input-wrapper" style="display:none;">
+                            <label class="form-label fw-medium small">PIN (4 dígitos)</label>
+                            <input type="text" name="external_pin" id="external-pin-input" class="form-control" maxlength="4"
+                                   inputmode="numeric" autocomplete="off" placeholder="Ex: 1234"
+                                   oninput="this.value=this.value.replace(/\D/g,'').slice(0,4)">
+                            <small class="text-muted">Somente números. Deixe em branco para manter o PIN atual.</small>
+                            <?php if ($hasPin): ?>
+                            <div class="form-check mt-2">
+                                <input class="form-check-input" type="checkbox" name="external_pin_remove" value="1" id="pin-remove">
+                                <label class="form-check-label small" for="pin-remove">Remover o PIN atual (revoga o acesso externo deste usuário)</label>
+                            </div>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- ===================== COLUNA DIREITA ===================== -->
@@ -314,6 +352,30 @@ function toggleCompanyFields() {
 
     const commissionField = document.getElementById('commission-field');
     if (commissionField) commissionField.style.display = role === 'comercial' ? '' : 'none';
+
+    // Acesso externo (PIN): disponível para papéis de equipe (não clientes).
+    const pinField = document.getElementById('external-pin-field');
+    const pinTeamRoles = ['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial', 'marketing'];
+    if (pinField) pinField.style.display = pinTeamRoles.includes(role) ? '' : 'none';
+}
+
+// Mostra/esconde o campo do PIN ao clicar em "Criar/Alterar PIN".
+function togglePinInput() {
+    const wrap = document.getElementById('pin-input-wrapper');
+    if (!wrap) return;
+    const show = wrap.style.display === 'none' || wrap.style.display === '';
+    // Alterna: se estava escondido, mostra e foca; se visível, esconde e limpa.
+    if (wrap.style.display === 'none') {
+        wrap.style.display = '';
+        const inp = document.getElementById('external-pin-input');
+        if (inp) inp.focus();
+    } else {
+        wrap.style.display = 'none';
+        const inp = document.getElementById('external-pin-input');
+        if (inp) inp.value = '';
+        const rm = document.getElementById('pin-remove');
+        if (rm) rm.checked = false;
+    }
 }
 
 function toggleNewCompany() {

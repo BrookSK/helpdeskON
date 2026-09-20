@@ -3,12 +3,59 @@
 <?php require APP_PATH . '/views/layouts/sidebar.php'; ?>
 
 <div class="main-content">
-    <div class="top-bar">
+    <div class="top-bar d-flex justify-content-between align-items-center flex-wrap gap-2">
         <div>
             <h5 class="mb-0">Nova Demanda</h5>
             <small class="text-muted">Descreva por texto ou áudio</small>
         </div>
+        <?php if (!empty($canShareExternal)): ?>
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            <button type="button" class="btn btn-outline-primary btn-sm"
+                    id="btn-share-external"
+                    data-has-pin="<?= !empty($hasExternalPin) ? '1' : '0' ?>"
+                    data-link="<?= escape($externalLink ?? '') ?>"
+                    onclick="shareExternalLink(this)">
+                <i class="bi bi-share"></i> Compartilhar link externo
+            </button>
+            <span id="share-external-msg" class="small"></span>
+        </div>
+        <?php endif; ?>
     </div>
+
+    <script>
+    // Copia o link da página de solicitação externa. Só permite se o usuário
+    // logado possui um PIN cadastrado; caso contrário, exibe o aviso.
+    function shareExternalLink(btn) {
+        const msg = document.getElementById('share-external-msg');
+        if (btn.getAttribute('data-has-pin') !== '1') {
+            msg.textContent = 'Você não possui um PIN cadastrado';
+            msg.className = 'small text-danger';
+            return;
+        }
+        const link = btn.getAttribute('data-link') || '';
+        const done = () => {
+            msg.textContent = 'Link copiado!';
+            msg.className = 'small text-success';
+            setTimeout(() => { msg.textContent = ''; }, 3000);
+        };
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(link).then(done).catch(() => fallbackCopy(link, done));
+        } else {
+            fallbackCopy(link, done);
+        }
+    }
+    function fallbackCopy(text, done) {
+        const ta = document.createElement('textarea');
+        ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.focus(); ta.select();
+        try { document.execCommand('copy'); done(); } catch (e) {
+            const msg = document.getElementById('share-external-msg');
+            msg.textContent = 'Não foi possível copiar. Link: ' + text;
+            msg.className = 'small text-muted';
+        }
+        document.body.removeChild(ta);
+    }
+    </script>
 
     <?php if ($msg = flash('error')): ?>
         <div class="alert alert-danger alert-dismissible fade show"><?= escape($msg) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>

@@ -162,6 +162,13 @@ class TicketsController extends Controller
 
         $data = ['user' => $user];
 
+        // Botão "Compartilhar link externo": exclusivo de super_admin.
+        $data['canShareExternal'] = ($user['role'] ?? '') === 'super_admin';
+        // PIN de acesso externo do usuário logado (não expomos o valor — apenas se existe).
+        $fullUser = (new User())->findById($user['id']);
+        $data['hasExternalPin'] = $data['canShareExternal'] && !empty($fullUser['external_pin']);
+        $data['externalLink'] = baseUrl('solicitacaoexterna');
+
         // Se for super_admin, carregar lista de clientes + equipe para atribuição
         if ($user['role'] === 'super_admin') {
             $userModel = new User();
