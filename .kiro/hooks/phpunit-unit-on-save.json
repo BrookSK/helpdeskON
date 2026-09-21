@@ -1,0 +1,16 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "PHPUnit (unit) ao salvar PHP",
+      "trigger": "PostFileSave",
+      "description": "Executa a suíte unitária do PHPUnit sempre que um arquivo .php é salvo, para pegar regressões cedo.",
+      "matcher": "\\.php$",
+      "action": {
+        "type": "command",
+        "command": "cmd /c run_tests_unit.bat",
+        "timeout": 120
+      }
+    }
+  ]
+}

@@ -8,7 +8,9 @@
  * e tem prioridade máxima.
  *
  * A definição do ambiente segue esta ordem de prioridade:
- *   1) (prioridade máxima) Host local: se o host for "localhost",
+ *   0) (prioridade absoluta) Ambiente de TESTE: quando APP_ENV=testing
+ *      (definido pelo bootstrap do PHPUnit), usa o banco helpdesk_on_test.
+ *   1) Host local: se o host for "localhost",
  *      "127.0.0.1", "::1" ou terminar em ".test"/".local", assume LOCAL.
  *   2) Domínio da requisição HTTP. Se o host contiver "plesk.page"
  *      ou "beta", assume ambiente beta imediatamente.
@@ -22,6 +24,23 @@ return (function () {
     // Raiz do projeto: usa BASE_PATH quando disponível (bootstrap web/cron);
     // caso contrário, deriva do próprio caminho deste arquivo (config/ -> raiz).
     $rootPath = defined('BASE_PATH') ? BASE_PATH : dirname(__DIR__);
+
+    // ===== Camada 0 (prioridade absoluta): AMBIENTE DE TESTE =====
+    // O bootstrap do PHPUnit (tests/bootstrap.php) define APP_ENV=testing.
+    // Nunca deixamos os testes tocarem os bancos local/beta/produção.
+    $appEnv = getenv('APP_ENV');
+    if ($appEnv === false && defined('APP_ENV')) {
+        $appEnv = APP_ENV;
+    }
+    if ($appEnv === 'testing') {
+        return [
+            'host'     => '127.0.0.1',
+            'port'     => '3306',
+            'database' => 'helpdesk_on_test',
+            'username' => 'root',
+            'password' => '',
+        ];
+    }
 
     $branch = 'main'; // default: assume produção
 
