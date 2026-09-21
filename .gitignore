@@ -28,4 +28,6 @@ composer_out.txt
 pu_ver.txt
 phpunit_out.txt
 phpunit_result.txt
+setup_result.txt
 tests/setup_test_db.log
+fetchColumn()

@@ -102,6 +102,8 @@ logline("tabelas criadas: {$count}");
 
 // Passo 2: restaurar AUTO_INCREMENT nas PKs inteiras de coluna única.
 // Com FOREIGN_KEY_CHECKS=0, o ALTER não é bloqueado por FKs de outras tabelas.
+// Reduz o lock_wait_timeout para não travar caso alguma tabela esteja em uso.
+try { $dstPdo->exec("SET SESSION lock_wait_timeout = 8"); } catch (Throwable $e) {}
 $autoinc = 0;
 foreach ($tables as $row) {
     $table = $row[0];
