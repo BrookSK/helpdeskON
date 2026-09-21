@@ -322,6 +322,22 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                                 <input type="datetime-local" name="end_date" class="form-control form-control-sm">
                             </div>
                         </div>
+                        <hr class="my-2">
+                        <div class="d-flex align-items-center gap-2 mb-2">
+                            <i class="bi bi-calendar-range text-primary"></i>
+                            <span class="small fw-semibold">Cronograma do Cliente</span>
+                            <span class="text-muted" style="font-size:0.72rem;">visível para o cliente no painel dele</span>
+                        </div>
+                        <div class="row g-2">
+                            <div class="col-sm-6 mb-3">
+                                <label class="form-label small fw-medium">Início (cliente)</label>
+                                <input type="date" name="client_start_date" class="form-control form-control-sm">
+                            </div>
+                            <div class="col-sm-6 mb-3">
+                                <label class="form-label small fw-medium">Fim (cliente)</label>
+                                <input type="date" name="client_end_date" class="form-control form-control-sm">
+                            </div>
+                        </div>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -569,6 +585,19 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                                     <div class="col-6">
                                         <label class="form-label small fw-medium text-muted">Fim Dev</label>
                                         <input type="datetime-local" id="detail-end-date" class="form-control form-control-sm">
+                                    </div>
+                                </div>
+
+                                <hr class="my-2">
+                                <h6 class="fw-bold small text-muted mb-2 text-uppercase"><i class="bi bi-calendar-range"></i> Cronograma do Cliente</h6>
+                                <div class="row g-2 mb-3">
+                                    <div class="col-6">
+                                        <label class="form-label small fw-medium text-muted">Início (cliente)</label>
+                                        <input type="date" id="detail-client-start-date" class="form-control form-control-sm">
+                                    </div>
+                                    <div class="col-6">
+                                        <label class="form-label small fw-medium text-muted">Fim (cliente)</label>
+                                        <input type="date" id="detail-client-end-date" class="form-control form-control-sm">
                                     </div>
                                 </div>
 
@@ -948,6 +977,8 @@ function openCardModal(id) {
         document.getElementById('detail-due-date').value = c.due_date ? c.due_date.slice(0,16) : '';
         document.getElementById('detail-start-date').value = c.start_date ? c.start_date.slice(0,16) : '';
         document.getElementById('detail-end-date').value = c.end_date ? c.end_date.slice(0,16) : '';
+        document.getElementById('detail-client-start-date').value = c.client_start_date ? c.client_start_date.slice(0,10) : '';
+        document.getElementById('detail-client-end-date').value = c.client_end_date ? c.client_end_date.slice(0,10) : '';
 
         // Campos CX Hub
         document.getElementById('detail-cx-hub-number').value = c.cx_hub_number || '';
@@ -1143,6 +1174,8 @@ function saveCard() {
     formData.append('due_date', document.getElementById('detail-due-date').value);
     formData.append('start_date', document.getElementById('detail-start-date').value);
     formData.append('end_date', document.getElementById('detail-end-date').value);
+    formData.append('client_start_date', document.getElementById('detail-client-start-date').value);
+    formData.append('client_end_date', document.getElementById('detail-client-end-date').value);
     // Campos CX Hub
     formData.append('cx_hub_number', document.getElementById('detail-cx-hub-number').value);
     formData.append('cx_hub_name', document.getElementById('detail-cx-hub-name').value);

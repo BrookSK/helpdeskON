@@ -20,6 +20,7 @@ final class PlanningCardTest extends TestCase
     private PlanningCard $cards;
     private Database $db;
     private int $userId;
+    private int $companyId;
 
     protected function setUp(): void
     {
@@ -31,6 +32,11 @@ final class PlanningCardTest extends TestCase
 
         $this->db = Database::getInstance();
         $this->cards = new PlanningCard();
+
+        // Empresa do cliente (usada nos testes de cronograma)
+        $this->companyId = (int) $this->db->insert('companies', [
+            'name' => 'Empresa Teste ' . uniqid(),
+        ]);
 
         // Usuário dono dos cards de teste (email único por execução)
         $this->userId = (int) $this->db->insert('users', [
@@ -46,6 +52,13 @@ final class PlanningCardTest extends TestCase
         // Remove o usuário; cards vão junto via ON DELETE CASCADE.
         try {
             $this->db->delete('users', 'id = ?', [$this->userId]);
+        } catch (\Throwable $e) {
+            // ignora falha de limpeza
+        }
+        // Remove os cards vinculados à empresa antes de apagá-la (evita FK).
+        try {
+            $this->db->delete('planning_cards', 'company_id = ?', [$this->companyId]);
+            $this->db->delete('companies', 'id = ?', [$this->companyId]);
         } catch (\Throwable $e) {
             // ignora falha de limpeza
         }
@@ -110,5 +123,83 @@ final class PlanningCardTest extends TestCase
         $this->cards->delete($id);
 
         $this->assertEmpty($this->cards->findById($id) ?: []);
+    }
+
+    public function testCronogramaDoClienteGravaERecuperaDatas(): void
+    {
+        $id = $this->novoCard([
+            'title'             => 'Demanda com cronograma',
+            'company_id'        => $this->companyId,
+            'client_start_date' => '2026-01-10',
+            'client_end_date'   => '2026-01-20',
+        ]);
+
+        // As datas são persistidas e recuperadas pelo findById (SELECT pc.*).
+        $card = $this->cards->findById($id);
+        $this->assertStringStartsWith('2026-01-10', (string) $card['client_start_date']);
+        $this->assertStringStartsWith('2026-01-20', (string) $card['client_end_date']);
+    }
+
+    public function testGetClientScheduleRetornaSomenteCardsComCronograma(): void
+    {
+        // Card COM cronograma: deve aparecer.
+        $comCronograma = $this->novoCard([
+            'title'             => 'Com cronograma',
+            'company_id'        => $this->companyId,
+            'client_start_date' => '2026-02-01',
+            'client_end_date'   => '2026-02-05',
+        ]);
+
+        // Card SEM cronograma (client_start_date NULL): não deve aparecer.
+        $this->novoCard([
+            'title'      => 'Sem cronograma',
+            'company_id' => $this->companyId,
+        ]);
+
+        $schedule = $this->cards->getClientSchedule($this->companyId);
+
+        $ids = array_column($schedule, 'id');
+        $this->assertContains($comCronograma, array_map('intval', $ids));
+
+        // Todos os itens retornados possuem client_start_date preenchido.
+        foreach ($schedule as $row) {
+            $this->assertNotEmpty($row['client_start_date']);
+        }
+    }
+
+    public function testGetClientCardDetailRetornaDaPropriaEmpresa(): void
+    {
+        $id = $this->novoCard([
+            'title'             => 'Detalhe visível',
+            'company_id'        => $this->companyId,
+            'client_start_date' => '2026-03-01',
+            'client_end_date'   => '2026-03-10',
+        ]);
+
+        $detail = $this->cards->getClientCardDetail($id, $this->companyId);
+
+        $this->assertNotEmpty($detail);
+        $this->assertSame('Detalhe visível', $detail['title']);
+        // Não deve expor campos internos sensíveis no SELECT.
+        $this->assertArrayNotHasKey('technical_responsible_id', $detail);
+        $this->assertArrayNotHasKey('cx_hub_number', $detail);
+    }
+
+    public function testGetClientCardDetailBloqueiaOutraEmpresa(): void
+    {
+        $id = $this->novoCard([
+            'title'      => 'Card de outra empresa',
+            'company_id' => $this->companyId,
+            'client_start_date' => '2026-04-01',
+        ]);
+
+        // Empresa diferente da dona do card não deve conseguir ver o detalhe.
+        $outraEmpresa = (int) $this->db->insert('companies', ['name' => 'Outra ' . uniqid()]);
+        try {
+            $detail = $this->cards->getClientCardDetail($id, $outraEmpresa);
+            $this->assertEmpty($detail ?: []);
+        } finally {
+            $this->db->delete('companies', 'id = ?', [$outraEmpresa]);
+        }
     }
 }

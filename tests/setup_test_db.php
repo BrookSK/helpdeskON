@@ -47,11 +47,27 @@ try {
 
 // Evita travar indefinidamente em locks de metadados deixados por conexões
 // órfãs: mata outras conexões ao banco de teste e reduz o tempo de espera.
-// Reduz o tempo de espera por locks para evitar travas longas.
 try {
     $root->exec("SET SESSION lock_wait_timeout = 10");
 } catch (Throwable $e) {
     // ignora se o servidor não aceitar
+}
+
+// Mata conexões órfãs que ainda apontam para o banco de teste (restos de
+// execuções anteriores interrompidas). Sem isso, o DROP/CREATE pode travar
+// esperando um lock de metadados que nunca é liberado.
+try {
+    $procs = $root->query(
+        "SELECT id FROM information_schema.PROCESSLIST WHERE db = " . $root->quote($dst)
+    )->fetchAll(PDO::FETCH_COLUMN);
+    foreach ($procs as $pid) {
+        try { $root->exec("KILL " . (int)$pid); } catch (Throwable $e) { /* ignora */ }
+    }
+    if ($procs) {
+        logline('conexoes orfas encerradas: ' . count($procs));
+    }
+} catch (Throwable $e) {
+    logline('aviso: nao foi possivel limpar conexoes orfas: ' . $e->getMessage());
 }
 
 $root->exec("DROP DATABASE IF EXISTS `{$dst}`");
