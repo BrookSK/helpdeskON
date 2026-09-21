@@ -78,6 +78,13 @@
                                     <a href="<?= baseUrl('companies/details/' . $u['company_id']) ?>" class="text-decoration-none">
                                         <i class="bi bi-building"></i> <?= escape($u['company_name']) ?>
                                     </a>
+                                    <?php $extra = (int)($u['extra_companies_count'] ?? 0); if ($extra > 0): ?>
+                                        <div class="mt-1">
+                                            <a href="<?= baseUrl('users/analisar/' . $u['id']) ?>" class="badge bg-light text-primary text-decoration-none border" title="Vinculado a <?= $extra ?> empresa(s) adicional(is)">
+                                                <i class="bi bi-buildings"></i> +<?= $extra ?> empresa<?= $extra > 1 ? 's' : '' ?>
+                                            </a>
+                                        </div>
+                                    <?php endif; ?>
                                 <?php else: ?>
                                     <span class="text-muted">-</span>
                                 <?php endif; ?>
@@ -99,8 +106,8 @@
                                         <i class="bi bi-box-arrow-in-right"></i>
                                     </a>
                                     <?php endif; ?>
-                                    <a href="<?= baseUrl('users/edit/' . $u['id']) ?>" class="btn btn-outline-primary" title="Editar">
-                                        <i class="bi bi-pencil"></i>
+                                    <a href="<?= baseUrl('users/analisar/' . $u['id']) ?>" class="btn btn-outline-primary" title="Analisar usuário">
+                                        <i class="bi bi-file-earmark-person"></i>
                                     </a>
                                     <a href="<?= baseUrl('users/toggleStatus/' . $u['id']) ?>" class="btn btn-outline-warning" title="<?= $u['is_active'] ? 'Desativar' : 'Ativar' ?>">
                                         <i class="bi bi-<?= $u['is_active'] ? 'pause' : 'play' ?>-fill"></i>
@@ -127,7 +134,7 @@
                     </div>
                     <div class="d-flex gap-2 align-items-center mt-2 flex-wrap" style="font-size:0.78rem">
                         <span class="badge bg-light text-dark"><?= roleLabel($u['role']) ?></span>
-                        <?php if (!empty($u['company_name'])): ?><span class="badge bg-light text-dark"><i class="bi bi-building"></i> <?= escape($u['company_name']) ?></span><?php endif; ?>
+                        <?php if (!empty($u['company_name'])): ?><span class="badge bg-light text-dark"><i class="bi bi-building"></i> <?= escape($u['company_name']) ?></span><?php $extra = (int)($u['extra_companies_count'] ?? 0); if ($extra > 0): ?><span class="badge bg-light text-primary border"><i class="bi bi-buildings"></i> +<?= $extra ?> empresa<?= $extra > 1 ? 's' : '' ?></span><?php endif; ?><?php endif; ?>
                         <?php if ($u['phone']): ?><span class="text-muted"><?= escape($u['phone']) ?></span><?php endif; ?>
                     </div>
                     <div class="mt-2 d-flex gap-2 flex-wrap">
@@ -135,7 +142,7 @@
                         <a href="<?= baseUrl('login/verComo/' . $u['id']) ?>" class="btn btn-sm btn-outline-info"><i class="bi bi-eye"></i> Ver como</a>
                         <a href="<?= baseUrl('login/loginAs/' . $u['id']) ?>" class="btn btn-sm btn-outline-success" onclick="return confirm('Entrar como <?= escape($u['name']) ?>?')"><i class="bi bi-box-arrow-in-right"></i> Login</a>
                         <?php endif; ?>
-                        <a href="<?= baseUrl('users/edit/' . $u['id']) ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil"></i> Editar</a>
+                        <a href="<?= baseUrl('users/analisar/' . $u['id']) ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-file-earmark-person"></i> Analisar usuário</a>
                         <a href="<?= baseUrl('users/toggleStatus/' . $u['id']) ?>" class="btn btn-sm btn-outline-warning">
                             <i class="bi bi-<?= $u['is_active'] ? 'pause' : 'play' ?>-fill"></i> <?= $u['is_active'] ? 'Desativar' : 'Ativar' ?>
                         </a>

@@ -37,6 +37,9 @@ class LoginController extends Controller
             $_SESSION['user_is_company_owner'] = $user['is_company_owner'] ?? 0;
             unset($_SESSION['active_company_id']);
             unset($_SESSION['impersonator']);
+            // Higiene: encerra qualquer sessão de acesso externo (PIN) residual no
+            // mesmo navegador. O login normal e o acesso externo são independentes.
+            unset($_SESSION['external_access']);
 
             // Auditoria: registrar o login
             ActivityLogger::logLogin($user['id'], 'password');

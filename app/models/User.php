@@ -21,9 +21,14 @@ class User
 
     public function getAll($role = null)
     {
+        // Subquery: nº de empresas ADICIONAIS (Multi-Empresas), sem contar a principal.
+        $extraCountSql = "(SELECT COUNT(*) FROM user_company_access uca
+                           WHERE uca.user_id = u.id
+                             AND (u.company_id IS NULL OR uca.company_id <> u.company_id))";
+
         if ($role) {
             return $this->db->fetchAll(
-                "SELECT u.*, comp.name as company_name
+                "SELECT u.*, comp.name as company_name, $extraCountSql AS extra_companies_count
                  FROM users u
                  LEFT JOIN companies comp ON u.company_id = comp.id
                  WHERE u.role = ? ORDER BY comp.name IS NULL, comp.name, u.name",
@@ -31,7 +36,7 @@ class User
             );
         }
         return $this->db->fetchAll(
-            "SELECT u.*, comp.name as company_name
+            "SELECT u.*, comp.name as company_name, $extraCountSql AS extra_companies_count
              FROM users u
              LEFT JOIN companies comp ON u.company_id = comp.id
              ORDER BY u.name ASC"
@@ -110,6 +115,42 @@ class User
             return $user;
         }
         return false;
+    }
+
+    /**
+     * Verifica se um PIN de acesso externo já está em uso por outro usuário.
+     * $exceptId permite ignorar o próprio usuário ao editar.
+     */
+    public function pinExists($pin, $exceptId = null)
+    {
+        $pin = trim((string)$pin);
+        if ($pin === '') return false;
+        if ($exceptId) {
+            $row = $this->db->fetch(
+                "SELECT id FROM users WHERE external_pin = ? AND id <> ? LIMIT 1",
+                [$pin, $exceptId]
+            );
+        } else {
+            $row = $this->db->fetch(
+                "SELECT id FROM users WHERE external_pin = ? LIMIT 1",
+                [$pin]
+            );
+        }
+        return (bool)$row;
+    }
+
+    /**
+     * Retorna o usuário da equipe (ativo) dono do PIN de acesso externo informado.
+     * Usado no login da página /solicitacaoexterna.
+     */
+    public function findByPin($pin)
+    {
+        $pin = trim((string)$pin);
+        if ($pin === '') return null;
+        return $this->db->fetch(
+            "SELECT * FROM users WHERE external_pin = ? AND is_active = 1 LIMIT 1",
+            [$pin]
+        ) ?: null;
     }
 
     public function toggleActive($id)

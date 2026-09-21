@@ -61,6 +61,24 @@ class UsersController extends Controller
             }
         }
 
+        // Acesso externo (PIN) — apenas para papéis de equipe.
+        $teamRolesPin = ['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial', 'marketing'];
+        $externalPin = null;
+        if (in_array($role, $teamRolesPin)) {
+            $rawPin = trim($_POST['external_pin'] ?? '');
+            if ($rawPin !== '') {
+                if (!preg_match('/^\d{4}$/', $rawPin)) {
+                    flash('error', 'O PIN deve ter exatamente 4 dígitos numéricos.');
+                    $this->redirect('users/create');
+                }
+                if ($this->userModel->pinExists($rawPin)) {
+                    flash('error', 'Este PIN já existe.');
+                    $this->redirect('users/create');
+                }
+                $externalPin = $rawPin;
+            }
+        }
+
         $db = Database::getInstance();
         // Se nenhuma senha for informada, gera uma aleatória e envia convite de primeiro acesso
         $sendInvite = empty($password);
@@ -84,6 +102,7 @@ class UsersController extends Controller
             'apollo_daily_credits' => ($role === 'comercial') ? max(0, intval($_POST['apollo_daily_credits'] ?? 0)) : 0,
             'sip_user' => trim($_POST['sip_user'] ?? '') ?: null,
             'sip_password' => trim($_POST['sip_password'] ?? '') ?: null,
+            'external_pin' => $externalPin,
             'is_active' => 1,
         ]);
 
@@ -139,6 +158,31 @@ class UsersController extends Controller
         }
 
         $this->view('admin/user_form', ['user' => $user, 'editUser' => $editUser]);
+    }
+
+    /**
+     * Ficha de consulta (somente leitura) de um usuário: exibe os mesmos dados
+     * preenchidos no cadastro e as empresas vinculadas. A partir dela é possível
+     * abrir o formulário de edição já existente (users/edit/{id}).
+     * Acessível apenas pelo super_admin.
+     */
+    public function analisar($id = null)
+    {
+        $this->requireRole(['super_admin']);
+        if (!$id) $this->redirect('users');
+
+        $user = $this->currentUser();
+        $viewUser = $this->userModel->findById($id);
+        if (!$viewUser) {
+            flash('error', 'Usuário não encontrado.');
+            $this->redirect('users');
+        }
+
+        $this->view('admin/user_view', [
+            'user' => $user,
+            'viewUser' => $viewUser,
+            'linkedCompanies' => $this->userModel->getLinkedCompanies($id),
+        ]);
     }
 
     /**
@@ -239,6 +283,34 @@ class UsersController extends Controller
         // Senha SIP é secreta: só atualiza se um novo valor for informado (em branco mantém a atual)
         if (isset($_POST['sip_password']) && trim($_POST['sip_password']) !== '') {
             $data['sip_password'] = trim($_POST['sip_password']);
+        }
+
+        // Acesso externo (PIN) — apenas para papéis de equipe.
+        $teamRolesPin = ['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial', 'marketing'];
+        if (in_array($role, $teamRolesPin)) {
+            // Remover PIN atual
+            if (!empty($_POST['external_pin_remove'])) {
+                $data['external_pin'] = null;
+            } else {
+                $newPin = trim($_POST['external_pin'] ?? '');
+                if ($newPin !== '') {
+                    // Exige exatamente 4 dígitos numéricos.
+                    if (!preg_match('/^\d{4}$/', $newPin)) {
+                        flash('error', 'O PIN deve ter exatamente 4 dígitos numéricos.');
+                        $this->redirect('users/edit/' . $id);
+                    }
+                    // Unicidade entre todos os usuários (ignorando o próprio).
+                    if ($this->userModel->pinExists($newPin, $id)) {
+                        flash('error', 'Este PIN já existe.');
+                        $this->redirect('users/edit/' . $id);
+                    }
+                    $data['external_pin'] = $newPin;
+                }
+                // Se veio vazio e sem "remover", mantém o PIN atual (não altera).
+            }
+        } else {
+            // Papel deixou de ser de equipe: revoga qualquer PIN existente.
+            $data['external_pin'] = null;
         }
 
         $db = Database::getInstance();

@@ -1,4 +1,100 @@
 <!-- Modal Reunião -->
+<style>
+    /* Opções de reunião: cartões quadrados separados, com borda suave */
+    .mt-mode-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+    }
+    .mt-mode-input {
+        position: absolute;
+        opacity: 0;
+        pointer-events: none;
+    }
+    .mt-mode-card {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        text-align: center;
+        padding: 14px 10px;
+        border: 1px solid #e2e5ec;
+        border-radius: 12px;
+        background: #fff;
+        cursor: pointer;
+        font-size: 0.82rem;
+        font-weight: 500;
+        color: #4b5266;
+        min-height: 76px;
+        transition: border-color 0.15s, box-shadow 0.15s, background 0.15s, color 0.15s;
+    }
+    .mt-mode-card i { font-size: 1.25rem; color: #8a90a2; transition: color 0.15s; }
+    .mt-mode-card:hover {
+        border-color: #c9cedb;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    }
+    /* Selecionado */
+    .mt-mode-input:checked + .mt-mode-card {
+        border-color: var(--primary, #00BFA6);
+        background: #f2fbf9;
+        color: #0b7f70;
+        box-shadow: 0 2px 10px rgba(0, 191, 166, 0.15);
+    }
+    .mt-mode-input:checked + .mt-mode-card i { color: var(--primary, #00BFA6); }
+    /* Desabilitado (ex.: Google não configurado) */
+    .mt-mode-input:disabled + .mt-mode-card {
+        opacity: 0.5;
+        cursor: not-allowed;
+        background: #f6f7f9;
+    }
+    /* Foco por teclado (acessibilidade) */
+    .mt-mode-input:focus-visible + .mt-mode-card {
+        outline: 2px solid var(--primary, #00BFA6);
+        outline-offset: 2px;
+    }
+    @media (max-width: 575.98px) {
+        .mt-mode-grid { grid-template-columns: 1fr; }
+    }
+
+    /* ===== Combobox unificado (Empresa / Contato): busca + seleção num só campo ===== */
+    .mt-combo { position: relative; }
+    .mt-combo-list {
+        position: absolute;
+        top: calc(100% + 2px);
+        left: 0;
+        right: 0;
+        z-index: 30;
+        max-height: 220px;
+        overflow-y: auto;
+        background: #fff;
+        border: 1px solid #e2e5ec;
+        border-radius: 10px;
+        box-shadow: 0 6px 20px rgba(0,0,0,0.10);
+        padding: 4px;
+        display: none;
+    }
+    .mt-combo-list.open { display: block; }
+    .mt-combo-item {
+        padding: 7px 10px;
+        border-radius: 7px;
+        font-size: 0.85rem;
+        color: #3a3f51;
+        cursor: pointer;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .mt-combo-item:hover,
+    .mt-combo-item.active { background: #f2fbf9; color: #0b7f70; }
+    .mt-combo-item.selected { font-weight: 600; }
+    .mt-combo-empty {
+        padding: 8px 10px;
+        font-size: 0.8rem;
+        color: #9aa0b3;
+    }
+</style>
+
 <div class="modal fade" id="meetingModal" tabindex="-1">
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
@@ -55,41 +151,64 @@
                     </div>
 
                     <!-- Origem = Empresa: Empresa → Contato (reutiliza users.company_id) -->
+                    <!-- Empresa: combobox unificado (buscar + selecionar num único campo) -->
                     <div class="col-md-4 mt-commercial-only mt-source-empresa" style="display:none;">
                         <label class="form-label small fw-medium">Empresa *</label>
-                        <input type="text" id="mt-company-search" class="form-control form-control-sm mb-1"
-                               placeholder="Pesquisar empresa por nome..." oninput="filterCompanyOptions()" autocomplete="off">
-                        <select id="mt-company" class="form-select form-select-sm" onchange="onCompanyChange()">
-                            <option value="">Selecione uma empresa...</option>
-                            <?php foreach ($companies as $co): ?>
-                            <option value="<?= $co['id'] ?>" data-name="<?= escape(mb_strtolower($co['name'])) ?>"><?= escape($co['name']) ?></option>
-                            <?php endforeach; ?>
-                        </select>
+                        <div class="mt-combo" id="mt-company-combo">
+                            <input type="hidden" id="mt-company" value="">
+                            <input type="text" id="mt-company-search" class="form-control form-control-sm mt-combo-input"
+                                   placeholder="Buscar e selecionar empresa..." autocomplete="off"
+                                   onfocus="openCompanyList()" oninput="filterCompanyOptions()">
+                            <div class="mt-combo-list" id="mt-company-list">
+                                <?php foreach ($companies as $co): ?>
+                                <div class="mt-combo-item" data-value="<?= $co['id'] ?>" data-name="<?= escape(mb_strtolower($co['name'])) ?>"><?= escape($co['name']) ?></div>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
                     </div>
+                    <!-- Contato: combobox unificado (carrega os contatos da empresa escolhida) -->
                     <div class="col-md-4 mt-commercial-only mt-source-empresa" style="display:none;">
                         <label class="form-label small fw-medium">Contato *</label>
-                        <input type="text" id="mt-contact-search" class="form-control form-control-sm mb-1"
-                               placeholder="Pesquisar contato por nome..." oninput="filterContactOptions()" autocomplete="off">
-                        <select id="mt-contact" class="form-select form-select-sm" onchange="onContactChange()" disabled>
-                            <option value="">Selecione uma empresa primeiro...</option>
-                        </select>
+                        <div class="mt-combo" id="mt-contact-combo">
+                            <input type="hidden" id="mt-contact" value="">
+                            <input type="text" id="mt-contact-search" class="form-control form-control-sm mt-combo-input"
+                                   placeholder="Selecione uma empresa primeiro..." autocomplete="off" disabled
+                                   onfocus="openContactList()" oninput="filterContactOptions()">
+                            <div class="mt-combo-list" id="mt-contact-list"></div>
+                        </div>
                     </div>
                     <div class="col-md-4">
                         <label class="form-label small fw-medium">Data e horário da reunião</label>
                         <input type="datetime-local" id="mt-meeting-at" class="form-control form-control-sm">
                     </div>
-                    <div class="col-12 d-flex flex-wrap align-items-center gap-2">
-                        <button type="button" class="btn btn-sm btn-outline-primary" id="mt-gen-meet" onclick="generateMeet(this)">
-                            <i class="bi bi-camera-video"></i> Gerar link do Meet
-                        </button>
-                        <button type="button" class="btn btn-sm btn-outline-success" id="mt-gen-room" onclick="generateVideoRoom(this)">
-                            <i class="bi bi-camera-reels"></i> Sala de vídeo do sistema
-                        </button>
-                        <span id="mt-meet-hint" style="font-size:0.78rem;"></span>
+                    <!-- ===== Opções de reunião (uma OU outra — mutuamente exclusivas) ===== -->
+                    <div class="col-12">
+                        <label class="form-label small fw-medium mb-1"><i class="bi bi-camera-video"></i> Opções de reunião</label>
+                        <div class="mt-mode-grid" role="group" aria-label="Opções de reunião">
+                            <input type="radio" class="mt-mode-input" name="mt-meeting-mode" id="mt-mode-none" value="" checked onchange="onMeetingModeChange()">
+                            <label class="mt-mode-card" for="mt-mode-none">
+                                <i class="bi bi-slash-circle"></i>
+                                <span>Nenhuma</span>
+                            </label>
+
+                            <input type="radio" class="mt-mode-input" name="mt-meeting-mode" id="mt-mode-meet" value="meet" onchange="onMeetingModeChange()">
+                            <label class="mt-mode-card" for="mt-mode-meet">
+                                <i class="bi bi-camera-video"></i>
+                                <span>Google Meet</span>
+                            </label>
+
+                            <input type="radio" class="mt-mode-input" name="mt-meeting-mode" id="mt-mode-room" value="room" onchange="onMeetingModeChange()">
+                            <label class="mt-mode-card" for="mt-mode-room">
+                                <i class="bi bi-camera-reels"></i>
+                                <span>Sala de vídeo do sistema</span>
+                            </label>
+                        </div>
+                        <div class="mt-1"><span id="mt-meet-hint" style="font-size:0.78rem;"></span></div>
                     </div>
 
                     <!-- Opções da sala de vídeo do sistema (privacidade + administradores) -->
-                    <div class="col-12">
+                    <!-- Só aparece quando a opção "Sala de vídeo do sistema" está selecionada. -->
+                    <div class="col-12" id="mt-room-options" style="display:none;">
                         <div class="d-flex flex-wrap align-items-center gap-3">
                             <div class="form-check form-check-inline mb-0">
                                 <input class="form-check-input" type="radio" name="mt-room-visibility" id="mt-rv-public" value="public" checked onchange="onRoomVisibilityChange()">
@@ -108,6 +227,9 @@
                                 <?php endforeach; ?>
                             </select>
                             <small class="text-muted">Você já é admin. Segure Ctrl/Cmd para escolher mais de um.</small>
+                            <button type="button" class="btn btn-sm btn-outline-success mt-2" id="mt-gen-room-private" onclick="generateVideoRoom(this)">
+                                <i class="bi bi-camera-reels"></i> Criar sala privada
+                            </button>
                         </div>
                     </div>
 
@@ -263,7 +385,7 @@
                     </div>
                     <div class="col-md-6">
                         <label class="form-label small mb-1">Faixa de investimento</label>
-                        <input type="text" id="bf-investment_range" class="form-control form-control-sm" placeholder="R$ 0,00">
+                        <input type="text" id="bf-investment_range" class="form-control form-control-sm" placeholder="R$ 0,00" inputmode="numeric" oninput="maskCurrency(this)">
                     </div>
                     <div class="col-md-4">
                         <label class="form-label small mb-1">Urgência</label>
@@ -342,16 +464,28 @@ function resetMeetingForm() {
     document.getElementById('mt-google-event-id').value = '';
     document.getElementById('mt-meet-link').value = '';
     document.getElementById('mt-meet-hint').innerHTML = '';
+    // Opções de reunião: volta para "Nenhuma" e esconde os controles da sala do sistema.
+    const modeNone = document.getElementById('mt-mode-none');
+    if (modeNone) modeNone.checked = true;
+    const roomOpts = document.getElementById('mt-room-options');
+    if (roomOpts) roomOpts.style.display = 'none';
+    const rvPublic = document.getElementById('mt-rv-public');
+    if (rvPublic) rvPublic.checked = true;
+    const roomAdminsBlk = document.getElementById('mt-room-admins-block');
+    if (roomAdminsBlk) roomAdminsBlk.style.display = 'none';
     ['mt-title','mt-meeting-at','mt-new-name','mt-new-phone','mt-notes','mt-client-email','mt-client-name','mt-client-phone'].forEach(f => document.getElementById(f).value = '');
     document.getElementById('mt-client').value = '';
-    // Reseta Empresa → Contato
-    const coSel = document.getElementById('mt-company');
-    if (coSel) coSel.value = '';
+    // Reseta o combobox de Empresa → Contato
+    const coHidden = document.getElementById('mt-company'); if (coHidden) coHidden.value = '';
     const coSearch = document.getElementById('mt-company-search'); if (coSearch) coSearch.value = '';
-    filterCompanyOptions();
-    const ctSearch = document.getElementById('mt-contact-search'); if (ctSearch) ctSearch.value = '';
-    const ctSel = document.getElementById('mt-contact');
-    if (ctSel) { ctSel.disabled = true; ctSel.innerHTML = '<option value="">Selecione uma empresa primeiro...</option>'; }
+    document.getElementById('mt-company-list')?.querySelectorAll('.mt-combo-item').forEach(i => { i.classList.remove('selected'); i.style.display = ''; });
+    closeCompanyList();
+    const ctHidden = document.getElementById('mt-contact'); if (ctHidden) ctHidden.value = '';
+    const ctSearch = document.getElementById('mt-contact-search');
+    if (ctSearch) { ctSearch.value = ''; ctSearch.disabled = true; ctSearch.placeholder = 'Selecione uma empresa primeiro...'; }
+    mtContactCache = [];
+    const ctList = document.getElementById('mt-contact-list'); if (ctList) ctList.innerHTML = '';
+    closeContactList();
     document.getElementById('mt-urgency').value = 'media';
     document.getElementById('mt-temperature').value = '';
     document.getElementById('mt-status').value = 'a_agendar';
@@ -463,6 +597,22 @@ function fillBriefing(bf) {
     clearBriefing();
     if (!bf) return;
     BF_FIELDS.forEach(k => { const el = document.getElementById('bf-' + k); if (el && bf[k] != null) el.value = bf[k]; });
+    // Normaliza a faixa de investimento para o formato monetário (BR), inclusive
+    // valores antigos salvos "crus" (ex.: "50000" -> "R$ 50.000,00").
+    const inv = document.getElementById('bf-investment_range');
+    if (inv && inv.value) maskCurrency(inv);
+}
+
+// Máscara de moeda (Real): formata o que é digitado a partir dos centavos.
+// Ex.: digitar 5000000 -> "R$ 50.000,00". Guarda apenas os dígitos e reconstrói.
+function maskCurrency(el) {
+    let digits = (el.value || '').replace(/\D/g, '');
+    if (digits === '') { el.value = ''; return; }
+    // Limita para evitar números absurdos (até 999.999.999,99)
+    digits = digits.slice(0, 11);
+    const cents = parseInt(digits, 10);
+    const formatted = (cents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    el.value = 'R$ ' + formatted;
 }
 // Converte a urgência textual do briefing (ex: "Baixa") para o enum da reunião ("baixa").
 const URGENCY_TO_ENUM = { 'baixa':'baixa', 'média':'media', 'media':'media', 'alta':'alta', 'urgente':'urgente' };
@@ -494,15 +644,30 @@ function checkGoogleReady() {
     }).catch(() => { GOOGLE_READY = false; applyGoogleReady(); });
 }
 function applyGoogleReady() {
-    const btn = document.getElementById('mt-gen-meet');
-    if (!btn) return;
+    // A opção "Google Meet" só fica disponível se a integração Google estiver configurada.
+    const meetRadio = document.getElementById('mt-mode-meet');
+    const meetLabel = document.querySelector('label[for="mt-mode-meet"]');
+    if (!meetRadio) return;
     if (GOOGLE_READY) {
-        btn.disabled = false; btn.title = '';
+        meetRadio.disabled = false;
+        if (meetLabel) { meetLabel.classList.remove('disabled'); meetLabel.title = ''; }
     } else {
-        btn.disabled = true;
-        btn.title = 'Configure a integração Google em Configurações';
-        document.getElementById('mt-meet-hint').innerHTML = '<span class="text-muted"><i class="bi bi-info-circle"></i> Google não configurado</span>';
+        meetRadio.disabled = true;
+        if (meetLabel) {
+            meetLabel.classList.add('disabled');
+            meetLabel.title = 'Configure a integração Google em Configurações';
+        }
     }
+}
+
+// Define o "min" do seletor de data como o instante atual (formato datetime-local),
+// reforçando visualmente que reunião nova não pode ser no passado.
+function setMeetingAtMinNow() {
+    const el = document.getElementById('mt-meeting-at');
+    if (!el) return;
+    const now = new Date();
+    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+    el.min = now.toISOString().slice(0, 16);
 }
 
 function openMeetingModal(id = null, dateStr = null) {
@@ -510,12 +675,16 @@ function openMeetingModal(id = null, dateStr = null) {
     checkGoogleReady();
     if (dateStr) document.getElementById('mt-meeting-at').value = dateStr + 'T09:00';
     if (id) {
+        // Edição: permite data retroativa (registro de reunião já ocorrida).
+        document.getElementById('mt-meeting-at').removeAttribute('min');
         fetch(`${BASE}agenda/get/${id}`).then(r => r.json()).then(d => {
             if (d.error) { alert(d.error); return; }
             fillMeeting(d.meeting);
             getMeetingModal().show();
         });
     } else {
+        // Nova reunião: bloqueia datas passadas no próprio seletor.
+        setMeetingAtMinNow();
         document.getElementById('meeting-modal-title').textContent = 'Nova reunião';
         getMeetingModal().show();
     }
@@ -542,6 +711,18 @@ function fillMeeting(m) {
     document.getElementById('mt-client-email').value = m.client_email || '';
     document.getElementById('mt-google-event-id').value = m.google_event_id || '';
     document.getElementById('mt-meet-link').value = m.meet_link || '';
+    // Reflete a opção de reunião já existente (sem regenerar o link).
+    // Sala do sistema: link aponta para o próprio site (videocall). Caso contrário, Google Meet.
+    (function() {
+        const link = m.meet_link || '';
+        if (!link) { showMeetLink(''); return; }
+        const isSystemRoom = link.indexOf('videocall') !== -1 || (link.indexOf(BASE) === 0);
+        const modeRadio = document.getElementById(isSystemRoom ? 'mt-mode-room' : 'mt-mode-meet');
+        if (modeRadio && !modeRadio.disabled) modeRadio.checked = true;
+        const roomOpts = document.getElementById('mt-room-options');
+        if (roomOpts) roomOpts.style.display = isSystemRoom ? '' : 'none';
+        showMeetLink(link);
+    })();
     // Preenche participantes selecionados (select fonte de verdade + checkboxes do dropdown)
     const ptSel = document.getElementById('mt-participants');
     if (ptSel && m.participants) {
@@ -605,82 +786,173 @@ function onClientChange() {
 
 // ===== Empresa → Contato (reutiliza users.company_id via Company::getUsers) =====
 
-// Filtra as opções do dropdown de empresa pelo nome digitado.
+// ===== Combobox de Empresa =====
+function openCompanyList() {
+    filterCompanyOptions();
+    document.getElementById('mt-company-list').classList.add('open');
+}
+function closeCompanyList() {
+    document.getElementById('mt-company-list').classList.remove('open');
+}
+
+// Filtra os itens da lista de empresa pelo texto digitado e mantém a lista aberta.
 function filterCompanyOptions() {
     const term = (document.getElementById('mt-company-search').value || '').trim().toLowerCase();
-    const sel = document.getElementById('mt-company');
-    Array.from(sel.options).forEach(o => {
-        if (!o.value) return; // mantém o placeholder
-        const name = o.getAttribute('data-name') || o.textContent.toLowerCase();
-        o.hidden = term !== '' && !name.includes(term);
+    const listEl = document.getElementById('mt-company-list');
+    listEl.classList.add('open');
+    let visible = 0;
+    listEl.querySelectorAll('.mt-combo-item').forEach(item => {
+        const name = item.getAttribute('data-name') || item.textContent.toLowerCase();
+        const show = term === '' || name.includes(term);
+        item.style.display = show ? '' : 'none';
+        if (show) visible++;
+    });
+    let empty = listEl.querySelector('.mt-combo-empty');
+    if (visible === 0) {
+        if (!empty) {
+            empty = document.createElement('div');
+            empty.className = 'mt-combo-empty';
+            empty.textContent = 'Nenhuma empresa encontrada';
+            listEl.appendChild(empty);
+        }
+        empty.style.display = '';
+    } else if (empty) {
+        empty.style.display = 'none';
+    }
+}
+
+// Seleciona uma empresa a partir do id (usado no clique e ao editar).
+function selectCompany(id, name) {
+    document.getElementById('mt-company').value = id || '';
+    document.getElementById('mt-company-search').value = name || '';
+    document.getElementById('mt-company-list').querySelectorAll('.mt-combo-item').forEach(i => {
+        i.classList.toggle('selected', i.getAttribute('data-value') === String(id));
+    });
+    closeCompanyList();
+    onCompanyChange();
+}
+
+// ===== Combobox de Contato =====
+let mtContactCache = []; // contatos carregados da empresa atual
+
+function openContactList() {
+    const input = document.getElementById('mt-contact-search');
+    if (input.disabled) return;
+    filterContactOptions();
+    document.getElementById('mt-contact-list').classList.add('open');
+}
+function closeContactList() {
+    document.getElementById('mt-contact-list').classList.remove('open');
+}
+
+// (Re)constrói a lista de contatos a partir do cache carregado.
+function renderContactList() {
+    const listEl = document.getElementById('mt-contact-list');
+    listEl.innerHTML = '';
+    mtContactCache.forEach(c => {
+        const item = document.createElement('div');
+        item.className = 'mt-combo-item';
+        item.setAttribute('data-value', c.id);
+        item.setAttribute('data-name', (c.name || '').toLowerCase());
+        item.setAttribute('data-email', c.email || '');
+        item.setAttribute('data-phone', c.phone || '');
+        item.setAttribute('data-contact-name', c.name || '');
+        item.textContent = c.name;
+        listEl.appendChild(item);
     });
 }
 
-// Filtra as opções do dropdown de contato pelo nome digitado.
 function filterContactOptions() {
     const term = (document.getElementById('mt-contact-search').value || '').trim().toLowerCase();
-    const sel = document.getElementById('mt-contact');
-    Array.from(sel.options).forEach(o => {
-        if (!o.value) return;
-        const name = o.getAttribute('data-name') || o.textContent.toLowerCase();
-        o.hidden = term !== '' && !name.includes(term);
+    const listEl = document.getElementById('mt-contact-list');
+    listEl.classList.add('open');
+    let visible = 0;
+    listEl.querySelectorAll('.mt-combo-item').forEach(item => {
+        const name = item.getAttribute('data-name') || item.textContent.toLowerCase();
+        const show = term === '' || name.includes(term);
+        item.style.display = show ? '' : 'none';
+        if (show) visible++;
     });
+    let empty = listEl.querySelector('.mt-combo-empty');
+    if (visible === 0) {
+        if (!empty) {
+            empty = document.createElement('div');
+            empty.className = 'mt-combo-empty';
+            listEl.appendChild(empty);
+        }
+        empty.textContent = mtContactCache.length ? 'Nenhum contato encontrado' : 'Nenhum contato nesta empresa';
+        empty.style.display = '';
+    } else if (empty) {
+        empty.style.display = 'none';
+    }
 }
 
 // Ao trocar a empresa: carrega os contatos (users) daquela empresa e reseta o contato.
 function onCompanyChange() {
     const companyId = document.getElementById('mt-company').value;
-    const contactSel = document.getElementById('mt-contact');
-    document.getElementById('mt-contact-search').value = '';
-    contactSel.innerHTML = '';
+    const contactInput = document.getElementById('mt-contact-search');
+    // Reseta o contato atual
+    document.getElementById('mt-contact').value = '';
+    contactInput.value = '';
+    mtContactCache = [];
+    document.getElementById('mt-contact-list').innerHTML = '';
+
     if (!companyId) {
-        contactSel.disabled = true;
-        contactSel.innerHTML = '<option value="">Selecione uma empresa primeiro...</option>';
+        contactInput.disabled = true;
+        contactInput.placeholder = 'Selecione uma empresa primeiro...';
         return;
     }
-    contactSel.disabled = true;
-    contactSel.innerHTML = '<option value="">Carregando...</option>';
+    contactInput.disabled = true;
+    contactInput.placeholder = 'Carregando contatos...';
     fetch(`${BASE}agenda/companyContacts/${companyId}`)
         .then(r => r.json())
         .then(d => {
-            const list = (d && d.contacts) ? d.contacts : [];
-            contactSel.innerHTML = '<option value="">Selecione um contato...</option>';
-            if (list.length === 0) {
-                contactSel.innerHTML = '<option value="">Nenhum contato nesta empresa</option>';
-                contactSel.disabled = true;
+            mtContactCache = (d && d.contacts) ? d.contacts : [];
+            renderContactList();
+            if (mtContactCache.length === 0) {
+                contactInput.disabled = true;
+                contactInput.placeholder = 'Nenhum contato nesta empresa';
                 return;
             }
-            list.forEach(c => {
-                const opt = document.createElement('option');
-                opt.value = c.id;
-                opt.textContent = c.name;
-                opt.setAttribute('data-name', (c.name || '').toLowerCase());
-                opt.setAttribute('data-email', c.email || '');
-                opt.setAttribute('data-phone', c.phone || '');
-                opt.setAttribute('data-contact-name', c.name || '');
-                contactSel.appendChild(opt);
-            });
-            contactSel.disabled = false;
+            contactInput.disabled = false;
+            contactInput.placeholder = 'Buscar e selecionar contato...';
         })
         .catch(() => {
-            contactSel.innerHTML = '<option value="">Erro ao carregar contatos</option>';
-            contactSel.disabled = true;
+            contactInput.disabled = true;
+            contactInput.placeholder = 'Erro ao carregar contatos';
         });
 }
 
-// Ao escolher o contato: preenche os campos snapshot (nome/telefone/email) já existentes.
+// Seleciona um contato: guarda o id e preenche o snapshot (nome/telefone/email).
 // NÃO altera o contact_id do CRM (agenda_meetings.contact_id continua apontando p/ whatsapp_contacts).
-function onContactChange() {
-    const sel = document.getElementById('mt-contact');
-    const opt = sel.options[sel.selectedIndex];
-    if (!opt || !opt.value) return;
-    const name  = opt.getAttribute('data-contact-name') || '';
-    const email = opt.getAttribute('data-email') || '';
-    const phone = opt.getAttribute('data-phone') || '';
+function selectContact(item) {
+    const id = item.getAttribute('data-value');
+    const name  = item.getAttribute('data-contact-name') || '';
+    const email = item.getAttribute('data-email') || '';
+    const phone = item.getAttribute('data-phone') || '';
+    document.getElementById('mt-contact').value = id || '';
+    document.getElementById('mt-contact-search').value = name;
+    document.getElementById('mt-contact-list').querySelectorAll('.mt-combo-item').forEach(i => {
+        i.classList.toggle('selected', i === item);
+    });
     document.getElementById('mt-client-name').value = name;
     document.getElementById('mt-client-phone').value = phone;
     if (email) document.getElementById('mt-client-email').value = email;
+    closeContactList();
 }
+
+// Clique nos itens das listas (delegação) + fechar ao clicar fora.
+document.addEventListener('click', function(e) {
+    const compItem = e.target.closest('#mt-company-list .mt-combo-item');
+    if (compItem) { selectCompany(compItem.getAttribute('data-value'), compItem.textContent); return; }
+
+    const contItem = e.target.closest('#mt-contact-list .mt-combo-item');
+    if (contItem) { selectContact(contItem); return; }
+
+    // Fecha as listas se o clique foi fora dos respectivos comboboxes
+    if (!e.target.closest('#mt-company-combo')) closeCompanyList();
+    if (!e.target.closest('#mt-contact-combo')) closeContactList();
+});
 
 // ===== Participantes (dropdown com multisseleção) =====
 
@@ -781,13 +1053,52 @@ function showMeetLink(link) {
     }
 }
 
-// Gera o link do Meet no Google antes de salvar
+// ===== Opções de reunião (uma OU outra) =====
+// Selecionar "Google Meet" gera o link do Meet imediatamente.
+// Selecionar "Sala de vídeo do sistema" cria a sala imediatamente (quando pública);
+// se for privada, gera após escolher os administradores.
+// Como Meet e Sala compartilham o mesmo campo (mt-meet-link), trocar de opção
+// SEMPRE limpa o link anterior — garantindo que nunca existam os dois ao mesmo tempo.
+function clearMeetingLink() {
+    document.getElementById('mt-meet-link').value = '';
+    document.getElementById('mt-google-event-id').value = '';
+    document.getElementById('mt-meet-hint').innerHTML = '';
+}
+
+function onMeetingModeChange() {
+    const mode = document.querySelector('input[name="mt-meeting-mode"]:checked')?.value || '';
+    const roomOptions = document.getElementById('mt-room-options');
+
+    // Toda troca de opção descarta o link gerado anteriormente (exclusividade).
+    clearMeetingLink();
+
+    // Mostra os controles da sala do sistema apenas no modo "room".
+    if (roomOptions) roomOptions.style.display = (mode === 'room') ? '' : 'none';
+
+    if (mode === 'meet') {
+        generateMeet();
+    } else if (mode === 'room') {
+        onRoomVisibilityChange();
+        // Sala pública: gera com 1 clique. Sala privada: aguarda escolher admins.
+        const visibility = document.querySelector('input[name="mt-room-visibility"]:checked')?.value || 'public';
+        if (visibility === 'public') generateVideoRoom();
+    }
+}
+
+// Gera o link do Meet no Google antes de salvar.
+// Pode ser chamada sem botão (a partir do seletor de opções).
 function generateMeet(btn) {
     const meetingAt = document.getElementById('mt-meeting-at').value;
-    if (!meetingAt) { alert('Informe a data e o horário da reunião primeiro.'); return; }
-    const original = btn.innerHTML;
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Gerando...';
+    if (!meetingAt) {
+        alert('Informe a data e o horário da reunião primeiro.');
+        // Reverte a seleção, pois não foi possível gerar.
+        document.getElementById('mt-mode-none').checked = true;
+        onMeetingModeChange();
+        return;
+    }
+    const hint = document.getElementById('mt-meet-hint');
+    hint.innerHTML = '<span class="text-muted"><i class="bi bi-hourglass-split"></i> Gerando link do Meet...</span>';
+    if (btn) { btn.disabled = true; }
 
     const fd = new FormData();
     fd.append('title', document.getElementById('mt-title').value.trim() || 'Reunião');
@@ -802,13 +1113,13 @@ function generateMeet(btn) {
 
     fetch(`${BASE}agenda/generateMeet`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json()).then(d => {
-            btn.disabled = false; btn.innerHTML = original;
-            if (d.error) { alert(d.error); return; }
+            if (btn) { btn.disabled = false; }
+            if (d.error) { alert(d.error); clearMeetingLink(); return; }
             document.getElementById('mt-google-event-id').value = d.event_id || '';
             document.getElementById('mt-meet-link').value = d.meet_link || '';
             showMeetLink(d.meet_link);
         })
-        .catch(() => { btn.disabled = false; btn.innerHTML = original; alert('Erro ao gerar o link.'); });
+        .catch(() => { if (btn) { btn.disabled = false; } clearMeetingLink(); alert('Erro ao gerar o link.'); });
 }
 
 // Mostra o seletor de administradores quando a sala de vídeo é privada.
@@ -816,15 +1127,20 @@ function onRoomVisibilityChange() {
     const v = document.querySelector('input[name="mt-room-visibility"]:checked')?.value || 'public';
     const blk = document.getElementById('mt-room-admins-block');
     if (blk) blk.style.display = (v === 'private') ? '' : 'none';
+    // Trocar entre pública/privada invalida o link anterior da sala.
+    clearMeetingLink();
+    // Pública gera direto; privada espera a escolha dos admins.
+    if (v === 'public') generateVideoRoom();
 }
 
 // Gera uma SALA DE VÍDEO nativa do sistema (WebRTC em grupo, sem API externa).
 // O link público entra no campo do Meet (mt-meet-link), então já será enviado
 // nos convites por e-mail/WhatsApp e serve para o Fathom entrar e gravar.
+// Pode ser chamada sem botão (a partir do seletor de opções).
 function generateVideoRoom(btn) {
-    const original = btn.innerHTML;
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Criando...';
+    const hint = document.getElementById('mt-meet-hint');
+    hint.innerHTML = '<span class="text-muted"><i class="bi bi-hourglass-split"></i> Criando sala de vídeo...</span>';
+    if (btn) { btn.disabled = true; }
 
     const fd = new FormData();
     fd.append('title', document.getElementById('mt-title').value.trim() || 'Videochamada');
@@ -838,19 +1154,32 @@ function generateVideoRoom(btn) {
 
     fetch(`${BASE}videocall/create`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json()).then(d => {
-            btn.disabled = false; btn.innerHTML = original;
-            if (d.error) { alert(d.error); return; }
+            if (btn) { btn.disabled = false; }
+            if (d.error) { alert(d.error); clearMeetingLink(); return; }
             // Reaproveita o campo do Meet para o link da chamada (vai nos convites).
             document.getElementById('mt-meet-link').value = d.url || '';
             document.getElementById('mt-google-event-id').value = '';
             showMeetLink(d.url);
         })
-        .catch(() => { btn.disabled = false; btn.innerHTML = original; alert('Erro ao criar a sala de vídeo.'); });
+        .catch(() => { if (btn) { btn.disabled = false; } clearMeetingLink(); alert('Erro ao criar a sala de vídeo.'); });
 }
 
 function saveMeeting() {
     const title = document.getElementById('mt-title').value.trim();
     if (!title) { alert('Informe o título.'); return; }
+
+    // Data no passado: bloqueia apenas em reunião NOVA (sem id). Ao editar uma reunião
+    // já existente permitimos data anterior a agora (registro retroativo).
+    const meetingId = document.getElementById('mt-id').value;
+    const meetingAtVal = document.getElementById('mt-meeting-at').value;
+    if (!meetingId && meetingAtVal) {
+        const when = new Date(meetingAtVal);
+        if (!isNaN(when.getTime()) && when.getTime() < Date.now()) {
+            alert('A data e o horário da reunião não podem estar no passado.');
+            document.getElementById('mt-meeting-at').focus();
+            return;
+        }
+    }
 
     const meetingType = document.getElementById('mt-type').value;
     const isOperational = meetingType === 'operacional';

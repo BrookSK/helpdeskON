@@ -243,6 +243,12 @@ class AgendaController extends Controller
             if ($preMeetLink) $data['meet_link'] = $preMeetLink;
         }
 
+        // Defesa em profundidade: reunião NOVA não pode ser agendada no passado.
+        // (Na edição — método update — permitimos data retroativa para registro.)
+        if (!empty($data['meeting_at']) && strtotime($data['meeting_at']) < time()) {
+            $this->json(['error' => 'A data e o horário da reunião não podem estar no passado.'], 400);
+        }
+
         try {
             $id = $this->model->create($data);
         } catch (\Throwable $e) {
