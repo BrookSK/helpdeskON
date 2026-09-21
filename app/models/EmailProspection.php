@@ -66,8 +66,17 @@ class EmailProspection
         return $this->db->fetchAll($sql, $params);
     }
 
+    /** Status aceitos pela coluna email_prospections.status (ENUM). */
+    public const STATUSES = ['sent', 'failed', 'draft'];
+
     public function create($data)
     {
+        // Guarda: a coluna status é ENUM('sent','failed','draft'). Se vier algo
+        // fora disso (ex.: 'received'/'queued' do email_messages), normaliza para
+        // não gravar '' silenciosamente (ou falhar em strict mode).
+        if (isset($data['status']) && !in_array($data['status'], self::STATUSES, true)) {
+            $data['status'] = 'sent';
+        }
         return $this->db->insert('email_prospections', $data);
     }
 
@@ -192,8 +201,18 @@ class EmailProspection
         $encryption = $account['smtp_encryption'];
         $user = $account['smtp_username'];
         $pass = EmailAccount::decryptPassword($account['smtp_password']);
-        $fromName = $account['display_name'] ?: $account['email'];
-        $fromEmail = $account['email'];
+        // Remove CR/LF de campos que entram nos cabeçalhos, evitando header
+        // injection (subject/nome/destinatário com \r\n injetariam BCC/headers).
+        $fromName = self::sanitizeHeader($account['display_name'] ?: $account['email']);
+        $fromEmail = self::sanitizeHeader($account['email']);
+        $subject = self::sanitizeHeader($subject);
+        $to = self::sanitizeHeader($to);
+
+        // Revalida o destinatário principal aqui também (defesa em profundidade;
+        // o controller valida, mas este método é reutilizado por vários fluxos).
+        if (!filter_var($to, FILTER_VALIDATE_EMAIL)) {
+            return 'Destinatário inválido.';
+        }
 
         try {
             $prefix = ($encryption === 'ssl') ? 'ssl://' : '';
@@ -238,11 +257,20 @@ class EmailProspection
 
             // MAIL FROM
             fwrite($socket, "MAIL FROM:<{$fromEmail}>\r\n");
-            $this->readSmtpResponse($socket);
+            $mailFromResp = $this->readSmtpResponse($socket);
+            if (substr($mailFromResp, 0, 1) !== '2') {
+                fclose($socket);
+                return "Remetente recusado pelo servidor: {$mailFromResp}";
+            }
 
-            // RCPT TO (destinatário principal)
+            // RCPT TO (destinatário principal) — valida a resposta para não dar
+            // falso "enviado" quando o servidor recusa o destinatário.
             fwrite($socket, "RCPT TO:<{$to}>\r\n");
-            $this->readSmtpResponse($socket);
+            $rcptResp = $this->readSmtpResponse($socket);
+            if (substr($rcptResp, 0, 1) !== '2') {
+                fclose($socket);
+                return "Destinatário recusado pelo servidor: {$rcptResp}";
+            }
 
             // RCPT TO (CC)
             $ccList = $cc ? array_filter(array_map('trim', explode(',', $cc))) : [];
@@ -327,5 +355,14 @@ class EmailProspection
             if (substr($line, 3, 1) === ' ') break;
         }
         return $response;
+    }
+
+    /**
+     * Remove quebras de linha (CR/LF) de um valor que será usado em cabeçalho
+     * de e-mail, prevenindo header/BCC injection. Também apara espaços das pontas.
+     */
+    public static function sanitizeHeader($value): string
+    {
+        return trim(str_replace(["\r", "\n", "\0"], '', (string) $value));
     }
 }

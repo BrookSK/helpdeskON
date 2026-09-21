@@ -190,32 +190,10 @@ class EmailMessageService
                 ['message_id' => $messageId, 'to' => $to, 'origin' => $origin],
                 $params['sent_by'] ?? null);
 
-            // Espelha na caixa de enviados (email_prospections) para aparecer no
-            // Histórico de Prospecção — inclusive envios automáticos das sequências.
-            // user_id e email_account_id são NOT NULL: quando o envio veio de uma
-            // sequência (sem usuário logado), o REMETENTE deve refletir o DONO da
-            // conta de envio, não um super_admin genérico.
-            try {
-                $cName = $this->db->fetch("SELECT contact_name FROM whatsapp_contacts WHERE id = ?", [$contactId]);
-                $accId = $account['id'] ?? null;
-                $uid = $params['sent_by'] ?? null;
-                if (!$uid) {
-                    $uid = $this->resolveAccountOwner($accId);
-                }
-                if ($uid && $accId) {
-                    $this->prospection->create([
-                        'user_id' => $uid,
-                        'email_account_id' => $accId,
-                        'contact_id' => $contactId,
-                        'recipient_email' => $to,
-                        'recipient_name' => $cName['contact_name'] ?? null,
-                        'subject' => $subject,
-                        'body' => $body,
-                        'status' => 'sent',
-                        'sent_at' => date('Y-m-d H:i:s'),
-                    ]);
-                }
-            } catch (\Throwable $e) { /* não bloqueia o envio se o espelho falhar */ }
+            // Espelha na caixa de enviados (email_prospections) — ponto ÚNICO do
+            // espelho, para não duplicar registro no Histórico de Prospecção
+            // (antes o ProspectionController também gravava, dobrando as métricas).
+            $this->mirrorToProspections($params, $contactId, $account, $to, $subject, $body, true, null);
 
             return ['success' => true, 'message_id' => $messageId];
         }
@@ -224,7 +202,57 @@ class EmailMessageService
             'status' => 'failed',
             'error_message' => is_string($result) ? $result : 'Falha no envio',
         ], 'id = ?', [$messageId]);
+
+        // Espelha a FALHA também, para o Histórico de Prospecção refletir o envio
+        // que não deu certo (status 'failed'). Ponto único do espelho.
+        $this->mirrorToProspections($params, $contactId, $account, $to, $subject, $body, false, is_string($result) ? $result : 'Falha no envio');
+
         return ['success' => false, 'error' => is_string($result) ? $result : 'Falha no envio', 'message_id' => $messageId];
+    }
+
+    /**
+     * Espelha o envio em email_prospections (caixa de enviados / métricas do
+     * dashboard). É o ÚNICO lugar que grava esse espelho — o controller não deve
+     * duplicar. Aceita campos extras (recipient_name, cc, bcc, attachments_json)
+     * via $params. Nunca bloqueia o fluxo em caso de erro.
+     *
+     * @param bool        $ok    envio bem-sucedido?
+     * @param string|null $error mensagem de erro (quando $ok === false)
+     */
+    private function mirrorToProspections(array $params, $contactId, $account, $to, $subject, $body, bool $ok, ?string $error): void
+    {
+        try {
+            $accId = $account['id'] ?? null;
+            $uid = $params['sent_by'] ?? null;
+            if (!$uid) {
+                $uid = $this->resolveAccountOwner($accId);
+            }
+            if (!$uid || !$accId) {
+                return; // user_id e email_account_id são NOT NULL
+            }
+
+            $recipientName = $params['recipient_name'] ?? null;
+            if (!$recipientName) {
+                $cName = $this->db->fetch("SELECT contact_name FROM whatsapp_contacts WHERE id = ?", [$contactId]);
+                $recipientName = $cName['contact_name'] ?? null;
+            }
+
+            $this->prospection->create([
+                'user_id' => $uid,
+                'email_account_id' => $accId,
+                'contact_id' => $contactId,
+                'recipient_email' => $to,
+                'recipient_name' => $recipientName,
+                'cc' => $params['cc'] ?? null,
+                'bcc' => $params['bcc'] ?? null,
+                'subject' => $subject,
+                'body' => $body,
+                'attachments_json' => $params['attachments_json'] ?? null,
+                'status' => $ok ? 'sent' : 'failed',
+                'error_message' => $ok ? null : $error,
+                'sent_at' => $ok ? date('Y-m-d H:i:s') : null,
+            ]);
+        } catch (\Throwable $e) { /* não bloqueia o envio se o espelho falhar */ }
     }
 
     /**

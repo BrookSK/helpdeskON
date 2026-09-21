@@ -231,11 +231,17 @@ class AgendaMeeting
     /**
      * Série mensal de reuniões por status (últimos N meses), opcionalmente por usuário.
      */
-    public function getMonthlyTrend($months = 6, $userId = null)
+    public function getMonthlyTrend($months = 6, $userId = null, $endAnchor = null)
     {
+        // Âncora do último mês da série: por padrão o mês atual; quando o dashboard
+        // filtra um período, ancora no fim do período para a série refletir o filtro.
+        $anchorTs = $endAnchor ? strtotime((string) $endAnchor) : time();
+        if (!$anchorTs) $anchorTs = time();
+        $anchorYm = date('Y-m-01', $anchorTs);
+
         $result = [];
         for ($i = $months - 1; $i >= 0; $i--) {
-            $ym = date('Y-m', strtotime("-{$i} months"));
+            $ym = date('Y-m', strtotime("-{$i} months", strtotime($anchorYm)));
             $sql = "SELECT status, COUNT(*) as total FROM agenda_meetings
                     WHERE DATE_FORMAT(created_at, '%Y-%m') = ?";
             $params = [$ym];

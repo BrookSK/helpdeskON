@@ -7,20 +7,11 @@ class MarketingController extends Controller
     // Papéis com acesso ao módulo
     private $accessRoles = ['super_admin', 'marketing'];
 
-    // Status válidos, em ordem de fluxo
-    public static $statuses = ['rascunho', 'ideia', 'em_producao', 'aguardando_aprovacao', 'aprovado', 'agendado', 'publicado', 'rejeitado'];
+    // Status válidos, em ordem de fluxo. Fonte única: MarketingRules.
+    public static $statuses = MarketingRules::STATUSES;
 
     // Rótulos amigáveis dos status (para mensagens de notificação)
-    public static $statusLabels = [
-        'rascunho' => 'Rascunho',
-        'ideia' => 'Ideia',
-        'em_producao' => 'Em produção',
-        'aguardando_aprovacao' => 'Aguardando aprovação',
-        'aprovado' => 'Aprovado',
-        'agendado' => 'Agendado',
-        'publicado' => 'Publicado',
-        'rejeitado' => 'Rejeitado',
-    ];
+    public static $statusLabels = MarketingRules::STATUS_LABELS;
 
     public function __construct()
     {
@@ -165,7 +156,28 @@ class MarketingController extends Controller
             $assignedTo = !empty($_POST['assigned_to']) ? intval($_POST['assigned_to']) : null;
         }
 
-        $status = in_array($_POST['status'] ?? '', self::$statuses) ? $_POST['status'] : 'ideia';
+        $isAdmin = $this->isAdmin();
+        $status = MarketingRules::normalizeStatus($_POST['status'] ?? '', 'ideia');
+
+        // Bloqueio de permissão: marketing não pode CRIAR já aprovado/rejeitado
+        // (mesma regra do update; antes o create aceitava qualquer status válido,
+        // furando o fluxo de aprovação).
+        if (!MarketingRules::canSetStatus($user['role'], $status)) {
+            $this->json(['error' => 'Somente o administrador pode aprovar ou rejeitar o conteúdo.'], 403);
+        }
+
+        // Sem imagem, um não-admin não pode criar direto em status avançado.
+        // Na criação ainda não há anexo, então qualquer status que exige imagem
+        // é rebaixado para rascunho (o upload acontece depois).
+        if (!$isAdmin && MarketingRules::requiresImage($status)) {
+            $status = 'rascunho';
+        }
+
+        // Valida o holiday_id: só grava se existir de fato (evita órfão).
+        $holidayId = !empty($_POST['holiday_id']) ? intval($_POST['holiday_id']) : null;
+        if ($holidayId && !$this->itemModel->findHoliday($holidayId)) {
+            $holidayId = null;
+        }
 
         $data = [
             'title' => $title,
@@ -177,7 +189,7 @@ class MarketingController extends Controller
             'briefing' => trim($_POST['briefing'] ?? '') ?: null,
             'copy' => trim($_POST['copy'] ?? '') ?: null,
             'status' => $status,
-            'holiday_id' => !empty($_POST['holiday_id']) ? intval($_POST['holiday_id']) : null,
+            'holiday_id' => $holidayId,
         ];
 
         $id = $this->itemModel->create($data);
@@ -242,10 +254,9 @@ class MarketingController extends Controller
 
         // Status: marketing pode mudar entre os status de produção, mas não pode "aprovar".
         $hasImage = $this->hasImageAttachment($id);
-        if (isset($_POST['status']) && in_array($_POST['status'], self::$statuses)) {
+        if (isset($_POST['status']) && MarketingRules::isValidStatus($_POST['status'])) {
             $newStatus = $_POST['status'];
-            $forbiddenForMarketing = ['aprovado', 'rejeitado'];
-            if (!$isAdmin && in_array($newStatus, $forbiddenForMarketing)) {
+            if (!MarketingRules::canSetStatus($user['role'], $newStatus)) {
                 $this->json(['error' => 'Somente o administrador pode aprovar ou rejeitar o conteúdo.'], 403);
             }
             // Uma demanda que já passou da aprovação (aprovado/agendado/publicado) NUNCA
@@ -254,11 +265,7 @@ class MarketingController extends Controller
             // ("aguardando_aprovacao") por cima do status atual. A única forma de reabrir
             // é uma ação explícita: returnToApproval() ou requestChanges().
             // Aqui apenas ignoramos silenciosamente o status recuado e preservamos o atual.
-            $postApprovalStatuses = ['aprovado', 'agendado', 'publicado'];
-            $isBackwardFromApproved = in_array($item['status'], $postApprovalStatuses, true)
-                && !in_array($newStatus, $postApprovalStatuses, true);
-
-            if ($isBackwardFromApproved) {
+            if (MarketingRules::isBackwardFromApproved($item['status'], $newStatus)) {
                 // Não altera o status: a edição de conteúdo (título/copy/briefing/anexos)
                 // continua valendo, mas a demanda permanece no status atual.
                 $newStatus = null;
@@ -267,8 +274,7 @@ class MarketingController extends Controller
             if ($newStatus !== null) {
                 // Regra: para sair de rascunho e seguir no fluxo (produção/aprovação) é
                 // obrigatório ter ao menos uma imagem anexada. Sem imagem, fica em rascunho.
-                $needsImageStatuses = ['em_producao', 'aguardando_aprovacao', 'aprovado', 'agendado', 'publicado'];
-                if (!$isAdmin && in_array($newStatus, $needsImageStatuses) && !$hasImage) {
+                if (!$isAdmin && MarketingRules::requiresImage($newStatus) && !$hasImage) {
                     $this->json(['error' => 'Anexe ao menos uma imagem para enviar a demanda. Sem imagem, só é possível salvar como rascunho.'], 422);
                 }
                 $data['status'] = $newStatus;
@@ -329,8 +335,7 @@ class MarketingController extends Controller
     private function hasImageAttachment($itemId)
     {
         foreach ($this->itemModel->getAttachments($itemId) as $att) {
-            if (preg_match('/\.(jpe?g|png|gif|webp|bmp|svg)$/i', $att['file_name'])
-                || strpos((string)$att['file_type'], 'image/') === 0) {
+            if (MarketingRules::isImageAttachment($att['file_name'] ?? null, $att['file_type'] ?? null)) {
                 return true;
             }
         }
@@ -458,7 +463,7 @@ class MarketingController extends Controller
         if (!$item) $this->json(['error' => 'Item não encontrado'], 404);
 
         // Só faz sentido retornar para aprovações uma demanda que já foi aprovada/agendada.
-        if (!in_array($item['status'], ['aprovado', 'agendado'], true)) {
+        if (!MarketingRules::canReturnToApproval($item['status'])) {
             $this->json(['error' => 'Apenas demandas aprovadas ou agendadas podem ser retornadas para a fila de aprovações.'], 409);
         }
 

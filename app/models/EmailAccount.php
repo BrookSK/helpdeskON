@@ -138,7 +138,28 @@ class EmailAccount
 
     private static function getEncryptionKey()
     {
-        // Usa uma chave derivada do app_name + salt fixo
+        // Preferência: segredo dedicado, fora do código-fonte.
+        //   1) variável de ambiente EMAIL_ENCRYPTION_KEY (recomendado);
+        //   2) setting 'email_encryption_key' no banco (Configurações);
+        //   3) fallback legado (derivação do app_name) — mantido para não quebrar
+        //      a leitura de senhas já criptografadas em instalações existentes.
+        //
+        // ATENÇÃO: ao adotar o segredo dedicado numa base que já tinha senhas
+        // salvas com o fallback legado, as contas precisam ser re-salvas (a senha
+        // é re-criptografada com a nova chave ao editar a conta).
+        $secret = getenv('EMAIL_ENCRYPTION_KEY');
+        if (!$secret) {
+            try {
+                $secret = Config::get('email_encryption_key');
+            } catch (\Throwable $e) {
+                $secret = null;
+            }
+        }
+        if ($secret) {
+            return hash('sha256', (string) $secret, true);
+        }
+
+        // Fallback legado (compatibilidade retroativa).
         $appName = Config::get('app_name', 'helpdeskON');
         return hash('sha256', $appName . '_email_encryption_key_2024', true);
     }

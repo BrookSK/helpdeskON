@@ -120,6 +120,10 @@ class ProspectionController extends Controller
         // Envio + registro unificado (email_messages) com tracking, quando há lead resolvido.
         if ($contactId) {
             $emailSvc = new EmailMessageService();
+            // O próprio EmailMessageService espelha em email_prospections (sucesso
+            // OU falha) — ponto único. Passamos os campos extras para o espelho
+            // ficar completo. NÃO gravamos aqui de novo (evita dupla contagem no
+            // dashboard de performance).
             $res = $emailSvc->send([
                 'contact_id' => $contactId,
                 'account' => $account,
@@ -130,16 +134,8 @@ class ProspectionController extends Controller
                 'sent_by' => $user['id'],
                 'cc' => $cc,
                 'bcc' => $bcc,
-            ]);
-            // Mantém compatibilidade com o histórico antigo (email_prospections + métricas)
-            $this->prospectionModel->create([
-                'user_id' => $user['id'], 'email_account_id' => $accountId, 'contact_id' => $contactId,
-                'recipient_email' => $recipientEmail, 'recipient_name' => $recipientName,
-                'cc' => $cc, 'bcc' => $bcc, 'subject' => $subject, 'body' => $body,
+                'recipient_name' => $recipientName,
                 'attachments_json' => !empty($attachmentsJson) ? json_encode($attachmentsJson) : null,
-                'status' => !empty($res['success']) ? 'sent' : 'failed',
-                'error_message' => empty($res['success']) ? ($res['error'] ?? null) : null,
-                'sent_at' => !empty($res['success']) ? date('Y-m-d H:i:s') : null,
             ]);
             if (!empty($res['success'])) {
                 $this->json(['success' => true, 'message' => 'E-mail enviado com sucesso!', 'contact_id' => $contactId, 'email_message_id' => $res['message_id']]);
