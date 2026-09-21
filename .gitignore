@@ -30,4 +30,12 @@ phpunit_out.txt
 phpunit_result.txt
 setup_result.txt
 tests/setup_test_db.log
-fetchColumn()
+
+# E2E (Playwright / Node)
+/node_modules/
+/package-lock.json
+e2e_result.txt
+tests-e2e/report/
+tests-e2e/.artifacts/
+test-results/
+playwright-report/

@@ -1,0 +1,16 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "E2E da sala de vídeo ao salvar room.php",
+      "trigger": "PostFileSave",
+      "description": "Roda os testes E2E da sala de vídeo (Playwright) quando o room.php é salvo, pegando regressões visuais (ex.: ícone de câmera) cedo.",
+      "matcher": "videocall[\\\\/]room\\.php$",
+      "action": {
+        "type": "command",
+        "command": "cmd /c npx playwright test tests-e2e/videocall-camera-icon.spec.ts --reporter=list",
+        "timeout": 180
+      }
+    }
+  ]
+}
