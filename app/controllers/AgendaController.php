@@ -2,7 +2,7 @@
 
 class AgendaController extends Controller
 {
-    private $accessRoles = ['super_admin', 'comercial'];
+    private $accessRoles = ['super_admin', 'comercial', 'marketing'];
     private $model;
     private $contactModel;
 
@@ -141,7 +141,7 @@ class AgendaController extends Controller
 
         // Tipo da reunião: comercial (fluxo atual), operacional (interna, só participantes)
         // ou externo (convidados que NÃO fazem parte do sistema — demanda #210).
-        $meetingType = in_array($_POST['meeting_type'] ?? '', ['comercial', 'operacional', 'externo']) ? $_POST['meeting_type'] : 'comercial';
+        $meetingType = AgendaRules::normalizeMeetingType($_POST['meeting_type'] ?? '');
         $isOperational = $meetingType === 'operacional';
         $isExternal = $meetingType === 'externo';
 
@@ -174,6 +174,11 @@ class AgendaController extends Controller
             }
         }
 
+        // Sala de vídeo do sistema (nativa): quando o usuário escolhe usar a sala
+        // de vídeo interna (video_conference=1), qualquer tipo de reunião pode ter
+        // uma sala vinculada. É ortogonal ao Meet do Google.
+        $useVideoRoom = !empty($_POST['use_video_room']) || (($_POST['video_conference'] ?? '') === 'system');
+
         $data = [
             'title' => $title,
             'meeting_type' => $meetingType,
@@ -182,10 +187,10 @@ class AgendaController extends Controller
             'client_phone' => trim($_POST['client_phone'] ?? '') ?: (trim($_POST['new_client_phone'] ?? '') ?: null),
             'assigned_to' => !empty($_POST['assigned_to']) ? intval($_POST['assigned_to']) : $user['id'],
             'created_by' => $user['id'],
-            'urgency' => in_array($_POST['urgency'] ?? '', ['baixa','media','alta','urgente']) ? $_POST['urgency'] : 'media',
-            'temperature' => in_array($_POST['temperature'] ?? '', ['frio','morno','quente']) ? $_POST['temperature'] : null,
-            'status' => in_array($_POST['status'] ?? '', AgendaMeeting::$statuses) ? $_POST['status'] : 'a_agendar',
-            'meeting_at' => !empty($_POST['meeting_at']) ? str_replace('T', ' ', $_POST['meeting_at']) : null,
+            'urgency' => AgendaRules::normalizeUrgency($_POST['urgency'] ?? ''),
+            'temperature' => AgendaRules::normalizeTemperature($_POST['temperature'] ?? ''),
+            'status' => AgendaRules::normalizeStatus($_POST['status'] ?? ''),
+            'meeting_at' => AgendaRules::normalizeMeetingAt($_POST['meeting_at'] ?? ''),
             'notes' => trim($_POST['notes'] ?? '') ?: null,
         ];
 
@@ -260,6 +265,12 @@ class AgendaController extends Controller
         $participantIds = array_filter(array_map('intval', $_POST['participants'] ?? []));
         if (!empty($participantIds)) {
             $this->model->setParticipants($id, $participantIds);
+        }
+
+        // Sala de vídeo do sistema (nativa): cria e vincula à reunião quando pedido.
+        // Ortogonal ao Meet: a reunião pode ter os dois. Não interrompe o fluxo se falhar.
+        if ($useVideoRoom) {
+            $this->createSystemVideoRoom($id, $user, $participantIds);
         }
 
         // Salva/atualiza o briefing do cliente (só reunião comercial com contato vinculado)
@@ -434,30 +445,11 @@ class AgendaController extends Controller
      */
     private function parseExternalGuests()
     {
-        $names  = $_POST['external_name']  ?? [];
-        $emails = $_POST['external_email'] ?? [];
-        $phones = $_POST['external_phone'] ?? [];
-
-        if (!is_array($names))  $names  = [$names];
-        if (!is_array($emails)) $emails = [$emails];
-        if (!is_array($phones)) $phones = [$phones];
-
-        $guests = [];
-        $count = max(count($names), count($emails), count($phones));
-        for ($i = 0; $i < $count; $i++) {
-            $name  = trim($names[$i]  ?? '');
-            $email = trim($emails[$i] ?? '');
-            $phone = preg_replace('/\D/', '', trim($phones[$i] ?? ''));
-
-            // Descarta linhas totalmente vazias.
-            if ($name === '' && $email === '' && $phone === '') continue;
-            // Precisa de nome e ao menos um canal de contato.
-            if ($name === '' || ($email === '' && $phone === '')) continue;
-            if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) $email = '';
-
-            $guests[] = ['name' => $name, 'email' => $email, 'phone' => $phone];
-        }
-        return $guests;
+        return AgendaRules::parseExternalGuests(
+            $_POST['external_name']  ?? [],
+            $_POST['external_email'] ?? [],
+            $_POST['external_phone'] ?? []
+        );
     }
 
     /**
@@ -725,10 +717,10 @@ class AgendaController extends Controller
         $data = [];
         if (isset($_POST['title'])) $data['title'] = trim($_POST['title']);
         if (isset($_POST['assigned_to'])) $data['assigned_to'] = $_POST['assigned_to'] ?: null;
-        if (isset($_POST['urgency']) && in_array($_POST['urgency'], ['baixa','media','alta','urgente'])) $data['urgency'] = $_POST['urgency'];
-        if (isset($_POST['temperature'])) $data['temperature'] = in_array($_POST['temperature'], ['frio','morno','quente']) ? $_POST['temperature'] : null;
-        if (isset($_POST['status']) && in_array($_POST['status'], AgendaMeeting::$statuses)) $data['status'] = $_POST['status'];
-        if (isset($_POST['meeting_at'])) $data['meeting_at'] = $_POST['meeting_at'] ? str_replace('T', ' ', $_POST['meeting_at']) : null;
+        if (isset($_POST['urgency']) && in_array($_POST['urgency'], AgendaRules::URGENCIES)) $data['urgency'] = $_POST['urgency'];
+        if (isset($_POST['temperature'])) $data['temperature'] = AgendaRules::normalizeTemperature($_POST['temperature']);
+        if (isset($_POST['status']) && AgendaRules::isValidStatus($_POST['status'])) $data['status'] = $_POST['status'];
+        if (isset($_POST['meeting_at'])) $data['meeting_at'] = AgendaRules::normalizeMeetingAt($_POST['meeting_at']);
         if (isset($_POST['notes'])) $data['notes'] = trim($_POST['notes']) ?: null;
         if (isset($_POST['client_email'])) $data['client_email'] = trim($_POST['client_email']) ?: null;
 
@@ -766,6 +758,12 @@ class AgendaController extends Controller
             $this->ensureExternalInviteSchema();
             if (isset($_POST['external_name']) || isset($_POST['external_email']) || isset($_POST['external_phone'])) {
                 $guests = $this->parseExternalGuests();
+                // Uma reunião externa precisa manter ao menos um convidado válido.
+                // Se o usuário enviou os campos mas nenhum é válido, é erro (não
+                // deixa esvaziar silenciosamente, como no create).
+                if (empty($guests)) {
+                    $this->json(['error' => 'Informe ao menos um convidado externo (nome + e-mail ou telefone).'], 400);
+                }
                 $this->model->update($id, ['external_guests' => json_encode($guests, JSON_UNESCAPED_UNICODE)]);
             }
             if (isset($_POST['register_google'])) {
@@ -1000,6 +998,10 @@ class AgendaController extends Controller
         $status = $_POST['status'] ?? '';
         if (!in_array($status, AgendaMeeting::$statuses)) $this->json(['error' => 'Status inválido'], 400);
 
+        // Valida a existência da reunião (evita "sucesso" falso para ID inexistente).
+        $meeting = $this->model->findById($id);
+        if (!$meeting) $this->json(['error' => 'Reunião não encontrada'], 404);
+
         // Não permite arrastar para "convertida" sem informar quem fechou — deve usar o modal
         if ($status === 'convertida') {
             $this->json(['error' => 'Para marcar como convertida, abra a reunião e informe quem fechou o negócio.'], 400);
@@ -1031,6 +1033,108 @@ class AgendaController extends Controller
 
         $this->model->delete($id);
         $this->json(['success' => true]);
+    }
+
+    // ===================================================================
+    // Sala de vídeo do sistema (nativa) vinculada à reunião
+    // ===================================================================
+
+    /**
+     * Cria uma sala de vídeo do sistema (video_rooms) vinculada à reunião, se
+     * ainda não houver uma sala ativa vinculada. Reaproveita o mesmo model usado
+     * pela videochamada (VideoRoom), com link público por token.
+     *
+     * Regras:
+     *  - visibility: 'public' (entra pelo link) ou 'private' (entrada aprovada).
+     *  - Em sala privada, o criador e os participantes internos viram admins.
+     *  - Salva o link público em agenda_meetings.meet_link quando ainda não há um
+     *    link de Meet definido, para a reunião ter um "link de entrada".
+     *
+     * @return array|null Dados da sala criada (ou existente), ou null em falha.
+     */
+    private function createSystemVideoRoom($meetingId, $user, array $participantIds = [])
+    {
+        try {
+            $meeting = $this->model->findById($meetingId);
+            if (!$meeting) return null;
+
+            $videoModel = new VideoRoom();
+
+            // Evita duplicar: se já há sala ativa vinculada a esta reunião, reusa.
+            $existing = Database::getInstance()->fetch(
+                "SELECT * FROM video_rooms WHERE meeting_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1",
+                [$meetingId]
+            );
+            if ($existing) return $existing;
+
+            $visibility = AgendaRules::normalizeVideoVisibility($_POST['video_visibility'] ?? 'public');
+            $max = AgendaRules::clampVideoMaxParticipants($_POST['video_max_participants'] ?? 15);
+            $allowPresentation = (($_POST['video_allow_presentation'] ?? '1') === '0') ? 0 : 1;
+
+            $token = $videoModel->create([
+                'title' => $meeting['title'],
+                'created_by' => $user['id'],
+                'company_id' => $this->activeCompanyId(),
+                'meeting_id' => (int) $meetingId,
+                'max_participants' => $max,
+                'allow_recording' => 1,
+                'allow_presentation' => $allowPresentation,
+                'status' => 'active',
+                'visibility' => $visibility,
+                'expires_at' => date('Y-m-d H:i:s', strtotime('+30 days')),
+            ]);
+
+            $room = $videoModel->findByToken($token);
+            if (!$room) return null;
+
+            // Sala privada: criador + participantes internos são administradores.
+            if ($visibility === 'private') {
+                $adminIds = $participantIds;
+                $adminIds[] = (int) $user['id'];
+                $adminIds = array_values(array_unique(array_filter(array_map('intval', $adminIds))));
+                $videoModel->setAdmins($room['id'], $adminIds);
+            }
+
+            // Se a reunião ainda não tem um link de entrada (Meet), usa o link da sala.
+            if (empty($meeting['meet_link'])) {
+                $publicUrl = rtrim((string) Config::get('app_public_url'), '/') ?: rtrim(baseUrl(''), '/');
+                $roomUrl = $publicUrl . '/videocall/room/' . $token;
+                try {
+                    $this->model->update($meetingId, ['meet_link' => $roomUrl]);
+                } catch (\Throwable $e) { /* ignora */ }
+            }
+
+            return $room;
+        } catch (\Throwable $e) {
+            if (class_exists('Logger')) {
+                Logger::error('createSystemVideoRoom falhou', ['meeting_id' => $meetingId, 'error' => $e->getMessage()]);
+            }
+            return null;
+        }
+    }
+
+    // API: cria (ou recupera) a sala de vídeo do sistema para uma reunião existente.
+    public function videoRoom($id = null)
+    {
+        $this->requireRole($this->accessRoles);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+
+        $meeting = $this->model->findById($id);
+        if (!$meeting) $this->json(['error' => 'Reunião não encontrada'], 404);
+
+        $user = $this->currentUser();
+        $participantIds = array_map(fn($p) => (int) $p['id'], $this->model->getParticipants($id));
+
+        $room = $this->createSystemVideoRoom($id, $user, $participantIds);
+        if (!$room) $this->json(['error' => 'Não foi possível criar a sala de vídeo.'], 500);
+
+        $publicUrl = rtrim((string) Config::get('app_public_url'), '/') ?: rtrim(baseUrl(''), '/');
+        $this->json([
+            'success' => true,
+            'token' => $room['token'],
+            'url' => $publicUrl . '/videocall/room/' . $room['token'],
+            'visibility' => $room['visibility'] ?? 'public',
+        ]);
     }
 
     // ===== Helpers =====

@@ -4,6 +4,7 @@ $title = htmlspecialchars(($room['title'] ?? 'Gravação') ?: 'Gravação', ENT_
 $recToken = htmlspecialchars($rec['token'], ENT_QUOTES);
 $videoUrl = htmlspecialchars($videoUrl, ENT_QUOTES);
 $status = $rec['transcribe_status'] ?? 'none';
+$durationSec = (int)($rec['duration_sec'] ?? 0);
 $summary = (string)($rec['summary'] ?? '');
 $segJson = json_encode($segments ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 $shareUrl = $base . '/videocall/share/' . $recToken;
@@ -32,6 +33,7 @@ $shareUrl = $base . '/videocall/share/' . $recToken;
         .wrap { display:grid; grid-template-columns:1fr 380px; gap:16px; padding:16px; max-width:1400px; margin:0 auto; }
         @media (max-width:900px){ .wrap { grid-template-columns:1fr; } }
         .player-col video { width:100%; border-radius:14px; background:#000; max-height:64vh; }
+
         .speed-bar { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-top:10px; }
         .speed-bar .lbl { color:#9aa2c0; font-size:.8rem; margin-right:4px; }
         .speed-btn { background:var(--panel2); border:1px solid #33375a; color:#e8eaf1; border-radius:8px; padding:4px 10px; font-size:.8rem; cursor:pointer; }
@@ -67,7 +69,7 @@ $shareUrl = $base . '/videocall/share/' . $recToken;
 
 <div class="wrap">
     <div class="player-col">
-        <video id="player" controls playsinline src="<?= $videoUrl ?>"></video>
+        <video id="player" controls playsinline preload="metadata" src="<?= $videoUrl ?>"></video>
         <div class="speed-bar">
             <span class="lbl"><i class="bi bi-speedometer2"></i> Velocidade:</span>
             <button class="speed-btn" data-s="0.5" onclick="setSpeed(0.5,this)">0.5x</button>
@@ -105,11 +107,22 @@ $shareUrl = $base . '/videocall/share/' . $recToken;
 <script>
 const BASE = '<?= $base ?>';
 const REC_TOKEN = '<?= $recToken ?>';
+const VIDEO_URL = '<?= $videoUrl ?>';
 const SHARE_URL = '<?= htmlspecialchars($shareUrl, ENT_QUOTES) ?>';
 let segments = <?= $segJson ?: '[]' ?>;
 let summary = <?= json_encode($summary, JSON_UNESCAPED_UNICODE) ?>;
 let status = '<?= $status ?>';
 const player = document.getElementById('player');
+
+// -------------------------------------------------------------------
+// Seek em qualquer minutagem.
+// As gravações do MediaRecorder (WebM) não gravavam o campo Duration nem índice
+// de busca — por isso o seek travava. A duração agora é INJETADA no arquivo pelo
+// SERVIDOR ao finalizar a gravação (e nas antigas, na primeira reprodução), e o
+// vídeo é servido com suporte a HTTP Range. Assim a barra fica correta e o seek
+// funciona para qualquer ponto SEM precisar baixar o arquivo inteiro (o que
+// travava em gravações longas de ~1h).
+// -------------------------------------------------------------------
 
 function fmt(t) {
     t = Math.max(0, Math.floor(t || 0));
@@ -133,7 +146,10 @@ function renderSegments() {
         `<div class="seg" id="seg-${i}" onclick="seek(${s.start})"><span class="t">${fmt(s.start)}</span><span>${esc(s.text)}</span></div>`
     ).join('');
 }
-function seek(t) { player.currentTime = t; player.play(); }
+function seek(t) {
+    try { player.currentTime = t; } catch (e) {}
+    player.play().catch(() => {});
+}
 
 // Destaca o segmento conforme o vídeo avança.
 player.addEventListener('timeupdate', () => {
@@ -175,20 +191,106 @@ function copySummary() {
     navigator.clipboard?.writeText(summary).then(()=>alert('Resumo copiado!'));
 }
 
+const CHUNK_SECONDS = 600; // 10 min por pedaço (fica bem abaixo dos 25 MB em WAV 16kHz mono)
+
+function trProgress(msg) {
+    document.getElementById('tr-empty').style.display = 'block';
+    document.getElementById('tr-empty').innerHTML = '<p><span class="spin"></span> ' + esc(msg) + '</p>';
+}
+
 async function startTranscription() {
     const btn = document.getElementById('tr-btn');
     if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Transcrevendo…'; }
     status = 'processing';
-    document.getElementById('tr-empty').innerHTML = '<p><span class="spin"></span> Transcrevendo em segundo plano… você pode fechar ou usar outras telas; ela continua processando.</p>';
+    trProgress('Preparando o áudio da gravação…');
     try {
-        const r = await fetch(`${BASE}/videocall/transcribe/${REC_TOKEN}`, { method: 'POST' }).then(x => x.json());
-        if (r.error) { document.getElementById('tr-empty').innerHTML = '<p class="text-danger">' + esc(r.error) + '</p>'; return; }
-        // Agora roda em background: acompanha por polling.
-        pollStatus();
+        // 1) Baixa o arquivo da gravação e decodifica o áudio (no navegador).
+        const resp = await fetch(VIDEO_URL);
+        const buf = await resp.arrayBuffer();
+        const AC = window.AudioContext || window.webkitAudioContext;
+        const actx = new AC();
+        const audio = await actx.decodeAudioData(buf.slice(0));
+        const total = audio.duration;
+        const sr = audio.sampleRate;
+        const chunks = Math.max(1, Math.ceil(total / CHUNK_SECONDS));
+
+        // 2) Corta em pedaços e transcreve cada um, juntando os segmentos.
+        let allSegs = [];
+        for (let i = 0; i < chunks; i++) {
+            const startSec = i * CHUNK_SECONDS;
+            const endSec = Math.min(total, startSec + CHUNK_SECONDS);
+            trProgress('Transcrevendo parte ' + (i + 1) + ' de ' + chunks + '…');
+            const wav = audioSliceToWav(audio, startSec, endSec, sr);
+            const fd = new FormData();
+            fd.append('audio', wav, 'parte.wav');
+            fd.append('offset', String(startSec));
+            fd.append('index', String(i));
+            const r = await fetch(`${BASE}/videocall/transcribeChunk/${REC_TOKEN}`, { method: 'POST', body: fd }).then(x => x.json());
+            if (r.error) throw new Error(r.error);
+            allSegs = allSegs.concat(r.segments || []);
+        }
+        try { actx.close(); } catch (e) {}
+
+        // 3) Salva a transcrição montada e gera o resumo no servidor.
+        trProgress('Gerando o resumo…');
+        const save = await fetch(`${BASE}/videocall/saveTranscript/${REC_TOKEN}`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ segments: allSegs })
+        }).then(x => x.json());
+        if (save.error) throw new Error(save.error);
+
+        segments = allSegs; summary = save.summary || ''; status = 'done';
+        document.getElementById('tr-empty').style.display = 'none';
+        renderSegments(); renderSummary();
     } catch (e) {
-        // Mesmo com erro de rede aqui, o processamento pode ter começado: acompanha.
-        pollStatus();
+        document.getElementById('tr-empty').style.display = 'block';
+        document.getElementById('tr-empty').innerHTML = '<p class="text-danger">Falha ao transcrever: ' + esc(e.message || 'erro') + '</p>'
+            + '<button class="btn btn-sm btn-brand" onclick="startTranscription()">Tentar de novo</button>';
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-magic"></i> Transcrever com IA'; }
     }
+}
+
+// Extrai um trecho [startSec,endSec) do AudioBuffer como WAV mono 16kHz (leve).
+function audioSliceToWav(audio, startSec, endSec, sr) {
+    const OUT_SR = 16000;
+    const chs = audio.numberOfChannels;
+    const startF = Math.floor(startSec * sr);
+    const endF = Math.floor(endSec * sr);
+    const len = endF - startF;
+    // Mixa canais em mono.
+    const mono = new Float32Array(len);
+    for (let c = 0; c < chs; c++) {
+        const data = audio.getChannelData(c);
+        for (let i = 0; i < len; i++) mono[i] += (data[startF + i] || 0) / chs;
+    }
+    // Reamostra para 16kHz (linear simples).
+    const ratio = sr / OUT_SR;
+    const outLen = Math.floor(len / ratio);
+    const out = new Float32Array(outLen);
+    for (let i = 0; i < outLen; i++) {
+        const idx = i * ratio;
+        const i0 = Math.floor(idx), i1 = Math.min(len - 1, i0 + 1), frac = idx - i0;
+        out[i] = mono[i0] * (1 - frac) + mono[i1] * frac;
+    }
+    return encodeWav(out, OUT_SR);
+}
+
+// Gera um Blob WAV PCM 16-bit a partir de amostras Float32 mono.
+function encodeWav(samples, sampleRate) {
+    const buffer = new ArrayBuffer(44 + samples.length * 2);
+    const view = new DataView(buffer);
+    const wr = (off, s) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); };
+    wr(0, 'RIFF'); view.setUint32(4, 36 + samples.length * 2, true); wr(8, 'WAVE');
+    wr(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+    view.setUint32(24, sampleRate, true); view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+    wr(36, 'data'); view.setUint32(40, samples.length * 2, true);
+    let off = 44;
+    for (let i = 0; i < samples.length; i++, off += 2) {
+        let s = Math.max(-1, Math.min(1, samples[i]));
+        view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+    }
+    return new Blob([view], { type: 'audio/wav' });
 }
 // Se outra pessoa iniciou a transcrição, acompanha o status.
 let pollTimer = null;

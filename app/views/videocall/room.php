@@ -52,6 +52,11 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
         .preview-wrap { position:relative; background:#000; border-radius:14px; overflow:hidden; aspect-ratio:16/9; margin-bottom:14px; }
         .preview-wrap video, .preview-wrap canvas { width:100%; height:100%; object-fit:cover; }
         .preview-wrap video.mirror, .preview-wrap canvas.mirror { transform:scaleX(-1); }
+        /* Overlay de "câmera desligada" no preview do lobby */
+        .preview-off { position:absolute; inset:0; display:none; flex-direction:column; align-items:center; justify-content:center; gap:12px; background:#12131f; color:#9aa2c0; }
+        .preview-wrap.cam-off .preview-off { display:flex; }
+        .preview-off-avatar { width:76px; height:76px; border-radius:50%; background:#23263d; display:flex; align-items:center; justify-content:center; font-size:2rem; color:#8b90ad; }
+        .preview-off-text { font-size:.9rem; font-weight:600; }
         .form-label { font-size:.78rem; font-weight:600; color:#9aa2c0; margin-bottom:5px; }
         .form-control, .form-select { background:var(--panel2); border:1.5px solid #33375a; color:#fff; border-radius:12px; padding:10px 12px; font-size:.9rem; }
         .form-control:focus, .form-select:focus { background:var(--panel2); color:#fff; border-color:var(--brand); box-shadow:0 0 0 3px rgba(0,191,166,.2); }
@@ -93,10 +98,17 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
         .filmstrip::-webkit-scrollbar-thumb { background:#33375a; border-radius:6px; }
 
         .tile { position:relative; background:#000; border-radius:14px; overflow:hidden; min-height:0; min-width:0; }
+        /* Animação do bloco surgindo/saindo (experiência estilo Meet). */
+        .tile.tile-in { animation:tileIn .28s cubic-bezier(.2,.8,.2,1); }
+        .tile.tile-out { animation:tileOut .22s ease forwards; }
+        @keyframes tileIn { from { opacity:0; transform:scale(.86); } to { opacity:1; transform:scale(1); } }
+        @keyframes tileOut { from { opacity:1; transform:scale(1); } to { opacity:0; transform:scale(.86); } }
         .tile .vwrap { position:absolute; inset:0; overflow:hidden; }
         .tile video { width:100%; height:100%; object-fit:cover; background:#000; transition:transform .12s ease; transform-origin:center center; }
         .tile.self video { transform:scaleX(-1); }
         .tile.screen video { object-fit:contain; }
+        /* Câmera em retrato (celular em pé) num tile largo: mostra inteira, sem cortar o rosto. */
+        .tile.portrait-cam video { object-fit:contain; }
         .tile .name { position:absolute; left:8px; bottom:8px; background:rgba(0,0,0,.55); padding:3px 9px; border-radius:8px; font-size:.78rem; max-width:80%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; z-index:3; }
         .tile .badges { position:absolute; right:8px; top:8px; display:flex; gap:5px; z-index:3; }
         .tile .badge-ic { background:rgba(0,0,0,.55); width:26px; height:26px; border-radius:8px; display:none; align-items:center; justify-content:center; font-size:.85rem; }
@@ -121,15 +133,39 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
         .tile .badge-hand { color:#ffd54a; }
         .tile.hand-up .badge-hand { display:flex; background:rgba(224,164,0,.28); }
         .tile.hand-up { outline:2px solid #ffd54a; outline-offset:-2px; }
+        /* Tela compartilhada em tela cheia real. */
+        .tile:fullscreen { width:100vw; height:100vh; border-radius:0; background:#000; }
+        .tile:-webkit-full-screen { width:100vw; height:100vh; border-radius:0; background:#000; }
+        .tile:fullscreen video { object-fit:contain; }
+        .tile:fullscreen .tile-zoom, .tile:fullscreen .tile-tools { opacity:1; } /* controles sempre visíveis em tela cheia */
+        /* Fallback: tela cheia dentro da aba, quando o fullscreen nativo é bloqueado. */
+        .tile.css-fullscreen { position:fixed; inset:0; width:100vw; height:100vh; border-radius:0; background:#000; z-index:9999; margin:0; }
+        .tile.css-fullscreen video { object-fit:contain; }
+        .tile.css-fullscreen .tile-zoom, .tile.css-fullscreen .tile-tools { opacity:1; }
+        body.has-css-fullscreen { overflow:hidden; }
+        /* Quem está falando: borda destacada (verde) com brilho suave. */
+        .tile.speaking { outline:3px solid #3ddc84; outline-offset:-3px; box-shadow:0 0 0 1px rgba(61,220,132,.5), 0 0 16px rgba(61,220,132,.55); }
+        .tile.speaking.mic-off { outline:none; box-shadow:none; } /* mutado nunca "fala" */
 
+        /* Ferramentas do topo (fixar / mutar admin) — canto superior esquerdo. */
         .tile-tools { position:absolute; top:8px; left:8px; display:flex; gap:5px; opacity:0; transition:opacity .15s; z-index:4; }
         .tile:hover .tile-tools, .tile.show-tools .tile-tools { opacity:1; }
         .tile-tools button { width:30px; height:30px; border:none; border-radius:8px; background:rgba(10,12,24,.72); color:#fff; font-size:.9rem; cursor:pointer; display:flex; align-items:center; justify-content:center; }
         .tile-tools button:hover { background:var(--brand); }
-        .tile-tools .zoom-val { min-width:38px; padding:0 6px; height:30px; border-radius:8px; background:rgba(10,12,24,.72); color:#cfd3e6; font-size:.7rem; display:flex; align-items:center; justify-content:center; }
+        .tile-tools .tile-mod-btn:hover { background:#c0304a; }
         .filmstrip .tile-tools { transform:scale(.85); transform-origin:top left; }
+        /* Controles de zoom da TELA — canto inferior direito. */
+        .tile-zoom { position:absolute; right:8px; bottom:8px; display:flex; align-items:center; gap:5px; opacity:0; transition:opacity .15s; z-index:4; }
+        .tile:hover .tile-zoom, .tile.show-tools .tile-zoom { opacity:1; }
+        .tile-zoom button { width:30px; height:30px; border:none; border-radius:8px; background:rgba(10,12,24,.72); color:#fff; font-size:.9rem; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+        .tile-zoom button:hover { background:var(--brand); }
+        .tile-zoom .zoom-val { min-width:42px; padding:0 6px; height:30px; border-radius:8px; background:rgba(10,12,24,.72); color:#cfd3e6; font-size:.72rem; display:flex; align-items:center; justify-content:center; }
+        .filmstrip .tile-zoom { transform:scale(.85); transform-origin:bottom right; }
 
         /* Barra de controles */
+        .controls-wrap { position:relative; }
+        .controls-more { display:none; }
+        .controls-fade { display:none; }
         .controls { display:flex; align-items:center; justify-content:center; gap:10px; padding:14px; background:rgba(0,0,0,.3); flex-wrap:wrap; }
         .ctrl-group { position:relative; display:flex; align-items:flex-end; }
         .ctrl { width:52px; height:52px; border-radius:50%; border:none; background:var(--panel2); color:#fff; font-size:1.15rem; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:.15s; position:relative; }
@@ -146,6 +182,11 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
         /* Popover (menu de câmera / dispositivos) */
         .popover-menu { position:fixed; background:var(--panel); border:1px solid #33375a; border-radius:14px; padding:14px; width:360px; max-width:94vw; max-height:70vh; overflow:auto; box-shadow:0 16px 50px rgba(0,0,0,.5); z-index:80; display:none; }
         .popover-menu h6 { font-size:.8rem; color:#9aa2c0; text-transform:uppercase; letter-spacing:.5px; margin:0 0 8px; }
+        #screen-menu { width:250px; padding:8px; }
+        .screen-menu-item { display:flex; align-items:center; gap:10px; width:100%; text-align:left; border:none; background:transparent; color:#e8eaf1; padding:11px 12px; border-radius:10px; font-size:.9rem; cursor:pointer; }
+        .screen-menu-item:hover { background:var(--panel2); }
+        .screen-menu-item.stop { color:#ff9db0; }
+        .screen-menu-item i { font-size:1.1rem; }
         .popover-menu .mb-blk { margin-bottom:14px; }
 
         .toast-box { position:fixed; top:16px; left:50%; transform:translateX(-50%); z-index:90; }
@@ -195,8 +236,8 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
 
         /* Chuva de emojis */
         #emoji-rain { position:fixed; inset:0; pointer-events:none; z-index:88; overflow:hidden; }
-        .rain-emoji { position:absolute; bottom:80px; font-size:2rem; animation:rainUp 3s ease-out forwards; will-change:transform,opacity; }
-        @keyframes rainUp { 0%{ transform:translateY(0) scale(.6); opacity:0; } 12%{ opacity:1; } 100%{ transform:translateY(-70vh) scale(1.1); opacity:0; } }
+        .rain-emoji { position:absolute; top:-8vh; font-size:2rem; animation:rainDown 3.2s ease-in forwards; will-change:transform,opacity; }
+        @keyframes rainDown { 0%{ transform:translateY(0) scale(.7); opacity:0; } 10%{ opacity:1; } 90%{ opacity:1; } 100%{ transform:translateY(88vh) scale(1.05); opacity:0; } }
 
         /* Mão levantada no tile */
         .tile .badge-hand { display:none; color:#ffd54a; }
@@ -226,9 +267,30 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
             .filmstrip .tile { width:150px; height:84px; }
             .tile-tools { top:6px; left:6px; gap:4px; }
             .tile-tools button { width:34px; height:34px; font-size:1rem; }
-            .tile-tools .zoom-val { height:34px; }
-            .controls { gap:8px; padding:10px 8px calc(10px + env(safe-area-inset-bottom)); flex-wrap:nowrap; overflow-x:auto; justify-content:flex-start; }
+            .tile-zoom { right:6px; bottom:6px; gap:4px; }
+            .tile-zoom button { width:34px; height:34px; font-size:1rem; }
+            .tile-zoom .zoom-val { height:34px; }
+            .controls { gap:8px; padding:10px 8px calc(10px + env(safe-area-inset-bottom)); flex-wrap:nowrap; overflow-x:auto; justify-content:flex-start; scroll-behavior:smooth; }
             .controls::-webkit-scrollbar { display:none; }
+            /* Dica de arraste: seta pulsante à direita quando há mais botões escondidos. */
+            .controls-more { display:none; }
+            /* Faixa esfumaçada atrás da setinha: "apaga" os botões embaixo e
+               deixa claro que ali é a zona de rolar (não de clicar). */
+            .controls-fade { display:none; }
+            .controls-wrap.has-overflow .controls-fade {
+                display:block; position:absolute; right:0; top:0; bottom:0; width:64px;
+                pointer-events:none; z-index:5;
+                background:linear-gradient(to right, rgba(15,16,32,0), rgba(15,16,32,.55) 45%, rgba(15,16,32,.9));
+                backdrop-filter:blur(2px); -webkit-backdrop-filter:blur(2px);
+            }
+            .controls-wrap.has-overflow .controls-more {
+                display:flex; align-items:center; justify-content:center;
+                position:absolute; right:6px; bottom:calc(12px + env(safe-area-inset-bottom));
+                width:34px; height:34px; border-radius:50%; border:none;
+                background:var(--brand); color:#fff; font-size:1rem; z-index:6;
+                box-shadow:0 2px 10px rgba(0,0,0,.5); animation:moreNudge 1.2s ease-in-out infinite;
+            }
+            @keyframes moreNudge { 0%,100%{ transform:translateX(0); } 50%{ transform:translateX(4px); } }
             .ctrl { width:46px; height:46px; font-size:1.05rem; flex:0 0 auto; }
             .ctrl.hangup { width:52px; }
             .ctrl-label { display:none; }
@@ -271,6 +333,10 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
                 <div class="preview-wrap">
                     <video id="preview" autoplay muted playsinline class="mirror"></video>
                     <canvas id="preview-canvas" class="mirror hidden"></canvas>
+                    <div id="preview-off" class="preview-off">
+                        <div class="preview-off-avatar"><i class="bi bi-camera-video-off-fill"></i></div>
+                        <div class="preview-off-text">Câmera desligada</div>
+                    </div>
                 </div>
                 <div class="lobby-toggles">
                     <button type="button" class="toggle-btn" id="lb-mic" onclick="toggleLobby('mic')"><i class="bi bi-mic-fill"></i> Microfone</button>
@@ -329,7 +395,8 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
         <div class="grid" id="grid"></div>
         <div class="filmstrip" id="filmstrip" style="display:none;"></div>
     </div>
-    <div class="controls">
+    <div class="controls-wrap">
+    <div class="controls" id="controls">
         <div class="ctrl-group">
             <button class="ctrl" id="btn-mic" onclick="toggleMic()" title="Microfone"><i class="bi bi-mic-fill"></i><span class="ctrl-label">Mic</span></button>
             <button class="ctrl-caret" onclick="openMicMenu(event)" title="Escolher microfone"><i class="bi bi-chevron-up"></i></button>
@@ -338,7 +405,7 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
             <button class="ctrl" id="btn-cam" onclick="toggleCam()" title="Câmera"><i class="bi bi-camera-video-fill"></i><span class="ctrl-label">Câmera</span></button>
             <button class="ctrl-caret" onclick="openCamMenu(event)" title="Câmera e plano de fundo"><i class="bi bi-chevron-up"></i></button>
         </div>
-        <button class="ctrl" id="btn-screen" onclick="toggleScreen()" title="Compartilhar tela"><i class="bi bi-display"></i><span class="ctrl-label">Tela</span></button>
+        <button class="ctrl" id="btn-screen" onclick="toggleScreen(event)" title="Compartilhar tela"><i class="bi bi-display"></i><span class="ctrl-label">Tela</span></button>
         <button class="ctrl" id="btn-react" onclick="openEmojiMenu(event)" title="Reagir"><i class="bi bi-emoji-smile"></i><span class="ctrl-label">Reagir</span></button>
         <button class="ctrl" id="btn-hand" onclick="toggleHand()" title="Levantar a mão"><i class="bi bi-hand-index-thumb"></i><span class="ctrl-label">Mão</span></button>
         <div class="ctrl-group">
@@ -355,7 +422,10 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
         <button class="ctrl" id="btn-copy" onclick="copyLink()" title="Copiar link"><i class="bi bi-link-45deg"></i><span class="ctrl-label">Link</span></button>
         <button class="ctrl hangup" onclick="hangup()" title="Sair"><i class="bi bi-telephone-x-fill"></i><span class="ctrl-label">Sair</span></button>
     </div>
-</div>
+    <!-- Dica: há mais botões ao arrastar para o lado (só aparece no celular quando há overflow) -->
+    <div class="controls-fade"></div>
+    <button type="button" class="controls-more" id="controls-more" onclick="scrollControls()" title="Mais opções"><i class="bi bi-chevron-right"></i></button>
+    </div>
 
 <!-- Popover da CÂMERA: escolher câmera + plano de fundo -->
 <div class="popover-menu" id="cam-menu">
@@ -375,6 +445,12 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
         <h6>Microfone</h6>
         <select id="cm-mic-select" class="form-select" onchange="changeDevice('audio', this.value)"></select>
     </div>
+</div>
+
+<!-- Menu da TELA (quando já está compartilhando): trocar ou parar -->
+<div class="popover-menu" id="screen-menu">
+    <button type="button" class="screen-menu-item" onclick="screenMenuAction('switch')"><i class="bi bi-arrow-repeat"></i> Trocar tela/janela</button>
+    <button type="button" class="screen-menu-item stop" onclick="screenMenuAction('stop')"><i class="bi bi-stop-circle"></i> Parar de compartilhar</button>
 </div>
 
 <!-- Menu de reações (emojis) -->
@@ -449,6 +525,8 @@ let allowPresentation = <?= $allowPresentation ? 'true' : 'false' ?>;
 
 // ---- Detecção de dispositivo/rede (otimização mobile e 4G) ----
 const IS_MOBILE = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || (('ontouchstart' in window) && Math.min(screen.width, screen.height) < 820);
+// iOS (inclui iPad recente que se identifica como Mac com toque).
+const IS_IOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const NET = navigator.connection || navigator.mozConnection || navigator.webkitConnection || null;
 function isSlowNetwork() {
     if (!NET) return false;
@@ -478,6 +556,54 @@ let localStream = null;      // stream publicado (pode ser o processado com fund
 let screenStream = null;
 const peers = new Map();
 let micOn = true, camOn = true, sharing = false;
+// Nomes conhecidos por peer (nunca deixa cair para "Convidado" se já temos um nome).
+const peerNames = new Map();
+let stateHeartbeat = null;
+
+// Envia meu estado completo (mic/câmera/mão/nome) — usado ao mudar algo e no heartbeat.
+function broadcastMyState() {
+    broadcast('state', { micMuted: !micOn, camOff: !camOn, handUp: (typeof handUp !== 'undefined' ? handUp : false), name: myName });
+}
+// Reafirma o estado periodicamente para autocorrigir ícones perdidos/fora de ordem.
+function startStateHeartbeat() {
+    if (stateHeartbeat) return;
+    stateHeartbeat = setInterval(() => { if (joined) broadcastMyState(); }, 3000);
+}
+function stopStateHeartbeat() { if (stateHeartbeat) { clearInterval(stateHeartbeat); stateHeartbeat = null; } }
+
+// Aplica o estado recebido de um peer ao seu tile e à fila de mãos.
+function applyPeerState(from, p) {
+    if (!p) return;
+    if (p.name) { peerNames.set(from, p.name); refreshPeerName(from, p.name); }
+    const t = tileEl(from);
+    if (t) {
+        t.classList.toggle('mic-off', !!p.micMuted);
+        t.classList.toggle('cam-off', !!p.camOff);
+    }
+    // Mão levantada: sincroniza a fila com o estado real informado.
+    const nm = p.name || peerNames.get(from) || 'Convidado';
+    if (p.handUp) {
+        if (!raisedHands.has(from)) raisedHands.set(from, { name: nm, ts: Date.now() });
+        else raisedHands.get(from).name = nm;
+        tileEl(from)?.classList.add('hand-up');
+    } else {
+        if (raisedHands.delete(from)) tileEl(from)?.classList.remove('hand-up');
+    }
+    renderHands();
+}
+
+// Atualiza o nome exibido no tile de um peer (label + dataset), sem virar "Convidado".
+function refreshPeerName(id, name) {
+    if (!name) return;
+    const entry = peers.get(id);
+    if (entry) entry.name = name;
+    const t = tileEl(id);
+    if (t) {
+        const isScreen = t.classList.contains('screen');
+        const label = t.querySelector('.name');
+        if (label) label.textContent = name + (isScreen ? ' (tela)' : '');
+    }
+}
 let polling = false, joined = false, waiting = false;
 let curVideoDeviceId = null, curAudioDeviceId = null;
 
@@ -639,6 +765,8 @@ async function rebuildLocalStream() {
     // Atualiza o tile próprio
     const selfV = document.querySelector('#tile-' + peerId + ' video');
     if (selfV) selfV.srcObject = localStream;
+    // Re-pluga o detector de "quem está falando" no novo stream de áudio.
+    if (audioTrack) attachSpeaking(peerId, localStream);
 
     // Substitui a track de vídeo publicada em cada peer (sem renegociar)
     if (joined && videoTrack) {
@@ -663,24 +791,66 @@ const VIDEO_CONSTRAINTS = (IS_MOBILE || isSlowNetwork())
     : { width: { ideal: 1920, max: 1920 }, height: { ideal: 1080, max: 1080 }, frameRate: { ideal: 30, max: 30 } };
 const AUDIO_CONSTRAINTS = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
 
+// Tenta obter câmera+microfone com fallback em cascata (compatível com iOS/Safari,
+// que falha se as constraints forem rígidas demais).
+async function getCameraStream() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new DOMException('getUserMedia indisponível', 'NotSupportedError');
+    }
+    const attempts = [
+        { video: VIDEO_CONSTRAINTS, audio: AUDIO_CONSTRAINTS },
+        // iOS costuma aceitar melhor "facingMode:user" do que largura/altura fixas.
+        { video: { facingMode: 'user' }, audio: true },
+        { video: true, audio: true },   // o mais simples
+        { video: false, audio: true },  // só áudio (sem câmera)
+    ];
+    let lastErr = null;
+    for (const c of attempts) {
+        try { return await navigator.mediaDevices.getUserMedia(c); }
+        catch (e) { lastErr = e; }
+    }
+    throw lastErr || new Error('Falha ao acessar mídia');
+}
+
 async function initPreview() {
     try {
-        rawStream = await navigator.mediaDevices.getUserMedia({ video: VIDEO_CONSTRAINTS, audio: AUDIO_CONSTRAINTS });
+        rawStream = await getCameraStream();
         const vt = rawStream.getVideoTracks()[0];
         if (vt) curVideoDeviceId = vt.getSettings().deviceId;
         const at = rawStream.getAudioTracks()[0];
         if (at) curAudioDeviceId = at.getSettings().deviceId;
+        // Se não veio vídeo (fallback só-áudio), reflete no lobby.
+        if (!vt) { lobbyCam = false; camOn = false; }
         await populateDevices();
         await rebuildLocalStream();
         syncLobbyButtons();
     } catch (e) {
         lobbyCam = false; camOn = false;
-        showLobbyError('Não foi possível acessar câmera/microfone. Verifique as permissões. Você ainda pode entrar sem enviar vídeo.');
+        showLobbyError(cameraErrorMessage(e));
         syncLobbyButtons();
     }
     renderBgGrids();
     loadLobbyPresence();
     lobbyPresenceTimer = setInterval(loadLobbyPresence, 5000);
+}
+
+// Mensagem de erro específica (ajuda muito no iPhone/Safari).
+function cameraErrorMessage(e) {
+    const name = e && e.name ? e.name : '';
+    if (name === 'NotAllowedError' || name === 'SecurityError') {
+        if (IS_IOS) return 'A permissão da câmera foi negada. No iPhone: toque em "aA" na barra de endereço do Safari → Ajustes do site → Câmera/Microfone = Permitir, e recarregue. Verifique também Ajustes do iOS → Safari → Câmera.';
+        return 'Permissão de câmera/microfone negada. Clique no cadeado ao lado do endereço e permita a câmera, depois recarregue.';
+    }
+    if (name === 'NotFoundError' || name === 'OverconstrainedError') {
+        return 'Nenhuma câmera compatível foi encontrada. Você ainda pode entrar só com áudio.';
+    }
+    if (name === 'NotReadableError') {
+        return 'A câmera está em uso por outro app (feche outras chamadas/apps que usam a câmera) e recarregue.';
+    }
+    if (name === 'NotSupportedError') {
+        return 'Este navegador não permite usar a câmera aqui. No iPhone, use o Safari e acesse por HTTPS.';
+    }
+    return 'Não foi possível acessar a câmera/microfone. Você ainda pode entrar sem vídeo.';
 }
 
 // Mostra no lobby quem já está na chamada (contagem + avatares + nomes).
@@ -727,6 +897,8 @@ function updateLobbyPreview() {
     } else {
         c.classList.add('hidden'); v.classList.remove('hidden');
         v.srcObject = localStream || rawStream;
+        // iOS às vezes exige play() explícito para o preview não ficar preto.
+        v.play && v.play().catch(() => {});
     }
 }
 
@@ -838,6 +1010,9 @@ function syncLobbyButtons() {
     m.innerHTML = lobbyMic ? '<i class="bi bi-mic-fill"></i> Microfone' : '<i class="bi bi-mic-mute-fill"></i> Mudo';
     c.classList.toggle('off', !lobbyCam);
     c.innerHTML = lobbyCam ? '<i class="bi bi-camera-video-fill"></i> Câmera' : '<i class="bi bi-camera-video-off-fill"></i> Sem vídeo';
+    // Reflete no preview: mostra o placeholder quando a câmera está desligada.
+    const pw = document.querySelector('.preview-wrap');
+    if (pw) pw.classList.toggle('cam-off', !lobbyCam);
 }
 
 async function enterRoom() {
@@ -885,10 +1060,14 @@ function enterCall(res) {
         startAdminPolling();
     }
     addSelfTile();
+    sfx('selfjoin'); // som de "você entrou"
     (res.peers || []).forEach(p => { ensurePeer(p.peer_id, p.name, true); });
     updateCount();
     startPolling();
     startNetworkMonitor();
+    startStateHeartbeat();
+    // Anuncia meu estado inicial (nome/mic/câmera) para todos já sincronizarem.
+    setTimeout(broadcastMyState, 700);
 }
 
 // ---- Espera (sala privada) ----
@@ -930,21 +1109,31 @@ function makeTile(id, name, opts = {}) {
     div.dataset.tid = id;
     const initial = (name || 'C').trim().charAt(0).toUpperCase();
     const screen = !!opts.screen;
-    // Zoom só existe em tiles de TELA. Fixar existe em ambos (câmera e tela).
+    // Zoom só existe em tiles de TELA. Fica no canto INFERIOR DIREITO.
     const zoomTools = screen
-        ? `<button title="Diminuir zoom" onclick="zoomTile('${id}',-0.25)"><i class="bi bi-zoom-out"></i></button>
-           <span class="zoom-val" id="zoom-${id}">100%</span>
-           <button title="Aumentar zoom" onclick="zoomTile('${id}',0.25)"><i class="bi bi-zoom-in"></i></button>
-           <button title="Zoom padrão" onclick="resetZoom('${id}')"><i class="bi bi-arrow-counterclockwise"></i></button>`
+        ? `<div class="tile-zoom">
+             <button title="Diminuir zoom" onclick="zoomTile('${id}',-0.25)"><i class="bi bi-zoom-out"></i></button>
+             <span class="zoom-val" id="zoom-${id}">100%</span>
+             <button title="Aumentar zoom" onclick="zoomTile('${id}',0.25)"><i class="bi bi-zoom-in"></i></button>
+             <button title="Zoom padrão" onclick="resetZoom('${id}')"><i class="bi bi-arrow-counterclockwise"></i></button>
+             <button title="Tela cheia" onclick="toggleTileFullscreen('${id}')"><i class="bi bi-arrows-fullscreen"></i></button>
+           </div>`
+        : '';
+    // Botão de mutar (admin muta o microfone de um participante). Só em tiles de
+    // CÂMERA de OUTRA pessoa e apenas quando eu sou admin.
+    const isOwnOrScreen = screen || (id === peerId) || id.endsWith('-screen');
+    const modTools = (isAdmin && !isOwnOrScreen)
+        ? `<button class="tile-mod-btn" title="Silenciar microfone deste participante" onclick="adminMute('${id}')"><i class="bi bi-mic-mute"></i></button>`
         : '';
     div.innerHTML =
         `<div class="vwrap"><video autoplay playsinline ${opts.self ? 'muted' : ''}></video></div>
          <div class="avatar"><span>${initial}</span></div>
          <div class="reaction-badge"><span class="emo"></span><span class="who"></span></div>
          <div class="tile-tools">
-            ${zoomTools}
-            <button title="Fixar/desafixar" onclick="togglePin('${id}')"><i class="bi bi-pin-angle"></i></button>
+            ${modTools}
+            <button class="pin-btn" title="Fixar/desafixar" onclick="togglePin('${id}')"><i class="bi bi-pin-angle"></i></button>
          </div>
+         ${zoomTools}
          <div class="badges">
             <div class="badge-ic badge-hand"><i class="bi bi-hand-index-thumb-fill"></i></div>
             <div class="badge-ic badge-pin"><i class="bi bi-pin-angle-fill"></i></div>
@@ -954,8 +1143,30 @@ function makeTile(id, name, opts = {}) {
          <div class="name">${escapeHtml(name)}${screen ? ' (tela)' : ''}</div>`;
     document.getElementById('grid').appendChild(div);
     tileZoom.set(id, 1);
+    // Animação de "bloco surgindo".
+    div.classList.add('tile-in');
+    setTimeout(() => div.classList.remove('tile-in'), 300);
+    // Ajusta o enquadramento quando o vídeo carrega (câmera retrato x paisagem).
+    const vEl = div.querySelector('video');
+    if (vEl) {
+        vEl.addEventListener('loadedmetadata', () => adjustTileFit(id));
+        vEl.addEventListener('resize', () => adjustTileFit(id));
+    }
     layoutGrid();
     return div;
+}
+
+// Decide entre "cover" (preenche) e "contain" (mostra inteiro) conforme a
+// orientação do vídeo x a do tile, para não cortar demais o rosto.
+function adjustTileFit(id) {
+    const t = tileEl(id); if (!t) return;
+    if (t.classList.contains('screen')) return; // tela sempre usa contain
+    const v = t.querySelector('video'); if (!v || !v.videoWidth) return;
+    const vertVideo = v.videoHeight > v.videoWidth * 1.15; // vídeo em pé (retrato)
+    const rect = t.getBoundingClientRect();
+    const wideTile = rect.width > rect.height * 1.1;               // tile deitado
+    // Câmera em pé dentro de um tile deitado: usa contain para caber inteira.
+    t.classList.toggle('portrait-cam', vertVideo && wideTile);
 }
 
 // Zoom (apenas tiles de tela). Visualização local de quem clica.
@@ -967,11 +1178,34 @@ function applyZoom(id) {
     const v = t.querySelector('video'); if (!v) return;
     const z = tileZoom.get(id) || 1;
     const mirror = t.classList.contains('self') ? -1 : 1;
-    // Limita o pan ao que "sobra" após o zoom (não deixa arrastar pra fora).
     const pan = tilePan.get(id) || { x: 0, y: 0 };
-    const maxPct = (z > 1) ? (50 * (z - 1) / z) : 0; // % de translate permitido
-    const tx = Math.max(-maxPct, Math.min(maxPct, pan.x * maxPct));
-    const ty = Math.max(-maxPct, Math.min(maxPct, pan.y * maxPct));
+
+    // Limite do deslocamento (pan) em CADA eixo, considerando o tamanho REAL
+    // renderizado do vídeo dentro do tile (importante quando é "contain": a tela
+    // não preenche o tile, então o limite é diferente em X e Y — isso garante
+    // que dá para chegar às extremidades, inclusive topo/base).
+    const rect = t.getBoundingClientRect();
+    const W = rect.width || 1, H = rect.height || 1;
+    const vw = v.videoWidth || 16, vh = v.videoHeight || 9;
+    const isContain = t.classList.contains('screen') || t.classList.contains('portrait-cam');
+    // dimensão base do conteúdo dentro do tile (antes do scale)
+    let baseW, baseH;
+    if (isContain) {
+        const s = Math.min(W / vw, H / vh); baseW = vw * s; baseH = vh * s;
+    } else {
+        const s = Math.max(W / vw, H / vh); baseW = vw * s; baseH = vh * s;
+    }
+    // com o zoom aplicado
+    const contentW = baseW * z, contentH = baseH * z;
+    // excedente além do tile (px) em cada eixo; metade para cada lado
+    const overX = Math.max(0, (contentW - W) / 2);
+    const overY = Math.max(0, (contentH - H) / 2);
+    // translate é em % da altura/largura do ELEMENTO de vídeo (W×H)
+    const maxPctX = (overX / W) * 100;
+    const maxPctY = (overY / H) * 100;
+    const tx = Math.max(-maxPctX, Math.min(maxPctX, pan.x * maxPctX));
+    const ty = Math.max(-maxPctY, Math.min(maxPctY, pan.y * maxPctY));
+
     v.style.transform = `translate(${tx}%, ${ty}%) scaleX(${mirror}) scale(${z})`;
     v.style.cursor = (z > 1) ? 'grab' : '';
     const label = document.getElementById('zoom-' + id);
@@ -988,6 +1222,48 @@ function zoomTile(id, delta) {
 }
 function resetZoom(id) { tileZoom.set(id, 1); tilePan.set(id, { x: 0, y: 0 }); applyZoom(id); }
 
+// Abre/fecha o tile (tela compartilhada) em tela cheia.
+// IMPORTANTE: usamos tela cheia via CSS (position:fixed cobrindo a viewport),
+// e NÃO a API nativa de fullscreen do elemento. Motivo: a sala refaz o layout
+// (layoutGrid faz appendChild dos tiles) a cada poll/reação/entrada-saída, e
+// mover um elemento no DOM enquanto ele está em fullscreen nativo faz o
+// navegador SAIR do fullscreen na hora — era o "pisca e não abre". O modo CSS é
+// imune a isso e funciona sempre, sem depender de F11.
+function toggleTileFullscreen(id) {
+    const t = tileEl(id); if (!t) return;
+    if (t.classList.contains('css-fullscreen')) exitCssFullscreen(t);
+    else enterCssFullscreen(t);
+}
+// Fallback: tela cheia dentro da aba (sem depender da API de fullscreen).
+function enterCssFullscreen(t) {
+    t.classList.add('css-fullscreen');
+    document.body.classList.add('has-css-fullscreen');
+    updateFsButtonIcon(t, true);
+    applyZoom(t.dataset.tid);
+    // ESC sai do modo CSS.
+    if (!window._cssFsEsc) {
+        window._cssFsEsc = (e) => {
+            if (e.key === 'Escape') {
+                const el = document.querySelector('.tile.css-fullscreen');
+                if (el) exitCssFullscreen(el);
+            }
+        };
+        document.addEventListener('keydown', window._cssFsEsc);
+    }
+}
+function exitCssFullscreen(t) {
+    t.classList.remove('css-fullscreen');
+    document.body.classList.remove('has-css-fullscreen');
+    updateFsButtonIcon(t, false);
+    applyZoom(t.dataset.tid);
+}
+// Troca o ícone/título do botão de tela cheia de um tile.
+function updateFsButtonIcon(t, isFull) {
+    const btn = t.querySelector('.tile-zoom button[title="Tela cheia"], .tile-zoom button[title="Sair da tela cheia"]');
+    if (!btn) return;
+    btn.querySelector('i').className = isFull ? 'bi bi-fullscreen-exit' : 'bi bi-arrows-fullscreen';
+    btn.title = isFull ? 'Sair da tela cheia' : 'Tela cheia';
+}
 // Habilita arrastar (mouse + toque) para mover a área ampliada.
 function enablePan(id) {
     const t = tileEl(id); if (!t || t.dataset.panBound) return;
@@ -1033,7 +1309,64 @@ function enablePan(id) {
     t.addEventListener('touchend', up);
 }
 
-function togglePin(id) { if (pinned.has(id)) pinned.delete(id); else pinned.add(id); layoutGrid(); }
+function togglePin(id) {
+    if (pinned.has(id)) pinned.delete(id); else pinned.add(id);
+    updatePinIcon(id);
+    layoutGrid();
+}
+// Troca o ícone do botão de fixar: alfinete inclinado (não fixado) x preenchido (fixado).
+function updatePinIcon(id) {
+    const t = tileEl(id); if (!t) return;
+    const tools = t.querySelector('.tile-tools'); if (!tools) return;
+    const btn = tools.querySelector('.pin-btn'); if (!btn) return;
+    const ic = btn.querySelector('i'); if (!ic) return;
+    const fixed = pinned.has(id);
+    ic.className = fixed ? 'bi bi-pin-angle-fill' : 'bi bi-pin-angle';
+    btn.title = fixed ? 'Desafixar' : 'Fixar/desafixar';
+}
+
+// Admin silencia o microfone de um participante (ele pode reativar depois).
+function adminMute(id) {
+    if (!isAdmin || id === peerId) return;
+    sendSignal(id, 'forcemute', { by: myName });
+    const nm = peerNames.get(id) || (peers.get(id)?.name) || 'participante';
+    toast('Microfone de ' + nm + ' silenciado.');
+    // Reflete visualmente já (o estado real volta pelo heartbeat do peer).
+    tileEl(id)?.classList.add('mic-off');
+}
+
+/**
+ * Aplica a grade preenchendo a ÚLTIMA linha incompleta: os tiles que sobram
+ * se esticam para ocupar a largura toda (sem "buraco" vazio). Ex.: 3 pessoas
+ * em 2 colunas => 2 em cima e a 3ª ocupando a linha inteira embaixo.
+ * Técnica: usa o dobro de colunas (subcolunas) e ajusta o "span" de cada tile.
+ */
+function applyGridSpans(tiles, cols) {
+    const n = tiles.length || 1;
+    grid.setAttribute('data-n', Math.min(n, 16));
+    const grid_ = document.getElementById('grid');
+    if (cols <= 1) {
+        grid_.style.gridTemplateColumns = '1fr';
+        grid_.style.gridTemplateRows = `repeat(${n}, 1fr)`;
+        tiles.forEach(t => { t.style.gridColumn = ''; });
+        return;
+    }
+    const sub = cols * 2; // subcolunas (para poder centralizar linhas incompletas)
+    const rows = Math.ceil(n / cols);
+    grid_.style.gridTemplateColumns = `repeat(${sub}, 1fr)`;
+    grid_.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+    const rest = n % cols; // quantos ficam na última linha (0 = cheia)
+    const fullRowsCount = rest === 0 ? n : (n - rest);
+    tiles.forEach((t, i) => {
+        if (i < fullRowsCount) {
+            // Linhas completas: cada tile ocupa 2 subcolunas.
+            t.style.gridColumn = 'span 2';
+        } else {
+            // Última linha incompleta: divide a largura toda entre os que sobraram.
+            t.style.gridColumn = 'span ' + Math.floor(sub / rest);
+        }
+    });
+}
 
 function layoutGrid() {
     const grid = document.getElementById('grid');
@@ -1053,26 +1386,35 @@ function layoutGrid() {
         const n = allTiles.length || 1;
         grid.setAttribute('data-n', Math.min(n, 16));
         // 1 participante => tela cheia (1 coluna, 1 linha).
-        let cols = 1;
-        if (n === 1) cols = 1;
-        else if (n === 2) cols = 2;
-        else if (n <= 4) cols = 2;
-        else if (n <= 9) cols = 3;
-        else cols = 4;
-        if (window.innerWidth <= 700) cols = (n === 1) ? 1 : 2;
-        grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-        grid.style.gridTemplateRows = `repeat(${Math.ceil(n / cols)}, 1fr)`;
+        const portrait = window.innerHeight >= window.innerWidth; // celular em pé
+        const small = window.innerWidth <= 820;
+        let cols;
+        if (small && portrait) {
+            // Celular em pé: empilha (uma câmera EM CIMA da outra), aproveita a altura.
+            if (n === 1) cols = 1;
+            else if (n <= 2) cols = 1;      // 2 pessoas: uma sobre a outra
+            else if (n <= 6) cols = 2;
+            else cols = 2;
+        } else {
+            if (n === 1) cols = 1;
+            else if (n === 2) cols = 2;
+            else if (n <= 4) cols = 2;
+            else if (n <= 9) cols = 3;
+            else cols = 4;
+            if (small) cols = (n === 1) ? 1 : 2; // celular deitado
+        }
+        applyGridSpans(allTiles, cols);
     } else {
         grid.style.display = 'none'; stage.style.display = 'grid';
-        featured.forEach(t => stage.appendChild(t));
+        featured.forEach(t => { t.style.gridColumn = ''; stage.appendChild(t); });
         const fn = featured.length;
         const scols = fn === 1 ? 1 : 2;
         stage.style.gridTemplateColumns = `repeat(${scols}, 1fr)`;
         stage.style.gridTemplateRows = `repeat(${Math.ceil(fn / scols)}, 1fr)`;
-        if (others.length) { strip.style.display = 'flex'; wrap.classList.add('with-strip'); others.forEach(t => strip.appendChild(t)); }
+        if (others.length) { strip.style.display = 'flex'; wrap.classList.add('with-strip'); others.forEach(t => { t.style.gridColumn = ''; strip.appendChild(t); }); }
         else { strip.style.display = 'none'; wrap.classList.remove('with-strip'); }
     }
-    allTiles.forEach(t => applyZoom(t.dataset.tid));
+    allTiles.forEach(t => { applyZoom(t.dataset.tid); adjustTileFit(t.dataset.tid); });
 }
 
 function addSelfTile() {
@@ -1080,8 +1422,9 @@ function addSelfTile() {
     div.querySelector('video').srcObject = localStream;
     div.classList.toggle('mic-off', !micOn);
     div.classList.toggle('cam-off', !camOn);
+    attachSpeaking(peerId, localStream);
 }
-function removeTile(id) { const t = tileEl(id); if (t) { t.remove(); tileZoom.delete(id); tilePan.delete(id); pinned.delete(id); layoutGrid(); } }
+function removeTile(id) { detachSpeaking(id); const t = tileEl(id); if (t) { t.remove(); tileZoom.delete(id); tilePan.delete(id); pinned.delete(id); layoutGrid(); } }
 let lastQualityFloor = -1;
 function updateCount() {
     document.getElementById('peer-count').textContent = (peers.size + 1);
@@ -1249,7 +1592,7 @@ function autoEnableCam() {
 function ensurePeer(remoteId, name, initiator) {
     if (remoteId === peerId || peers.has(remoteId)) return peers.get(remoteId);
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-    const entry = { pc, name, polite: peerId < remoteId, makingOffer: false, tile: null, screenTile: null, pendingIce: [], hasCam: false };
+    const entry = { pc, name, polite: peerId < remoteId, makingOffer: false, tile: null, screenTile: null, pendingIce: [], hasCam: false, screenTrackIds: new Set() };
     peers.set(remoteId, entry);
 
     if (localStream) localStream.getTracks().forEach(t => { if (t.kind === 'video') t.contentHint = 'motion'; const s = pc.addTrack(t, localStream); tuneSender(s, t); });
@@ -1258,14 +1601,28 @@ function ensurePeer(remoteId, name, initiator) {
     pc.onicecandidate = (e) => { if (e.candidate) sendSignal(remoteId, 'ice', e.candidate); };
     pc.ontrack = (e) => {
         const stream = e.streams[0];
-        const isScreen = stream && stream.getAudioTracks().length === 0 && stream.getVideoTracks().length === 1 && entry.hasCam;
-        if (isScreen) {
-            if (!entry.screenTile) entry.screenTile = makeTile(remoteId + '-screen', name, { screen: true });
+        const track = e.track;
+        // A tela é identificada pelo trackId anunciado no sinal 'screen' (confiável,
+        // funciona mesmo quando a tela tem áudio). Fallback: heurística antiga.
+        const isScreen = (track && entry.screenTrackIds && entry.screenTrackIds.has(track.id))
+            || (stream && stream.getAudioTracks().length === 0 && stream.getVideoTracks().length === 1 && entry.hasCam && track && track.kind === 'video');
+        if (isScreen && track.kind === 'video') {
+            if (!entry.screenTile) entry.screenTile = makeTile(remoteId + '-screen', entry.name || name, { screen: true });
             entry.screenTile.querySelector('video').srcObject = stream;
-        } else {
+            // Se a track de tela do outro terminar, remove o tile automaticamente
+            // (evita a "tela congelada" caso o sinal de parada se perca).
+            track.onended = () => { removeTile(remoteId + '-screen'); entry.screenTile = null; };
+            track.onmute = () => { /* mantido; onended cobre a remoção */ };
+        } else if (track.kind === 'video') {
+            const novo = !entry.tile;
             entry.hasCam = true;
-            if (!entry.tile) entry.tile = makeTile(remoteId, name);
+            if (!entry.tile) entry.tile = makeTile(remoteId, entry.name || name);
             entry.tile.querySelector('video').srcObject = stream;
+            if (novo) sfx('join'); // som de alguém entrando (quando a câmera aparece)
+        }
+        // Detector de "quem está falando": pluga no áudio da CÂMERA (não da tela).
+        if (track.kind === 'audio' && !isScreen) {
+            attachSpeaking(remoteId, stream);
         }
         updateCount();
     };
@@ -1273,6 +1630,24 @@ function ensurePeer(remoteId, name, initiator) {
         try { entry.makingOffer = true; await pc.setLocalDescription(await pc.createOffer()); sendSignal(remoteId, 'offer', pc.localDescription); }
         catch (err) { console.warn('negotiation', err); } finally { entry.makingOffer = false; }
     };
+    // Queda de conexão (F5, internet caiu): remove o peer QUASE INSTANTÂNEO,
+    // sem esperar o timeout de presença do servidor. Dá um pequeno prazo para
+    // reconexões momentâneas antes de derrubar.
+    const onConnDown = () => {
+        const st = pc.connectionState || pc.iceConnectionState;
+        if (st === 'failed' || st === 'closed') { dropPeer(remoteId); return; }
+        if (st === 'disconnected') {
+            if (entry._downTimer) return;
+            entry._downTimer = setTimeout(() => {
+                entry._downTimer = null;
+                const cur = pc.connectionState || pc.iceConnectionState;
+                if (cur === 'disconnected' || cur === 'failed' || cur === 'closed') dropPeer(remoteId);
+            }, 2500);
+        } else if (entry._downTimer) { clearTimeout(entry._downTimer); entry._downTimer = null; }
+    };
+    pc.onconnectionstatechange = onConnDown;
+    pc.oniceconnectionstatechange = onConnDown;
+
     if (initiator) pc.onnegotiationneeded();
     return entry;
 }
@@ -1287,20 +1662,34 @@ async function handleSignal(sig) {
 
     if (from === peerId) return;
     if (sig.kind === 'join') {
-        if (!peers.has(from)) ensurePeer(from, (sig.payload && sig.payload.name) || 'Convidado', false);
-        // Se eu estou com a mão levantada, reavise a sala para o recém-chegado ver.
-        if (handUp) setTimeout(() => sendSignal(from, 'hand', { up: true, name: myName }), 800);
+        const nm = (sig.payload && sig.payload.name) || peerNames.get(from) || 'Convidado';
+        if (sig.payload && sig.payload.name) peerNames.set(from, sig.payload.name);
+        if (!peers.has(from)) ensurePeer(from, nm, false); else refreshPeerName(from, nm);
+        // Assim que alguém entra, mando meu estado completo para ele se sincronizar.
+        setTimeout(broadcastMyState, 500);
         return;
     }
+    if (sig.kind === 'state') { applyPeerState(from, sig.payload); return; }
     if (sig.kind === 'kick') { onKicked(); return; }
     if (sig.kind === 'end') { teardown({ icon: '📴', text: 'Chamada encerrada', }, 'O organizador encerrou a chamada.'); return; }
     if (sig.kind === 'leave') { dropPeer(from); return; }
     if (sig.kind === 'media') {
+        if (sig.payload && sig.payload.name) { peerNames.set(from, sig.payload.name); refreshPeerName(from, sig.payload.name); }
         const t = tileEl(from);
         if (t && sig.payload) { t.classList.toggle('mic-off', !!sig.payload.micMuted); t.classList.toggle('cam-off', !!sig.payload.camOff); }
         return;
     }
-    if (sig.kind === 'screen') { if (sig.payload && sig.payload.stop) removeTile(from + '-screen'); return; }
+    if (sig.kind === 'screen') {
+        const entry = peers.get(from);
+        if (sig.payload && sig.payload.stop) {
+            removeTile(from + '-screen');
+            if (entry) { entry.screenTile = null; if (entry.screenTrackIds) entry.screenTrackIds.clear(); }
+        } else if (sig.payload && sig.payload.start && sig.payload.trackId) {
+            // Anuncia qual track é a tela, para o ontrack identificar com certeza.
+            if (entry) { entry.screenTrackIds = entry.screenTrackIds || new Set(); entry.screenTrackIds.add(sig.payload.trackId); }
+        }
+        return;
+    }
     if (sig.kind === 'reaction') {
         if (sig.payload && sig.payload.emoji) {
             spawnEmojiRain(sig.payload.emoji);
@@ -1310,6 +1699,14 @@ async function handleSignal(sig) {
     }
     if (sig.kind === 'perm') { if (sig.payload) applyPresentationPerm(!!sig.payload.allow_presentation); return; }
     if (sig.kind === 'rec') { showRemoteRecState(sig.payload || {}); return; }
+    if (sig.kind === 'forcemute') {
+        // O admin pediu para EU silenciar meu microfone. Muto (se estiver aberto) e aviso.
+        if (sig.to === peerId) {
+            if (micOn) toggleMic();
+            toast('🔇 Um administrador silenciou seu microfone. Você pode reativá-lo quando quiser.');
+        }
+        return;
+    }
     if (sig.kind === 'hand') {
         // Admin pediu para EU baixar a mão (sinal direcionado com force).
         if (sig.payload && sig.payload.force && sig.to === peerId) { if (handUp) toggleHand(); return; }
@@ -1337,7 +1734,18 @@ async function handleSignal(sig) {
 }
 
 async function drainIce(entry) { while (entry.pendingIce.length) { try { await entry.pc.addIceCandidate(new RTCIceCandidate(entry.pendingIce.shift())); } catch (e) {} } }
-function dropPeer(id) { const e = peers.get(id); if (e) { try { e.pc.close(); } catch (x) {} } peers.delete(id); removeTile(id); removeTile(id + '-screen'); if (raisedHands.delete(id)) renderHands(); updateCount(); }
+function dropPeer(id) {
+    const e = peers.get(id);
+    if (e) { if (e._downTimer) clearTimeout(e._downTimer); try { e.pc.close(); } catch (x) {} }
+    if (!peers.has(id)) return; // já removido
+    peers.delete(id);
+    peerNames.delete(id);
+    sfx('leave'); // som de alguém saindo
+    animateTileOut(id);
+    animateTileOut(id + '-screen');
+    if (raisedHands.delete(id)) renderHands();
+    updateCount();
+}
 function sendSignal(to, kind, payload) {
     fetch(`${BASE}/videocall/signal/${ROOM_TOKEN}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ from: peerId, to: to || '', kind, payload }) }).catch(() => {});
 }
@@ -1356,8 +1764,24 @@ async function startPolling() {
 }
 function reconcilePeers(activeList) {
     const active = new Set(activeList.map(p => p.peer_id));
-    peers.forEach((_, id) => { if (!active.has(id)) dropPeer(id); });
-    activeList.forEach(p => { if (p.peer_id !== peerId && !peers.has(p.peer_id)) ensurePeer(p.peer_id, p.name, false); });
+    peers.forEach((entry, id) => {
+        if (active.has(id)) return;
+        // NÃO remove se a conexão P2P ainda está viva: o participante pode só
+        // ter travado o heartbeat momentaneamente (ex.: seletor de tela aberto).
+        // A conexão WebRTC é a fonte da verdade; a remoção por queda real já é
+        // feita em onconnectionstatechange.
+        const st = entry.pc && (entry.pc.connectionState || entry.pc.iceConnectionState);
+        if (st === 'connected' || st === 'completed' || st === 'checking' || st === 'new') return;
+        dropPeer(id);
+    });
+    activeList.forEach(p => {
+        if (p.peer_id === peerId) return;
+        // O backend conhece o nome real do participante (da presença): usa-o
+        // como fonte da verdade, para nunca ficar "Convidado".
+        if (p.name && p.name !== 'Convidado') { peerNames.set(p.peer_id, p.name); }
+        if (!peers.has(p.peer_id)) ensurePeer(p.peer_id, peerNames.get(p.peer_id) || p.name, false);
+        else refreshPeerName(p.peer_id, peerNames.get(p.peer_id) || p.name);
+    });
     updateCount();
     maybeAutoStopRecording();
 }
@@ -1391,7 +1815,7 @@ function toggleMic() {
     b.classList.toggle('off', !micOn);
     b.innerHTML = (micOn ? '<i class="bi bi-mic-fill"></i>' : '<i class="bi bi-mic-mute-fill"></i>') + '<span class="ctrl-label">Mic</span>';
     tileEl(peerId)?.classList.toggle('mic-off', !micOn);
-    broadcast('media', { micMuted: !micOn, camOff: !camOn });
+    broadcastMyState();
     if (typeof syncPipButtons === 'function') syncPipButtons();
 }
 function toggleCam() {
@@ -1406,52 +1830,106 @@ function toggleCam() {
     b.classList.toggle('off', !camOn);
     b.innerHTML = (camOn ? '<i class="bi bi-camera-video-fill"></i>' : '<i class="bi bi-camera-video-off-fill"></i>') + '<span class="ctrl-label">Câmera</span>';
     tileEl(peerId)?.classList.toggle('cam-off', !camOn);
-    broadcast('media', { micMuted: !micOn, camOff: !camOn });
+    broadcastMyState();
     if (typeof syncPipButtons === 'function') syncPipButtons();
 }
 
-async function toggleScreen() {
-    if (sharing) { stopScreen(); return; }
-    // Restrição do admin: se apresentar está bloqueado, só admin compartilha tela.
-    if (!allowPresentation && !isAdmin) {
-        toast('O administrador desativou o compartilhamento de tela nesta sala.');
-        return;
+async function toggleScreen(ev) {
+    // Se já está compartilhando, abre o menu (Parar / Trocar tela).
+    if (sharing) { openScreenMenu(ev); return; }
+    // Restrição do admin: revalida no servidor (à prova de sinal 'perm' perdido).
+    if (!isAdmin) {
+        try {
+            const pv = await fetch(`${BASE}/videocall/preview/${ROOM_TOKEN}`).then(x => x.json());
+            if (pv && typeof pv.allow_presentation !== 'undefined') { allowPresentation = !!pv.allow_presentation; applyPresentationPerm(allowPresentation); }
+        } catch (e) {}
+        if (!allowPresentation) {
+            toast('O administrador desativou o compartilhamento de tela nesta sala.');
+            return;
+        }
     }
-    // A maioria dos navegadores de CELULAR não expõe getDisplayMedia (limitação
-    // do próprio navegador — o Meet no celular também só compartilha pelo app).
     if (!navigator.mediaDevices || typeof navigator.mediaDevices.getDisplayMedia !== 'function') {
         toast('Seu navegador não permite compartilhar a tela. No celular, isso costuma funcionar só em alguns navegadores (tente o Chrome mais recente) ou pelo computador.');
         return;
     }
+    // O próprio seletor de tela do navegador já oferece a opção "compartilhar áudio".
+    await startScreenShare(true);
+}
+
+// Inicia (ou troca) o compartilhamento de tela. replaceExisting = trocar a tela atual.
+// Pedimos audio:true SEMPRE — quem decide é a caixa do navegador (marcar ou não).
+async function startScreenShare(withAudio, replaceExisting) {
+    let newStream;
     try {
-        // Pede a tela em alta resolução para o conteúdo ficar legível na gravação/PiP.
-        screenStream = await navigator.mediaDevices.getDisplayMedia({
+        newStream = await navigator.mediaDevices.getDisplayMedia({
             video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 10, max: 15 } },
-            audio: false
+            audio: true
         });
     } catch (e) {
-        // NotAllowedError quando o usuário cancela a seleção (não avisa nada);
-        // outros erros indicam falta de suporte/permissão do dispositivo.
-        if (e && (e.name === 'NotAllowedError' || e.name === 'AbortError')) return;
+        if (e && (e.name === 'NotAllowedError' || e.name === 'AbortError')) return; // usuário cancelou
         toast('Não foi possível compartilhar a tela neste dispositivo.');
         return;
     }
-    if (!screenStream) return;
+    if (!newStream) return;
+
+    // Se estava compartilhando (trocar), encerra a anterior sem avisar "parou".
+    if (sharing && screenStream) { cleanupScreen(false); }
+
+    screenStream = newStream;
     sharing = true;
     document.getElementById('btn-screen').classList.add('active');
-    const selfScreen = makeTile(peerId + '-screen', myName + ' (sua tela)', { screen: true });
+
+    let selfScreen = tileEl(peerId + '-screen');
+    if (!selfScreen) selfScreen = makeTile(peerId + '-screen', myName + ' (sua tela)', { screen: true });
     selfScreen.querySelector('video').srcObject = screenStream;
+
     const screenTrack = screenStream.getVideoTracks()[0];
-    peers.forEach((entry) => { entry.pc.addTrack(screenTrack, screenStream); });
+    const screenAudio = screenStream.getAudioTracks()[0];
+    // Publica a tela (e o áudio dela) em todos e ANUNCIA o trackId da tela.
+    peers.forEach((entry) => {
+        entry.pc.addTrack(screenTrack, screenStream);
+        if (screenAudio) entry.pc.addTrack(screenAudio, screenStream);
+    });
+    broadcast('screen', { start: true, trackId: screenTrack.id });
+    sfx('screen');
+
+    // Quando o usuário para pelo controle nativo do navegador.
     screenTrack.onended = () => stopScreen();
 }
-function stopScreen() {
-    if (!sharing) return; sharing = false;
-    document.getElementById('btn-screen').classList.remove('active');
+
+// Menu flutuante ao clicar em compartilhar já ativo: Trocar tela / Parar.
+function openScreenMenu(ev) {
+    if (ev) ev.stopPropagation(); // evita que o listener global feche no mesmo clique
+    const menu = document.getElementById('screen-menu');
+    if (!menu) { stopScreen(); return; }
+    if (menu.style.display === 'block') { menu.style.display = 'none'; return; }
+    positionPopover('screen-menu', document.getElementById('btn-screen'));
+}
+function screenMenuAction(act) {
+    const menu = document.getElementById('screen-menu');
+    if (menu) menu.style.display = 'none';
+    if (act === 'switch') startScreenShare(true, true);
+    else if (act === 'stop') stopScreen();
+}
+
+// Encerra as tracks/tile da tela. announce=true avisa a sala que parou.
+function cleanupScreen(announce) {
     if (screenStream) {
-        screenStream.getTracks().forEach(t => { t.stop(); peers.forEach((entry) => { const s = entry.pc.getSenders().find(x => x.track === t); if (s) { try { entry.pc.removeTrack(s); } catch (e) {} } }); });
+        screenStream.getTracks().forEach(t => {
+            t.stop();
+            peers.forEach((entry) => { const s = entry.pc.getSenders().find(x => x.track === t); if (s) { try { entry.pc.removeTrack(s); } catch (e) {} } });
+        });
     }
-    removeTile(peerId + '-screen'); screenStream = null; broadcast('screen', { stop: true });
+    removeTile(peerId + '-screen');
+    screenStream = null;
+    if (announce) broadcast('screen', { stop: true });
+}
+
+function stopScreen() {
+    if (!sharing) return;
+    sharing = false;
+    document.getElementById('btn-screen').classList.remove('active');
+    cleanupScreen(true);
 }
 
 // Menu de câmera / dispositivos / fundo (popover)
@@ -1483,7 +1961,7 @@ function positionPopover(menuId, anchor) {
 }
 document.addEventListener('click', (e) => {
     document.querySelectorAll('.popover-menu').forEach(menu => {
-        if (menu.style.display === 'block' && !menu.contains(e.target) && !e.target.closest('.ctrl-caret')) menu.style.display = 'none';
+        if (menu.style.display === 'block' && !menu.contains(e.target) && !e.target.closest('.ctrl-caret') && !e.target.closest('#btn-screen')) menu.style.display = 'none';
     });
 });
 
@@ -1536,6 +2014,200 @@ function beep() {
         o.start(); o.frequency.setValueAtTime(660, audioCtx.currentTime + 0.12);
         o.stop(audioCtx.currentTime + 0.24);
     } catch (e) {}
+}
+
+// Sons curtos de experiência (entrar/sair/tela). Evita spam com throttle.
+let lastSfx = {};
+function sfx(kind) {
+    // Se estou compartilhando a tela COM áudio do sistema, os efeitos sonoros
+    // sairiam pelos alto-falantes e seriam recapturados (loop de eco). Nesse
+    // caso, silencia só os efeitos de interface — o áudio das pessoas segue normal.
+    if (sharing && screenStream && screenStream.getAudioTracks().length > 0) return;
+    const now = Date.now();
+    if (lastSfx[kind] && now - lastSfx[kind] < 400) return; // não repete em rajada
+    lastSfx[kind] = now;
+    // Notas por evento (subindo = entrar/positivo; descendo = sair).
+    const tones = {
+        join:      [523, 784],   // dó->sol (alguém entrou)
+        leave:     [523, 349],   // dó->fá abaixo (alguém saiu)
+        selfjoin:  [523, 659, 784],
+        selfleave: [659, 392],
+        screen:    [440, 660],
+    };
+    const seq = tones[kind] || [600];
+    try {
+        audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+        const g = audioCtx.createGain(); g.connect(audioCtx.destination);
+        g.gain.value = 0.06;
+        const step = 0.09;
+        seq.forEach((f, i) => {
+            const o = audioCtx.createOscillator();
+            o.type = 'sine'; o.frequency.value = f;
+            o.connect(g);
+            o.start(audioCtx.currentTime + i * step);
+            o.stop(audioCtx.currentTime + i * step + step + 0.02);
+        });
+    } catch (e) {}
+}
+
+// Som curto e característico de cada emoji de reação (WebAudio, sem arquivos).
+let lastEmojiSound = 0;
+function emojiSound(emoji) {
+    // Não toca se estiver compartilhando tela COM áudio (evita loop de eco).
+    if (sharing && screenStream && screenStream.getAudioTracks().length > 0) return;
+    const now = Date.now();
+    if (now - lastEmojiSound < 120) return; // evita estouro em rajada
+    lastEmojiSound = now;
+    try {
+        audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+        const ctx = audioCtx;
+        if (ctx.state === 'suspended') ctx.resume();
+
+        // --- Blocos de síntese reutilizáveis (som mais orgânico, menos "beep") ---
+
+        // Nota com envelope suave (attack/release) + filtro passa-baixa.
+        // Timbre "sino/marimba" em vez de onda crua. Pequeno detune dá naturalidade.
+        function note(freq, at, dur, gain, type) {
+            const o = ctx.createOscillator();
+            const o2 = ctx.createOscillator(); // 2ª voz levemente desafinada
+            const g = ctx.createGain();
+            const lp = ctx.createBiquadFilter();
+            lp.type = 'lowpass'; lp.frequency.value = Math.min(6000, freq * 6);
+            o.type = type || 'triangle'; o.frequency.value = freq;
+            o2.type = 'sine'; o2.frequency.value = freq * 1.005;
+            o.connect(lp); o2.connect(lp); lp.connect(g); g.connect(ctx.destination);
+            const t = ctx.currentTime + at;
+            g.gain.setValueAtTime(0.0001, t);
+            g.gain.exponentialRampToValueAtTime(gain, t + 0.012);      // attack rápido
+            g.gain.exponentialRampToValueAtTime(0.0001, t + dur);      // release natural
+            o.start(t); o2.start(t); o.stop(t + dur + 0.02); o2.stop(t + dur + 0.02);
+        }
+
+        // Rajada de ruído filtrado — base para "palma" e "confete/festa".
+        function noiseBurst(at, dur, peak, freq, q) {
+            const n = Math.floor(ctx.sampleRate * dur);
+            const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+            const d = buf.getChannelData(0);
+            for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1);
+            const src = ctx.createBufferSource(); src.buffer = buf;
+            const bp = ctx.createBiquadFilter(); bp.type = 'bandpass';
+            bp.frequency.value = freq || 1800; bp.Q.value = q || 0.9;
+            const g = ctx.createGain();
+            src.connect(bp); bp.connect(g); g.connect(ctx.destination);
+            const t = ctx.currentTime + at;
+            g.gain.setValueAtTime(0.0001, t);
+            g.gain.exponentialRampToValueAtTime(peak, t + 0.004);      // transiente seco
+            g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+            src.start(t); src.stop(t + dur + 0.02);
+        }
+
+        switch (emoji) {
+            case '👏': { // palmas de verdade: várias batidas de ruído (aplauso/festa)
+                const times = [0, 0.11, 0.21, 0.30, 0.40, 0.52];
+                times.forEach((tt, i) => noiseBurst(tt, 0.09, 0.16 - i * 0.012, 1900 + Math.random() * 500, 0.7));
+                break;
+            }
+            case '🎉': { // festa: "confete" (ruído) + acorde alegre ascendente
+                noiseBurst(0, 0.22, 0.10, 3200, 0.5);
+                noiseBurst(0.02, 0.3, 0.06, 1400, 0.6);
+                [523, 659, 784, 1047].forEach((f, i) => note(f, 0.02 + i * 0.05, 0.32, 0.09, 'triangle'));
+                break;
+            }
+            case '❤️': { // acorde suave e caloroso
+                [392, 523, 659].forEach((f, i) => note(f, i * 0.015, 0.55, 0.08, 'sine'));
+                break;
+            }
+            case '😂': { // risada saltitante (notas curtas alternadas)
+                [784, 988, 784, 988, 660].forEach((f, i) => note(f, i * 0.07, 0.14, 0.08, 'triangle'));
+                break;
+            }
+            case '👍': { // positivo, dois toques ascendentes
+                note(660, 0, 0.16, 0.09, 'triangle');
+                note(990, 0.09, 0.22, 0.09, 'triangle');
+                break;
+            }
+            case '😮': { // surpresa: sobe e segura
+                note(523, 0, 0.14, 0.08, 'sine');
+                note(880, 0.09, 0.30, 0.08, 'sine');
+                break;
+            }
+            default: {
+                note(700, 0, 0.2, 0.08, 'triangle');
+                note(1050, 0.08, 0.24, 0.07, 'triangle');
+            }
+        }
+    } catch (e) {}
+}
+
+// =====================================================================
+// Indicador de "quem está falando" (borda no tile), estilo Google Meet.
+// Analisa o nível de áudio de cada stream (local + remotos) via WebAudio e
+// alterna a classe .speaking no tile, com histerese para não piscar.
+// =====================================================================
+const speakingMon = new Map(); // id -> { analyser, data, src, speaking, silentFrames }
+let speakingLoopOn = false;
+
+function attachSpeaking(id, stream) {
+    try {
+        if (!stream || stream.getAudioTracks().length === 0) return;
+        audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        // Remove um monitor anterior deste id (ex.: troca de microfone).
+        detachSpeaking(id);
+        const src = audioCtx.createMediaStreamSource(stream);
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 512;
+        analyser.smoothingTimeConstant = 0.6;
+        src.connect(analyser); // não conecta ao destino (evita eco/duplicar áudio)
+        speakingMon.set(id, { analyser, data: new Uint8Array(analyser.fftSize), src, speaking: false, silentFrames: 0 });
+        if (!speakingLoopOn) { speakingLoopOn = true; requestAnimationFrame(speakingLoop); }
+    } catch (e) {}
+}
+
+function detachSpeaking(id) {
+    const m = speakingMon.get(id);
+    if (m) { try { m.src.disconnect(); } catch (e) {} speakingMon.delete(id); }
+    tileEl(id)?.classList.remove('speaking');
+}
+
+let _spkLast = 0;
+function speakingLoop(ts) {
+    if (!speakingLoopOn) return;
+    // ~15 fps é suficiente e leve para o celular.
+    if (ts - _spkLast >= 66) {
+        _spkLast = ts;
+        speakingMon.forEach((m, id) => {
+            const t = tileEl(id);
+            if (!t) return;
+            // Se estiver mutado, nunca marca como falando.
+            const muted = (id === peerId) ? !micOn : t.classList.contains('mic-off');
+            let level = 0;
+            if (!muted) {
+                m.analyser.getByteTimeDomainData(m.data);
+                let sum = 0;
+                for (let i = 0; i < m.data.length; i++) { const v = (m.data[i] - 128) / 128; sum += v * v; }
+                level = Math.sqrt(sum / m.data.length); // RMS 0..1
+            }
+            const THRESH = 0.045; // limiar de voz
+            if (level > THRESH) {
+                m.silentFrames = 0;
+                if (!m.speaking) { m.speaking = true; t.classList.add('speaking'); }
+            } else {
+                // Histerese: só apaga após alguns quadros em silêncio (evita piscar).
+                if (m.speaking && ++m.silentFrames > 8) { m.speaking = false; t.classList.remove('speaking'); }
+            }
+        });
+    }
+    requestAnimationFrame(speakingLoop);
+}
+
+// Remove um tile com animação de saída.
+function animateTileOut(id) {
+    const t = tileEl(id);
+    if (!t) return;
+    detachSpeaking(id);
+    t.classList.add('tile-out');
+    setTimeout(() => { if (t.parentNode) { t.remove(); tileZoom.delete(id); tilePan.delete(id); pinned.delete(id); layoutGrid(); } }, 220);
 }
 
 async function refreshAdminPanel() {
@@ -1666,18 +2338,28 @@ function showReactionBadge(pid, emoji, name) {
     reactionTimers.set(pid, setTimeout(() => { t.classList.remove('reacting'); reactionTimers.delete(pid); }, 4000));
 }
 
-// Chuva de emojis (poucos, subindo e sumindo).
+// Reações recentes (para desenhar também na GRAVAÇÃO/PiP).
+const activeReactions = [];
+// Chuva de emojis (leve; menos elementos no celular; limite global anti-travamento).
 function spawnEmojiRain(emoji) {
     const layer = document.getElementById('emoji-rain');
     if (!layer) return;
-    const count = 6;
+    // Som curto e próprio de cada emoji, junto com a chuvinha.
+    emojiSound(emoji);
+    // Registra para a gravação (some após 3,4s).
+    activeReactions.push({ emoji, born: Date.now() });
+    if (activeReactions.length > 30) activeReactions.splice(0, activeReactions.length - 30);
+
+    // Limite de elementos vivos na tela (evita travar em rajada).
+    if (layer.childElementCount > 40) return;
+    const count = IS_MOBILE ? 4 : 6;
     for (let i = 0; i < count; i++) {
         const el = document.createElement('div');
         el.className = 'rain-emoji';
         el.textContent = emoji;
         el.style.left = (10 + Math.random() * 80) + 'vw';
         el.style.fontSize = (1.4 + Math.random() * 1.4) + 'rem';
-        el.style.animationDelay = (Math.random() * 0.5) + 's';
+        el.style.animationDelay = (Math.random() * 0.4) + 's';
         layer.appendChild(el);
         setTimeout(() => el.remove(), 3600);
     }
@@ -1695,16 +2377,19 @@ function toggleHand() {
     tileEl(peerId)?.classList.toggle('hand-up', handUp);
     if (handUp) raisedHands.set(peerId, { name: myName + ' (você)', ts: Date.now() });
     else raisedHands.delete(peerId);
+    // Sinal imediato (resposta rápida) + estado consolidado (autocorreção via heartbeat).
     broadcast('hand', { up: handUp, name: myName });
+    broadcastMyState();
     renderHands();
     if (handUp) toast('Você levantou a mão.');
 }
 
 function onRemoteHand(from, payload) {
     const up = !!(payload && payload.up);
-    const name = (payload && payload.name) || 'Convidado';
+    const name = (payload && payload.name) || peerNames.get(from) || 'Convidado';
+    if (payload && payload.name) peerNames.set(from, payload.name);
     tileEl(from)?.classList.toggle('hand-up', up);
-    if (up) { if (!raisedHands.has(from)) raisedHands.set(from, { name, ts: Date.now() }); }
+    if (up) { if (!raisedHands.has(from)) raisedHands.set(from, { name, ts: Date.now() }); else raisedHands.get(from).name = name; }
     else raisedHands.delete(from);
     renderHands();
 }
@@ -1786,33 +2471,82 @@ function collectComposeSources() {
 // Desenha um vídeo numa região (x,y,w,h) com "cover" e o nome no canto.
 function drawTileVideo(ctx, v, x, y, w, h, opts) {
     opts = opts || {};
+    const tile = v.closest('.tile');
+    const camOff = tile && tile.classList.contains('cam-off');
+    const micOff = tile && tile.classList.contains('mic-off');
     const vw = v.videoWidth || 16, vh = v.videoHeight || 9;
-    // Tela usa "contain" (mostra tudo, sem cortar texto); câmera usa "cover".
-    const scale = opts.contain ? Math.min(w / vw, h / vh) : Math.max(w / vw, h / vh);
-    const dw = vw * scale, dh = vh * scale;
-    const dx = x + (w - dw) / 2, dy = y + (h - dh) / 2;
+
     ctx.save();
     ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
     ctx.beginPath(); ctx.rect(x + 2, y + 2, w - 4, h - 4); ctx.clip();
-    if (opts.contain) { ctx.fillStyle = '#000'; ctx.fillRect(x, y, w, h); }
-    try { ctx.drawImage(v, dx, dy, dw, dh); } catch (e) {}
+
+    if (camOff) {
+        // Câmera desligada: fundo + avatar com a inicial (igual à reunião).
+        ctx.fillStyle = '#23263d'; ctx.fillRect(x, y, w, h);
+        const nm = (opts.name || 'C').trim();
+        const initial = nm.replace(/\s*\(.*$/, '').trim().charAt(0).toUpperCase() || 'C';
+        const r = Math.max(24, Math.min(w, h) * 0.18);
+        const cx = x + w / 2, cy = y + h / 2;
+        ctx.fillStyle = '#00BFA6';
+        ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.font = '700 ' + Math.round(r) + 'px system-ui, Arial, sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(initial, cx, cy + 1);
+        ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
+    } else {
+        // Tela usa "contain" (mostra tudo); câmera usa "cover".
+        const scale = opts.contain ? Math.min(w / vw, h / vh) : Math.max(w / vw, h / vh);
+        const dw = vw * scale, dh = vh * scale;
+        const dx = x + (w - dw) / 2, dy = y + (h - dh) / 2;
+        if (opts.contain) { ctx.fillStyle = '#000'; ctx.fillRect(x, y, w, h); }
+        try { ctx.drawImage(v, dx, dy, dw, dh); } catch (e) {}
+    }
     ctx.restore();
+
     if (opts.name) {
         const nm = opts.name;
-        // Fonte pequena e fixa (escala levemente com a largura da célula), não com a altura,
-        // para o nome não ficar gigante quando a célula é alta (ex.: tela em tela cheia).
         const fs = Math.max(12, Math.min(18, Math.round(w * 0.022)));
         ctx.font = '600 ' + fs + 'px system-ui, Arial, sans-serif';
         const padX = 8;
-        const tw = ctx.measureText(nm).width + padX * 2;
+        // Deixa espaço para o ícone de mic mutado antes do nome.
+        const micIcoW = micOff ? (fs + 8) : 0;
+        const tw = ctx.measureText(nm).width + padX * 2 + micIcoW;
         const bh = fs + 8;
+        const bx = x + 8, by = y + h - bh - 8;
         ctx.fillStyle = 'rgba(0,0,0,.6)';
-        ctx.fillRect(x + 8, y + h - bh - 8, tw, bh);
+        ctx.fillRect(bx, by, tw, bh);
+        if (micOff) drawMicMutedIcon(ctx, bx + padX, by + bh / 2, fs);
         ctx.fillStyle = '#fff';
         ctx.textBaseline = 'middle';
-        ctx.fillText(nm, x + 8 + padX, y + h - 8 - bh / 2);
+        ctx.fillText(nm, bx + padX + micIcoW, by + bh / 2);
         ctx.textBaseline = 'alphabetic';
     }
+}
+
+// Desenha um ícone simples de "microfone mutado" (corpo do mic + barra diagonal).
+function drawMicMutedIcon(ctx, cx, cy, size) {
+    const s = size * 0.9;
+    ctx.save();
+    ctx.strokeStyle = '#ff9db0'; ctx.fillStyle = '#ff9db0';
+    ctx.lineWidth = Math.max(1.5, s * 0.09);
+    // corpo do microfone
+    const mw = s * 0.34, mh = s * 0.6;
+    const mx = cx + s * 0.15, my = cy - mh / 2;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(mx, my, mw, mh, mw / 2); else ctx.rect(mx, my, mw, mh);
+    ctx.fill();
+    // base
+    ctx.beginPath();
+    ctx.arc(mx + mw / 2, my + mh, mw * 0.8, 0, Math.PI, false);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(mx + mw / 2, my + mh + mw * 0.8); ctx.lineTo(mx + mw / 2, my + mh + mw * 1.2);
+    ctx.stroke();
+    // barra diagonal (mutado)
+    ctx.strokeStyle = '#ff5470'; ctx.lineWidth = Math.max(1.6, s * 0.1);
+    ctx.beginPath(); ctx.moveTo(cx + s * 0.02, cy - s * 0.5); ctx.lineTo(cx + s * 0.7, cy + s * 0.5); ctx.stroke();
+    ctx.restore();
 }
 
 function nameOf(v) { const t = v.closest('.tile'); return t ? (t.querySelector('.name')?.textContent || '') : ''; }
@@ -1851,6 +2585,29 @@ function composeLayout(ctx, W, H) {
         vids.forEach((v, i) => {
             drawTileVideo(ctx, v, (i % cols) * cw, Math.floor(i / cols) * ch, cw, ch, { name: nameOf(v) });
         });
+    }
+
+    // Reações também aparecem na gravação/PiP (emojis subindo).
+    drawReactionsOnCanvas(ctx, W, H);
+}
+
+// Desenha os emojis recentes subindo no canvas (reflete as reações na gravação).
+function drawReactionsOnCanvas(ctx, W, H) {
+    if (!activeReactions.length) return;
+    const now = Date.now();
+    for (let i = activeReactions.length - 1; i >= 0; i--) {
+        const r = activeReactions[i];
+        const age = now - r.born;
+        if (age > 3400) { activeReactions.splice(i, 1); continue; }
+        const p = age / 3400;               // 0..1
+        const y = H * (0.82 - p * 0.6);     // sobe
+        const x = W * (0.12 + ((i * 137) % 76) / 100); // espalha horizontalmente
+        ctx.save();
+        ctx.globalAlpha = p < 0.15 ? (p / 0.15) : (1 - Math.max(0, (p - 0.7) / 0.3));
+        ctx.font = Math.round(H * 0.06) + 'px system-ui, Arial, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(r.emoji, x, y);
+        ctx.restore();
     }
 }
 
@@ -1905,9 +2662,20 @@ function startRecording() {
     if (!MediaRecorder.isTypeSupported(mime)) mime = 'video/webm';
     try { recordedChunks = []; mediaRecorder = new MediaRecorder(buildRecordingStream(), { mimeType: mime }); }
     catch (e) { toast('Este navegador não suporta gravação.'); return; }
-    mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size) recordedChunks.push(e.data); };
+
+    // Sessão de gravação: os pedaços são ENVIADOS progressivamente ao servidor.
+    // Se cair no meio, o que já subiu não se perde.
+    recSessId = 'r' + Math.random().toString(36).slice(2, 12) + Date.now().toString(36).slice(-4);
+    recUploadChain = Promise.resolve();
+
+    mediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size) {
+            recordedChunks.push(e.data);           // mantém cópia local (fallback)
+            uploadChunk(e.data);                   // e envia o pedaço já
+        }
+    };
     mediaRecorder.onstop = uploadRecording;
-    mediaRecorder.start(1000);
+    mediaRecorder.start(4000); // um pedaço a cada 4s
     recStartTs = Date.now();
     recElapsedMs = 0; recResumeTs = Date.now();
     document.getElementById('btn-rec').classList.add('off');
@@ -1980,10 +2748,49 @@ function showRemoteRecState(payload) {
     if (label) label.textContent = (st === 'pause') ? ('Gravação pausada' + (payload.by ? ' · ' + payload.by : '')) : ('Sendo gravada' + (payload.by ? ' · ' + payload.by : ''));
     ind.style.opacity = (st === 'pause') ? '.6' : '1';
 }
+// Envia um pedaço da gravação ao servidor (em fila, para manter a ordem).
+let recSessId = null, recUploadChain = Promise.resolve(), recChunksSent = 0;
+function uploadChunk(blob) {
+    if (!recSessId) return;
+    const sess = recSessId;
+    recUploadChain = recUploadChain.then(async () => {
+        const fd = new FormData();
+        fd.append('sess', sess);
+        fd.append('chunk', blob, 'c.webm');
+        try { await fetch(`${BASE}/videocall/recChunk/${ROOM_TOKEN}`, { method: 'POST', body: fd }); recChunksSent++; }
+        catch (e) { /* pedaço falhou; o fallback local (recordedChunks) cobre no fim */ }
+    });
+}
+
+// Ao parar: finaliza a gravação por streaming (junta os pedaços no servidor).
+// Se por algum motivo nada foi enviado por streaming, cai no upload do arquivo inteiro.
 async function uploadRecording() {
+    const durationSec = Math.floor((Date.now() - recStartTs) / 1000);
+    const sess = recSessId;
+    recSessId = null;
+
+    // Espera os pedaços pendentes subirem.
+    try { await recUploadChain; } catch (e) {}
+
+    if (sess && recChunksSent > 0) {
+        toast('Finalizando a gravação no servidor…');
+        try {
+            const fd = new FormData();
+            fd.append('sess', sess); fd.append('duration_sec', durationSec); fd.append('recorded_by_name', myName);
+            const res = await fetch(`${BASE}/videocall/recFinalize/${ROOM_TOKEN}`, { method: 'POST', body: fd }).then(r => r.json());
+            if (!res.error) {
+                currentRecToken = res.token || null;
+                document.getElementById('rec-url').value = res.url; document.getElementById('rec-open').href = res.url;
+                document.getElementById('rec-modal').style.display = 'flex';
+                recordedChunks = []; recChunksSent = 0;
+                return;
+            }
+        } catch (e) { /* cai para o upload inteiro abaixo */ }
+    }
+
+    // Fallback: envia o arquivo inteiro (gravações curtas ou se o streaming falhou).
     if (!recordedChunks.length) return;
     const blob = new Blob(recordedChunks, { type: 'video/webm' });
-    const durationSec = Math.floor((Date.now() - recStartTs) / 1000);
     toast('Enviando gravação para o servidor…');
     const fd = new FormData();
     fd.append('recording', blob, 'gravacao.webm'); fd.append('duration_sec', durationSec); fd.append('recorded_by_name', myName);
@@ -1994,6 +2801,7 @@ async function uploadRecording() {
         document.getElementById('rec-url').value = res.url; document.getElementById('rec-open').href = res.url;
         document.getElementById('rec-modal').style.display = 'flex';
     } catch (e) { toast('Falha ao enviar a gravação.'); }
+    recChunksSent = 0;
 }
 
 // Token da última gravação (usado apenas para exibir o link no pop-up).
@@ -2126,6 +2934,7 @@ function teardown(headline, sub) {
     if (adminTimer) clearInterval(adminTimer);
     if (waitTimer) clearInterval(waitTimer);
     stopNetworkMonitor();
+    stopStateHeartbeat();
     if (document.pictureInPictureElement) { try { document.exitPictureInPicture(); } catch (e) {} }
     stopPip();
     if (mediaRecorder && mediaRecorder.state !== 'inactive') { try { stopRecording(); } catch (e) {} }
@@ -2153,6 +2962,7 @@ function teardown(headline, sub) {
 }
 function hangup() {
     if (!joined) return; joined = false;
+    try { sfx('selfleave'); } catch (e) {}
     if (mediaRecorder && mediaRecorder.state !== 'inactive') stopRecording();
     try { navigator.sendBeacon(`${BASE}/videocall/leave/${ROOM_TOKEN}`, new URLSearchParams({ peer_id: peerId })); }
     catch (e) { fetch(`${BASE}/videocall/leave/${ROOM_TOKEN}`, { method: 'POST', body: new URLSearchParams({ peer_id: peerId }) }); }
@@ -2180,7 +2990,41 @@ if (IS_TOUCH) {
     });
 }
 
+// Dica de arraste nos controles (mobile): mostra a seta quando há botões escondidos.
+function updateControlsOverflow() {
+    const wrap = document.querySelector('.controls-wrap');
+    const bar = document.getElementById('controls');
+    if (!wrap || !bar) return;
+    const overflow = bar.scrollWidth > bar.clientWidth + 8;
+    const atEnd = bar.scrollLeft + bar.clientWidth >= bar.scrollWidth - 8;
+    wrap.classList.toggle('has-overflow', overflow && !atEnd);
+}
+function scrollControls() {
+    const bar = document.getElementById('controls');
+    if (bar) bar.scrollBy({ left: Math.round(bar.clientWidth * 0.6), behavior: 'smooth' });
+}
+(function () {
+    const bar = document.getElementById('controls');
+    if (bar) bar.addEventListener('scroll', updateControlsOverflow, { passive: true });
+    window.addEventListener('resize', updateControlsOverflow);
+    // Reavalia após o layout assentar.
+    setTimeout(updateControlsOverflow, 800);
+    setTimeout(updateControlsOverflow, 2500);
+})();
+
 initPreview();
+
+// iOS: se a câmera não abriu (ex.: permissão concedida após um toque), um clique
+// no lobby tenta novamente. Não atrapalha os demais navegadores.
+(function () {
+    const lb = document.getElementById('lobby');
+    if (!lb) return;
+    lb.addEventListener('click', function (ev) {
+        if (ev.target.closest('button') || ev.target.closest('select') || ev.target.closest('input')) return;
+        const semVideo = !rawStream || rawStream.getVideoTracks().length === 0;
+        if (semVideo) initPreview();
+    }, { passive: true });
+})();
 </script>
 </body>
 </html>

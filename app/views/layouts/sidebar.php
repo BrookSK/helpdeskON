@@ -67,6 +67,11 @@
                 </a>
             </li>
             <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'schedule' ? 'active' : '' ?>" href="<?= baseUrl('planning/clientSchedule') ?>">
+                    <i class="bi bi-calendar-range"></i> Cronograma
+                </a>
+            </li>
+            <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'create' ? 'active' : '' ?>" href="<?= baseUrl('tickets/create') ?>">
                     <i class="bi bi-plus-circle"></i> Nova Demanda
                 </a>

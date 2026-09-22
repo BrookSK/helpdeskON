@@ -4,8 +4,9 @@ class AgendaMeeting
 {
     private $db;
 
-    // Status em ordem de fluxo (colunas do Kanban)
-    public static $statuses = ['a_agendar', 'agendada', 'confirmada', 'realizada', 'convertida', 'remarcada', 'cancelada'];
+    // Status em ordem de fluxo (colunas do Kanban).
+    // Fonte única: AgendaRules::STATUSES (evita divergência entre validação e model).
+    public static $statuses = AgendaRules::STATUSES;
 
     public function __construct()
     {

@@ -16,3 +16,18 @@ public/uploads/recordings/*
 # OS
 .DS_Store
 Thumbs.db
+logs/app-error.log
+
+# Dependências / testes (PHPUnit)
+/vendor/
+.phpunit.cache/
+.phpunit.result.cache
+
+# Arquivos temporários de saída de comandos
+composer_out.txt
+pu_ver.txt
+phpunit_out.txt
+phpunit_result.txt
+setup_result.txt
+tests/setup_test_db.log
+fetchColumn()

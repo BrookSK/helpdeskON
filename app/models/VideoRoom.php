@@ -12,7 +12,7 @@ class VideoRoom
     private $db;
 
     /** Segundos sem heartbeat até considerar o participante "saiu". */
-    const PRESENCE_TIMEOUT = 15;
+    const PRESENCE_TIMEOUT = 10;
 
     public function __construct()
     {
@@ -184,12 +184,19 @@ class VideoRoom
      */
     public function pullSignals($roomId, $peerId)
     {
+        // Sinais EFÊMEROS (reação, mão) só valem em tempo real: se não foram
+        // entregues em poucos segundos, viraram lixo e NÃO devem ser reproduzidos
+        // — senão quem acaba de entrar na sala recebe uma enxurrada de reações
+        // antigas ainda pendentes. Os demais tipos (offer/answer/ice/join/leave/
+        // screen/end/state/perm/rec/forcemute) continuam sendo entregues sempre.
+        $ephemeralCutoff = date('Y-m-d H:i:s', time() - 8);
         $rows = $this->db->fetchAll(
             "SELECT * FROM video_room_signals
              WHERE room_id = ? AND delivered_at IS NULL
                AND (to_peer_id = ? OR (to_peer_id IS NULL AND from_peer_id <> ?))
+               AND (kind NOT IN ('reaction','hand') OR created_at >= ?)
              ORDER BY id ASC LIMIT 100",
-            [$roomId, $peerId, $peerId]
+            [$roomId, $peerId, $peerId, $ephemeralCutoff]
         );
         if ($rows) {
             $ids = array_column($rows, 'id');

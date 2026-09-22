@@ -614,7 +614,9 @@ class PlanningCard
      */
     public function getAllForClientCompany($companyId, $filters = [])
     {
-        $sql = "SELECT DISTINCT pc.id, pc.title, pc.status, pc.priority, co.name as company_name
+        $sql = "SELECT DISTINCT pc.id, pc.title, pc.status, pc.priority,
+                       pc.client_start_date, pc.client_end_date, pc.due_date,
+                       co.name as company_name
                 FROM planning_cards pc
                 LEFT JOIN companies co ON pc.company_id = co.id
                 LEFT JOIN tickets t ON pc.ticket_id = t.id
@@ -641,5 +643,72 @@ class PlanningCard
 
         $sql .= " ORDER BY FIELD(pc.priority, 'urgent', 'high', 'medium', 'low'), pc.id DESC";
         return $this->db->fetchAll($sql, $params);
+    }
+
+    /**
+     * Cronograma exibido ao cliente: apenas cards da empresa do cliente que
+     * possuem cronograma definido (client_start_date). Traz os campos
+     * necessários para o calendário e o gráfico de Gantt no painel do cliente.
+     *
+     * Expõe somente informação não sensível (título, status, prioridade e as
+     * datas do cronograma do cliente) — nunca datas internas de desenvolvimento
+     * (start_date/end_date) nem responsáveis.
+     */
+    public function getClientSchedule($companyId, $filters = [])
+    {
+        $sql = "SELECT DISTINCT pc.id, pc.title, pc.status, pc.priority,
+                       pc.client_start_date, pc.client_end_date,
+                       co.name as company_name
+                FROM planning_cards pc
+                LEFT JOIN companies co ON pc.company_id = co.id
+                LEFT JOIN tickets t ON pc.ticket_id = t.id
+                LEFT JOIN users tc ON t.client_id = tc.id
+                LEFT JOIN users cb ON pc.created_by = cb.id
+                WHERE pc.client_start_date IS NOT NULL
+                  AND (
+                    pc.company_id = ?
+                    OR tc.company_id = ?
+                    OR (cb.company_id = ? AND cb.role = 'client')
+                  )";
+        $params = [$companyId, $companyId, $companyId];
+
+        if (!empty($filters['status'])) {
+            $sql .= " AND pc.status = ?";
+            $params[] = $filters['status'];
+        }
+        if (!empty($filters['hide_completed'])) {
+            $sql .= " AND pc.status NOT IN ('completed', 'archived')";
+        }
+
+        $sql .= " ORDER BY pc.client_start_date ASC, pc.id ASC";
+        return $this->db->fetchAll($sql, $params);
+    }
+
+    /**
+     * Detalhe de um card para o cliente, validando que ele pertence à empresa
+     * informada. Retorna apenas campos não sensíveis (sem responsáveis internos,
+     * notas internas ou referências de CX Hub). Devolve null se o card não
+     * existir ou não pertencer à empresa do cliente.
+     */
+    public function getClientCardDetail($cardId, $companyId)
+    {
+        return $this->db->fetch(
+            "SELECT pc.id, pc.title, pc.description, pc.status, pc.priority,
+                    pc.client_start_date, pc.client_end_date, pc.created_at,
+                    co.name as company_name, pc.ticket_id
+             FROM planning_cards pc
+             LEFT JOIN companies co ON pc.company_id = co.id
+             LEFT JOIN tickets t ON pc.ticket_id = t.id
+             LEFT JOIN users tc ON t.client_id = tc.id
+             LEFT JOIN users cb ON pc.created_by = cb.id
+             WHERE pc.id = ?
+               AND (
+                    pc.company_id = ?
+                    OR tc.company_id = ?
+                    OR (cb.company_id = ? AND cb.role = 'client')
+               )
+             LIMIT 1",
+            [$cardId, $companyId, $companyId, $companyId]
+        );
     }
 }

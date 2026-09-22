@@ -15,9 +15,9 @@ class PlanningController extends Controller
         $this->requireLogin();
         $user = $this->currentUser();
 
-        // Cliente é redirecionado para a view de demandas em lista
+        // Cliente é redirecionado para o cronograma dele (calendário + Gantt)
         if ($user['role'] === 'client') {
-            $this->redirect('planning/clientDemands');
+            $this->redirect('planning/clientSchedule');
             return;
         }
 
@@ -172,6 +172,8 @@ class PlanningController extends Controller
             'due_date' => !empty($_POST['due_date']) ? $_POST['due_date'] : null,
             'start_date' => !empty($_POST['start_date']) ? $_POST['start_date'] : null,
             'end_date' => !empty($_POST['end_date']) ? $_POST['end_date'] : null,
+            'client_start_date' => !empty($_POST['client_start_date']) ? $_POST['client_start_date'] : null,
+            'client_end_date' => !empty($_POST['client_end_date']) ? $_POST['client_end_date'] : null,
             'position' => 0,
         ];
 
@@ -290,6 +292,8 @@ class PlanningController extends Controller
         if (isset($_POST['due_date'])) $data['due_date'] = $_POST['due_date'] ?: null;
         if (isset($_POST['start_date'])) $data['start_date'] = $_POST['start_date'] ?: null;
         if (isset($_POST['end_date'])) $data['end_date'] = $_POST['end_date'] ?: null;
+        if (isset($_POST['client_start_date'])) $data['client_start_date'] = $_POST['client_start_date'] ?: null;
+        if (isset($_POST['client_end_date'])) $data['client_end_date'] = $_POST['client_end_date'] ?: null;
         // Campos CX Hub
         if (isset($_POST['cx_hub_number'])) $data['cx_hub_number'] = trim($_POST['cx_hub_number']) ?: null;
         if (isset($_POST['cx_hub_name'])) $data['cx_hub_name'] = trim($_POST['cx_hub_name']) ?: null;
@@ -1275,10 +1279,106 @@ class PlanningController extends Controller
      */
     public function clientDemands()
     {
-        // Acesso ao Planejamento removido para clientes.
-        // O cliente acompanha somente as demandas dele em "Minhas Demandas".
+        // Compatibilidade: rota antiga passa a apontar para o cronograma.
         $this->requireLogin();
-        $this->redirect('dashboard');
+        $this->redirect('planning/clientSchedule');
+    }
+
+    /**
+     * Cronograma do cliente: tela em que o cliente acompanha o andamento das
+     * demandas da empresa dele em calendário e em gráfico de Gantt, usando as
+     * datas de início/fim definidas pela equipe (client_start_date/_end_date).
+     */
+    public function clientSchedule()
+    {
+        $this->requireLogin();
+        $user = $this->currentUser();
+        if ($user['role'] !== 'client') {
+            $this->redirect('planning');
+            return;
+        }
+
+        $fullUser = (new User())->findById($user['id']);
+        $companyId = $fullUser['company_id'] ?? null;
+
+        $filters = [];
+        if (!empty($_GET['status'])) $filters['status'] = $_GET['status'];
+        if (!empty($_GET['hide_completed'])) $filters['hide_completed'] = true;
+
+        $cards = $companyId
+            ? $this->cardModel->getClientSchedule($companyId, $filters)
+            : [];
+
+        $this->view('client/schedule', [
+            'user' => $user,
+            'cards' => $cards,
+            'filters' => $filters,
+        ]);
+    }
+
+    /**
+     * Dados do cronograma do cliente em JSON (alimenta calendário e Gantt).
+     */
+    public function clientScheduleData()
+    {
+        $this->requireLogin();
+        $user = $this->currentUser();
+        if ($user['role'] !== 'client') {
+            $this->json(['error' => 'Acesso negado'], 403);
+        }
+
+        $fullUser = (new User())->findById($user['id']);
+        $companyId = $fullUser['company_id'] ?? null;
+
+        $filters = [];
+        if (!empty($_GET['status'])) $filters['status'] = $_GET['status'];
+        if (!empty($_GET['hide_completed'])) $filters['hide_completed'] = true;
+
+        $cards = $companyId
+            ? $this->cardModel->getClientSchedule($companyId, $filters)
+            : [];
+
+        $events = array_map(function ($c) {
+            return [
+                'id' => (int)$c['id'],
+                'title' => $c['title'],
+                'status' => $c['status'],
+                'priority' => $c['priority'],
+                'start_date' => $c['client_start_date'],
+                'end_date' => $c['client_end_date'] ?: $c['client_start_date'],
+            ];
+        }, $cards);
+
+        $this->json($events);
+    }
+
+    /**
+     * Detalhe de uma demanda do cronograma para o cliente (JSON). Só devolve
+     * campos não sensíveis e valida que o card pertence à empresa do cliente.
+     */
+    public function clientCardDetail($id = null)
+    {
+        $this->requireLogin();
+        $user = $this->currentUser();
+        if ($user['role'] !== 'client') {
+            $this->json(['error' => 'Acesso negado'], 403);
+        }
+        if (!$id) {
+            $this->json(['error' => 'ID não informado'], 400);
+        }
+
+        $fullUser = (new User())->findById($user['id']);
+        $companyId = $fullUser['company_id'] ?? null;
+        if (!$companyId) {
+            $this->json(['error' => 'Sem empresa vinculada'], 404);
+        }
+
+        $card = $this->cardModel->getClientCardDetail((int)$id, $companyId);
+        if (!$card) {
+            $this->json(['error' => 'Demanda não encontrada'], 404);
+        }
+
+        $this->json(['card' => $card]);
     }
 }
 

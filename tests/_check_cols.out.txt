@@ -1,0 +1,1 @@
+colunas cronograma no teste: client_start_date, client_end_date

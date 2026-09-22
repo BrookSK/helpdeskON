@@ -163,7 +163,12 @@ class VideocallController extends Controller
         $room = $this->requireActiveRoom($token, 2, true);
         $this->releaseSession();
         $peers = $this->formatPeers($this->model->activeParticipants($room['id']));
-        $this->json(['count' => count($peers), 'peers' => $peers, 'title' => $room['title']]);
+        $this->json([
+            'count' => count($peers),
+            'peers' => $peers,
+            'title' => $room['title'],
+            'allow_presentation' => (int)($room['allow_presentation'] ?? 1) === 1,
+        ]);
     }
 
     /** Lista as imagens de fundo padrão disponíveis (public/assets/vc-backgrounds). */
@@ -275,12 +280,14 @@ class VideocallController extends Controller
             $this->model->purgeOldSignals(30);
         }
 
-        $deadline = time() + 12;
+        // Long-poll curto (6s): devolve rápido para o cliente reconciliar a
+        // presença com frequência (quem saiu some mais rápido dos demais).
+        $deadline = time() + 6;
         $signals = [];
         do {
             $signals = $this->model->pullSignals($room['id'], $peerId);
             if (!empty($signals)) break;
-            usleep(300000); // 0,3s
+            usleep(250000); // 0,25s
         } while (time() < $deadline);
 
         $out = array_map(function ($s) {
@@ -316,12 +323,12 @@ class VideocallController extends Controller
         $kind = (string)($body['kind'] ?? '');
         $payload = $body['payload'] ?? null;
 
-        $allowed = ['offer', 'answer', 'ice', 'join', 'leave', 'media', 'screen', 'end', 'reaction', 'hand', 'rec'];
+        $allowed = ['offer', 'answer', 'ice', 'join', 'leave', 'media', 'screen', 'end', 'reaction', 'hand', 'rec', 'state', 'forcemute'];
         if ($from === '' || !in_array($kind, $allowed, true)) {
             $this->json(['error' => 'Sinal inválido'], 400);
         }
-        // 'end' encerra a sala para todos — só admin da sala pode.
-        if ($kind === 'end') {
+        // Ações de moderação (encerrar sala / silenciar alguém) — só admin da sala.
+        if ($kind === 'end' || $kind === 'forcemute') {
             if (!$this->model->isAdminUser($room, $endUserId)) $this->json(['error' => 'Sem permissão.'], 403);
         }
 
@@ -513,6 +520,108 @@ class VideocallController extends Controller
         $this->json(['success' => true, 'token' => $recToken, 'url' => $shareUrl]);
     }
 
+    /**
+     * Recebe um PEDAÇO da gravação e o ANEXA a um arquivo .part no servidor.
+     * A gravação é enviada progressivamente durante a chamada — assim, se quem
+     * grava cair (queda de internet/aba fechada), o que já foi enviado NÃO se perde.
+     */
+    public function recChunk($token = null)
+    {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $room = $this->requireActiveRoom($token, 2, true);
+        $userId = $_SESSION['user_id'] ?? null;
+        $this->releaseSession();
+
+        if ((int)$room['allow_recording'] !== 1) $this->json(['error' => 'Gravação não permitida.'], 403);
+        if (($room['visibility'] ?? 'public') === 'private' && !$this->model->isAdminUser($room, $userId)) {
+            $this->json(['error' => 'Sem permissão para gravar.'], 403);
+        }
+        $sess = $this->safePeerId($_POST['sess'] ?? '');
+        if ($sess === '') $this->json(['error' => 'Sessão inválida.'], 400);
+        if (empty($_FILES['chunk']) || $_FILES['chunk']['error'] !== UPLOAD_ERR_OK) {
+            $this->json(['error' => 'Pedaço ausente.'], 400);
+        }
+        // Limite por pedaço (8 MB) e teto acumulado (600 MB) por segurança.
+        if ((int)$_FILES['chunk']['size'] > 8 * 1024 * 1024) $this->json(['error' => 'Pedaço muito grande.'], 413);
+
+        $dir = PUBLIC_PATH . '/uploads/recordings';
+        if (!is_dir($dir)) @mkdir($dir, 0775, true);
+        $part = $dir . '/part_' . $room['id'] . '_' . $sess . '.webm';
+        $meta = $dir . '/part_' . $room['id'] . '_' . $sess . '.json';
+
+        if (is_file($part) && filesize($part) > 600 * 1024 * 1024) {
+            $this->json(['error' => 'Gravação muito grande.'], 413);
+        }
+        // No primeiro pedaço, guarda quem grava (para recuperar se cair sem finalizar).
+        if (!is_file($meta)) {
+            @file_put_contents($meta, json_encode([
+                'room_id' => (int)$room['id'],
+                'recorded_by' => $userId,
+                'recorded_by_name' => trim(substr((string)($_POST['recorded_by_name'] ?? ($_SESSION['user_name'] ?? '')), 0, 120)) ?: null,
+                'started_at' => date('Y-m-d H:i:s'),
+            ], JSON_UNESCAPED_UNICODE));
+        }
+        // Anexa os bytes do pedaço ao arquivo .part.
+        $in = fopen($_FILES['chunk']['tmp_name'], 'rb');
+        $out = fopen($part, 'ab');
+        if (!$in || !$out) $this->json(['error' => 'Falha ao gravar o pedaço.'], 500);
+        stream_copy_to_stream($in, $out);
+        fclose($in); fclose($out);
+
+        $this->json(['success' => true, 'size' => filesize($part)]);
+    }
+
+    /**
+     * Finaliza a gravação por streaming: transforma o .part no arquivo definitivo
+     * e cria o registro. Chamado ao parar de gravar (ou via beacon ao sair).
+     */
+    public function recFinalize($token = null)
+    {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $room = $this->requireActiveRoom($token, 2, true);
+        $userId = $_SESSION['user_id'] ?? null;
+        $userName = $_SESSION['user_name'] ?? null;
+        $this->releaseSession();
+
+        $sess = $this->safePeerId($_POST['sess'] ?? '');
+        if ($sess === '') $this->json(['error' => 'Sessão inválida.'], 400);
+
+        $dir = PUBLIC_PATH . '/uploads/recordings';
+        $part = $dir . '/part_' . $room['id'] . '_' . $sess . '.webm';
+        $meta = $dir . '/part_' . $room['id'] . '_' . $sess . '.json';
+        if (!is_file($part) || filesize($part) < 1024) {
+            $this->json(['error' => 'Nada gravado para finalizar.'], 404);
+        }
+
+        $recToken = $this->model->generateToken();
+        $fileName = 'rec_' . $room['id'] . '_' . $recToken . '.webm';
+        $dest = $dir . '/' . $fileName;
+        if (!@rename($part, $dest)) { @copy($part, $dest); @unlink($part); }
+        @unlink($meta); // finalizado normalmente: não é mais órfão
+
+        $recordedName = trim(substr((string)($_POST['recorded_by_name'] ?? ($userName ?? '')), 0, 120)) ?: null;
+        $duration = (int)($_POST['duration_sec'] ?? 0) ?: null;
+
+        // Injeta a duração no WebM para o player permitir seek em qualquer ponto.
+        // Se o cliente não informou a duração, usa a calculada pelos timecodes.
+        $calcDur = $this->injectWebmDuration($dest);
+        if ($calcDur !== null && !$duration) $duration = (int)round($calcDur);
+
+        $this->model->addRecording([
+            'room_id' => $room['id'],
+            'token' => $recToken,
+            'file_path' => 'recordings/' . $fileName,
+            'file_size' => filesize($dest) ?: null,
+            'mime_type' => 'video/webm',
+            'duration_sec' => $duration,
+            'recorded_by' => $userId,
+            'recorded_by_name' => $recordedName,
+        ]);
+
+        $shareUrl = $this->publicBase() . '/videocall/share/' . $recToken;
+        $this->json(['success' => true, 'token' => $recToken, 'url' => $shareUrl]);
+    }
+
     /** Reproduz/baixa uma gravação salva (streaming simples com suporte a Range). */
     public function recording($recToken = null)
     {
@@ -532,6 +641,17 @@ class VideocallController extends Controller
             http_response_code(404);
             echo 'Arquivo de gravação indisponível.';
             return;
+        }
+
+        // Migração preguiçosa: gravações antigas foram salvas sem o campo Duration
+        // no WebM (seek não funcionava). Injeta uma única vez, quando ainda não há
+        // duração registrada. Só corre para requisições SEM Range (a 1ª carga),
+        // para não reescrever o arquivo durante um seek em andamento.
+        if (empty($_SERVER['HTTP_RANGE']) && (int)($rec['duration_sec'] ?? 0) <= 0) {
+            $calcDur = $this->injectWebmDuration($real);
+            if ($calcDur !== null) {
+                $this->model->updateRecording($rec['token'], ['duration_sec' => (int)round($calcDur)]);
+            }
         }
 
         $this->streamFile($real, $rec['mime_type'] ?: 'video/webm');
@@ -581,6 +701,107 @@ class VideocallController extends Controller
         ]);
     }
 
+    /**
+     * Transcreve UM PEDAÇO de áudio já cortado no navegador (WAV/webm) e devolve
+     * os segmentos com o tempo ajustado pelo offset. Assim reuniões longas são
+     * transcritas SEM depender de ffmpeg no servidor: o navegador corta o áudio.
+     */
+    public function transcribeChunk($recToken = null)
+    {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $recToken = $this->tokenFromUrl($recToken, 2);
+        $rec = $recToken ? $this->model->findRecordingByToken($recToken) : null;
+        if (!$rec) $this->json(['error' => 'Gravação não encontrada'], 404);
+
+        $ai = new OpenAiClient();
+        if (!$ai->isConfigured()) $this->json(['error' => 'IA (OpenAI) não configurada no sistema.'], 400);
+
+        if (empty($_FILES['audio']) || $_FILES['audio']['error'] !== UPLOAD_ERR_OK) {
+            $this->json(['error' => 'Pedaço de áudio ausente.'], 400);
+        }
+        if ((int)$_FILES['audio']['size'] > 25 * 1024 * 1024) {
+            $this->json(['error' => 'Pedaço acima de 25 MB. Reduza a duração do corte.'], 413);
+        }
+        $offset = (float)($_POST['offset'] ?? 0);
+
+        // Marca "processando" na primeira parte.
+        if ((int)($_POST['index'] ?? 0) === 0) {
+            $this->model->updateRecording($recToken, ['transcribe_status' => 'processing']);
+        }
+        $this->releaseSession();
+        @set_time_limit(0);
+
+        // Move para um temp com extensão adequada (o Whisper usa a extensão).
+        $ext = 'wav';
+        $tn = (string)($_FILES['audio']['name'] ?? '');
+        if (preg_match('/\.(webm|mp3|m4a|ogg|wav)$/i', $tn, $m)) $ext = strtolower($m[1]);
+        $tmp = sys_get_temp_dir() . '/vc_chunk_' . bin2hex(random_bytes(6)) . '.' . $ext;
+        if (!move_uploaded_file($_FILES['audio']['tmp_name'], $tmp)) {
+            $this->json(['error' => 'Falha ao processar o pedaço.'], 500);
+        }
+
+        $r = $ai->transcribe($tmp, ['language' => 'pt', 'verbose' => true, 'timeout' => 600]);
+        @unlink($tmp);
+        if (empty($r['success'])) $this->json(['error' => 'Falha ao transcrever o pedaço: ' . ($r['error'] ?? '')], 502);
+
+        $segs = array_map(function ($s) use ($offset) {
+            return ['start' => $s['start'] + $offset, 'end' => $s['end'] + $offset, 'text' => $s['text']];
+        }, $r['segments'] ?? []);
+        $segs = $this->cleanTranscriptSegments($segs); // remove "pontinhos"/silêncio
+
+        $this->json(['success' => true, 'text' => $r['text'], 'segments' => $segs]);
+    }
+
+    /**
+     * Salva a transcrição/segmentos montados no navegador e gera o resumo por IA.
+     */
+    public function saveTranscript($recToken = null)
+    {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $recToken = $this->tokenFromUrl($recToken, 2);
+        $rec = $recToken ? $this->model->findRecordingByToken($recToken) : null;
+        if (!$rec) $this->json(['error' => 'Gravação não encontrada'], 404);
+
+        $raw = file_get_contents('php://input');
+        $body = json_decode($raw, true);
+        if (!is_array($body)) $body = $_POST;
+
+        $segments = is_array($body['segments'] ?? null) ? $body['segments'] : [];
+        $segments = $this->cleanTranscriptSegments($segments);
+        // Reconstrói o texto plano com marca de tempo (se não veio pronto).
+        $transcript = trim((string)($body['transcript'] ?? ''));
+        if ($transcript === '' && $segments) {
+            foreach ($segments as $s) {
+                $transcript .= '[' . $this->fmtTime((float)($s['start'] ?? 0)) . '] ' . trim((string)($s['text'] ?? '')) . "\n";
+            }
+            $transcript = trim($transcript);
+        }
+        if ($transcript === '') $this->json(['error' => 'Transcrição vazia.'], 400);
+
+        $this->releaseSession();
+        @set_time_limit(0);
+
+        // Resumo por IA.
+        $summary = '';
+        $ai = new OpenAiClient();
+        if ($ai->isConfigured()) {
+            $res = $ai->chat([
+                ['role' => 'system', 'content' => 'Você resume reuniões em português do Brasil. Produza: (1) um parágrafo geral, (2) tópicos principais em bullets, (3) decisões tomadas e (4) próximos passos / tarefas. Seja objetivo.'],
+                ['role' => 'user', 'content' => "Resuma a reunião a seguir (formato [mm:ss] texto):\n\n" . mb_substr($transcript, 0, 48000)],
+            ], ['model' => 'gpt-4o-mini', 'temperature' => 0.4, 'max_tokens' => 900]);
+            if (!empty($res['success'])) $summary = $res['content'];
+        }
+
+        $this->model->updateRecording($recToken, [
+            'transcript' => $transcript,
+            'transcript_json' => json_encode($segments, JSON_UNESCAPED_UNICODE),
+            'summary' => $summary,
+            'transcribe_status' => 'done',
+            'transcribed_at' => date('Y-m-d H:i:s'),
+        ]);
+        $this->json(['success' => true, 'summary' => $summary]);
+    }
+
     // ============================================================
     // Tela de gravações no Helpdesk (logado) + compartilhamento
     // ============================================================
@@ -590,8 +811,54 @@ class VideocallController extends Controller
     {
         $this->requireLogin();
         $user = $this->currentUser();
+        // Recupera gravações que ficaram "órfãs" (quem gravava caiu sem finalizar).
+        $this->recoverOrphanRecordings();
         $recs = $this->model->listRecordingsVisibleTo($user['id'], $user['role']);
         $this->view('videocall/recordings', ['recs' => $recs, 'user' => $user]);
+    }
+
+    /**
+     * Finaliza automaticamente gravações interrompidas: se um arquivo .part não
+     * recebe pedaços há alguns minutos, o gravador provavelmente caiu — então
+     * salvamos o que já foi enviado como uma gravação normal (nada se perde).
+     */
+    private function recoverOrphanRecordings()
+    {
+        $dir = PUBLIC_PATH . '/uploads/recordings';
+        if (!is_dir($dir)) return;
+        $idleSecs = 120; // 2 min sem novos pedaços = considerado interrompido
+        foreach (glob($dir . '/part_*.webm') as $part) {
+            if (!is_file($part)) continue;
+            if (time() - filemtime($part) < $idleSecs) continue; // ainda gravando
+            if (filesize($part) < 1024) { @unlink($part); continue; }
+
+            // Extrai room_id e sess do nome: part_<roomId>_<sess>.webm
+            if (!preg_match('/part_(\d+)_([A-Za-z0-9_-]+)\.webm$/', basename($part), $m)) continue;
+            $roomId = (int)$m[1];
+            $metaFile = $dir . '/part_' . $roomId . '_' . $m[2] . '.json';
+            $meta = is_file($metaFile) ? json_decode((string)file_get_contents($metaFile), true) : [];
+
+            $recToken = $this->model->generateToken();
+            $fileName = 'rec_' . $roomId . '_' . $recToken . '.webm';
+            $dest = $dir . '/' . $fileName;
+            if (!@rename($part, $dest)) { @copy($part, $dest); @unlink($part); }
+            @unlink($metaFile);
+
+            $calcDur = $this->injectWebmDuration($dest); // habilita o seek
+
+            try {
+                $this->model->addRecording([
+                    'room_id' => $roomId,
+                    'token' => $recToken,
+                    'file_path' => 'recordings/' . $fileName,
+                    'file_size' => filesize($dest) ?: null,
+                    'mime_type' => 'video/webm',
+                    'duration_sec' => $calcDur !== null ? (int)round($calcDur) : null,
+                    'recorded_by' => $meta['recorded_by'] ?? null,
+                    'recorded_by_name' => ($meta['recorded_by_name'] ?? null) ? ($meta['recorded_by_name'] . ' (recuperada)') : 'Gravação recuperada',
+                ]);
+            } catch (\Throwable $e) { /* ignora entradas problemáticas */ }
+        }
     }
 
     /** Exclui uma gravação (arquivo + registro). Só quem tem acesso pode. */
@@ -859,6 +1126,43 @@ class VideocallController extends Controller
         return $h > 0 ? sprintf('%d:%02d:%02d', $h, $m, $s) : sprintf('%02d:%02d', $m, $s);
     }
 
+    /**
+     * Limpa/normaliza os segmentos de transcrição:
+     *  - remove trechos vazios ou só com pontuação (os "pontinhos" que o Whisper
+     *    gera em silêncio);
+     *  - ordena por tempo de início (corrige o embaralhamento quando o modelo
+     *    devolve segmentos fora de ordem, comum em gravações longas);
+     *  - descarta duplicados/sobrepostos com o mesmo texto.
+     */
+    private function cleanTranscriptSegments($segments)
+    {
+        if (!is_array($segments)) return [];
+        $clean = [];
+        foreach ($segments as $s) {
+            $text = trim((string)($s['text'] ?? ''));
+            // remove segmentos vazios ou compostos só de pontuação/reticências
+            $stripped = preg_replace('/[\p{P}\p{Z}\s]+/u', '', $text);
+            if ($stripped === '' || $stripped === null) continue;
+            $start = (float)($s['start'] ?? 0);
+            $end = (float)($s['end'] ?? $start);
+            if ($end < $start) $end = $start;
+            $clean[] = ['start' => $start, 'end' => $end, 'text' => $text];
+        }
+        // ordena por início (e por fim como desempate)
+        usort($clean, function ($a, $b) {
+            if ($a['start'] === $b['start']) return $a['end'] <=> $b['end'];
+            return $a['start'] <=> $b['start'];
+        });
+        // remove repetições consecutivas do mesmo texto no ~mesmo tempo
+        $out = [];
+        foreach ($clean as $seg) {
+            $prev = end($out);
+            if ($prev !== false && $prev['text'] === $seg['text'] && abs($prev['start'] - $seg['start']) < 1.0) continue;
+            $out[] = $seg;
+        }
+        return $out;
+    }
+
     // ============================================================
     // Helpers
     // ============================================================
@@ -919,6 +1223,143 @@ class VideocallController extends Controller
                 'avatar' => !empty($p['avatar']) ? (rtrim(baseUrl(''), '/') . '/uploads/' . ltrim($p['avatar'], '/')) : null,
             ];
         }, $rows);
+    }
+
+    /**
+     * Injeta o campo Duration no cabeçalho de um WebM gerado pelo MediaRecorder
+     * (que não grava a duração). Sem isso, o player mostra duração "Infinity" e o
+     * seek não funciona para qualquer minutagem. Trabalha apenas nos bytes do
+     * cabeçalho/timecodes (não decodifica mídia, não precisa de ffmpeg).
+     *
+     * Retorna a duração em segundos (float) ou null se não foi possível calcular.
+     * Reescreve $path no lugar quando injeta com sucesso.
+     */
+    private function injectWebmDuration($path)
+    {
+        $data = @file_get_contents($path);
+        if ($data === false || strlen($data) < 64) return null;
+        $len = strlen($data);
+        $u8 = function ($p) use ($data) { return ord($data[$p]); };
+
+        // Lê um VINT (EBML). $keepMarker mantém o bit marcador (para IDs).
+        $readVint = function ($pos) use ($u8, $len) {
+            if ($pos >= $len) return null;
+            $first = $u8($pos);
+            $mask = 0x80; $length = 1;
+            while ($length <= 8 && !($first & $mask)) { $mask >>= 1; $length++; }
+            if ($length > 8) return null;
+            $value = $first & ($mask - 1);
+            for ($i = 1; $i < $length; $i++) { if ($pos + $i >= $len) return null; $value = $value * 256 + $u8($pos + $i); }
+            return ['value' => $value, 'length' => $length];
+        };
+        $readVintId = function ($pos) use ($u8, $len) {
+            if ($pos >= $len) return null;
+            $first = $u8($pos);
+            $mask = 0x80; $length = 1;
+            while ($length <= 8 && !($first & $mask)) { $mask >>= 1; $length++; }
+            if ($length > 8) return null;
+            $value = $first;
+            for ($i = 1; $i < $length; $i++) { if ($pos + $i >= $len) return null; $value = $value * 256 + $u8($pos + $i); }
+            return ['value' => $value, 'length' => $length];
+        };
+
+        $SEGMENT = 0x18538067; $INFO = 0x1549A966; $TIMECODESCALE = 0x2AD7B1; $DURATION = 0x4489;
+
+        // Localiza um elemento por ID dentro de [start,end).
+        $findElement = function ($id, $start, $end) use ($readVintId, $readVint) {
+            $pos = $start;
+            while ($pos < $end) {
+                $idv = $readVintId($pos); if (!$idv) break;
+                $sizePos = $pos + $idv['length'];
+                $sz = $readVint($sizePos); if (!$sz) break;
+                $contentPos = $sizePos + $sz['length'];
+                if ($idv['value'] === $id) {
+                    return ['contentPos' => $contentPos, 'size' => $sz['value'], 'sizePos' => $sizePos, 'sizeLen' => $sz['length']];
+                }
+                $pos = $contentPos + $sz['value'];
+            }
+            return null;
+        };
+        $elemEnd = function ($el) use ($len) {
+            $maxBits = $el['sizeLen'] * 7;
+            if ($el['size'] >= (pow(2, $maxBits) - 1)) return $len;
+            return min($el['contentPos'] + $el['size'], $len);
+        };
+
+        $seg = $findElement($SEGMENT, 0, $len);
+        if (!$seg) return null;
+        $segEnd = $elemEnd($seg);
+        $info = $findElement($INFO, $seg['contentPos'], $segEnd);
+        if (!$info) return null;
+        $infoEnd = $elemEnd($info);
+        if ($findElement($DURATION, $info['contentPos'], $infoEnd)) {
+            // Já tem Duration: apenas devolve o valor em segundos, sem reescrever.
+            return null;
+        }
+
+        // TimecodeScale (default 1.000.000 ns).
+        $timecodeScale = 1000000;
+        $tcs = $findElement($TIMECODESCALE, $info['contentPos'], $infoEnd);
+        if ($tcs) { $v = 0; for ($i = 0; $i < $tcs['size']; $i++) $v = $v * 256 + $u8($tcs['contentPos'] + $i); if ($v > 0) $timecodeScale = $v; }
+
+        // Varre a assinatura do Cluster (0x1F43B675) e pega o MAIOR Timecode (0xE7).
+        $maxTimecode = 0; $found = false;
+        for ($p = $seg['contentPos']; $p + 4 < $segEnd; $p++) {
+            if ($u8($p) === 0x1F && $u8($p + 1) === 0x43 && $u8($p + 2) === 0xB6 && $u8($p + 3) === 0x75) {
+                $sz = $readVint($p + 4); if (!$sz) continue;
+                $contentPos = $p + 4 + $sz['length'];
+                if ($contentPos < $segEnd && $u8($contentPos) === 0xE7) {
+                    $tsz = $readVint($contentPos + 1);
+                    if ($tsz) {
+                        $vpos = $contentPos + 1 + $tsz['length'];
+                        $v = 0; for ($i = 0; $i < $tsz['value']; $i++) $v = $v * 256 + $u8($vpos + $i);
+                        if ($v >= $maxTimecode) { $maxTimecode = $v; $found = true; }
+                    }
+                }
+            }
+        }
+        if (!$found || $maxTimecode <= 0) return null;
+
+        $framePad = (int)round(200 / ($timecodeScale / 1000000)); // ~200ms em ticks
+        $durationTicks = $maxTimecode + $framePad;
+        $durationSec = ($durationTicks * $timecodeScale) / 1000000000.0; // ticks -> ns -> s
+
+        // Monta o elemento Duration (ID 0x4489, size 8, float64 big-endian).
+        $durEl = chr(0x44) . chr(0x89) . chr(0x88) . pack('E', (float)$durationTicks);
+        // pack('E') = double big-endian (PHP 7.0.15+/7.1+). Fallback manual se ausente.
+        if (strlen($durEl) !== 11) {
+            $packed = pack('d', (float)$durationTicks);
+            if (pack('S', 1) === "\x00\x01") { /* já big-endian */ } else { $packed = strrev($packed); }
+            $durEl = chr(0x44) . chr(0x89) . chr(0x88) . $packed;
+        }
+        $add = strlen($durEl); // 11
+
+        // Recalcula os tamanhos (size VINT) de Info e Segment, salvo "unknown size".
+        $isUnknown = function ($el) { $maxBits = $el['sizeLen'] * 7; return $el['size'] >= (pow(2, $maxBits) - 1); };
+        $bumpSize = function ($el) use ($add) {
+            $newVal = $el['size'] + $add;
+            $bytes = array_fill(0, $el['sizeLen'], 0);
+            $tmp = $newVal;
+            for ($i = $el['sizeLen'] - 1; $i >= 0; $i--) { $bytes[$i] = $tmp & 0xff; $tmp = (int)floor($tmp / 256); }
+            $bytes[0] |= (0x80 >> ($el['sizeLen'] - 1));
+            $s = ''; foreach ($bytes as $b) $s .= chr($b);
+            return $s;
+        };
+
+        // Constrói o novo conteúdo: insere o Duration no início do conteúdo do Info.
+        $out = substr($data, 0, $info['contentPos']) . $durEl . substr($data, $info['contentPos']);
+        // Corrige os sizes (as posições de sizePos não mudam pois vêm ANTES do contentPos do Info).
+        if (!$isUnknown($info)) {
+            $ns = $bumpSize($info);
+            $out = substr($out, 0, $info['sizePos']) . $ns . substr($out, $info['sizePos'] + strlen($ns));
+        }
+        if (!$isUnknown($seg)) {
+            $ns = $bumpSize($seg);
+            $out = substr($out, 0, $seg['sizePos']) . $ns . substr($out, $seg['sizePos'] + strlen($ns));
+        }
+
+        if (@file_put_contents($path, $out) === false) return null;
+        return $durationSec;
     }
 
     /** Streaming de arquivo com suporte a HTTP Range (seek no player). */
