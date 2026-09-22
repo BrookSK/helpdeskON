@@ -138,6 +138,12 @@ class Permissions
         return $role !== null && in_array($role, self::FULL_ACCESS_ROLES, true);
     }
 
+    /** O papel é um valor válido do enum users.role? */
+    public static function isValidRole($role): bool
+    {
+        return is_string($role) && in_array($role, self::ROLES, true);
+    }
+
     /**
      * Retorna a lista de papéis que podem acessar um módulo. Útil para passar
      * ao requireRole() legado sem duplicar a matriz.

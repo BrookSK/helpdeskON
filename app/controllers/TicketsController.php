@@ -13,6 +13,41 @@ class TicketsController extends Controller
         $this->messageModel = new TicketMessage();
     }
 
+    /**
+     * O usuário logado pode ver/agir sobre esta demanda? Fecha os IDOR das ações
+     * de ticket (comentar/ler/anexar): equipe vê tudo; cliente só a própria
+     * demanda ou, se dono da empresa, as da mesma empresa. Fonte: TicketAccess.
+     */
+    private function canAccessTicket($ticket): bool
+    {
+        if (!$ticket) return false;
+        $user = $this->currentUser();
+        if (!$user) return false;
+
+        $viewerIsOwner = false;
+        $viewerCompanyId = null;
+        $ticketOwnerCompanyId = null;
+        if (($user['role'] ?? '') === 'client') {
+            $fullUser = (new User())->findById($user['id']);
+            $viewerIsOwner = !empty($fullUser['is_company_owner']);
+            $viewerCompanyId = isset($fullUser['company_id']) ? (int) $fullUser['company_id'] : null;
+            // Empresa do dono da demanda (para o caso do dono da empresa).
+            if (!empty($ticket['client_id'])) {
+                $ticketOwner = (new User())->findById($ticket['client_id']);
+                $ticketOwnerCompanyId = isset($ticketOwner['company_id']) ? (int) $ticketOwner['company_id'] : null;
+            }
+        }
+
+        return TicketAccess::canAccess(
+            $user['role'] ?? null,
+            (int) $user['id'],
+            (int) ($ticket['client_id'] ?? 0),
+            $viewerIsOwner,
+            $viewerCompanyId,
+            $ticketOwnerCompanyId
+        );
+    }
+
     // Listagem de tickets
     public function index()
     {
@@ -482,18 +517,10 @@ class TicketsController extends Controller
             $this->redirect('tickets');
         }
 
-        // Verificar permissão
-        if ($user['role'] === 'client' && $ticket['client_id'] != $user['id']) {
-            // Dono da empresa pode ver tickets de membros da empresa
-            $fullUser = (new User())->findById($user['id']);
-            if ($fullUser['is_company_owner'] && $fullUser['company_id']) {
-                $ticketOwner = (new User())->findById($ticket['client_id']);
-                if (!$ticketOwner || $ticketOwner['company_id'] != $fullUser['company_id']) {
-                    $this->redirect('tickets');
-                }
-            } else {
-                $this->redirect('tickets');
-            }
+        // Verificar permissão (equipe vê tudo; cliente só a própria demanda ou
+        // as da sua empresa quando for dono). Centralizado em TicketAccess.
+        if (!$this->canAccessTicket($ticket)) {
+            $this->redirect('tickets');
         }
 
         $messages = $this->messageModel->getByTicket($id);
@@ -565,9 +592,12 @@ class TicketsController extends Controller
         }
 
         // Cliente só pode mudar de em_homologacao para aprovado_producao ou denied
+        // E somente em demanda que ele pode acessar (própria ou da sua empresa).
         if ($user['role'] === 'client') {
             $currentTicket = $this->ticketModel->findById($id);
-            if (!$currentTicket || $currentTicket['status'] !== 'em_homologacao' || !in_array($status, ['aprovado_producao', 'denied'])) {
+            if (!$currentTicket
+                || !$this->canAccessTicket($currentTicket)
+                || !TicketAccess::clientCanChangeStatus($currentTicket['status'] ?? null, $status)) {
                 if ($this->isAjax()) {
                     $this->json(['error' => 'Sem permissão'], 403);
                 }
@@ -788,6 +818,12 @@ class TicketsController extends Controller
             $this->json(['error' => 'Mensagem vazia'], 400);
         }
 
+        // Escopo: só pode comentar em demanda que pode acessar (evita IDOR).
+        $ticketForAccess = $this->ticketModel->findById($id);
+        if (!$this->canAccessTicket($ticketForAccess)) {
+            $this->json(['error' => 'Sem permissão'], 403);
+        }
+
         $messageId = $this->messageModel->create([
             'ticket_id' => $id,
             'user_id' => $user['id'],
@@ -816,6 +852,11 @@ class TicketsController extends Controller
         $this->requireLogin();
         if (!$id) $this->json(['error' => 'ID inválido'], 400);
 
+        // Escopo: só lê mensagens de demanda que pode acessar (evita IDOR).
+        if (!$this->canAccessTicket($this->ticketModel->findById($id))) {
+            $this->json(['error' => 'Sem permissão'], 403);
+        }
+
         $lastId = $_GET['last_id'] ?? 0;
         $messages = Database::getInstance()->fetchAll(
             "SELECT m.*, u.name as user_name, u.role as user_role
@@ -842,6 +883,12 @@ class TicketsController extends Controller
         }
 
         $user = $this->currentUser();
+
+        // Escopo: só anexa em demanda que pode acessar (evita IDOR).
+        if (!$this->canAccessTicket($this->ticketModel->findById($id))) {
+            $this->json(['error' => 'Sem permissão'], 403);
+        }
+
         if (!empty($_FILES['file'])) {
             $result = $this->attachmentModel->upload($_FILES['file'], $id, $user['id']);
             $this->json($result);

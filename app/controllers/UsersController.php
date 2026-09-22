@@ -45,6 +45,12 @@ class UsersController extends Controller
             $this->redirect('users/create');
         }
 
+        // Papel precisa ser um valor válido do enum (evita gravar lixo/role forjado).
+        if (!Permissions::isValidRole($role)) {
+            flash('error', 'Papel de usuário inválido.');
+            $this->redirect('users/create');
+        }
+
         if ($this->userModel->findByEmail($email)) {
             flash('error', 'Este email já está cadastrado.');
             $this->redirect('users/create');
@@ -244,6 +250,18 @@ class UsersController extends Controller
             $this->redirect('users/edit/' . $id);
         }
 
+        // Papel precisa ser um valor válido do enum (evita gravar lixo/role forjado).
+        if (!Permissions::isValidRole($role)) {
+            flash('error', 'Papel de usuário inválido.');
+            $this->redirect('users/edit/' . $id);
+        }
+
+        // Não deixar o sistema sem administrador: não rebaixar o último super_admin ativo.
+        if ($role !== 'super_admin' && $this->userModel->isLastActiveSuperAdmin($id)) {
+            flash('error', 'Não é possível alterar o papel do último administrador ativo do sistema.');
+            $this->redirect('users/edit/' . $id);
+        }
+
         $existing = $this->userModel->findByEmail($email);
         if ($existing && $existing['id'] != $id) {
             flash('error', 'Este email já está cadastrado.');
@@ -345,6 +363,12 @@ class UsersController extends Controller
         $this->requireRole(['super_admin']);
         if (!$id) $this->redirect('users');
 
+        // Não deixar o sistema sem administrador: não desativar o último super_admin ativo.
+        if ($this->userModel->isLastActiveSuperAdmin($id)) {
+            flash('error', 'Não é possível desativar o último administrador ativo do sistema.');
+            $this->redirect('users');
+        }
+
         $this->userModel->toggleActive($id);
         flash('success', 'Status do usuário alterado.');
         $this->redirect('users');
@@ -354,6 +378,12 @@ class UsersController extends Controller
     {
         $this->requireRole(['super_admin']);
         if (!$id) $this->redirect('users');
+
+        // Não deixar o sistema sem administrador: não excluir o último super_admin ativo.
+        if ($this->userModel->isLastActiveSuperAdmin($id)) {
+            flash('error', 'Não é possível excluir o último administrador ativo do sistema.');
+            $this->redirect('users');
+        }
 
         $this->userModel->delete($id);
         flash('success', 'Usuário removido com sucesso!');

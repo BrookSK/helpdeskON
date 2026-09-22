@@ -1,0 +1,28 @@
+PHPUnit 13.3.4 by Sebastian Bergmann and contributors.
+
+Runtime:       PHP 8.5.1
+Configuration: D:\Projects\GitHub\helpdeskON\phpunit.xml
+
+..[33;1mI[0m.......                                                        10 / 10 (100%)
+
+Time: 00:04.750, Memory: 18.00 MB
+
+[4mCompany User (Tests\Integration\CompanyUser)[0m
+[32m ✔ [0mCriar atualizar e excluir empresa
+[32m ✔ [0mContador de usuarios da empresa
+[33m ∅ [0mDeletar empresa nao apaga o usuario
+   [33m┐[0m
+   [33m├[0m [33mFK users.company_id ausente no banco de teste; SET NULL não verificável aqui.[0m
+   [33m│[0m
+   [33m│[0m D:[2m\[22mProjects[2m\[22mGitHub[2m\[22mhelpdeskON[2m\[22mtests[2m\[22mIntegration[2m\[22mCompanyUserTest.php[2m:[22m[34m128[0m
+   [33m┴[0m
+[32m ✔ [0mAutenticacao valida e invalida
+[32m ✔ [0mUsuario inativo nao autentica
+[32m ✔ [0mFind by email para unicidade
+[32m ✔ [0mUpdate nao regrava senha vazia
+[32m ✔ [0mToggle active inverte status
+[32m ✔ [0mIs last active super admin
+[32m ✔ [0mSuper admin inativo nao conta como ultimo
+
+[30;43mOK, but there were issues![0m
+[30;43mTests: 10[0m[30;43m, Assertions: 23[0m[30;43m, Incomplete: 1[0m[30;43m.[0m

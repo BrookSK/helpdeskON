@@ -234,6 +234,16 @@ class SettingsController extends Controller
 
     public function saveDatabase()
     {
+        // Segurança: gravar config/database.php é uma ação de altíssimo impacto.
+        // Antes esta ação estava SEM QUALQUER checagem — qualquer POST reescrevia
+        // a conexão do banco. Regra: se o sistema JÁ está instalado (config existe),
+        // só super_admin pode alterar. Na primeira execução (sem config), o
+        // assistente de instalação pode gravar sem sessão.
+        $configFile = BASE_PATH . '/config/database.php';
+        $alreadyInstalled = file_exists($configFile);
+        if ($alreadyInstalled) {
+            $this->requireRole(['super_admin']);
+        }
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             $this->redirect('settings/database');
         }
@@ -247,7 +257,6 @@ class SettingsController extends Controller
         ];
 
         $content = "<?php\n\nreturn " . var_export($config, true) . ";\n";
-        $configFile = BASE_PATH . '/config/database.php';
         file_put_contents($configFile, $content);
 
         flash('success', 'Configuração do banco de dados salva!');

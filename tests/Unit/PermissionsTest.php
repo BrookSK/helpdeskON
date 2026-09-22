@@ -126,4 +126,22 @@ final class PermissionsTest extends TestCase
             $this->assertContains($role, $roles);
         }
     }
+
+    // ---- isValidRole ----
+
+    public function testIsValidRoleAceitaTodosOsPapeisConhecidos(): void
+    {
+        foreach (Permissions::ROLES as $role) {
+            $this->assertTrue(Permissions::isValidRole($role), "{$role} deveria ser válido");
+        }
+    }
+
+    public function testIsValidRoleRejeitaLixo(): void
+    {
+        $this->assertFalse(Permissions::isValidRole('root'));
+        $this->assertFalse(Permissions::isValidRole('admin'));
+        $this->assertFalse(Permissions::isValidRole(''));
+        $this->assertFalse(Permissions::isValidRole(null));
+        $this->assertFalse(Permissions::isValidRole(123));
+    }
 }

@@ -160,6 +160,28 @@ class User
         return $this->db->update('users', ['is_active' => $newStatus], 'id = ?', [$id]);
     }
 
+    /** Quantos super_admins ATIVOS existem no sistema. */
+    public function countActiveSuperAdmins()
+    {
+        $row = $this->db->fetch(
+            "SELECT COUNT(*) AS t FROM users WHERE role = 'super_admin' AND is_active = 1"
+        );
+        return (int) ($row['t'] ?? 0);
+    }
+
+    /**
+     * O usuário informado é o ÚNICO super_admin ativo? Usado para impedir que o
+     * sistema fique sem nenhum administrador (auto-exclusão/desativação/rebaixamento).
+     */
+    public function isLastActiveSuperAdmin($userId)
+    {
+        $user = $this->findById($userId);
+        if (!$user || $user['role'] !== 'super_admin' || empty($user['is_active'])) {
+            return false;
+        }
+        return $this->countActiveSuperAdmins() <= 1;
+    }
+
     /**
      * Retorna as empresas vinculadas a um usuário (Multi-Empresas).
      * Combina a empresa principal (users.company_id) com os vínculos extras
