@@ -8,24 +8,133 @@
             <h5 class="mb-0">Nova Demanda</h5>
             <small class="text-muted">Descreva por texto ou áudio</small>
         </div>
-        <?php if (!empty($canShareExternal)): ?>
+    </div>
+
+    <?php if (!empty($canShareExternal)): ?>
+    <!-- Painel compacto do link de acesso externo -->
+    <div class="border border-success-subtle rounded-3 bg-success bg-opacity-10 px-3 py-2 mb-3">
         <div class="d-flex align-items-center gap-2 flex-wrap">
-            <button type="button" class="btn btn-outline-primary btn-sm"
-                    id="btn-share-external"
-                    data-has-pin="<?= !empty($hasExternalPin) ? '1' : '0' ?>"
-                    data-link="<?= escape($externalLink ?? '') ?>"
-                    onclick="shareExternalLink(this)">
-                <i class="bi bi-share"></i> Compartilhar link externo
-            </button>
-            <span id="share-external-msg" class="small"></span>
+            <i class="bi bi-link-45deg text-success"></i>
+            <span class="fw-semibold small">Link de acesso externo</span>
+            <span class="text-muted small flex-grow-1" style="min-width:200px">
+                Envie um link para o cliente abrir uma demanda sem ter acesso ao sistema.
+                Ele acessa com o PIN que você repassar e a demanda cai direto na sua fila.
+            </span>
+            <div class="d-flex align-items-center gap-2 flex-wrap ms-auto">
+                <button type="button" class="btn btn-success btn-sm"
+                        id="btn-share-external"
+                        data-has-pin="<?= !empty($hasExternalPin) ? '1' : '0' ?>"
+                        data-link="<?= escape($externalLink ?? '') ?>"
+                        data-invite-url="<?= escape(baseUrl('tickets/sendExternalInvite')) ?>"
+                        onclick="openShareExternal(this)">
+                    <i class="bi bi-whatsapp"></i> Enviar por WhatsApp
+                </button>
+                <button type="button" class="btn btn-outline-success btn-sm"
+                        id="btn-copy-external"
+                        data-has-pin="<?= !empty($hasExternalPin) ? '1' : '0' ?>"
+                        data-link="<?= escape($externalLink ?? '') ?>"
+                        onclick="copyExternalLink(this)">
+                    <i class="bi bi-clipboard"></i> Copiar link
+                </button>
+                <span id="share-external-msg" class="small"></span>
+            </div>
+        </div>
+        <?php if (empty($hasExternalPin)): ?>
+        <div class="text-warning-emphasis small mt-2">
+            <i class="bi bi-exclamation-triangle"></i>
+            Você ainda não tem um PIN de acesso externo cadastrado. Cadastre um PIN
+            nas suas configurações para liberar este canal.
         </div>
         <?php endif; ?>
     </div>
+    <?php endif; ?>
+
+    <?php if (!empty($canShareExternal)): ?>
+    <!-- Modal: enviar o link de acesso externo direto pelo WhatsApp do cliente -->
+    <div class="modal fade" id="shareExternalModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h6 class="modal-title"><i class="bi bi-whatsapp text-success"></i> Enviar link de acesso externo</h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small mb-3">
+                        Enviaremos o link de acesso pelo WhatsApp do cliente. Escolha um cliente
+                        já cadastrado (o número é preenchido sozinho) ou digite o WhatsApp manualmente.
+                    </p>
+                    <div class="alert alert-info small py-2 px-3 mb-3">
+                        <i class="bi bi-key"></i>
+                        O cliente precisa do seu PIN para acessar. Repasse-o por outro meio, ou
+                        marque a opção abaixo para enviá-lo junto com a mensagem.
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-medium small">Cliente cadastrado</label>
+                        <select id="invite-client" class="form-select">
+                            <option value="">Selecione (ou digite o número abaixo)</option>
+                            <?php foreach (($clients ?? []) as $client): ?>
+                            <option value="<?= (int)$client['id'] ?>"
+                                    data-phone="<?= escape(preg_replace('/\D/', '', $client['phone'] ?? '')) ?>"
+                                    data-name="<?= escape($client['name']) ?>">
+                                <?= escape($client['name']) ?><?= !empty($client['company_name']) ? ' — ' . escape($client['company_name']) : '' ?>
+                            </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <small class="text-muted">Puxa o WhatsApp cadastrado do cliente automaticamente.</small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-medium small">WhatsApp do cliente *</label>
+                        <input type="tel" id="invite-phone" class="form-control" placeholder="(11) 99999-9999"
+                               inputmode="numeric" autocomplete="off" maxlength="16">
+                        <small class="text-muted">Com DDD. Ex.: (11) 99999-8888</small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-medium small">Nome do cliente</label>
+                        <input type="text" id="invite-name" class="form-control" placeholder="Opcional">
+                    </div>
+                    <div class="form-check mb-1">
+                        <input class="form-check-input" type="checkbox" id="invite-include-pin">
+                        <label class="form-check-label small" for="invite-include-pin">
+                            Enviar meu PIN junto à mensagem
+                        </label>
+                    </div>
+                    <p class="text-muted small mb-3" style="font-size:0.78rem">
+                        Por padrão o PIN não vai na mensagem. Marque só se quiser mais praticidade —
+                        lembre que qualquer pessoa com acesso a esta conversa verá o PIN.
+                    </p>
+                    <div id="invite-feedback" class="small mb-2"></div>
+                    <div class="d-grid">
+                        <button type="button" id="invite-send" class="btn btn-success btn-sm">
+                            <i class="bi bi-send"></i> Enviar convite
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
 
     <script>
-    // Copia o link da página de solicitação externa. Só permite se o usuário
-    // logado possui um PIN cadastrado; caso contrário, exibe o aviso.
-    function shareExternalLink(btn) {
+    // Abre o modal de compartilhamento. Só permite se o usuário logado tem PIN.
+    let shareExternalLinkValue = '';
+    let shareExternalInviteUrl = '';
+    function openShareExternal(btn) {
+        const msg = document.getElementById('share-external-msg');
+        if (btn.getAttribute('data-has-pin') !== '1') {
+            msg.textContent = 'Você não possui um PIN cadastrado';
+            msg.className = 'small text-danger';
+            return;
+        }
+        msg.textContent = '';
+        shareExternalLinkValue = btn.getAttribute('data-link') || '';
+        shareExternalInviteUrl = btn.getAttribute('data-invite-url') || '';
+        const modal = new bootstrap.Modal(document.getElementById('shareExternalModal'));
+        modal.show();
+    }
+
+    // Copia o link direto (sem abrir o modal), igual ao comportamento antigo.
+    // Só permite se o usuário logado possui um PIN cadastrado.
+    function copyExternalLink(btn) {
         const msg = document.getElementById('share-external-msg');
         if (btn.getAttribute('data-has-pin') !== '1') {
             msg.textContent = 'Você não possui um PIN cadastrado';
@@ -38,23 +147,120 @@
             msg.className = 'small text-success';
             setTimeout(() => { msg.textContent = ''; }, 3000);
         };
+        const fallback = () => {
+            const ta = document.createElement('textarea');
+            ta.value = link; ta.style.position = 'fixed'; ta.style.opacity = '0';
+            document.body.appendChild(ta); ta.focus(); ta.select();
+            try { document.execCommand('copy'); done(); } catch (e) {
+                msg.textContent = 'Não foi possível copiar. Link: ' + link;
+                msg.className = 'small text-muted';
+            }
+            document.body.removeChild(ta);
+        };
         if (navigator.clipboard && window.isSecureContext) {
-            navigator.clipboard.writeText(link).then(done).catch(() => fallbackCopy(link, done));
+            navigator.clipboard.writeText(link).then(done).catch(fallback);
         } else {
-            fallbackCopy(link, done);
+            fallback();
         }
     }
-    function fallbackCopy(text, done) {
-        const ta = document.createElement('textarea');
-        ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
-        document.body.appendChild(ta); ta.focus(); ta.select();
-        try { document.execCommand('copy'); done(); } catch (e) {
-            const msg = document.getElementById('share-external-msg');
-            msg.textContent = 'Não foi possível copiar. Link: ' + text;
-            msg.className = 'small text-muted';
+
+    document.addEventListener('DOMContentLoaded', function () {
+        const clientSelect = document.getElementById('invite-client');
+        const phoneInput = document.getElementById('invite-phone');
+        const nameInput = document.getElementById('invite-name');
+        const includePinInput = document.getElementById('invite-include-pin');
+        const sendBtn = document.getElementById('invite-send');
+        const feedback = document.getElementById('invite-feedback');
+        if (!sendBtn) return; // modal só existe para quem pode compartilhar
+
+        const setFeedback = (text, cls) => {
+            feedback.textContent = text;
+            feedback.className = 'small mb-2 ' + cls;
+        };
+
+        // Formata o número no padrão brasileiro conforme o usuário digita:
+        // 10 dígitos -> (XX) XXXX-XXXX (fixo)
+        // 11 dígitos -> (XX) XXXXX-XXXX (celular)
+        // O envio continua usando só os dígitos (o backend limpa a máscara).
+        const formatPhoneBR = (value) => {
+            const d = (value || '').replace(/\D/g, '').slice(0, 11);
+            if (d.length === 0) return '';
+            if (d.length <= 2) return '(' + d;
+            if (d.length <= 6) return '(' + d.slice(0, 2) + ') ' + d.slice(2);
+            if (d.length <= 10) return '(' + d.slice(0, 2) + ') ' + d.slice(2, 6) + '-' + d.slice(6);
+            return '(' + d.slice(0, 2) + ') ' + d.slice(2, 7) + '-' + d.slice(7);
+        };
+
+        // Aplica a máscara enquanto digita.
+        phoneInput.addEventListener('input', () => {
+            phoneInput.value = formatPhoneBR(phoneInput.value);
+        });
+
+        // Ao escolher um cliente cadastrado: puxa o telefone dele. Se não tiver
+        // número cadastrado, avisa e deixa o campo livre para digitar.
+        if (clientSelect) {
+            clientSelect.addEventListener('change', () => {
+                const opt = clientSelect.options[clientSelect.selectedIndex];
+                if (!clientSelect.value) {
+                    setFeedback('', '');
+                    return;
+                }
+                const phone = (opt.getAttribute('data-phone') || '').replace(/\D/g, '');
+                const name = opt.getAttribute('data-name') || '';
+                nameInput.value = name;
+                if (phone) {
+                    phoneInput.value = formatPhoneBR(phone);
+                    setFeedback('WhatsApp do cliente preenchido.', 'text-success');
+                } else {
+                    phoneInput.value = '';
+                    setFeedback('⚠️ Este cliente não possui WhatsApp cadastrado. Digite o número manualmente.', 'text-warning');
+                }
+            });
         }
-        document.body.removeChild(ta);
-    }
+
+        sendBtn.addEventListener('click', async () => {
+            const phone = phoneInput.value.replace(/\D/g, '');
+            // Número nacional (sem DDI 55): celular tem 11 dígitos (DDD + 9 + 8).
+            // O erro clássico é digitar sem o 9º dígito (10 dígitos), e aí o
+            // WhatsApp não encontra o número. Orientamos o usuário de forma clara.
+            const national = phone.startsWith('55') ? phone.slice(2) : phone;
+            if (national.length === 10) {
+                setFeedback('Parece que falta um dígito. Celular tem 11 números: DDD + 9 + número. Ex.: (17) 99970-3514.', 'text-danger');
+                return;
+            }
+            if (national.length < 10 || national.length > 11) {
+                setFeedback('Informe um WhatsApp válido com DDD. Ex.: (17) 99970-3514.', 'text-danger');
+                return;
+            }
+            sendBtn.disabled = true;
+            const original = sendBtn.innerHTML;
+            sendBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Enviando...';
+            setFeedback('', '');
+            try {
+                const resp = await fetch(shareExternalInviteUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                    body: JSON.stringify({
+                        phone: phone,
+                        name: nameInput.value.trim(),
+                        user_id: clientSelect ? (clientSelect.value || '') : '',
+                        include_pin: includePinInput ? includePinInput.checked : false
+                    })
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    setFeedback('✓ ' + (data.message || 'Convite enviado!'), 'text-success');
+                    phoneInput.value = ''; nameInput.value = '';
+                } else {
+                    setFeedback(data.error || 'Não foi possível enviar.', 'text-danger');
+                }
+            } catch (e) {
+                setFeedback('Erro de conexão ao enviar.', 'text-danger');
+            }
+            sendBtn.disabled = false;
+            sendBtn.innerHTML = original;
+        });
+    });
     </script>
 
     <?php if ($msg = flash('error')): ?>

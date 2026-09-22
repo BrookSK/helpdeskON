@@ -174,7 +174,7 @@ class TicketsController extends Controller
             $userModel = new User();
             // Clientes com a empresa vinculada, para seleção hierárquica Empresa > Usuário
             $clients = Database::getInstance()->fetchAll(
-                "SELECT u.id, u.name, u.email, u.company_id, comp.name as company_name
+                "SELECT u.id, u.name, u.email, u.phone, u.company_id, comp.name as company_name
                  FROM users u
                  LEFT JOIN companies comp ON u.company_id = comp.id
                  WHERE u.role = 'client' AND u.is_active = 1
@@ -189,6 +189,122 @@ class TicketsController extends Controller
         }
 
         $this->view('client/ticket_create', $data);
+    }
+
+    /**
+     * Envia, por WhatsApp, o convite de acesso externo (link da página do PIN)
+     * para o número informado pelo atendente. Chamado via AJAX pelo modal do
+     * botão "Compartilhar link externo" na tela de Nova Demanda.
+     *
+     * Decisão de escopo: o link é "puro" (/solicitacaoexterna), SEM o PIN
+     * embutido — o PIN é repassado pelo atendente por outro meio. Assim o PIN
+     * não trafega na mensagem de WhatsApp.
+     *
+     * Só super_admin com PIN cadastrado pode enviar (mesma regra do botão).
+     */
+    public function sendExternalInvite()
+    {
+        $this->requireRole('super_admin');
+
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            $this->json(['success' => false, 'error' => 'Método não permitido'], 405);
+        }
+
+        $user = $this->currentUser();
+        $fullUser = (new User())->findById($user['id']);
+
+        // O convite só faz sentido se o atendente tiver um PIN para repassar.
+        if (empty($fullUser['external_pin'])) {
+            $this->json(['success' => false, 'error' => 'Você não possui um PIN de acesso externo cadastrado.'], 400);
+        }
+
+        $input = json_decode(file_get_contents('php://input'), true) ?: [];
+        $phoneRaw = trim($input['phone'] ?? '');
+        $clientName = trim($input['name'] ?? '');
+        $clientId = (int)($input['user_id'] ?? 0);
+
+        // Se veio um cliente cadastrado (user_id) e o número não foi digitado
+        // manualmente, tentamos usar o WhatsApp cadastrado desse cliente.
+        if ($clientId > 0 && $phoneRaw === '') {
+            $client = (new User())->findById($clientId);
+            if (!$client || ($client['role'] ?? '') !== 'client') {
+                $this->json(['success' => false, 'error' => 'Cliente inválido.'], 400);
+            }
+            $clientPhone = preg_replace('/\D/', '', $client['phone'] ?? '');
+            if ($clientPhone === '') {
+                $this->json([
+                    'success' => false,
+                    'error' => 'Este cliente não possui WhatsApp cadastrado. Informe um número manualmente.',
+                ], 400);
+            }
+            $phoneRaw = $clientPhone;
+            if ($clientName === '') {
+                $clientName = $client['name'] ?? '';
+            }
+        }
+
+        // Valida o telefone: aceita apenas dígitos após limpeza; exige DDD+número.
+        $phoneDigits = preg_replace('/\D/', '', $phoneRaw);
+        if (strlen($phoneDigits) < 10 || strlen($phoneDigits) > 13) {
+            $this->json(['success' => false, 'error' => 'Informe um WhatsApp válido com DDD.'], 400);
+        }
+
+        // Opção do modal: incluir o PIN do atendente na própria mensagem.
+        // Por segurança, só inclui se o atendente marcou explicitamente.
+        $includePin = !empty($input['include_pin']);
+        $pinToSend = $includePin ? (string)($fullUser['external_pin'] ?? '') : '';
+
+        $link = baseUrl('solicitacaoexterna');
+        $message = $this->buildInviteMessage($clientName, $fullUser['name'] ?? '', $link, $pinToSend);
+
+        try {
+            $ok = WhatsappNotifier::sendToPhone($phoneDigits, $message, $clientName ?: null);
+        } catch (\Throwable $e) {
+            $ok = false;
+        }
+
+        if (!$ok) {
+            $this->json([
+                'success' => false,
+                'error' => 'Não foi possível enviar pelo WhatsApp. Confirme se o número está correto (celular com DDD + 9 dígitos e ativo no WhatsApp) ou copie o link e envie manualmente.',
+            ], 502);
+        }
+
+        $this->json(['success' => true, 'message' => 'Convite enviado por WhatsApp.']);
+    }
+
+    /**
+     * Monta o texto do convite de acesso externo. Público e "puro" (só dados ->
+     * string) para permitir teste unitário sem banco/rede.
+     *
+     * $pin: quando informado (opção "enviar PIN junto" marcada no modal), o PIN
+     * é incluído na própria mensagem. Por padrão fica vazio e o PIN NÃO trafega
+     * na mensagem — decisão de segurança padrão do canal.
+     */
+    public function buildInviteMessage($clientName, $attendantName, $link, $pin = '')
+    {
+        $greeting = trim($clientName) !== '' ? "Olá, {$clientName}!" : 'Olá!';
+        $who = trim($attendantName) !== '' ? " com {$attendantName}" : '';
+        $pin = trim((string)$pin);
+
+        if ($pin !== '') {
+            // Variante com PIN embutido: o PIN vai na mensagem, então o texto
+            // fala que "enviamos" (passado — o PIN está aqui).
+            return "{$greeting}\n\n"
+                . "Você pode abrir este canal exclusivo para criar suas demandas{$who}. 🚀\n\n"
+                . "PIN: {$pin}\n\n"
+                . "Acesse o link abaixo e informe o PIN de acesso que enviamos para você:\n"
+                . "{$link}\n\n"
+                . "Assim que enviar, sua demanda entra direto na nossa fila de atendimento. 😉";
+        }
+
+        // Sem PIN embutido: o PIN será repassado por outro meio, então o texto
+        // fala que "enviaremos" (futuro).
+        return "{$greeting}\n\n"
+            . "Você pode abrir este canal exclusivo para criar suas demandas{$who}. 🚀\n\n"
+            . "Acesse o link abaixo e informe o PIN de acesso que enviaremos para você:\n"
+            . "{$link}\n\n"
+            . "Assim que enviar, sua demanda entra direto na nossa fila de atendimento. 😉";
     }
 
     // Salvar nova demanda

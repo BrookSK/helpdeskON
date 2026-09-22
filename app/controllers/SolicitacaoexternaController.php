@@ -96,7 +96,14 @@ class SolicitacaoexternaController extends Controller
             unset($_SESSION['external_access']);
             $this->redirect('solicitacaoexterna');
         }
-        $this->renderExternal('external/nova_demanda', ['owner' => $owner]);
+        // Empresas já cadastradas (mesma fonte da criação interna de demanda),
+        // para oferecer seleção no campo "Empresa vinculada" — mantendo a opção
+        // de digitar uma empresa que ainda não existe no cadastro.
+        $companies = (new Company())->getAll();
+        $this->renderExternal('external/nova_demanda', [
+            'owner' => $owner,
+            'companies' => $companies,
+        ]);
     }
 
     /** Cria a demanda a partir do ambiente externo. */
@@ -114,7 +121,28 @@ class SolicitacaoexternaController extends Controller
         }
 
         $requesterName = trim($_POST['requester_name'] ?? '');
-        $requesterCompany = trim($_POST['requester_company'] ?? '');
+
+        // Empresa vinculada: o formulário oferece um <select> com as empresas
+        // cadastradas + a opção "Outra" (digitar). Quando o usuário escolhe uma
+        // empresa existente, o value é o nome dela; quando escolhe "Outra",
+        // usamos o texto livre digitado em requester_company_other.
+        $companySelect = trim($_POST['requester_company'] ?? '');
+        // company_id só é resolvido quando a empresa escolhida EXISTE no cadastro
+        // (opção da lista). Para "Outra (digitar)" fica NULL: apenas texto na
+        // descrição, sem criar/vincular empresa.
+        $companyId = null;
+        if ($companySelect === '__other__') {
+            $requesterCompany = trim($_POST['requester_company_other'] ?? '');
+        } else {
+            $requesterCompany = $companySelect;
+            if ($requesterCompany !== '') {
+                $matched = Database::getInstance()->fetch(
+                    "SELECT id FROM companies WHERE name = ? LIMIT 1",
+                    [$requesterCompany]
+                );
+                $companyId = $matched['id'] ?? null;
+            }
+        }
         $title = trim($_POST['title'] ?? '');
         $description = trim($_POST['description'] ?? '');
         $category = trim($_POST['category'] ?? '');
@@ -155,7 +183,8 @@ class SolicitacaoexternaController extends Controller
             "SELECT MAX(client_ticket_number) as last_num FROM tickets WHERE client_id = ?",
             [(int)$owner['id']]
         );
-        $ticketData['client_ticket_number'] = ($lastNumber['last_num'] ?? 0) + 1;
+        $ticketNumber = ($lastNumber['last_num'] ?? 0) + 1;
+        $ticketData['client_ticket_number'] = $ticketNumber;
 
         $ticketModel = new Ticket();
         $ticketId = $ticketModel->create($ticketData);
@@ -178,9 +207,12 @@ class SolicitacaoexternaController extends Controller
         }
 
         // Card automático no Planejamento (mesmo comportamento da criação interna).
+        // Passamos a empresa selecionada (quando ela existe no cadastro) para que
+        // o card — e a coluna "Empresa" da listagem — reflita a escolha do
+        // solicitante, em vez da empresa do atendente dono do PIN.
         try {
             $ticket = $ticketModel->findById($ticketId);
-            (new PlanningCard())->createFromTicket($ticket);
+            (new PlanningCard())->createFromTicket($ticket, $companyId);
         } catch (\Throwable $e) {
             // Não bloqueia a criação da demanda se o card falhar.
         }
@@ -196,7 +228,94 @@ class SolicitacaoexternaController extends Controller
             ]);
         } catch (\Throwable $e) { /* opcional */ }
 
-        $this->renderExternal('external/sucesso', ['owner' => $owner, 'ticketTitle' => $title]);
+        // Notificação por WhatsApp (canal complementar, nunca bloqueia a criação):
+        //  - privado para o atendente dono do PIN (se tiver telefone cadastrado);
+        //  - grupo padrão da equipe (se a notificação por grupo estiver habilitada).
+        $this->notifyWhatsapp($owner, [
+            'ticket_id' => $ticketId,
+            'ticket_number' => $ticketNumber,
+            'title' => $title,
+            'priority' => $priority,
+            'requester_name' => $requesterName,
+            'requester_company' => $requesterCompany,
+        ]);
+
+        // Link interno do card (para quem TEM acesso ao sistema, ex.: o atendente).
+        // Na tela externa exibimos apenas o número; o link segue pelo WhatsApp.
+        $this->renderExternal('external/sucesso', [
+            'owner' => $owner,
+            'ticketTitle' => $title,
+            'ticketNumber' => $ticketNumber,
+        ]);
+    }
+
+    /**
+     * Monta o texto da notificação de WhatsApp para uma demanda externa.
+     *
+     * Mantido como método público e "puro" (só recebe dados e devolve string)
+     * para permitir teste unitário sem banco/rede. Os "dados pertinentes"
+     * pedidos na demanda: número, título, prioridade, quem solicitou (nome e
+     * empresa, quando informada) e o link do card.
+     *
+     * @param array $data ticket_number, title, priority, requester_name,
+     *                     requester_company, card_url
+     */
+    public function buildWhatsappMessage(array $data)
+    {
+        $priorityLabels = [
+            'low' => 'Baixa',
+            'medium' => 'Média',
+            'high' => 'Alta',
+            'urgent' => 'Urgente',
+        ];
+        $priorityEmojis = [
+            'low' => '🟢',
+            'medium' => '🟡',
+            'high' => '🟠',
+            'urgent' => '🔴',
+        ];
+        $priority = $data['priority'] ?? 'medium';
+        $priorityText = $priorityLabels[$priority] ?? 'Média';
+        $priorityEmoji = $priorityEmojis[$priority] ?? '⚪';
+
+        $requester = trim((string)($data['requester_name'] ?? '')) ?: 'Não informado';
+        if (!empty($data['requester_company'])) {
+            $requester .= ' (' . $data['requester_company'] . ')';
+        }
+
+        $msg = "🆕 *Nova demanda (acesso externo)*\n\n"
+            . "*#" . ($data['ticket_number'] ?? '?') . "* — " . ($data['title'] ?? '') . "\n"
+            . "━━━━━━━━━━━━━━━━━━━\n"
+            . "{$priorityEmoji} *Prioridade:* {$priorityText}\n"
+            . "🙋 *Solicitado por:* {$requester}\n";
+
+        if (!empty($data['card_url'])) {
+            $msg .= "🔗 *Abrir card:* " . $data['card_url'] . "\n";
+        }
+
+        return $msg;
+    }
+
+    /**
+     * Dispara a notificação de WhatsApp da nova demanda externa.
+     * Nunca lança/bloqueia: WhatsApp é canal complementar.
+     */
+    private function notifyWhatsapp($owner, array $data)
+    {
+        try {
+            $cardUrl = baseUrl('tickets/show/' . $data['ticket_id']);
+            $message = $this->buildWhatsappMessage(array_merge($data, ['card_url' => $cardUrl]));
+
+            // 1. Privado para o atendente dono do PIN (se tiver telefone).
+            if (!empty($owner['phone'])) {
+                WhatsappNotifier::sendToPhone($owner['phone'], $message, $owner['name'] ?? null);
+            }
+
+            // 2. Grupo padrão da equipe (só envia se habilitado nas Settings).
+            WhatsappNotifier::sendToDefaultGroup($message);
+        } catch (\Throwable $e) {
+            // Silencioso — a demanda já foi criada com sucesso.
+        }
     }
 
     /** Encerra a sessão externa (não toca na sessão de login normal). */

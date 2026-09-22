@@ -367,15 +367,29 @@ class PlanningCard
     }
 
     // Criar card automaticamente a partir de um ticket
-    public function createFromTicket($ticket)
+    /**
+     * Cria um card de planejamento a partir de um ticket.
+     *
+     * @param array $ticket
+     * @param int|null $companyIdOverride Quando informado (> 0), usa essa empresa
+     *   no card em vez de derivar da empresa do usuário cliente. Usado pelo fluxo
+     *   de solicitação externa: lá o "cliente" do ticket é o atendente dono do
+     *   PIN, então a empresa vem da seleção feita pelo solicitante (quando ela
+     *   existe no cadastro).
+     */
+    public function createFromTicket($ticket, $companyIdOverride = null)
     {
-        $clientUser = $this->db->fetch("SELECT company_id FROM users WHERE id = ?", [$ticket['client_id']]);
+        $companyId = $companyIdOverride ?: null;
+        if (!$companyId) {
+            $clientUser = $this->db->fetch("SELECT company_id FROM users WHERE id = ?", [$ticket['client_id']]);
+            $companyId = $clientUser['company_id'] ?? null;
+        }
 
         return $this->create([
             'ticket_id' => $ticket['id'],
             'title' => $ticket['title'],
             'description' => '<p>' . nl2br(htmlspecialchars($ticket['description'])) . '</p>',
-            'company_id' => $clientUser['company_id'] ?? null,
+            'company_id' => $companyId,
             'assigned_to' => $ticket['attendant_id'] ?? null,
             'technical_responsible_id' => $ticket['technical_responsible_id'] ?? null,
             'created_by' => $ticket['client_id'],

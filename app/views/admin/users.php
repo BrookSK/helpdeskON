@@ -14,7 +14,11 @@
     </div>
 
     <?php if ($msg = flash('success')): ?>
-        <div class="alert alert-success alert-dismissible fade show"><?= escape($msg) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+        <div class="alert alert-success alert-dismissible fade show d-flex align-items-center gap-2" role="alert">
+            <i class="bi bi-check-circle-fill"></i>
+            <span><?= escape($msg) ?></span>
+            <button type="button" class="btn-close ms-auto" data-bs-dismiss="alert"></button>
+        </div>
     <?php endif; ?>
     <?php if ($msg = flash('error')): ?>
         <div class="alert alert-danger alert-dismissible fade show"><?= escape($msg) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
@@ -54,6 +58,14 @@
 
     <div class="card">
         <div class="card-body p-0">
+            <!-- Legenda dos botões de ação (ajuda para quem está aprendendo o sistema) -->
+            <div class="d-none d-md-flex align-items-center flex-wrap gap-3 px-3 py-2 border-bottom text-muted" style="font-size:0.78rem">
+                <span class="fw-medium text-dark">O que cada botão faz:</span>
+                <span><i class="bi bi-eye text-info"></i> Ver como (escolher empresa)</span>
+                <span><i class="bi bi-box-arrow-in-right text-success"></i> Entrar como o usuário</span>
+                <span><i class="bi bi-pencil text-primary"></i> Editar cadastro</span>
+                <span><i class="bi bi-pause-fill text-warning"></i>/<i class="bi bi-play-fill text-warning"></i> Ativar ou Desativar</span>
+            </div>
             <!-- Desktop -->
             <div class="table-responsive d-none d-md-block">
                 <table class="table table-hover mb-0">
@@ -80,7 +92,7 @@
                                     </a>
                                     <?php $extra = (int)($u['extra_companies_count'] ?? 0); if ($extra > 0): ?>
                                         <div class="mt-1">
-                                            <a href="<?= baseUrl('users/analisar/' . $u['id']) ?>" class="badge bg-light text-primary text-decoration-none border" title="Vinculado a <?= $extra ?> empresa(s) adicional(is)">
+                                            <a href="<?= baseUrl('users/edit/' . $u['id']) ?>" class="badge bg-light text-primary text-decoration-none border" title="Vinculado a <?= $extra ?> empresa(s) adicional(is)">
                                                 <i class="bi bi-buildings"></i> +<?= $extra ?> empresa<?= $extra > 1 ? 's' : '' ?>
                                             </a>
                                         </div>
@@ -96,22 +108,28 @@
                                     ? '<span class="badge bg-success" style="font-size:0.7rem">Ativo</span>'
                                     : '<span class="badge bg-secondary" style="font-size:0.7rem">Inativo</span>' ?>
                             </td>
-                            <td>
-                                <div class="btn-group btn-group-sm">
+            <td>
+                                <div class="d-flex align-items-center gap-2 flex-nowrap">
+                                    <!-- Grupo 1: acessar o sistema como este usuário -->
                                     <?php if ($u['is_active'] && $u['id'] != ($user['id'] ?? 0)): ?>
-                                    <a href="<?= baseUrl('login/verComo/' . $u['id']) ?>" class="btn btn-outline-info" title="Ver como (selecionar empresa)">
-                                        <i class="bi bi-eye"></i>
-                                    </a>
-                                    <a href="<?= baseUrl('login/loginAs/' . $u['id']) ?>" class="btn btn-outline-success" title="Login como usuário" onclick="return confirm('Entrar no sistema como <?= escape($u['name']) ?>?')">
-                                        <i class="bi bi-box-arrow-in-right"></i>
-                                    </a>
+                                    <div class="btn-group btn-group-sm" role="group" aria-label="Acessar como o usuário">
+                                        <a href="<?= baseUrl('login/verComo/' . $u['id']) ?>" class="btn btn-outline-info" title="Ver como (selecionar empresa)">
+                                            <i class="bi bi-eye"></i>
+                                        </a>
+                                        <a href="<?= baseUrl('login/loginAs/' . $u['id']) ?>" class="btn btn-outline-success" title="Entrar no sistema como este usuário" onclick="return confirm('Entrar no sistema como <?= escape($u['name']) ?>?')">
+                                            <i class="bi bi-box-arrow-in-right"></i>
+                                        </a>
+                                    </div>
                                     <?php endif; ?>
-                                    <a href="<?= baseUrl('users/analisar/' . $u['id']) ?>" class="btn btn-outline-primary" title="Analisar usuário">
-                                        <i class="bi bi-file-earmark-person"></i>
-                                    </a>
-                                    <a href="<?= baseUrl('users/toggleStatus/' . $u['id']) ?>" class="btn btn-outline-warning" title="<?= $u['is_active'] ? 'Desativar' : 'Ativar' ?>">
-                                        <i class="bi bi-<?= $u['is_active'] ? 'pause' : 'play' ?>-fill"></i>
-                                    </a>
+                                    <!-- Grupo 2: administrar o cadastro -->
+                                    <div class="btn-group btn-group-sm" role="group" aria-label="Administrar o cadastro">
+                                        <a href="<?= baseUrl('users/edit/' . $u['id']) ?>" class="btn btn-outline-primary" title="Editar cadastro">
+                                            <i class="bi bi-pencil"></i> Editar
+                                        </a>
+                                        <a href="<?= baseUrl('users/toggleStatus/' . $u['id']) ?>" class="btn btn-outline-warning" title="<?= $u['is_active'] ? 'Desativar (bloqueia o acesso)' : 'Ativar (libera o acesso)' ?>">
+                                            <i class="bi bi-<?= $u['is_active'] ? 'pause' : 'play' ?>-fill"></i>
+                                        </a>
+                                    </div>
                                 </div>
                             </td>
                         </tr>
@@ -140,9 +158,9 @@
                     <div class="mt-2 d-flex gap-2 flex-wrap">
                         <?php if ($u['is_active'] && $u['id'] != ($user['id'] ?? 0)): ?>
                         <a href="<?= baseUrl('login/verComo/' . $u['id']) ?>" class="btn btn-sm btn-outline-info"><i class="bi bi-eye"></i> Ver como</a>
-                        <a href="<?= baseUrl('login/loginAs/' . $u['id']) ?>" class="btn btn-sm btn-outline-success" onclick="return confirm('Entrar como <?= escape($u['name']) ?>?')"><i class="bi bi-box-arrow-in-right"></i> Login</a>
+                        <a href="<?= baseUrl('login/loginAs/' . $u['id']) ?>" class="btn btn-sm btn-outline-success" onclick="return confirm('Entrar como <?= escape($u['name']) ?>?')"><i class="bi bi-box-arrow-in-right"></i> Entrar como</a>
                         <?php endif; ?>
-                        <a href="<?= baseUrl('users/analisar/' . $u['id']) ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-file-earmark-person"></i> Analisar usuário</a>
+                        <a href="<?= baseUrl('users/edit/' . $u['id']) ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil"></i> Editar</a>
                         <a href="<?= baseUrl('users/toggleStatus/' . $u['id']) ?>" class="btn btn-sm btn-outline-warning">
                             <i class="bi bi-<?= $u['is_active'] ? 'pause' : 'play' ?>-fill"></i> <?= $u['is_active'] ? 'Desativar' : 'Ativar' ?>
                         </a>
