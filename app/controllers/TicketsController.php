@@ -249,8 +249,13 @@ class TicketsController extends Controller
             $this->json(['success' => false, 'error' => 'Informe um WhatsApp válido com DDD.'], 400);
         }
 
+        // Opção do modal: incluir o PIN do atendente na própria mensagem.
+        // Por segurança, só inclui se o atendente marcou explicitamente.
+        $includePin = !empty($input['include_pin']);
+        $pinToSend = $includePin ? (string)($fullUser['external_pin'] ?? '') : '';
+
         $link = baseUrl('solicitacaoexterna');
-        $message = $this->buildInviteMessage($clientName, $fullUser['name'] ?? '', $link);
+        $message = $this->buildInviteMessage($clientName, $fullUser['name'] ?? '', $link, $pinToSend);
 
         try {
             $ok = WhatsappNotifier::sendToPhone($phoneDigits, $message, $clientName ?: null);
@@ -261,7 +266,7 @@ class TicketsController extends Controller
         if (!$ok) {
             $this->json([
                 'success' => false,
-                'error' => 'Não foi possível enviar pelo WhatsApp agora. Verifique a conexão da instância ou copie o link manualmente.',
+                'error' => 'Não foi possível enviar pelo WhatsApp. Confirme se o número está correto (celular com DDD + 9 dígitos e ativo no WhatsApp) ou copie o link e envie manualmente.',
             ], 502);
         }
 
@@ -271,15 +276,33 @@ class TicketsController extends Controller
     /**
      * Monta o texto do convite de acesso externo. Público e "puro" (só dados ->
      * string) para permitir teste unitário sem banco/rede.
+     *
+     * $pin: quando informado (opção "enviar PIN junto" marcada no modal), o PIN
+     * é incluído na própria mensagem. Por padrão fica vazio e o PIN NÃO trafega
+     * na mensagem — decisão de segurança padrão do canal.
      */
-    public function buildInviteMessage($clientName, $attendantName, $link)
+    public function buildInviteMessage($clientName, $attendantName, $link, $pin = '')
     {
         $greeting = trim($clientName) !== '' ? "Olá, {$clientName}!" : 'Olá!';
         $who = trim($attendantName) !== '' ? " com {$attendantName}" : '';
+        $pin = trim((string)$pin);
 
+        if ($pin !== '') {
+            // Variante com PIN embutido: o PIN vai na mensagem, então o texto
+            // fala que "enviamos" (passado — o PIN está aqui).
+            return "{$greeting}\n\n"
+                . "Você pode abrir este canal exclusivo para criar suas demandas{$who}. 🚀\n\n"
+                . "PIN: {$pin}\n\n"
+                . "Acesse o link abaixo e informe o PIN de acesso que enviamos para você:\n"
+                . "{$link}\n\n"
+                . "Assim que enviar, sua demanda entra direto na nossa fila de atendimento. 😉";
+        }
+
+        // Sem PIN embutido: o PIN será repassado por outro meio, então o texto
+        // fala que "enviaremos" (futuro).
         return "{$greeting}\n\n"
-            . "Você tem um canal exclusivo para abrir suas demandas{$who}. 🚀\n\n"
-            . "Acesse o link abaixo e informe o PIN de acesso que enviamos para você:\n"
+            . "Você pode abrir este canal exclusivo para criar suas demandas{$who}. 🚀\n\n"
+            . "Acesse o link abaixo e informe o PIN de acesso que enviaremos para você:\n"
             . "{$link}\n\n"
             . "Assim que enviar, sua demanda entra direto na nossa fila de atendimento. 😉";
     }

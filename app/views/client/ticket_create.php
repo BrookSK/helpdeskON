@@ -65,8 +65,8 @@
                     </p>
                     <div class="alert alert-info small py-2 px-3 mb-3">
                         <i class="bi bi-key"></i>
-                        Por segurança, o PIN não vai na mensagem. Lembre-se de repassar o seu
-                        PIN ao cliente por outro meio para que ele consiga acessar.
+                        O cliente precisa do seu PIN para acessar. Repasse-o por outro meio, ou
+                        marque a opção abaixo para enviá-lo junto com a mensagem.
                     </div>
                     <div class="mb-3">
                         <label class="form-label fw-medium small">Cliente cadastrado</label>
@@ -92,6 +92,16 @@
                         <label class="form-label fw-medium small">Nome do cliente</label>
                         <input type="text" id="invite-name" class="form-control" placeholder="Opcional">
                     </div>
+                    <div class="form-check mb-1">
+                        <input class="form-check-input" type="checkbox" id="invite-include-pin">
+                        <label class="form-check-label small" for="invite-include-pin">
+                            Enviar meu PIN junto à mensagem
+                        </label>
+                    </div>
+                    <p class="text-muted small mb-3" style="font-size:0.78rem">
+                        Por padrão o PIN não vai na mensagem. Marque só se quiser mais praticidade —
+                        lembre que qualquer pessoa com acesso a esta conversa verá o PIN.
+                    </p>
                     <div id="invite-feedback" class="small mb-2"></div>
                     <div class="d-grid">
                         <button type="button" id="invite-send" class="btn btn-success btn-sm">
@@ -158,6 +168,7 @@
         const clientSelect = document.getElementById('invite-client');
         const phoneInput = document.getElementById('invite-phone');
         const nameInput = document.getElementById('invite-name');
+        const includePinInput = document.getElementById('invite-include-pin');
         const sendBtn = document.getElementById('invite-send');
         const feedback = document.getElementById('invite-feedback');
         if (!sendBtn) return; // modal só existe para quem pode compartilhar
@@ -196,8 +207,16 @@
 
         sendBtn.addEventListener('click', async () => {
             const phone = phoneInput.value.replace(/\D/g, '');
-            if (phone.length < 10) {
-                setFeedback('Informe um WhatsApp válido com DDD.', 'text-danger');
+            // Número nacional (sem DDI 55): celular tem 11 dígitos (DDD + 9 + 8).
+            // O erro clássico é digitar sem o 9º dígito (10 dígitos), e aí o
+            // WhatsApp não encontra o número. Orientamos o usuário de forma clara.
+            const national = phone.startsWith('55') ? phone.slice(2) : phone;
+            if (national.length === 10) {
+                setFeedback('Parece que falta um dígito. Celular tem 11 números: DDD + 9 + número. Ex.: (17) 99970-3514.', 'text-danger');
+                return;
+            }
+            if (national.length < 10 || national.length > 11) {
+                setFeedback('Informe um WhatsApp válido com DDD. Ex.: (17) 99970-3514.', 'text-danger');
                 return;
             }
             sendBtn.disabled = true;
@@ -211,7 +230,8 @@
                     body: JSON.stringify({
                         phone: phone,
                         name: nameInput.value.trim(),
-                        user_id: clientSelect ? (clientSelect.value || '') : ''
+                        user_id: clientSelect ? (clientSelect.value || '') : '',
+                        include_pin: includePinInput ? includePinInput.checked : false
                     })
                 });
                 const data = await resp.json();

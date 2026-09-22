@@ -44,8 +44,29 @@ final class ExternalInviteMessageTest extends TestCase
 
     public function testNaoIncluiPinNoLink(): void
     {
-        // Decisão de escopo: o link é puro, sem PIN embutido.
+        // Decisão de escopo: o link é puro, sem PIN embutido na URL.
         $msg = $this->controller()->buildInviteMessage('Maria', 'Julia', 'https://exemplo.test/solicitacaoexterna');
         $this->assertStringNotContainsString('pin=', $msg);
+    }
+
+    public function testSemPinNaoMencionaOValorDoPin(): void
+    {
+        // Por padrão (sem o 4º argumento) o PIN NÃO aparece na mensagem.
+        $msg = $this->controller()->buildInviteMessage('Maria', 'Julia', 'https://x.test/link');
+        $this->assertStringNotContainsString('PIN:', $msg);
+    }
+
+    public function testComPinIncluiOValorNaMensagem(): void
+    {
+        // Quando o atendente opta por enviar o PIN junto, ele aparece no texto.
+        $msg = $this->controller()->buildInviteMessage('Maria', 'Julia', 'https://x.test/link', '4821');
+        $this->assertStringContainsString('PIN: 4821', $msg);
+    }
+
+    public function testPinVazioMantemComportamentoPadrao(): void
+    {
+        // PIN vazio/espacos é tratado como "não enviar PIN".
+        $msg = $this->controller()->buildInviteMessage('Maria', 'Julia', 'https://x.test/link', '   ');
+        $this->assertStringNotContainsString('PIN:', $msg);
     }
 }
