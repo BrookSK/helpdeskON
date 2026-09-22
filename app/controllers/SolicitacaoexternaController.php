@@ -175,6 +175,12 @@ class SolicitacaoexternaController extends Controller
             'category' => $category ?: null,
             'priority' => $priority,
             'status' => 'open',
+            // Marca a demanda como externa e guarda o nome de quem solicitou, para
+            // que a coluna "Cliente" mostre o solicitante externo em vez do dono
+            // do PIN (o client_id segue sendo o dono do PIN por causa das FKs,
+            // numeração e notificações).
+            'is_external' => 1,
+            'external_requester_name' => $requesterName,
         ];
 
         // Número sequencial por "cliente" (aqui, o dono do PIN).
