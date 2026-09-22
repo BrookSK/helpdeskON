@@ -34,6 +34,11 @@
         <div class="alert alert-danger alert-dismissible fade show"><?= escape($msg) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
     <?php endif; ?>
 
+    <div class="alert alert-light border d-flex align-items-center gap-2 py-2 px-3 mb-3" style="font-size:0.85rem">
+        <i class="bi bi-info-circle text-primary"></i>
+        <span>Os campos marcados com <span class="text-danger fw-bold">*</span> são obrigatórios. Escolha o <strong>Papel</strong> primeiro &mdash; os demais campos mudam conforme a função.</span>
+    </div>
+
     <form action="<?= baseUrl($editUser ? 'users/update/' . $editUser['id'] : 'users/store') ?>" method="POST">
         <div class="row g-3">
             <!-- ===================== COLUNA ESQUERDA ===================== -->
@@ -76,11 +81,21 @@
                                     <option value="whatsapp_agent" <?= ($editUser['role'] ?? '') === 'whatsapp_agent' ? 'selected' : '' ?>>Agente WhatsApp</option>
                                     <option value="super_admin" <?= ($editUser['role'] ?? '') === 'super_admin' ? 'selected' : '' ?>>Super Admin</option>
                                 </select>
+                                <div id="role-help" class="alert alert-info d-flex align-items-start gap-2 py-2 px-3 mt-2 mb-0" style="font-size:0.82rem">
+                                    <i class="bi bi-lightbulb mt-1"></i>
+                                    <span id="role-help-text"></span>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
 
+                <!-- ===== Opções avançadas (recolhíveis) ===== -->
+                <button type="button" class="btn btn-outline-secondary btn-sm w-100 mb-3 d-flex align-items-center justify-content-between" data-bs-toggle="collapse" data-bs-target="#advanced-options" aria-expanded="false" aria-controls="advanced-options">
+                    <span><i class="bi bi-sliders"></i> Opções avançadas (telefonia e PIN)</span>
+                    <i class="bi bi-chevron-down"></i>
+                </button>
+                <div class="collapse" id="advanced-options">
                 <!-- Telefonia (Ramal SIP - Nvoip) -->
                 <div class="card mb-3">
                     <div class="card-header bg-white fw-medium" style="font-size:0.9rem">
@@ -142,6 +157,7 @@
                         </div>
                     </div>
                 </div>
+                </div><!-- /#advanced-options -->
             </div>
 
             <!-- ===================== COLUNA DIREITA ===================== -->
@@ -342,7 +358,34 @@
 </div>
 
 <script>
+// Explicação curta de cada papel (mostrada abaixo do seletor).
+const ROLE_DESCRIPTIONS = {
+    client: 'Cliente: pertence a uma empresa e abre demandas para ela. Vê apenas o que é da própria empresa.',
+    attendant: 'Atendente: responde e resolve as demandas dos clientes. Você escolhe quais empresas ele enxerga.',
+    developer: 'Desenvolvedor: equipe técnica interna. Acessa demandas das empresas que você liberar.',
+    analyst: 'Analista: acompanha e analisa demandas. Acesso às empresas que você liberar.',
+    comercial: 'Comercial: cuida de prospecção e vendas. Tem campos de comissão e créditos próprios.',
+    marketing: 'Marketing: cuida de conteúdo e campanhas. Acesso interno, sem vínculo a uma empresa cliente.',
+    whatsapp_agent: 'Agente WhatsApp: atende conversas pelo WhatsApp. Acesso às empresas que você liberar.',
+    super_admin: 'Super Admin: acesso total ao sistema, incluindo o cadastro de usuários. Use com cuidado.'
+};
+
+function updateRoleHelp() {
+    const sel = document.getElementById('role-select');
+    const box = document.getElementById('role-help');
+    const txt = document.getElementById('role-help-text');
+    if (!sel || !box || !txt) return;
+    const desc = ROLE_DESCRIPTIONS[sel.value];
+    if (desc) {
+        txt.textContent = desc;
+        box.style.display = '';
+    } else {
+        box.style.display = 'none';
+    }
+}
+
 function toggleCompanyFields() {
+    updateRoleHelp();
     const role = document.getElementById('role-select').value;
     const fields = document.getElementById('company-fields');
     const accessFields = document.getElementById('access-fields');
@@ -494,7 +537,10 @@ function toggleSeeAll() {
 })();
 
 // Estado inicial
-document.addEventListener('DOMContentLoaded', toggleSeeAll);
+document.addEventListener('DOMContentLoaded', function() {
+    toggleSeeAll();
+    updateRoleHelp();
+});
 </script>
 
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>

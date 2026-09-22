@@ -1081,6 +1081,12 @@ class SequenceEngine
             }
         }
 
+        // Injeta o nome do remetente a partir da conta de envio (display_name).
+        // Assim {{remetente_nome}} reflete a conta configurada na sequência, não um valor global.
+        if (!empty($account['display_name'])) {
+            $contact['remetente_nome'] = $account['display_name'];
+        }
+
         $subject = $this->render($subjectSrc, $contact);
         $body = $this->render($bodySrc, $contact);
 
@@ -1130,6 +1136,18 @@ class SequenceEngine
                     $bodySrc = $data['body_b'];
                 }
             }
+        }
+
+        // Injeta o nome do remetente a partir da conta de envio da sequência.
+        // Assim {{remetente_nome}} reflete a conta configurada, não um valor global.
+        $seqAccount = $this->db->fetch(
+            "SELECT ea.display_name FROM email_sequences es
+             LEFT JOIN email_accounts ea ON ea.id = es.email_account_id
+             WHERE es.id = ?",
+            [$participant['sequence_id']]
+        );
+        if (!empty($seqAccount['display_name'])) {
+            $contact['remetente_nome'] = $seqAccount['display_name'];
         }
 
         $msg = $this->render($bodySrc, $contact);
