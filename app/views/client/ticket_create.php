@@ -10,22 +10,82 @@
         </div>
         <?php if (!empty($canShareExternal)): ?>
         <div class="d-flex align-items-center gap-2 flex-wrap">
-            <button type="button" class="btn btn-outline-primary btn-sm"
+            <button type="button" class="btn btn-outline-success btn-sm"
                     id="btn-share-external"
                     data-has-pin="<?= !empty($hasExternalPin) ? '1' : '0' ?>"
                     data-link="<?= escape($externalLink ?? '') ?>"
-                    onclick="shareExternalLink(this)">
-                <i class="bi bi-share"></i> Compartilhar link externo
+                    data-invite-url="<?= escape(baseUrl('tickets/sendExternalInvite')) ?>"
+                    onclick="openShareExternal(this)">
+                <i class="bi bi-whatsapp"></i> Enviar por WhatsApp
+            </button>
+            <button type="button" class="btn btn-outline-primary btn-sm"
+                    id="btn-copy-external"
+                    data-has-pin="<?= !empty($hasExternalPin) ? '1' : '0' ?>"
+                    data-link="<?= escape($externalLink ?? '') ?>"
+                    onclick="copyExternalLink(this)">
+                <i class="bi bi-clipboard"></i> Copiar link
             </button>
             <span id="share-external-msg" class="small"></span>
         </div>
         <?php endif; ?>
     </div>
 
+    <?php if (!empty($canShareExternal)): ?>
+    <!-- Modal: enviar o link de acesso externo direto pelo WhatsApp do cliente -->
+    <div class="modal fade" id="shareExternalModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h6 class="modal-title"><i class="bi bi-whatsapp text-success"></i> Enviar link ao cliente</h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label fw-medium small">WhatsApp do cliente *</label>
+                        <input type="tel" id="invite-phone" class="form-control" placeholder="(11) 99999-9999"
+                               inputmode="numeric" autocomplete="off">
+                        <small class="text-muted">Com DDD. Ex.: 11999998888</small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-medium small">Nome do cliente</label>
+                        <input type="text" id="invite-name" class="form-control" placeholder="Opcional">
+                    </div>
+                    <div id="invite-feedback" class="small mb-2"></div>
+                    <div class="d-grid gap-2">
+                        <button type="button" id="invite-send" class="btn btn-success btn-sm">
+                            <i class="bi bi-send"></i> Enviar convite
+                        </button>
+                        <button type="button" id="invite-copy" class="btn btn-outline-secondary btn-sm">
+                            <i class="bi bi-clipboard"></i> Copiar link
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
+
     <script>
-    // Copia o link da página de solicitação externa. Só permite se o usuário
-    // logado possui um PIN cadastrado; caso contrário, exibe o aviso.
-    function shareExternalLink(btn) {
+    // Abre o modal de compartilhamento. Só permite se o usuário logado tem PIN.
+    let shareExternalLinkValue = '';
+    let shareExternalInviteUrl = '';
+    function openShareExternal(btn) {
+        const msg = document.getElementById('share-external-msg');
+        if (btn.getAttribute('data-has-pin') !== '1') {
+            msg.textContent = 'Você não possui um PIN cadastrado';
+            msg.className = 'small text-danger';
+            return;
+        }
+        msg.textContent = '';
+        shareExternalLinkValue = btn.getAttribute('data-link') || '';
+        shareExternalInviteUrl = btn.getAttribute('data-invite-url') || '';
+        const modal = new bootstrap.Modal(document.getElementById('shareExternalModal'));
+        modal.show();
+    }
+
+    // Copia o link direto (sem abrir o modal), igual ao comportamento antigo.
+    // Só permite se o usuário logado possui um PIN cadastrado.
+    function copyExternalLink(btn) {
         const msg = document.getElementById('share-external-msg');
         if (btn.getAttribute('data-has-pin') !== '1') {
             msg.textContent = 'Você não possui um PIN cadastrado';
@@ -38,23 +98,92 @@
             msg.className = 'small text-success';
             setTimeout(() => { msg.textContent = ''; }, 3000);
         };
+        const fallback = () => {
+            const ta = document.createElement('textarea');
+            ta.value = link; ta.style.position = 'fixed'; ta.style.opacity = '0';
+            document.body.appendChild(ta); ta.focus(); ta.select();
+            try { document.execCommand('copy'); done(); } catch (e) {
+                msg.textContent = 'Não foi possível copiar. Link: ' + link;
+                msg.className = 'small text-muted';
+            }
+            document.body.removeChild(ta);
+        };
         if (navigator.clipboard && window.isSecureContext) {
-            navigator.clipboard.writeText(link).then(done).catch(() => fallbackCopy(link, done));
+            navigator.clipboard.writeText(link).then(done).catch(fallback);
         } else {
-            fallbackCopy(link, done);
+            fallback();
         }
     }
-    function fallbackCopy(text, done) {
-        const ta = document.createElement('textarea');
-        ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
-        document.body.appendChild(ta); ta.focus(); ta.select();
-        try { document.execCommand('copy'); done(); } catch (e) {
-            const msg = document.getElementById('share-external-msg');
-            msg.textContent = 'Não foi possível copiar. Link: ' + text;
-            msg.className = 'small text-muted';
+
+    document.addEventListener('DOMContentLoaded', function () {
+        const phoneInput = document.getElementById('invite-phone');
+        const nameInput = document.getElementById('invite-name');
+        const sendBtn = document.getElementById('invite-send');
+        const copyBtn = document.getElementById('invite-copy');
+        const feedback = document.getElementById('invite-feedback');
+        if (!sendBtn) return; // modal só existe para quem pode compartilhar
+
+        const setFeedback = (text, cls) => {
+            feedback.textContent = text;
+            feedback.className = 'small mb-2 ' + cls;
+        };
+
+        // Aceita só dígitos no telefone.
+        phoneInput.addEventListener('input', () => {
+            phoneInput.value = phoneInput.value.replace(/\D/g, '').slice(0, 13);
+        });
+
+        sendBtn.addEventListener('click', async () => {
+            const phone = phoneInput.value.replace(/\D/g, '');
+            if (phone.length < 10) {
+                setFeedback('Informe um WhatsApp válido com DDD.', 'text-danger');
+                return;
+            }
+            sendBtn.disabled = true;
+            const original = sendBtn.innerHTML;
+            sendBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Enviando...';
+            setFeedback('', '');
+            try {
+                const resp = await fetch(shareExternalInviteUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                    body: JSON.stringify({ phone: phone, name: nameInput.value.trim() })
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    setFeedback('✓ ' + (data.message || 'Convite enviado!'), 'text-success');
+                    phoneInput.value = ''; nameInput.value = '';
+                } else {
+                    setFeedback(data.error || 'Não foi possível enviar.', 'text-danger');
+                }
+            } catch (e) {
+                setFeedback('Erro de conexão ao enviar.', 'text-danger');
+            }
+            sendBtn.disabled = false;
+            sendBtn.innerHTML = original;
+        });
+
+        // Fallback: copiar o link manualmente.
+        copyBtn.addEventListener('click', () => {
+            const link = shareExternalLinkValue;
+            const done = () => setFeedback('Link copiado!', 'text-success');
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(link).then(done).catch(() => fallbackCopy(link, done));
+            } else {
+                fallbackCopy(link, done);
+            }
+        });
+
+        function fallbackCopy(text, done) {
+            const ta = document.createElement('textarea');
+            ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+            document.body.appendChild(ta); ta.focus(); ta.select();
+            try { document.execCommand('copy'); done(); } catch (e) {
+                setFeedback('Não foi possível copiar. Link: ' + text, 'text-muted');
+            }
+            document.body.removeChild(ta);
         }
-        document.body.removeChild(ta);
-    }
+    });
     </script>
 
     <?php if ($msg = flash('error')): ?>

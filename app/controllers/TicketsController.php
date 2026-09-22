@@ -191,6 +191,78 @@ class TicketsController extends Controller
         $this->view('client/ticket_create', $data);
     }
 
+    /**
+     * Envia, por WhatsApp, o convite de acesso externo (link da página do PIN)
+     * para o número informado pelo atendente. Chamado via AJAX pelo modal do
+     * botão "Compartilhar link externo" na tela de Nova Demanda.
+     *
+     * Decisão de escopo: o link é "puro" (/solicitacaoexterna), SEM o PIN
+     * embutido — o PIN é repassado pelo atendente por outro meio. Assim o PIN
+     * não trafega na mensagem de WhatsApp.
+     *
+     * Só super_admin com PIN cadastrado pode enviar (mesma regra do botão).
+     */
+    public function sendExternalInvite()
+    {
+        $this->requireRole('super_admin');
+
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            $this->json(['success' => false, 'error' => 'Método não permitido'], 405);
+        }
+
+        $user = $this->currentUser();
+        $fullUser = (new User())->findById($user['id']);
+
+        // O convite só faz sentido se o atendente tiver um PIN para repassar.
+        if (empty($fullUser['external_pin'])) {
+            $this->json(['success' => false, 'error' => 'Você não possui um PIN de acesso externo cadastrado.'], 400);
+        }
+
+        $input = json_decode(file_get_contents('php://input'), true) ?: [];
+        $phoneRaw = trim($input['phone'] ?? '');
+        $clientName = trim($input['name'] ?? '');
+
+        // Valida o telefone: aceita apenas dígitos após limpeza; exige DDD+número.
+        $phoneDigits = preg_replace('/\D/', '', $phoneRaw);
+        if (strlen($phoneDigits) < 10 || strlen($phoneDigits) > 13) {
+            $this->json(['success' => false, 'error' => 'Informe um WhatsApp válido com DDD.'], 400);
+        }
+
+        $link = baseUrl('solicitacaoexterna');
+        $message = $this->buildInviteMessage($clientName, $fullUser['name'] ?? '', $link);
+
+        try {
+            $ok = WhatsappNotifier::sendToPhone($phoneDigits, $message, $clientName ?: null);
+        } catch (\Throwable $e) {
+            $ok = false;
+        }
+
+        if (!$ok) {
+            $this->json([
+                'success' => false,
+                'error' => 'Não foi possível enviar pelo WhatsApp agora. Verifique a conexão da instância ou copie o link manualmente.',
+            ], 502);
+        }
+
+        $this->json(['success' => true, 'message' => 'Convite enviado por WhatsApp.']);
+    }
+
+    /**
+     * Monta o texto do convite de acesso externo. Público e "puro" (só dados ->
+     * string) para permitir teste unitário sem banco/rede.
+     */
+    public function buildInviteMessage($clientName, $attendantName, $link)
+    {
+        $greeting = trim($clientName) !== '' ? "Olá, {$clientName}!" : 'Olá!';
+        $who = trim($attendantName) !== '' ? " com {$attendantName}" : '';
+
+        return "{$greeting}\n\n"
+            . "Você tem um canal exclusivo para abrir suas demandas{$who}. 🚀\n\n"
+            . "Acesse o link abaixo e informe o PIN de acesso que enviamos para você:\n"
+            . "{$link}\n\n"
+            . "Assim que enviar, sua demanda entra direto na nossa fila de atendimento. 😉";
+    }
+
     // Salvar nova demanda
     public function store()
     {
