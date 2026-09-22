@@ -41,6 +41,20 @@
                 </div>
                 <div class="modal-body">
                     <div class="mb-3">
+                        <label class="form-label fw-medium small">Cliente cadastrado</label>
+                        <select id="invite-client" class="form-select">
+                            <option value="">Selecione (ou digite o número abaixo)</option>
+                            <?php foreach (($clients ?? []) as $client): ?>
+                            <option value="<?= (int)$client['id'] ?>"
+                                    data-phone="<?= escape(preg_replace('/\D/', '', $client['phone'] ?? '')) ?>"
+                                    data-name="<?= escape($client['name']) ?>">
+                                <?= escape($client['name']) ?><?= !empty($client['company_name']) ? ' — ' . escape($client['company_name']) : '' ?>
+                            </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <small class="text-muted">Puxa o WhatsApp cadastrado do cliente automaticamente.</small>
+                    </div>
+                    <div class="mb-3">
                         <label class="form-label fw-medium small">WhatsApp do cliente *</label>
                         <input type="tel" id="invite-phone" class="form-control" placeholder="(11) 99999-9999"
                                inputmode="numeric" autocomplete="off">
@@ -51,12 +65,9 @@
                         <input type="text" id="invite-name" class="form-control" placeholder="Opcional">
                     </div>
                     <div id="invite-feedback" class="small mb-2"></div>
-                    <div class="d-grid gap-2">
+                    <div class="d-grid">
                         <button type="button" id="invite-send" class="btn btn-success btn-sm">
                             <i class="bi bi-send"></i> Enviar convite
-                        </button>
-                        <button type="button" id="invite-copy" class="btn btn-outline-secondary btn-sm">
-                            <i class="bi bi-clipboard"></i> Copiar link
                         </button>
                     </div>
                 </div>
@@ -116,10 +127,10 @@
     }
 
     document.addEventListener('DOMContentLoaded', function () {
+        const clientSelect = document.getElementById('invite-client');
         const phoneInput = document.getElementById('invite-phone');
         const nameInput = document.getElementById('invite-name');
         const sendBtn = document.getElementById('invite-send');
-        const copyBtn = document.getElementById('invite-copy');
         const feedback = document.getElementById('invite-feedback');
         if (!sendBtn) return; // modal só existe para quem pode compartilhar
 
@@ -132,6 +143,28 @@
         phoneInput.addEventListener('input', () => {
             phoneInput.value = phoneInput.value.replace(/\D/g, '').slice(0, 13);
         });
+
+        // Ao escolher um cliente cadastrado: puxa o telefone dele. Se não tiver
+        // número cadastrado, avisa e deixa o campo livre para digitar.
+        if (clientSelect) {
+            clientSelect.addEventListener('change', () => {
+                const opt = clientSelect.options[clientSelect.selectedIndex];
+                if (!clientSelect.value) {
+                    setFeedback('', '');
+                    return;
+                }
+                const phone = (opt.getAttribute('data-phone') || '').replace(/\D/g, '');
+                const name = opt.getAttribute('data-name') || '';
+                nameInput.value = name;
+                if (phone) {
+                    phoneInput.value = phone;
+                    setFeedback('WhatsApp do cliente preenchido.', 'text-success');
+                } else {
+                    phoneInput.value = '';
+                    setFeedback('⚠️ Este cliente não possui WhatsApp cadastrado. Digite o número manualmente.', 'text-warning');
+                }
+            });
+        }
 
         sendBtn.addEventListener('click', async () => {
             const phone = phoneInput.value.replace(/\D/g, '');
@@ -147,7 +180,11 @@
                 const resp = await fetch(shareExternalInviteUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-                    body: JSON.stringify({ phone: phone, name: nameInput.value.trim() })
+                    body: JSON.stringify({
+                        phone: phone,
+                        name: nameInput.value.trim(),
+                        user_id: clientSelect ? (clientSelect.value || '') : ''
+                    })
                 });
                 const data = await resp.json();
                 if (data.success) {
@@ -162,27 +199,6 @@
             sendBtn.disabled = false;
             sendBtn.innerHTML = original;
         });
-
-        // Fallback: copiar o link manualmente.
-        copyBtn.addEventListener('click', () => {
-            const link = shareExternalLinkValue;
-            const done = () => setFeedback('Link copiado!', 'text-success');
-            if (navigator.clipboard && window.isSecureContext) {
-                navigator.clipboard.writeText(link).then(done).catch(() => fallbackCopy(link, done));
-            } else {
-                fallbackCopy(link, done);
-            }
-        });
-
-        function fallbackCopy(text, done) {
-            const ta = document.createElement('textarea');
-            ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
-            document.body.appendChild(ta); ta.focus(); ta.select();
-            try { document.execCommand('copy'); done(); } catch (e) {
-                setFeedback('Não foi possível copiar. Link: ' + text, 'text-muted');
-            }
-            document.body.removeChild(ta);
-        }
     });
     </script>
 

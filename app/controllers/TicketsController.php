@@ -174,7 +174,7 @@ class TicketsController extends Controller
             $userModel = new User();
             // Clientes com a empresa vinculada, para seleção hierárquica Empresa > Usuário
             $clients = Database::getInstance()->fetchAll(
-                "SELECT u.id, u.name, u.email, u.company_id, comp.name as company_name
+                "SELECT u.id, u.name, u.email, u.phone, u.company_id, comp.name as company_name
                  FROM users u
                  LEFT JOIN companies comp ON u.company_id = comp.id
                  WHERE u.role = 'client' AND u.is_active = 1
@@ -221,6 +221,27 @@ class TicketsController extends Controller
         $input = json_decode(file_get_contents('php://input'), true) ?: [];
         $phoneRaw = trim($input['phone'] ?? '');
         $clientName = trim($input['name'] ?? '');
+        $clientId = (int)($input['user_id'] ?? 0);
+
+        // Se veio um cliente cadastrado (user_id) e o número não foi digitado
+        // manualmente, tentamos usar o WhatsApp cadastrado desse cliente.
+        if ($clientId > 0 && $phoneRaw === '') {
+            $client = (new User())->findById($clientId);
+            if (!$client || ($client['role'] ?? '') !== 'client') {
+                $this->json(['success' => false, 'error' => 'Cliente inválido.'], 400);
+            }
+            $clientPhone = preg_replace('/\D/', '', $client['phone'] ?? '');
+            if ($clientPhone === '') {
+                $this->json([
+                    'success' => false,
+                    'error' => 'Este cliente não possui WhatsApp cadastrado. Informe um número manualmente.',
+                ], 400);
+            }
+            $phoneRaw = $clientPhone;
+            if ($clientName === '') {
+                $clientName = $client['name'] ?? '';
+            }
+        }
 
         // Valida o telefone: aceita apenas dígitos após limpeza; exige DDD+número.
         $phoneDigits = preg_replace('/\D/', '', $phoneRaw);
