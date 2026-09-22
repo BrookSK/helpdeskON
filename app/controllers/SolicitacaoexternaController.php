@@ -127,10 +127,21 @@ class SolicitacaoexternaController extends Controller
         // empresa existente, o value é o nome dela; quando escolhe "Outra",
         // usamos o texto livre digitado em requester_company_other.
         $companySelect = trim($_POST['requester_company'] ?? '');
+        // company_id só é resolvido quando a empresa escolhida EXISTE no cadastro
+        // (opção da lista). Para "Outra (digitar)" fica NULL: apenas texto na
+        // descrição, sem criar/vincular empresa.
+        $companyId = null;
         if ($companySelect === '__other__') {
             $requesterCompany = trim($_POST['requester_company_other'] ?? '');
         } else {
             $requesterCompany = $companySelect;
+            if ($requesterCompany !== '') {
+                $matched = Database::getInstance()->fetch(
+                    "SELECT id FROM companies WHERE name = ? LIMIT 1",
+                    [$requesterCompany]
+                );
+                $companyId = $matched['id'] ?? null;
+            }
         }
         $title = trim($_POST['title'] ?? '');
         $description = trim($_POST['description'] ?? '');
@@ -196,9 +207,12 @@ class SolicitacaoexternaController extends Controller
         }
 
         // Card automático no Planejamento (mesmo comportamento da criação interna).
+        // Passamos a empresa selecionada (quando ela existe no cadastro) para que
+        // o card — e a coluna "Empresa" da listagem — reflita a escolha do
+        // solicitante, em vez da empresa do atendente dono do PIN.
         try {
             $ticket = $ticketModel->findById($ticketId);
-            (new PlanningCard())->createFromTicket($ticket);
+            (new PlanningCard())->createFromTicket($ticket, $companyId);
         } catch (\Throwable $e) {
             // Não bloqueia a criação da demanda se o card falhar.
         }
