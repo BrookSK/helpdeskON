@@ -42,6 +42,11 @@ class Controller
     protected function requireLogin()
     {
         if (!$this->isLoggedIn()) {
+            // Requisição AJAX/JSON recebe 401 JSON (não um redirect HTML que o
+            // fetch não sabe interpretar). Navegação normal continua indo ao login.
+            if ($this->isAjax()) {
+                $this->json(['error' => 'Sessão expirada. Faça login novamente.'], 401);
+            }
             $this->redirect('login');
         }
     }
@@ -53,6 +58,10 @@ class Controller
             $roles = [$roles];
         }
         if (!in_array($_SESSION['user_role'], $roles)) {
+            // Sem permissão: AJAX/JSON recebe 403 JSON; navegação vai ao dashboard.
+            if ($this->isAjax()) {
+                $this->json(['error' => 'Você não tem permissão para esta ação.'], 403);
+            }
             $this->redirect('dashboard');
         }
     }

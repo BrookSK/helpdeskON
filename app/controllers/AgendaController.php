@@ -856,20 +856,27 @@ class AgendaController extends Controller
         // Métricas de fechamento (próprio vs terceiros)
         $closingStats = $this->model->getClosingStats($startDate, $endDate, $filterUserId);
 
-        // Série mensal (gráfico)
-        $trend = $this->model->getMonthlyTrend(6, $filterUserId);
+        // Série mensal (gráfico) — cobre o período filtrado (mínimo 6 meses para
+        // manter a leitura de tendência) em vez de sempre os últimos 6 meses.
+        $trendMonths = $this->monthsBetween($startDate, $endDate);
+        $trend = $this->model->getMonthlyTrend(max(6, $trendMonths), $filterUserId, $endDate);
 
         // Lista de usuários comerciais (para filtro no admin)
         $userModel = new User();
         $comerciais = $userModel->getByRoles(['super_admin', 'comercial', 'marketing']);
 
-        // Monta dados consolidados por usuário para a tabela comparativa
+        // Monta dados consolidados por usuário para a tabela comparativa.
+        // Inclui TODAS as fontes no union (inclusive closingStats e uniqueContacts),
+        // senão um usuário que só fechou negócios para outros (closed_for_others)
+        // ou só tem contatos únicos sumiria da tabela e o crédito seria perdido.
         $tableData = [];
         $allUserIds = array_unique(array_merge(
             array_keys($meetingStats),
             array_keys($messageStats),
             array_keys($responseStats),
-            array_keys($emailStats)
+            array_keys($emailStats),
+            array_keys($closingStats),
+            array_keys($uniqueContacts)
         ));
 
         // Buscar nomes de todos os usuários envolvidos para evitar "Usuário #ID"
@@ -1162,5 +1169,21 @@ class AgendaController extends Controller
                 'user_id' => $userId, 'title' => $title, 'message' => $message, 'type' => 'system',
             ]);
         } catch (\Throwable $e) { /* ignora */ }
+    }
+
+    /**
+     * Quantidade de meses (inclusivos) entre duas datas Y-m-d. Usado para o
+     * gráfico de tendência cobrir o período filtrado. Retorna ao menos 1.
+     */
+    private function monthsBetween($startDate, $endDate)
+    {
+        $s = strtotime((string) $startDate);
+        $e = strtotime((string) $endDate);
+        if (!$s || !$e || $e < $s) {
+            return 1;
+        }
+        $months = (int) date('Y', $e) * 12 + (int) date('n', $e)
+                - ((int) date('Y', $s) * 12 + (int) date('n', $s)) + 1;
+        return max(1, $months);
     }
 }

@@ -16,7 +16,11 @@ foreach ($tableData as $row) {
     foreach ($totals as $k => &$v) $v += $row[$k] ?? 0;
 }
 unset($v);
-$conversionRate = $totals['realizada'] > 0 ? round(($totals['convertida'] / $totals['realizada']) * 100, 1) : 0;
+// Taxa de conversão: convertidas sobre o total que chegou a acontecer
+// (realizadas + convertidas). Ao converter, a reunião sai de "realizada", então
+// o denominador precisa incluir as convertidas — senão a taxa passa de 100%.
+$conversionBase = $totals['realizada'] + $totals['convertida'];
+$conversionRate = $conversionBase > 0 ? round(($totals['convertida'] / $conversionBase) * 100, 1) : 0;
 ?>
 
 <div class="main-content">
@@ -120,7 +124,7 @@ $conversionRate = $totals['realizada'] > 0 ? round(($totals['convertida'] / $tot
                     </thead>
                     <tbody>
                         <?php foreach ($tableData as $row): ?>
-                        <?php $rate = $row['realizada'] > 0 ? round(($row['convertida'] / $row['realizada']) * 100, 1) : 0; ?>
+                        <?php $rateBase = $row['realizada'] + $row['convertida']; $rate = $rateBase > 0 ? round(($row['convertida'] / $rateBase) * 100, 1) : 0; ?>
                         <tr>
                             <td class="fw-medium"><?= escape($row['user_name']) ?></td>
                             <td class="text-center"><?= $row['total_meetings'] ?></td>

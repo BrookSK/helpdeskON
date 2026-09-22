@@ -320,6 +320,15 @@ class ApolloProspectingService
         // Só revela e-mail quando o canal usa e-mail (email/mixed). Numa campanha
         // exclusiva de WhatsApp não gasta crédito revelando e-mail.
         if (!$emailIsReal && $channel !== 'whatsapp') {
+            // TRAVA DE CRÉDITO DIÁRIO (também na automação): antes valia só no fluxo
+            // manual (CrmController), então a prospecção automática revelava e-mails
+            // ilimitadamente. Agora respeita users.apollo_daily_credits do dono da
+            // campanha. Sem crédito → não revela (economia); segue sem reveal.
+            if (!$this->canSpendCredit($camp, ApolloCreditUsage::COST_EMAIL)) {
+                $this->logCampaign($camp['id'], 'credit_limit', 'Limite diário de créditos Apollo atingido — reveal de e-mail ignorado.');
+                if ($emailRequired) return 'reveal_failed';
+                // canal mixed sem e-mail: tenta seguir só com telefone/reveal futuro
+            } else {
             // REVEAL apenas do e-mail (economia — telefone é progressivo)
             try {
                 $res = $this->apollo->enrichPerson([
@@ -343,11 +352,13 @@ class ApolloProspectingService
                     $person = array_merge($person, $revealed);
                     $email = $this->extractEmail($revealed) ?: $email;
                 }
-                // Registra consumo de crédito (1 crédito por reveal de e-mail)
-                $this->recordCredit($camp['id'], $localId, 'email', 1);
+                // Registra consumo de crédito (1 crédito por reveal de e-mail) e
+                // debita a cota diária do dono da campanha.
+                $this->recordCredit($camp['id'], $localId, 'email', ApolloCreditUsage::COST_EMAIL);
             } elseif ($emailRequired) {
                 return 'reveal_failed';
             }
+            } // fim do bloco "tem crédito"
         }
 
         $emailIsReal = $email && stripos($email, 'email_not_unlocked') === false && filter_var($email, FILTER_VALIDATE_EMAIL);
@@ -808,6 +819,34 @@ class ApolloProspectingService
                 'credits' => $credits,
             ]);
         } catch (\Throwable $e) { /* silencioso */ }
+
+        // Debita a cota diária de créditos Apollo do dono da campanha.
+        try {
+            $ownerId = $this->campaignCreditOwnerId($campaignId);
+            if ($ownerId) (new ApolloCreditUsage())->consume($ownerId, (int) $credits);
+        } catch (\Throwable $e) { /* silencioso */ }
+    }
+
+    /**
+     * Verifica se o dono da campanha ainda tem cota diária de créditos Apollo
+     * para gastar $cost. Sem dono resolvível, permite (não bloqueia a automação).
+     */
+    private function canSpendCredit(array $camp, $cost = 1): bool
+    {
+        $ownerId = !empty($camp['created_by']) ? (int) $camp['created_by'] : $this->superAdminId();
+        if (!$ownerId) return true;
+        $user = $this->db->fetch("SELECT id, apollo_daily_credits FROM users WHERE id = ?", [$ownerId]);
+        if (!$user) return true;
+        return (new ApolloCreditUsage())->check($user, (int) $cost)['allowed'];
+    }
+
+    /** ID do usuário cuja cota de créditos é debitada por uma campanha. */
+    private function campaignCreditOwnerId($campaignId)
+    {
+        if (!$campaignId) return $this->superAdminId();
+        $c = $this->db->fetch("SELECT created_by FROM apollo_campaigns WHERE id = ?", [$campaignId]);
+        $owner = !empty($c['created_by']) ? (int) $c['created_by'] : null;
+        return $owner ?: $this->superAdminId();
     }
 
     private function logCampaign($campaignId, $action, $detail = null)

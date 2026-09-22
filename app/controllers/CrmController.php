@@ -347,8 +347,9 @@ class CrmController extends Controller
         $user = $this->currentUser();
         $newCol = $this->boardModel->findColumn($columnId);
 
-        // Detectar se a coluna de destino é "Fechado" (case-insensitive)
-        $isClosedColumn = mb_strtolower(trim($newCol['name'])) === 'fechado';
+        // Detecta o tipo da coluna de destino (case-insensitive, via CrmRules).
+        $isClosedColumn = CrmRules::isClosedColumn($newCol['name'] ?? '');
+        $isLostColumn = CrmRules::isLostColumn($newCol['name'] ?? '');
 
         if ($isClosedColumn) {
             // Exigir informação de quem fechou
@@ -380,9 +381,29 @@ class CrmController extends Controller
             }
             $this->boardModel->addActivity($cardId, $user['id'], 'move', "Movido para \"{$newCol['name']}\"");
             $this->boardModel->addActivity($cardId, $user['id'], 'note', "✅ Lead convertido (fechamento){$closedByName}");
-        } else {
-            // Movimentação normal
+        } elseif ($isLostColumn) {
+            // Mover para a coluna "Perdido" marca o desfecho como perdido — antes
+            // só o botão "Marcar como perdido" fazia isso, e o dashboard subcontava.
             $this->boardModel->moveCard($cardId, $columnId, $position);
+            $this->boardModel->updateCard($cardId, [
+                'lead_outcome' => 'lost',
+                'outcome_at' => date('Y-m-d H:i:s'),
+            ]);
+            $this->boardModel->addActivity($cardId, $user['id'], 'move', "Movido para \"{$newCol['name']}\"");
+            $this->boardModel->addActivity($cardId, $user['id'], 'note', '❌ Lead perdido');
+        } else {
+            // Movimentação normal. Se o card estava com desfecho (convertido/perdido)
+            // e voltou para uma coluna de funil aberto, reabre o desfecho para não
+            // continuar contando como convertido/perdido no dashboard.
+            $card = $this->boardModel->findCard($cardId);
+            $this->boardModel->moveCard($cardId, $columnId, $position);
+            if (!empty($card) && ($card['lead_outcome'] ?? 'open') !== 'open') {
+                $this->boardModel->updateCard($cardId, [
+                    'lead_outcome' => 'open',
+                    'outcome_at' => null,
+                ]);
+                $this->boardModel->addActivity($cardId, $user['id'], 'note', '↩️ Lead reaberto (voltou ao funil)');
+            }
             $this->boardModel->addActivity($cardId, $user['id'], 'move', "Movido para \"{$newCol['name']}\"");
         }
 
@@ -758,6 +779,7 @@ class CrmController extends Controller
         $this->recordCall([
             'contact_id' => $contactId,
             'user_id' => $user['id'],
+            'direction' => 'outbound', // ligação REST é sempre de saída (evita direction NULL)
             'call_id' => $callId,
             'caller' => $caller,
             'called' => $called,
@@ -870,9 +892,18 @@ class CrmController extends Controller
         }
         $note = trim($_POST['note'] ?? '');
         $db = Database::getInstance();
-        // Grava a nota no registro da ligação (coluna response_json reaproveitada como observação)
+        // Grava a nota SEM destruir a resposta da API: mescla a nota no JSON
+        // existente (antes o UPDATE sobrescrevia response_json inteiro, perdendo o
+        // retorno da Nvoip). Preserva as demais chaves e só (re)escreve 'note'.
+        $current = $db->fetch("SELECT response_json FROM nvoip_calls WHERE id = ?", [$recordId]);
+        $json = [];
+        if ($current && !empty($current['response_json'])) {
+            $decoded = json_decode($current['response_json'], true);
+            if (is_array($decoded)) $json = $decoded;
+        }
+        $json['note'] = $note;
         $db->query("UPDATE nvoip_calls SET response_json = ? WHERE id = ?", [
-            json_encode(['note' => $note], JSON_UNESCAPED_UNICODE), $recordId
+            json_encode($json, JSON_UNESCAPED_UNICODE), $recordId
         ]);
 
         // Se veio contato, acrescenta a nota ao briefing (campo notes)

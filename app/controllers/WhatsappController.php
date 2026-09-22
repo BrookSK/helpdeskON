@@ -1712,9 +1712,12 @@ class WhatsappController extends Controller
         // Ignorar mensagens de status/broadcast
         if (strpos($remoteJid, 'status@') !== false || strpos($remoteJid, 'broadcast') !== false) return;
 
-        // Ignorar mensagens enviadas por mim (fromMe) — o sistema já salva na hora do envio
-        // Isso evita duplicação de mensagens enviadas pelo painel
-        if ($fromMe) return;
+        // Mensagens fromMe (enviadas por mim) TAMBÉM são processadas: assim as que
+        // eu envio pelo celular/WhatsApp Web (fora do sistema) aparecem no chat.
+        // Não há duplicação: o envio pelo painel já grava a mensagem com o mesmo
+        // message_id que a Evolution devolve, e WhatsappMessage::create() deduplica
+        // por (instance_id, message_id). Portanto, uma fromMe do webhook cujo id já
+        // exista é ignorada pelo model; uma fromMe nova (enviada por fora) é salva.
 
         // Detectar tipo e texto da mensagem
         $message = $msg['message'] ?? [];
@@ -1746,6 +1749,34 @@ class WhatsappController extends Controller
         } elseif (isset($message['stickerMessage'])) {
             $msgType = 'sticker';
             $mediaMime = $message['stickerMessage']['mimetype'] ?? 'image/webp';
+        } elseif (isset($message['locationMessage'])) {
+            // Localização: guarda um rótulo + coordenadas legíveis (antes virava texto vazio).
+            $msgType = 'location';
+            $loc = $message['locationMessage'];
+            $lat = $loc['degreesLatitude'] ?? null;
+            $lng = $loc['degreesLongitude'] ?? null;
+            $name = trim((string)($loc['name'] ?? ''));
+            $coords = ($lat !== null && $lng !== null) ? " ({$lat}, {$lng})" : '';
+            $msgText = '📍 Localização' . ($name !== '' ? ': ' . $name : '') . $coords;
+        } elseif (isset($message['contactMessage']) || isset($message['contactsArrayMessage'])) {
+            // Contato(s) compartilhado(s).
+            $msgType = 'contact';
+            $cm = $message['contactMessage'] ?? null;
+            $displayName = $cm['displayName'] ?? null;
+            if (!$displayName && isset($message['contactsArrayMessage']['contacts'][0]['displayName'])) {
+                $displayName = $message['contactsArrayMessage']['contacts'][0]['displayName'];
+            }
+            $msgText = '👤 Contato' . ($displayName ? ': ' . $displayName : '');
+        } elseif (isset($message['pollCreationMessage']) || isset($message['pollCreationMessageV3'])) {
+            $msgType = 'poll';
+            $poll = $message['pollCreationMessage'] ?? $message['pollCreationMessageV3'] ?? [];
+            $pollName = trim((string)($poll['name'] ?? ''));
+            $msgText = '📊 Enquete' . ($pollName !== '' ? ': ' . $pollName : '');
+        } elseif (isset($message['listMessage'])) {
+            $msgType = 'list';
+            $lm = $message['listMessage'];
+            $title = trim((string)($lm['title'] ?? $lm['description'] ?? ''));
+            $msgText = '📋 Lista' . ($title !== '' ? ': ' . $title : '');
         } elseif (isset($message['reactionMessage'])) {
             // Reação: emoji + referência à mensagem reagida
             $msgType = 'reaction';
@@ -1783,6 +1814,12 @@ class WhatsappController extends Controller
         if ($isGroup && $participantJid) {
             // sender_name é quem mandou a mensagem no grupo
             $senderName = $pushName ?: $participantJid;
+        }
+        // Mensagem enviada por mim de fora do sistema (celular/WhatsApp Web): o
+        // pushName do payload é do CONTATO, não meu. Marca como "Você" para não
+        // rotular a própria mensagem com o nome do contato.
+        if ($fromMe) {
+            $senderName = 'Você';
         }
 
         // Normalizar JID
@@ -1889,6 +1926,10 @@ class WhatsappController extends Controller
             'remote_jid' => $normalizedJid,
             'message_id' => $messageId,
             'from_me' => $fromMe ? 1 : 0,
+            // Toda mensagem fromMe que chega pelo WEBHOOK e ainda não existe foi
+            // enviada por FORA do sistema (celular/WhatsApp Web). As enviadas pelo
+            // painel já foram gravadas antes (sent_via='system') e são deduplicadas.
+            'sent_via' => $fromMe ? 'external' : 'system',
             'message_type' => $msgType,
             'message_text' => $msgText,
             'media_url' => $mediaUrl,
@@ -2984,13 +3025,13 @@ class WhatsappController extends Controller
             $columnId = $columns[0]['id'];
         }
 
-        // Se houver briefing, usar a faixa de investimento como valor do card
+        // Se houver briefing, usar a faixa de investimento como valor do card.
+        // Usa o parser BR (respeita milhar '.' e decimal ',') — antes "R$ 5.000,00"
+        // virava 500000 (inflava o valor 100x por remover a vírgula decimal).
         $briefing = $this->contactModel->getBriefing($contactId);
         $cardValue = null;
         if ($briefing && !empty($briefing['investment_range'])) {
-            // extrai números da faixa (ex.: "R$ 5.000" -> 5000)
-            $num = preg_replace('/[^\d]/', '', $briefing['investment_range']);
-            $cardValue = $num !== '' ? floatval($num) : null;
+            $cardValue = CrmRules::parseMoneyBR($briefing['investment_range']);
         }
 
         $user = $this->currentUser();

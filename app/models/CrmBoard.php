@@ -310,39 +310,37 @@ class CrmBoard
         // Comissão de prospecção: leads onde o user é prospected_by mas outro fechou
         // Usa commission_prospection_percent do prospector
 
-        // Query principal: agrupa por usuário, calcula comissões separadamente
+        // IMPORTANTE: usamos SUBQUERIES AGREGADAS SEPARADAS (fechamento e
+        // prospecção), e NÃO um duplo LEFT JOIN + SUM(DISTINCT). O antigo
+        // SUM(DISTINCT value) colapsava dois cards diferentes de MESMO valor
+        // (ex.: dois negócios de R$ 1.000) em um só, subestimando a comissão. Com
+        // subqueries por usuário, cada card é somado corretamente (SUM sobre linhas).
+        $monthClosed = $month ? " AND DATE_FORMAT(cc.outcome_at, '%Y-%m') = ?" : "";
+        $monthProsp  = $month ? " AND DATE_FORMAT(cp.outcome_at, '%Y-%m') = ?" : "";
+
         $sql = "SELECT u.id as user_id, u.name as user_name,
                        u.commission_percent, u.commission_prospection_percent, u.commission_closing_percent,
-                       -- Leads que ele FECHOU (converted_by = ele)
-                       COUNT(DISTINCT c_closed.id) as closed_count,
-                       COALESCE(SUM(DISTINCT c_closed.value), 0) as closed_value,
-                       -- Leads que ele PROSPECTOU e outro fechou
-                       COUNT(DISTINCT c_prosp.id) as prospected_count,
-                       COALESCE(SUM(DISTINCT c_prosp.value), 0) as prospected_value
+                       (SELECT COUNT(*) FROM crm_cards cc
+                         WHERE cc.converted_by = u.id AND cc.lead_outcome = 'converted'{$monthClosed}) AS closed_count,
+                       (SELECT COALESCE(SUM(cc.value),0) FROM crm_cards cc
+                         WHERE cc.converted_by = u.id AND cc.lead_outcome = 'converted'{$monthClosed}) AS closed_value,
+                       (SELECT COUNT(*) FROM crm_cards cp
+                         WHERE cp.prospected_by = u.id AND cp.lead_outcome = 'converted'
+                           AND cp.converted_by <> u.id{$monthProsp}) AS prospected_count,
+                       (SELECT COALESCE(SUM(cp.value),0) FROM crm_cards cp
+                         WHERE cp.prospected_by = u.id AND cp.lead_outcome = 'converted'
+                           AND cp.converted_by <> u.id{$monthProsp}) AS prospected_value
                 FROM users u
-                LEFT JOIN crm_cards c_closed
-                    ON c_closed.converted_by = u.id
-                    AND c_closed.lead_outcome = 'converted'";
+                WHERE u.role = 'comercial'";
+        // Ordem dos parâmetros segue a ordem das subqueries no SELECT:
+        // closed_count, closed_value, prospected_count, prospected_value.
         $params = [];
-        if ($month) {
-            $sql .= " AND DATE_FORMAT(c_closed.outcome_at, '%Y-%m') = ?";
-            $params[] = $month;
-        }
-        $sql .= " LEFT JOIN crm_cards c_prosp
-                    ON c_prosp.prospected_by = u.id
-                    AND c_prosp.lead_outcome = 'converted'
-                    AND c_prosp.converted_by != u.id";
-        if ($month) {
-            $sql .= " AND DATE_FORMAT(c_prosp.outcome_at, '%Y-%m') = ?";
-            $params[] = $month;
-        }
-        $sql .= " WHERE u.role = 'comercial'";
+        if ($month) { $params[] = $month; $params[] = $month; $params[] = $month; $params[] = $month; }
         if ($userId) {
             $sql .= " AND u.id = ?";
             $params[] = $userId;
         }
-        $sql .= " GROUP BY u.id, u.name, u.commission_percent, u.commission_prospection_percent, u.commission_closing_percent
-                   ORDER BY u.name";
+        $sql .= " ORDER BY u.name";
 
         $rows = $this->db->fetchAll($sql, $params);
 

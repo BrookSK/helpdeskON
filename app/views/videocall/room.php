@@ -1060,6 +1060,9 @@ function enterCall(res) {
         startAdminPolling();
     }
     addSelfTile();
+    // Sincroniza os ícones da toolbar com o estado escolhido no preview
+    // (ex.: entrou com a câmera desligada -> o ícone já aparece vermelho).
+    refreshMediaButtons();
     sfx('selfjoin'); // som de "você entrou"
     (res.peers || []).forEach(p => { ensurePeer(p.peer_id, p.name, true); });
     updateCount();
@@ -1807,16 +1810,33 @@ function maybeAutoStopRecording() {
 }
 
 // ---- Controles de mídia ----
+// Sincroniza o VISUAL dos botões da toolbar (mic/câmera) e do tile próprio com
+// o estado atual (micOn/camOn). Fonte única usada tanto pelos cliques
+// (toggleMic/toggleCam) quanto pela ENTRADA na sala (enterCall) — assim, quando
+// a pessoa entra com a câmera desligada no preview, o ícone já reflete isso
+// (fica vermelho/"desativado"), sem depender de um clique.
+function refreshMediaButtons() {
+    const bMic = document.getElementById('btn-mic');
+    if (bMic) {
+        bMic.classList.toggle('off', !micOn);
+        bMic.innerHTML = (micOn ? '<i class="bi bi-mic-fill"></i>' : '<i class="bi bi-mic-mute-fill"></i>') + '<span class="ctrl-label">Mic</span>';
+    }
+    const bCam = document.getElementById('btn-cam');
+    if (bCam) {
+        bCam.classList.toggle('off', !camOn);
+        bCam.innerHTML = (camOn ? '<i class="bi bi-camera-video-fill"></i>' : '<i class="bi bi-camera-video-off-fill"></i>') + '<span class="ctrl-label">Câmera</span>';
+    }
+    tileEl(peerId)?.classList.toggle('mic-off', !micOn);
+    tileEl(peerId)?.classList.toggle('cam-off', !camOn);
+    if (typeof syncPipButtons === 'function') syncPipButtons();
+}
+
 function toggleMic() {
     micOn = !micOn;
     if (localStream) localStream.getAudioTracks().forEach(t => t.enabled = micOn);
     if (rawStream) rawStream.getAudioTracks().forEach(t => t.enabled = micOn);
-    const b = document.getElementById('btn-mic');
-    b.classList.toggle('off', !micOn);
-    b.innerHTML = (micOn ? '<i class="bi bi-mic-fill"></i>' : '<i class="bi bi-mic-mute-fill"></i>') + '<span class="ctrl-label">Mic</span>';
-    tileEl(peerId)?.classList.toggle('mic-off', !micOn);
+    refreshMediaButtons();
     broadcastMyState();
-    if (typeof syncPipButtons === 'function') syncPipButtons();
 }
 function toggleCam() {
     camOn = !camOn;
@@ -1826,12 +1846,8 @@ function toggleCam() {
     autoCamOff = false;
     if (localStream) localStream.getVideoTracks().forEach(t => t.enabled = camOn);
     if (rawStream) rawStream.getVideoTracks().forEach(t => t.enabled = camOn);
-    const b = document.getElementById('btn-cam');
-    b.classList.toggle('off', !camOn);
-    b.innerHTML = (camOn ? '<i class="bi bi-camera-video-fill"></i>' : '<i class="bi bi-camera-video-off-fill"></i>') + '<span class="ctrl-label">Câmera</span>';
-    tileEl(peerId)?.classList.toggle('cam-off', !camOn);
+    refreshMediaButtons();
     broadcastMyState();
-    if (typeof syncPipButtons === 'function') syncPipButtons();
 }
 
 async function toggleScreen(ev) {

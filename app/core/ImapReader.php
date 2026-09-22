@@ -274,11 +274,21 @@ class ImapReader
 
     private function buildMailboxString($folder = 'INBOX')
     {
-        $flags = '';
+        // Validação de certificado TLS. Por padrão validamos (mais seguro).
+        // Servidores com certificado self-signed podem exigir o modo relaxado:
+        // ative o setting 'imap_allow_self_signed' = 1 em Configurações.
+        $allowSelfSigned = false;
+        try {
+            $allowSelfSigned = (bool) Config::get('imap_allow_self_signed');
+        } catch (\Throwable $e) {
+            $allowSelfSigned = false;
+        }
+        $certFlag = $allowSelfSigned ? '/novalidate-cert' : '/validate-cert';
+
         if ($this->encryption === 'ssl') {
-            $flags = '/imap/ssl/novalidate-cert';
+            $flags = '/imap/ssl' . $certFlag;
         } elseif ($this->encryption === 'tls') {
-            $flags = '/imap/tls/novalidate-cert';
+            $flags = '/imap/tls' . $certFlag;
         } else {
             $flags = '/imap/notls';
         }

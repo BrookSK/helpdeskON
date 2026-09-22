@@ -48,19 +48,17 @@ class VideocallController extends Controller
         $title = trim($_POST['title'] ?? '') ?: 'Videochamada';
         // Sem informar limite, usa o teto máximo (só uma proteção técnica; o usuário
         // não precisa decidir quantas pessoas vão entrar).
-        $max = (int)($_POST['max_participants'] ?? 15);
-        if ($max < 2) $max = 2;
-        if ($max > 15) $max = 15;
+        $max = VideoRoomRules::clampParticipants($_POST['max_participants'] ?? VideoRoomRules::DEFAULT_PARTICIPANTS);
 
         $meetingId = !empty($_POST['meeting_id']) ? (int)$_POST['meeting_id'] : null;
         $expiryDays = 30;
 
         // Pública: qualquer pessoa com o link entra direto.
         // Privada: a entrada precisa ser aprovada por um administrador da sala.
-        $visibility = (($_POST['visibility'] ?? 'public') === 'private') ? 'private' : 'public';
+        $visibility = VideoRoomRules::normalizeVisibility($_POST['visibility'] ?? 'public');
 
         // Permitir apresentar (compartilhar tela): padrão sim. O admin pode mudar depois.
-        $allowPresentation = (($_POST['allow_presentation'] ?? '1') === '0') ? 0 : 1;
+        $allowPresentation = VideoRoomRules::normalizeAllowPresentation($_POST['allow_presentation'] ?? '1');
 
         $token = $this->model->create([
             'title' => $title,
@@ -323,12 +321,11 @@ class VideocallController extends Controller
         $kind = (string)($body['kind'] ?? '');
         $payload = $body['payload'] ?? null;
 
-        $allowed = ['offer', 'answer', 'ice', 'join', 'leave', 'media', 'screen', 'end', 'reaction', 'hand', 'rec', 'state', 'forcemute'];
-        if ($from === '' || !in_array($kind, $allowed, true)) {
+        if ($from === '' || !VideoRoomRules::isValidSignal($kind)) {
             $this->json(['error' => 'Sinal inválido'], 400);
         }
         // Ações de moderação (encerrar sala / silenciar alguém) — só admin da sala.
-        if ($kind === 'end' || $kind === 'forcemute') {
+        if (VideoRoomRules::signalRequiresAdmin($kind)) {
             if (!$this->model->isAdminUser($room, $endUserId)) $this->json(['error' => 'Sem permissão.'], 403);
         }
 
@@ -468,9 +465,8 @@ class VideocallController extends Controller
         $file = $_FILES['recording'];
         // Só aceita vídeo (webm/mp4). Valida por MIME informado + extensão de saída segura.
         $mime = (string)($file['type'] ?? '');
-        $ext = 'webm';
-        if (strpos($mime, 'mp4') !== false) $ext = 'mp4';
-        elseif (strpos($mime, 'webm') === false) {
+        $ext = VideoRoomRules::recordingExtension($mime);
+        if (!VideoRoomRules::isAcceptableRecordingMime($mime)) {
             // MIME desconhecido: tenta detectar; se não for vídeo, recusa.
             if (function_exists('finfo_open')) {
                 $fi = finfo_open(FILEINFO_MIME_TYPE);
@@ -480,7 +476,7 @@ class VideocallController extends Controller
                     $this->json(['error' => 'O arquivo enviado não é um vídeo.'], 415);
                 }
                 $mime = $detected;
-                if (strpos($detected, 'mp4') !== false) $ext = 'mp4';
+                $ext = VideoRoomRules::recordingExtension($detected);
             }
         }
 
