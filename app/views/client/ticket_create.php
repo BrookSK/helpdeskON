@@ -85,8 +85,8 @@
                     <div class="mb-3">
                         <label class="form-label fw-medium small">WhatsApp do cliente *</label>
                         <input type="tel" id="invite-phone" class="form-control" placeholder="(11) 99999-9999"
-                               inputmode="numeric" autocomplete="off">
-                        <small class="text-muted">Com DDD. Ex.: 11999998888</small>
+                               inputmode="numeric" autocomplete="off" maxlength="16">
+                        <small class="text-muted">Com DDD. Ex.: (11) 99999-8888</small>
                     </div>
                     <div class="mb-3">
                         <label class="form-label fw-medium small">Nome do cliente</label>
@@ -178,9 +178,22 @@
             feedback.className = 'small mb-2 ' + cls;
         };
 
-        // Aceita só dígitos no telefone.
+        // Formata o número no padrão brasileiro conforme o usuário digita:
+        // 10 dígitos -> (XX) XXXX-XXXX (fixo)
+        // 11 dígitos -> (XX) XXXXX-XXXX (celular)
+        // O envio continua usando só os dígitos (o backend limpa a máscara).
+        const formatPhoneBR = (value) => {
+            const d = (value || '').replace(/\D/g, '').slice(0, 11);
+            if (d.length === 0) return '';
+            if (d.length <= 2) return '(' + d;
+            if (d.length <= 6) return '(' + d.slice(0, 2) + ') ' + d.slice(2);
+            if (d.length <= 10) return '(' + d.slice(0, 2) + ') ' + d.slice(2, 6) + '-' + d.slice(6);
+            return '(' + d.slice(0, 2) + ') ' + d.slice(2, 7) + '-' + d.slice(7);
+        };
+
+        // Aplica a máscara enquanto digita.
         phoneInput.addEventListener('input', () => {
-            phoneInput.value = phoneInput.value.replace(/\D/g, '').slice(0, 13);
+            phoneInput.value = formatPhoneBR(phoneInput.value);
         });
 
         // Ao escolher um cliente cadastrado: puxa o telefone dele. Se não tiver
@@ -196,7 +209,7 @@
                 const name = opt.getAttribute('data-name') || '';
                 nameInput.value = name;
                 if (phone) {
-                    phoneInput.value = phone;
+                    phoneInput.value = formatPhoneBR(phone);
                     setFeedback('WhatsApp do cliente preenchido.', 'text-success');
                 } else {
                     phoneInput.value = '';
