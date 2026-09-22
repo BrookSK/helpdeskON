@@ -14,6 +14,26 @@ class WhatsappMessage
         return $this->db->fetch("SELECT * FROM whatsapp_messages WHERE id = ?", [$id]);
     }
 
+    /** Verifica (com cache) se uma coluna existe numa tabela. */
+    private function hasColumn($table, $column): bool
+    {
+        static $cache = [];
+        $key = $table . '.' . $column;
+        if (!isset($cache[$key])) {
+            try {
+                $r = $this->db->fetch(
+                    "SELECT 1 FROM information_schema.COLUMNS
+                     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?",
+                    [$table, $column]
+                );
+                $cache[$key] = (bool) $r;
+            } catch (\Throwable $e) {
+                $cache[$key] = false;
+            }
+        }
+        return $cache[$key];
+    }
+
     /**
      * Buscar mensagens de um contato (paginado)
      */
@@ -51,16 +71,41 @@ class WhatsappMessage
      */
     public function create($data)
     {
-        // Evitar duplicatas pelo message_id
+        // Evitar duplicatas pelo message_id.
         if (!empty($data['message_id'])) {
+            $msgId = $data['message_id'];
+
+            // 1) Correspondência exata por (instance_id, message_id) — caso comum.
             $existing = $this->db->fetch(
                 "SELECT id FROM whatsapp_messages WHERE instance_id = ? AND message_id = ?",
-                [$data['instance_id'], $data['message_id']]
+                [$data['instance_id'] ?? null, $msgId]
             );
             if ($existing) return $existing['id'];
+
+            // 2) Dedup entre INSTÂNCIAS diferentes: no modelo "platform-owned" o
+            //    envio pelo painel e o eco do webhook (fromMe) podem gravar a mesma
+            //    mensagem com instance_id distintos (ou nulo). Como o message_id da
+            //    Evolution é único, deduplica pelo par (message_id, contact_id)
+            //    quando o id NÃO é um id temporário gerado localmente.
+            if (!self::isLocalTempId($msgId) && !empty($data['contact_id'])) {
+                $dupe = $this->db->fetch(
+                    "SELECT id FROM whatsapp_messages WHERE message_id = ? AND contact_id = ? LIMIT 1",
+                    [$msgId, $data['contact_id']]
+                );
+                if ($dupe) return $dupe['id'];
+            }
         }
 
         return $this->db->insert('whatsapp_messages', $data);
+    }
+
+    /**
+     * IDs temporários gerados localmente (não vêm da Evolution) não servem para
+     * deduplicar entre instâncias — cada envio gera um id único desses.
+     */
+    private static function isLocalTempId($messageId): bool
+    {
+        return (bool) preg_match('/^(sending_|failed_|sent_|notif_|seq_|temp_)/i', (string) $messageId);
     }
 
     /**
@@ -107,8 +152,18 @@ class WhatsappMessage
      */
     public function getMessageStatsByUser($startDate = null, $endDate = null, $userId = null)
     {
+        // 'sent' = total de saídas (inclui as enviadas pelo celular/WhatsApp Web).
+        // 'sent_system' = só as enviadas PELO PAINEL/sequência (produtividade real
+        //   no sistema). A separação usa a coluna sent_via (migration 130); quando
+        //   ela não existe ainda, sent_system iguala sent (compatibilidade).
+        $hasSentVia = $this->hasColumn('whatsapp_messages', 'sent_via');
+        $sentSystemExpr = $hasSentVia
+            ? "SUM(CASE WHEN m.from_me = 1 AND m.sent_via = 'system' THEN 1 ELSE 0 END)"
+            : "SUM(CASE WHEN m.from_me = 1 THEN 1 ELSE 0 END)";
+
         $sql = "SELECT c.assigned_to,
                        SUM(CASE WHEN m.from_me = 1 THEN 1 ELSE 0 END) AS sent,
+                       {$sentSystemExpr} AS sent_system,
                        SUM(CASE WHEN m.from_me = 0 THEN 1 ELSE 0 END) AS received,
                        COUNT(DISTINCT m.contact_id) AS contacts_messaged
                 FROM whatsapp_messages m
@@ -136,6 +191,7 @@ class WhatsappMessage
         foreach ($rows as $r) {
             $result[$r['assigned_to']] = [
                 'sent' => (int)$r['sent'],
+                'sent_system' => (int)$r['sent_system'],
                 'received' => (int)$r['received'],
                 'contacts_messaged' => (int)$r['contacts_messaged'],
             ];
