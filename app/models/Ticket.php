@@ -13,9 +13,7 @@ class Ticket
     {
         return $this->db->fetch(
             "SELECT t.*, 
-                    COALESCE(NULLIF(t.external_requester_name, ''), c.name) as client_name,
-                    c.name as account_owner_name,
-                    c.email as client_email, c.phone as client_phone,
+                    c.name as client_name, c.email as client_email, c.phone as client_phone,
                     a.name as attendant_name, a.email as attendant_email,
                     tr.name as technical_name, tr.email as technical_email
              FROM tickets t
@@ -42,8 +40,7 @@ class Ticket
     public function getByCompany($companyId)
     {
         return $this->db->fetchAll(
-            "SELECT t.*, a.name as attendant_name,
-                    COALESCE(NULLIF(t.external_requester_name, ''), c.name) as client_name
+            "SELECT t.*, a.name as attendant_name, c.name as client_name
              FROM tickets t
              LEFT JOIN users a ON t.attendant_id = a.id
              LEFT JOIN users c ON t.client_id = c.id
@@ -56,7 +53,7 @@ class Ticket
     public function getByAttendant($attendantId)
     {
         return $this->db->fetchAll(
-            "SELECT t.*, COALESCE(NULLIF(t.external_requester_name, ''), c.name) as client_name, c.email as client_email
+            "SELECT t.*, c.name as client_name, c.email as client_email
              FROM tickets t
              LEFT JOIN users c ON t.client_id = c.id
              WHERE t.attendant_id = ? OR t.technical_responsible_id = ?
@@ -71,7 +68,7 @@ class Ticket
     public function getByAttendantOrCreator($userId)
     {
         return $this->db->fetchAll(
-            "SELECT t.*, COALESCE(NULLIF(t.external_requester_name, ''), c.name) as client_name, c.email as client_email
+            "SELECT t.*, c.name as client_name, c.email as client_email
              FROM tickets t
              LEFT JOIN users c ON t.client_id = c.id
              WHERE t.attendant_id = ? OR t.technical_responsible_id = ? OR t.client_id = ?
@@ -82,7 +79,7 @@ class Ticket
 
     public function getAll($filters = [])
     {
-        $sql = "SELECT t.*, COALESCE(NULLIF(t.external_requester_name, ''), c.name) as client_name, a.name as attendant_name, tr.name as technical_name
+        $sql = "SELECT t.*, c.name as client_name, a.name as attendant_name, tr.name as technical_name
                 FROM tickets t
                 LEFT JOIN users c ON t.client_id = c.id
                 LEFT JOIN users a ON t.attendant_id = a.id
@@ -132,7 +129,7 @@ class Ticket
         $statuses = ['open', 'in_progress', 'em_revisao_interna', 'waiting_client', 'em_homologacao', 'aprovado_producao', 'completed', 'denied', 'archived'];
         $result = [];
         foreach ($statuses as $status) {
-            $sql = "SELECT t.*, COALESCE(NULLIF(t.external_requester_name, ''), c.name) as client_name, tr.name as technical_name
+            $sql = "SELECT t.*, c.name as client_name, tr.name as technical_name
                     FROM tickets t
                     LEFT JOIN users c ON t.client_id = c.id
                     LEFT JOIN users tr ON t.technical_responsible_id = tr.id
@@ -231,7 +228,7 @@ class Ticket
         $result = [];
         foreach ($statuses as $status) {
             $result[$status] = $this->db->fetchAll(
-                "SELECT t.*, COALESCE(NULLIF(t.external_requester_name, ''), c.name) as client_name, tr.name as technical_name, a.name as attendant_name
+                "SELECT t.*, c.name as client_name, tr.name as technical_name, a.name as attendant_name
                  FROM tickets t
                  LEFT JOIN users c ON t.client_id = c.id
                  LEFT JOIN users tr ON t.technical_responsible_id = tr.id

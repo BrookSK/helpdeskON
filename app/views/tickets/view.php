@@ -38,16 +38,6 @@
                     <div class="row g-2" style="font-size:0.88rem">
                         <div class="col-sm-6">
                             <strong>Cliente:</strong> <?= escape($ticket['client_name']) ?>
-                            <?php if (!empty($ticket['is_external'])): ?>
-                                <span class="badge bg-info-subtle text-info-emphasis border border-info-subtle ms-1" title="Demanda aberta pelo cliente via link de acesso externo">
-                                    <i class="bi bi-link-45deg"></i> Externa
-                                </span>
-                                <?php if (!empty($ticket['account_owner_name'])): ?>
-                                <div class="text-muted" style="font-size:0.78rem">
-                                    Recebida por <?= escape($ticket['account_owner_name']) ?> (dono do link)
-                                </div>
-                                <?php endif; ?>
-                            <?php endif; ?>
                         </div>
                         <div class="col-sm-6">
                             <strong>Email:</strong> <?= escape($ticket['client_email']) ?>
