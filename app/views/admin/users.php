@@ -64,7 +64,7 @@
                 <span><i class="bi bi-eye text-info"></i> Ver como (escolher empresa)</span>
                 <span><i class="bi bi-box-arrow-in-right text-success"></i> Entrar como o usuário</span>
                 <span><i class="bi bi-pencil text-primary"></i> Editar cadastro</span>
-                <span><i class="bi bi-pause-fill text-warning"></i> Ativar / Desativar</span>
+                <span><i class="bi bi-pause-fill text-warning"></i>/<i class="bi bi-play-fill text-warning"></i> Ativar ou Desativar</span>
             </div>
             <!-- Desktop -->
             <div class="table-responsive d-none d-md-block">
