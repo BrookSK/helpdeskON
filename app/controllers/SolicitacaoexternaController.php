@@ -155,7 +155,8 @@ class SolicitacaoexternaController extends Controller
             "SELECT MAX(client_ticket_number) as last_num FROM tickets WHERE client_id = ?",
             [(int)$owner['id']]
         );
-        $ticketData['client_ticket_number'] = ($lastNumber['last_num'] ?? 0) + 1;
+        $ticketNumber = ($lastNumber['last_num'] ?? 0) + 1;
+        $ticketData['client_ticket_number'] = $ticketNumber;
 
         $ticketModel = new Ticket();
         $ticketId = $ticketModel->create($ticketData);
@@ -196,7 +197,94 @@ class SolicitacaoexternaController extends Controller
             ]);
         } catch (\Throwable $e) { /* opcional */ }
 
-        $this->renderExternal('external/sucesso', ['owner' => $owner, 'ticketTitle' => $title]);
+        // Notificação por WhatsApp (canal complementar, nunca bloqueia a criação):
+        //  - privado para o atendente dono do PIN (se tiver telefone cadastrado);
+        //  - grupo padrão da equipe (se a notificação por grupo estiver habilitada).
+        $this->notifyWhatsapp($owner, [
+            'ticket_id' => $ticketId,
+            'ticket_number' => $ticketNumber,
+            'title' => $title,
+            'priority' => $priority,
+            'requester_name' => $requesterName,
+            'requester_company' => $requesterCompany,
+        ]);
+
+        // Link interno do card (para quem TEM acesso ao sistema, ex.: o atendente).
+        // Na tela externa exibimos apenas o número; o link segue pelo WhatsApp.
+        $this->renderExternal('external/sucesso', [
+            'owner' => $owner,
+            'ticketTitle' => $title,
+            'ticketNumber' => $ticketNumber,
+        ]);
+    }
+
+    /**
+     * Monta o texto da notificação de WhatsApp para uma demanda externa.
+     *
+     * Mantido como método público e "puro" (só recebe dados e devolve string)
+     * para permitir teste unitário sem banco/rede. Os "dados pertinentes"
+     * pedidos na demanda: número, título, prioridade, quem solicitou (nome e
+     * empresa, quando informada) e o link do card.
+     *
+     * @param array $data ticket_number, title, priority, requester_name,
+     *                     requester_company, card_url
+     */
+    public function buildWhatsappMessage(array $data)
+    {
+        $priorityLabels = [
+            'low' => 'Baixa',
+            'medium' => 'Média',
+            'high' => 'Alta',
+            'urgent' => 'Urgente',
+        ];
+        $priorityEmojis = [
+            'low' => '🟢',
+            'medium' => '🟡',
+            'high' => '🟠',
+            'urgent' => '🔴',
+        ];
+        $priority = $data['priority'] ?? 'medium';
+        $priorityText = $priorityLabels[$priority] ?? 'Média';
+        $priorityEmoji = $priorityEmojis[$priority] ?? '⚪';
+
+        $requester = trim((string)($data['requester_name'] ?? '')) ?: 'Não informado';
+        if (!empty($data['requester_company'])) {
+            $requester .= ' (' . $data['requester_company'] . ')';
+        }
+
+        $msg = "🆕 *Nova demanda (acesso externo)*\n\n"
+            . "*#" . ($data['ticket_number'] ?? '?') . "* — " . ($data['title'] ?? '') . "\n"
+            . "━━━━━━━━━━━━━━━━━━━\n"
+            . "{$priorityEmoji} *Prioridade:* {$priorityText}\n"
+            . "🙋 *Solicitado por:* {$requester}\n";
+
+        if (!empty($data['card_url'])) {
+            $msg .= "🔗 *Abrir card:* " . $data['card_url'] . "\n";
+        }
+
+        return $msg;
+    }
+
+    /**
+     * Dispara a notificação de WhatsApp da nova demanda externa.
+     * Nunca lança/bloqueia: WhatsApp é canal complementar.
+     */
+    private function notifyWhatsapp($owner, array $data)
+    {
+        try {
+            $cardUrl = baseUrl('tickets/show/' . $data['ticket_id']);
+            $message = $this->buildWhatsappMessage(array_merge($data, ['card_url' => $cardUrl]));
+
+            // 1. Privado para o atendente dono do PIN (se tiver telefone).
+            if (!empty($owner['phone'])) {
+                WhatsappNotifier::sendToPhone($owner['phone'], $message, $owner['name'] ?? null);
+            }
+
+            // 2. Grupo padrão da equipe (só envia se habilitado nas Settings).
+            WhatsappNotifier::sendToDefaultGroup($message);
+        } catch (\Throwable $e) {
+            // Silencioso — a demanda já foi criada com sucesso.
+        }
     }
 
     /** Encerra a sessão externa (não toca na sessão de login normal). */

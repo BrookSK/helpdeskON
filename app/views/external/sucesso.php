@@ -28,6 +28,11 @@
     <div class="ext-card">
         <i class="bi bi-check-circle-fill" style="font-size:3rem;color:var(--primary);"></i>
         <h5 class="mt-3 mb-2 fw-bold">Demanda enviada!</h5>
+        <?php if (!empty($ticketNumber)): ?>
+        <div class="d-inline-block px-3 py-1 mb-2 rounded-pill" style="background:rgba(0,191,166,0.12);color:var(--primary-dark);font-weight:700;">
+            Demanda #<?= escape($ticketNumber) ?>
+        </div>
+        <?php endif; ?>
         <p class="text-muted mb-1">Recebemos sua solicitação<?= !empty($ticketTitle) ? ' "' . escape($ticketTitle) . '"' : '' ?>.</p>
         <p class="text-muted small mb-4">O atendente <strong><?= escape($owner['name']) ?></strong> foi notificado e dará andamento.</p>
         <div class="d-flex gap-2 justify-content-center flex-wrap">
