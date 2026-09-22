@@ -8,38 +8,80 @@
             <h5 class="mb-0">Nova Demanda</h5>
             <small class="text-muted">Descreva por texto ou áudio</small>
         </div>
-        <?php if (!empty($canShareExternal)): ?>
-        <div class="d-flex align-items-center gap-2 flex-wrap">
-            <button type="button" class="btn btn-outline-success btn-sm"
-                    id="btn-share-external"
-                    data-has-pin="<?= !empty($hasExternalPin) ? '1' : '0' ?>"
-                    data-link="<?= escape($externalLink ?? '') ?>"
-                    data-invite-url="<?= escape(baseUrl('tickets/sendExternalInvite')) ?>"
-                    onclick="openShareExternal(this)">
-                <i class="bi bi-whatsapp"></i> Enviar por WhatsApp
-            </button>
-            <button type="button" class="btn btn-outline-primary btn-sm"
-                    id="btn-copy-external"
-                    data-has-pin="<?= !empty($hasExternalPin) ? '1' : '0' ?>"
-                    data-link="<?= escape($externalLink ?? '') ?>"
-                    onclick="copyExternalLink(this)">
-                <i class="bi bi-clipboard"></i> Copiar link
-            </button>
-            <span id="share-external-msg" class="small"></span>
-        </div>
-        <?php endif; ?>
     </div>
+
+    <?php if (!empty($canShareExternal)): ?>
+    <!-- Painel explicativo do canal de acesso externo -->
+    <div class="card border-success-subtle mb-4 shadow-sm">
+        <div class="card-body">
+            <div class="d-flex align-items-start gap-3 flex-wrap">
+                <div class="rounded-circle bg-success bg-opacity-10 d-flex align-items-center justify-content-center flex-shrink-0"
+                     style="width:48px;height:48px">
+                    <i class="bi bi-link-45deg text-success fs-4"></i>
+                </div>
+                <div class="flex-grow-1" style="min-width:240px">
+                    <h6 class="mb-1 fw-semibold">Canal de acesso do cliente</h6>
+                    <p class="text-muted small mb-2">
+                        Deixe seu cliente abrir demandas sozinho, sem precisar de cadastro.
+                        Você envia o link e ele acessa com o PIN que você repassar. As demandas
+                        criadas por lá caem direto na sua fila de atendimento.
+                    </p>
+                    <!-- Passo a passo simples para um leigo entender o fluxo -->
+                    <div class="d-flex flex-wrap gap-3 small text-muted mb-3">
+                        <span><span class="badge rounded-pill bg-success">1</span> Envie o link ao cliente</span>
+                        <span><span class="badge rounded-pill bg-success">2</span> Informe o seu PIN a ele</span>
+                        <span><span class="badge rounded-pill bg-success">3</span> Ele abre a demanda</span>
+                    </div>
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                        <button type="button" class="btn btn-success btn-sm"
+                                id="btn-share-external"
+                                data-has-pin="<?= !empty($hasExternalPin) ? '1' : '0' ?>"
+                                data-link="<?= escape($externalLink ?? '') ?>"
+                                data-invite-url="<?= escape(baseUrl('tickets/sendExternalInvite')) ?>"
+                                onclick="openShareExternal(this)">
+                            <i class="bi bi-whatsapp"></i> Enviar por WhatsApp
+                        </button>
+                        <button type="button" class="btn btn-outline-success btn-sm"
+                                id="btn-copy-external"
+                                data-has-pin="<?= !empty($hasExternalPin) ? '1' : '0' ?>"
+                                data-link="<?= escape($externalLink ?? '') ?>"
+                                onclick="copyExternalLink(this)">
+                            <i class="bi bi-clipboard"></i> Copiar link
+                        </button>
+                        <span id="share-external-msg" class="small"></span>
+                    </div>
+                    <?php if (empty($hasExternalPin)): ?>
+                    <div class="alert alert-warning small mt-3 mb-0 py-2 px-3">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        Você ainda não tem um PIN de acesso externo cadastrado. Cadastre um PIN
+                        nas suas configurações para liberar este canal.
+                    </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
 
     <?php if (!empty($canShareExternal)): ?>
     <!-- Modal: enviar o link de acesso externo direto pelo WhatsApp do cliente -->
     <div class="modal fade" id="shareExternalModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
                 <div class="modal-header">
                     <h6 class="modal-title"><i class="bi bi-whatsapp text-success"></i> Enviar link ao cliente</h6>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
                 </div>
                 <div class="modal-body">
+                    <p class="text-muted small mb-3">
+                        Enviaremos o link de acesso pelo WhatsApp do cliente. Escolha um cliente
+                        já cadastrado (o número é preenchido sozinho) ou digite o WhatsApp manualmente.
+                    </p>
+                    <div class="alert alert-info small py-2 px-3 mb-3">
+                        <i class="bi bi-key"></i>
+                        Por segurança, o PIN não vai na mensagem. Lembre-se de repassar o seu
+                        PIN ao cliente por outro meio para que ele consiga acessar.
+                    </div>
                     <div class="mb-3">
                         <label class="form-label fw-medium small">Cliente cadastrado</label>
                         <select id="invite-client" class="form-select">
