@@ -96,7 +96,14 @@ class SolicitacaoexternaController extends Controller
             unset($_SESSION['external_access']);
             $this->redirect('solicitacaoexterna');
         }
-        $this->renderExternal('external/nova_demanda', ['owner' => $owner]);
+        // Empresas já cadastradas (mesma fonte da criação interna de demanda),
+        // para oferecer seleção no campo "Empresa vinculada" — mantendo a opção
+        // de digitar uma empresa que ainda não existe no cadastro.
+        $companies = (new Company())->getAll();
+        $this->renderExternal('external/nova_demanda', [
+            'owner' => $owner,
+            'companies' => $companies,
+        ]);
     }
 
     /** Cria a demanda a partir do ambiente externo. */
@@ -114,7 +121,17 @@ class SolicitacaoexternaController extends Controller
         }
 
         $requesterName = trim($_POST['requester_name'] ?? '');
-        $requesterCompany = trim($_POST['requester_company'] ?? '');
+
+        // Empresa vinculada: o formulário oferece um <select> com as empresas
+        // cadastradas + a opção "Outra" (digitar). Quando o usuário escolhe uma
+        // empresa existente, o value é o nome dela; quando escolhe "Outra",
+        // usamos o texto livre digitado em requester_company_other.
+        $companySelect = trim($_POST['requester_company'] ?? '');
+        if ($companySelect === '__other__') {
+            $requesterCompany = trim($_POST['requester_company_other'] ?? '');
+        } else {
+            $requesterCompany = $companySelect;
+        }
         $title = trim($_POST['title'] ?? '');
         $description = trim($_POST['description'] ?? '');
         $category = trim($_POST['category'] ?? '');

@@ -86,7 +86,15 @@
                         </div>
                         <div class="col-sm-6">
                             <label class="form-label fw-medium">Empresa vinculada</label>
-                            <input type="text" name="requester_company" class="form-control" placeholder="Nome da sua empresa">
+                            <select name="requester_company" id="field-company" class="form-select">
+                                <option value="">Selecione</option>
+                                <?php foreach (($companies ?? []) as $company): ?>
+                                <option value="<?= escape($company['name']) ?>"><?= escape($company['name']) ?></option>
+                                <?php endforeach; ?>
+                                <option value="__other__">Outra (digitar)</option>
+                            </select>
+                            <input type="text" name="requester_company_other" id="field-company-other"
+                                   class="form-control mt-2" placeholder="Nome da sua empresa" style="display:none;">
                             <small class="text-muted">Opcional. Ajuda a identificar de qual empresa é a solicitação.</small>
                         </div>
                         <div class="col-12">
@@ -139,6 +147,22 @@
     </div>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+    // Campo "Empresa vinculada": mostra o input de texto livre só quando o
+    // usuário escolhe "Outra (digitar)" no select.
+    (function () {
+        const companySelect = document.getElementById('field-company');
+        const companyOther = document.getElementById('field-company-other');
+        if (companySelect && companyOther) {
+            const toggleOther = () => {
+                const isOther = companySelect.value === '__other__';
+                companyOther.style.display = isOther ? 'block' : 'none';
+                if (!isOther) companyOther.value = '';
+            };
+            companySelect.addEventListener('change', toggleOther);
+            toggleOther();
+        }
+    })();
+
     // Gravação por voz + transcrição (endpoint externo protegido por PIN).
     let mediaRecorder, audioChunks = [], recordingTimer, seconds = 0;
     const btnRecord = document.getElementById('btn-record');
