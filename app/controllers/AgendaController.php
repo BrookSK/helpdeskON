@@ -2,7 +2,8 @@
 
 class AgendaController extends Controller
 {
-    private $accessRoles = ['super_admin', 'comercial', 'marketing'];
+    // Autorização centralizada em Permissions (módulos 'agenda' e
+    // 'performance_comercial'), via Controller::requireModule().
     private $model;
     private $contactModel;
 
@@ -15,7 +16,7 @@ class AgendaController extends Controller
     // Página principal — Kanban + Calendário
     public function index()
     {
-        $this->requireRole($this->accessRoles);
+        $this->requireModule('agenda');
         $user = $this->currentUser();
 
         $filters = [];
@@ -52,7 +53,7 @@ class AgendaController extends Controller
     // API: reuniões para o calendário (JSON)
     public function calendar()
     {
-        $this->requireRole($this->accessRoles);
+        $this->requireModule('agenda');
         $user = $this->currentUser();
 
         $start = ($_GET['start'] ?? date('Y-m-01')) . ' 00:00:00';
@@ -83,7 +84,7 @@ class AgendaController extends Controller
     // API: obter uma reunião + briefing do cliente
     public function get($id = null)
     {
-        $this->requireRole($this->accessRoles);
+        $this->requireModule('agenda');
         if (!$id) $this->json(['error' => 'ID não informado'], 400);
 
         $meeting = $this->model->findById($id);
@@ -103,7 +104,7 @@ class AgendaController extends Controller
     // via Company::getUsers(). Não cria/duplica contatos nem novos vínculos.
     public function companyContacts($companyId = null)
     {
-        $this->requireRole($this->accessRoles);
+        $this->requireModule('agenda');
         if (!$companyId) $this->json(['error' => 'Empresa não informada'], 400);
 
         $users = (new Company())->getUsers(intval($companyId));
@@ -122,7 +123,7 @@ class AgendaController extends Controller
     // API: briefing de um lead (ao selecionar o cliente no formulário)
     public function briefing($contactId = null)
     {
-        $this->requireRole($this->accessRoles);
+        $this->requireModule('agenda');
         if (!$contactId) $this->json(['error' => 'ID não informado'], 400);
         $contact = $this->contactModel->findById($contactId);
         $briefing = $this->contactModel->getBriefing($contactId);
@@ -132,7 +133,7 @@ class AgendaController extends Controller
     // API: criar reunião
     public function create()
     {
-        $this->requireRole($this->accessRoles);
+        $this->requireModule('agenda');
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
 
         $user = $this->currentUser();
@@ -587,7 +588,7 @@ class AgendaController extends Controller
      */
     public function resendNotifications($id = null)
     {
-        $this->requireRole($this->accessRoles);
+        $this->requireModule('agenda');
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
 
         $meeting = $this->model->findById($id);
@@ -704,7 +705,7 @@ class AgendaController extends Controller
     // API: atualizar reunião
     public function update($id = null)
     {
-        $this->requireRole($this->accessRoles);
+        $this->requireModule('agenda');
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
 
         $meeting = $this->model->findById($id);
@@ -816,7 +817,7 @@ class AgendaController extends Controller
     // API: verifica se a integração Google está configurada/funcionando
     public function googleStatus()
     {
-        $this->requireRole($this->accessRoles);
+        $this->requireModule('agenda');
         $google = new GoogleCalendarApi();
         $this->json(['configured' => $google->isConfigured()]);
     }
@@ -824,7 +825,7 @@ class AgendaController extends Controller
     // Dashboard de Performance Comercial
     public function dashboard()
     {
-        $this->requireRole(['super_admin', 'comercial']);
+        $this->requireModule('performance_comercial');
         $user = $this->currentUser();
 
         // Filtros de período (padrão: mês atual)
@@ -941,7 +942,7 @@ class AgendaController extends Controller
     // API: gerar o link do Google Meet ANTES de salvar (garante o link)
     public function generateMeet()
     {
-        $this->requireRole($this->accessRoles);
+        $this->requireModule('agenda');
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
 
         $google = new GoogleCalendarApi();
@@ -999,7 +1000,7 @@ class AgendaController extends Controller
     // API: mudar status (drag-and-drop no Kanban)
     public function updateStatus($id = null)
     {
-        $this->requireRole($this->accessRoles);
+        $this->requireModule('agenda');
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
 
         $status = $_POST['status'] ?? '';
@@ -1021,7 +1022,7 @@ class AgendaController extends Controller
     // API: excluir reunião
     public function delete($id = null)
     {
-        $this->requireRole($this->accessRoles);
+        $this->requireModule('agenda');
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
 
         $meeting = $this->model->findById($id);
@@ -1123,7 +1124,7 @@ class AgendaController extends Controller
     // API: cria (ou recupera) a sala de vídeo do sistema para uma reunião existente.
     public function videoRoom($id = null)
     {
-        $this->requireRole($this->accessRoles);
+        $this->requireModule('agenda');
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
 
         $meeting = $this->model->findById($id);

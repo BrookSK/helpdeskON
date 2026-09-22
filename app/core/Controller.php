@@ -57,8 +57,30 @@ class Controller
         if (!is_array($roles)) {
             $roles = [$roles];
         }
+        // Papéis com acesso total (super_admin, developer) passam em qualquer
+        // requireRole — o developer é "quase super_admin". As restrições finas
+        // de escopo (ex.: RDO só o próprio) ficam nas regras do módulo, não aqui.
+        if (Permissions::hasFullAccess($_SESSION['user_role'] ?? null)) {
+            return;
+        }
         if (!in_array($_SESSION['user_role'], $roles)) {
             // Sem permissão: AJAX/JSON recebe 403 JSON; navegação vai ao dashboard.
+            if ($this->isAjax()) {
+                $this->json(['error' => 'Você não tem permissão para esta ação.'], 403);
+            }
+            $this->redirect('dashboard');
+        }
+    }
+
+    /**
+     * Exige que o papel do usuário tenha acesso ao MÓDULO informado, usando a
+     * fonte única Permissions. Preferir este método a requireRole() com listas
+     * de papéis soltas — assim o acesso não diverge do sidebar.
+     */
+    protected function requireModule($module)
+    {
+        $this->requireLogin();
+        if (!Permissions::canAccess($_SESSION['user_role'] ?? null, $module)) {
             if ($this->isAjax()) {
                 $this->json(['error' => 'Você não tem permissão para esta ação.'], 403);
             }
