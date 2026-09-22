@@ -1,0 +1,40 @@
+{
+  "version": "0.1",
+  "project": {
+    "name": "helpdeskON",
+    "baseUrl": "http://127.0.0.1:8199"
+  },
+  "default": {
+    "workspace": "main-workspace",
+    "collection": "helpdeskon-api",
+    "environment": "local"
+  },
+  "workspaces": {
+    "main-workspace": {
+      "id": "4f4b54d6-0861-4ee8-8457-0ec34c13c84a",
+      "name": "Lucas Vacari's Workspace",
+      "type": "team"
+    }
+  },
+  "collections": {
+    "helpdeskon-api": {
+      "id": "0a25f03b-2e88-465c-af7d-dfc28bc6c7d3",
+      "uid": "51367303-0a25f03b-2e88-465c-af7d-dfc28bc6c7d3",
+      "name": "helpdeskON API",
+      "workspace": "main-workspace",
+      "description": "Colecao de testes de API do helpdeskON.",
+      "requestCount": 1
+    }
+  },
+  "environments": {
+    "local": {
+      "id": "6f42f39f-1a8a-4b7a-b230-3bb0a5fd6275",
+      "uid": "51367303-6f42f39f-1a8a-4b7a-b230-3bb0a5fd6275",
+      "name": "Local",
+      "workspace": "main-workspace",
+      "variables": {
+        "API_URL": "http://127.0.0.1:8199"
+      }
+    }
+  }
+}
