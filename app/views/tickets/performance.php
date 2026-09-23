@@ -68,7 +68,11 @@ $statusColors = [
 
     <?php
     // Formata uma quantidade de horas como "Xh" ou "Yd" (dias) quando >= 24h.
+    // null = sem tickets elegíveis para o cálculo -> exibe "—" (não "0h").
     $fmtDuration = function ($hours) {
+        if ($hours === null) {
+            return '—';
+        }
         $hours = (float)$hours;
         if ($hours >= 24) {
             return rtrim(rtrim(number_format(round($hours / 24, 1), 1, '.', ''), '0'), '.') . 'd';
@@ -98,7 +102,7 @@ $statusColors = [
         <div class="col-6 col-md-4 col-lg">
             <div class="card h-100 border-0 shadow-sm">
                 <div class="card-body text-center py-3">
-                    <div class="text-muted small">Pendentes</div>
+                    <div class="text-muted small" title="Todos os tickets em aberto acumulados (não concluídos/negados/arquivados) criados até o fim do período">Pendentes (acumulado)</div>
                     <div class="fs-3 fw-bold text-warning"><?= $metrics['pending'] ?></div>
                 </div>
             </div>
@@ -149,7 +153,7 @@ $statusColors = [
         <div class="col-lg-5">
             <div class="card h-100">
                 <div class="card-header bg-white py-2">
-                    <h6 class="mb-0" style="font-size:0.9rem;">Distribuicao por Status</h6>
+                    <h6 class="mb-0" style="font-size:0.9rem;" title="Tickets criados dentro do período selecionado, agrupados por status">Distribuicao por Status (no periodo)</h6>
                 </div>
                 <div class="card-body p-3">
                     <?php if (empty($statusDist)): ?>

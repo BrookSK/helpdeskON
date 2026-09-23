@@ -311,9 +311,10 @@ final class TicketOperationalMetricsTest extends TestCase
         $this->assertSame(0, $m['admitted']);
         $this->assertSame(0, $m['completed']);
         $this->assertSame(1, $m['pending'], 'ticket aberto é pendente');
-        $this->assertSame(0.0, $m['avg_admission_hours']);
-        $this->assertSame(0.0, $m['avg_treatment_hours']);
-        $this->assertSame(0.0, $m['avg_total_hours']);
+        // Sem tickets elegíveis => "sem dados" (null), não 0h.
+        $this->assertNull($m['avg_admission_hours']);
+        $this->assertNull($m['avg_treatment_hours']);
+        $this->assertNull($m['avg_total_hours']);
     }
 
     public function testNaoConcluidoNaoEntraEmTratamentoNemTotal(): void
@@ -331,8 +332,8 @@ final class TicketOperationalMetricsTest extends TestCase
         $this->assertSame(1, $m['admitted']);
         $this->assertSame(0, $m['completed']);
         $this->assertEqualsWithDelta(2.0, $m['avg_admission_hours'], 0.01);
-        $this->assertSame(0.0, $m['avg_treatment_hours'], 'não concluído não entra em tratamento');
-        $this->assertSame(0.0, $m['avg_total_hours'], 'não concluído não entra no total');
+        $this->assertNull($m['avg_treatment_hours'], 'não concluído não entra em tratamento (sem dados)');
+        $this->assertNull($m['avg_total_hours'], 'não concluído não entra no total (sem dados)');
         $this->assertSame(0.0, $m['completion_rate'], '0 de 1 admitido = 0%');
     }
 
@@ -465,5 +466,58 @@ final class TicketOperationalMetricsTest extends TestCase
 
         $this->assertArrayHasKey($this->attendantA, $byId);
         $this->assertSame(1, $byId[$this->attendantA]['overdue'], 'apenas 1 card vencido conta como atrasado');
+    }
+
+    public function testProfissionalSemConclusaoTemTratamentoETotalNulos(): void
+    {
+        // Profissional com só um ticket admitido e pendente: admissão tem valor,
+        // mas tratamento e total ficam "sem dados" (null), não 0.
+        $this->novoTicket(
+            $this->attendantA, 'in_progress',
+            $this->day . ' 00:00:00', $this->day . ' 02:00:00', null
+        );
+
+        $rows = $this->ticket->getOperationalMetricsByAttendant($this->start, $this->end);
+        $byId = [];
+        foreach ($rows as $r) { $byId[(int)$r['user_id']] = $r; }
+
+        $a = $byId[$this->attendantA];
+        $this->assertEqualsWithDelta(2.0, $a['avg_admission_hours'], 0.01);
+        $this->assertNull($a['avg_treatment_hours'], 'sem concluídos => tratamento sem dados');
+        $this->assertNull($a['avg_total_hours'], 'sem concluídos => total sem dados');
+    }
+
+    // ===== Precisão: diferença exata de timestamps (não trunca em horas) =====
+
+    public function testPrecisaoConsideraMinutosNaoTruncaHoras(): void
+    {
+        // Admissão 90 min após a criação, conclusão 30 min após a admissão.
+        // admissão = 1.5h; tratamento = 0.5h; total = 2.0h.
+        $this->novoTicket(
+            $this->attendantA, 'completed',
+            $this->day . ' 10:00:00',
+            $this->day . ' 11:30:00',
+            $this->day . ' 12:00:00'
+        );
+
+        $m = $this->ticket->getOperationalMetrics($this->start, $this->end, $this->attendantA);
+
+        $this->assertEqualsWithDelta(1.5, $m['avg_admission_hours'], 0.01, 'admissão = 90min = 1.5h');
+        $this->assertEqualsWithDelta(0.5, $m['avg_treatment_hours'], 0.01, 'tratamento = 30min = 0.5h');
+        $this->assertEqualsWithDelta(2.0, $m['avg_total_hours'], 0.01, 'total = 120min = 2h');
+    }
+
+    public function testExemploDaDemandaTresDiasDeAdmissao(): void
+    {
+        // Exemplo literal da demanda: criação 10:00 e admissão +72h (3 dias).
+        $this->novoTicket(
+            $this->attendantA, 'in_progress',
+            '2024-06-10 10:00:00',
+            '2024-06-13 10:00:00',
+            null
+        );
+
+        $m = $this->ticket->getOperationalMetrics($this->start, $this->end, $this->attendantA);
+        $this->assertEqualsWithDelta(72.0, $m['avg_admission_hours'], 0.01, '3 dias = 72h');
     }
 }

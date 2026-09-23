@@ -451,21 +451,23 @@ class Ticket
             array_merge([$end], $attParam)
         );
 
-        // ── Tempo médio de ADMISSÃO (criação -> admissão), em horas ───────────
+        // ── Tempo médio de ADMISSÃO (criação -> admissão) ─────────────────────
         // Apenas tickets que possuem data de admissão. Janela pela admissão.
+        // Usa diferença em MINUTOS (timestamp exato, sem truncar horas) e converte
+        // para horas em PHP. Sem tickets elegíveis, AVG retorna NULL -> "sem dados".
         $avgAdmission = $this->db->fetch(
-            "SELECT AVG(TIMESTAMPDIFF(HOUR, t.created_at, t.admitted_at)) as avg_hours
+            "SELECT AVG(TIMESTAMPDIFF(MINUTE, t.created_at, t.admitted_at)) as avg_minutes
              FROM tickets t
              WHERE t.admitted_at IS NOT NULL
                AND t.admitted_at BETWEEN ? AND ?" . $attendantFilter,
             array_merge([$start, $end], $attParam)
         );
 
-        // ── Tempo médio de TRATAMENTO (admissão -> conclusão), em horas ───────
+        // ── Tempo médio de TRATAMENTO (admissão -> conclusão) ─────────────────
         // Apenas tickets concluídos que também possuem data de admissão.
         // Tickets não admitidos ou não concluídos não entram.
         $avgTreatment = $this->db->fetch(
-            "SELECT AVG(TIMESTAMPDIFF(HOUR, t.admitted_at, t.completed_at)) as avg_hours
+            "SELECT AVG(TIMESTAMPDIFF(MINUTE, t.admitted_at, t.completed_at)) as avg_minutes
              FROM tickets t
              WHERE t.completed_at IS NOT NULL
                AND t.admitted_at IS NOT NULL
@@ -473,10 +475,10 @@ class Ticket
             array_merge([$start, $end], $attParam)
         );
 
-        // ── Tempo médio TOTAL (criação -> conclusão), em horas ────────────────
+        // ── Tempo médio TOTAL (criação -> conclusão) ──────────────────────────
         // Apenas tickets concluídos.
         $avgTotal = $this->db->fetch(
-            "SELECT AVG(TIMESTAMPDIFF(HOUR, t.created_at, t.completed_at)) as avg_hours
+            "SELECT AVG(TIMESTAMPDIFF(MINUTE, t.created_at, t.completed_at)) as avg_minutes
              FROM tickets t
              WHERE t.completed_at IS NOT NULL
                AND t.completed_at BETWEEN ? AND ?" . $attendantFilter,
@@ -498,11 +500,24 @@ class Ticket
             'admitted' => $admittedTotal,
             'completed' => $completedTotal,
             'pending' => (int)($pending['total'] ?? 0),
-            'avg_admission_hours' => round((float)($avgAdmission['avg_hours'] ?? 0), 1),
-            'avg_treatment_hours' => round((float)($avgTreatment['avg_hours'] ?? 0), 1),
-            'avg_total_hours' => round((float)($avgTotal['avg_hours'] ?? 0), 1),
+            // null = sem tickets elegíveis (a view exibe "—", não "0h").
+            'avg_admission_hours' => self::minutesToHours($avgAdmission['avg_minutes'] ?? null),
+            'avg_treatment_hours' => self::minutesToHours($avgTreatment['avg_minutes'] ?? null),
+            'avg_total_hours' => self::minutesToHours($avgTotal['avg_minutes'] ?? null),
             'completion_rate' => $completionRate,
         ];
+    }
+
+    /**
+     * Converte uma média em minutos (ou NULL) para horas com 1 casa decimal.
+     * Preserva o NULL: ausência de dados NÃO vira 0 — a tela mostra "—".
+     */
+    private static function minutesToHours($minutes)
+    {
+        if ($minutes === null) {
+            return null;
+        }
+        return round(((float)$minutes) / 60, 1);
     }
 
     /**
@@ -545,16 +560,16 @@ class Ticket
                                      AND pc.due_date IS NOT NULL
                                      AND pc.due_date < NOW()
                                ) THEN 1 END) as overdue,
-                    -- tempo médio de admissão (criação -> admissão)
+                    -- tempo médio de admissão (criação -> admissão), em MINUTOS
                     AVG(CASE WHEN t.admitted_at IS NOT NULL AND t.admitted_at BETWEEN ? AND ?
-                        THEN TIMESTAMPDIFF(HOUR, t.created_at, t.admitted_at) END) as avg_admission_hours,
+                        THEN TIMESTAMPDIFF(MINUTE, t.created_at, t.admitted_at) END) as avg_admission_minutes,
                     -- tempo médio de tratamento (admissão -> conclusão), só concluídos e admitidos
                     AVG(CASE WHEN t.completed_at IS NOT NULL AND t.admitted_at IS NOT NULL
                              AND t.completed_at BETWEEN ? AND ?
-                        THEN TIMESTAMPDIFF(HOUR, t.admitted_at, t.completed_at) END) as avg_treatment_hours,
+                        THEN TIMESTAMPDIFF(MINUTE, t.admitted_at, t.completed_at) END) as avg_treatment_minutes,
                     -- tempo médio total (criação -> conclusão), só concluídos
                     AVG(CASE WHEN t.completed_at IS NOT NULL AND t.completed_at BETWEEN ? AND ?
-                        THEN TIMESTAMPDIFF(HOUR, t.created_at, t.completed_at) END) as avg_total_hours
+                        THEN TIMESTAMPDIFF(MINUTE, t.created_at, t.completed_at) END) as avg_total_minutes
                 FROM users a
                 INNER JOIN tickets t ON t.attendant_id = a.id
                 WHERE a.role IN ('super_admin', 'attendant', 'developer', 'analyst', 'whatsapp_agent')
@@ -580,14 +595,17 @@ class Ticket
             $completedAdmitted = (int)($row['completed_admitted'] ?? 0);
             $row['pending'] = (int)($row['pending'] ?? 0);
             $row['overdue'] = (int)($row['overdue'] ?? 0);
-            $row['avg_admission_hours'] = round((float)($row['avg_admission_hours'] ?? 0), 1);
-            $row['avg_treatment_hours'] = round((float)($row['avg_treatment_hours'] ?? 0), 1);
-            $row['avg_total_hours'] = round((float)($row['avg_total_hours'] ?? 0), 1);
+            // null quando o profissional não tem tickets elegíveis para o tempo
+            // (a view exibe "—"). Diferença em minutos convertida para horas.
+            $row['avg_admission_hours'] = self::minutesToHours($row['avg_admission_minutes'] ?? null);
+            $row['avg_treatment_hours'] = self::minutesToHours($row['avg_treatment_minutes'] ?? null);
+            $row['avg_total_hours'] = self::minutesToHours($row['avg_total_minutes'] ?? null);
             // Taxa restrita à população admitida (mesmo critério do card geral).
             $row['completion_rate'] = $row['admitted'] > 0
                 ? round($completedAdmitted / $row['admitted'] * 100, 1)
                 : 0.0;
-            unset($row['completed_admitted']);
+            unset($row['completed_admitted'], $row['avg_admission_minutes'],
+                  $row['avg_treatment_minutes'], $row['avg_total_minutes']);
             return $row;
         }, $rows);
     }
