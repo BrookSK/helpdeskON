@@ -147,6 +147,21 @@ final class TicketOperationalMetricsTest extends TestCase
         return $id;
     }
 
+    private function novoCardComStart(int $ticketId, string $status, ?string $startDate): int
+    {
+        $id = (int) $this->db->insert('planning_cards', [
+            'ticket_id' => $ticketId,
+            'title' => 'card start',
+            'created_by' => $this->clientId,
+            'status' => $status,
+            'priority' => 'medium',
+            'position' => 0,
+            'start_date' => $startDate,
+        ]);
+        $this->cardIds[] = $id;
+        return $id;
+    }
+
     private function admittedAtDe(int $ticketId): ?string
     {
         $row = $this->db->fetch("SELECT admitted_at FROM tickets WHERE id = ?", [$ticketId]);
@@ -564,5 +579,82 @@ final class TicketOperationalMetricsTest extends TestCase
 
         $m = $this->ticket->getOperationalMetrics($this->start, $this->end, $this->attendantA);
         $this->assertEqualsWithDelta(72.0, $m['avg_admission_hours'], 0.01, '3 dias = 72h');
+    }
+
+    // ===== Backfill estimado do histórico (migration 132) =====
+
+    public function testBackfillUsaStartDateDoCardQuandoExiste(): void
+    {
+        // Ticket legado concluído, sem admitted_at, com card cujo start_date é a
+        // melhor estimativa do início do trabalho.
+        $t = $this->novoTicket(
+            $this->attendantA, 'completed',
+            $this->day . ' 00:00:00', null, $this->day . ' 20:00:00'
+        );
+        // updated_at fica "agora" (insert), mas o start_date do card deve prevalecer.
+        $this->novoCardComStart($t, 'completed', $this->day . ' 04:00:00');
+
+        $this->ticket->backfillEstimatedAdmittedAt();
+
+        $adm = $this->admittedAtDe($t);
+        $this->assertNotNull($adm, 'backfill deve preencher admitted_at');
+        $this->assertSame($this->day . ' 04:00:00', $adm, 'usa o start_date do card');
+    }
+
+    public function testBackfillCaiParaUpdatedAtSemStartDate(): void
+    {
+        // Sem card com start_date: usa updated_at como fallback.
+        $t = $this->novoTicket(
+            $this->attendantA, 'in_progress',
+            $this->day . ' 00:00:00', null, null
+        );
+        // Define updated_at explicitamente (o insert grava "agora"); forçamos aqui.
+        $this->db->update('tickets', ['updated_at' => $this->day . ' 05:00:00'], 'id = ?', [$t]);
+
+        $this->ticket->backfillEstimatedAdmittedAt();
+
+        $this->assertSame($this->day . ' 05:00:00', $this->admittedAtDe($t), 'fallback = updated_at');
+    }
+
+    public function testBackfillNaoTocaOpenNemSaidasSemTrabalho(): void
+    {
+        // open / denied / archived nunca representam trabalho: não recebem admissão.
+        foreach (['open', 'denied', 'archived'] as $status) {
+            $t = $this->novoTicket(
+                $this->attendantA, $status,
+                $this->day . ' 00:00:00', null, null
+            );
+            $this->ticket->backfillEstimatedAdmittedAt();
+            $this->assertNull($this->admittedAtDe($t), "status '{$status}' não deve receber backfill");
+        }
+    }
+
+    public function testBackfillNaoUltrapassaConclusao(): void
+    {
+        // start_date depois da conclusão (dado inconsistente): admissão é limitada
+        // ao completed_at, garantindo tratamento >= 0.
+        $t = $this->novoTicket(
+            $this->attendantA, 'completed',
+            $this->day . ' 00:00:00', null, $this->day . ' 08:00:00'
+        );
+        $this->novoCardComStart($t, 'completed', $this->day . ' 23:00:00'); // > conclusão
+
+        $this->ticket->backfillEstimatedAdmittedAt();
+
+        $this->assertSame($this->day . ' 08:00:00', $this->admittedAtDe($t), 'admissão limitada à conclusão');
+    }
+
+    public function testBackfillNaoSobrescreveAdmissaoReal(): void
+    {
+        // Ticket que já tem admitted_at (carimbo real) não é alterado pelo backfill.
+        $t = $this->novoTicket(
+            $this->attendantA, 'completed',
+            $this->day . ' 00:00:00', $this->day . ' 02:00:00', $this->day . ' 09:00:00'
+        );
+        $this->novoCardComStart($t, 'completed', $this->day . ' 06:00:00');
+
+        $this->ticket->backfillEstimatedAdmittedAt();
+
+        $this->assertSame($this->day . ' 02:00:00', $this->admittedAtDe($t), 'não sobrescreve admissão real');
     }
 }

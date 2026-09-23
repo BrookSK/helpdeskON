@@ -236,6 +236,52 @@ class Ticket
         return self::isWorkStatus($previousStatus);
     }
 
+    /**
+     * Backfill ESTIMADO de admitted_at para o histórico (demanda #251).
+     *
+     * Preenche admitted_at dos tickets antigos que ainda estão NULL e que já foram
+     * efetivamente trabalhados (exclui 'open', 'denied', 'archived'), usando a melhor
+     * estimativa do início do trabalho:
+     *   1) menor planning_cards.start_date do ticket; senão
+     *   2) tickets.updated_at (fallback).
+     * Nunca antes de created_at nem depois de completed_at (evita tempo negativo).
+     *
+     * Espelha a migration 132. É idempotente: só toca tickets com admitted_at NULL,
+     * então rodar de novo não altera o que já foi carimbado (real ou estimado).
+     * Usado pela migration (SQL) e reaproveitável em testes.
+     *
+     * @return int linhas afetadas no passo de estimativa
+     */
+    public function backfillEstimatedAdmittedAt()
+    {
+        $stmt = $this->db->query(
+            "UPDATE tickets t
+             SET t.admitted_at = GREATEST(
+                     t.created_at,
+                     COALESCE(
+                         (SELECT MIN(pc.start_date)
+                            FROM planning_cards pc
+                           WHERE pc.ticket_id = t.id
+                             AND pc.start_date IS NOT NULL),
+                         t.updated_at
+                     )
+                 )
+             WHERE t.admitted_at IS NULL
+               AND t.status NOT IN ('open', 'denied', 'archived')"
+        );
+
+        // Teto: admissão nunca depois da conclusão.
+        $this->db->query(
+            "UPDATE tickets t
+             SET t.admitted_at = t.completed_at
+             WHERE t.completed_at IS NOT NULL
+               AND t.admitted_at IS NOT NULL
+               AND t.admitted_at > t.completed_at"
+        );
+
+        return $stmt ? $stmt->rowCount() : 0;
+    }
+
     public function updateStatus($id, $status)
     {
         // Precisamos do status anterior para distinguir início/continuidade de
