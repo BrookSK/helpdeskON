@@ -49,6 +49,34 @@ class Controller
             }
             $this->redirect('login');
         }
+        // Toda ação autenticada que muda estado (POST) exige token CSRF válido.
+        // Webhooks/cron não passam por aqui, então ficam naturalmente isentos.
+        $this->verifyCsrf();
+    }
+
+    /**
+     * Verificação central de CSRF para requisições POST. Lê o token de
+     * $_POST['csrf_token'] (formulários) ou do header X-CSRF-Token (fetch/AJAX).
+     * Só age em POST; GET/HEAD passam direto. Em falha: 403 JSON para AJAX ou
+     * uma página de erro simples para navegação.
+     *
+     * O token é por-sessão (helper csrf_token()), compatível com múltiplas abas
+     * e com o polling do rodapé.
+     */
+    protected function verifyCsrf()
+    {
+        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+            return;
+        }
+        $token = $_POST['csrf_token']
+            ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
+        if (!verify_csrf($token)) {
+            if ($this->isAjax()) {
+                $this->json(['error' => 'Sessão expirada ou requisição inválida (CSRF). Recarregue a página.'], 419);
+            }
+            http_response_code(419);
+            die('Requisição inválida (token de segurança ausente ou expirado). Volte, recarregue a página e tente novamente.');
+        }
     }
 
     protected function requireRole($roles)

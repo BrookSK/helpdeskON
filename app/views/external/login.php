@@ -51,6 +51,7 @@
         <?php endif; ?>
 
         <form action="<?= baseUrl('solicitacaoexterna/authenticate') ?>" method="POST">
+            <?= csrf_field() ?>
             <div class="mb-4">
                 <label class="form-label fw-medium text-center w-100" style="font-size:0.85rem">PIN de acesso (4 dígitos)</label>
                 <input type="text" name="pin" class="form-control pin-input" maxlength="4" inputmode="numeric"

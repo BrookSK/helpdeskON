@@ -93,6 +93,7 @@
         <?php endif; ?>
 
         <form action="<?= baseUrl('login/authenticate') ?>" method="POST">
+            <?= csrf_field() ?>
             <div class="mb-3">
                 <label class="form-label fw-medium" style="font-size:0.85rem">Email</label>
                 <input type="email" name="email" class="form-control" placeholder="seu@email.com" required autofocus>

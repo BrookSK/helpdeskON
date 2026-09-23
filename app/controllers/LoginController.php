@@ -16,6 +16,12 @@ class LoginController extends Controller
             $this->redirect('login');
         }
 
+        // CSRF: o login não passa por requireLogin(), então valida aqui.
+        if (!verify_csrf($_POST['csrf_token'] ?? '')) {
+            flash('error', 'Sessão expirada. Recarregue a página e tente novamente.');
+            $this->redirect('login');
+        }
+
         $email = trim($_POST['email'] ?? '');
         $password = $_POST['password'] ?? '';
 

@@ -34,5 +34,9 @@ spl_autoload_register(function ($class) {
     }
 });
 
+// Helpers globais de produção (baseUrl, escape, csrf_token/verify_csrf, etc.),
+// para que testes de unidade possam exercitá-los diretamente.
+require_once APP_PATH . '/core/helpers.php';
+
 // Autoload do Composer (classes em tests/ via PSR-4 "Tests\" e libs de dev)
 require BASE_PATH . '/vendor/autoload.php';

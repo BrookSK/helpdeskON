@@ -40,6 +40,10 @@ Logger::register();
 // Carregar helpers
 require_once APP_PATH . '/core/helpers.php';
 
+// Garante que o token CSRF exista na sessão desde o início da requisição, para
+// que o <meta name="csrf-token"> do layout e os formulários sempre o tenham.
+csrf_token();
+
 // Carregar configurações do banco
 require_once APP_PATH . '/core/Database.php';
 require_once APP_PATH . '/core/Config.php';

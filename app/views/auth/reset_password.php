@@ -81,6 +81,7 @@
         <?php endif; ?>
 
         <form action="<?= baseUrl('password/update') ?>" method="POST">
+            <?= csrf_field() ?>
             <input type="hidden" name="token" value="<?= escape($token) ?>">
             <div class="mb-3">
                 <label class="form-label fw-medium" style="font-size:0.85rem">Nova Senha</label>
