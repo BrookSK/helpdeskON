@@ -688,9 +688,12 @@ class TicketsController extends Controller
         // Persiste o conjunto de atendentes e sincroniza o principal
         $this->ticketModel->setAttendants($id, $attendantIds);
 
-        // Ao atribuir, mover para em andamento (mantém comportamento anterior)
+        // Ao atribuir, mover para "em andamento" (mantém comportamento anterior).
+        // A admissão (demanda #251, Opção A) NÃO vem da atribuição em si, mas da
+        // entrada em trabalho: por isso usamos updateStatus('in_progress'), que
+        // carimba admitted_at de forma idempotente apenas quando entra em trabalho.
         if (!empty($attendantIds)) {
-            $this->ticketModel->update($id, ['status' => 'in_progress']);
+            $this->ticketModel->updateStatus($id, 'in_progress');
         }
 
         $primaryId = $attendantIds[0] ?? null;

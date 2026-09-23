@@ -31,7 +31,7 @@ $statusColors = [
     <div class="top-bar d-flex justify-content-between align-items-center flex-wrap gap-2">
         <div>
             <h5 class="mb-0">Performance Operacional</h5>
-            <small class="text-muted">Tempo de resolucao, volume e eficiencia dos tickets</small>
+            <small class="text-muted">Fluxo real: criacao &rarr; admissao &rarr; tratamento &rarr; conclusao</small>
         </div>
     </div>
 
@@ -66,21 +66,32 @@ $statusColors = [
         </div>
     </div>
 
+    <?php
+    // Formata uma quantidade de horas como "Xh" ou "Yd" (dias) quando >= 24h.
+    $fmtDuration = function ($hours) {
+        $hours = (float)$hours;
+        if ($hours >= 24) {
+            return rtrim(rtrim(number_format(round($hours / 24, 1), 1, '.', ''), '0'), '.') . 'd';
+        }
+        return rtrim(rtrim(number_format($hours, 1, '.', ''), '0'), '.') . 'h';
+    };
+    ?>
+
     <!-- Cards de Metricas -->
     <div class="row g-3 mb-4">
         <div class="col-6 col-md-4 col-lg">
             <div class="card h-100 border-0 shadow-sm">
                 <div class="card-body text-center py-3">
-                    <div class="text-muted small">Tickets Resolvidos</div>
-                    <div class="fs-3 fw-bold text-success"><?= $metrics['resolved'] ?></div>
+                    <div class="text-muted small">Recebidos / Admitidos</div>
+                    <div class="fs-3 fw-bold text-primary"><?= $metrics['admitted'] ?></div>
                 </div>
             </div>
         </div>
         <div class="col-6 col-md-4 col-lg">
             <div class="card h-100 border-0 shadow-sm">
                 <div class="card-body text-center py-3">
-                    <div class="text-muted small">Tickets Abertos</div>
-                    <div class="fs-3 fw-bold text-primary"><?= $metrics['opened'] ?></div>
+                    <div class="text-muted small">Concluidos</div>
+                    <div class="fs-3 fw-bold text-success"><?= $metrics['completed'] ?></div>
                 </div>
             </div>
         </div>
@@ -95,16 +106,39 @@ $statusColors = [
         <div class="col-6 col-md-4 col-lg">
             <div class="card h-100 border-0 shadow-sm">
                 <div class="card-body text-center py-3">
-                    <div class="text-muted small">Tempo Medio Resolucao</div>
-                    <div class="fs-3 fw-bold text-info"><?= $metrics['avg_resolution_hours'] ?>h</div>
+                    <div class="text-muted small">Taxa de Conclusao</div>
+                    <div class="fs-3 fw-bold" style="color:#2e7d32"><?= $metrics['completion_rate'] ?>%</div>
                 </div>
             </div>
         </div>
-        <div class="col-6 col-md-4 col-lg">
+    </div>
+
+    <!-- Cards de Tempos Medios (fluxo real da demanda) -->
+    <div class="row g-3 mb-4">
+        <div class="col-12 col-md-4">
             <div class="card h-100 border-0 shadow-sm">
                 <div class="card-body text-center py-3">
-                    <div class="text-muted small">Tempo Medio Aceitacao</div>
-                    <div class="fs-3 fw-bold" style="color:#7b1fa2"><?= $metrics['avg_acceptance_hours'] ?>h</div>
+                    <div class="text-muted small">Tempo Medio de Admissao</div>
+                    <div class="fs-3 fw-bold" style="color:#7b1fa2"><?= $fmtDuration($metrics['avg_admission_hours']) ?></div>
+                    <div class="text-muted" style="font-size:0.72rem;">criacao &rarr; admissao</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-md-4">
+            <div class="card h-100 border-0 shadow-sm">
+                <div class="card-body text-center py-3">
+                    <div class="text-muted small">Tempo Medio de Tratamento</div>
+                    <div class="fs-3 fw-bold text-info"><?= $fmtDuration($metrics['avg_treatment_hours']) ?></div>
+                    <div class="text-muted" style="font-size:0.72rem;">admissao &rarr; conclusao</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-md-4">
+            <div class="card h-100 border-0 shadow-sm">
+                <div class="card-body text-center py-3">
+                    <div class="text-muted small">Tempo Medio Total</div>
+                    <div class="fs-3 fw-bold" style="color:#e65100"><?= $fmtDuration($metrics['avg_total_hours']) ?></div>
+                    <div class="text-muted" style="font-size:0.72rem;">criacao &rarr; conclusao</div>
                 </div>
             </div>
         </div>
@@ -112,7 +146,7 @@ $statusColors = [
 
     <div class="row g-3">
         <!-- Distribuicao por Status -->
-        <div class="col-md-4">
+        <div class="col-lg-5">
             <div class="card h-100">
                 <div class="card-header bg-white py-2">
                     <h6 class="mb-0" style="font-size:0.9rem;">Distribuicao por Status</h6>
@@ -143,45 +177,49 @@ $statusColors = [
             </div>
         </div>
 
-        <!-- Tabela por Atendente -->
-        <div class="col-md-8">
+        <!-- Tabela por Profissional -->
+        <div class="col-lg-7">
             <div class="card h-100">
                 <div class="card-header bg-white py-2">
-                    <h6 class="mb-0" style="font-size:0.9rem;">Performance por Atendente</h6>
+                    <h6 class="mb-0" style="font-size:0.9rem;">Performance por Profissional</h6>
                 </div>
                 <div class="card-body p-0">
                     <div class="table-responsive">
-                        <table class="table table-hover table-sm mb-0">
+                        <table class="table table-hover table-sm mb-0 align-middle">
                             <thead class="table-light">
                                 <tr>
-                                    <th>Atendente</th>
-                                    <th class="text-center">Resolvidos</th>
-                                    <th class="text-center">Abertos</th>
+                                    <th>Profissional</th>
+                                    <th class="text-center" title="Recebidos / Admitidos">Admitidos</th>
+                                    <th class="text-center">Concluidos</th>
                                     <th class="text-center">Pendentes</th>
-                                    <th class="text-center">Tempo Medio</th>
+                                    <th class="text-center">Atrasados</th>
+                                    <th class="text-center" title="Taxa de conclusao">Conclusao</th>
+                                    <th class="text-center" title="Criacao &rarr; Admissao">T. Admissao</th>
+                                    <th class="text-center" title="Admissao &rarr; Conclusao">T. Tratamento</th>
+                                    <th class="text-center" title="Criacao &rarr; Conclusao">T. Total</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <?php if (empty($byAttendant)): ?>
-                                <tr><td colspan="5" class="text-center text-muted py-3">Nenhum dado no periodo.</td></tr>
+                                <tr><td colspan="9" class="text-center text-muted py-3">Nenhum dado no periodo.</td></tr>
                                 <?php else: ?>
                                 <?php foreach ($byAttendant as $att): ?>
                                 <tr>
                                     <td class="fw-medium"><?= escape($att['user_name']) ?></td>
-                                    <td class="text-center"><span class="badge bg-success"><?= (int)$att['resolved'] ?></span></td>
-                                    <td class="text-center"><span class="badge bg-primary"><?= (int)$att['opened'] ?></span></td>
+                                    <td class="text-center"><span class="badge bg-primary"><?= (int)$att['admitted'] ?></span></td>
+                                    <td class="text-center"><span class="badge bg-success"><?= (int)$att['completed'] ?></span></td>
                                     <td class="text-center"><span class="badge bg-warning text-dark"><?= (int)$att['pending'] ?></span></td>
                                     <td class="text-center">
-                                        <?php
-                                        $hrs = (float)$att['avg_resolution_hours'];
-                                        if ($hrs >= 24):
-                                            $days = round($hrs / 24, 1);
-                                        ?>
-                                        <span class="small"><?= $days ?>d</span>
+                                        <?php if ((int)$att['overdue'] > 0): ?>
+                                        <span class="badge bg-danger"><?= (int)$att['overdue'] ?></span>
                                         <?php else: ?>
-                                        <span class="small"><?= $hrs ?>h</span>
+                                        <span class="text-muted small">0</span>
                                         <?php endif; ?>
                                     </td>
+                                    <td class="text-center small"><?= $att['completion_rate'] ?>%</td>
+                                    <td class="text-center small"><?= $fmtDuration($att['avg_admission_hours']) ?></td>
+                                    <td class="text-center small"><?= $fmtDuration($att['avg_treatment_hours']) ?></td>
+                                    <td class="text-center small"><?= $fmtDuration($att['avg_total_hours']) ?></td>
                                 </tr>
                                 <?php endforeach; ?>
                                 <?php endif; ?>

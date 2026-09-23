@@ -157,6 +157,17 @@ class Ticket
 
     public function create($data)
     {
+        // Admissão na criação (demanda #251, Opção A): só consideramos admissão
+        // quando o ticket já nasce EM INÍCIO DE TRABALHO ('in_progress'), como um
+        // card criado já em andamento. Nascer direto em um status "posterior"
+        // (ex.: 'completed', 'em_homologacao') é um salto sem trabalho registrado
+        // e NÃO deve carimbar admissão — carimbá-la no instante da criação daria
+        // tempo de admissão/tratamento incorreto. Um admitted_at explícito no
+        // $data sempre é respeitado.
+        if (!array_key_exists('admitted_at', $data)
+            && ($data['status'] ?? 'open') === 'in_progress') {
+            $data['admitted_at'] = $data['created_at'] ?? date('Y-m-d H:i:s');
+        }
         return $this->db->insert('tickets', $data);
     }
 
@@ -165,18 +176,113 @@ class Ticket
         return $this->db->update('tickets', $data, 'id = ?', [$id]);
     }
 
+    /**
+     * Status que representam a demanda EM TRABALHO efetivo (demanda #251, Opção A).
+     *
+     * A "admissão" é o momento em que a demanda entra em tratamento. Isso começa
+     * em 'in_progress' e segue nos status posteriores que representam continuidade
+     * do tratamento (revisão interna, homologação, aprovado para produção) e a
+     * própria conclusão — pois um ticket que chegou a esses status necessariamente
+     * já foi trabalhado.
+     *
+     * NÃO representam admissão: 'open' (ainda não iniciado), 'waiting_client'
+     * (espera, não trabalho ativo), 'denied' e 'archived' (saídas sem tratamento).
+     * A simples atribuição de atendente também NÃO conta como admissão.
+     */
+    public const WORK_STATUSES = [
+        'in_progress',
+        'em_revisao_interna',
+        'em_homologacao',
+        'aprovado_producao',
+        'completed',
+    ];
+
+    /**
+     * Indica se um status representa a demanda em trabalho efetivo (ver WORK_STATUSES).
+     */
+    public static function isWorkStatus($status)
+    {
+        return in_array($status, self::WORK_STATUSES, true);
+    }
+
+    /**
+     * Decide se uma transição de status representa a ADMISSÃO (início do trabalho).
+     *
+     * A admissão acontece quando a demanda começa a ser tratada. Isso é verdade
+     * quando o novo status é 'in_progress' (início natural do trabalho) OU quando
+     * ela já estava em trabalho e apenas avança para outro status de tratamento
+     * (ex.: in_progress -> em_homologacao -> completed).
+     *
+     * NÃO é admissão quando a demanda PULA de um status de não-trabalho direto
+     * para um status "posterior" — por exemplo 'open' -> 'completed'. Nesse caso
+     * nunca houve início de trabalho registrado, então carimbar a admissão no
+     * próprio momento da conclusão geraria tempo de admissão/tratamento incorreto
+     * (≈ 0). Esses saltos ficam sem admissão de propósito.
+     *
+     * @param string|null $previousStatus status antes da transição
+     * @param string      $newStatus       status após a transição
+     */
+    public static function isAdmissionTransition($previousStatus, $newStatus)
+    {
+        if (!self::isWorkStatus($newStatus)) {
+            return false;
+        }
+        // Início natural do trabalho.
+        if ($newStatus === 'in_progress') {
+            return true;
+        }
+        // Continuidade: só admite ao avançar se JÁ vinha de um status de trabalho.
+        // Evita saltos como open/waiting_client/denied/archived -> completed.
+        return self::isWorkStatus($previousStatus);
+    }
+
     public function updateStatus($id, $status)
     {
+        // Precisamos do status anterior para distinguir início/continuidade de
+        // trabalho de um salto direto (ex.: open -> completed).
+        $previous = $this->db->fetch("SELECT status FROM tickets WHERE id = ?", [$id]);
+        $previousStatus = $previous['status'] ?? null;
+
         $data = ['status' => $status];
         if ($status === 'completed') {
             $data['completed_at'] = date('Y-m-d H:i:s');
+        }
+        // Admissão (demanda #251, Opção A): carimba admitted_at apenas quando a
+        // transição representa início/continuidade de trabalho. Idempotente —
+        // preserva o primeiro instante de admissão.
+        if (self::isAdmissionTransition($previousStatus, $status)) {
+            $this->stampAdmittedAt($id);
         }
         return $this->db->update('tickets', $data, 'id = ?', [$id]);
     }
 
     public function assignAttendant($ticketId, $attendantId)
     {
-        return $this->db->update('tickets', ['attendant_id' => $attendantId, 'status' => 'in_progress'], 'id = ?', [$ticketId]);
+        // A atribuição em si NÃO é admissão (demanda #251, Opção A). O ticket vai
+        // para 'in_progress', e é essa entrada em trabalho que carimba a admissão.
+        $this->db->update('tickets', ['attendant_id' => $attendantId, 'status' => 'in_progress'], 'id = ?', [$ticketId]);
+        return $this->stampAdmittedAt($ticketId);
+    }
+
+    /**
+     * Registra o instante da ADMISSÃO da demanda (criação -> início do trabalho),
+     * usado pelos indicadores de performance (demanda #251). Idempotente: só grava
+     * quando ainda não há admitted_at, preservando o primeiro momento em que a
+     * demanda entrou em trabalho. Nunca grava antes de created_at.
+     *
+     * Chamar apenas quando o ticket estiver (ou estiver entrando) em um status de
+     * trabalho — ver WORK_STATUSES / isWorkStatus().
+     */
+    public function stampAdmittedAt($ticketId, $when = null)
+    {
+        $when = $when ?: date('Y-m-d H:i:s');
+        return $this->db->query(
+            "UPDATE tickets
+             SET admitted_at = ?
+             WHERE id = ?
+               AND admitted_at IS NULL",
+            [$when, $ticketId]
+        );
     }
 
     /**
@@ -292,94 +398,196 @@ class Ticket
      */
     public function getOperationalMetrics($startDate, $endDate, $attendantId = null)
     {
-        $params = [$startDate . ' 00:00:00', $endDate . ' 23:59:59'];
+        $start = $startDate . ' 00:00:00';
+        $end = $endDate . ' 23:59:59';
+
+        // Filtro opcional por atendente. Mantido idêntico às demais consultas
+        // da tela (respeita o filtro já existente na interface).
         $attendantFilter = '';
+        $attParam = [];
         if ($attendantId) {
             $attendantFilter = ' AND t.attendant_id = ?';
-            $params[] = $attendantId;
+            $attParam = [$attendantId];
         }
 
-        // Tickets resolvidos no período
-        $resolved = $this->db->fetch(
+        // ── Tickets recebidos/admitidos no período ────────────────────────────
+        // Contabiliza pela DATA DE ADMISSÃO (criação -> admissão). Apenas tickets
+        // que possuem admitted_at entram. É a base da "taxa de conclusão".
+        $admitted = $this->db->fetch(
+            "SELECT COUNT(*) as total FROM tickets t
+             WHERE t.admitted_at IS NOT NULL
+               AND t.admitted_at BETWEEN ? AND ?" . $attendantFilter,
+            array_merge([$start, $end], $attParam)
+        );
+
+        // ── Tickets concluídos no período ─────────────────────────────────────
+        // Somente tickets efetivamente concluídos (completed_at preenchido).
+        $completed = $this->db->fetch(
             "SELECT COUNT(*) as total FROM tickets t
              WHERE t.completed_at IS NOT NULL
                AND t.completed_at BETWEEN ? AND ?" . $attendantFilter,
-            $params
+            array_merge([$start, $end], $attParam)
         );
 
-        // Tempo médio de resolução (criação -> conclusão)
-        $avgResolution = $this->db->fetch(
-            "SELECT AVG(TIMESTAMPDIFF(HOUR, t.created_at, t.completed_at)) as avg_hours
-             FROM tickets t
-             WHERE t.completed_at IS NOT NULL
-               AND t.completed_at BETWEEN ? AND ?" . $attendantFilter,
-            $params
-        );
-
-        // Tempo médio de aceitação (criação -> primeira mudança de status para in_progress)
-        // Usa updated_at dos tickets que saíram de open como proxy
-        $avgAcceptance = $this->db->fetch(
-            "SELECT AVG(TIMESTAMPDIFF(HOUR, t.created_at, t.updated_at)) as avg_hours
-             FROM tickets t
-             WHERE t.status != 'open'
-               AND t.attendant_id IS NOT NULL
-               AND t.created_at BETWEEN ? AND ?" . $attendantFilter,
-            $params
-        );
-
-        // Total de tickets abertos no período
-        $opened = $this->db->fetch(
+        // ── Concluídos QUE TAMBÉM foram admitidos (têm admitted_at) ───────────
+        // Base do numerador da taxa de conclusão: mantém numerador e denominador
+        // sobre a mesma população admitida. Tickets antigos concluídos sem
+        // admitted_at (pré-implementação) não entram, então a taxa nunca passa
+        // de 100% durante a transição.
+        $completedAdmitted = $this->db->fetch(
             "SELECT COUNT(*) as total FROM tickets t
-             WHERE t.created_at BETWEEN ? AND ?" . $attendantFilter,
-            $params
+             WHERE t.completed_at IS NOT NULL
+               AND t.admitted_at IS NOT NULL
+               AND t.completed_at BETWEEN ? AND ?" . $attendantFilter,
+            array_merge([$start, $end], $attParam)
         );
 
-        // Tickets em aberto (não resolvidos)
+        // ── Tickets pendentes ─────────────────────────────────────────────────
+        // Ainda não concluídos/negados/arquivados, criados até o fim do período.
         $pending = $this->db->fetch(
             "SELECT COUNT(*) as total FROM tickets t
              WHERE t.status NOT IN ('completed', 'archived', 'denied')
                AND t.created_at <= ?" . $attendantFilter,
-            array_merge([$endDate . ' 23:59:59'], $attendantId ? [$attendantId] : [])
+            array_merge([$end], $attParam)
         );
 
+        // ── Tempo médio de ADMISSÃO (criação -> admissão), em horas ───────────
+        // Apenas tickets que possuem data de admissão. Janela pela admissão.
+        $avgAdmission = $this->db->fetch(
+            "SELECT AVG(TIMESTAMPDIFF(HOUR, t.created_at, t.admitted_at)) as avg_hours
+             FROM tickets t
+             WHERE t.admitted_at IS NOT NULL
+               AND t.admitted_at BETWEEN ? AND ?" . $attendantFilter,
+            array_merge([$start, $end], $attParam)
+        );
+
+        // ── Tempo médio de TRATAMENTO (admissão -> conclusão), em horas ───────
+        // Apenas tickets concluídos que também possuem data de admissão.
+        // Tickets não admitidos ou não concluídos não entram.
+        $avgTreatment = $this->db->fetch(
+            "SELECT AVG(TIMESTAMPDIFF(HOUR, t.admitted_at, t.completed_at)) as avg_hours
+             FROM tickets t
+             WHERE t.completed_at IS NOT NULL
+               AND t.admitted_at IS NOT NULL
+               AND t.completed_at BETWEEN ? AND ?" . $attendantFilter,
+            array_merge([$start, $end], $attParam)
+        );
+
+        // ── Tempo médio TOTAL (criação -> conclusão), em horas ────────────────
+        // Apenas tickets concluídos.
+        $avgTotal = $this->db->fetch(
+            "SELECT AVG(TIMESTAMPDIFF(HOUR, t.created_at, t.completed_at)) as avg_hours
+             FROM tickets t
+             WHERE t.completed_at IS NOT NULL
+               AND t.completed_at BETWEEN ? AND ?" . $attendantFilter,
+            array_merge([$start, $end], $attParam)
+        );
+
+        $admittedTotal = (int)($admitted['total'] ?? 0);
+        $completedTotal = (int)($completed['total'] ?? 0);
+        $completedAdmittedTotal = (int)($completedAdmitted['total'] ?? 0);
+
+        // Taxa de conclusão = concluídos (admitidos) ÷ recebidos/admitidos × 100.
+        // Numerador e denominador restritos à população que possui admitted_at,
+        // para não estourar 100% enquanto existirem tickets antigos sem admissão.
+        $completionRate = $admittedTotal > 0
+            ? round($completedAdmittedTotal / $admittedTotal * 100, 1)
+            : 0.0;
+
         return [
-            'resolved' => (int)($resolved['total'] ?? 0),
-            'opened' => (int)($opened['total'] ?? 0),
+            'admitted' => $admittedTotal,
+            'completed' => $completedTotal,
             'pending' => (int)($pending['total'] ?? 0),
-            'avg_resolution_hours' => round((float)($avgResolution['avg_hours'] ?? 0), 1),
-            'avg_acceptance_hours' => round((float)($avgAcceptance['avg_hours'] ?? 0), 1),
+            'avg_admission_hours' => round((float)($avgAdmission['avg_hours'] ?? 0), 1),
+            'avg_treatment_hours' => round((float)($avgTreatment['avg_hours'] ?? 0), 1),
+            'avg_total_hours' => round((float)($avgTotal['avg_hours'] ?? 0), 1),
+            'completion_rate' => $completionRate,
         ];
     }
 
     /**
-     * Métricas operacionais por atendente (tabela comparativa).
+     * Métricas operacionais por profissional (tabela comparativa) — demanda #251.
+     *
+     * Para cada profissional exibe: tickets recebidos/admitidos, concluídos,
+     * pendentes, atrasados, e os tempos médios de admissão, tratamento e total.
+     * Todos os tempos usam os timestamps reais do fluxo (created_at, admitted_at,
+     * completed_at); nenhum usa "primeira resposta".
+     *
+     * "Atrasado" = ticket ainda não concluído cujo card de planejamento vinculado
+     * tem due_date vencida (planning_cards.due_date < NOW()).
      */
     public function getOperationalMetricsByAttendant($startDate, $endDate)
     {
-        $sql = "SELECT 
+        $start = $startDate . ' 00:00:00';
+        $end = $endDate . ' 23:59:59';
+
+        $sql = "SELECT
                     a.id as user_id,
                     a.name as user_name,
-                    COUNT(CASE WHEN t.completed_at BETWEEN ? AND ? THEN 1 END) as resolved,
-                    COUNT(CASE WHEN t.created_at BETWEEN ? AND ? THEN 1 END) as opened,
+                    -- recebidos/admitidos no período (pela data de admissão)
+                    COUNT(CASE WHEN t.admitted_at IS NOT NULL
+                               AND t.admitted_at BETWEEN ? AND ? THEN 1 END) as admitted,
+                    -- concluídos no período
+                    COUNT(CASE WHEN t.completed_at IS NOT NULL
+                               AND t.completed_at BETWEEN ? AND ? THEN 1 END) as completed,
+                    -- concluídos que também foram admitidos (numerador da taxa)
+                    COUNT(CASE WHEN t.completed_at IS NOT NULL AND t.admitted_at IS NOT NULL
+                               AND t.completed_at BETWEEN ? AND ? THEN 1 END) as completed_admitted,
+                    -- pendentes (não concluídos/negados/arquivados)
                     COUNT(CASE WHEN t.status NOT IN ('completed', 'archived', 'denied') THEN 1 END) as pending,
+                    -- atrasados: pendentes com prazo do planejamento vencido.
+                    -- Usa EXISTS (e não JOIN) para não duplicar linhas do ticket
+                    -- caso haja mais de um card vinculado.
+                    COUNT(CASE WHEN t.status NOT IN ('completed', 'archived', 'denied')
+                               AND EXISTS (
+                                   SELECT 1 FROM planning_cards pc
+                                   WHERE pc.ticket_id = t.id
+                                     AND pc.due_date IS NOT NULL
+                                     AND pc.due_date < NOW()
+                               ) THEN 1 END) as overdue,
+                    -- tempo médio de admissão (criação -> admissão)
+                    AVG(CASE WHEN t.admitted_at IS NOT NULL AND t.admitted_at BETWEEN ? AND ?
+                        THEN TIMESTAMPDIFF(HOUR, t.created_at, t.admitted_at) END) as avg_admission_hours,
+                    -- tempo médio de tratamento (admissão -> conclusão), só concluídos e admitidos
+                    AVG(CASE WHEN t.completed_at IS NOT NULL AND t.admitted_at IS NOT NULL
+                             AND t.completed_at BETWEEN ? AND ?
+                        THEN TIMESTAMPDIFF(HOUR, t.admitted_at, t.completed_at) END) as avg_treatment_hours,
+                    -- tempo médio total (criação -> conclusão), só concluídos
                     AVG(CASE WHEN t.completed_at IS NOT NULL AND t.completed_at BETWEEN ? AND ?
-                        THEN TIMESTAMPDIFF(HOUR, t.created_at, t.completed_at) END) as avg_resolution_hours
+                        THEN TIMESTAMPDIFF(HOUR, t.created_at, t.completed_at) END) as avg_total_hours
                 FROM users a
                 INNER JOIN tickets t ON t.attendant_id = a.id
                 WHERE a.role IN ('super_admin', 'attendant', 'developer', 'analyst', 'whatsapp_agent')
                   AND a.is_active = 1
                 GROUP BY a.id, a.name
-                HAVING resolved > 0 OR pending > 0
-                ORDER BY resolved DESC";
+                HAVING admitted > 0 OR completed > 0 OR pending > 0
+                ORDER BY completed DESC, admitted DESC";
 
-        $start = $startDate . ' 00:00:00';
-        $end = $endDate . ' 23:59:59';
-        $params = [$start, $end, $start, $end, $start, $end];
+        $params = [
+            $start, $end, // admitted
+            $start, $end, // completed
+            $start, $end, // completed_admitted
+            $start, $end, // avg_admission
+            $start, $end, // avg_treatment
+            $start, $end, // avg_total
+        ];
 
         $rows = $this->db->fetchAll($sql, $params);
 
-        return array_map(function($row) {
-            $row['avg_resolution_hours'] = round((float)($row['avg_resolution_hours'] ?? 0), 1);
+        return array_map(function ($row) {
+            $row['admitted'] = (int)($row['admitted'] ?? 0);
+            $row['completed'] = (int)($row['completed'] ?? 0);
+            $completedAdmitted = (int)($row['completed_admitted'] ?? 0);
+            $row['pending'] = (int)($row['pending'] ?? 0);
+            $row['overdue'] = (int)($row['overdue'] ?? 0);
+            $row['avg_admission_hours'] = round((float)($row['avg_admission_hours'] ?? 0), 1);
+            $row['avg_treatment_hours'] = round((float)($row['avg_treatment_hours'] ?? 0), 1);
+            $row['avg_total_hours'] = round((float)($row['avg_total_hours'] ?? 0), 1);
+            // Taxa restrita à população admitida (mesmo critério do card geral).
+            $row['completion_rate'] = $row['admitted'] > 0
+                ? round($completedAdmitted / $row['admitted'] * 100, 1)
+                : 0.0;
+            unset($row['completed_admitted']);
             return $row;
         }, $rows);
     }
