@@ -16,7 +16,23 @@ class SettingsController extends Controller
             $emailSignatures = Database::getInstance()->fetchAll("SELECT * FROM email_signatures ORDER BY domain ASC");
         } catch (\Throwable $e) { $emailSignatures = []; }
 
-        $this->view('admin/settings', ['user' => $user, 'settings' => $settings, 'whatsappGroups' => $whatsappGroups, 'dbInfo' => $dbInfo, 'emailSignatures' => $emailSignatures]);
+        // API Keys de integração externa (tabela pode não existir ainda, se a
+        // migration 133 não tiver sido aplicada — degrada sem quebrar a tela).
+        $apiKeys = [];
+        try {
+            $apiKeys = (new ApiKey())->allWithCompany();
+        } catch (\Throwable $e) { $apiKeys = []; }
+        $companies = (new Company())->getAll();
+
+        $this->view('admin/settings', [
+            'user' => $user,
+            'settings' => $settings,
+            'whatsappGroups' => $whatsappGroups,
+            'dbInfo' => $dbInfo,
+            'emailSignatures' => $emailSignatures,
+            'apiKeys' => $apiKeys,
+            'companies' => $companies,
+        ]);
     }
 
     /**
@@ -170,6 +186,71 @@ class SettingsController extends Controller
 
         Config::reload();
         flash('success', 'Configurações salvas com sucesso!');
+        $this->redirect('settings');
+    }
+
+    /**
+     * Gera uma nova API Key para uma empresa (integração externa).
+     * A chave em claro é exibida UMA única vez, via flash, após o redirect.
+     */
+    public function createApiKey()
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            $this->redirect('settings');
+        }
+
+        $companyId = (int)($_POST['company_id'] ?? 0);
+        $name = trim($_POST['name'] ?? '');
+
+        if ($companyId <= 0 || $name === '') {
+            flash('error', 'Informe a empresa e um nome/identificação para a chave.');
+            $this->redirect('settings');
+        }
+
+        // Empresa precisa existir.
+        $company = (new Company())->findById($companyId);
+        if (!$company) {
+            flash('error', 'Empresa inválida.');
+            $this->redirect('settings');
+        }
+
+        try {
+            $result = (new ApiKey())->createForCompany($companyId, $name);
+            // Exibição única da chave completa: guardamos no flash (não persiste
+            // em claro no banco). Some após ser lida uma vez.
+            flash('new_api_key', $result['plain']);
+            flash('success', 'API Key criada. Copie a chave agora — ela não será exibida novamente.');
+        } catch (\Throwable $e) {
+            Logger::error('Falha ao criar API Key', ['error' => $e->getMessage()]);
+            flash('error', 'Não foi possível criar a API Key. Verifique se a migration foi aplicada.');
+        }
+
+        $this->redirect('settings');
+    }
+
+    /** Revoga/desativa uma API Key existente. */
+    public function revokeApiKey()
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            $this->redirect('settings');
+        }
+
+        $id = (int)($_POST['id'] ?? 0);
+        if ($id <= 0) {
+            flash('error', 'Chave inválida.');
+            $this->redirect('settings');
+        }
+
+        try {
+            (new ApiKey())->revoke($id);
+            flash('success', 'API Key revogada.');
+        } catch (\Throwable $e) {
+            Logger::error('Falha ao revogar API Key', ['error' => $e->getMessage()]);
+            flash('error', 'Não foi possível revogar a API Key.');
+        }
+
         $this->redirect('settings');
     }
 

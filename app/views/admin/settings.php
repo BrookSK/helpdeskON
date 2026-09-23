@@ -847,6 +847,99 @@
         </button>
     </form>
 
+    <!-- API Keys de integração externa (fora do submit principal) -->
+    <div class="card mb-4">
+        <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-key"></i> API Keys de integração (criação de chamados)</h6></div>
+        <div class="card-body">
+            <p class="text-muted small mb-3">
+                Chaves usadas por sistemas externos para criar chamados via <code>POST /api/v1/tickets</code>
+                (cabeçalho <code>X-Api-Key</code>). Cada chave pertence a uma empresa e cria os chamados em nome do
+                usuário de integração dessa empresa. <strong>A chave completa é exibida apenas uma vez, na criação.</strong>
+            </p>
+
+            <?php $newApiKey = flash('new_api_key'); ?>
+            <?php if (!empty($newApiKey)): ?>
+                <div class="alert alert-success">
+                    <strong><i class="bi bi-clipboard-check"></i> Nova API Key gerada.</strong>
+                    Copie agora — ela não será exibida novamente:
+                    <div class="input-group input-group-sm mt-2">
+                        <input type="text" id="newApiKeyValue" class="form-control" readonly value="<?= escape($newApiKey) ?>">
+                        <button type="button" class="btn btn-outline-secondary" onclick="(function(){var i=document.getElementById('newApiKeyValue');i.select();document.execCommand('copy');})()">
+                            <i class="bi bi-clipboard"></i> Copiar
+                        </button>
+                    </div>
+                </div>
+            <?php endif; ?>
+
+            <!-- Criar nova chave -->
+            <form action="<?= baseUrl('settings/createApiKey') ?>" method="POST" class="row g-2 align-items-end mb-4">
+                <div class="col-md-5">
+                    <label class="form-label small">Empresa</label>
+                    <select name="company_id" class="form-select form-select-sm" required>
+                        <option value="">Selecione a empresa...</option>
+                        <?php foreach (($companies ?? []) as $comp): ?>
+                            <option value="<?= (int)$comp['id'] ?>"><?= escape($comp['name']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="col-md-5">
+                    <label class="form-label small">Nome/identificação da chave</label>
+                    <input type="text" name="name" class="form-control form-control-sm" placeholder="Ex.: ERP da ACME" required>
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-sm btn-primary w-100"><i class="bi bi-plus-lg"></i> Gerar chave</button>
+                </div>
+            </form>
+
+            <!-- Lista de chaves -->
+            <?php if (empty($apiKeys)): ?>
+                <p class="text-muted small mb-0">Nenhuma API Key cadastrada.</p>
+            <?php else: ?>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                            <tr class="small text-muted">
+                                <th>Nome</th>
+                                <th>Empresa</th>
+                                <th>Prefixo</th>
+                                <th>Status</th>
+                                <th>Último uso</th>
+                                <th class="text-end">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($apiKeys as $k): ?>
+                                <tr>
+                                    <td class="small"><?= escape($k['name']) ?></td>
+                                    <td class="small"><?= escape($k['company_name'] ?? ('#' . $k['company_id'])) ?></td>
+                                    <td class="small"><code><?= escape($k['key_prefix']) ?>…</code></td>
+                                    <td class="small">
+                                        <?php if (!empty($k['is_active']) && empty($k['revoked_at'])): ?>
+                                            <span class="badge bg-success">Ativa</span>
+                                        <?php else: ?>
+                                            <span class="badge bg-secondary">Revogada</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td class="small text-muted"><?= !empty($k['last_used_at']) ? escape($k['last_used_at']) : '—' ?></td>
+                                    <td class="text-end">
+                                        <?php if (!empty($k['is_active']) && empty($k['revoked_at'])): ?>
+                                            <form action="<?= baseUrl('settings/revokeApiKey') ?>" method="POST" onsubmit="return confirm('Revogar esta API Key? Sistemas que a utilizam deixarão de criar chamados.');" style="display:inline;">
+                                                <input type="hidden" name="id" value="<?= (int)$k['id'] ?>">
+                                                <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-slash-circle"></i> Revogar</button>
+                                            </form>
+                                        <?php else: ?>
+                                            <span class="text-muted small">—</span>
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            <?php endif; ?>
+        </div>
+    </div>
+
 </div>
 
 <script>
