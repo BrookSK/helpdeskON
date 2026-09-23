@@ -380,6 +380,7 @@ final class TicketOperationalMetricsTest extends TestCase
 
         $this->assertSame(1, $m['admitted'], 'só o novo ticket tem admissão');
         $this->assertSame(2, $m['completed'], 'ambos concluídos contam como volume');
+        $this->assertSame(1, $m['completed_legacy'], '1 concluído sem data de admissão');
         // Numerador da taxa = concluídos-admitidos (1), denominador = admitidos (1).
         $this->assertEqualsWithDelta(100.0, $m['completion_rate'], 0.01, 'taxa não estoura 100%');
         // Tempo médio de admissão considera só o ticket com admitted_at.
@@ -388,6 +389,50 @@ final class TicketOperationalMetricsTest extends TestCase
         $this->assertEqualsWithDelta(7.0, $m['avg_total_hours'], 0.01);
         // Tratamento considera só o admitido-concluído: 8h - 2h = 6h.
         $this->assertEqualsWithDelta(6.0, $m['avg_treatment_hours'], 0.01);
+    }
+
+    public function testSemAdmitidosTaxaEhNullEContaLegados(): void
+    {
+        // Cenário "Julia": só concluídos legados (sem admitted_at), nenhum admitido.
+        // Taxa não tem base de cálculo -> null (a view mostra "—", não "0%").
+        $this->novoTicket(
+            $this->attendantA, 'completed',
+            $this->day . ' 00:00:00', null, $this->day . ' 06:00:00'
+        );
+        $this->novoTicket(
+            $this->attendantA, 'completed',
+            $this->day . ' 00:00:00', null, $this->day . ' 10:00:00'
+        );
+
+        $m = $this->ticket->getOperationalMetrics($this->start, $this->end, $this->attendantA);
+
+        $this->assertSame(0, $m['admitted']);
+        $this->assertSame(2, $m['completed']);
+        $this->assertSame(2, $m['completed_legacy'], 'ambos concluídos são legados');
+        $this->assertNull($m['completion_rate'], 'sem admitidos => taxa sem base (null)');
+        $this->assertNull($m['avg_admission_hours']);
+        $this->assertNull($m['avg_treatment_hours']);
+        // Total ainda considera os concluídos: (6h + 10h)/2 = 8h.
+        $this->assertEqualsWithDelta(8.0, $m['avg_total_hours'], 0.01);
+    }
+
+    public function testPorProfissionalSemAdmitidosTaxaNull(): void
+    {
+        // Mesmo cenário na tabela por profissional.
+        $this->novoTicket(
+            $this->attendantA, 'completed',
+            $this->day . ' 00:00:00', null, $this->day . ' 06:00:00'
+        );
+
+        $rows = $this->ticket->getOperationalMetricsByAttendant($this->start, $this->end);
+        $byId = [];
+        foreach ($rows as $r) { $byId[(int)$r['user_id']] = $r; }
+
+        $a = $byId[$this->attendantA];
+        $this->assertSame(0, $a['admitted']);
+        $this->assertSame(1, $a['completed']);
+        $this->assertSame(1, $a['completed_legacy']);
+        $this->assertNull($a['completion_rate'], 'sem admitidos => taxa null');
     }
 
     public function testForaDoPeriodoNaoEntra(): void

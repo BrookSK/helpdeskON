@@ -489,16 +489,25 @@ class Ticket
         $completedTotal = (int)($completed['total'] ?? 0);
         $completedAdmittedTotal = (int)($completedAdmitted['total'] ?? 0);
 
+        // Concluídos "legados": concluídos no período que NÃO têm data de admissão
+        // (demandas anteriores à medição ou saltos open->completed). Ficam de fora
+        // da taxa e dos tempos de admissão/tratamento; servem para a tela avisar
+        // o usuário e explicar divergências (ex.: "concluiu 3, admitiu 0").
+        $completedLegacyTotal = max(0, $completedTotal - $completedAdmittedTotal);
+
         // Taxa de conclusão = concluídos (admitidos) ÷ recebidos/admitidos × 100.
         // Numerador e denominador restritos à população que possui admitted_at,
         // para não estourar 100% enquanto existirem tickets antigos sem admissão.
+        // Sem admitidos no período => SEM BASE de cálculo (null): a view mostra
+        // "—" em vez de "0%", que pareceria erro quando há concluídos legados.
         $completionRate = $admittedTotal > 0
             ? round($completedAdmittedTotal / $admittedTotal * 100, 1)
-            : 0.0;
+            : null;
 
         return [
             'admitted' => $admittedTotal,
             'completed' => $completedTotal,
+            'completed_legacy' => $completedLegacyTotal,
             'pending' => (int)($pending['total'] ?? 0),
             // null = sem tickets elegíveis (a view exibe "—", não "0h").
             'avg_admission_hours' => self::minutesToHours($avgAdmission['avg_minutes'] ?? null),
@@ -593,6 +602,9 @@ class Ticket
             $row['admitted'] = (int)($row['admitted'] ?? 0);
             $row['completed'] = (int)($row['completed'] ?? 0);
             $completedAdmitted = (int)($row['completed_admitted'] ?? 0);
+            // Concluídos sem data de admissão (legados / saltos): ficam fora da
+            // taxa e dos tempos de admissão/tratamento; usados pela tela para avisar.
+            $row['completed_legacy'] = max(0, $row['completed'] - $completedAdmitted);
             $row['pending'] = (int)($row['pending'] ?? 0);
             $row['overdue'] = (int)($row['overdue'] ?? 0);
             // null quando o profissional não tem tickets elegíveis para o tempo
@@ -601,9 +613,10 @@ class Ticket
             $row['avg_treatment_hours'] = self::minutesToHours($row['avg_treatment_minutes'] ?? null);
             $row['avg_total_hours'] = self::minutesToHours($row['avg_total_minutes'] ?? null);
             // Taxa restrita à população admitida (mesmo critério do card geral).
+            // Sem admitidos => sem base (null): a view exibe "—", não "0%".
             $row['completion_rate'] = $row['admitted'] > 0
                 ? round($completedAdmitted / $row['admitted'] * 100, 1)
-                : 0.0;
+                : null;
             unset($row['completed_admitted'], $row['avg_admission_minutes'],
                   $row['avg_treatment_minutes'], $row['avg_total_minutes']);
             return $row;

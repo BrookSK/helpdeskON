@@ -30,8 +30,12 @@ $statusColors = [
 <div class="main-content">
     <div class="top-bar d-flex justify-content-between align-items-center flex-wrap gap-2">
         <div>
-            <h5 class="mb-0">Performance Operacional</h5>
-            <small class="text-muted">Fluxo real: criacao &rarr; admissao &rarr; tratamento &rarr; conclusao</small>
+            <h5 class="mb-0">
+                Performance Operacional
+                <i class="bi bi-info-circle text-muted" style="font-size:0.8rem; cursor:help;"
+                   title="Os indicadores de admissão, tratamento e taxa de conclusão consideram o momento em que cada demanda entra em trabalho (admissão). Demandas anteriores ao início da medição não têm esse marco e entram apenas onde há data registrada (ex.: Tempo Médio Total)."></i>
+            </h5>
+            <small class="text-muted">Fluxo real: criação &rarr; admissão &rarr; tratamento &rarr; conclusão.</small>
         </div>
     </div>
 
@@ -40,7 +44,7 @@ $statusColors = [
         <div class="card-body py-2 px-3">
             <form method="GET" class="row g-2 align-items-center">
                 <div class="col-6 col-md-auto">
-                    <label class="form-label small mb-0">Inicio</label>
+                    <label class="form-label small mb-0">Início</label>
                     <input type="date" name="start" class="form-control form-control-sm" value="<?= escape($startDate) ?>">
                 </div>
                 <div class="col-6 col-md-auto">
@@ -66,6 +70,22 @@ $statusColors = [
         </div>
     </div>
 
+    <?php $legacyTotal = (int)($metrics['completed_legacy'] ?? 0); ?>
+    <?php if ($legacyTotal > 0): ?>
+    <!-- Aviso: concluídos sem data de admissão (legados/saltos) -->
+    <div class="alert alert-warning d-flex align-items-start gap-2 py-2 px-3 mb-3" role="alert" style="font-size:0.85rem;">
+        <i class="bi bi-info-circle-fill mt-1"></i>
+        <div>
+            <strong><?= $legacyTotal ?></strong> ticket<?= $legacyTotal > 1 ? 's' : '' ?> concluído<?= $legacyTotal > 1 ? 's' : '' ?> no período <strong>sem data de admissão registrada</strong>
+            (demandas anteriores ao início da medição ou concluídas sem passar por "Em andamento").
+            Esses tickets entram no <em>Tempo Médio Total</em>, mas ficam de fora dos indicadores de
+            <em>admissão</em>, <em>tratamento</em> e da <em>taxa de conclusão</em> — por isso pode haver
+            profissionais com "Concluídos" maior que "Admitidos". Os indicadores completos passam a valer
+            para as demandas tratadas a partir do início da medição.
+        </div>
+    </div>
+    <?php endif; ?>
+
     <?php
     // Formata uma quantidade de horas como "Xh" ou "Yd" (dias) quando >= 24h.
     // null = sem tickets elegíveis para o cálculo -> exibe "—" (não "0h").
@@ -78,6 +98,10 @@ $statusColors = [
             return rtrim(rtrim(number_format(round($hours / 24, 1), 1, '.', ''), '0'), '.') . 'd';
         }
         return rtrim(rtrim(number_format($hours, 1, '.', ''), '0'), '.') . 'h';
+    };
+    // Taxa de conclusão: null = sem base de cálculo (sem admitidos) -> "—".
+    $fmtRate = function ($rate) {
+        return $rate === null ? '—' : ($rate . '%');
     };
     ?>
 
@@ -94,7 +118,7 @@ $statusColors = [
         <div class="col-6 col-md-4 col-lg">
             <div class="card h-100 border-0 shadow-sm">
                 <div class="card-body text-center py-3">
-                    <div class="text-muted small">Concluidos</div>
+                    <div class="text-muted small">Concluídos</div>
                     <div class="fs-3 fw-bold text-success"><?= $metrics['completed'] ?></div>
                 </div>
             </div>
@@ -110,54 +134,54 @@ $statusColors = [
         <div class="col-6 col-md-4 col-lg">
             <div class="card h-100 border-0 shadow-sm">
                 <div class="card-body text-center py-3">
-                    <div class="text-muted small">Taxa de Conclusao</div>
-                    <div class="fs-3 fw-bold" style="color:#2e7d32"><?= $metrics['completion_rate'] ?>%</div>
+                    <div class="text-muted small" title="Concluídos (admitidos) ÷ Recebidos/Admitidos × 100. Exibe — quando não há admitidos no período.">Taxa de Conclusão</div>
+                    <div class="fs-3 fw-bold" style="color:#2e7d32"><?= $fmtRate($metrics['completion_rate']) ?></div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Cards de Tempos Medios (fluxo real da demanda) -->
+    <!-- Cards de Tempos Médios (fluxo real da demanda) -->
     <div class="row g-3 mb-4">
         <div class="col-12 col-md-4">
             <div class="card h-100 border-0 shadow-sm">
                 <div class="card-body text-center py-3">
-                    <div class="text-muted small">Tempo Medio de Admissao</div>
+                    <div class="text-muted small">Tempo Médio de Admissão</div>
                     <div class="fs-3 fw-bold" style="color:#7b1fa2"><?= $fmtDuration($metrics['avg_admission_hours']) ?></div>
-                    <div class="text-muted" style="font-size:0.72rem;">criacao &rarr; admissao</div>
+                    <div class="text-muted" style="font-size:0.72rem;">criação &rarr; admissão</div>
                 </div>
             </div>
         </div>
         <div class="col-12 col-md-4">
             <div class="card h-100 border-0 shadow-sm">
                 <div class="card-body text-center py-3">
-                    <div class="text-muted small">Tempo Medio de Tratamento</div>
+                    <div class="text-muted small">Tempo Médio de Tratamento</div>
                     <div class="fs-3 fw-bold text-info"><?= $fmtDuration($metrics['avg_treatment_hours']) ?></div>
-                    <div class="text-muted" style="font-size:0.72rem;">admissao &rarr; conclusao</div>
+                    <div class="text-muted" style="font-size:0.72rem;">admissão &rarr; conclusão</div>
                 </div>
             </div>
         </div>
         <div class="col-12 col-md-4">
             <div class="card h-100 border-0 shadow-sm">
                 <div class="card-body text-center py-3">
-                    <div class="text-muted small">Tempo Medio Total</div>
+                    <div class="text-muted small">Tempo Médio Total</div>
                     <div class="fs-3 fw-bold" style="color:#e65100"><?= $fmtDuration($metrics['avg_total_hours']) ?></div>
-                    <div class="text-muted" style="font-size:0.72rem;">criacao &rarr; conclusao</div>
+                    <div class="text-muted" style="font-size:0.72rem;">criação &rarr; conclusão</div>
                 </div>
             </div>
         </div>
     </div>
 
     <div class="row g-3">
-        <!-- Distribuicao por Status -->
+        <!-- Distribuição por Status -->
         <div class="col-lg-5">
             <div class="card h-100">
                 <div class="card-header bg-white py-2">
-                    <h6 class="mb-0" style="font-size:0.9rem;" title="Tickets criados dentro do período selecionado, agrupados por status">Distribuicao por Status (no periodo)</h6>
+                    <h6 class="mb-0" style="font-size:0.9rem;" title="Tickets criados dentro do período selecionado, agrupados por status">Distribuição por Status (no período)</h6>
                 </div>
                 <div class="card-body p-3">
                     <?php if (empty($statusDist)): ?>
-                    <p class="text-muted text-center small py-3">Nenhum ticket no periodo.</p>
+                    <p class="text-muted text-center small py-3">Nenhum ticket no período.</p>
                     <?php else: ?>
                     <?php
                     $totalDist = array_sum(array_column($statusDist, 'total'));
@@ -194,18 +218,18 @@ $statusColors = [
                                 <tr>
                                     <th>Profissional</th>
                                     <th class="text-center" title="Recebidos / Admitidos">Admitidos</th>
-                                    <th class="text-center">Concluidos</th>
+                                    <th class="text-center">Concluídos</th>
                                     <th class="text-center">Pendentes</th>
                                     <th class="text-center">Atrasados</th>
-                                    <th class="text-center" title="Taxa de conclusao">Conclusao</th>
-                                    <th class="text-center" title="Criacao &rarr; Admissao">T. Admissao</th>
-                                    <th class="text-center" title="Admissao &rarr; Conclusao">T. Tratamento</th>
-                                    <th class="text-center" title="Criacao &rarr; Conclusao">T. Total</th>
+                                    <th class="text-center" title="Taxa de conclusão">Conclusão</th>
+                                    <th class="text-center" title="Criação &rarr; Admissão">T. Admissão</th>
+                                    <th class="text-center" title="Admissão &rarr; Conclusão">T. Tratamento</th>
+                                    <th class="text-center" title="Criação &rarr; Conclusão">T. Total</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <?php if (empty($byAttendant)): ?>
-                                <tr><td colspan="9" class="text-center text-muted py-3">Nenhum dado no periodo.</td></tr>
+                                <tr><td colspan="9" class="text-center text-muted py-3">Nenhum dado no período.</td></tr>
                                 <?php else: ?>
                                 <?php foreach ($byAttendant as $att): ?>
                                 <tr>
@@ -220,7 +244,7 @@ $statusColors = [
                                         <span class="text-muted small">0</span>
                                         <?php endif; ?>
                                     </td>
-                                    <td class="text-center small"><?= $att['completion_rate'] ?>%</td>
+                                    <td class="text-center small"><?= $fmtRate($att['completion_rate']) ?></td>
                                     <td class="text-center small"><?= $fmtDuration($att['avg_admission_hours']) ?></td>
                                     <td class="text-center small"><?= $fmtDuration($att['avg_treatment_hours']) ?></td>
                                     <td class="text-center small"><?= $fmtDuration($att['avg_total_hours']) ?></td>
