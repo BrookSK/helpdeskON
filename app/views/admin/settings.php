@@ -871,6 +871,14 @@
                 usuário de integração dessa empresa. <strong>A chave completa é exibida apenas uma vez, na criação.</strong>
             </p>
 
+            <div class="alert alert-warning small py-2 px-3 mb-3">
+                <i class="bi bi-exclamation-triangle"></i>
+                <strong>Atenção:</strong> ao usar <em>Gerar novamente</em>, a chave atual é
+                <strong>revogada</strong> e uma nova é criada (a nova aparece só uma vez).
+                Qualquer sistema externo que ainda use a chave antiga <strong>deixa de funcionar</strong>
+                até você entregar a nova. O mesmo vale para <em>Revogar</em>.
+            </div>
+
             <?php $newApiKey = flash('new_api_key'); ?>
             <?php if (!empty($newApiKey)): ?>
                 <div class="alert alert-success">
@@ -937,12 +945,19 @@
                                     <td class="small text-muted"><?= !empty($k['last_used_at']) ? escape($k['last_used_at']) : '—' ?></td>
                                     <td class="text-end">
                                         <?php if (!empty($k['is_active']) && empty($k['revoked_at'])): ?>
+                                            <form action="<?= baseUrl('settings/regenerateApiKey') ?>" method="POST" onsubmit="return confirm('Gerar uma nova chave para esta empresa? A chave atual será revogada e a nova aparecerá uma única vez.');" style="display:inline;">
+                                                <input type="hidden" name="id" value="<?= (int)$k['id'] ?>">
+                                                <button type="submit" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-repeat"></i> Gerar novamente</button>
+                                            </form>
                                             <form action="<?= baseUrl('settings/revokeApiKey') ?>" method="POST" onsubmit="return confirm('Revogar esta API Key? Sistemas que a utilizam deixarão de criar chamados.');" style="display:inline;">
                                                 <input type="hidden" name="id" value="<?= (int)$k['id'] ?>">
                                                 <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-slash-circle"></i> Revogar</button>
                                             </form>
                                         <?php else: ?>
-                                            <span class="text-muted small">—</span>
+                                            <form action="<?= baseUrl('settings/regenerateApiKey') ?>" method="POST" onsubmit="return confirm('Gerar uma nova chave para esta empresa? A nova aparecerá uma única vez.');" style="display:inline;">
+                                                <input type="hidden" name="id" value="<?= (int)$k['id'] ?>">
+                                                <button type="submit" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-repeat"></i> Gerar novamente</button>
+                                            </form>
                                         <?php endif; ?>
                                     </td>
                                 </tr>

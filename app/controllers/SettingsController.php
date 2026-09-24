@@ -229,6 +229,50 @@ class SettingsController extends Controller
         $this->redirect('settings');
     }
 
+    /**
+     * Gera novamente (rotaciona) a chave de uma empresa: cria uma nova chave
+     * reaproveitando a MESMA empresa e o MESMO nome da chave informada e revoga
+     * a chave antiga. Assim não é preciso recadastrar a empresa a cada rotação.
+     *
+     * A chave antiga é revogada por segurança: manter várias chaves ativas para
+     * a mesma empresa dificultaria o controle de acesso.
+     */
+    public function regenerateApiKey()
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            $this->redirect('settings');
+        }
+
+        $id = (int)($_POST['id'] ?? 0);
+        if ($id <= 0) {
+            flash('error', 'Chave inválida.');
+            $this->redirect('settings');
+        }
+
+        $model = new ApiKey();
+        $existing = $model->findById($id);
+        if (!$existing) {
+            flash('error', 'Chave não encontrada.');
+            $this->redirect('settings');
+        }
+
+        try {
+            // Cria a nova chave para a mesma empresa e com o mesmo nome.
+            $result = $model->createForCompany((int)$existing['company_id'], $existing['name']);
+            // Revoga a chave antiga (rotação).
+            $model->revoke($id);
+
+            flash('new_api_key', $result['plain']);
+            flash('success', 'Nova chave gerada e a anterior foi revogada. Copie agora — ela não será exibida novamente.');
+        } catch (\Throwable $e) {
+            Logger::error('Falha ao regenerar API Key', ['error' => $e->getMessage()]);
+            flash('error', 'Não foi possível gerar a chave novamente.');
+        }
+
+        $this->redirect('settings');
+    }
+
     /** Revoga/desativa uma API Key existente. */
     public function revokeApiKey()
     {
