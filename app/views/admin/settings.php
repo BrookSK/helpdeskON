@@ -847,6 +847,20 @@
         </button>
     </form>
 
+    <!-- ============================================================= -->
+    <!-- Seção: Integrações (fora do submit principal — cada bloco tem -->
+    <!-- seus próprios formulários de gerar/revogar/testar).           -->
+    <!-- ============================================================= -->
+    <hr class="my-4">
+    <div class="d-flex align-items-center mb-3">
+        <h5 class="mb-0"><i class="bi bi-plug"></i> Integrações</h5>
+        <span class="badge bg-light text-muted ms-2 fw-normal">API para sistemas externos</span>
+    </div>
+    <p class="text-muted small mb-3">
+        Esta área é independente das configurações acima e não faz parte do botão
+        "Salvar Configurações". Cada bloco abaixo tem suas próprias ações.
+    </p>
+
     <!-- API Keys de integração externa (fora do submit principal) -->
     <div class="card mb-4">
         <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-key"></i> API Keys de integração (criação de chamados)</h6></div>
