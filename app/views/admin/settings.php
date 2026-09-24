@@ -954,9 +954,110 @@
         </div>
     </div>
 
+    <!-- Console de teste da API (envia POST /api/v1/tickets pela própria interface) -->
+    <div class="card mb-4">
+        <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-terminal"></i> Testar API de chamados</h6></div>
+        <div class="card-body">
+            <p class="text-muted small mb-3">
+                Envie um <code>POST /api/v1/tickets</code> daqui mesmo para validar a integração.
+                Cole uma API Key ativa (a chave completa só aparece uma vez, na criação) e preencha os campos.
+                O resultado (status HTTP e resposta JSON) aparece abaixo. Um envio com sucesso cria um chamado real.
+            </p>
+
+            <div class="row g-2 align-items-end">
+                <div class="col-md-8">
+                    <label class="form-label small">API Key (X-Api-Key)</label>
+                    <input type="text" id="test-api-key" class="form-control form-control-sm" placeholder="hk_live_...">
+                </div>
+                <div class="col-md-4">
+                    <?php if (!empty($newApiKey)): ?>
+                        <button type="button" class="btn btn-sm btn-outline-secondary w-100" onclick="document.getElementById('test-api-key').value = <?= json_encode($newApiKey) ?>;">
+                            <i class="bi bi-arrow-down-square"></i> Usar a chave recém-gerada
+                        </button>
+                    <?php endif; ?>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label small">Título</label>
+                    <input type="text" id="test-title" class="form-control form-control-sm" value="Chamado de teste via API">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small">Prioridade</label>
+                    <select id="test-priority" class="form-select form-select-sm">
+                        <option value="low">low</option>
+                        <option value="medium" selected>medium</option>
+                        <option value="high">high</option>
+                        <option value="urgent">urgent</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small">external_ref (opcional)</label>
+                    <input type="text" id="test-external-ref" class="form-control form-control-sm" placeholder="Ex.: EXT-001">
+                </div>
+                <div class="col-12">
+                    <label class="form-label small">Descrição</label>
+                    <textarea id="test-description" class="form-control form-control-sm" rows="2">Descrição do chamado de teste.</textarea>
+                </div>
+                <div class="col-12 d-flex gap-2 mt-2">
+                    <button type="button" class="btn btn-sm btn-primary" onclick="sendApiTest()"><i class="bi bi-send"></i> Enviar teste</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('test-external-ref').value = 'EXT-' + Date.now();">Gerar external_ref</button>
+                </div>
+            </div>
+
+            <div id="test-result" class="mt-3" style="display:none;">
+                <div class="small text-muted mb-1">Resultado:</div>
+                <div class="mb-1"><span class="badge" id="test-status-badge"></span></div>
+                <pre id="test-response" class="bg-dark text-light p-2 rounded small mb-0" style="white-space:pre-wrap;max-height:300px;overflow:auto;"></pre>
+            </div>
+        </div>
+    </div>
+
 </div>
 
 <script>
+// ===== Console de teste da API de chamados =====
+function sendApiTest() {
+    const key = (document.getElementById('test-api-key').value || '').trim();
+    const body = {
+        title: document.getElementById('test-title').value,
+        description: document.getElementById('test-description').value,
+        priority: document.getElementById('test-priority').value,
+    };
+    const extRef = (document.getElementById('test-external-ref').value || '').trim();
+    if (extRef !== '') body.external_ref = extRef;
+
+    const resultBox = document.getElementById('test-result');
+    const badge = document.getElementById('test-status-badge');
+    const pre = document.getElementById('test-response');
+    resultBox.style.display = 'block';
+    badge.className = 'badge bg-secondary';
+    badge.textContent = 'Enviando...';
+    pre.textContent = '';
+
+    const headers = { 'Content-Type': 'application/json' };
+    if (key !== '') headers['X-Api-Key'] = key;
+
+    fetch('<?= baseUrl('api/v1/tickets') ?>', {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify(body),
+    })
+    .then(function(resp) {
+        return resp.text().then(function(text) {
+            let pretty = text;
+            try { pretty = JSON.stringify(JSON.parse(text), null, 2); } catch (e) {}
+            const ok = resp.status >= 200 && resp.status < 300;
+            badge.className = 'badge ' + (ok ? 'bg-success' : (resp.status >= 500 ? 'bg-danger' : 'bg-warning text-dark'));
+            badge.textContent = 'HTTP ' + resp.status;
+            pre.textContent = pretty;
+        });
+    })
+    .catch(function(err) {
+        badge.className = 'badge bg-danger';
+        badge.textContent = 'Erro de rede';
+        pre.textContent = String(err);
+    });
+}
+
 // Consolida os dias da semana marcados no campo oculto antes de enviar o form.
 (function(){
     const form = document.querySelector('form[action$="settings/save"]');
