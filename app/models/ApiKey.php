@@ -83,6 +83,34 @@ class ApiKey
     }
 
     /**
+     * Renova (rotaciona) a chave de um registro existente, NA MESMA LINHA.
+     * Gera uma nova chave em claro, sobrescreve hash/prefixo, reativa o registro
+     * e zera last_used_at. A chave anterior deixa de valer no mesmo instante
+     * (o hash é substituído). Não cria linha nova nem deixa registros revogados.
+     *
+     * Retorna ['id' => int, 'plain' => string, 'prefix' => string], onde `plain`
+     * é a única oportunidade de exibir a chave completa.
+     */
+    public function rotateKey(int $id): array
+    {
+        $gen = self::generatePlainKey();
+
+        $this->db->update('api_keys', [
+            'key_prefix'   => $gen['prefix'],
+            'key_hash'     => $gen['hash'],
+            'is_active'    => 1,
+            'revoked_at'   => null,
+            'last_used_at' => null,
+        ], 'id = ?', [$id]);
+
+        return [
+            'id'     => $id,
+            'plain'  => $gen['plain'],
+            'prefix' => $gen['prefix'],
+        ];
+    }
+
+    /**
      * Garante que exista um usuário de integração (role 'client') para a empresa
      * e retorna seu id. Reaproveita um já existente se houver.
      *

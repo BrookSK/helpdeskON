@@ -230,12 +230,10 @@ class SettingsController extends Controller
     }
 
     /**
-     * Gera novamente (rotaciona) a chave de uma empresa: cria uma nova chave
-     * reaproveitando a MESMA empresa e o MESMO nome da chave informada e revoga
-     * a chave antiga. Assim não é preciso recadastrar a empresa a cada rotação.
-     *
-     * A chave antiga é revogada por segurança: manter várias chaves ativas para
-     * a mesma empresa dificultaria o controle de acesso.
+     * Gera novamente (rotaciona) a chave NA MESMA LINHA: substitui o hash/prefixo
+     * do registro existente por uma nova chave, mantendo empresa e nome. A chave
+     * anterior deixa de valer no mesmo instante. Não cria linha nova nem deixa
+     * registros revogados acumulando na lista.
      */
     public function regenerateApiKey()
     {
@@ -258,13 +256,11 @@ class SettingsController extends Controller
         }
 
         try {
-            // Cria a nova chave para a mesma empresa e com o mesmo nome.
-            $result = $model->createForCompany((int)$existing['company_id'], $existing['name']);
-            // Revoga a chave antiga (rotação).
-            $model->revoke($id);
+            // Renova a chave no próprio registro (mesma empresa, mesmo nome).
+            $result = $model->rotateKey($id);
 
             flash('new_api_key', $result['plain']);
-            flash('success', 'Nova chave gerada e a anterior foi revogada. Copie agora — ela não será exibida novamente.');
+            flash('success', 'Nova chave gerada (a anterior deixou de valer). Copie agora — ela não será exibida novamente.');
         } catch (\Throwable $e) {
             Logger::error('Falha ao regenerar API Key', ['error' => $e->getMessage()]);
             flash('error', 'Não foi possível gerar a chave novamente.');

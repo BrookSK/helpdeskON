@@ -871,27 +871,7 @@
                 usuário de integração dessa empresa. <strong>A chave completa é exibida apenas uma vez, na criação.</strong>
             </p>
 
-            <div class="alert alert-warning small py-2 px-3 mb-3">
-                <i class="bi bi-exclamation-triangle"></i>
-                <strong>Atenção:</strong> ao usar <em>Gerar novamente</em>, a chave atual é
-                <strong>revogada</strong> e uma nova é criada (a nova aparece só uma vez).
-                Qualquer sistema externo que ainda use a chave antiga <strong>deixa de funcionar</strong>
-                até você entregar a nova. O mesmo vale para <em>Revogar</em>.
-            </div>
-
             <?php $newApiKey = flash('new_api_key'); ?>
-            <?php if (!empty($newApiKey)): ?>
-                <div class="alert alert-success">
-                    <strong><i class="bi bi-clipboard-check"></i> Nova API Key gerada.</strong>
-                    Copie agora — ela não será exibida novamente:
-                    <div class="input-group input-group-sm mt-2">
-                        <input type="text" id="newApiKeyValue" class="form-control" readonly value="<?= escape($newApiKey) ?>">
-                        <button type="button" class="btn btn-outline-secondary" onclick="(function(){var i=document.getElementById('newApiKeyValue');i.select();document.execCommand('copy');})()">
-                            <i class="bi bi-clipboard"></i> Copiar
-                        </button>
-                    </div>
-                </div>
-            <?php endif; ?>
 
             <!-- Criar nova chave -->
             <form action="<?= baseUrl('settings/createApiKey') ?>" method="POST" class="row g-2 align-items-end mb-4">
@@ -945,7 +925,7 @@
                                     <td class="small text-muted"><?= !empty($k['last_used_at']) ? escape($k['last_used_at']) : '—' ?></td>
                                     <td class="text-end">
                                         <?php if (!empty($k['is_active']) && empty($k['revoked_at'])): ?>
-                                            <form action="<?= baseUrl('settings/regenerateApiKey') ?>" method="POST" onsubmit="return confirm('Gerar uma nova chave para esta empresa? A chave atual será revogada e a nova aparecerá uma única vez.');" style="display:inline;">
+                                            <form action="<?= baseUrl('settings/regenerateApiKey') ?>" method="POST" onsubmit="return confirm('Gerar uma nova chave para esta empresa? A chave atual deixa de valer e a nova aparecerá uma única vez.');" style="display:inline;">
                                                 <input type="hidden" name="id" value="<?= (int)$k['id'] ?>">
                                                 <button type="submit" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-repeat"></i> Gerar novamente</button>
                                             </form>
@@ -966,6 +946,25 @@
                     </table>
                 </div>
             <?php endif; ?>
+
+            <?php if (!empty($newApiKey)): ?>
+                <div class="alert alert-success mt-3 mb-0">
+                    <strong><i class="bi bi-clipboard-check"></i> Nova API Key gerada.</strong>
+                    Copie agora — ela não será exibida novamente:
+                    <div class="input-group input-group-sm mt-2">
+                        <input type="text" id="newApiKeyValue" class="form-control" readonly value="<?= escape($newApiKey) ?>">
+                        <button type="button" class="btn btn-outline-secondary" onclick="(function(){var i=document.getElementById('newApiKeyValue');i.select();document.execCommand('copy');})()">
+                            <i class="bi bi-clipboard"></i> Copiar
+                        </button>
+                    </div>
+                </div>
+            <?php endif; ?>
+
+            <p class="text-muted mt-3 mb-0" style="font-size:0.78rem;">
+                <i class="bi bi-info-circle"></i>
+                <em>Gerar novamente</em> renova a chave na mesma linha e a anterior deixa de valer na hora;
+                <em>Revogar</em> desativa a chave. Em ambos os casos, sistemas que usem a chave antiga param até receber a nova.
+            </p>
         </div>
     </div>
 
