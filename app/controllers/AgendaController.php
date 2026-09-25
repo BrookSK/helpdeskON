@@ -325,6 +325,8 @@ class AgendaController extends Controller
         $desc = trim($meeting['notes'] ?? '');
         $meetLink = trim($meeting['meet_link'] ?? '');
         $calendarLink = trim($meeting['google_calendar_link'] ?? '');
+        // Rótulo do botão conforme o tipo de link (Google Meet real x sala de vídeo do sistema).
+        $meetLabel = VideoRoomRules::meetingButtonLabel($meetLink);
 
         $sentEmail = 0;
         $sentWhats = 0;
@@ -341,7 +343,7 @@ class AgendaController extends Controller
                      . ($desc !== '' ? "<p style='margin:6px 0;'><strong>Descrição:</strong> " . nl2br(htmlspecialchars($desc)) . "</p>" : "")
                      . ($meetLink !== '' ? "<p style='text-align:center;margin:24px 0 8px;'>
                             <a href='{$meetLink}' style='background:#00BFA6;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;'>
-                                Entrar na reunião (Google Meet)
+                                {$meetLabel}
                             </a></p>
                             <p style='font-size:0.8rem;color:#888;word-break:break-all;text-align:center;'>Link: {$meetLink}</p>" : "")
                      . ($calendarLink !== '' ? "<p style='text-align:center;margin:16px 0 8px;'>
@@ -520,6 +522,8 @@ class AgendaController extends Controller
         $desc = trim($meeting['notes'] ?? '');
         $meetLink = trim($meeting['meet_link'] ?? '');
         $calendarLink = trim($meeting['google_calendar_link'] ?? '');
+        // Rótulo do botão conforme o tipo de link (Google Meet real x sala de vídeo do sistema).
+        $meetLabel = VideoRoomRules::meetingButtonLabel($meetLink);
 
         $sentEmail = 0;
         $sentWhats = 0;
@@ -540,7 +544,7 @@ class AgendaController extends Controller
                      . ($desc !== '' ? "<p style='margin:6px 0;'><strong>Descrição:</strong> " . nl2br(htmlspecialchars($desc)) . "</p>" : "")
                      . ($meetLink !== '' ? "<p style='text-align:center;margin:24px 0 8px;'>
                             <a href='{$meetLink}' style='background:#00BFA6;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;'>
-                                Entrar na reunião (Google Meet)
+                                {$meetLabel}
                             </a></p>
                             <p style='font-size:0.8rem;color:#888;word-break:break-all;text-align:center;'>Link: {$meetLink}</p>" : "")
                      . ($calendarLink !== '' ? "<p style='text-align:center;margin:16px 0 8px;'>
@@ -667,6 +671,8 @@ class AgendaController extends Controller
         }
 
         $whenFmt = date('d/m/Y \à\s H:i', strtotime($meetingAt));
+        // Rótulo do botão conforme o tipo de link (Google Meet real x sala de vídeo do sistema).
+        $meetLabel = VideoRoomRules::meetingButtonLabel($meetLink);
 
         // 2) E-mail personalizado (super admin + cliente)
         $emailBody = Mailer::template(
@@ -678,7 +684,7 @@ class AgendaController extends Controller
              <p style='margin:6px 0;'><strong>Data:</strong> {$whenFmt}</p>"
              . ($meetLink ? "<p style='text-align:center;margin:24px 0;'>
                     <a href='{$meetLink}' style='background:#00BFA6;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;'>
-                        Entrar na reunião (Google Meet)
+                        {$meetLabel}
                     </a></p>
                     <p style='font-size:0.8rem;color:#888;word-break:break-all;'>Link: {$meetLink}</p>" : "")
              . "<p>Nos vemos lá!</p>"

@@ -116,6 +116,56 @@ class VideoRoomRules
     }
 
     /**
+     * Um link de reunião aponta para a sala de vídeo NATIVA do sistema
+     * (rota /videocall/room/...), em vez do Google Meet?
+     *
+     * Usado para rotular corretamente os botões dos e-mails/WhatsApp de convite:
+     * o link gravado em meetings.meet_link pode ser tanto um link real do Google
+     * Meet quanto a URL da sala interna. Rotular tudo como "Google Meet" engana o
+     * usuário quando na verdade é a videochamada do próprio helpdesk.
+     */
+    public static function isNativeRoomLink(?string $url): bool
+    {
+        if (!is_string($url) || $url === '') return false;
+        // Rota da sala nativa (aceita com ou sem domínio, com querystring, etc.).
+        return (bool) preg_match('#/videocall/room/#i', $url);
+    }
+
+    /**
+     * Um link aponta para o Google Meet real (meet.google.com)?
+     */
+    public static function isGoogleMeetLink(?string $url): bool
+    {
+        if (!is_string($url) || $url === '') return false;
+        return stripos($url, 'meet.google.com') !== false;
+    }
+
+    /**
+     * Rótulo do botão "entrar na reunião" adequado ao tipo de link.
+     *
+     * - Google Meet real  -> "Entrar na reunião (Google Meet)"
+     * - Sala nativa        -> "Entrar na sala de vídeo"
+     * - Outro/indefinido   -> "Entrar na reunião" (neutro, sem prometer provedor)
+     */
+    public static function meetingButtonLabel(?string $url): string
+    {
+        if (self::isGoogleMeetLink($url)) return 'Entrar na reunião (Google Meet)';
+        if (self::isNativeRoomLink($url)) return 'Entrar na sala de vídeo';
+        return 'Entrar na reunião';
+    }
+
+    /**
+     * Rótulo curto do canal da reunião, para uso em textos (ex.: WhatsApp):
+     * "Google Meet", "sala de vídeo" ou "reunião".
+     */
+    public static function meetingChannelLabel(?string $url): string
+    {
+        if (self::isGoogleMeetLink($url)) return 'Google Meet';
+        if (self::isNativeRoomLink($url)) return 'sala de vídeo';
+        return 'reunião';
+    }
+
+    /**
      * Estado inicial de mídia da sala a partir das escolhas do preview/lobby.
      *
      * Regra central por trás do bug do ícone de câmera: o estado escolhido no
