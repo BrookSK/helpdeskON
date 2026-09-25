@@ -440,8 +440,8 @@ class TicketsController extends Controller
             }
         }
 
-        // Enviar notificação
-        $this->sendNewTicketNotification($ticketId);
+        // Enviar notificação (lógica compartilhada com a criação via API).
+        (new TicketNotificationService())->notifyNewTicket($ticketId);
 
         // Na criação, notificar todos os atendentes atribuídos.
         // O responsável técnico só é notificado quando a demanda entra em Revisão Interna.
@@ -718,9 +718,12 @@ class TicketsController extends Controller
         // Persiste o conjunto de atendentes e sincroniza o principal
         $this->ticketModel->setAttendants($id, $attendantIds);
 
-        // Ao atribuir, mover para em andamento (mantém comportamento anterior)
+        // Ao atribuir, mover para "em andamento" (mantém comportamento anterior).
+        // A admissão (demanda #251, Opção A) NÃO vem da atribuição em si, mas da
+        // entrada em trabalho: por isso usamos updateStatus('in_progress'), que
+        // carimba admitted_at de forma idempotente apenas quando entra em trabalho.
         if (!empty($attendantIds)) {
-            $this->ticketModel->update($id, ['status' => 'in_progress']);
+            $this->ticketModel->updateStatus($id, 'in_progress');
         }
 
         $primaryId = $attendantIds[0] ?? null;
@@ -900,52 +903,10 @@ class TicketsController extends Controller
     // Notificações
     private function sendNewTicketNotification($ticketId)
     {
-        $ticket = $this->ticketModel->findById($ticketId);
-        $notificationTitle = "Nova demanda: {$ticket['title']}";
-        $notificationMessage = "O cliente {$ticket['client_name']} abriu uma nova demanda.";
-
-        // Descobrir empresa do cliente
-        $db = Database::getInstance();
-        $clientUser = $db->fetch("SELECT company_id FROM users WHERE id = ?", [$ticket['client_id']]);
-        $ticketCompanyId = $clientUser['company_id'] ?? null;
-
-        // Notificar atendentes que têm acesso a essa empresa (ou super admins)
-        $userModel = new User();
-        $attendants = $userModel->getAttendants();
-
-        foreach ($attendants as $att) {
-            // Verificar se o atendente tem acesso à empresa do ticket
-            $allowedCompanies = PlanningCard::getUserAllowedCompanies($att['id'], 'attendant');
-            if ($allowedCompanies !== null && $ticketCompanyId) {
-                // Tem restrição — checar se a empresa do ticket está na lista
-                if (!in_array($ticketCompanyId, $allowedCompanies)) {
-                    continue; // Pula este atendente
-                }
-            }
-
-            $db->insert('notifications', [
-                'user_id' => $att['id'],
-                'ticket_id' => $ticketId,
-                'title' => $notificationTitle,
-                'message' => $notificationMessage,
-                'type' => 'system',
-            ]);
-        }
-
-        // Notificar super admins (sempre veem tudo)
-        $admins = $db->fetchAll("SELECT id FROM users WHERE role = 'super_admin' AND is_active = 1");
-        foreach ($admins as $admin) {
-            $db->insert('notifications', [
-                'user_id' => $admin['id'],
-                'ticket_id' => $ticketId,
-                'title' => $notificationTitle,
-                'message' => $notificationMessage,
-                'type' => 'system',
-            ]);
-        }
-
-        // Webhook - dispara para cada telefone configurado
-        $this->triggerWebhook($notificationMessage, '', $ticket);
+        // Lógica extraída para um serviço compartilhado com a API de criação de
+        // chamados. Mantido como fino wrapper para preservar a assinatura e
+        // qualquer chamada futura dentro do controller.
+        (new TicketNotificationService())->notifyNewTicket((int)$ticketId);
     }
 
     private function sendStatusChangeNotification($ticket, $newStatus)

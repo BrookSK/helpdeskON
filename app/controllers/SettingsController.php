@@ -16,7 +16,23 @@ class SettingsController extends Controller
             $emailSignatures = Database::getInstance()->fetchAll("SELECT * FROM email_signatures ORDER BY domain ASC");
         } catch (\Throwable $e) { $emailSignatures = []; }
 
-        $this->view('admin/settings', ['user' => $user, 'settings' => $settings, 'whatsappGroups' => $whatsappGroups, 'dbInfo' => $dbInfo, 'emailSignatures' => $emailSignatures]);
+        // Chaves de API por empresa (uma por empresa). Mapa company_id => chave.
+        // Degrada sem quebrar a tela se a migration 133 não tiver sido aplicada.
+        $apiKeysByCompany = [];
+        try {
+            $apiKeysByCompany = (new ApiKey())->keysByCompany();
+        } catch (\Throwable $e) { $apiKeysByCompany = []; }
+        $companies = (new Company())->getAll();
+
+        $this->view('admin/settings', [
+            'user' => $user,
+            'settings' => $settings,
+            'whatsappGroups' => $whatsappGroups,
+            'dbInfo' => $dbInfo,
+            'emailSignatures' => $emailSignatures,
+            'apiKeysByCompany' => $apiKeysByCompany,
+            'companies' => $companies,
+        ]);
     }
 
     /**
@@ -171,6 +187,150 @@ class SettingsController extends Controller
         Config::reload();
         flash('success', 'Configurações salvas com sucesso!');
         $this->redirect('settings');
+    }
+
+    /**
+     * Gera a chave de API de uma empresa (uma por empresa). Se a empresa já tiver
+     * chave, mantém a existente. A chave fica visível na lista de empresas.
+     */
+    public function generateApiKey()
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            $this->redirect('settings');
+        }
+
+        $companyId = (int)($_POST['company_id'] ?? 0);
+        if ($companyId <= 0) {
+            flash('error', 'Informe a empresa.');
+            $this->redirect('settings');
+        }
+
+        // Empresa precisa existir.
+        $company = (new Company())->findById($companyId);
+        if (!$company) {
+            flash('error', 'Empresa inválida.');
+            $this->redirect('settings');
+        }
+
+        try {
+            (new ApiKey())->getOrCreateForCompany($companyId);
+            flash('success', 'Chave gerada.');
+        } catch (\Throwable $e) {
+            Logger::error('Falha ao gerar API Key', ['error' => $e->getMessage()]);
+            flash('error', 'Não foi possível gerar a chave. Verifique se a migration foi aplicada.');
+        }
+
+        $this->redirect('settings');
+    }
+
+    /**
+     * Salva a URL de callback (retorno de status da API v1) e o liga/desliga de
+     * uma empresa. A empresa precisa já ter chave de API. Valida o formato da URL
+     * quando o callback é habilitado.
+     */
+    public function saveApiCallback()
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            $this->redirect('settings');
+        }
+
+        $companyId = (int)($_POST['company_id'] ?? 0);
+        $callbackUrl = trim((string)($_POST['callback_url'] ?? ''));
+        $enabled = !empty($_POST['callback_enabled']);
+
+        if ($companyId <= 0) {
+            flash('error', 'Informe a empresa.');
+            $this->redirect('settings');
+        }
+
+        // Se vai habilitar, a URL precisa ser válida (http/https). Desabilitar
+        // sem URL é permitido (apenas desliga).
+        if ($enabled && !ApiCallbackService::isValidCallbackUrl($callbackUrl)) {
+            flash('error', 'URL de callback inválida. Use uma URL http(s) completa.');
+            $this->redirect('settings');
+        }
+
+        try {
+            $ok = (new ApiKey())->updateCallback($companyId, $callbackUrl, $enabled);
+            if ($ok) {
+                flash('success', 'Callback atualizado.');
+            } else {
+                flash('error', 'Gere a chave de API desta empresa antes de configurar o callback.');
+            }
+        } catch (\Throwable $e) {
+            Logger::error('Falha ao salvar callback da API', ['error' => $e->getMessage()]);
+            flash('error', 'Não foi possível salvar o callback. Verifique se a migration 135 foi aplicada.');
+        }
+
+        $this->redirect('settings');
+    }
+
+    /**
+     * Dispara um POST de TESTE para a URL de callback de uma empresa e devolve o
+     * resultado (JSON), no mesmo estilo dos demais botões "Testar" da tela. Não
+     * usa a fila — é um envio direto e imediato, só para validar a URL.
+     *
+     * O corpo do teste segue o mesmo formato do callback real de status, com
+     * "test": true e valores de exemplo, para o sistema externo poder reconhecer
+     * e ignorar.
+     */
+    public function testApiCallback()
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            $this->json(['success' => false, 'message' => 'Método não permitido.'], 405);
+        }
+
+        $companyId = (int)($_POST['company_id'] ?? 0);
+        if ($companyId <= 0) {
+            $this->json(['success' => false, 'message' => 'Empresa inválida.']);
+        }
+
+        $apiKey = (new ApiKey())->findByCompany($companyId);
+        if (!$apiKey) {
+            $this->json(['success' => false, 'message' => 'Esta empresa ainda não tem chave de API.']);
+        }
+
+        $callbackUrl = trim((string)($apiKey['callback_url'] ?? ''));
+        if (!ApiCallbackService::isValidCallbackUrl($callbackUrl)) {
+            $this->json(['success' => false, 'message' => 'Cadastre uma URL de callback válida antes de testar.']);
+        }
+
+        $payload = [
+            'event'                => ApiCallbackService::EVENT_STATUS_CHANGED,
+            'test'                 => true,
+            'id'                   => 0,
+            'client_ticket_number' => 0,
+            'external_ref'         => 'TEST-CALLBACK',
+            'previous_status'      => 'open',
+            'status'               => 'in_progress',
+            'changed_at'           => date('Y-m-d H:i:s'),
+        ];
+
+        $ch = curl_init($callbackUrl);
+        curl_setopt_array($ch, [
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            CURLOPT_HTTPHEADER     => [
+                'Content-Type: application/json',
+                'User-Agent: helpdeskON-callback/1',
+            ],
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 15,
+            CURLOPT_CONNECTTIMEOUT => 10,
+        ]);
+        curl_exec($ch);
+        $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $error    = curl_error($ch);
+        curl_close($ch);
+
+        if ($error === '' && $httpCode >= 200 && $httpCode < 300) {
+            $this->json(['success' => true, 'message' => "Callback de teste entregue (HTTP {$httpCode})."]);
+        }
+        $detail = $error !== '' ? $error : ('HTTP ' . $httpCode);
+        $this->json(['success' => false, 'message' => "Falha ao entregar o callback de teste ({$detail})."]);
     }
 
     /**
