@@ -73,8 +73,10 @@ class PlanningController extends Controller
             $teamMembers = array_merge($admins, $team);
         }
 
-        // Listas específicas por papel para os seletores do card
-        $attendantsList = $userModel->getByRoles(['super_admin', 'attendant', 'whatsapp_agent', 'analyst']);
+        // Listas específicas por papel para os seletores do card.
+        // "Atendente" é o DONO do card (assigned_to): inclui developer para que um
+        // desenvolvedor também possa ser dono, não só técnico responsável.
+        $attendantsList = $userModel->getByRoles(['super_admin', 'attendant', 'whatsapp_agent', 'analyst', 'developer']);
         $techniciansList = $userModel->getByRoles(['developer']);
         $analystsList = $userModel->getByRoles(['analyst']);
 
