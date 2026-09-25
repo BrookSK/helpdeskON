@@ -16,12 +16,12 @@ class SettingsController extends Controller
             $emailSignatures = Database::getInstance()->fetchAll("SELECT * FROM email_signatures ORDER BY domain ASC");
         } catch (\Throwable $e) { $emailSignatures = []; }
 
-        // API Keys de integração externa (tabela pode não existir ainda, se a
-        // migration 133 não tiver sido aplicada — degrada sem quebrar a tela).
-        $apiKeys = [];
+        // Chaves de API por empresa (uma por empresa). Mapa company_id => chave.
+        // Degrada sem quebrar a tela se a migration 133 não tiver sido aplicada.
+        $apiKeysByCompany = [];
         try {
-            $apiKeys = (new ApiKey())->allWithCompany();
-        } catch (\Throwable $e) { $apiKeys = []; }
+            $apiKeysByCompany = (new ApiKey())->keysByCompany();
+        } catch (\Throwable $e) { $apiKeysByCompany = []; }
         $companies = (new Company())->getAll();
 
         $this->view('admin/settings', [
@@ -30,7 +30,7 @@ class SettingsController extends Controller
             'whatsappGroups' => $whatsappGroups,
             'dbInfo' => $dbInfo,
             'emailSignatures' => $emailSignatures,
-            'apiKeys' => $apiKeys,
+            'apiKeysByCompany' => $apiKeysByCompany,
             'companies' => $companies,
         ]);
     }
@@ -190,10 +190,10 @@ class SettingsController extends Controller
     }
 
     /**
-     * Gera uma nova API Key para uma empresa (integração externa).
-     * A chave em claro é exibida UMA única vez, via flash, após o redirect.
+     * Gera a chave de API de uma empresa (uma por empresa). Se a empresa já tiver
+     * chave, mantém a existente. A chave fica visível na lista de empresas.
      */
-    public function createApiKey()
+    public function generateApiKey()
     {
         $this->requireRole(['super_admin']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -201,10 +201,8 @@ class SettingsController extends Controller
         }
 
         $companyId = (int)($_POST['company_id'] ?? 0);
-        $name = trim($_POST['name'] ?? '');
-
-        if ($companyId <= 0 || $name === '') {
-            flash('error', 'Informe a empresa e um nome/identificação para a chave.');
+        if ($companyId <= 0) {
+            flash('error', 'Informe a empresa.');
             $this->redirect('settings');
         }
 
@@ -216,79 +214,11 @@ class SettingsController extends Controller
         }
 
         try {
-            $result = (new ApiKey())->createForCompany($companyId, $name);
-            // Exibição única da chave completa: guardamos no flash (não persiste
-            // em claro no banco). Some após ser lida uma vez.
-            flash('new_api_key', $result['plain']);
-            flash('success', 'API Key criada. Copie a chave agora — ela não será exibida novamente.');
+            (new ApiKey())->getOrCreateForCompany($companyId);
+            flash('success', 'Chave gerada.');
         } catch (\Throwable $e) {
-            Logger::error('Falha ao criar API Key', ['error' => $e->getMessage()]);
-            flash('error', 'Não foi possível criar a API Key. Verifique se a migration foi aplicada.');
-        }
-
-        $this->redirect('settings');
-    }
-
-    /**
-     * Gera novamente (rotaciona) a chave NA MESMA LINHA: substitui o hash/prefixo
-     * do registro existente por uma nova chave, mantendo empresa e nome. A chave
-     * anterior deixa de valer no mesmo instante. Não cria linha nova nem deixa
-     * registros revogados acumulando na lista.
-     */
-    public function regenerateApiKey()
-    {
-        $this->requireRole(['super_admin']);
-        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-            $this->redirect('settings');
-        }
-
-        $id = (int)($_POST['id'] ?? 0);
-        if ($id <= 0) {
-            flash('error', 'Chave inválida.');
-            $this->redirect('settings');
-        }
-
-        $model = new ApiKey();
-        $existing = $model->findById($id);
-        if (!$existing) {
-            flash('error', 'Chave não encontrada.');
-            $this->redirect('settings');
-        }
-
-        try {
-            // Renova a chave no próprio registro (mesma empresa, mesmo nome).
-            $result = $model->rotateKey($id);
-
-            flash('new_api_key', $result['plain']);
-            flash('success', 'Nova chave gerada (a anterior deixou de valer). Copie agora — ela não será exibida novamente.');
-        } catch (\Throwable $e) {
-            Logger::error('Falha ao regenerar API Key', ['error' => $e->getMessage()]);
-            flash('error', 'Não foi possível gerar a chave novamente.');
-        }
-
-        $this->redirect('settings');
-    }
-
-    /** Revoga/desativa uma API Key existente. */
-    public function revokeApiKey()
-    {
-        $this->requireRole(['super_admin']);
-        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-            $this->redirect('settings');
-        }
-
-        $id = (int)($_POST['id'] ?? 0);
-        if ($id <= 0) {
-            flash('error', 'Chave inválida.');
-            $this->redirect('settings');
-        }
-
-        try {
-            (new ApiKey())->revoke($id);
-            flash('success', 'API Key revogada.');
-        } catch (\Throwable $e) {
-            Logger::error('Falha ao revogar API Key', ['error' => $e->getMessage()]);
-            flash('error', 'Não foi possível revogar a API Key.');
+            Logger::error('Falha ao gerar API Key', ['error' => $e->getMessage()]);
+            flash('error', 'Não foi possível gerar a chave. Verifique se a migration foi aplicada.');
         }
 
         $this->redirect('settings');

@@ -46,7 +46,6 @@ class Controller
      * externos. Em caso de falha, responde JSON e encerra a requisição:
      *   - 401 missing_api_key  : header ausente/vazio
      *   - 401 invalid_api_key  : chave não corresponde a nenhuma registrada
-     *   - 403 revoked_api_key  : chave existe porém está inativa/revogada
      *
      * Em caso de sucesso, atualiza last_used_at e retorna a linha de api_keys
      * (contém company_id e integration_user_id).
@@ -62,10 +61,6 @@ class Controller
         $key = $model->resolveByPlainKey($plain);
         if (!$key) {
             $this->jsonError('invalid_api_key', 'Chave de API inválida.', 401);
-        }
-
-        if ((int)($key['is_active'] ?? 0) !== 1 || !empty($key['revoked_at'])) {
-            $this->jsonError('revoked_api_key', 'Chave de API revogada ou inativa.', 403);
         }
 
         $model->touchLastUsed((int)$key['id']);
