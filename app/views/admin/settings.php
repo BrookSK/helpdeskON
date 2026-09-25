@@ -871,51 +871,85 @@
                 por canal seguro, ao sistema do cliente. Consulte <code>docs/api-v1-chamados.md</code> para o guia de integração.
             </p>
 
+            <?php
+                // Separa as empresas em: com chave (aparecem na lista) e sem chave
+                // (viram opções do seletor "+ Empresa key").
+                $companiesWithKey = [];
+                $companiesWithoutKey = [];
+                foreach (($companies ?? []) as $comp) {
+                    if (isset($apiKeysByCompany[(int)$comp['id']])) {
+                        $companiesWithKey[] = $comp;
+                    } else {
+                        $companiesWithoutKey[] = $comp;
+                    }
+                }
+            ?>
+
             <div class="table-responsive">
                 <table class="table table-sm align-middle mb-0">
                     <thead>
                         <tr class="small text-muted">
                             <th>Empresa</th>
                             <th>Chave de API</th>
-                            <th class="text-end">Ação</th>
                         </tr>
                     </thead>
                     <tbody>
-                        <?php foreach (($companies ?? []) as $comp): ?>
-                            <?php $key = $apiKeysByCompany[(int)$comp['id']] ?? null; ?>
+                        <?php foreach ($companiesWithKey as $comp): ?>
+                            <?php $key = $apiKeysByCompany[(int)$comp['id']]; ?>
                             <tr>
                                 <td class="small"><?= escape($comp['name']) ?></td>
                                 <td class="small">
-                                    <?php if ($key): ?>
-                                        <div class="input-group input-group-sm" style="max-width:520px;">
-                                            <input type="text" class="form-control" readonly value="<?= escape($key['api_key']) ?>">
-                                            <button type="button" class="btn btn-outline-secondary" title="Copiar"
-                                                onclick="(function(b){var i=b.previousElementSibling;i.select();document.execCommand('copy');})(this)">
-                                                <i class="bi bi-clipboard"></i>
-                                            </button>
-                                        </div>
-                                    <?php else: ?>
-                                        <span class="text-muted">— sem chave —</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td class="text-end">
-                                    <?php if (!$key): ?>
-                                        <form action="<?= baseUrl('settings/generateApiKey') ?>" method="POST" style="display:inline;">
-                                            <input type="hidden" name="company_id" value="<?= (int)$comp['id'] ?>">
-                                            <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-plus-lg"></i> Gerar chave</button>
-                                        </form>
-                                    <?php else: ?>
-                                        <span class="text-muted small">—</span>
-                                    <?php endif; ?>
+                                    <div class="input-group input-group-sm" style="max-width:520px;">
+                                        <input type="text" class="form-control" readonly value="<?= escape($key['api_key']) ?>">
+                                        <button type="button" class="btn btn-outline-secondary" title="Copiar"
+                                            onclick="(function(b){var i=b.previousElementSibling;i.select();document.execCommand('copy');})(this)">
+                                            <i class="bi bi-clipboard"></i>
+                                        </button>
+                                    </div>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
-                        <?php if (empty($companies)): ?>
-                            <tr><td colspan="3" class="text-muted small">Nenhuma empresa cadastrada.</td></tr>
+                        <?php if (empty($companiesWithKey)): ?>
+                            <tr><td colspan="2" class="text-muted small">Nenhuma chave gerada ainda.</td></tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
             </div>
+
+            <?php if (!empty($companiesWithoutKey)): ?>
+                <div class="mt-3">
+                    <!-- Botão que revela o seletor de empresa -->
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="btnAddApiKey"
+                        onclick="document.getElementById('addApiKeyRow').style.display='flex'; this.style.display='none';">
+                        <i class="bi bi-plus-lg"></i> Empresa key
+                    </button>
+
+                    <!-- Linha de adição (escondida até clicar) -->
+                    <form action="<?= baseUrl('settings/generateApiKey') ?>" method="POST"
+                          id="addApiKeyRow" class="row g-2 align-items-end" style="display:none;">
+                        <div class="col-md-6">
+                            <label class="form-label small mb-1">Empresa</label>
+                            <select name="company_id" class="form-select form-select-sm" required>
+                                <option value="">Selecione a empresa...</option>
+                                <?php foreach ($companiesWithoutKey as $comp): ?>
+                                    <option value="<?= (int)$comp['id'] ?>"><?= escape($comp['name']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <button type="submit" class="btn btn-sm btn-primary w-100"><i class="bi bi-key"></i> Gerar chave</button>
+                        </div>
+                        <div class="col-md-3">
+                            <button type="button" class="btn btn-sm btn-outline-secondary w-100"
+                                onclick="document.getElementById('addApiKeyRow').style.display='none'; document.getElementById('btnAddApiKey').style.display='inline-block';">
+                                Cancelar
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            <?php elseif (empty($companies)): ?>
+                <p class="text-muted small mt-3 mb-0">Nenhuma empresa cadastrada.</p>
+            <?php endif; ?>
         </div>
     </div>
 
