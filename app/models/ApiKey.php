@@ -146,4 +146,29 @@ class ApiKey
         }
         return $map;
     }
+
+    /**
+     * Atualiza a URL de callback e o liga/desliga de uma empresa (recurso de
+     * callback de status da API v1 — mão dupla).
+     *
+     * Só é possível cadastrar callback para empresas que já têm chave de API
+     * (a chave é a identidade da integração). Retorna false se a empresa não
+     * tiver chave. A URL é normalizada (trim); string vazia grava NULL.
+     *
+     * Não valida o formato da URL aqui — a validação/decisão de disparo fica em
+     * ApiCallbackService::isValidCallbackUrl, usada no momento de enfileirar.
+     */
+    public function updateCallback(int $companyId, string $callbackUrl, bool $enabled): bool
+    {
+        $existing = $this->findByCompany($companyId);
+        if (!$existing) {
+            return false;
+        }
+        $url = trim($callbackUrl);
+        $this->db->update('api_keys', [
+            'callback_url'     => $url !== '' ? $url : null,
+            'callback_enabled' => $enabled ? 1 : 0,
+        ], 'company_id = ?', [$companyId]);
+        return true;
+    }
 }

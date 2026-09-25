@@ -868,7 +868,9 @@
             <p class="text-muted small mb-3">
                 Cada empresa tem uma chave usada por seu sistema para criar chamados via
                 <code>POST /api/v1/tickets</code> (cabeçalho <code>X-Api-Key</code>). Gere a chave e repasse-a,
-                por canal seguro, ao sistema do cliente. Consulte <code>docs/api-v1-chamados.md</code> para o guia de integração.
+                por canal seguro, ao sistema do cliente. O guia completo de integração está
+                logo abaixo, no bloco <strong>"Documentação da API de demandas"</strong>
+                (e também em <code>docs/api-v1-chamados.md</code>).
             </p>
 
             <?php
@@ -891,15 +893,20 @@
                         <tr class="small text-muted">
                             <th>Empresa</th>
                             <th>Chave de API</th>
+                            <th>Callback de status (retorno para o sistema externo)</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php foreach ($companiesWithKey as $comp): ?>
-                            <?php $key = $apiKeysByCompany[(int)$comp['id']]; ?>
+                            <?php
+                                $key = $apiKeysByCompany[(int)$comp['id']];
+                                $cbUrl = $key['callback_url'] ?? '';
+                                $cbEnabled = (int)($key['callback_enabled'] ?? 0) === 1;
+                            ?>
                             <tr>
                                 <td class="small"><?= escape($comp['name']) ?></td>
                                 <td class="small">
-                                    <div class="input-group input-group-sm" style="max-width:520px;">
+                                    <div class="input-group input-group-sm" style="max-width:420px;">
                                         <input type="text" class="form-control" readonly value="<?= escape($key['api_key']) ?>">
                                         <button type="button" class="btn btn-outline-secondary" title="Copiar"
                                             onclick="(function(b){var i=b.previousElementSibling;i.select();document.execCommand('copy');})(this)">
@@ -907,14 +914,42 @@
                                         </button>
                                     </div>
                                 </td>
+                                <td class="small">
+                                    <form action="<?= baseUrl('settings/saveApiCallback') ?>" method="POST" class="d-flex flex-column gap-2" style="max-width:460px;">
+                                        <input type="hidden" name="company_id" value="<?= (int)$comp['id'] ?>">
+                                        <input type="url" name="callback_url" class="form-control form-control-sm"
+                                               value="<?= escape($cbUrl) ?>" placeholder="https://puntacana.exemplo.com/lrv/callback">
+                                        <div class="d-flex align-items-center gap-2 flex-wrap">
+                                            <div class="form-check form-switch mb-0">
+                                                <input class="form-check-input" type="checkbox" name="callback_enabled" value="1"
+                                                       id="cbEnabled<?= (int)$comp['id'] ?>" <?= $cbEnabled ? 'checked' : '' ?>>
+                                                <label class="form-check-label small" for="cbEnabled<?= (int)$comp['id'] ?>">Ativo</label>
+                                            </div>
+                                            <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-check-lg"></i> Salvar</button>
+                                            <button type="button" class="btn btn-sm btn-outline-primary"
+                                                    onclick="testApiCallback(<?= (int)$comp['id'] ?>, this)">
+                                                <i class="bi bi-send-check"></i> Testar
+                                            </button>
+                                            <span class="cb-test-result small"></span>
+                                        </div>
+                                    </form>
+                                </td>
                             </tr>
                         <?php endforeach; ?>
                         <?php if (empty($companiesWithKey)): ?>
-                            <tr><td colspan="2" class="text-muted small">Nenhuma chave gerada ainda.</td></tr>
+                            <tr><td colspan="3" class="text-muted small">Nenhuma chave gerada ainda.</td></tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
             </div>
+            <p class="text-muted small mt-2 mb-0">
+                O <strong>callback</strong> é opcional e independente da chave: quando ativo e com URL válida,
+                o LRV faz um <code>POST</code> para essa URL sempre que o <strong>status</strong> muda em uma demanda
+                <strong>criada via API</strong> por esta empresa (que tem <code>external_ref</code>). Demandas internas
+                do LRV (sem <code>external_ref</code>) não geram callback. A entrega é assíncrona (fila processada por
+                cron), então não trava a operação interna se o sistema externo estiver indisponível — em caso de falha
+                há reenvio automático.
+            </p>
 
             <?php if (!empty($companiesWithoutKey)): ?>
                 <div class="mt-3">
@@ -953,7 +988,144 @@
         </div>
     </div>
 
+    <?php
+        // URL base pública já resolvida (mesma lógica usada no restante da tela),
+        // para exibir o endpoint real pronto para copiar — sem placeholders.
+        $apiBase = rtrim($settings['app_public_url'] ?? '', '/');
+        if ($apiBase === '') { $apiBase = rtrim(baseUrl(''), '/'); }
+        $ticketsEndpoint = $apiBase . '/api/v1/tickets';
+        $callbackCron = $apiBase . '/cron-api-callback.php';
+    ?>
+
+    <!-- Documentação FUNCIONAL da API de demandas (consultável na própria tela) -->
+    <div class="card mb-4">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center">
+            <h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-journal-code"></i> Documentação da API de demandas</h6>
+            <a href="#apiDocsBody" class="btn btn-outline-info btn-sm" data-bs-toggle="collapse" role="button">
+                <i class="bi bi-book"></i> Ver / ocultar
+            </a>
+        </div>
+        <div class="collapse show" id="apiDocsBody">
+            <div class="card-body" style="font-size:0.82rem;">
+                <p class="text-muted small">
+                    Informações que o sistema externo (ex.: Punta Cana) precisa para integrar com o LRV.
+                    Valores já resolvidos para <strong>este ambiente</strong> — copie e repasse ao integrador.
+                </p>
+
+                <!-- Fluxo -->
+                <div class="mb-3">
+                    <strong><i class="bi bi-diagram-3"></i> Fluxo</strong>
+                    <ol class="mt-1 mb-0 ps-3">
+                        <li><strong>Envio (sistema externo → LRV):</strong> o sistema externo faz <code>POST</code> no endpoint de criação com a chave da empresa (<code>X-Api-Key</code>) e os dados da demanda.</li>
+                        <li><strong>Processamento (LRV):</strong> o LRV cria a demanda, gera o card no Planejamento e dispara as notificações internas.</li>
+                        <li><strong>Retorno de status (LRV → sistema externo):</strong> sempre que o <strong>status</strong> muda em uma demanda criada via API (com <code>external_ref</code>), o LRV faz um <code>POST</code> na <strong>URL de callback</strong> cadastrada acima, identificando a demanda pelo <code>external_ref</code> enviado na criação.</li>
+                    </ol>
+                </div>
+
+                <!-- Endpoint -->
+                <div class="mb-3">
+                    <strong><i class="bi bi-box-arrow-in-right"></i> Endpoint de criação</strong>
+                    <div class="input-group input-group-sm mt-1" style="max-width:640px;">
+                        <span class="input-group-text">POST</span>
+                        <input type="text" class="form-control" readonly value="<?= escape($ticketsEndpoint) ?>">
+                        <button type="button" class="btn btn-outline-secondary" title="Copiar"
+                            onclick="(function(b){var i=b.previousElementSibling;i.select();document.execCommand('copy');})(this)"><i class="bi bi-clipboard"></i></button>
+                    </div>
+                    <div class="small text-muted mt-1">Cabeçalhos: <code>X-Api-Key: &lt;chave da empresa&gt;</code> e <code>Content-Type: application/json</code>.</div>
+                </div>
+
+                <!-- Payload de envio -->
+                <div class="mb-3">
+                    <strong><i class="bi bi-arrow-up-right-circle"></i> Corpo do envio (criação da demanda)</strong>
+                    <pre class="bg-light border rounded p-2 mt-1 mb-1" style="white-space:pre-wrap;">{
+  "title": "Erro ao emitir nota fiscal",       // obrigatório
+  "description": "Retorna erro 500 ao emitir.", // obrigatório
+  "priority": "high",                            // opcional: low | medium | high | urgent (padrão: medium)
+  "category": "suporte",                         // opcional
+  "requester_name": "Maria Souza",               // opcional
+  "requester_company": "Punta Cana",             // opcional
+  "external_ref": "PUNTACANA-2026-000123"        // recomendado: id do chamado no sistema externo (idempotência)
+}</pre>
+                    <div class="small text-muted">Resposta <code>201</code>: <code>{ "success": true, "data": { "id", "client_ticket_number", "status": "open", "external_ref", ... } }</code>. Reenvio com o mesmo <code>external_ref</code> retorna <code>200</code> com <code>"idempotent": true</code> (não duplica).</div>
+                </div>
+
+                <!-- Payload de callback -->
+                <div class="mb-3">
+                    <strong><i class="bi bi-arrow-down-left-circle"></i> Corpo do callback (retorno de status, LRV → sistema externo)</strong>
+                    <pre class="bg-light border rounded p-2 mt-1 mb-1" style="white-space:pre-wrap;">POST &lt;sua URL de callback&gt;
+Content-Type: application/json
+
+{
+  "event": "ticket.status_changed",
+  "id": 4821,                              // id interno no LRV
+  "client_ticket_number": 37,             // nº sequencial da demanda por empresa
+  "external_ref": "PUNTACANA-2026-000123", // a MESMA referência enviada na criação
+  "previous_status": "open",
+  "status": "in_progress",
+  "changed_at": "2026-09-25 14:20:11"
+}</pre>
+                    <div class="small text-muted">Espera-se que o sistema externo responda <code>2xx</code>. Sem <code>2xx</code>, o LRV reenvia (até 3 tentativas). Um <code>POST</code> de teste enviado pelo botão "Testar" inclui <code>"test": true</code>.</div>
+                </div>
+
+                <!-- Status possíveis -->
+                <div class="mb-3">
+                    <strong><i class="bi bi-list-check"></i> Valores possíveis de <code>status</code></strong>
+                    <div class="small mt-1">
+                        <code>open</code>, <code>in_progress</code>, <code>em_revisao_interna</code>,
+                        <code>waiting_client</code>, <code>em_homologacao</code>, <code>aprovado_producao</code>,
+                        <code>completed</code>, <code>denied</code>, <code>archived</code>
+                    </div>
+                </div>
+
+                <!-- Requisitos internos -->
+                <div class="mb-0">
+                    <strong><i class="bi bi-gear"></i> Requisitos internos (lado do LRV)</strong>
+                    <ul class="small mt-1 mb-0 ps-3">
+                        <li>Migrations aplicadas: <code>133_api_keys.sql</code>, <code>134_tickets_external_ref.sql</code> e <code>135_api_callback.sql</code>.</li>
+                        <li>Agendar o processador da fila de callbacks (cron, a cada minuto):
+                            <div class="input-group input-group-sm mt-1" style="max-width:640px;">
+                                <input type="text" class="form-control" readonly value="<?= escape($callbackCron) ?>">
+                                <button type="button" class="btn btn-outline-secondary" title="Copiar"
+                                    onclick="(function(b){var i=b.previousElementSibling;i.select();document.execCommand('copy');})(this)"><i class="bi bi-clipboard"></i></button>
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
 </div>
+
+<script>
+// Testa o callback de uma empresa: dispara um POST de exemplo para a URL
+// cadastrada e mostra o resultado ao lado do botão.
+function testApiCallback(companyId, btn) {
+    const form = btn.closest('form');
+    const result = form ? form.querySelector('.cb-test-result') : null;
+    const orig = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    if (result) { result.textContent = ''; result.className = 'cb-test-result small'; }
+
+    const fd = new FormData();
+    fd.append('company_id', companyId);
+
+    fetch('<?= baseUrl("settings/testApiCallback") ?>', { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(r => r.json())
+        .then(d => {
+            btn.disabled = false; btn.innerHTML = orig;
+            if (result) {
+                result.className = 'cb-test-result small ' + (d.success ? 'text-success' : 'text-danger');
+                result.textContent = d.message || (d.success ? 'OK' : 'Falha');
+            }
+        })
+        .catch(() => {
+            btn.disabled = false; btn.innerHTML = orig;
+            if (result) { result.className = 'cb-test-result small text-danger'; result.textContent = 'Erro na requisição.'; }
+        });
+}
+</script>
 
 <script>
 // Consolida os dias da semana marcados no campo oculto antes de enviar o form.

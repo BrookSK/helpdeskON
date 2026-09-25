@@ -225,6 +225,115 @@ class SettingsController extends Controller
     }
 
     /**
+     * Salva a URL de callback (retorno de status da API v1) e o liga/desliga de
+     * uma empresa. A empresa precisa já ter chave de API. Valida o formato da URL
+     * quando o callback é habilitado.
+     */
+    public function saveApiCallback()
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            $this->redirect('settings');
+        }
+
+        $companyId = (int)($_POST['company_id'] ?? 0);
+        $callbackUrl = trim((string)($_POST['callback_url'] ?? ''));
+        $enabled = !empty($_POST['callback_enabled']);
+
+        if ($companyId <= 0) {
+            flash('error', 'Informe a empresa.');
+            $this->redirect('settings');
+        }
+
+        // Se vai habilitar, a URL precisa ser válida (http/https). Desabilitar
+        // sem URL é permitido (apenas desliga).
+        if ($enabled && !ApiCallbackService::isValidCallbackUrl($callbackUrl)) {
+            flash('error', 'URL de callback inválida. Use uma URL http(s) completa.');
+            $this->redirect('settings');
+        }
+
+        try {
+            $ok = (new ApiKey())->updateCallback($companyId, $callbackUrl, $enabled);
+            if ($ok) {
+                flash('success', 'Callback atualizado.');
+            } else {
+                flash('error', 'Gere a chave de API desta empresa antes de configurar o callback.');
+            }
+        } catch (\Throwable $e) {
+            Logger::error('Falha ao salvar callback da API', ['error' => $e->getMessage()]);
+            flash('error', 'Não foi possível salvar o callback. Verifique se a migration 135 foi aplicada.');
+        }
+
+        $this->redirect('settings');
+    }
+
+    /**
+     * Dispara um POST de TESTE para a URL de callback de uma empresa e devolve o
+     * resultado (JSON), no mesmo estilo dos demais botões "Testar" da tela. Não
+     * usa a fila — é um envio direto e imediato, só para validar a URL.
+     *
+     * O corpo do teste segue o mesmo formato do callback real de status, com
+     * "test": true e valores de exemplo, para o sistema externo poder reconhecer
+     * e ignorar.
+     */
+    public function testApiCallback()
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            $this->json(['success' => false, 'message' => 'Método não permitido.'], 405);
+        }
+
+        $companyId = (int)($_POST['company_id'] ?? 0);
+        if ($companyId <= 0) {
+            $this->json(['success' => false, 'message' => 'Empresa inválida.']);
+        }
+
+        $apiKey = (new ApiKey())->findByCompany($companyId);
+        if (!$apiKey) {
+            $this->json(['success' => false, 'message' => 'Esta empresa ainda não tem chave de API.']);
+        }
+
+        $callbackUrl = trim((string)($apiKey['callback_url'] ?? ''));
+        if (!ApiCallbackService::isValidCallbackUrl($callbackUrl)) {
+            $this->json(['success' => false, 'message' => 'Cadastre uma URL de callback válida antes de testar.']);
+        }
+
+        $payload = [
+            'event'                => ApiCallbackService::EVENT_STATUS_CHANGED,
+            'test'                 => true,
+            'id'                   => 0,
+            'client_ticket_number' => 0,
+            'external_ref'         => 'TEST-CALLBACK',
+            'previous_status'      => 'open',
+            'status'               => 'in_progress',
+            'changed_at'           => date('Y-m-d H:i:s'),
+        ];
+
+        $ch = curl_init($callbackUrl);
+        curl_setopt_array($ch, [
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            CURLOPT_HTTPHEADER     => [
+                'Content-Type: application/json',
+                'User-Agent: helpdeskON-callback/1',
+            ],
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 15,
+            CURLOPT_CONNECTTIMEOUT => 10,
+        ]);
+        curl_exec($ch);
+        $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $error    = curl_error($ch);
+        curl_close($ch);
+
+        if ($error === '' && $httpCode >= 200 && $httpCode < 300) {
+            $this->json(['success' => true, 'message' => "Callback de teste entregue (HTTP {$httpCode})."]);
+        }
+        $detail = $error !== '' ? $error : ('HTTP ' . $httpCode);
+        $this->json(['success' => false, 'message' => "Falha ao entregar o callback de teste ({$detail})."]);
+    }
+
+    /**
      * Upload da logo da assinatura. Mais tolerante que uploadBrandFile: valida por
      * EXTENSÃO (não confia só no MIME do navegador, que às vezes vem genérico) e
      * aceita até 3MB. Retorna o caminho relativo salvo ou null.

@@ -299,15 +299,51 @@ class Ticket
         if (self::isAdmissionTransition($previousStatus, $status)) {
             $this->stampAdmittedAt($id);
         }
-        return $this->db->update('tickets', $data, 'id = ?', [$id]);
+        $result = $this->db->update('tickets', $data, 'id = ?', [$id]);
+
+        // Callback da API de demandas (mão dupla): se o status mudou e a empresa
+        // do ticket tem callback configurado, ENFILEIRA o aviso ao sistema
+        // externo. Best-effort — jamais quebra a atualização de status (este é o
+        // ponto de estrangulamento por onde TODOS os fluxos de mudança de status
+        // passam: Kanban, tela de tickets, edição de card).
+        $this->enqueueApiStatusCallback((int)$id, $previousStatus, (string)$status);
+
+        return $result;
     }
 
     public function assignAttendant($ticketId, $attendantId)
     {
         // A atribuição em si NÃO é admissão (demanda #251, Opção A). O ticket vai
         // para 'in_progress', e é essa entrada em trabalho que carimba a admissão.
+        $previous = $this->db->fetch("SELECT status FROM tickets WHERE id = ?", [$ticketId]);
+        $previousStatus = $previous['status'] ?? null;
+
         $this->db->update('tickets', ['attendant_id' => $attendantId, 'status' => 'in_progress'], 'id = ?', [$ticketId]);
-        return $this->stampAdmittedAt($ticketId);
+        $result = $this->stampAdmittedAt($ticketId);
+
+        // Este caminho muda o status para 'in_progress' sem passar por
+        // updateStatus(); então também enfileira o callback aqui.
+        $this->enqueueApiStatusCallback((int)$ticketId, $previousStatus, 'in_progress');
+
+        return $result;
+    }
+
+    /**
+     * Enfileira (best-effort) o callback de mudança de status da API de demandas.
+     * Isolado em um método próprio para ser reaproveitado pelos caminhos que
+     * mudam status (updateStatus/assignAttendant) e para não poluir a lógica de
+     * admissão. Nunca lança exceção.
+     */
+    private function enqueueApiStatusCallback(int $ticketId, ?string $previousStatus, string $newStatus): void
+    {
+        if (!class_exists('ApiCallbackService')) {
+            return;
+        }
+        try {
+            (new ApiCallbackService())->enqueueStatusChange($ticketId, $previousStatus, $newStatus);
+        } catch (\Throwable $e) {
+            // Silencioso: o callback é complementar e não pode afetar o fluxo.
+        }
     }
 
     /**
