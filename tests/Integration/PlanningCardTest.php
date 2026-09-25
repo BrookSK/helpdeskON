@@ -202,4 +202,45 @@ final class PlanningCardTest extends TestCase
             $this->db->delete('companies', 'id = ?', [$outraEmpresa]);
         }
     }
+
+    /**
+     * Helper: coleta todos os IDs de cards retornados por getGroupedByStatus,
+     * achatando o agrupamento por status.
+     */
+    private function idsAgrupados(array $filters): array
+    {
+        $grouped = $this->cards->getGroupedByStatus($filters);
+        $ids = [];
+        foreach ($grouped as $cards) {
+            foreach ($cards as $c) {
+                $ids[] = (int) $c['id'];
+            }
+        }
+        return $ids;
+    }
+
+    public function testFiltroSemResponsavelTrazSomenteCardsSemDono(): void
+    {
+        // Um card COM responsável (o próprio usuário de teste) e um SEM.
+        $comDono = $this->novoCard(['title' => 'Com dono', 'assigned_to' => $this->userId]);
+        $semDono = $this->novoCard(['title' => 'Sem dono', 'assigned_to' => null]);
+
+        // Filtro "sem responsável" (valor especial 'none').
+        $ids = $this->idsAgrupados(['assigned_to' => ['none']]);
+
+        $this->assertContains($semDono, $ids, 'Card sem responsável deveria aparecer.');
+        $this->assertNotContains($comDono, $ids, 'Card com responsável não deveria aparecer.');
+    }
+
+    public function testFiltroCombinaResponsavelEeSemResponsavel(): void
+    {
+        $comDono = $this->novoCard(['title' => 'Com dono', 'assigned_to' => $this->userId]);
+        $semDono = $this->novoCard(['title' => 'Sem dono', 'assigned_to' => null]);
+
+        // Seleciona o usuário E "sem responsável": deve trazer os dois.
+        $ids = $this->idsAgrupados(['assigned_to' => [$this->userId, 'none']]);
+
+        $this->assertContains($comDono, $ids);
+        $this->assertContains($semDono, $ids);
+    }
 }

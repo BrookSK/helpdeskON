@@ -38,7 +38,9 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
             <?php
             // Valores selecionados (arrays) para marcar os checkboxes
             $selCompanies = array_map('intval', (array)($filters['company_id'] ?? []));
-            $selAssigned  = array_map('intval', (array)($filters['assigned_to'] ?? []));
+            $rawAssignedSel = (array)($filters['assigned_to'] ?? []);
+            $selAssignedNone = in_array('none', $rawAssignedSel, true) || !empty($filters['assigned_none']);
+            $selAssigned  = array_map('intval', array_filter($rawAssignedSel, fn($v) => $v !== 'none'));
             $selRequesters = array_map('intval', (array)($filters['created_by'] ?? []));
             $selStatuses  = (array)($filters['statuses'] ?? []);
             ?>
@@ -77,6 +79,10 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                             <label class="dropdown-item d-flex align-items-center gap-2 px-2 py-1 fw-medium" style="cursor:pointer;">
                                 <input class="form-check-input mt-0 mf-all" type="checkbox">
                                 <span class="small">Selecionar todos</span>
+                            </label>
+                            <label class="dropdown-item d-flex align-items-center gap-2 px-2 py-1" style="cursor:pointer;">
+                                <input class="form-check-input mt-0 mf-none" type="checkbox" name="assigned_to[]" value="none" <?= $selAssignedNone ? 'checked' : '' ?>>
+                                <span class="small fst-italic text-muted">Sem responsável</span>
                             </label>
                             <div class="dropdown-divider my-1"></div>
                             <?php foreach ($teamMembers as $m): ?>
@@ -2071,12 +2077,16 @@ document.getElementById('cardDetailModal').addEventListener('shown.bs.modal', fu
         var span = dropdown.querySelector('.dropdown-toggle span');
         var checks = dropdown.querySelectorAll('.mf-check');
         var selected = Array.prototype.filter.call(checks, function (c) { return c.checked; });
-        var count = selected.length;
+        // Opção especial "Sem responsável" (mf-none) conta junto no rótulo.
+        var noneEl = dropdown.querySelector('.mf-none');
+        var noneOn = !!(noneEl && noneEl.checked);
+        var count = selected.length + (noneOn ? 1 : 0);
         if (count === 0) {
             span.textContent = span.getAttribute('data-ph');
         } else if (count === 1) {
             // Mostra o próprio nome quando só há um selecionado
-            var lbl = selected[0].parentElement.querySelector('span');
+            var only = noneOn ? noneEl : selected[0];
+            var lbl = only.parentElement.querySelector('span');
             span.textContent = lbl ? lbl.textContent.trim() : ('1 ' + span.getAttribute('data-single'));
         } else {
             span.textContent = count + ' ' + span.getAttribute('data-plural');
@@ -2115,6 +2125,12 @@ document.getElementById('cardDetailModal').addEventListener('shown.bs.modal', fu
                 syncMaster(dropdown);
             });
         });
+
+        // Opção "Sem responsável": só atualiza o rótulo (não entra no "selecionar todos").
+        var noneEl = dropdown.querySelector('.mf-none');
+        if (noneEl) {
+            noneEl.addEventListener('change', function () { updateLabel(dropdown); });
+        }
     });
 })();
 </script>

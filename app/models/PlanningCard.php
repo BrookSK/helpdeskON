@@ -88,9 +88,16 @@ class PlanningCard
         }
 
         // Filtro de responsáveis (múltipla escolha).
+        // O valor especial 'none' representa "Sem responsável" (assigned_to IS NULL).
         $assignedIds = [];
+        $assignedNone = false;
         if (!empty($filters['assigned_to'])) {
-            $assignedIds = array_values(array_unique(array_filter(array_map('intval', (array)$filters['assigned_to']))));
+            $rawAssigned = (array)$filters['assigned_to'];
+            $assignedNone = in_array('none', $rawAssigned, true);
+            $assignedIds = array_values(array_unique(array_filter(array_map('intval', $rawAssigned))));
+        }
+        if (!empty($filters['assigned_none'])) {
+            $assignedNone = true;
         }
 
         // Filtro de empresas (múltipla escolha).
@@ -124,10 +131,18 @@ class PlanningCard
                 $sql .= " AND pc.company_id IN ($ph)";
                 $params = array_merge($params, $companyIds);
             }
-            if (!empty($assignedIds)) {
+            if (!empty($assignedIds) && $assignedNone) {
+                // Responsáveis selecionados OU sem responsável (assigned_to NULL).
+                $ph = implode(',', array_fill(0, count($assignedIds), '?'));
+                $sql .= " AND (pc.assigned_to IN ($ph) OR pc.assigned_to IS NULL)";
+                $params = array_merge($params, $assignedIds);
+            } elseif (!empty($assignedIds)) {
                 $ph = implode(',', array_fill(0, count($assignedIds), '?'));
                 $sql .= " AND pc.assigned_to IN ($ph)";
                 $params = array_merge($params, $assignedIds);
+            } elseif ($assignedNone) {
+                // Apenas cards sem responsável.
+                $sql .= " AND pc.assigned_to IS NULL";
             }
             if (!empty($createdByIds)) {
                 $ph = implode(',', array_fill(0, count($createdByIds), '?'));
@@ -207,11 +222,19 @@ class PlanningCard
             }
         }
         if (!empty($filters['assigned_to'])) {
-            $ids = array_values(array_unique(array_filter(array_map('intval', (array)$filters['assigned_to']))));
-            if (!empty($ids)) {
+            $rawAssigned = (array)$filters['assigned_to'];
+            $assignedNone = in_array('none', $rawAssigned, true);
+            $ids = array_values(array_unique(array_filter(array_map('intval', $rawAssigned))));
+            if (!empty($ids) && $assignedNone) {
+                $ph = implode(',', array_fill(0, count($ids), '?'));
+                $sql .= " AND (pc.assigned_to IN ($ph) OR pc.assigned_to IS NULL)";
+                $params = array_merge($params, $ids);
+            } elseif (!empty($ids)) {
                 $ph = implode(',', array_fill(0, count($ids), '?'));
                 $sql .= " AND pc.assigned_to IN ($ph)";
                 $params = array_merge($params, $ids);
+            } elseif ($assignedNone) {
+                $sql .= " AND pc.assigned_to IS NULL";
             }
         }
         if (!empty($filters['statuses'])) {
