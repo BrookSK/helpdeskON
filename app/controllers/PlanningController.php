@@ -62,15 +62,14 @@ class PlanningController extends Controller
         }
 
         $userModel = new User();
-        $team = $userModel->getAttendants();
 
-        // whatsapp_agent/developer/analyst só veem a si mesmos na lista de responsáveis
+        // whatsapp_agent/developer/analyst/comercial só veem a si mesmos na lista de responsáveis
         if (in_array($user['role'], ['whatsapp_agent', 'developer', 'analyst', 'comercial'])) {
             $teamMembers = [['id' => $user['id'], 'name' => $user['name']]];
         } else {
-            $db = Database::getInstance();
-            $admins = $db->fetchAll("SELECT id, name FROM users WHERE role = 'super_admin' AND is_active = 1");
-            $teamMembers = array_merge($admins, $team);
+            // Filtro "Responsáveis": mesmos papéis que podem ser DONOS do card
+            // (inclui developer), para que seja possível filtrar por qualquer dono.
+            $teamMembers = $userModel->getByRoles(['super_admin', 'attendant', 'whatsapp_agent', 'analyst', 'developer']);
         }
 
         // Listas específicas por papel para os seletores do card.
