@@ -131,4 +131,54 @@ final class VideoRoomRulesTest extends TestCase
         $this->assertTrue($s['micButtonOff']);
         $this->assertTrue($s['camButtonOff']);
     }
+
+    // ---- rótulo do link de reunião (Google Meet real x sala de vídeo do sistema) ----
+
+    public function testDetectaLinkDaSalaNativa(): void
+    {
+        // Cenário do bug: link é a sala interna do helpdesk, não o Google Meet.
+        $url = 'https://helpdesk.onsolutionsbrasil.com.br/videocall/room/f97c2bc7f8b52bed1569ff8b7012cc93';
+        $this->assertTrue(VideoRoomRules::isNativeRoomLink($url));
+        $this->assertFalse(VideoRoomRules::isGoogleMeetLink($url));
+        // Sem domínio (rota relativa) também conta como sala nativa.
+        $this->assertTrue(VideoRoomRules::isNativeRoomLink('/videocall/room/abc'));
+    }
+
+    public function testDetectaLinkDoGoogleMeet(): void
+    {
+        $url = 'https://meet.google.com/abc-defg-hij';
+        $this->assertTrue(VideoRoomRules::isGoogleMeetLink($url));
+        $this->assertFalse(VideoRoomRules::isNativeRoomLink($url));
+    }
+
+    public function testLinkVazioOuNuloNaoEhNenhumDosDois(): void
+    {
+        foreach (['', null] as $v) {
+            $this->assertFalse(VideoRoomRules::isNativeRoomLink($v));
+            $this->assertFalse(VideoRoomRules::isGoogleMeetLink($v));
+        }
+    }
+
+    public function testRotuloDoBotaoConformeTipoDeLink(): void
+    {
+        // Meet real -> menciona Google Meet.
+        $this->assertSame(
+            'Entrar na reunião (Google Meet)',
+            VideoRoomRules::meetingButtonLabel('https://meet.google.com/abc-defg-hij')
+        );
+        // Sala nativa -> NÃO pode dizer Google Meet (era o bug).
+        $labelSala = VideoRoomRules::meetingButtonLabel('https://helpdesk.onsolutionsbrasil.com.br/videocall/room/xyz');
+        $this->assertSame('Entrar na sala de vídeo', $labelSala);
+        $this->assertStringNotContainsStringIgnoringCase('Google Meet', $labelSala);
+        // Indefinido -> rótulo neutro, sem prometer provedor.
+        $this->assertSame('Entrar na reunião', VideoRoomRules::meetingButtonLabel(''));
+        $this->assertSame('Entrar na reunião', VideoRoomRules::meetingButtonLabel(null));
+    }
+
+    public function testRotuloDoCanalConformeTipoDeLink(): void
+    {
+        $this->assertSame('Google Meet', VideoRoomRules::meetingChannelLabel('https://meet.google.com/abc'));
+        $this->assertSame('sala de vídeo', VideoRoomRules::meetingChannelLabel('https://x/videocall/room/1'));
+        $this->assertSame('reunião', VideoRoomRules::meetingChannelLabel(''));
+    }
 }

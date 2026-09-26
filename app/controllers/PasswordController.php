@@ -29,6 +29,12 @@ class PasswordController extends Controller
             $this->redirect('password/forgot');
         }
 
+        // CSRF: fluxo público (sem requireLogin), valida explicitamente.
+        if (!verify_csrf($_POST['csrf_token'] ?? '')) {
+            flash('error', 'Sessão expirada. Recarregue a página e tente novamente.');
+            $this->redirect('password/forgot');
+        }
+
         $email = trim($_POST['email'] ?? '');
 
         if (empty($email)) {
@@ -114,6 +120,13 @@ class PasswordController extends Controller
         }
 
         $token = $_POST['token'] ?? '';
+
+        // CSRF: fluxo público (sem requireLogin), valida explicitamente.
+        if (!verify_csrf($_POST['csrf_token'] ?? '')) {
+            flash('error', 'Sessão expirada. Recarregue a página e tente novamente.');
+            $this->redirect('password/reset/' . $token);
+        }
+
         $password = $_POST['password'] ?? '';
         $confirmPassword = $_POST['confirm_password'] ?? '';
 

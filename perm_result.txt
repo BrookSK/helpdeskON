@@ -1,0 +1,24 @@
+PHPUnit 13.3.4 by Sebastian Bergmann and contributors.
+
+Runtime:       PHP 8.5.1
+Configuration: D:\Projects\GitHub\helpdeskON\phpunit.xml
+
+........[33;1mD[0m..                                                       11 / 11 (100%)
+
+Time: 00:00.004, Memory: 18.00 MB
+
+[4mPermissions (Tests\Unit\Permissions)[0m
+[32m ✔ [0mSuper admin acessa todos os modulos
+[32m ✔ [0mDeveloper acessa todos os modulos
+[32m ✔ [0mWhatsapp chat liberado para todos os papeis
+[32m ✔ [0mRdo liberado para equipe interna mas nao para client
+[32m ✔ [0mMarketing ve seus modulos e nao os de outros
+[32m ✔ [0mComercial ve crm e agenda nao ve marketing nem admin
+[32m ✔ [0mClient restrito a area do cliente
+[32m ✔ [0mAdministracao restrita a super admin e developer
+[33m ⚠ [0mPapel nulo ou desconhecido nao acessa nada
+[32m ✔ [0mCan access nao retorna true para modulo inexistente
+[32m ✔ [0mRoles for module whatsapp inclui todos
+
+[30;43mOK, but there were issues![0m
+[30;43mTests: 11[0m[30;43m, Assertions: 113[0m[30;43m, Deprecations: 1[0m[30;43m.[0m

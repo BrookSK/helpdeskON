@@ -30,6 +30,7 @@
         </button>
     </div>
     <nav class="sidebar-nav">
+        <?php $role = $user['role'] ?? null; ?>
         <ul class="nav flex-column">
             <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'dashboard' ? 'active' : '' ?>" href="<?= baseUrl('dashboard') ?>">
@@ -37,30 +38,8 @@
                 </a>
             </li>
 
-            <?php if (($user['role'] ?? '') === 'marketing'): ?>
-            <li class="nav-item">
-                <a class="nav-link <?= ($currentPage ?? '') === 'marketing' ? 'active' : '' ?>" href="<?= baseUrl('marketing') ?>">
-                    <i class="bi bi-megaphone"></i> Marketing
-                </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link <?= ($currentPage ?? '') === 'prospection' ? 'active' : '' ?>" href="<?= baseUrl('prospection') ?>">
-                    <i class="bi bi-envelope-paper"></i> Prospecção E-mail
-                </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link <?= ($currentPage ?? '') === 'prospection_inbox' ? 'active' : '' ?>" href="<?= baseUrl('prospection/inbox') ?>">
-                    <i class="bi bi-inbox"></i> Caixa de Entrada
-                </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link <?= ($currentPage ?? '') === 'buffer_dashboard' ? 'active' : '' ?>" href="<?= baseUrl('buffer/dashboard') ?>">
-                    <i class="bi bi-graph-up-arrow"></i> Métricas Sociais
-                </a>
-            </li>
-            <?php endif; ?>
-
-            <?php if (($user['role'] ?? '') === 'client'): ?>
+            <?php // ===== Área do cliente ===== ?>
+            <?php if ($role === 'client'): ?>
             <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'tickets' ? 'active' : '' ?>" href="<?= baseUrl('tickets') ?>">
                     <i class="bi bi-ticket-detailed"></i> Minhas Demandas
@@ -90,72 +69,88 @@
                 </a>
             </li>
             <?php endif; ?>
+            <?php endif; // fim cliente ?>
+
+            <?php // ===== Relatório Diário (RDO) — equipe interna ===== ?>
+            <?php if (Permissions::canAccess($role, 'rdo')): ?>
+            <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'rdo' ? 'active' : '' ?>" href="<?= baseUrl('rdo') ?>">
+                    <i class="bi bi-journal-text"></i> Relatório Diário
+                </a>
+            </li>
             <?php endif; ?>
 
-            <?php if (in_array($user['role'] ?? '', ['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial'])): ?>
+            <?php // ===== Operacional / Suporte ===== ?>
+            <?php if (Permissions::canAccess($role, 'tickets')): ?>
             <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'tickets' ? 'active' : '' ?>" href="<?= baseUrl('tickets') ?>">
                     <i class="bi bi-list-task"></i> Demandas
                 </a>
             </li>
-
-            <?php if (($user['role'] ?? '') === 'super_admin'): ?>
+            <?php endif; ?>
+            <?php if (Permissions::canAccess($role, 'tickets_create')): ?>
             <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'create' ? 'active' : '' ?>" href="<?= baseUrl('tickets/create') ?>">
                     <i class="bi bi-plus-circle"></i> Nova Demanda
                 </a>
             </li>
             <?php endif; ?>
-            <?php if (($user['role'] ?? '') !== 'comercial'): ?>
+            <?php if ($role !== 'client' && Permissions::canAccess($role, 'documents')): ?>
             <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'documents' ? 'active' : '' ?>" href="<?= baseUrl('documents') ?>">
                     <i class="bi bi-folder"></i> Documentos
                 </a>
             </li>
             <?php endif; ?>
+            <?php if (Permissions::canAccess($role, 'planning')): ?>
             <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'planning' ? 'active' : '' ?>" href="<?= baseUrl('planning') ?>">
                     <i class="bi bi-calendar2-check"></i> Planejamento
                 </a>
             </li>
-            <?php if (in_array($user['role'] ?? '', ['super_admin', 'comercial'])): ?>
+            <?php endif; ?>
+            <?php if (Permissions::canAccess($role, 'agenda')): ?>
             <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'agenda' ? 'active' : '' ?>" href="<?= baseUrl('agenda') ?>">
                     <i class="bi bi-calendar2-week"></i> Agenda
                 </a>
             </li>
             <?php endif; ?>
-            <?php if (in_array($user['role'] ?? '', ['super_admin', 'attendant', 'developer', 'analyst', 'comercial', 'marketing', 'whatsapp_agent'])): ?>
+            <?php if (Permissions::canAccess($role, 'videocall')): ?>
             <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'videocall' ? 'active' : '' ?>" href="<?= baseUrl('videocall/myRecordings') ?>">
                     <i class="bi bi-collection-play"></i> Gravações
                 </a>
             </li>
             <?php endif; ?>
-            <?php if (in_array($user['role'] ?? '', ['super_admin', 'comercial', 'attendant'])): ?>
+            <?php $canPerfCom = Permissions::canAccess($role, 'performance_comercial'); ?>
+            <?php $canPerfOp = Permissions::canAccess($role, 'performance_operacional'); ?>
+            <?php if ($canPerfCom || $canPerfOp): ?>
             <?php $perfSectionActive = in_array($currentPage ?? '', ['agenda_dashboard', 'performance_operacional']); ?>
             <li class="nav-item">
-                <a class="nav-link d-flex align-items-center justify-content-between <?= $perfSectionActive ? 'active' : '' ?>" href="<?= baseUrl('agenda/dashboard') ?>">
+                <a class="nav-link d-flex align-items-center justify-content-between <?= $perfSectionActive ? 'active' : '' ?>" href="<?= baseUrl($canPerfCom ? 'agenda/dashboard' : 'tickets/performance') ?>">
                     <span class="nav-link-body"><i class="bi bi-bar-chart-line"></i> <span class="nav-text">Performance</span></span>
                     <i class="bi bi-chevron-down performance-caret <?= $perfSectionActive ? '' : 'collapsed-caret' ?>" onclick="event.preventDefault();event.stopPropagation();toggleSubnav(this, 'performance-subnav');" style="font-size:0.7rem;padding:4px;cursor:pointer;transition:transform 0.2s;"></i>
                 </a>
             </li>
             <ul class="nav flex-column" id="performance-subnav" style="<?= $perfSectionActive ? '' : 'display:none;' ?>list-style:none;padding-left:0;">
-                <?php if (in_array($user['role'] ?? '', ['super_admin', 'comercial'])): ?>
+                <?php if ($canPerfCom): ?>
                 <li class="nav-item">
                     <a class="nav-link <?= ($currentPage ?? '') === 'agenda_dashboard' ? 'active' : '' ?>" href="<?= baseUrl('agenda/dashboard') ?>" style="padding-left:2.6rem;font-size:0.85rem;">
                         <i class="bi bi-briefcase"></i> Comercial
                     </a>
                 </li>
                 <?php endif; ?>
+                <?php if ($canPerfOp): ?>
                 <li class="nav-item">
                     <a class="nav-link <?= ($currentPage ?? '') === 'performance_operacional' ? 'active' : '' ?>" href="<?= baseUrl('tickets/performance') ?>" style="padding-left:2.6rem;font-size:0.85rem;">
                         <i class="bi bi-gear"></i> Operacional
                     </a>
                 </li>
+                <?php endif; ?>
             </ul>
             <?php endif; ?>
-            <?php if (in_array($user['role'] ?? '', ['super_admin', 'comercial', 'marketing', 'attendant'])): ?>
+            <?php if (Permissions::canAccess($role, 'prospection')): ?>
             <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'prospection' ? 'active' : '' ?>" href="<?= baseUrl('prospection') ?>">
                     <i class="bi bi-envelope-paper"></i> Prospecção E-mail
@@ -167,27 +162,43 @@
                 </a>
             </li>
             <?php endif; ?>
-            <?php if (($user['role'] ?? '') === 'super_admin'): ?>
+            <?php if (Permissions::canAccess($role, 'marketing')): ?>
             <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'marketing' ? 'active' : '' ?>" href="<?= baseUrl('marketing') ?>">
                     <i class="bi bi-megaphone"></i> Marketing
                 </a>
             </li>
+            <?php endif; ?>
+            <?php if (Permissions::canAccess($role, 'social')): ?>
             <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'buffer_dashboard' ? 'active' : '' ?>" href="<?= baseUrl('buffer/dashboard') ?>">
                     <i class="bi bi-graph-up-arrow"></i> Métricas Sociais
                 </a>
             </li>
             <?php endif; ?>
-            <?php if (in_array($user['role'] ?? '', ['super_admin', 'attendant', 'whatsapp_agent', 'comercial'])): ?>
+
+            <?php // ===== WhatsApp & CRM ===== ?>
+            <?php $canWhatsapp = Permissions::canAccess($role, 'whatsapp'); ?>
+            <?php $canCrm = Permissions::canAccess($role, 'crm'); ?>
+            <?php if (($canWhatsapp || $canCrm) && $role !== 'client'): ?>
             <li class="nav-item mt-3">
                 <small class="text-uppercase px-3" style="font-size:0.65rem;color:rgba(255,255,255,0.35);letter-spacing:0.5px;">WhatsApp & CRM</small>
             </li>
+            <?php endif; ?>
+            <?php if ($canWhatsapp): ?>
             <li class="nav-item">
                 <a class="nav-link <?= in_array($currentPage ?? '', ['whatsapp', 'whatsapp_chat']) ? 'active' : '' ?>" href="<?= baseUrl('whatsapp/chat') ?>">
                     <i class="bi bi-whatsapp"></i> WhatsApp Chat
                 </a>
             </li>
+            <?php endif; ?>
+            <?php if ($canCrm): ?>
+            <?php $canApollo = Permissions::canAccess($role, 'crm_apollo'); ?>
+            <?php $canProspecting = Permissions::canAccess($role, 'crm_prospecting'); ?>
+            <?php $canSequences = Permissions::canAccess($role, 'sequences'); ?>
+            <?php $canLinkedin = Permissions::canAccess($role, 'linkedin'); ?>
+            <?php $canLeadcapture = Permissions::canAccess($role, 'leadcapture'); ?>
+            <?php $canLeadcaptureAdmin = Permissions::canAccess($role, 'leadcapture_admin'); ?>
             <?php $crmSectionActive = in_array($currentPage ?? '', ['crm', 'crm_dashboard', 'crm_commissions', 'crm_leads', 'crm_calls', 'crm_capture', 'crm_prospecting', 'sequences', 'linkedin_queue', 'linkedin_run', 'leadcapture_opps', 'leadcapture_config', 'leadcapture_health']); ?>
             <li class="nav-item">
                 <a class="nav-link d-flex align-items-center justify-content-between <?= ($currentPage ?? '') === 'crm' ? 'active' : '' ?>" href="<?= baseUrl('crm') ?>">
@@ -201,37 +212,42 @@
                         <i class="bi bi-graph-up"></i> Dashboard CRM
                     </a>
                 </li>
-                <?php if (in_array($user['role'] ?? '', ['super_admin', 'comercial'])): ?>
+                <?php if ($canApollo): ?>
                 <li class="nav-item">
                     <a class="nav-link <?= ($currentPage ?? '') === 'crm_capture' ? 'active' : '' ?>" href="<?= baseUrl('crm/capture') ?>" style="padding-left:2.6rem;font-size:0.85rem;">
                         <i class="bi bi-search"></i> Apollo (Prospects)
                     </a>
                 </li>
-                <?php if (in_array($user['role'] ?? '', ['super_admin', 'comercial'], true)): ?>
+                <?php endif; ?>
+                <?php if ($canProspecting): ?>
                 <li class="nav-item">
                     <a class="nav-link <?= ($currentPage ?? '') === 'crm_prospecting' ? 'active' : '' ?>" href="<?= baseUrl('crm/prospecting') ?>" style="padding-left:2.6rem;font-size:0.85rem;">
                         <i class="bi bi-robot"></i> Prospecção Automática
                     </a>
                 </li>
                 <?php endif; ?>
+                <?php if ($canSequences): ?>
                 <li class="nav-item">
                     <a class="nav-link <?= ($currentPage ?? '') === 'sequences' ? 'active' : '' ?>" href="<?= baseUrl('sequences') ?>" style="padding-left:2.6rem;font-size:0.85rem;">
                         <i class="bi bi-diagram-3"></i> Sequências
                     </a>
                 </li>
+                <?php endif; ?>
+                <?php if ($canLinkedin): ?>
                 <li class="nav-item">
                     <a class="nav-link <?= in_array($currentPage ?? '', ['linkedin_queue', 'linkedin_run']) ? 'active' : '' ?>" href="<?= baseUrl('linkedin/queue') ?>" style="padding-left:2.6rem;font-size:0.85rem;">
                         <i class="bi bi-linkedin"></i> Minhas Ações
                     </a>
                 </li>
+                <?php endif; ?>
+                <?php if ($canLeadcapture): ?>
                 <?php $lcActive = in_array($currentPage ?? '', ['leadcapture_opps', 'leadcapture_config', 'leadcapture_health']); ?>
-                <?php $lcIsAdmin = ($user['role'] ?? '') === 'super_admin'; ?>
                 <li class="nav-item">
                     <a class="nav-link <?= $lcActive ? 'active' : '' ?>" href="<?= baseUrl('leadcapture/opportunities') ?>" style="padding-left:2.6rem;font-size:0.85rem;">
                         <i class="bi bi-binoculars"></i> Captação de Leads
                     </a>
                 </li>
-                <?php if ($lcActive && $lcIsAdmin): ?>
+                <?php if ($lcActive && $canLeadcaptureAdmin): ?>
                 <li class="nav-item">
                     <a class="nav-link <?= ($currentPage ?? '') === 'leadcapture_opps' ? 'active' : '' ?>" href="<?= baseUrl('leadcapture/opportunities') ?>" style="padding-left:3.4rem;font-size:0.82rem;">
                         <i class="bi bi-dot"></i> Oportunidades
@@ -248,6 +264,7 @@
                     </a>
                 </li>
                 <?php endif; ?>
+                <?php endif; ?>
                 <li class="nav-item">
                     <a class="nav-link <?= ($currentPage ?? '') === 'crm_leads' ? 'active' : '' ?>" href="<?= baseUrl('crm/leads') ?>" style="padding-left:2.6rem;font-size:0.85rem;">
                         <i class="bi bi-person-lines-fill"></i> Meus leads
@@ -263,12 +280,11 @@
                         <i class="bi bi-cash-stack"></i> Comissões
                     </a>
                 </li>
-                <?php endif; ?>
             </ul>
-            <?php endif; ?>
-            <?php endif; ?>
+            <?php endif; // fim CRM ?>
 
-            <?php if (($user['role'] ?? '') === 'super_admin'): ?>
+            <?php // ===== Administração ===== ?>
+            <?php if (Permissions::canAccess($role, 'companies')): ?>
             <li class="nav-item mt-3">
                 <small class="text-uppercase px-3" style="font-size:0.65rem;color:rgba(255,255,255,0.35);letter-spacing:0.5px;">Administração</small>
             </li>
@@ -280,12 +296,16 @@
                 </a>
             </li>
             <ul class="nav flex-column" id="companies-subnav" style="<?= $companiesSectionActive ? '' : 'display:none;' ?>list-style:none;padding-left:0;">
+                <?php if (Permissions::canAccess($role, 'users')): ?>
                 <li class="nav-item">
                     <a class="nav-link <?= ($currentPage ?? '') === 'users' ? 'active' : '' ?>" href="<?= baseUrl('users') ?>" style="padding-left:2.6rem;font-size:0.85rem;">
                         <i class="bi bi-people"></i> Todos os Usuários
                     </a>
                 </li>
+                <?php endif; ?>
             </ul>
+            <?php endif; ?>
+            <?php if (Permissions::canAccess($role, 'settings')): ?>
             <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'settings' ? 'active' : '' ?>" href="<?= baseUrl('settings') ?>">
                     <i class="bi bi-gear"></i> Configurações

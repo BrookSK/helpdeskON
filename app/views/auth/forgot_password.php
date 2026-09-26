@@ -86,6 +86,7 @@
         <?php endif; ?>
 
         <form action="<?= baseUrl('password/sendReset') ?>" method="POST">
+            <?= csrf_field() ?>
             <div class="mb-4">
                 <label class="form-label fw-medium" style="font-size:0.85rem">Email cadastrado</label>
                 <input type="email" name="email" class="form-control" placeholder="seu@email.com" required autofocus>

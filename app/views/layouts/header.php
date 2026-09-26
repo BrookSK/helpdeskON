@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="<?= escape(csrf_token()) ?>">
     <title><?= escape($pageTitle ?? 'ON Solutions Helpdesk') ?></title>
     <?php
     $faviconUrl = Config::get('app_favicon');

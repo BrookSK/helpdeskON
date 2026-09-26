@@ -1,0 +1,23 @@
+PHPUnit 13.3.4 by Sebastian Bergmann and contributors.
+
+Runtime:       PHP 8.5.1
+Configuration: D:\Projects\GitHub\helpdeskON\phpunit.xml
+
+...........                                                       11 / 11 (100%)
+
+Time: 00:10.752, Memory: 18.00 MB
+
+[4mDaily Report (Tests\Integration\DailyReport)[0m
+[32m ✔ [0mCriar e buscar rdo
+[32m ✔ [0mAtualizar rdo
+[32m ✔ [0mExcluir rdo
+[32m ✔ [0mFiltro por busca e status
+[32m ✔ [0mFiltro por data
+[32m ✔ [0mFiltro por ocorrencia
+[32m ✔ [0mStats conta totais por status e ocorrencia
+[32m ✔ [0mEscopo por usuario isola relatorios
+[32m ✔ [0mRegra de visibilidade casa com rdo rules
+[32m ✔ [0mAnexos crud
+[32m ✔ [0mColaboradores replace
+
+[30;42mOK (11 tests, 31 assertions)[0m

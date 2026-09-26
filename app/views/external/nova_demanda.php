@@ -79,6 +79,7 @@
         <div class="card">
             <div class="card-body p-4">
                 <form action="<?= baseUrl('solicitacaoexterna/store') ?>" method="POST" enctype="multipart/form-data">
+                    <?= csrf_field() ?>
                     <div class="row g-3">
                         <div class="col-sm-6">
                             <label class="form-label fw-medium">Seu nome *</label>
@@ -222,8 +223,8 @@
             try {
                 const response = await fetch('<?= baseUrl("solicitacaoexterna/transcribe") ?>', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ audio: base64 })
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '<?= escape(csrf_token()) ?>' },
+                    body: JSON.stringify({ audio: base64, csrf_token: '<?= escape(csrf_token()) ?>' })
                 });
                 const data = await response.json();
                 if (data.success && data.organized) {

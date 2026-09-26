@@ -301,16 +301,24 @@ class SettingsController extends Controller
      */
     private function uploadSignatureLogo($file)
     {
-        $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-        $allowedExt = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'];
-        if (!in_array($ext, $allowedExt, true)) return null;
+        // Até 3MB e validação por CONTEÚDO real (sem SVG, sem confiar na extensão).
         if (($file['size'] ?? 0) > 3 * 1024 * 1024) return null;
-        if (!is_uploaded_file($file['tmp_name'])) return null;
+        if (empty($file['tmp_name']) || !is_uploaded_file($file['tmp_name'])) return null;
+
+        $canonicalExt = null;
+        $info = @getimagesize($file['tmp_name']);
+        if ($info !== false) {
+            $canonicalExt = ImageUploadRules::extensionForImageType($info[2] ?? null);
+            if ($canonicalExt === null && !empty($info['mime'])) {
+                $canonicalExt = ImageUploadRules::extensionForMime($info['mime']);
+            }
+        }
+        if ($canonicalExt === null) return null;
 
         $uploadDir = PUBLIC_PATH . '/uploads/brand';
         if (!is_dir($uploadDir)) { @mkdir($uploadDir, 0755, true); }
 
-        $fileName = 'sig_' . time() . '_' . mt_rand(1000, 9999) . '.' . $ext;
+        $fileName = ImageUploadRules::safeFileName('sig', $canonicalExt);
         $filePath = 'uploads/brand/' . $fileName;
         if (move_uploaded_file($file['tmp_name'], PUBLIC_PATH . '/' . $filePath)) {
             return $filePath;
@@ -320,16 +328,37 @@ class SettingsController extends Controller
 
     private function uploadBrandFile($file, $prefix)
     {
-        $allowedTypes = ['image/png', 'image/jpeg', 'image/svg+xml', 'image/gif', 'image/x-icon', 'image/vnd.microsoft.icon', 'image/webp'];
-        if (!in_array($file['type'], $allowedTypes)) {
+        // Tamanho dentro do limite (2MB).
+        if (!ImageUploadRules::isSizeAllowed($file['size'] ?? 0)) {
             return null;
         }
-        if ($file['size'] > 2 * 1024 * 1024) { // 2MB max
+        if (empty($file['tmp_name']) || !is_uploaded_file($file['tmp_name'])) {
             return null;
         }
 
-        $ext = pathinfo($file['name'], PATHINFO_EXTENSION);
-        $fileName = $prefix . '_' . time() . '.' . $ext;
+        // NÃO confia no MIME/extensão enviados pelo navegador. Decide pelo
+        // conteúdo REAL do arquivo. SVG é recusado (vetor de XSS).
+        $canonicalExt = null;
+        $info = @getimagesize($file['tmp_name']);
+        if ($info !== false) {
+            $canonicalExt = ImageUploadRules::extensionForImageType($info[2] ?? null);
+            // .ico pode não ter IMAGETYPE universal — tenta pelo MIME real.
+            if ($canonicalExt === null && !empty($info['mime'])) {
+                $canonicalExt = ImageUploadRules::extensionForMime($info['mime']);
+            }
+        }
+        // Fallback para .ico via finfo (getimagesize às vezes não reconhece).
+        if ($canonicalExt === null && function_exists('finfo_open')) {
+            $fi = finfo_open(FILEINFO_MIME_TYPE);
+            $realMime = finfo_file($fi, $file['tmp_name']);
+            finfo_close($fi);
+            $canonicalExt = ImageUploadRules::extensionForMime($realMime);
+        }
+        if ($canonicalExt === null) {
+            return null; // conteúdo não é uma imagem aceita
+        }
+
+        $fileName = ImageUploadRules::safeFileName($prefix, $canonicalExt);
         $uploadDir = PUBLIC_PATH . '/uploads/brand';
         if (!is_dir($uploadDir)) {
             mkdir($uploadDir, 0755, true);
@@ -355,6 +384,16 @@ class SettingsController extends Controller
 
     public function saveDatabase()
     {
+        // Segurança: gravar config/database.php é uma ação de altíssimo impacto.
+        // Antes esta ação estava SEM QUALQUER checagem — qualquer POST reescrevia
+        // a conexão do banco. Regra: se o sistema JÁ está instalado (config existe),
+        // só super_admin pode alterar. Na primeira execução (sem config), o
+        // assistente de instalação pode gravar sem sessão.
+        $configFile = BASE_PATH . '/config/database.php';
+        $alreadyInstalled = file_exists($configFile);
+        if ($alreadyInstalled) {
+            $this->requireRole(['super_admin']);
+        }
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             $this->redirect('settings/database');
         }
@@ -368,7 +407,6 @@ class SettingsController extends Controller
         ];
 
         $content = "<?php\n\nreturn " . var_export($config, true) . ";\n";
-        $configFile = BASE_PATH . '/config/database.php';
         file_put_contents($configFile, $content);
 
         flash('success', 'Configuração do banco de dados salva!');

@@ -1,3 +1,62 @@
+    <!-- Proteção CSRF (global): injeta o token nos formulários POST e nas
+         chamadas fetch same-origin, sem precisar editar cada view. -->
+    <script>
+    (function () {
+        var meta = document.querySelector('meta[name="csrf-token"]');
+        var CSRF = meta ? meta.getAttribute('content') : '';
+        if (!CSRF) return;
+        window.CSRF_TOKEN = CSRF;
+
+        // 1) Formulários POST: garante um <input hidden name="csrf_token">.
+        function ensureFormToken(form) {
+            if (!form || (form.method || '').toLowerCase() !== 'post') return;
+            if (form.querySelector('input[name="csrf_token"]')) return;
+            var input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'csrf_token';
+            input.value = CSRF;
+            form.appendChild(input);
+        }
+        function scanForms() {
+            document.querySelectorAll('form').forEach(ensureFormToken);
+        }
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', scanForms);
+        } else {
+            scanForms();
+        }
+        // Cobre forms criados dinamicamente e submetidos direto.
+        document.addEventListener('submit', function (e) {
+            if (e.target && e.target.tagName === 'FORM') ensureFormToken(e.target);
+        }, true);
+
+        // 2) fetch(): anexa o header X-CSRF-Token em POST/PUT/PATCH/DELETE
+        //    same-origin. Não mexe em GET nem em requisições cross-origin.
+        var origFetch = window.fetch;
+        if (typeof origFetch === 'function') {
+            window.fetch = function (input, init) {
+                init = init || {};
+                var method = (init.method || (typeof input === 'object' && input && input.method) || 'GET').toUpperCase();
+                var url = (typeof input === 'string') ? input : (input && input.url) || '';
+                var sameOrigin = true;
+                try {
+                    if (url) {
+                        var u = new URL(url, window.location.origin);
+                        sameOrigin = (u.origin === window.location.origin);
+                    }
+                } catch (err) { sameOrigin = true; }
+
+                if (sameOrigin && ['POST', 'PUT', 'PATCH', 'DELETE'].indexOf(method) !== -1) {
+                    var headers = new Headers(init.headers || (typeof input === 'object' && input && input.headers) || {});
+                    if (!headers.has('X-CSRF-Token')) headers.set('X-CSRF-Token', CSRF);
+                    init.headers = headers;
+                }
+                return origFetch.call(this, input, init);
+            };
+        }
+    })();
+    </script>
+
     <!-- WhatsApp Flutuante -->
     <?php
     $whatsappEnabled = Config::get('whatsapp_enabled');

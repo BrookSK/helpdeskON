@@ -26,11 +26,39 @@ class SolicitacaoexternaController extends Controller
         $this->userModel = new User();
     }
 
+    // Rate-limit do PIN: no máximo 5 tentativas a cada 5 minutos por sessão.
+    private const MAX_PIN_TRIES = 5;
+    private const PIN_WINDOW = 300;
+
     /** Garante que há uma sessão de acesso externo ativa; senão volta ao PIN. */
     private function requireExternal()
     {
         if (empty($_SESSION['external_access']['user_id'])) {
             $this->redirect('solicitacaoexterna');
+        }
+    }
+
+    /** True se já estourou o limite de tentativas de PIN na janela atual. */
+    private function pinRateLimited(): bool
+    {
+        $data = $_SESSION['ext_pin_attempts'] ?? null;
+        if (!$data) return false;
+        // Janela expirada: zera e libera.
+        if ((time() - ($data['first'] ?? 0)) > self::PIN_WINDOW) {
+            unset($_SESSION['ext_pin_attempts']);
+            return false;
+        }
+        return ($data['count'] ?? 0) >= self::MAX_PIN_TRIES;
+    }
+
+    /** Registra uma tentativa de PIN malsucedida na janela atual. */
+    private function registerPinAttempt(): void
+    {
+        $data = $_SESSION['ext_pin_attempts'] ?? null;
+        if (!$data || (time() - ($data['first'] ?? 0)) > self::PIN_WINDOW) {
+            $_SESSION['ext_pin_attempts'] = ['first' => time(), 'count' => 1];
+        } else {
+            $_SESSION['ext_pin_attempts']['count'] = ($data['count'] ?? 0) + 1;
         }
     }
 
@@ -58,18 +86,37 @@ class SolicitacaoexternaController extends Controller
             $this->redirect('solicitacaoexterna');
         }
 
+        // CSRF: fluxo público (sem requireLogin), valida explicitamente.
+        if (!verify_csrf($_POST['csrf_token'] ?? '')) {
+            flash('error', 'Sessão expirada. Recarregue a página e tente novamente.');
+            $this->redirect('solicitacaoexterna');
+        }
+
+        // Rate-limit: o PIN tem só 4 dígitos (10.000 combinações). Sem limite,
+        // é vulnerável a força bruta. Permite até MAX_PIN_TRIES tentativas por
+        // janela de PIN_WINDOW segundos (contadas por sessão do navegador).
+        if ($this->pinRateLimited()) {
+            flash('error', 'Muitas tentativas. Aguarde alguns minutos e tente novamente.');
+            $this->redirect('solicitacaoexterna');
+        }
+
         $pin = trim($_POST['pin'] ?? '');
 
         if (!preg_match('/^\d{4}$/', $pin)) {
+            $this->registerPinAttempt();
             flash('error', 'Informe um PIN válido de 4 dígitos.');
             $this->redirect('solicitacaoexterna');
         }
 
         $owner = $this->userModel->findByPin($pin);
         if (!$owner) {
+            $this->registerPinAttempt();
             flash('error', 'PIN inválido.');
             $this->redirect('solicitacaoexterna');
         }
+
+        // Sucesso: zera o contador de tentativas.
+        unset($_SESSION['ext_pin_attempts']);
 
         // Higiene: se havia uma sessão de login normal neste navegador, encerra-a.
         // O acesso externo é um contexto separado e restrito (só criar demandas).
@@ -111,6 +158,12 @@ class SolicitacaoexternaController extends Controller
     {
         $this->requireExternal();
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            $this->redirect('solicitacaoexterna/novaDemanda');
+        }
+
+        // CSRF: ambiente externo não passa por requireLogin(), valida aqui.
+        if (!verify_csrf($_POST['csrf_token'] ?? '')) {
+            flash('error', 'Sessão expirada. Recarregue a página e tente novamente.');
             $this->redirect('solicitacaoexterna/novaDemanda');
         }
 
@@ -344,6 +397,13 @@ class SolicitacaoexternaController extends Controller
         }
 
         $input = json_decode(file_get_contents('php://input'), true);
+
+        // CSRF: token vem no header X-CSRF-Token ou no corpo JSON (fetch).
+        $csrf = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? ($input['csrf_token'] ?? '');
+        if (!verify_csrf($csrf)) {
+            $this->json(['error' => 'Requisição inválida (CSRF).'], 419);
+        }
+
         $audioData = $input['audio'] ?? '';
         if (empty($audioData)) {
             $this->json(['error' => 'Áudio não recebido.'], 400);
