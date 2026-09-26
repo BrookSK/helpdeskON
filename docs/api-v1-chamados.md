@@ -225,9 +225,10 @@ em dia sem precisar ficar consultando.
 
 ### Como funciona
 
-- O callback é **por empresa** e **opcional**. Ele é ativado no painel
-  (Configurações → Integrações → coluna "Callback de status" da empresa),
-  informando uma **URL de callback** e marcando "Ativo".
+- O callback é **por empresa** e **opcional**. Ele é ativado no painel do
+  helpdeskON (Configurações → bloco "Integração — API de demandas"), informando
+  a **URL de callback** da empresa e marcando "Ativo"; as alterações são gravadas
+  pelo botão "Salvar Configurações".
 - O callback é enviado **apenas para chamados criados via API** (que têm
   `external_ref`). Mudanças de status de demandas criadas internamente pela
   equipe (sem `external_ref`) **não** geram callback — assim o sistema externo
@@ -287,8 +288,8 @@ Campos:
 
 ### Exemplo de recebimento (lado do sistema externo)
 
-Endpoint mínimo em PHP que recebe o callback, ignora o `POST` de teste e
-atualiza o status do chamado no próprio sistema:
+Endpoint mínimo em PHP que recebe o callback e atualiza o status do chamado no
+próprio sistema:
 
 ```php
 <?php
@@ -297,12 +298,6 @@ $body = json_decode(file_get_contents('php://input'), true);
 
 if (!is_array($body) || ($body['event'] ?? '') !== 'ticket.status_changed') {
     http_response_code(400);
-    exit;
-}
-
-// POST de teste enviado pelo painel: apenas confirme o recebimento.
-if (!empty($body['test'])) {
-    http_response_code(200);
     exit;
 }
 

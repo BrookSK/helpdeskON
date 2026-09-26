@@ -916,7 +916,7 @@
                                 </tr>
                             <?php endforeach; ?>
                             <?php if (empty($companiesWithKey)): ?>
-                                <tr><td colspan="4" class="text-muted small">Nenhuma chave gerada ainda. Use "Gerar chave de empresa" abaixo do botão salvar.</td></tr>
+                                <tr><td colspan="4" class="text-muted small">Nenhuma chave gerada ainda. Use "Gerar chave de API de empresa" logo abaixo.</td></tr>
                             <?php endif; ?>
                         </tbody>
                     </table>
@@ -927,6 +927,43 @@
                     externo estiver indisponível; em caso de falha há reenvio automático. Se marcar "Ativo" com URL inválida,
                     o callback fica desativado até corrigir a URL.
                 </p>
+
+                <?php if (!empty($companiesWithoutKey)): ?>
+                    <!-- Gerar chave de API para uma empresa. Ação pontual (cria um
+                         registro), então usa um form PRÓPRIO. Como HTML não permite
+                         form dentro de form, os campos ficam aqui visualmente mas se
+                         ligam ao form externo #genApiKeyForm via atributo form=. -->
+                    <hr class="my-3">
+                    <div class="fw-medium small mb-2"><i class="bi bi-key"></i> Gerar chave de API de empresa</div>
+                    <p class="text-muted small mb-2">
+                        Gere a chave de uma empresa que ainda não tem. Depois de gerada, ela aparece na tabela acima,
+                        onde você configura o callback e salva com o botão "Salvar Configurações".
+                    </p>
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="btnAddApiKey"
+                        onclick="document.getElementById('addApiKeyRow').style.display='flex'; this.style.display='none';">
+                        <i class="bi bi-plus-lg"></i> Empresa key
+                    </button>
+                    <div id="addApiKeyRow" class="row g-2 align-items-end mt-1" style="display:none;">
+                        <div class="col-md-6">
+                            <label class="form-label small mb-1">Empresa</label>
+                            <select name="company_id" form="genApiKeyForm" class="form-select form-select-sm" required>
+                                <option value="">Selecione a empresa...</option>
+                                <?php foreach ($companiesWithoutKey as $comp): ?>
+                                    <option value="<?= (int)$comp['id'] ?>"><?= escape($comp['name']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <button type="submit" form="genApiKeyForm" class="btn btn-sm btn-primary w-100"><i class="bi bi-key"></i> Gerar chave</button>
+                        </div>
+                        <div class="col-md-3">
+                            <button type="button" class="btn btn-sm btn-outline-secondary w-100"
+                                onclick="document.getElementById('addApiKeyRow').style.display='none'; document.getElementById('btnAddApiKey').style.display='inline-block';">
+                                Cancelar
+                            </button>
+                        </div>
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
 
@@ -935,43 +972,11 @@
         </button>
     </form>
 
-    <!-- Gerar chave de API para uma empresa: ação pontual (cria um registro),
-         por isso fica FORA do formulário principal de "Salvar Configurações". -->
+    <!-- Form real (vazio, sem campos visíveis) que recebe o submit de "Gerar
+         chave". Os campos acima se associam a ele via atributo form=, o que
+         evita aninhar um <form> dentro do form principal de Configurações. -->
     <?php if (!empty($companiesWithoutKey)): ?>
-        <div class="card mb-4 mt-4">
-            <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-key"></i> Gerar chave de API de empresa</h6></div>
-            <div class="card-body">
-                <p class="text-muted small mb-3">
-                    Gere a chave de uma empresa que ainda não tem. Depois de gerada, ela aparece na tabela acima,
-                    onde você pode configurar o callback e salvar tudo junto.
-                </p>
-                <button type="button" class="btn btn-sm btn-outline-primary" id="btnAddApiKey"
-                    onclick="document.getElementById('addApiKeyRow').style.display='flex'; this.style.display='none';">
-                    <i class="bi bi-plus-lg"></i> Empresa key
-                </button>
-                <form action="<?= baseUrl('settings/generateApiKey') ?>" method="POST"
-                      id="addApiKeyRow" class="row g-2 align-items-end mt-1" style="display:none;">
-                    <div class="col-md-6">
-                        <label class="form-label small mb-1">Empresa</label>
-                        <select name="company_id" class="form-select form-select-sm" required>
-                            <option value="">Selecione a empresa...</option>
-                            <?php foreach ($companiesWithoutKey as $comp): ?>
-                                <option value="<?= (int)$comp['id'] ?>"><?= escape($comp['name']) ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    <div class="col-md-3">
-                        <button type="submit" class="btn btn-sm btn-primary w-100"><i class="bi bi-key"></i> Gerar chave</button>
-                    </div>
-                    <div class="col-md-3">
-                        <button type="button" class="btn btn-sm btn-outline-secondary w-100"
-                            onclick="document.getElementById('addApiKeyRow').style.display='none'; document.getElementById('btnAddApiKey').style.display='inline-block';">
-                            Cancelar
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
+        <form id="genApiKeyForm" action="<?= baseUrl('settings/generateApiKey') ?>" method="POST" class="d-none"></form>
     <?php endif; ?>
 
 </div>
