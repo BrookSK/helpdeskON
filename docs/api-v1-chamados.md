@@ -273,10 +273,6 @@ Campos:
 | `status`               | Novo status (ver valores possíveis abaixo). |
 | `changed_at`           | Data/hora da mudança (horário do servidor). |
 
-Um `POST` de **teste** disparado pelo botão "Testar" do painel inclui um campo
-extra `"test": true` e valores de exemplo (`external_ref: "TEST-CALLBACK"`), para
-o sistema externo poder reconhecer e ignorar.
-
 ### Valores possíveis de `status`
 
 `open`, `in_progress`, `em_revisao_interna`, `waiting_client`, `em_homologacao`,
