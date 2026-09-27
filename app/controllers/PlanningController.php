@@ -1268,11 +1268,25 @@ class PlanningController extends Controller
         }
         if (empty($lines)) return;
 
+        // Atendente = responsável atual pela demanda. Se o assigned_to mudou no
+        // mesmo salvamento, usa o novo; senão, o que já estava no card.
+        $attendantName = 'Não atribuído';
+        $assignedId = array_key_exists('assigned_to', $new) ? ($new['assigned_to'] ?: null) : ($old['assigned_to'] ?? null);
+        if (!empty($assignedId)) {
+            if (array_key_exists('assigned_to', $new) && $new['assigned_to'] && $new['assigned_to'] != ($old['assigned_to'] ?? null)) {
+                $assignedUser = (new User())->findById($assignedId);
+                $attendantName = $assignedUser['name'] ?? 'Não atribuído';
+            } else {
+                $attendantName = $old['assigned_name'] ?? 'Não atribuído';
+            }
+        }
+
         $title = $old['title'] ?? ('#' . $cardId);
         $cardLink = baseUrl('planning?card=' . $cardId);
         $msg = "🗓️ *Data/horário de card alterado*\n\n"
             . "*Card:* #{$cardId} — {$title}\n"
             . "*Empresa:* " . ($old['company_name'] ?? 'N/A') . "\n"
+            . "*Atendente:* {$attendantName}\n"
             . "*Alterado por:* " . ($byUser['name'] ?? 'Sistema') . "\n\n"
             . implode("\n", $lines) . "\n\n"
             . "🔗 *Link do card:* {$cardLink}";

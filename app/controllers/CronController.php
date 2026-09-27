@@ -476,6 +476,13 @@ class CronController extends Controller
             Logger::error('runProspecting: falha no lembrete de 1h (mesmo dia)', ['error' => $e->getMessage()]);
         }
 
+        // 5) Lembrete de vencimento dos cards de Planejamento (prazo faltando <24h).
+        //    Pendurado aqui para reaproveitar um cron já agendado, sem exigir uma
+        //    tarefa nova no servidor. Idempotente via due_reminder_sent_at.
+        try { $this->sendCardDueReminders(); } catch (\Throwable $e) {
+            Logger::error('runProspecting: falha no lembrete de vencimento de cards', ['error' => $e->getMessage()]);
+        }
+
         $this->json(['success' => empty($result['error']), 'result' => $result, 'sequences' => $engineStats]);
     }
 
