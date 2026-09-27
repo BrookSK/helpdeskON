@@ -680,6 +680,93 @@ class CronController extends Controller
     }
 
     /**
+     * GET /cron/cardDueReminders?token=XXX
+     *
+     * Lembrete de vencimento dos cards de Planejamento: para cada card cujo prazo
+     * (due_date) esteja faltando MENOS de 24h (janela [agora, agora+24h]), envia
+     * um WhatsApp ao responsável (assigned_to). Dispara UMA vez por prazo, usando
+     * planning_cards.due_reminder_sent_at como trava de idempotência.
+     *
+     * A janela em horas é configurável via setting `planning_due_notify_hours`
+     * (padrão 24). Cards sem responsável, sem telefone, já concluídos/negados/
+     * arquivados ou já lembrados são ignorados.
+     */
+    public function cardDueReminders()
+    {
+        $this->validateToken();
+        @set_time_limit(120);
+        $sent = $this->sendCardDueReminders();
+        $this->json(['success' => true, 'reminders_sent' => $sent]);
+    }
+
+    /** Dispara os lembretes de vencimento dos cards. Retorna a quantidade enviada. */
+    private function sendCardDueReminders()
+    {
+        $db = Database::getInstance();
+        $hours = (int) (Config::get('planning_due_notify_hours') ?? 24);
+        if ($hours <= 0) $hours = 24;
+
+        $now = date('Y-m-d H:i:s');
+        $limit = date('Y-m-d H:i:s', strtotime('+' . $hours . ' hours'));
+
+        // Cards com prazo dentro da janela, ainda ativos, não lembrados e com
+        // responsável que tenha telefone cadastrado.
+        $rows = $db->fetchAll(
+            "SELECT pc.id, pc.title, pc.due_date, pc.priority,
+                    u.name AS owner_name, u.phone AS owner_phone,
+                    co.name AS company_name
+             FROM planning_cards pc
+             JOIN users u ON pc.assigned_to = u.id
+             LEFT JOIN companies co ON pc.company_id = co.id
+             WHERE pc.due_date IS NOT NULL
+               AND pc.due_date > ?
+               AND pc.due_date <= ?
+               AND pc.due_reminder_sent_at IS NULL
+               AND pc.status NOT IN ('completed','denied','archived')
+               AND u.phone IS NOT NULL AND u.phone <> ''",
+            [$now, $limit]
+        );
+
+        $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'urgent' => 'Urgente'];
+        $sent = 0;
+        foreach ($rows as $card) {
+            // Guarda extra: a decisão de fato vem da regra pura (testável).
+            if (!PlanningRules::shouldSendDueReminder($card['due_date'], 'open', null, $now, $hours)) {
+                continue;
+            }
+            $dueStr = date('d/m/Y \à\s H:i', strtotime($card['due_date']));
+            $priorityLabel = $priorityLabels[$card['priority']] ?? $card['priority'];
+            $cardLink = baseUrl('planning?card=' . $card['id']);
+
+            $msg = "⏰ *Prazo se aproximando*\n\n"
+                . "O card abaixo vence em menos de {$hours}h:\n\n"
+                . "*Card:* #{$card['id']} — {$card['title']}\n"
+                . "*Empresa:* " . ($card['company_name'] ?? 'N/A') . "\n"
+                . "*Prioridade:* {$priorityLabel}\n"
+                . "*Prazo:* {$dueStr}\n\n"
+                . "🔗 *Link do card:* {$cardLink}\n\n"
+                . "Não deixe a demanda vencer!";
+
+            $ok = false;
+            try {
+                $ok = WhatsappNotifier::sendToPhone($card['owner_phone'], $msg, $card['owner_name']);
+            } catch (\Throwable $e) {
+                $ok = false;
+            }
+
+            // Marca como lembrado mesmo se o WhatsApp falhar, para não reenviar em
+            // loop a cada execução do cron (canal complementar; o carimbo é zerado
+            // quando o due_date muda). Só conta como enviado quando confirmado.
+            try {
+                $db->update('planning_cards', ['due_reminder_sent_at' => date('Y-m-d H:i:s')], 'id = ?', [$card['id']]);
+            } catch (\Throwable $e) {}
+
+            if ($ok) $sent++;
+        }
+        return $sent;
+    }
+
+    /**
      * GET /cron/index
      * Página de status/info sobre os crons disponíveis.
      */
@@ -692,6 +779,7 @@ class CronController extends Controller
                 'GET /cron/captureLeads?token=XXX' => 'Coleta agendada de oportunidades (99Freelas)',
                 'GET /cron/runSequences?token=XXX' => 'Worker de follow-up: sequências + detecção de respostas',
                 'GET /cron/runProspecting?token=XXX' => 'Automação de prospecção Apollo (Search→reveal→CRM→sequência)',
+                'GET /cron/cardDueReminders?token=XXX' => 'Lembrete WhatsApp ao responsável de cards de Planejamento com prazo faltando <24h',
             ],
             'tip' => 'Configure cron_token em Configurações para proteger este endpoint.',
         ]);
