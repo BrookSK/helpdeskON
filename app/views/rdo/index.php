@@ -72,9 +72,9 @@
                 </select>
             </div>
             <div class="col-md-3">
-                <label class="form-label small mb-1">Projeto / Obra</label>
+                <label class="form-label small mb-1">Cliente / Empresa</label>
                 <select id="f-company" class="form-select form-select-sm">
-                    <option value="">Todos os projetos</option>
+                    <option value="">Todos os clientes</option>
                     <?php foreach ($companies as $co): ?>
                     <option value="<?= (int) $co['id'] ?>"><?= escape($co['name']) ?></option>
                     <?php endforeach; ?>
@@ -158,9 +158,9 @@
                 <input type="date" id="rdo-date" class="form-control" value="<?= date('Y-m-d') ?>" required>
             </div>
             <div class="col-sm-8">
-                <label class="form-label fw-medium">Projeto / Obra</label>
+                <label class="form-label fw-medium">Cliente / Empresa</label>
                 <select id="rdo-company" class="form-select">
-                    <option value="">— Sem projeto —</option>
+                    <option value="">— Sem cliente —</option>
                     <?php foreach ($companies as $co): ?>
                     <option value="<?= (int) $co['id'] ?>"><?= escape($co['name']) ?></option>
                     <?php endforeach; ?>
@@ -263,8 +263,8 @@ async function loadRdos() {
         return;
     }
 
-    // Os itens já vêm ordenados por projeto (empresa) pelo backend. Emitimos um
-    // cabeçalho de grupo sempre que o projeto muda, separando visualmente os RDO.
+    // Os itens já vêm ordenados por cliente (empresa) pelo backend. Emitimos um
+    // cabeçalho de grupo sempre que o cliente muda, separando visualmente os RDO.
     let html = '';
     let lastGroup = null;
     data.items.forEach(it => {
@@ -273,10 +273,10 @@ async function loadRdos() {
             lastGroup = groupKey;
             const projName = it.company_name
                 ? escapeHtml(it.company_name)
-                : '<span class="fst-italic text-muted">Sem projeto</span>';
+                : '<span class="fst-italic text-muted">Sem cliente</span>';
             html += `<tr class="table-secondary">
                 <td colspan="${colCount}" class="fw-semibold">
-                    <i class="bi bi-folder2-open"></i> ${projName}
+                    <i class="bi bi-building"></i> ${projName}
                 </td>
             </tr>`;
         }
@@ -528,7 +528,7 @@ async function viewRdo(id) {
     const dateBR = it.report_date ? it.report_date.split('-').reverse().join('/') : '—';
     const project = it.company_name
         ? escapeHtml(it.company_name)
-        : '<span class="fst-italic text-muted">Sem projeto</span>';
+        : '<span class="fst-italic text-muted">Sem cliente</span>';
 
     // Colaboradores
     const collabs = (it.collaborators || []);
@@ -558,7 +558,7 @@ async function viewRdo(id) {
 
     document.getElementById('rdo-view-body').innerHTML = `
         <div class="row g-3">
-            <div class="col-sm-6"><div class="text-muted small">Projeto / Obra</div><div class="fw-medium"><i class="bi bi-folder2-open"></i> ${project}</div></div>
+            <div class="col-sm-6"><div class="text-muted small">Cliente / Empresa</div><div class="fw-medium"><i class="bi bi-building"></i> ${project}</div></div>
             <div class="col-sm-3"><div class="text-muted small">Data</div><div class="fw-medium">${dateBR}</div></div>
             <div class="col-sm-3"><div class="text-muted small">Status</div><div>${statusBadge(it.status)}</div></div>
             ${who}
