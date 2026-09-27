@@ -5,6 +5,7 @@ use PHPUnit\Framework\TestCase;
 use DailyReport;
 use RdoRules;
 use Database;
+use Company;
 
 /**
  * Testes de integração do RDO (DailyReport) contra o banco helpdesk_on_test.
@@ -19,8 +20,12 @@ final class DailyReportTest extends TestCase
     private int $userA;   // comercial
     private int $userDev; // developer
     private int $admin;   // super_admin
+    private int $companyX; // projeto/obra X
+    private int $companyY; // projeto/obra Y
     /** @var int[] */
     private array $reportIds = [];
+    /** @var int[] */
+    private array $companyIds = [];
 
     protected function setUp(): void
     {
@@ -35,6 +40,11 @@ final class DailyReportTest extends TestCase
         $this->userA = $this->novoUsuario("Comercial {$u}", "coma_{$u}@ex.test", 'comercial');
         $this->userDev = $this->novoUsuario("Dev {$u}", "dev_{$u}@ex.test", 'developer');
         $this->admin = $this->novoUsuario("Admin {$u}", "adm_{$u}@ex.test", 'super_admin');
+
+        // Projetos/obras = empresas (pais da FK company_id). Nomes controlados
+        // para verificar a ordenação por projeto (Obra A... vem antes de Obra B...).
+        $this->companyX = $this->novaEmpresa("Obra A {$u}");
+        $this->companyY = $this->novaEmpresa("Obra B {$u}");
     }
 
     protected function tearDown(): void
@@ -48,6 +58,9 @@ final class DailyReportTest extends TestCase
             try { $this->db->delete('daily_reports', 'user_id = ?', [$id]); } catch (\Throwable $e) {}
             try { $this->db->delete('users', 'id = ?', [$id]); } catch (\Throwable $e) {}
         }
+        foreach ($this->companyIds as $id) {
+            try { $this->db->delete('companies', 'id = ?', [$id]); } catch (\Throwable $e) {}
+        }
     }
 
     private function novoUsuario(string $name, string $email, string $role): int
@@ -56,6 +69,13 @@ final class DailyReportTest extends TestCase
             'name' => $name, 'email' => $email,
             'password' => password_hash('x', PASSWORD_BCRYPT), 'role' => $role,
         ]);
+    }
+
+    private function novaEmpresa(string $name): int
+    {
+        $id = (int) $this->db->insert('companies', ['name' => $name]);
+        $this->companyIds[] = $id;
+        return $id;
     }
 
     private function novoRdo(int $userId, array $ov = []): int
@@ -222,5 +242,78 @@ final class DailyReportTest extends TestCase
         $cols2 = $this->model->getCollaborators($id);
         $this->assertCount(1, $cols2);
         $this->assertSame('Maria', $cols2[0]['collaborator_name']);
+    }
+
+    // ================= Projeto / obra (company_id) =================
+
+    public function testGravaELeProjetoDoRdo(): void
+    {
+        $id = $this->novoRdo($this->userA, ['company_id' => $this->companyX]);
+        $r = $this->model->findById($id);
+        $this->assertSame($this->companyX, (int) $r['company_id']);
+        // findById traz o nome da empresa via JOIN.
+        $this->assertStringStartsWith('Obra A', (string) $r['company_name']);
+    }
+
+    public function testRdoSemProjetoFicaComCompanyNull(): void
+    {
+        $id = $this->novoRdo($this->userA); // sem company_id
+        $r = $this->model->findById($id);
+        $this->assertNull($r['company_id']);
+    }
+
+    public function testFiltroPorProjeto(): void
+    {
+        $this->novoRdo($this->userA, ['company_id' => $this->companyX, 'activities' => 'RDO da obra A']);
+        $this->novoRdo($this->userA, ['company_id' => $this->companyY, 'activities' => 'RDO da obra B']);
+        $this->novoRdo($this->userA); // sem projeto
+
+        $soX = $this->model->getList(['user_id' => $this->userA, 'company_id' => $this->companyX]);
+        $this->assertCount(1, $soX);
+        $this->assertSame($this->companyX, (int) $soX[0]['company_id']);
+        $this->assertStringContainsString('obra A', $soX[0]['activities']);
+    }
+
+    public function testListagemVemAgrupadaPorProjeto(): void
+    {
+        // Cria fora de ordem alfabética para provar que o ORDER BY agrupa.
+        $this->novoRdo($this->userA, ['company_id' => $this->companyY]); // Obra B
+        $this->novoRdo($this->userA);                                    // Sem projeto
+        $this->novoRdo($this->userA, ['company_id' => $this->companyX]); // Obra A
+        $this->novoRdo($this->userA, ['company_id' => $this->companyY]); // Obra B (2)
+
+        $lista = $this->model->getList(['user_id' => $this->userA]);
+
+        // A sequência de company_id deve estar agrupada: todos de um projeto
+        // ficam contíguos, empresas em ordem de nome (A antes de B), e os
+        // "sem projeto" (null) por último.
+        $seq = array_map(fn($r) => $r['company_id'] === null ? null : (int) $r['company_id'], $lista);
+
+        // Índices por grupo
+        $posA = array_keys($seq, $this->companyX, true);
+        $posB = array_keys($seq, $this->companyY, true);
+        $posNull = array_keys($seq, null, true);
+
+        // Cada grupo é contíguo (max-min+1 == count).
+        foreach ([$posA, $posB, $posNull] as $pos) {
+            if (count($pos) > 1) {
+                $this->assertSame(count($pos), max($pos) - min($pos) + 1, 'Grupo do projeto deve ser contíguo');
+            }
+        }
+        // Obra A vem antes de Obra B, e null é o último grupo.
+        $this->assertLessThan(min($posB), max($posA), 'Obra A deve vir antes de Obra B');
+        $this->assertGreaterThan(max($posB), min($posNull), 'Sem projeto deve vir por último');
+    }
+
+    public function testStatsRespeitaFiltroDeProjeto(): void
+    {
+        $this->novoRdo($this->userA, ['company_id' => $this->companyX, 'status' => 'finalizado']);
+        $this->novoRdo($this->userA, ['company_id' => $this->companyX, 'status' => 'em_andamento']);
+        $this->novoRdo($this->userA, ['company_id' => $this->companyY, 'status' => 'finalizado']);
+
+        $statsX = $this->model->getStats(['user_id' => $this->userA, 'company_id' => $this->companyX]);
+        $this->assertSame(2, $statsX['total']);
+        $this->assertSame(1, $statsX['finalizado']);
+        $this->assertSame(1, $statsX['em_andamento']);
     }
 }

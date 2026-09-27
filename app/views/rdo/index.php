@@ -71,6 +71,15 @@
                     <option value="0">Sem ocorrência</option>
                 </select>
             </div>
+            <div class="col-md-3">
+                <label class="form-label small mb-1">Projeto / Obra</label>
+                <select id="f-company" class="form-select form-select-sm">
+                    <option value="">Todos os projetos</option>
+                    <?php foreach ($companies as $co): ?>
+                    <option value="<?= (int) $co['id'] ?>"><?= escape($co['name']) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
             <?php if ($isGlobal): ?>
             <div class="col-md-3">
                 <label class="form-label small mb-1">Pessoa</label>
@@ -149,6 +158,15 @@
                 <input type="date" id="rdo-date" class="form-control" value="<?= date('Y-m-d') ?>" required>
             </div>
             <div class="col-sm-8">
+                <label class="form-label fw-medium">Projeto / Obra</label>
+                <select id="rdo-company" class="form-select">
+                    <option value="">— Sem projeto —</option>
+                    <?php foreach ($companies as $co): ?>
+                    <option value="<?= (int) $co['id'] ?>"><?= escape($co['name']) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div class="col-12">
                 <label class="form-label fw-medium">Título / resumo</label>
                 <input type="text" id="rdo-title" class="form-control" placeholder="Resumo do dia (opcional)">
             </div>
@@ -196,9 +214,12 @@
 <script>
 const RDO = {
     base: '<?= baseUrl('rdo') ?>',
+    root: '<?= rtrim(baseUrl(''), '/') ?>',
     isGlobal: <?= $isGlobal ? 'true' : 'false' ?>,
     statusLabels: <?= json_encode($statusLabels, JSON_UNESCAPED_UNICODE) ?>,
 };
+
+const KIND_LABELS = { colaborador: 'Colaborador', prestador: 'Prestador' };
 
 function escapeHtml(s) {
     return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -221,6 +242,8 @@ async function loadRdos() {
     if (st) params.set('status', st);
     const occ = document.getElementById('f-occ').value;
     if (occ !== '') params.set('has_occurrence', occ);
+    const co = document.getElementById('f-company').value;
+    if (co) params.set('company_id', co);
     const uEl = document.getElementById('f-user');
     if (uEl && uEl.value) params.set('user_id', uEl.value);
 
@@ -233,17 +256,37 @@ async function loadRdos() {
     document.getElementById('stat-ocorrencias').textContent = data.stats.ocorrencias;
 
     const tb = document.getElementById('rdo-tbody');
+    // colspan total da tabela (varia se a coluna "Quem" aparece p/ super_admin).
+    const colCount = RDO.isGlobal ? 8 : 7;
     if (!data.items.length) {
-        tb.innerHTML = `<tr><td colspan="8" class="text-center text-muted py-4">Nenhum relatório encontrado.</td></tr>`;
+        tb.innerHTML = `<tr><td colspan="${colCount}" class="text-center text-muted py-4">Nenhum relatório encontrado.</td></tr>`;
         return;
     }
-    tb.innerHTML = data.items.map(it => {
+
+    // Os itens já vêm ordenados por projeto (empresa) pelo backend. Emitimos um
+    // cabeçalho de grupo sempre que o projeto muda, separando visualmente os RDO.
+    let html = '';
+    let lastGroup = null;
+    data.items.forEach(it => {
+        const groupKey = it.company_id ? ('c' + it.company_id) : 'none';
+        if (groupKey !== lastGroup) {
+            lastGroup = groupKey;
+            const projName = it.company_name
+                ? escapeHtml(it.company_name)
+                : '<span class="fst-italic text-muted">Sem projeto</span>';
+            html += `<tr class="table-secondary">
+                <td colspan="${colCount}" class="fw-semibold">
+                    <i class="bi bi-folder2-open"></i> ${projName}
+                </td>
+            </tr>`;
+        }
+
         const dateBR = it.report_date ? it.report_date.split('-').reverse().join('/') : '';
         const created = it.created_at ? it.created_at.replace('T', ' ').substring(0, 16) : '';
         const resumo = escapeHtml((it.title || it.activities || '').substring(0, 80));
         const occ = Number(it.has_occurrence) ? '<i class="bi bi-exclamation-triangle-fill text-danger"></i>' : '<span class="text-muted">—</span>';
         const who = RDO.isGlobal ? `<td>${escapeHtml(it.user_name || '')}</td>` : '';
-        return `<tr>
+        html += `<tr>
             <td>${dateBR}</td>
             ${who}
             <td>${resumo || '<span class="text-muted">—</span>'}</td>
@@ -251,12 +294,14 @@ async function loadRdos() {
             <td class="text-center">${occ}</td>
             <td class="text-center">${Number(it.attachment_count) || 0}</td>
             <td class="small text-muted">${created}</td>
-            <td class="text-end">
-                <button class="btn btn-sm btn-outline-primary" onclick="editRdo(${it.id})"><i class="bi bi-pencil"></i></button>
-                <button class="btn btn-sm btn-outline-danger" onclick="deleteRdo(${it.id})"><i class="bi bi-trash"></i></button>
+            <td class="text-end text-nowrap">
+                <button class="btn btn-sm btn-outline-secondary" title="Visualizar" onclick="viewRdo(${it.id})"><i class="bi bi-eye"></i></button>
+                <button class="btn btn-sm btn-outline-primary" title="Editar" onclick="editRdo(${it.id})"><i class="bi bi-pencil"></i></button>
+                <button class="btn btn-sm btn-outline-danger" title="Excluir" onclick="deleteRdo(${it.id})"><i class="bi bi-trash"></i></button>
             </td>
         </tr>`;
-    }).join('');
+    });
+    tb.innerHTML = html;
 }
 
 function clearFilters() {
@@ -265,11 +310,12 @@ function clearFilters() {
     document.getElementById('f-date-to').value = '';
     document.getElementById('f-status').value = '';
     document.getElementById('f-occ').value = '';
+    document.getElementById('f-company').value = '';
     const u = document.getElementById('f-user'); if (u) u.value = '';
     loadRdos();
 }
 
-['f-search','f-date-from','f-date-to','f-status','f-occ','f-user'].forEach(id => {
+['f-search','f-date-from','f-date-to','f-status','f-occ','f-company','f-user'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('change', loadRdos);
 });
@@ -282,6 +328,7 @@ function openRdoModal() {
     document.getElementById('rdo-id').value = '';
     document.getElementById('rdo-transcription').value = '';
     document.getElementById('rdo-date').value = new Date().toISOString().substring(0, 10);
+    document.getElementById('rdo-company').value = '';
     document.getElementById('rdo-title').value = '';
     document.getElementById('rdo-activities').value = '';
     document.getElementById('rdo-occurrences').value = '';
@@ -305,6 +352,7 @@ async function editRdo(id) {
     document.getElementById('rdoModalTitle').textContent = 'Editar relatório';
     document.getElementById('rdo-id').value = it.id;
     document.getElementById('rdo-date').value = it.report_date;
+    document.getElementById('rdo-company').value = it.company_id || '';
     document.getElementById('rdo-title').value = it.title || '';
     document.getElementById('rdo-activities').value = it.activities || '';
     document.getElementById('rdo-occurrences').value = it.occurrences || '';
@@ -353,6 +401,7 @@ async function saveRdo() {
 
     const fd = new FormData();
     fd.append('report_date', date);
+    fd.append('company_id', document.getElementById('rdo-company').value);
     fd.append('title', document.getElementById('rdo-title').value.trim());
     fd.append('activities', activities);
     fd.append('occurrences', document.getElementById('rdo-occurrences').value.trim());
@@ -468,7 +517,96 @@ async function processAudio() {
     reader.readAsDataURL(blob);
 }
 
+// ===== Visualização somente-leitura (sem entrar no modo de edição) =====
+let rdoViewModal;
+async function viewRdo(id) {
+    const res = await fetch(RDO.base + '/get/' + id, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+    const data = await res.json();
+    if (data.error) { alert(data.error); return; }
+    const it = data.item;
+
+    const dateBR = it.report_date ? it.report_date.split('-').reverse().join('/') : '—';
+    const project = it.company_name
+        ? escapeHtml(it.company_name)
+        : '<span class="fst-italic text-muted">Sem projeto</span>';
+
+    // Colaboradores
+    const collabs = (it.collaborators || []);
+    const collabHtml = collabs.length
+        ? `<ul class="mb-0 ps-3">` + collabs.map(c => {
+            const kind = KIND_LABELS[c.kind] || c.kind || '';
+            const notes = c.notes ? ' — ' + escapeHtml(c.notes) : '';
+            return `<li>${escapeHtml(c.collaborator_name)} <span class="badge bg-light text-dark border">${escapeHtml(kind)}</span>${notes}</li>`;
+        }).join('') + `</ul>`
+        : '<span class="text-muted">Nenhum colaborador informado.</span>';
+
+    // Anexos (com link para abrir/baixar)
+    const atts = (it.attachments || []);
+    const attHtml = atts.length
+        ? atts.map(a => `<a href="${RDO.root}/${escapeHtml(a.file_path)}" target="_blank" rel="noopener"
+                class="badge bg-light text-dark border text-decoration-none">
+                <i class="bi bi-paperclip"></i> ${escapeHtml(a.file_name)}</a>`).join(' ')
+        : '<span class="text-muted">Nenhum anexo.</span>';
+
+    const occHtml = (it.occurrences && it.occurrences.trim() !== '')
+        ? `<div class="alert alert-warning py-2 mb-0"><i class="bi bi-exclamation-triangle-fill"></i> ${escapeHtml(it.occurrences).replace(/\n/g, '<br>')}</div>`
+        : '<span class="text-muted">Sem ocorrências.</span>';
+
+    const who = RDO.isGlobal && it.user_name
+        ? `<div class="col-sm-6"><div class="text-muted small">Autor</div><div class="fw-medium">${escapeHtml(it.user_name)}</div></div>`
+        : '';
+
+    document.getElementById('rdo-view-body').innerHTML = `
+        <div class="row g-3">
+            <div class="col-sm-6"><div class="text-muted small">Projeto / Obra</div><div class="fw-medium"><i class="bi bi-folder2-open"></i> ${project}</div></div>
+            <div class="col-sm-3"><div class="text-muted small">Data</div><div class="fw-medium">${dateBR}</div></div>
+            <div class="col-sm-3"><div class="text-muted small">Status</div><div>${statusBadge(it.status)}</div></div>
+            ${who}
+            ${it.title ? `<div class="col-12"><div class="text-muted small">Título / resumo</div><div class="fw-medium">${escapeHtml(it.title)}</div></div>` : ''}
+            <div class="col-12">
+                <div class="text-muted small">Atividades realizadas</div>
+                <div>${it.activities ? escapeHtml(it.activities).replace(/\n/g, '<br>') : '<span class="text-muted">—</span>'}</div>
+            </div>
+            <div class="col-12">
+                <div class="text-muted small">Ocorrências</div>
+                ${occHtml}
+            </div>
+            <div class="col-12">
+                <div class="text-muted small">Colaboradores / Prestadores</div>
+                ${collabHtml}
+            </div>
+            <div class="col-12">
+                <div class="text-muted small">Anexos</div>
+                <div class="d-flex flex-wrap gap-2">${attHtml}</div>
+            </div>
+        </div>`;
+
+    // Botão "Editar" dentro da visualização
+    const editBtn = document.getElementById('rdo-view-edit');
+    editBtn.onclick = () => { rdoViewModal.hide(); editRdo(it.id); };
+
+    rdoViewModal = rdoViewModal || new bootstrap.Modal(document.getElementById('rdoViewModal'));
+    rdoViewModal.show();
+}
+
 loadRdos();
 </script>
+
+<!-- Modal de visualização (somente leitura) -->
+<div class="modal fade" id="rdoViewModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title"><i class="bi bi-journal-text"></i> Relatório Diário</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="rdo-view-body"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Fechar</button>
+        <button type="button" class="btn btn-primary" id="rdo-view-edit"><i class="bi bi-pencil"></i> Editar</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>
