@@ -306,11 +306,23 @@ class PlanningController extends Controller
             $this->json(['error' => 'Nenhum campo para atualizar'], 400);
         }
 
+        // Se o prazo (due_date) mudou, zera o carimbo do lembrete de vencimento
+        // para que o NOVO prazo volte a ser elegível ao aviso de <24h do cron.
+        if (PlanningRules::dueDateChanged($card, $data)) {
+            $data['due_reminder_sent_at'] = null;
+        }
+
         $this->cardModel->update($id, $data);
 
         // Notificar responsável se mudou
         if (isset($data['assigned_to']) && $data['assigned_to'] != $card['assigned_to'] && $data['assigned_to'] != $user['id']) {
             $this->notifyAssignment($id, $data['assigned_to'], $user, $card['title']);
+        }
+
+        // Avisar todos os superadmins quando a data/horário (prazo ou range de
+        // desenvolvimento) do card mudar — auditoria de reagendamentos.
+        if (PlanningRules::scheduleChanged($card, $data)) {
+            $this->notifySuperAdminsScheduleChange($id, $card, $data, $user);
         }
 
         // Se mudou status e card está vinculado a ticket, sincronizar
@@ -1223,6 +1235,83 @@ class PlanningController extends Controller
     }
 
     // Webhook para criação de card (quando não há atribuição)
+    /**
+     * Avisa TODOS os superadmins ativos, por WhatsApp, que a data/horário de um
+     * card mudou. Mostra os campos de data que efetivamente mudaram (de → para).
+     *
+     * @param int   $cardId  ID do card.
+     * @param array $old      Estado do card ANTES do update (com as datas antigas).
+     * @param array $new      Campos gravados (com as datas novas).
+     * @param array $byUser   Usuário que fez a alteração.
+     */
+    private function notifySuperAdminsScheduleChange($cardId, $old, $new, $byUser)
+    {
+        $admins = (new User())->getByRoles(['super_admin']);
+        if (empty($admins)) return;
+
+        $labels = [
+            'due_date'   => 'Prazo de entrega',
+            'start_date' => 'Início do desenvolvimento',
+            'end_date'   => 'Fim do desenvolvimento',
+        ];
+
+        // Monta a lista "campo: antes → depois" só dos que mudaram.
+        $lines = [];
+        foreach ($labels as $field => $label) {
+            if (!array_key_exists($field, $new)) continue;
+            $before = PlanningRules::normalizeDateTime($old[$field] ?? null);
+            $after = PlanningRules::normalizeDateTime($new[$field]);
+            if ($before === $after) continue;
+            $beforeStr = $before ? date('d/m/Y H:i', strtotime($before)) : 'Não definido';
+            $afterStr = $after ? date('d/m/Y H:i', strtotime($after)) : 'Não definido';
+            $lines[] = "*{$label}:* {$beforeStr} → {$afterStr}";
+        }
+        if (empty($lines)) return;
+
+        // Atendente = responsável atual pela demanda. Se o assigned_to mudou no
+        // mesmo salvamento, usa o novo; senão, o que já estava no card.
+        $attendantName = 'Não atribuído';
+        $assignedId = array_key_exists('assigned_to', $new) ? ($new['assigned_to'] ?: null) : ($old['assigned_to'] ?? null);
+        if (!empty($assignedId)) {
+            if (array_key_exists('assigned_to', $new) && $new['assigned_to'] && $new['assigned_to'] != ($old['assigned_to'] ?? null)) {
+                $assignedUser = (new User())->findById($assignedId);
+                $attendantName = $assignedUser['name'] ?? 'Não atribuído';
+            } else {
+                $attendantName = $old['assigned_name'] ?? 'Não atribuído';
+            }
+        }
+
+        $title = $old['title'] ?? ('#' . $cardId);
+        $cardLink = baseUrl('planning?card=' . $cardId);
+        $msg = "🗓️ *Data/horário de card alterado*\n\n"
+            . "*Card:* #{$cardId} — {$title}\n"
+            . "*Empresa:* " . ($old['company_name'] ?? 'N/A') . "\n"
+            . "*Atendente:* {$attendantName}\n"
+            . "*Alterado por:* " . ($byUser['name'] ?? 'Sistema') . "\n\n"
+            . implode("\n", $lines) . "\n\n"
+            . "🔗 *Link do card:* {$cardLink}";
+
+        $db = Database::getInstance();
+        foreach ($admins as $admin) {
+            // Notificação no sistema (sempre) — WhatsApp só se tiver telefone.
+            try {
+                $db->insert('notifications', [
+                    'user_id' => $admin['id'],
+                    'title' => 'Data de card alterada',
+                    'message' => ($byUser['name'] ?? 'Alguém') . " alterou a data do card \"{$title}\".",
+                    'type' => 'system',
+                ]);
+            } catch (\Throwable $e) {}
+
+            if (empty($admin['phone'])) continue;
+            try {
+                WhatsappNotifier::sendToPhone($admin['phone'], $msg, $admin['name']);
+            } catch (\Throwable $e) {
+                // Silencioso — WhatsApp é canal complementar.
+            }
+        }
+    }
+
     private function triggerCardWebhook($cardId, $currentUser, $cardTitle)
     {
         $webhookEnabled = Config::get('webhook_enabled');

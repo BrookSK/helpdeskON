@@ -225,9 +225,10 @@ em dia sem precisar ficar consultando.
 
 ### Como funciona
 
-- O callback é **por empresa** e **opcional**. Ele é ativado no painel
-  (Configurações → Integrações → coluna "Callback de status" da empresa),
-  informando uma **URL de callback** e marcando "Ativo".
+- O callback é **por empresa** e **opcional**. Ele é ativado no painel do
+  helpdeskON (Configurações → bloco "Integração — API de demandas"), informando
+  a **URL de callback** da empresa e marcando "Ativo"; as alterações são gravadas
+  pelo botão "Salvar Configurações".
 - O callback é enviado **apenas para chamados criados via API** (que têm
   `external_ref`). Mudanças de status de demandas criadas internamente pela
   equipe (sem `external_ref`) **não** geram callback — assim o sistema externo
@@ -273,10 +274,6 @@ Campos:
 | `status`               | Novo status (ver valores possíveis abaixo). |
 | `changed_at`           | Data/hora da mudança (horário do servidor). |
 
-Um `POST` de **teste** disparado pelo botão "Testar" do painel inclui um campo
-extra `"test": true` e valores de exemplo (`external_ref: "TEST-CALLBACK"`), para
-o sistema externo poder reconhecer e ignorar.
-
 ### Valores possíveis de `status`
 
 `open`, `in_progress`, `em_revisao_interna`, `waiting_client`, `em_homologacao`,
@@ -291,8 +288,8 @@ o sistema externo poder reconhecer e ignorar.
 
 ### Exemplo de recebimento (lado do sistema externo)
 
-Endpoint mínimo em PHP que recebe o callback, ignora o `POST` de teste e
-atualiza o status do chamado no próprio sistema:
+Endpoint mínimo em PHP que recebe o callback e atualiza o status do chamado no
+próprio sistema:
 
 ```php
 <?php
@@ -301,12 +298,6 @@ $body = json_decode(file_get_contents('php://input'), true);
 
 if (!is_array($body) || ($body['event'] ?? '') !== 'ticket.status_changed') {
     http_response_code(400);
-    exit;
-}
-
-// POST de teste enviado pelo painel: apenas confirme o recebimento.
-if (!empty($body['test'])) {
-    http_response_code(200);
     exit;
 }
 
