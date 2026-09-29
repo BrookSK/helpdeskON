@@ -6,7 +6,7 @@
  * Fluxo:
  *   GET  /booking/{token}                 → página pública com dados pré-preenchidos
  *   GET  /booking/slots/{token}?date=Y-m-d→ horários disponíveis do dia (JSON)
- *   POST /booking/confirm/{token}         → cria a reunião, gera Meet e notifica
+ *   POST /booking/confirm/{token}         → cria a reunião, gera a sala de vídeo e notifica
  *
  * O token é criado pelo bloco "Agendamento" da sequência (SequenceEngine) e
  * vincula o lead (contact_id) ao responsável (assigned_to).
@@ -195,7 +195,7 @@ class BookingController extends Controller
             if ($upd) { try { $this->db->update('whatsapp_contacts', $upd, 'id = ?', [$link['contact_id']]); } catch (\Throwable $e) {} }
         }
 
-        // Gera o link do Google Meet e envia as notificações (e-mail + WhatsApp)
+        // Gera o link da sala de vídeo do sistema e envia as notificações (e-mail + WhatsApp)
         $meetLink = $this->createMeetAndNotify($meetingId, $link, $name, $email, $phone, $meetingAt, $title);
 
         // Marca o link como usado
@@ -252,7 +252,7 @@ class BookingController extends Controller
         return $r ? (int)$r['id'] : null;
     }
 
-    /** Cria o evento no Google (Meet) e dispara e-mail + WhatsApp de confirmação. */
+    /** Cria a sala de vídeo nativa (link da reunião) e dispara e-mail + WhatsApp de confirmação. */
     private function createMeetAndNotify($meetingId, $link, $name, $email, $phone, $meetingAt, $title)
     {
         $agenda = new AgendaMeeting();
@@ -270,23 +270,37 @@ class BookingController extends Controller
         if ($email !== '') $attendees[] = $email;
         $attendees = array_values(array_unique(array_filter($attendees)));
 
+        // Link da reunião = sala de vídeo NATIVA do HelpDesk (/videocall/room/{token}),
+        // não mais o Google Meet. Cria (ou reusa) a sala vinculada a esta reunião e
+        // usa a URL interna como link de entrada gravado em meetings.meet_link.
+        try {
+            $meetLink = $this->createSystemVideoRoomLink($meetingId, $title, $link['assigned_to'] ?? null);
+            if ($meetLink) {
+                $agenda->update($meetingId, ['meet_link' => $meetLink]);
+            }
+        } catch (\Throwable $e) { /* segue sem link de sala */ }
+
+        // Google Calendar continua opcional APENAS como registro do compromisso na
+        // agenda (quando integrado). O link da reunião permanece sendo a sala nativa.
         try {
             $google = new GoogleCalendarApi();
             if ($google->isConfigured()) {
                 $res = $google->createEvent([
                     'title' => 'Reunião: ' . $title,
-                    'description' => "Reunião agendada pelo lead {$name} via link público.",
+                    'description' => "Reunião agendada pelo lead {$name} via link público."
+                        . ($meetLink ? "\nSala de vídeo: {$meetLink}" : ''),
                     'start' => $meetingAt,
                     'durationMin' => (int)($link['duration_min'] ?? 45),
                     'timezone' => 'America/Sao_Paulo',
                     'attendees' => $attendees,
                 ]);
                 if (!empty($res['success'])) {
-                    $meetLink = $res['meet_link'];
-                    $agenda->update($meetingId, ['google_event_id' => $res['event_id'], 'meet_link' => $meetLink]);
+                    // Só registra o event_id do Google; NÃO sobrescreve o meet_link
+                    // (a reunião acontece na sala nativa do sistema).
+                    $agenda->update($meetingId, ['google_event_id' => $res['event_id']]);
                 }
             }
-        } catch (\Throwable $e) { /* segue sem link do Meet */ }
+        } catch (\Throwable $e) { /* Google é opcional */ }
 
         $whenFmt = date('d/m/Y \à\s H:i', strtotime($meetingAt));
         // Rótulo do botão conforme o tipo de link (Google Meet real x sala de vídeo do sistema).
@@ -323,12 +337,56 @@ class BookingController extends Controller
         if (!empty($link['assigned_to'])) {
             $u = (new User())->findById($link['assigned_to']);
             if (!empty($u['phone'])) {
-                $waOwner = "📅 *Novo agendamento*\n\n{$name} agendou uma reunião.\n*Data:* {$whenFmt}\n" . ($meetLink ? "*Meet:* {$meetLink}" : '');
+                $waOwner = "📅 *Novo agendamento*\n\n{$name} agendou uma reunião.\n*Data:* {$whenFmt}\n" . ($meetLink ? "*Sala:* {$meetLink}" : '');
                 try { WhatsappNotifier::sendToPhone($u['phone'], $waOwner, $u['name']); } catch (\Throwable $e) {}
             }
         }
 
         return $meetLink;
+    }
+
+    /**
+     * Cria (ou reusa) a sala de vídeo NATIVA do sistema para a reunião e devolve
+     * a URL pública de entrada (/videocall/room/{token}).
+     *
+     * Substitui o antigo link do Google Meet: o agendamento passa a acontecer na
+     * videochamada do próprio HelpDesk. A sala é pública (o lead entra pelo link,
+     * sem login) e, quando há responsável, ele é o dono/criador da sala.
+     *
+     * @return string|null URL da sala ou null em caso de falha.
+     */
+    private function createSystemVideoRoomLink($meetingId, $title, $assignedTo = null)
+    {
+        $meetingId = (int) $meetingId;
+        if (!$meetingId) return null;
+
+        $videoModel = new VideoRoom();
+
+        // Evita duplicar: reusa uma sala ativa já vinculada a esta reunião.
+        $existing = $this->db->fetch(
+            "SELECT token FROM video_rooms WHERE meeting_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1",
+            [$meetingId]
+        );
+        $token = $existing['token'] ?? null;
+
+        if (!$token) {
+            $createdBy = (int) ($assignedTo ?: $this->firstSuperAdminId());
+            $token = $videoModel->create([
+                'title' => $title ?: 'Reunião com a ON Solutions Brasil',
+                'created_by' => $createdBy ?: null,
+                'meeting_id' => $meetingId,
+                'max_participants' => 15,
+                'allow_recording' => 1,
+                'allow_presentation' => 1,
+                'status' => 'active',
+                'visibility' => 'public',
+                'expires_at' => date('Y-m-d H:i:s', strtotime('+30 days')),
+            ]);
+        }
+        if (!$token) return null;
+
+        $base = rtrim((string) Config::get('app_public_url'), '/') ?: rtrim(baseUrl(''), '/');
+        return $base . '/videocall/room/' . $token;
     }
 
     /** Move o card do lead para a coluna informada (no board de Prospecção), se existir. */

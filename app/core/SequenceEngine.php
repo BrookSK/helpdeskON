@@ -900,9 +900,15 @@ class SequenceEngine
                 if ($aiMode === 'decision' && !empty($node['data']['faq_active'])) {
                     $ag = $this->doAiAgent($participant, $node);
                     $intent = $ag['intent'] ?? 'unclear';
-                    if ($intent === 'yes')      { $this->advance($participant, $node['nextYes'] ?? null, $nodes); $this->analyticsInterest($participant, true); }
-                    elseif ($intent === 'no')   { $this->advance($participant, $node['nextNo'] ?? null, $nodes); $this->analyticsInterest($participant, false); }
-                    else {
+                    // Roteamento centralizado (SequenceAiRules): só recusa EXPLÍCITA
+                    // encerra; indecisão/limite de interações segue ao agendamento.
+                    $action = SequenceAiRules::agentAction(
+                        $intent, !empty($ag['active']), (int)($ag['turns'] ?? 0), (int)($ag['max_turns'] ?? 6));
+                    if ($action === SequenceAiRules::ACTION_ADVANCE_YES) {
+                        $this->advance($participant, $node['nextYes'] ?? null, $nodes); $this->analyticsInterest($participant, true);
+                    } elseif ($action === SequenceAiRules::ACTION_ADVANCE_NO) {
+                        $this->advance($participant, $node['nextNo'] ?? null, $nodes); $this->analyticsInterest($participant, false);
+                    } else {
                         // Ainda com dúvidas: respondeu e continua no ciclo, aguardando
                         // a próxima mensagem do lead (janela de escuta).
                         $listenMin = max(1, (int)(Config::get('sequence_reply_listen_minutes') ?? 2));
@@ -913,15 +919,23 @@ class SequenceEngine
                         ], 'id = ?', [$participant['id']]);
                     }
                     $this->logExec($participant['id'], $nodeId, $type, empty($ag['error']) ? 'done' : 'failed', $ag['detail'] ?? null);
-                    return $intent === 'unclear' ? 'skipped' : 'sent';
+                    return $action === SequenceAiRules::ACTION_LISTEN ? 'skipped' : 'sent';
                 }
                 $ai = $this->doAi($participant, $node);
                 if ($aiMode === 'decision') {
-                    // ramifica conforme a decisão SIM/NÃO da IA
-                    $branch = !empty($ai['decision']) ? ($node['nextYes'] ?? null) : ($node['nextNo'] ?? null);
+                    // Ramifica conforme a decisão SIM/NÃO da IA. Se a chamada
+                    // FALHOU tecnicamente (sem chave/HTTP), NÃO tratamos como
+                    // recusa do lead: seguimos para o AGENDAMENTO (SIM) para não
+                    // derrubar o lead por um erro nosso.
+                    if (!empty($ai['error'])) {
+                        $action = SequenceAiRules::ACTION_ADVANCE_YES;
+                    } else {
+                        $action = SequenceAiRules::decisionAction(!empty($ai['decision']));
+                    }
+                    $branch = $action === SequenceAiRules::ACTION_ADVANCE_YES ? ($node['nextYes'] ?? null) : ($node['nextNo'] ?? null);
                     $this->advance($participant, $branch, $nodes);
                     // Analytics: registra interesse classificado pela IA + objeção.
-                    $this->analyticsInterest($participant, !empty($ai['decision']), $ai['detail'] ?? null);
+                    $this->analyticsInterest($participant, $action === SequenceAiRules::ACTION_ADVANCE_YES, $ai['detail'] ?? null);
                 } else {
                     $this->advance($participant, $node['next'] ?? null, $nodes);
                 }
@@ -985,11 +999,15 @@ class SequenceEngine
                 $agentActive = !isset($node['data']['active']) || !empty($node['data']['active']);
                 $ag = $this->doAiAgent($participant, $node);
                 $intent = $ag['intent'] ?? 'unclear';
-                if ($intent === 'yes')      $this->advance($participant, $node['nextYes'] ?? null, $nodes);
-                elseif ($intent === 'no')   $this->advance($participant, $node['nextNo'] ?? null, $nodes);
-                elseif (!$agentActive) {
-                    // Bloco INATIVO: sem loop nem respostas. Faz uma classificação
-                    // simples numa única passada; se ficar indefinido, segue como NÃO.
+                // Roteamento centralizado (SequenceAiRules): apenas a recusa
+                // EXPLÍCITA do lead segue pela saída NÃO (encerra). Indecisão no
+                // modo classificação, ou limite de interações no modo ativo,
+                // seguem para o AGENDAMENTO (saída SIM) — nunca encerram sozinhos.
+                $action = SequenceAiRules::agentAction(
+                    $intent, $agentActive, (int)($ag['turns'] ?? 0), (int)($ag['max_turns'] ?? 6));
+                if ($action === SequenceAiRules::ACTION_ADVANCE_YES) {
+                    $this->advance($participant, $node['nextYes'] ?? null, $nodes);
+                } elseif ($action === SequenceAiRules::ACTION_ADVANCE_NO) {
                     $this->advance($participant, $node['nextNo'] ?? null, $nodes);
                 } else {
                     // Bloco ATIVO e intenção ainda não clara: respondeu a dúvida e
@@ -1003,7 +1021,7 @@ class SequenceEngine
                     ], 'id = ?', [$participant['id']]);
                 }
                 $this->logExec($participant['id'], $nodeId, $type, empty($ag['error']) ? 'done' : 'failed', $ag['detail'] ?? null);
-                return ($intent === 'unclear' && $agentActive) ? 'skipped' : 'sent';
+                return $action === SequenceAiRules::ACTION_LISTEN ? 'skipped' : 'sent';
 
             case 'linkedin':
                 // Etapa MANUAL assistida. NÃO envia nada: gera uma tarefa na fila
@@ -1516,18 +1534,20 @@ class SequenceEngine
 
         $apiKey = trim((string) Config::get('openai_api_key'));
         if ($apiKey === '') {
-            return ['intent' => 'unclear', 'detail' => 'OpenAI não configurada.', 'error' => 'no_key'];
+            return ['intent' => 'unclear', 'active' => $agentActive, 'turns' => (int)($participant['ai_agent_turns'] ?? 0), 'max_turns' => $maxTurns, 'detail' => 'OpenAI não configurada.', 'error' => 'no_key'];
         }
 
         $contact = $this->db->fetch("SELECT id, contact_name, push_name, lead_email, phone FROM whatsapp_contacts WHERE id = ?", [$contactId]);
-        if (!$contact) return ['intent' => 'unclear', 'detail' => 'Lead não encontrado', 'error' => 'no_contact'];
+        if (!$contact) return ['intent' => 'unclear', 'active' => $agentActive, 'turns' => (int)($participant['ai_agent_turns'] ?? 0), 'max_turns' => $maxTurns, 'detail' => 'Lead não encontrado', 'error' => 'no_contact'];
 
         // Trava de segurança (apenas no modo ATIVO): limite de interações para não
-        // ficar preso no loop de dúvidas para sempre. Ao atingir, segue pela saída NÃO.
+        // ficar preso no loop de dúvidas para sempre. Ao atingir, NÃO encerra por
+        // cansaço — o lead nunca recusou. Sinaliza 'unclear' para que a regra
+        // (SequenceAiRules::agentAction) encaminhe ao AGENDAMENTO (saída SIM).
         $turns = (int)($participant['ai_agent_turns'] ?? 0);
         if ($agentActive && $turns >= $maxTurns) {
-            (new LeadTimelineService())->add($contactId, 'note', 'Atendente IA atingiu o limite de interações — encerrando pela saída NÃO.', ['channel' => 'ai_agent']);
-            return ['intent' => 'no', 'detail' => 'Limite de interações atingido.', 'error' => null];
+            (new LeadTimelineService())->add($contactId, 'note', 'Atendente IA atingiu o limite de interações — encaminhando ao agendamento (saída SIM), sem recusa do lead.', ['channel' => 'ai_agent']);
+            return ['intent' => 'unclear', 'active' => true, 'turns' => $turns, 'max_turns' => $maxTurns, 'limit' => true, 'detail' => 'Limite de interações atingido — segue para agendamento.', 'error' => null];
         }
 
         $context = $this->buildAiContext($contactId, $contact);
@@ -1582,7 +1602,7 @@ class SequenceEngine
             curl_close($ch);
 
             if ($httpCode >= 400 || !$response) {
-                return ['intent' => 'unclear', 'detail' => 'Falha na IA (HTTP ' . $httpCode . ').', 'error' => 'http'];
+                return ['intent' => 'unclear', 'active' => $agentActive, 'turns' => $turns, 'max_turns' => $maxTurns, 'detail' => 'Falha na IA (HTTP ' . $httpCode . ').', 'error' => 'http'];
             }
             $body = json_decode($response, true);
             $content = trim((string)($body['choices'][0]['message']['content'] ?? ''));
@@ -1592,18 +1612,21 @@ class SequenceEngine
 
             if (!$agentActive) {
                 // Modo INATIVO: classificação pura numa passada. Sem loop, sem
-                // resposta ao lead e sem contador. 'unclear' vira 'no'.
-                if (!in_array($intent, ['yes', 'no'], true)) $intent = 'no';
+                // resposta ao lead e sem contador. Só a recusa EXPLÍCITA ('no')
+                // encerra; indecisão ('unclear') NÃO vira 'no' — a regra de
+                // roteamento (SequenceAiRules) encaminha ao agendamento.
+                $intent = SequenceAiRules::normalizeIntent($intent);
                 (new LeadTimelineService())->add($contactId, 'note',
                     'Classificação IA (SIM/NÃO): ' . $intent, ['channel' => 'ai_agent', 'intent' => $intent, 'mode' => 'classify']);
-                return ['intent' => $intent, 'detail' => 'Classificação: ' . $intent, 'error' => null];
+                return ['intent' => $intent, 'active' => false, 'turns' => $turns, 'max_turns' => $maxTurns, 'detail' => 'Classificação: ' . $intent, 'error' => null];
             }
 
             // Modo ATIVO: loop de dúvidas.
-            if (!in_array($intent, ['yes', 'no', 'unclear'], true)) $intent = 'unclear';
+            $intent = SequenceAiRules::normalizeIntent($intent);
 
             // Incrementa o contador de interações do atendente.
-            $this->db->update('sequence_participants', ['ai_agent_turns' => $turns + 1], 'id = ?', [$participant['id']]);
+            $newTurns = $turns + 1;
+            $this->db->update('sequence_participants', ['ai_agent_turns' => $newTurns], 'id = ?', [$participant['id']]);
 
             // Sempre que houver texto de resposta, envia pelo mesmo canal do lead.
             if ($reply !== '') {
@@ -1614,10 +1637,10 @@ class SequenceEngine
                 'Atendente IA · intenção: ' . $intent . ($reply !== '' ? ' — respondeu dúvida.' : ''),
                 ['channel' => 'ai_agent', 'intent' => $intent]);
 
-            return ['intent' => $intent, 'detail' => 'Intenção: ' . $intent, 'error' => null];
+            return ['intent' => $intent, 'active' => true, 'turns' => $newTurns, 'max_turns' => $maxTurns, 'detail' => 'Intenção: ' . $intent, 'error' => null];
         } catch (\Throwable $e) {
             Logger::error('SequenceEngine ai_agent', ['contact' => $contactId, 'error' => $e->getMessage()]);
-            return ['intent' => 'unclear', 'detail' => 'Erro na IA.', 'error' => $e->getMessage()];
+            return ['intent' => 'unclear', 'active' => $agentActive, 'turns' => $turns, 'max_turns' => $maxTurns, 'detail' => 'Erro na IA.', 'error' => $e->getMessage()];
         }
     }
 
