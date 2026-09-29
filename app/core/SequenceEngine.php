@@ -1174,23 +1174,25 @@ class SequenceEngine
             return 'Mensagem vazia';
         }
 
-        // SEMPRE usa a instância PADRÃO para envios de sequência.
+        // Conta de envio de WhatsApp: a instância configurada na sequência ou,
+        // se não houver, a instância PADRÃO (espelha resolveAccount() do e-mail).
         $ctxRow = $this->db->fetch("SELECT remote_jid FROM whatsapp_contacts WHERE id = ?", [$contactId]);
-        $default = $this->db->fetch("SELECT id, connection_status FROM whatsapp_instances WHERE is_default = 1 LIMIT 1");
-        if (!$default) {
-            Logger::warning('SequenceEngine whatsapp impedido', $logCtx + ['reason' => 'Nenhuma instância padrão de WhatsApp definida']);
-            return 'Nenhuma instância padrão de WhatsApp definida. Defina uma instância como padrão em WhatsApp.';
+        $seqInstanceId = $this->db->fetch("SELECT whatsapp_instance_id FROM email_sequences WHERE id = ?", [$participant['sequence_id']])['whatsapp_instance_id'] ?? null;
+        $instance = $this->resolveWhatsappInstance($seqInstanceId);
+        if (!$instance) {
+            Logger::warning('SequenceEngine whatsapp impedido', $logCtx + ['reason' => 'Nenhuma instância de WhatsApp disponível (nem escolhida na sequência, nem padrão)']);
+            return 'Nenhuma instância de WhatsApp disponível. Escolha uma na sequência ou defina uma instância padrão em WhatsApp.';
         }
-        $instanceId = (int)$default['id'];
+        $instanceId = (int)$instance['id'];
 
-        // A instância padrão precisa estar conectada (senão a Evolution retorna "Connection Closed").
+        // A instância precisa estar conectada (senão a Evolution retorna "Connection Closed").
         if (!$this->isInstanceConnected($instanceId)) {
             Logger::warning('SequenceEngine whatsapp impedido', $logCtx + [
-                'reason' => 'Instância padrão de WhatsApp não conectada',
+                'reason' => 'Instância de WhatsApp não conectada',
                 'instance_id' => $instanceId,
-                'connection_status' => $default['connection_status'] ?? null,
+                'connection_status' => $instance['connection_status'] ?? null,
             ]);
-            return 'A instância padrão de WhatsApp não está conectada. Conecte-a em WhatsApp.';
+            return 'A instância de WhatsApp da sequência não está conectada. Conecte-a em WhatsApp.';
         }
 
         try {
@@ -2023,15 +2025,21 @@ class SequenceEngine
     {
         // Garante que qualquer e-mail agrupado pendente do participante saia antes
         // (mantém a ordem cronológica entre canais). Descobre o participante ativo.
+        $seqInstanceId = null;
         try {
-            $p = $this->db->fetch("SELECT id FROM sequence_participants WHERE contact_id = ? AND status='active' ORDER BY id DESC LIMIT 1", [$contactId]);
+            $p = $this->db->fetch("SELECT id, sequence_id FROM sequence_participants WHERE contact_id = ? AND status='active' ORDER BY id DESC LIMIT 1", [$contactId]);
             if ($p && !empty($this->emailBuffer[$p['id']])) $this->flushEmail($p['id']);
+            // Conta de envio de WhatsApp escolhida na sequência (se houver).
+            if ($p && !empty($p['sequence_id'])) {
+                $seqInstanceId = $this->db->fetch("SELECT whatsapp_instance_id FROM email_sequences WHERE id = ?", [$p['sequence_id']])['whatsapp_instance_id'] ?? null;
+            }
         } catch (\Throwable $e) { /* ignore */ }
         try {
-            $default = $this->db->fetch("SELECT id FROM whatsapp_instances WHERE is_default = 1 LIMIT 1");
-            if (!$default) return 'Sem instância padrão de WhatsApp.';
-            $instanceId = (int)$default['id'];
-            if (!$this->isInstanceConnected($instanceId)) return 'Instância padrão não conectada.';
+            // Instância da sequência ou, se não configurada, a padrão (espelha resolveAccount).
+            $instance = $this->resolveWhatsappInstance($seqInstanceId);
+            if (!$instance) return 'Sem instância de WhatsApp disponível.';
+            $instanceId = (int)$instance['id'];
+            if (!$this->isInstanceConnected($instanceId)) return 'Instância de WhatsApp não conectada.';
             $api = EvolutionApi::fromInstance($instanceId);
             if (!$api) return 'Instância indisponível.';
 
@@ -2577,6 +2585,22 @@ class SequenceEngine
         // primeira conta ativa
         $all = Database::getInstance()->fetch("SELECT * FROM email_accounts WHERE is_active = 1 ORDER BY id ASC LIMIT 1");
         return $all ?: null;
+    }
+
+    /**
+     * "Conta de envio" de WhatsApp: espelha resolveAccount() do e-mail.
+     * Usa a instância configurada na sequência (se ainda existir); caso contrário,
+     * cai na instância PADRÃO (is_default). Retorna a linha da instância ou null.
+     */
+    private function resolveWhatsappInstance($instanceId)
+    {
+        if ($instanceId) {
+            $inst = $this->db->fetch("SELECT id, connection_status FROM whatsapp_instances WHERE id = ? LIMIT 1", [(int)$instanceId]);
+            if ($inst) return $inst;
+        }
+        // fallback: instância padrão
+        $default = $this->db->fetch("SELECT id, connection_status FROM whatsapp_instances WHERE is_default = 1 LIMIT 1");
+        return $default ?: null;
     }
 
     private function render($text, $contact)

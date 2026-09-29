@@ -56,11 +56,20 @@
                         </select>
                     </div>
                     <div class="col-6 col-md-3">
-                        <label class="form-label small mb-1">Conta de envio</label>
+                        <label class="form-label small mb-1">Conta de envio (e-mail)</label>
                         <select id="seq-account" class="form-select form-select-sm">
                             <option value="">Primeira ativa</option>
                             <?php foreach ($accounts as $a): ?>
                             <option value="<?= $a['id'] ?>" <?= ($sequence && $sequence['email_account_id'] == $a['id']) ? 'selected' : '' ?>><?= escape($a['display_name'] ?: $a['email']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <label class="form-label small mb-1">Conta de envio (WhatsApp)</label>
+                        <select id="seq-wa-instance" class="form-select form-select-sm">
+                            <option value="">Instância padrão</option>
+                            <?php foreach (($whatsappInstances ?? []) as $wi): ?>
+                            <option value="<?= $wi['id'] ?>" <?= ($sequence && ($sequence['whatsapp_instance_id'] ?? null) == $wi['id']) ? 'selected' : '' ?>><?= escape($wi['display_name'] ?: $wi['instance_name']) ?><?= ($wi['connection_status'] ?? '') && !in_array($wi['connection_status'], ['open','connected'], true) ? ' (desconectada)' : '' ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
