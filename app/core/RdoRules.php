@@ -50,6 +50,19 @@ class RdoRules
         return in_array($value, self::COLLABORATOR_KINDS, true) ? $value : $default;
     }
 
+    /**
+     * Normaliza o projeto/obra (company_id) do RDO. Vazio, zero, negativo ou
+     * não-numérico viram null ("sem projeto"). Caso contrário, o inteiro.
+     */
+    public static function normalizeCompanyId($value): ?int
+    {
+        if ($value === null || $value === '' || !is_numeric($value)) {
+            return null;
+        }
+        $id = (int) $value;
+        return $id > 0 ? $id : null;
+    }
+
     /** O papel enxerga relatórios de TODAS as pessoas? */
     public static function hasGlobalView(?string $role): bool
     {

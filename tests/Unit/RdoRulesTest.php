@@ -41,6 +41,22 @@ final class RdoRulesTest extends TestCase
         $this->assertSame('colaborador', RdoRules::normalizeCollaboratorKind('outro'));
     }
 
+    public function testNormalizeCompanyId(): void
+    {
+        // Valores válidos viram inteiro positivo.
+        $this->assertSame(5, RdoRules::normalizeCompanyId(5));
+        $this->assertSame(5, RdoRules::normalizeCompanyId('5'));
+        $this->assertSame(42, RdoRules::normalizeCompanyId('42'));
+
+        // "Sem projeto" e valores inválidos viram null.
+        $this->assertNull(RdoRules::normalizeCompanyId(''));
+        $this->assertNull(RdoRules::normalizeCompanyId(null));
+        $this->assertNull(RdoRules::normalizeCompanyId(0));
+        $this->assertNull(RdoRules::normalizeCompanyId('0'));
+        $this->assertNull(RdoRules::normalizeCompanyId(-1));
+        $this->assertNull(RdoRules::normalizeCompanyId('abc'));
+    }
+
     public function testDeriveHasOccurrence(): void
     {
         $this->assertSame(1, RdoRules::deriveHasOccurrence('Faltou material'));

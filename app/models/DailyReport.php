@@ -20,9 +20,11 @@ class DailyReport
     public function findById($id)
     {
         return $this->db->fetch(
-            "SELECT dr.*, u.name AS user_name, u.role AS user_role
+            "SELECT dr.*, u.name AS user_name, u.role AS user_role,
+                    c.name AS company_name
              FROM daily_reports dr
              LEFT JOIN users u ON dr.user_id = u.id
+             LEFT JOIN companies c ON dr.company_id = c.id
              WHERE dr.id = ?",
             [$id]
         );
@@ -30,23 +32,29 @@ class DailyReport
 
     /**
      * Lista relatórios com filtros opcionais.
-     * $filters: user_id (escopo do dono), search (texto em título/atividades/
-     * ocorrências), date (report_date exata), date_from, date_to, status,
-     * has_occurrence.
+     * $filters: user_id (escopo do dono), company_id (projeto/obra), search
+     * (texto em título/atividades/ocorrências), date (report_date exata),
+     * date_from, date_to, status, has_occurrence.
      */
     public function getList($filters = [])
     {
         $sql = "SELECT dr.*, u.name AS user_name, u.role AS user_role,
+                       c.name AS company_name,
                        (SELECT COUNT(*) FROM daily_report_attachments a WHERE a.report_id = dr.id) AS attachment_count,
-                       (SELECT COUNT(*) FROM daily_report_collaborators c WHERE c.report_id = dr.id) AS collaborator_count
+                       (SELECT COUNT(*) FROM daily_report_collaborators dc WHERE dc.report_id = dr.id) AS collaborator_count
                 FROM daily_reports dr
                 LEFT JOIN users u ON dr.user_id = u.id
+                LEFT JOIN companies c ON dr.company_id = c.id
                 WHERE 1=1";
         $params = [];
 
         if (!empty($filters['user_id'])) {
             $sql .= " AND dr.user_id = ?";
             $params[] = $filters['user_id'];
+        }
+        if (!empty($filters['company_id'])) {
+            $sql .= " AND dr.company_id = ?";
+            $params[] = $filters['company_id'];
         }
         if (!empty($filters['search'])) {
             $sql .= " AND (dr.title LIKE ? OR dr.activities LIKE ? OR dr.occurrences LIKE ?)";
@@ -74,7 +82,9 @@ class DailyReport
             $params[] = (int) $filters['has_occurrence'];
         }
 
-        $sql .= " ORDER BY dr.report_date DESC, dr.created_at DESC";
+        // Agrupa por projeto/obra (empresa): relatórios sem empresa vão para o
+        // fim; dentro de cada projeto, os mais recentes primeiro.
+        $sql .= " ORDER BY (dr.company_id IS NULL) ASC, c.name ASC, dr.report_date DESC, dr.created_at DESC";
         return $this->db->fetchAll($sql, $params);
     }
 
@@ -89,6 +99,10 @@ class DailyReport
         if (!empty($filters['user_id'])) {
             $where .= " AND user_id = ?";
             $params[] = $filters['user_id'];
+        }
+        if (!empty($filters['company_id'])) {
+            $where .= " AND company_id = ?";
+            $params[] = $filters['company_id'];
         }
         if (!empty($filters['date_from'])) {
             $where .= " AND report_date >= ?";

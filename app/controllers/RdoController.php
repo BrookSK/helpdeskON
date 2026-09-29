@@ -31,6 +31,20 @@ class RdoController extends Controller
         return $filters;
     }
 
+    /**
+     * Resolve o projeto/obra (company_id) a partir do POST: normaliza via regra
+     * pura e confirma que a empresa existe. Empresa inexistente/ inválida vira
+     * null ("sem projeto"), evitando FK órfã.
+     */
+    private function resolveCompanyId($value): ?int
+    {
+        $id = RdoRules::normalizeCompanyId($value);
+        if ($id === null) {
+            return null;
+        }
+        return (new Company())->findById($id) ? $id : null;
+    }
+
     /** Garante que o usuário pode ver/editar o relatório; encerra com 403/404 se não. */
     private function requireOwnedOrGlobal($report)
     {
@@ -56,11 +70,15 @@ class RdoController extends Controller
             $team = $userModel->getByRoles(['super_admin', 'developer', 'attendant', 'analyst', 'comercial', 'marketing', 'whatsapp_agent']);
         }
 
+        // Projetos/obras = empresas cadastradas (usadas no seletor e no filtro).
+        $companies = (new Company())->getAll();
+
         $this->view('rdo/index', [
             'user' => $user,
             'currentPage' => 'rdo',
             'isGlobal' => RdoRules::hasGlobalView($user['role']),
             'team' => $team,
+            'companies' => $companies,
             'statuses' => RdoRules::STATUSES,
             'statusLabels' => RdoRules::STATUS_LABELS,
         ]);
@@ -77,6 +95,7 @@ class RdoController extends Controller
         if (!empty($_GET['date_from'])) $filters['date_from'] = $_GET['date_from'];
         if (!empty($_GET['date_to'])) $filters['date_to'] = $_GET['date_to'];
         if (!empty($_GET['status'])) $filters['status'] = $_GET['status'];
+        if (!empty($_GET['company_id'])) $filters['company_id'] = (int) $_GET['company_id'];
         if (isset($_GET['has_occurrence']) && $_GET['has_occurrence'] !== '') {
             $filters['has_occurrence'] = (int) $_GET['has_occurrence'];
         }
@@ -120,6 +139,7 @@ class RdoController extends Controller
         $occurrences = trim($_POST['occurrences'] ?? '');
         $data = [
             'user_id' => $user['id'], // o dono é SEMPRE quem cria (não dá para forjar)
+            'company_id' => $this->resolveCompanyId($_POST['company_id'] ?? null),
             'report_date' => $reportDate,
             'title' => trim($_POST['title'] ?? '') ?: null,
             'activities' => trim($_POST['activities'] ?? '') ?: null,
@@ -159,6 +179,7 @@ class RdoController extends Controller
         }
         if (isset($_POST['status'])) $data['status'] = RdoRules::normalizeStatus($_POST['status'], $report['status']);
         if (array_key_exists('transcription', $_POST)) $data['transcription'] = trim($_POST['transcription']) ?: null;
+        if (array_key_exists('company_id', $_POST)) $data['company_id'] = $this->resolveCompanyId($_POST['company_id']);
 
         if ($data) $this->model->update($id, $data);
 
