@@ -721,6 +721,7 @@ function saveSeq() {
     fd.append('name', name);
     fd.append('channel_type', (document.getElementById('seq-channel') || {}).value || 'email');
     fd.append('email_account_id', document.getElementById('seq-account').value);
+    fd.append('whatsapp_instance_id', (document.getElementById('seq-wa-instance') || {}).value || '');
     fd.append('daily_limit', document.getElementById('seq-daily').value);
     fd.append('window_start', document.getElementById('seq-wstart').value + ':00');
     fd.append('window_end', document.getElementById('seq-wend').value + ':00');

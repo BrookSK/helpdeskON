@@ -463,11 +463,96 @@ class ApolloProspectingService
             }
         }
         if ($targetSeq) {
+            // BLOQUEIO "sem interesse": nunca (re)prospectar quem já disse não.
+            // Cobre o flag unsubscribed E a tag textual "sem interesse" (a dedup
+            // por e-mail/telefone antes disso não checa interesse). Vale para o
+            // disparo automático; o manual do operador pode forçar.
+            if (!$manual && $this->contactOptedOut($contactId)) {
+                $this->logCampaign($camp['id'], 'skipped', 'Lead sem interesse — não reprospectado (contact ' . $contactId . ').');
+                return 'skipped';
+            }
+            // BLOQUEIO de reenvio: no automático, quem já passou por esta sequência
+            // (qualquer status) não é reinscrito (evita loop de reenvio). Antes essa
+            // guarda só existia no fluxo "Meus Leads".
+            if (!$manual && $this->alreadyInSequence($contactId, $targetSeq)) {
+                $this->logCampaign($camp['id'], 'skipped', 'Lead já passou por esta sequência — não reinscrito (contact ' . $contactId . ').');
+                return 'skipped';
+            }
+            // Propaga a janela de horário/dias da CAMPANHA para a sequência, para
+            // que os envios (inclusive WhatsApp) respeitem o que foi configurado
+            // na campanha — e não o horário default da sequência.
+            $this->syncSequenceWindow($targetSeq, $camp);
             (new SequenceEngine())->enroll($targetSeq, $contactId, $camp['created_by'] ?: null, $manual);
             $this->logEnrolled($camp['id'], $contactId, $routeLabel);
         }
 
         return 'enrolled';
+    }
+
+    /**
+     * Lead recusou/optou por sair? true se unsubscribed=1 OU tem a etiqueta
+     * "sem interesse" vinculada. Base para não reprospectar quem já disse não.
+     */
+    private function contactOptedOut($contactId)
+    {
+        if (!$contactId) return false;
+        $c = $this->db->fetch("SELECT unsubscribed FROM whatsapp_contacts WHERE id = ? LIMIT 1", [$contactId]);
+        if ($c && !empty($c['unsubscribed'])) return true;
+        try {
+            $r = $this->db->fetch(
+                "SELECT 1 FROM whatsapp_contact_labels ccl
+                 JOIN whatsapp_labels l ON l.id = ccl.label_id
+                 WHERE ccl.contact_id = ? AND LOWER(l.name) IN ('sem interesse','sem interese') LIMIT 1",
+                [$contactId]
+            );
+            return (bool) $r;
+        } catch (\Throwable $e) { return false; }
+    }
+
+    /**
+     * Sincroniza a janela de envio (horário/dias/fim de semana) da sequência-alvo
+     * com a configuração da campanha. Assim o que o usuário definir na campanha
+     * (dias da semana + início/fim) é o que os envios da sequência respeitam.
+     * Só atualiza as colunas que existem no schema (idempotente/tolerante).
+     */
+    private function syncSequenceWindow($sequenceId, array $camp)
+    {
+        if (!$sequenceId) return;
+        try {
+            $data = [];
+            if (!empty($camp['window_start'])) $data['window_start'] = $camp['window_start'];
+            if (!empty($camp['window_end']))   $data['window_end']   = $camp['window_end'];
+
+            $days = trim((string) ($camp['days_of_week'] ?? ''));
+            if ($this->sequenceHasColumn('days_of_week')) {
+                $data['days_of_week'] = $days !== '' ? $days : null;
+                // send_weekends coerente com os dias escolhidos (sáb=6/dom=7).
+                if ($days !== '') {
+                    $set = array_map('intval', explode(',', $days));
+                    $data['send_weekends'] = (in_array(6, $set, true) || in_array(7, $set, true)) ? 1 : 0;
+                }
+            }
+            if (!empty($data)) {
+                $this->db->update('email_sequences', $data, 'id = ?', [(int) $sequenceId]);
+            }
+        } catch (\Throwable $e) { /* nunca quebra a prospecção por causa da sync */ }
+    }
+
+    /** Verifica (com cache) se uma coluna existe em email_sequences. */
+    private function sequenceHasColumn($column)
+    {
+        static $cols = null;
+        if ($cols === null) {
+            $cols = [];
+            try {
+                $rows = $this->db->fetchAll(
+                    "SELECT COLUMN_NAME FROM information_schema.COLUMNS
+                     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'email_sequences'"
+                );
+                foreach ($rows as $r) $cols[strtolower($r['COLUMN_NAME'])] = true;
+            } catch (\Throwable $e) { $cols = []; }
+        }
+        return isset($cols[strtolower($column)]);
     }
 
     /** ID do primeiro Super Admin ativo (destino padrão dos leads novos da Apollo). */

@@ -61,6 +61,8 @@ class SequencesController extends Controller
 
         $db = Database::getInstance();
         $accounts = $db->fetchAll("SELECT id, email, display_name FROM email_accounts WHERE is_active = 1 ORDER BY email");
+        // Instâncias de WhatsApp para a "conta de envio" de WhatsApp (espelha email_accounts).
+        $whatsappInstances = $db->fetchAll("SELECT id, instance_name, display_name, connection_status FROM whatsapp_instances ORDER BY is_default DESC, display_name ASC");
         // Colunas de todos os boards (para o nó "mover card"), com board para agrupar
         $columns = $db->fetchAll(
             "SELECT col.id, col.name, col.board_id, b.name AS board_name
@@ -79,6 +81,7 @@ class SequencesController extends Controller
             'user' => $user,
             'sequence' => $seq,
             'accounts' => $accounts,
+            'whatsappInstances' => $whatsappInstances,
             'columns' => $columns,
             'labels' => $labels,
             'sequencesList' => $otherSeqs,
@@ -287,6 +290,7 @@ class SequencesController extends Controller
             'description' => trim($_POST['description'] ?? '') ?: null,
             'channel_type' => $channelType,
             'email_account_id' => !empty($_POST['email_account_id']) ? intval($_POST['email_account_id']) : null,
+            'whatsapp_instance_id' => !empty($_POST['whatsapp_instance_id']) ? intval($_POST['whatsapp_instance_id']) : null,
             'graph' => $graphRaw !== '' ? json_encode($graph, JSON_UNESCAPED_UNICODE) : null,
             'is_active' => !empty($_POST['is_active']) ? 1 : 0,
             'daily_limit' => max(1, intval($_POST['daily_limit'] ?? 100)),
