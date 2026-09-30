@@ -1930,7 +1930,7 @@ class CrmController extends Controller
         $sql = "SELECT c.id, c.contact_name, c.lead_email, c.phone,
                        u.name AS assigned_name,
                        COALESCE(c.unsubscribed,0) AS unsubscribed,
-                       (SELECT MAX(ccl.created_at) FROM whatsapp_contact_labels ccl
+                       (SELECT MAX(ccl.assigned_at) FROM whatsapp_contact_labels ccl
                           JOIN whatsapp_labels l ON l.id = ccl.label_id
                           WHERE ccl.contact_id = c.id AND LOWER(l.name) IN ('sem interesse','sem interese')
                        ) AS marked_at
