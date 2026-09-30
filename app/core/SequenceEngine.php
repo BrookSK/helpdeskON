@@ -908,6 +908,7 @@ class SequenceEngine
                         $this->advance($participant, $node['nextYes'] ?? null, $nodes); $this->analyticsInterest($participant, true);
                     } elseif ($action === SequenceAiRules::ACTION_ADVANCE_NO) {
                         $this->advance($participant, $node['nextNo'] ?? null, $nodes); $this->analyticsInterest($participant, false);
+                        $this->markNegativeOutcome($participant['contact_id']);
                     } else {
                         // Ainda com dúvidas: respondeu e continua no ciclo, aguardando
                         // a próxima mensagem do lead (janela de escuta).
@@ -935,7 +936,10 @@ class SequenceEngine
                     $branch = $action === SequenceAiRules::ACTION_ADVANCE_YES ? ($node['nextYes'] ?? null) : ($node['nextNo'] ?? null);
                     $this->advance($participant, $branch, $nodes);
                     // Analytics: registra interesse classificado pela IA + objeção.
-                    $this->analyticsInterest($participant, $action === SequenceAiRules::ACTION_ADVANCE_YES, $ai['detail'] ?? null);
+                    $isNegative = ($action !== SequenceAiRules::ACTION_ADVANCE_YES);
+                    $this->analyticsInterest($participant, !$isNegative, $ai['detail'] ?? null);
+                    // Recusa da IA: move o card para "Sem Interesse" e marca perdido.
+                    if ($isNegative) $this->markNegativeOutcome($participant['contact_id']);
                 } else {
                     $this->advance($participant, $node['next'] ?? null, $nodes);
                 }
@@ -1009,6 +1013,10 @@ class SequenceEngine
                     $this->advance($participant, $node['nextYes'] ?? null, $nodes);
                 } elseif ($action === SequenceAiRules::ACTION_ADVANCE_NO) {
                     $this->advance($participant, $node['nextNo'] ?? null, $nodes);
+                    // Recusa explícita do lead: registra negativo, move o card para
+                    // "Sem Interesse" e marca o desfecho como perdido.
+                    $this->analyticsInterest($participant, false, $ag['detail'] ?? null);
+                    $this->markNegativeOutcome($participant['contact_id']);
                 } else {
                     // Bloco ATIVO e intenção ainda não clara: respondeu a dúvida e
                     // continua no ciclo, aguardando (janela de escuta) a próxima
@@ -1757,8 +1765,37 @@ class SequenceEngine
             $this->db->update('whatsapp_contacts', ['unsubscribed' => 1], 'id = ?', [$contactId]);
             (new LeadTimelineService())->add($contactId, 'note', 'Lead removido da lista: ' . $reason, ['channel' => 'sequence', 'action' => 'unsubscribe']);
             $this->applyLabel($contactId, 'sem interesse', '#dc3545');
+            // Move o card para "Sem Interesse" e marca o desfecho como perdido.
+            $this->markNegativeOutcome($contactId);
         } catch (\Throwable $e) {
             Logger::error('SequenceEngine unsubscribe', ['contact' => $contactId, 'error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Lead demonstrou falta de interesse (IA classificou recusa ou opt-out):
+     * move o card para a coluna "Sem Interesse" do board de prospecção e marca
+     * o desfecho como perdido. Silencioso e idempotente.
+     */
+    private function markNegativeOutcome($contactId)
+    {
+        try {
+            (new CrmBoard())->markOutcomeByContact($contactId, CrmRules::COLUMN_NOT_INTERESTED, 'lost');
+        } catch (\Throwable $e) {
+            Logger::error('SequenceEngine markNegativeOutcome', ['contact' => $contactId, 'error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Lead nunca respondeu e a sequência terminou: move o card para "Sem Resposta"
+     * e marca o desfecho como perdido. Silencioso e idempotente.
+     */
+    private function markNoReplyOutcome($contactId)
+    {
+        try {
+            (new CrmBoard())->markOutcomeByContact($contactId, CrmRules::COLUMN_NO_REPLY, 'lost');
+        } catch (\Throwable $e) {
+            Logger::error('SequenceEngine markNoReplyOutcome', ['contact' => $contactId, 'error' => $e->getMessage()]);
         }
     }
 
@@ -2527,6 +2564,21 @@ class SequenceEngine
             'status' => 'finished', 'stop_reason' => $reason,
             'finished_at' => date('Y-m-d H:i:s'), 'next_run_at' => null,
         ], 'id = ?', [$participant['id']]);
+
+        // Sequência esgotada (todos os toques enviados) e o lead NUNCA respondeu:
+        // move o card para "Sem Resposta" e marca perdido. Só para o encerramento
+        // natural ('completed'); 'unsubscribed'/'bounce'/'connected'/'no_email'
+        // têm desfechos próprios e não devem virar "sem resposta".
+        if ($reason === 'completed') {
+            try {
+                $contactId = $participant['contact_id'] ?? null;
+                if ($contactId && !$this->evalCondition('replied', $contactId, $participant)) {
+                    $this->markNoReplyOutcome($contactId);
+                }
+            } catch (\Throwable $e) {
+                Logger::error('SequenceEngine finish no-reply', ['contact' => $participant['contact_id'] ?? null, 'error' => $e->getMessage()]);
+            }
+        }
     }
 
     private function logExec($participantId, $nodeId, $type, $result, $detail = null)

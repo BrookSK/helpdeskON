@@ -62,11 +62,39 @@ class CrmRules
         return in_array($n, ['fechado', 'ganho', 'convertido', 'fechado/ganho'], true);
     }
 
-    /** A coluna (pelo nome) representa "perdido"? */
+    // Nomes canônicos das colunas terminais de perda no board de prospecção.
+    // O SequenceEngine e a etiqueta manual movem o card para estas colunas.
+    public const COLUMN_NOT_INTERESTED = 'Sem Interesse';
+    public const COLUMN_NO_REPLY = 'Sem Resposta';
+
+    /**
+     * A coluna (pelo nome) representa "perdido"?
+     *
+     * Inclui as colunas terminais de prospecção ("Sem Interesse" e "Sem Resposta"):
+     * assim, arrastar manualmente um card para qualquer uma delas já marca o
+     * desfecho como perdido (via CrmController::moveCard), do mesmo jeito que
+     * "Perdido"/"Descartado".
+     */
     public static function isLostColumn(?string $columnName): bool
     {
         $n = mb_strtolower(trim((string) $columnName));
-        return in_array($n, ['perdido', 'perdido/descartado', 'descartado'], true);
+        return in_array($n, ['perdido', 'perdido/descartado', 'descartado'], true)
+            || self::isNotInterestedColumn($columnName)
+            || self::isNoReplyColumn($columnName);
+    }
+
+    /** A coluna (pelo nome) representa "não interessado" (respondeu recusando)? */
+    public static function isNotInterestedColumn(?string $columnName): bool
+    {
+        $n = mb_strtolower(trim((string) $columnName));
+        return in_array($n, ['sem interesse', 'não interessado', 'nao interessado', 'não interessados', 'nao interessados'], true);
+    }
+
+    /** A coluna (pelo nome) representa "sem resposta" (nunca respondeu)? */
+    public static function isNoReplyColumn(?string $columnName): bool
+    {
+        $n = mb_strtolower(trim((string) $columnName));
+        return in_array($n, ['sem resposta', 'sem retorno', 'nao respondeu', 'não respondeu'], true);
     }
 
     /**
@@ -114,4 +142,5 @@ class CrmRules
             'total' => $closing + $prospection,
         ];
     }
+
 }

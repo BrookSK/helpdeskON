@@ -1053,6 +1053,21 @@ class WhatsappController extends Controller
             $this->contactModel->removeLabel($contactId, $labelId);
         } else {
             $this->contactModel->addLabel($contactId, $labelId);
+
+            // Marcar manualmente com a etiqueta "sem interesse" leva o lead para a
+            // coluna "Sem Interesse" do board de prospecção e marca o desfecho como
+            // perdido — mesmo efeito da recusa detectada pela sequência.
+            try {
+                $label = Database::getInstance()->fetch(
+                    "SELECT name FROM whatsapp_labels WHERE id = ?",
+                    [$labelId]
+                );
+                if ($label && CrmRules::isNotInterestedColumn($label['name'])) {
+                    (new CrmBoard())->markOutcomeByContact($contactId, CrmRules::COLUMN_NOT_INTERESTED, 'lost');
+                }
+            } catch (\Throwable $e) {
+                Logger::error('toggleLabel sem interesse', ['contact' => $contactId, 'label' => $labelId, 'error' => $e->getMessage()]);
+            }
         }
 
         $this->json(['success' => true]);

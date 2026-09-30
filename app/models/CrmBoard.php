@@ -245,6 +245,60 @@ class CrmBoard
     }
 
     /**
+     * Move o card mais recente de um contato para a coluna de nome $columnName
+     * (dentro do board desse card) e carimba o desfecho ($outcome).
+     *
+     * Usado pelos gatilhos de "perda" (IA classifica recusa, opt-out, fim da
+     * sequência sem resposta, etiqueta manual "sem interesse"). Fonte única para
+     * manter a coluna do board e o lead_outcome sempre consistentes.
+     *
+     * Regras:
+     *  - só move dentro do MESMO board do card (a coluna é resolvida pelo nome
+     *    naquele board);
+     *  - anti-regressão: não puxa o card para uma coluna de posição anterior;
+     *  - idempotente: se já está na coluna certa, só garante o desfecho.
+     *
+     * @return bool true se encontrou um card e aplicou (moveu e/ou carimbou).
+     */
+    public function markOutcomeByContact($contactId, string $columnName, string $outcome = 'lost'): bool
+    {
+        $card = $this->db->fetch(
+            "SELECT cc.id, cc.column_id, cc.lead_outcome, cur.position AS cur_pos, cur.board_id
+             FROM crm_cards cc
+             LEFT JOIN crm_columns cur ON cc.column_id = cur.id
+             WHERE cc.contact_id = ? ORDER BY cc.id DESC LIMIT 1",
+            [$contactId]
+        );
+        if (!$card) return false;
+
+        // Resolve a coluna de destino pelo NOME, no board do card.
+        $target = null;
+        if (!empty($card['board_id'])) {
+            $target = $this->db->fetch(
+                "SELECT id, position FROM crm_columns WHERE board_id = ? AND name = ? ORDER BY position ASC LIMIT 1",
+                [$card['board_id'], $columnName]
+            );
+        }
+
+        // Move o card, se a coluna existir e não for regressão.
+        if ($target && (int)$target['id'] !== (int)$card['column_id']) {
+            $isRegression = $card['cur_pos'] !== null && (int)$target['position'] < (int)$card['cur_pos'];
+            if (!$isRegression) {
+                $this->moveCard($card['id'], (int)$target['id'], 0);
+            }
+        }
+
+        // Carimba o desfecho (idempotente).
+        if (($card['lead_outcome'] ?? 'open') !== $outcome) {
+            $this->updateCard($card['id'], [
+                'lead_outcome' => $outcome,
+                'outcome_at' => date('Y-m-d H:i:s'),
+            ]);
+        }
+        return true;
+    }
+
+    /**
      * Primeira coluna (menor position) de um board.
      */
     public function getFirstColumn($boardId)
