@@ -507,6 +507,7 @@ class WhatsappController extends Controller
                 'media_mime_type' => $mime,
                 'media_filename' => $origName,
                 'sender_name' => $this->currentUser()['name'],
+                'sent_by' => $this->currentUser()['id'] ?? null,
                 'timestamp' => date('Y-m-d H:i:s'),
                 'is_read' => 1,
             ]);
@@ -713,6 +714,7 @@ class WhatsappController extends Controller
                     'message_type' => 'text',
                     'message_text' => $text,
                     'sender_name' => $this->currentUser()['name'],
+                    'sent_by' => $this->currentUser()['id'] ?? null,
                     'timestamp' => date('Y-m-d H:i:s'),
                     'is_read' => 1,
                 ]);
@@ -754,6 +756,7 @@ class WhatsappController extends Controller
             'message_type' => 'text',
             'message_text' => $text,
             'sender_name' => $this->currentUser()['name'],
+            'sent_by' => $this->currentUser()['id'] ?? null,
             'timestamp' => date('Y-m-d H:i:s'),
             'is_read' => 1,
         ]);
@@ -869,6 +872,7 @@ class WhatsappController extends Controller
                 'media_mime_type' => $mime,
                 'media_filename' => $file['name'],
                 'sender_name' => $this->currentUser()['name'],
+                'sent_by' => $this->currentUser()['id'] ?? null,
                 'timestamp' => date('Y-m-d H:i:s'),
                 'is_read' => 1,
             ]);

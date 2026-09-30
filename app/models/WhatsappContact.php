@@ -260,7 +260,15 @@ class WhatsappContact
             if ($filters['assigned_to'] === 'unassigned') {
                 $sql .= " AND c.assigned_to IS NULL";
             } else {
-                $sql .= " AND c.assigned_to = ?";
+                // Visibilidade por PESSOA (espelha o e-mail: "vejo o que enviei").
+                // O usuário vê a conversa se está atribuído a ele OU se ele foi o
+                // remetente de alguma mensagem dela (whatsapp_messages.sent_by).
+                // Isso permite que mais de uma pessoa opere a mesma instância e
+                // cada uma enxergue as conversas que efetivamente disparou.
+                $sql .= " AND (c.assigned_to = ?
+                               OR EXISTS (SELECT 1 FROM whatsapp_messages wm
+                                          WHERE wm.contact_id = c.id AND wm.sent_by = ?))";
+                $params[] = $filters['assigned_to'];
                 $params[] = $filters['assigned_to'];
             }
         }

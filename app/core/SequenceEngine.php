@@ -1267,7 +1267,9 @@ class SequenceEngine
                 return $full;
             }
 
-            // Grava a mensagem NO PRÓPRIO contato do lead (para aparecer no chat dele)
+            // Grava a mensagem NO PRÓPRIO contato do lead (para aparecer no chat dele).
+            // sent_by = dono da instância que enviou (espelha o e-mail): faz a
+            // conversa aparecer no chat dessa pessoa, mesmo em disparo automático.
             $this->db->insert('whatsapp_messages', [
                 'instance_id' => $instanceId,
                 'contact_id' => $contactId,
@@ -1277,6 +1279,7 @@ class SequenceEngine
                 'message_type' => 'text',
                 'message_text' => $msg,
                 'sender_name' => 'Prospecção',
+                'sent_by' => $this->resolveInstanceOwner($instanceId),
                 'timestamp' => date('Y-m-d H:i:s'),
                 'is_read' => 1,
             ]);
@@ -2108,6 +2111,7 @@ class SequenceEngine
                 'from_me' => 1,
                 'message_type' => 'text',
                 'message_text' => $text,
+                'sent_by' => $this->resolveInstanceOwner($instanceId),
                 'timestamp' => date('Y-m-d H:i:s'),
             ]);
             $this->db->update('whatsapp_contacts', ['last_message_at' => date('Y-m-d H:i:s')], 'id = ?', [$contactId]);
@@ -2653,6 +2657,27 @@ class SequenceEngine
         // fallback: instância padrão
         $default = $this->db->fetch("SELECT id, connection_status FROM whatsapp_instances WHERE is_default = 1 LIMIT 1");
         return $default ?: null;
+    }
+
+    /**
+     * "Dono do envio" de uma mensagem de WhatsApp disparada pela sequência —
+     * usado para gravar whatsapp_messages.sent_by (espelha resolveAccountOwner()
+     * do e-mail). Assim a conversa fica visível no chat de quem "enviou", mesmo
+     * quando o disparo é automático (sem usuário logado).
+     *
+     * Ordem de resolução:
+     *   1. Usuário dono da instância (whatsapp_instances.user_id).
+     *   2. Primeiro super_admin ativo (último recurso; mantém um dono válido).
+     * Retorna o id do usuário ou null (coluna é NULLABLE).
+     */
+    private function resolveInstanceOwner($instanceId)
+    {
+        if ($instanceId) {
+            $inst = $this->db->fetch("SELECT user_id FROM whatsapp_instances WHERE id = ? LIMIT 1", [(int)$instanceId]);
+            if (!empty($inst['user_id'])) return (int) $inst['user_id'];
+        }
+        $adm = $this->db->fetch("SELECT id FROM users WHERE role = 'super_admin' AND is_active = 1 ORDER BY id ASC LIMIT 1");
+        return $adm['id'] ?? null;
     }
 
     private function render($text, $contact)
