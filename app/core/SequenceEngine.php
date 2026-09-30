@@ -327,14 +327,26 @@ class SequenceEngine
             return true;
         }
 
-        // E-mail: resposta registrada (replied_at) posterior à referência
+        // E-mail: resposta registrada posterior à referência. Considera tanto a
+        // marca replied_at (na outbound) quanto a linha inbound real (received_at),
+        // gravada pela detecção casada por cabeçalho.
         try {
             $lastReplyEmail = $this->db->fetch(
-                "SELECT MAX(replied_at) t FROM email_messages WHERE contact_id = ? AND replied_at IS NOT NULL", [$contactId]);
+                "SELECT MAX(COALESCE(received_at, replied_at)) t FROM email_messages
+                 WHERE contact_id = ? AND (replied_at IS NOT NULL OR direction='inbound')", [$contactId]);
             if ($lastReplyEmail && $lastReplyEmail['t'] && strtotime($lastReplyEmail['t']) >= $ref) {
                 return true;
             }
-        } catch (\Throwable $e) { /* coluna pode não existir */ }
+        } catch (\Throwable $e) {
+            // Fallback p/ schema sem received_at.
+            try {
+                $lastReplyEmail = $this->db->fetch(
+                    "SELECT MAX(replied_at) t FROM email_messages WHERE contact_id = ? AND replied_at IS NOT NULL", [$contactId]);
+                if ($lastReplyEmail && $lastReplyEmail['t'] && strtotime($lastReplyEmail['t']) >= $ref) {
+                    return true;
+                }
+            } catch (\Throwable $e2) { /* coluna pode não existir */ }
+        }
 
         return false;
     }
@@ -2238,18 +2250,36 @@ class SequenceEngine
             } catch (\Throwable $e2) {}
         }
 
-        // Resposta de e-mail recente (snippet), se posterior ao último envio.
+        // Resposta de e-mail recente (snippet). Prioriza a linha INBOUND real
+        // (direction='inbound') gravada pela detecção casada por cabeçalho, que
+        // carrega o texto real da resposta em reply_snippet + received_at. Cai no
+        // caminho antigo (replied_at na outbound) quando não houver inbound.
         if (empty($parts)) {
             try {
                 $em = $this->db->fetch(
-                    "SELECT reply_snippet, replied_at FROM email_messages
-                     WHERE contact_id = ? AND replied_at IS NOT NULL ORDER BY replied_at DESC LIMIT 1", [$contactId]);
+                    "SELECT reply_snippet, COALESCE(received_at, replied_at) AS ts
+                     FROM email_messages
+                     WHERE contact_id = ? AND reply_snippet IS NOT NULL AND reply_snippet <> ''
+                     ORDER BY id DESC LIMIT 1", [$contactId]);
                 if ($em && !empty($em['reply_snippet'])) {
-                    if (!($refTs > 0 && strtotime($em['replied_at']) < $refTs)) {
+                    $emTs = !empty($em['ts']) ? strtotime($em['ts']) : 0;
+                    if (!($refTs > 0 && $emTs > 0 && $emTs < $refTs)) {
                         $parts[] = mb_substr($em['reply_snippet'], 0, 300);
                     }
                 }
-            } catch (\Throwable $e) {}
+            } catch (\Throwable $e) {
+                // Fallback p/ schema sem reply_snippet/received_at.
+                try {
+                    $em = $this->db->fetch(
+                        "SELECT reply_snippet, replied_at FROM email_messages
+                         WHERE contact_id = ? AND replied_at IS NOT NULL ORDER BY replied_at DESC LIMIT 1", [$contactId]);
+                    if ($em && !empty($em['reply_snippet'])) {
+                        if (!($refTs > 0 && strtotime($em['replied_at']) < $refTs)) {
+                            $parts[] = mb_substr($em['reply_snippet'], 0, 300);
+                        }
+                    }
+                } catch (\Throwable $e2) {}
+            }
         }
 
         // Fallback: se nada após o último envio (ex.: sem timestamp confiável),
