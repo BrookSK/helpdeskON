@@ -391,6 +391,19 @@ class CrmController extends Controller
             ]);
             $this->boardModel->addActivity($cardId, $user['id'], 'move', "Movido para \"{$newCol['name']}\"");
             $this->boardModel->addActivity($cardId, $user['id'], 'note', '❌ Lead perdido');
+
+            // Colunas terminais de prospecção ("Sem Interesse"/"Sem Resposta")
+            // bloqueiam novos envios ao lead e aos seus duplicados (irmãos).
+            $card = $this->boardModel->findCard($cardId);
+            if (!empty($card['contact_id'])
+                && (CrmRules::isNotInterestedColumn($newCol['name'] ?? '') || CrmRules::isNoReplyColumn($newCol['name'] ?? ''))) {
+                try {
+                    (new WhatsappContact())->unsubscribeWithSiblings(
+                        (int) $card['contact_id'],
+                        CrmRules::isNotInterestedColumn($newCol['name'] ?? '') ? 'Sem interesse' : 'Sem resposta'
+                    );
+                } catch (\Throwable $e) { /* não bloqueia a movimentação por falha aqui */ }
+            }
         } else {
             // Movimentação normal. Se o card estava com desfecho (convertido/perdido)
             // e voltou para uma coluna de funil aberto, reabre o desfecho para não

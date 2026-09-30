@@ -80,6 +80,45 @@ final class CrmRulesTest extends TestCase
         $this->assertFalse(CrmRules::isLostColumn(null));
     }
 
+    public function testIsLostColumnIncluiColunasDeProspeccao(): void
+    {
+        // Arrastar para "Sem Interesse" ou "Sem Resposta" também marca perdido.
+        $this->assertTrue(CrmRules::isLostColumn('Sem Interesse'));
+        $this->assertTrue(CrmRules::isLostColumn('Sem Resposta'));
+    }
+
+    // ---- isNotInterestedColumn ----
+
+    public function testIsNotInterestedColumn(): void
+    {
+        $this->assertTrue(CrmRules::isNotInterestedColumn('Sem Interesse'));
+        $this->assertTrue(CrmRules::isNotInterestedColumn('sem interesse'));
+        $this->assertTrue(CrmRules::isNotInterestedColumn('  Não Interessado  '));
+        $this->assertTrue(CrmRules::isNotInterestedColumn('Nao Interessado'));
+        $this->assertFalse(CrmRules::isNotInterestedColumn('Sem Resposta'));
+        $this->assertFalse(CrmRules::isNotInterestedColumn('Novo'));
+        $this->assertFalse(CrmRules::isNotInterestedColumn(null));
+    }
+
+    // ---- isNoReplyColumn ----
+
+    public function testIsNoReplyColumn(): void
+    {
+        $this->assertTrue(CrmRules::isNoReplyColumn('Sem Resposta'));
+        $this->assertTrue(CrmRules::isNoReplyColumn('sem resposta'));
+        $this->assertTrue(CrmRules::isNoReplyColumn('Sem Retorno'));
+        $this->assertFalse(CrmRules::isNoReplyColumn('Sem Interesse'));
+        $this->assertFalse(CrmRules::isNoReplyColumn('Novo'));
+        $this->assertFalse(CrmRules::isNoReplyColumn(null));
+    }
+
+    public function testColunasSemInteresseESemRespostaNaoSaoFechado(): void
+    {
+        // Regressão: não podem ser confundidas com coluna de conversão.
+        $this->assertFalse(CrmRules::isClosedColumn('Sem Interesse'));
+        $this->assertFalse(CrmRules::isClosedColumn('Sem Resposta'));
+    }
+
     // ---- normalizeDialNumber ----
 
     public function testNormalizeDialNumberAdiciona55(): void
@@ -140,5 +179,50 @@ final class CrmRulesTest extends TestCase
     {
         $c = CrmRules::commission(0.0, 0.0, 0.0, 0.0);
         $this->assertSame(0.0, $c['total']);
+    }
+
+    // ---- isSameLead (detecção de irmãos / duplicados) ----
+
+    public function testMesmoLeadPorEmail(): void
+    {
+        $this->assertTrue(CrmRules::isSameLead(
+            ['email' => 'paulo@empresa.com'],
+            ['email' => 'PAULO@Empresa.com  '] // caixa/espaço não importam
+        ));
+    }
+
+    public function testMesmoLeadPorLinkedin(): void
+    {
+        $this->assertTrue(CrmRules::isSameLead(
+            ['linkedin' => 'https://linkedin.com/in/paulo'],
+            ['linkedin' => 'https://linkedin.com/in/paulo']
+        ));
+    }
+
+    public function testEmailDiferenteLinkedinDiferenteNaoCasa(): void
+    {
+        $this->assertFalse(CrmRules::isSameLead(
+            ['email' => 'a@x.com', 'linkedin' => 'https://linkedin.com/in/a'],
+            ['email' => 'b@x.com', 'linkedin' => 'https://linkedin.com/in/b']
+        ));
+    }
+
+    public function testChavesVaziasNuncaCasam(): void
+    {
+        // Dois contatos sem e-mail e sem LinkedIn NÃO são irmãos (evita bloquear
+        // gente diferente só porque ambos estão sem chave forte).
+        $this->assertFalse(CrmRules::isSameLead(
+            ['email' => '', 'linkedin' => null],
+            ['email' => null, 'linkedin' => '']
+        ));
+    }
+
+    public function testCasaPorUmaChaveMesmoComOutraDivergente(): void
+    {
+        // Mesmo e-mail basta, ainda que o LinkedIn difira.
+        $this->assertTrue(CrmRules::isSameLead(
+            ['email' => 'p@x.com', 'linkedin' => 'https://linkedin.com/in/p1'],
+            ['email' => 'p@x.com', 'linkedin' => 'https://linkedin.com/in/p2']
+        ));
     }
 }

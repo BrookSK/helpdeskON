@@ -19,10 +19,17 @@ final class CrmBoardTest extends TestCase
     private int $boardId;
     private int $colNovoId;
     private int $colFechadoId;
+    private int $colPerdidoId;
+    private int $colSemInteresseId;
+    private int $colSemRespostaId;
     private int $comercialA;
     private int $comercialB;
     /** @var int[] */
     private array $cardIds = [];
+    /** Recursos extras das listas de perdidos (limpos no tearDown). */
+    private ?int $instanceId = null;
+    /** @var int[] */
+    private array $contactIds = [];
 
     protected function setUp(): void
     {
@@ -57,19 +64,75 @@ final class CrmBoardTest extends TestCase
         $this->colFechadoId = (int) $this->model->createColumn([
             'board_id' => $this->boardId, 'name' => 'Fechado',
         ]);
+        $this->colPerdidoId = (int) $this->model->createColumn([
+            'board_id' => $this->boardId, 'name' => 'Perdido',
+        ]);
+        $this->colSemInteresseId = (int) $this->model->createColumn([
+            'board_id' => $this->boardId, 'name' => 'Sem Interesse',
+        ]);
+        $this->colSemRespostaId = (int) $this->model->createColumn([
+            'board_id' => $this->boardId, 'name' => 'Sem Resposta',
+        ]);
     }
 
     protected function tearDown(): void
     {
+        // Remove dados das listas de perdidos primeiro (dependem dos contatos/cards).
+        foreach ($this->contactIds as $cid) {
+            try { $this->db->delete('prospecting_lead_outcome', 'contact_id = ?', [$cid]); } catch (\Throwable $e) {}
+            try { $this->db->delete('whatsapp_messages', 'contact_id = ?', [$cid]); } catch (\Throwable $e) {}
+            try { $this->db->delete('email_messages', 'contact_id = ?', [$cid]); } catch (\Throwable $e) {}
+        }
         // Remove cards, atividades, colunas, board e usuários criados.
         foreach ($this->cardIds as $id) {
             try { $this->db->delete('crm_card_activities', 'card_id = ?', [$id]); } catch (\Throwable $e) {}
         }
         try { $this->model->delete($this->boardId); } catch (\Throwable $e) {}
+        // Contatos e instância (após o board, pois crm_cards.contact_id é SET NULL).
+        foreach ($this->contactIds as $cid) {
+            try { $this->db->delete('whatsapp_contacts', 'id = ?', [$cid]); } catch (\Throwable $e) {}
+        }
+        if ($this->instanceId) {
+            try { $this->db->delete('whatsapp_instances', 'id = ?', [$this->instanceId]); } catch (\Throwable $e) {}
+        }
         foreach ([$this->comercialA, $this->comercialB] as $id) {
             try { $this->db->delete('users', 'id = ?', [$id]); } catch (\Throwable $e) {}
         }
     }
+
+    /** Cria uma instância de WhatsApp reutilizável (necessária para contatos). */
+    private function ensureInstance(): int
+    {
+        if ($this->instanceId) return $this->instanceId;
+        $u = uniqid();
+        $this->instanceId = (int) $this->db->insert('whatsapp_instances', [
+            'instance_name' => "inst_{$u}",
+            'api_url' => 'http://localhost',
+            'api_key' => 'x',
+        ]);
+        return $this->instanceId;
+    }
+
+    /**
+     * Cria um contato (lead) individual, opcionalmente descadastrado (opt-out).
+     */
+    private function novoContato(array $overrides = []): int
+    {
+        $inst = $this->ensureInstance();
+        $u = uniqid();
+        $id = (int) $this->db->insert('whatsapp_contacts', array_merge([
+            'instance_id' => $inst,
+            'remote_jid' => "{$u}@s.whatsapp.net",
+            'phone' => '5511' . substr((string) mt_rand(100000000, 999999999), 0, 9),
+            'contact_name' => "Lead {$u}",
+            'assigned_to' => $this->comercialA,
+            'unsubscribed' => 0,
+        ], $overrides));
+        $this->contactIds[] = $id;
+        return $id;
+    }
+
+
 
     private function novoCard(array $overrides = []): int
     {
@@ -238,5 +301,83 @@ final class CrmBoardTest extends TestCase
         $rows = $this->model->getCommissions($month, $this->comercialA);
         $this->assertSame(1, (int) $rows[0]['closed_count']);
         $this->assertSame(0, (int) $rows[0]['prospected_count']);
+    }
+
+    // ================= markOutcomeByContact (Sem Interesse / Sem Resposta) =================
+
+    public function testMarcarNaoInteresseMoveCardParaSemInteresseEPerde(): void
+    {
+        // Lead com card na coluna "Novo" (posição 0).
+        $contato = $this->novoContato();
+        $cardId = $this->novoCard(['column_id' => $this->colNovoId, 'contact_id' => $contato]);
+
+        $ok = $this->model->markOutcomeByContact($contato, 'Sem Interesse', 'lost');
+        $this->assertTrue($ok);
+
+        $card = $this->model->findCard($cardId);
+        $this->assertSame($this->colSemInteresseId, (int) $card['column_id'], 'Card deve ir para "Sem Interesse".');
+        $this->assertSame('lost', $card['lead_outcome'], 'Desfecho deve ser perdido.');
+        $this->assertNotNull($card['outcome_at']);
+    }
+
+    public function testMarcarSemRespostaMoveCardParaSemRespostaEPerde(): void
+    {
+        $contato = $this->novoContato();
+        $cardId = $this->novoCard(['column_id' => $this->colNovoId, 'contact_id' => $contato]);
+
+        $ok = $this->model->markOutcomeByContact($contato, 'Sem Resposta', 'lost');
+        $this->assertTrue($ok);
+
+        $card = $this->model->findCard($cardId);
+        $this->assertSame($this->colSemRespostaId, (int) $card['column_id']);
+        $this->assertSame('lost', $card['lead_outcome']);
+    }
+
+    public function testMarcarOutcomeSemCardRetornaFalse(): void
+    {
+        // Contato sem nenhum card no board: nada a mover.
+        $contato = $this->novoContato();
+        $this->assertFalse($this->model->markOutcomeByContact($contato, 'Sem Interesse', 'lost'));
+    }
+
+    public function testMarcarOutcomeEhIdempotente(): void
+    {
+        $contato = $this->novoContato();
+        $cardId = $this->novoCard(['column_id' => $this->colNovoId, 'contact_id' => $contato]);
+
+        $this->model->markOutcomeByContact($contato, 'Sem Interesse', 'lost');
+        // Segunda chamada não deve quebrar nem mudar a coluna/desfecho.
+        $this->model->markOutcomeByContact($contato, 'Sem Interesse', 'lost');
+
+        $card = $this->model->findCard($cardId);
+        $this->assertSame($this->colSemInteresseId, (int) $card['column_id']);
+        $this->assertSame('lost', $card['lead_outcome']);
+    }
+
+    public function testMarcarOutcomeNaoRegrideCardJaAvancado(): void
+    {
+        // Card já em "Fechado" (posição à direita de "Novo"). Ao marcar "Sem
+        // Resposta" (posição anterior), a anti-regressão NÃO deve puxar o card
+        // para trás — mas o desfecho ainda é carimbado.
+        $contato = $this->novoContato();
+        $cardId = $this->novoCard(['column_id' => $this->colFechadoId, 'contact_id' => $contato]);
+
+        // "Sem Resposta" foi criada depois de "Fechado", então tem posição maior;
+        // para exercitar a anti-regressão, movemos o alvo para uma coluna anterior.
+        $this->model->markOutcomeByContact($contato, 'Novo', 'lost');
+
+        $card = $this->model->findCard($cardId);
+        // Não regrediu para "Novo" (posição menor que "Fechado").
+        $this->assertSame($this->colFechadoId, (int) $card['column_id'], 'Não deve regredir de "Fechado" para "Novo".');
+        // Mas o desfecho foi marcado mesmo sem mover.
+        $this->assertSame('lost', $card['lead_outcome']);
+    }
+
+    public function testArrastarManualParaSemInteresseMarcaPerdido(): void
+    {
+        // Simula o efeito do CrmController::moveCard: como isLostColumn() agora
+        // reconhece "Sem Interesse", mover para lá marca o desfecho.
+        $this->assertTrue(\CrmRules::isLostColumn('Sem Interesse'));
+        $this->assertTrue(\CrmRules::isLostColumn('Sem Resposta'));
     }
 }

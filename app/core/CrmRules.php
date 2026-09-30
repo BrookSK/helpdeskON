@@ -62,11 +62,79 @@ class CrmRules
         return in_array($n, ['fechado', 'ganho', 'convertido', 'fechado/ganho'], true);
     }
 
-    /** A coluna (pelo nome) representa "perdido"? */
+    // Nomes canônicos das colunas terminais de perda no board de prospecção.
+    // O SequenceEngine e a etiqueta manual movem o card para estas colunas.
+    public const COLUMN_NOT_INTERESTED = 'Sem Interesse';
+    public const COLUMN_NO_REPLY = 'Sem Resposta';
+
+    /**
+     * A coluna (pelo nome) representa "perdido"?
+     *
+     * Inclui as colunas terminais de prospecção ("Sem Interesse" e "Sem Resposta"):
+     * assim, arrastar manualmente um card para qualquer uma delas já marca o
+     * desfecho como perdido (via CrmController::moveCard), do mesmo jeito que
+     * "Perdido"/"Descartado".
+     */
     public static function isLostColumn(?string $columnName): bool
     {
         $n = mb_strtolower(trim((string) $columnName));
-        return in_array($n, ['perdido', 'perdido/descartado', 'descartado'], true);
+        return in_array($n, ['perdido', 'perdido/descartado', 'descartado'], true)
+            || self::isNotInterestedColumn($columnName)
+            || self::isNoReplyColumn($columnName);
+    }
+
+    /** A coluna (pelo nome) representa "não interessado" (respondeu recusando)? */
+    public static function isNotInterestedColumn(?string $columnName): bool
+    {
+        $n = mb_strtolower(trim((string) $columnName));
+        return in_array($n, ['sem interesse', 'não interessado', 'nao interessado', 'não interessados', 'nao interessados'], true);
+    }
+
+    /** A coluna (pelo nome) representa "sem resposta" (nunca respondeu)? */
+    public static function isNoReplyColumn(?string $columnName): bool
+    {
+        $n = mb_strtolower(trim((string) $columnName));
+        return in_array($n, ['sem resposta', 'sem retorno', 'nao respondeu', 'não respondeu'], true);
+    }
+
+    /**
+     * Dois contatos são "irmãos" (a mesma pessoa em fichas diferentes) quando
+     * compartilham uma chave FORTE de identidade: e-mail ou URL do LinkedIn.
+     *
+     * Usada para propagar o bloqueio (unsubscribed) entre duplicados: se um
+     * contato recusa/entra em "Sem Interesse"/"Sem Resposta", os irmãos também
+     * são bloqueados. O telefone é DELIBERADAMENTE excluído: "últimos 8 dígitos"
+     * pode gerar falso positivo, e aqui a ação (bloquear envio) precisa ser
+     * confiável. E-mail e LinkedIn são identificadores exatos.
+     *
+     * Regra pura: recebe os valores JÁ normalizados (e-mail em minúsculas sem
+     * espaços; LinkedIn trimado) e compara. Vazio nunca casa.
+     *
+     * @param array{email?:?string,linkedin?:?string} $a
+     * @param array{email?:?string,linkedin?:?string} $b
+     */
+    public static function isSameLead(array $a, array $b): bool
+    {
+        $emailA = self::normStrongKey($a['email'] ?? null);
+        $emailB = self::normStrongKey($b['email'] ?? null);
+        if ($emailA !== null && $emailA === $emailB) {
+            return true;
+        }
+
+        $liA = self::normStrongKey($a['linkedin'] ?? null);
+        $liB = self::normStrongKey($b['linkedin'] ?? null);
+        if ($liA !== null && $liA === $liB) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /** Normaliza uma chave forte para comparação: minúsculas, trim; vazio => null. */
+    private static function normStrongKey($value): ?string
+    {
+        $v = mb_strtolower(trim((string) $value));
+        return $v !== '' ? $v : null;
     }
 
     /**
@@ -114,4 +182,5 @@ class CrmRules
             'total' => $closing + $prospection,
         ];
     }
+
 }

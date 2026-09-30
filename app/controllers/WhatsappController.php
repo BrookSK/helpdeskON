@@ -22,8 +22,12 @@ class WhatsappController extends Controller
         $db = Database::getInstance();
         $instances = $db->fetchAll("SELECT wi.*, u.name as linked_user_name FROM whatsapp_instances wi LEFT JOIN users u ON wi.user_id = u.id ORDER BY wi.is_default DESC, wi.created_at DESC");
 
-        // Lista de usuários para vincular instância (super_admin + attendant + whatsapp_agent)
-        $teamMembers = $db->fetchAll("SELECT id, name, role FROM users WHERE role IN ('super_admin','attendant','whatsapp_agent') AND is_active = 1 ORDER BY name ASC");
+        // Lista de usuários para vincular instância. Inclui 'comercial' porque
+        // esse papel já opera o WhatsApp Chat (mesmos papéis exigidos em chat()/
+        // contacts()) e pode ser dono da instância de envio da prospecção — é o
+        // vínculo que faz a conversa disparada pela sequência aparecer no chat da
+        // pessoa (whatsapp_instances.user_id -> whatsapp_messages.sent_by).
+        $teamMembers = $db->fetchAll("SELECT id, name, role FROM users WHERE role IN ('super_admin','attendant','whatsapp_agent','comercial') AND is_active = 1 ORDER BY name ASC");
 
         // Pegar instância padrão para preencher URL/Key no formulário de nova instância
         $defaultInstance = $db->fetch("SELECT api_url, api_key FROM whatsapp_instances WHERE is_default = 1 LIMIT 1");
@@ -531,6 +535,7 @@ class WhatsappController extends Controller
                 'media_mime_type' => $mime,
                 'media_filename' => $origName,
                 'sender_name' => $this->currentUser()['name'],
+                'sent_by' => $this->currentUser()['id'] ?? null,
                 'timestamp' => date('Y-m-d H:i:s'),
                 'is_read' => 1,
             ]);
@@ -737,6 +742,7 @@ class WhatsappController extends Controller
                     'message_type' => 'text',
                     'message_text' => $text,
                     'sender_name' => $this->currentUser()['name'],
+                    'sent_by' => $this->currentUser()['id'] ?? null,
                     'timestamp' => date('Y-m-d H:i:s'),
                     'is_read' => 1,
                 ]);
@@ -778,6 +784,7 @@ class WhatsappController extends Controller
             'message_type' => 'text',
             'message_text' => $text,
             'sender_name' => $this->currentUser()['name'],
+            'sent_by' => $this->currentUser()['id'] ?? null,
             'timestamp' => date('Y-m-d H:i:s'),
             'is_read' => 1,
         ]);
@@ -893,6 +900,7 @@ class WhatsappController extends Controller
                 'media_mime_type' => $mime,
                 'media_filename' => $file['name'],
                 'sender_name' => $this->currentUser()['name'],
+                'sent_by' => $this->currentUser()['id'] ?? null,
                 'timestamp' => date('Y-m-d H:i:s'),
                 'is_read' => 1,
             ]);
@@ -1077,6 +1085,21 @@ class WhatsappController extends Controller
             $this->contactModel->removeLabel($contactId, $labelId);
         } else {
             $this->contactModel->addLabel($contactId, $labelId);
+
+            // Marcar manualmente com a etiqueta "sem interesse" leva o lead para a
+            // coluna "Sem Interesse" do board de prospecção e marca o desfecho como
+            // perdido — mesmo efeito da recusa detectada pela sequência.
+            try {
+                $label = Database::getInstance()->fetch(
+                    "SELECT name FROM whatsapp_labels WHERE id = ?",
+                    [$labelId]
+                );
+                if ($label && CrmRules::isNotInterestedColumn($label['name'])) {
+                    (new CrmBoard())->markOutcomeByContact($contactId, CrmRules::COLUMN_NOT_INTERESTED, 'lost');
+                }
+            } catch (\Throwable $e) {
+                Logger::error('toggleLabel sem interesse', ['contact' => $contactId, 'label' => $labelId, 'error' => $e->getMessage()]);
+            }
         }
 
         $this->json(['success' => true]);
