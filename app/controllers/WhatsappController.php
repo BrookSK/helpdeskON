@@ -304,6 +304,30 @@ class WhatsappController extends Controller
     }
 
     /**
+     * Transcreve (Whisper/OpenAI) um áudio recebido e grava em
+     * whatsapp_messages.transcription. Usado pelo WEBHOOK para tornar respostas
+     * por áudio legíveis à triagem por IA das sequências. Best-effort: qualquer
+     * falha (sem chave, arquivo ausente, erro de rede) apenas não transcreve.
+     *
+     * @return string|null texto transcrito ou null
+     */
+    private function autoTranscribeInbound($messageId, $mediaUrl, $mediaMime = null)
+    {
+        if (empty(Config::get('openai_api_key'))) return null;
+        $filePath = PUBLIC_PATH . '/' . ltrim($mediaUrl, '/');
+        if (!is_file($filePath)) return null;
+
+        $res = (new OpenAiClient())->transcribe($filePath, ['language' => 'pt', 'timeout' => 60]);
+        if (empty($res['success']) || trim((string) $res['text']) === '') return null;
+
+        $text = trim((string) $res['text']);
+        try {
+            Database::getInstance()->update('whatsapp_messages', ['transcription' => $text], 'id = ?', [$messageId]);
+        } catch (\Throwable $e) { /* silencioso */ }
+        return $text;
+    }
+
+    /**
      * API: Listar respostas rápidas
      */
     public function quickReplies()
@@ -1920,7 +1944,7 @@ class WhatsappController extends Controller
             $quotedId = $reactionTargetId;
         }
 
-        $this->messageModel->create([
+        $newMessageId = $this->messageModel->create([
             'instance_id' => $instance['id'],
             'contact_id' => $contactId,
             'remote_jid' => $normalizedJid,
@@ -1940,6 +1964,15 @@ class WhatsappController extends Controller
             'participant_jid' => $participantJid,
             'timestamp' => $timestamp,
         ]);
+
+        // Transcrição AUTOMÁTICA de áudio recebido do lead. Sem isto, uma resposta
+        // por áudio (ex.: "não tenho interesse" falado) chega com texto vazio e a
+        // triagem por IA nunca "ouve" a recusa — o lead seguia recebendo mensagens.
+        // Só para áudio inbound (from_me=0) com mídia salva. Nunca quebra o webhook.
+        if (!$fromMe && $msgType === 'audio' && !empty($mediaUrl) && !empty($newMessageId)) {
+            try { $this->autoTranscribeInbound((int) $newMessageId, $mediaUrl, $mediaMime); }
+            catch (\Throwable $e) { /* transcrição é best-effort; segue o fluxo */ }
+        }
 
         // Incrementar não lidas (se não for de mim)
         if (!$fromMe) {
