@@ -382,54 +382,94 @@ class CronController extends Controller
     public function detectReplies()
     {
         $db = Database::getInstance();
-        // Leads com participação ativa e e-mail conhecido
-        $rows = $db->fetchAll(
-            "SELECT DISTINCT wc.id AS contact_id, wc.lead_email
-             FROM sequence_participants sp
-             JOIN whatsapp_contacts wc ON sp.contact_id = wc.id
-             WHERE sp.status = 'active' AND wc.lead_email IS NOT NULL AND wc.lead_email <> ''"
-        );
-        if (empty($rows)) return 0;
-
-        // Índice email->contact
-        $byEmail = [];
-        foreach ($rows as $r) $byEmail[mb_strtolower($r['lead_email'])] = (int) $r['contact_id'];
-        if (empty($byEmail)) return 0;
-
-        $processed = 0;
         $emailSvc = new EmailMessageService();
+        $processed = 0;
 
-        // Para cada conta IMAP configurada, busca mensagens recentes desses remetentes
         $accounts = $db->fetchAll("SELECT * FROM email_accounts WHERE is_active = 1 AND imap_host IS NOT NULL AND imap_host <> ''");
         if (empty($accounts)) {
-            // Sem IMAP configurado não é possível detectar respostas por e-mail.
-            Logger::error('detectReplies: nenhuma conta com IMAP configurado', ['leads_aguardando' => count($byEmail)]);
+            Logger::error('detectReplies: nenhuma conta com IMAP configurado');
             return 0;
         }
+
+        // Índice email→contact dos leads em sequência ativa (usado só no fallback
+        // legado, para envios antigos sem token). O caminho principal casa por token.
+        $byEmail = [];
+        foreach ($db->fetchAll(
+            "SELECT DISTINCT wc.id AS contact_id, LOWER(wc.lead_email) AS email
+             FROM sequence_participants sp
+             JOIN whatsapp_contacts wc ON sp.contact_id = wc.id
+             WHERE sp.status IN ('active','paused') AND wc.lead_email IS NOT NULL AND wc.lead_email <> ''"
+        ) as $r) {
+            $byEmail[$r['email']] = (int) $r['contact_id'];
+        }
+
+        // Descobre se o schema novo (cursor de UID) está disponível.
+        $hasCursor = false;
+        try {
+            $hasCursor = (bool) $db->fetch(
+                "SELECT 1 FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'email_accounts' AND COLUMN_NAME = 'last_imap_uid'"
+            );
+        } catch (\Throwable $e) { $hasCursor = false; }
+
         foreach ($accounts as $acc) {
             try {
                 $reader = new ImapReader($acc);
                 if ($reader->connect() !== true) continue;
-                foreach ($byEmail as $email => $contactId) {
-                    $msgs = $reader->searchFrom($email, 5);
-                    if (!empty($msgs)) {
-                        // Considera resposta se houver mensagem recebida após o último envio
+
+                $cursor = $hasCursor ? (int) ($acc['last_imap_uid'] ?? 0) : 0;
+                $msgs = $reader->fetchRepliesSince($cursor, 80);
+                $maxUid = $cursor;
+
+                foreach ($msgs as $m) {
+                    $uid = (int) ($m['uid'] ?? 0);
+                    if ($uid > $maxUid) $maxUid = $uid;
+
+                    // Classifica por cabeçalho: ruído (auto-reply/bulk/bounce),
+                    // match (token casado com nosso envio) ou sem âncora.
+                    $verdict = EmailReplyRules::classify($m);
+
+                    if ($verdict['result'] === EmailReplyRules::NOISE) {
+                        continue; // ignora auto-resposta/bulk/bounce
+                    }
+
+                    if ($verdict['result'] === EmailReplyRules::MATCH && !empty($verdict['token'])) {
+                        // Resposta REAL casada por token. Puxa o snippet do corpo
+                        // e registra (dedupe por UID dentro do service).
+                        $m['snippet'] = $reader->fetchSnippet($uid, 600);
+                        if ($emailSvc->registerMatchedReply($m, $verdict['token'], (int) $acc['id'])) {
+                            $processed++;
+                        }
+                        continue;
+                    }
+
+                    // UNMATCHED: sem âncora nossa. Só considera como resposta se for
+                    // um lead em sequência ativa E não for ruído — fallback legado
+                    // para e-mails enviados ANTES do carimbo de token. Bem mais
+                    // restrito que o antigo (exige lead ativo + filtro de ruído).
+                    $fromEmail = strtolower(trim((string) ($m['from_email'] ?? '')));
+                    if ($fromEmail !== '' && isset($byEmail[$fromEmail])) {
+                        $contactId = $byEmail[$fromEmail];
+                        // Só se houver envio nosso anterior a esta mensagem (evita
+                        // tratar um e-mail espontâneo como "resposta").
                         $lastSent = $db->fetch(
-                            "SELECT sent_at FROM email_messages WHERE contact_id = ? AND direction='outbound' ORDER BY sent_at DESC LIMIT 1",
+                            "SELECT sent_at FROM email_messages WHERE contact_id = ? AND direction='outbound' AND sent_at IS NOT NULL ORDER BY sent_at DESC LIMIT 1",
                             [$contactId]
                         );
                         $lastSentTs = $lastSent && $lastSent['sent_at'] ? strtotime($lastSent['sent_at']) : 0;
-                        $hasReply = false;
-                        foreach ($msgs as $m) {
-                            if (!empty($m['date']) && strtotime($m['date']) >= $lastSentTs) { $hasReply = true; break; }
-                        }
-                        if ($hasReply) {
-                            $emailSvc->registerReply($contactId, $msgs[0]['subject'] ?? null);
+                        $msgTs = !empty($m['date']) ? strtotime($m['date']) : 0;
+                        if ($lastSentTs > 0 && $msgTs >= $lastSentTs) {
+                            $emailSvc->registerReply($contactId, $m['subject'] ?? null);
                             $processed++;
-                            unset($byEmail[$email]); // não reprocessa na próxima conta
                         }
                     }
                 }
+
+                // Avança o cursor da conta para não reprocessar as mesmas mensagens.
+                if ($hasCursor && $maxUid > $cursor) {
+                    $db->update('email_accounts', ['last_imap_uid' => $maxUid], 'id = ?', [(int) $acc['id']]);
+                }
+
                 $reader->disconnect();
             } catch (\Throwable $e) {
                 Logger::error('detectReplies', ['account' => $acc['id'] ?? null, 'error' => $e->getMessage()]);

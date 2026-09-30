@@ -189,7 +189,7 @@ class EmailProspection
      * Envia o e-mail via SMTP usando os dados da conta.
      * Retorna true em caso de sucesso, ou string de erro.
      */
-    public function sendEmail($account, $to, $subject, $htmlBody, $cc = null, $bcc = null, $attachments = [])
+    public function sendEmail($account, $to, $subject, $htmlBody, $cc = null, $bcc = null, $attachments = [], array $options = [])
     {
         // Assinatura em TODO e-mail que sai pelo SMTP (ponto único de saída).
         // Usa a assinatura da CONTA/DOMÍNIO que está enviando; se a conta não tiver
@@ -304,7 +304,19 @@ class EmailProspection
             $headers .= "Subject: {$subject}\r\n";
             $headers .= "MIME-Version: 1.0\r\n";
             $headers .= "Date: " . date('r') . "\r\n";
-            $headers .= "Message-ID: <" . uniqid('prosp_') . "@" . parse_url($host, PHP_URL_HOST) . ">\r\n";
+            // Message-ID: usa o fornecido pelo chamador (com track_token embutido,
+            // para casar a resposta depois) ou gera um genérico. Sanitiza CR/LF.
+            $messageIdHeader = self::sanitizeHeader($options['message_id'] ?? '');
+            if ($messageIdHeader === '') {
+                $messageIdHeader = "<" . uniqid('prosp_') . "@" . parse_url($host, PHP_URL_HOST) . ">";
+            }
+            $headers .= "Message-ID: {$messageIdHeader}\r\n";
+            // Reply-To com +tag (token) quando fornecido: segunda âncora de
+            // casamento, caso o cliente do lead não devolva o In-Reply-To.
+            $replyTo = self::sanitizeHeader($options['reply_to'] ?? '');
+            if ($replyTo !== '' && filter_var($replyTo, FILTER_VALIDATE_EMAIL)) {
+                $headers .= "Reply-To: {$replyTo}\r\n";
+            }
 
             if (!empty($attachments)) {
                 $headers .= "Content-Type: multipart/mixed; boundary=\"{$boundary}\"\r\n";

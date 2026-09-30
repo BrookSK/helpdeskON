@@ -1914,6 +1914,110 @@ class CrmController extends Controller
         ]);
     }
 
+    /**
+     * Tela de LEADS SEM INTERESSE (para remarketing / Google Ads).
+     * Lista os contatos que recusaram a prospecção — marcados com a etiqueta
+     * "sem interesse" e/ou descadastrados (unsubscribed) — com nome, telefone e
+     * e-mail, prontos para exportar e trabalhar em campanhas de remarketing.
+     * GET crm/noInterest
+     */
+    public function noInterest()
+    {
+        $this->requireRole(['super_admin', 'comercial']);
+        $this->view('crm/no_interest', [
+            'user' => $this->currentUser(),
+        ]);
+    }
+
+    /**
+     * Monta a cláusula SQL (WHERE + params) que seleciona os leads "sem interesse".
+     * Critério: etiqueta "sem interesse" vinculada OU unsubscribed=1. Aceita busca
+     * livre por nome/telefone/e-mail. Reaproveitado pela listagem e pelo export.
+     *
+     * @return array [string $sql, array $params]
+     */
+    private function noInterestQuery()
+    {
+        // Contatos com a etiqueta "sem interesse" (nome tolerante a variação) OU
+        // descadastrados. is_group=0 e não arquivados.
+        $sql = "SELECT c.id, c.contact_name, c.lead_email, c.phone,
+                       u.name AS assigned_name,
+                       COALESCE(c.unsubscribed,0) AS unsubscribed,
+                       (SELECT MAX(ccl.assigned_at) FROM whatsapp_contact_labels ccl
+                          JOIN whatsapp_labels l ON l.id = ccl.label_id
+                          WHERE ccl.contact_id = c.id AND LOWER(l.name) IN ('sem interesse','sem interese')
+                       ) AS marked_at
+                FROM whatsapp_contacts c
+                LEFT JOIN users u ON c.assigned_to = u.id
+                WHERE COALESCE(c.is_group,0)=0
+                  AND COALESCE(c.crm_archived,0)=0
+                  AND (
+                        COALESCE(c.unsubscribed,0)=1
+                     OR EXISTS (
+                          SELECT 1 FROM whatsapp_contact_labels ccl
+                          JOIN whatsapp_labels l ON l.id = ccl.label_id
+                          WHERE ccl.contact_id = c.id
+                            AND LOWER(l.name) IN ('sem interesse','sem interese')
+                        )
+                  )";
+        $params = [];
+        $search = trim($_GET['search'] ?? '');
+        if ($search !== '') {
+            $sql .= " AND (c.contact_name LIKE ? OR c.lead_email LIKE ? OR c.phone LIKE ?)";
+            $s = '%' . $search . '%';
+            $params[] = $s; $params[] = $s; $params[] = $s;
+        }
+        $sql .= " ORDER BY marked_at DESC, c.contact_name IS NULL, c.contact_name ASC";
+        return [$sql, $params];
+    }
+
+    /**
+     * API JSON: lista os leads sem interesse (para remarketing).
+     * GET crm/noInterestLeads?search=...
+     */
+    public function noInterestLeads()
+    {
+        $this->requireRole(['super_admin', 'comercial']);
+        try {
+            [$sql, $params] = $this->noInterestQuery();
+            $rows = Database::getInstance()->fetchAll($sql . " LIMIT 1000", $params);
+        } catch (\Throwable $e) {
+            $this->json(['success' => false, 'error' => 'Falha ao carregar leads: ' . $e->getMessage()], 500);
+        }
+        $this->json(['success' => true, 'leads' => $rows, 'total' => count($rows)]);
+    }
+
+    /**
+     * Exporta os leads sem interesse em CSV (nome, e-mail, telefone) para
+     * remarketing / upload de público no Google Ads.
+     * GET crm/noInterestExport?search=...
+     */
+    public function noInterestExport()
+    {
+        $this->requireRole(['super_admin', 'comercial']);
+        [$sql, $params] = $this->noInterestQuery();
+        $rows = Database::getInstance()->fetchAll($sql . " LIMIT 50000", $params);
+
+        $filename = 'leads_sem_interesse_' . date('Y-m-d') . '.csv';
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        $out = fopen('php://output', 'w');
+        // BOM UTF-8 para o Excel/Google Ads reconhecerem acentuação.
+        fwrite($out, "\xEF\xBB\xBF");
+        fputcsv($out, ['Nome', 'Email', 'Telefone', 'Responsavel', 'Marcado_em']);
+        foreach ($rows as $r) {
+            fputcsv($out, [
+                $r['contact_name'] ?? '',
+                $r['lead_email'] ?? '',
+                $r['phone'] ?? '',
+                $r['assigned_name'] ?? '',
+                $r['marked_at'] ?? '',
+            ]);
+        }
+        fclose($out);
+        exit;
+    }
+
     /** Salva (cria/atualiza) uma campanha de prospecção. POST crm/saveCampaign */
     public function saveCampaign()
     {

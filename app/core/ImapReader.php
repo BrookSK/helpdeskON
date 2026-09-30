@@ -130,6 +130,131 @@ class ImapReader
     }
 
     /**
+     * Busca respostas recentes para a DETECÇÃO por cabeçalho.
+     *
+     * Retorna as mensagens com UID acima de $minUid (cursor incremental — evita
+     * varrer a caixa inteira e reprocessar), já com os cabeçalhos necessários
+     * para casar a resposta com o envio (In-Reply-To/References/Reply-To/To) e
+     * para filtrar ruído (Auto-Submitted/Precedence/Content-Type/From/Subject),
+     * além de um trecho do corpo (snippet) para alimentar a triagem por IA.
+     *
+     * @param int $minUid processa só UIDs > este (0 = pega os mais recentes)
+     * @param int $limit  teto de mensagens por execução
+     * @return array lista de mensagens (ver chaves abaixo)
+     */
+    public function fetchRepliesSince($minUid = 0, $limit = 50)
+    {
+        if (!$this->connection) return [];
+
+        // Todos os UIDs da caixa; filtramos pelo cursor em PHP (portável entre
+        // servidores — nem todo IMAP aceita busca por faixa de UID de forma igual).
+        $uids = imap_search($this->connection, 'ALL', SE_UID);
+        if (!$uids) return [];
+        sort($uids); // crescente: processa do mais antigo p/ o mais novo após o cursor
+
+        if ($minUid > 0) {
+            $uids = array_values(array_filter($uids, fn($u) => (int)$u > (int)$minUid));
+        } else {
+            // Primeira execução (sem cursor): considera só os mais recentes.
+            $uids = array_slice($uids, -$limit);
+        }
+        $uids = array_slice($uids, 0, $limit);
+
+        $messages = [];
+        foreach ($uids as $uid) {
+            $rawHeader = @imap_fetchheader($this->connection, $uid, FT_UID);
+            $overview = @imap_fetch_overview($this->connection, (string) $uid, FT_UID);
+            if (empty($overview)) continue;
+            $ov = $overview[0];
+
+            $h = $this->parseHeaders($rawHeader ?: '');
+
+            $fromEmail = '';
+            if (isset($ov->from)) {
+                if (preg_match('/<([^>]+)>/', $ov->from, $mm)) $fromEmail = strtolower(trim($mm[1]));
+                elseif (filter_var(trim($ov->from), FILTER_VALIDATE_EMAIL)) $fromEmail = strtolower(trim($ov->from));
+            }
+            if ($fromEmail === '' && !empty($h['from'])) {
+                if (preg_match('/<([^>]+)>/', $h['from'], $mm)) $fromEmail = strtolower(trim($mm[1]));
+            }
+
+            $messages[] = [
+                'uid' => (int) $uid,
+                'from_email' => $fromEmail,
+                'from' => $h['from'] ?? ($ov->from ?? ''),
+                'to' => $h['to'] ?? ($ov->to ?? ''),
+                'reply_to' => $h['reply-to'] ?? '',
+                'delivered_to' => $h['delivered-to'] ?? '',
+                'subject' => isset($ov->subject) ? $this->decodeMime($ov->subject) : ($h['subject'] ?? ''),
+                'date' => isset($ov->date) ? date('Y-m-d H:i:s', strtotime($ov->date)) : null,
+                'message_id' => $h['message-id'] ?? '',
+                'in_reply_to' => $h['in-reply-to'] ?? '',
+                'references' => $h['references'] ?? '',
+                'auto_submitted' => $h['auto-submitted'] ?? '',
+                'precedence' => $h['precedence'] ?? '',
+                'x_autoreply' => $h['x-autoreply'] ?? '',
+                'x_autorespond' => $h['x-autorespond'] ?? '',
+                'content_type' => $h['content-type'] ?? '',
+            ];
+        }
+        return $messages;
+    }
+
+    /**
+     * Lê um trecho de texto (snippet) do corpo de uma mensagem por UID, sem
+     * marcar como lida. Prioriza texto puro; se só houver HTML, remove as tags.
+     */
+    public function fetchSnippet($uid, $maxLen = 500)
+    {
+        if (!$this->connection) return '';
+        try {
+            $msgno = imap_msgno($this->connection, $uid);
+            if (!$msgno) return '';
+            $structure = @imap_fetchstructure($this->connection, $uid, FT_UID);
+            $tmp = ['body_html' => '', 'body_text' => '', 'attachments' => []];
+            if ($structure) $this->extractParts($structure, $uid, $tmp);
+            $text = trim($tmp['body_text']) !== '' ? $tmp['body_text'] : strip_tags($tmp['body_html']);
+            // Corta a citação da mensagem anterior (linhas iniciadas por ">").
+            $lines = preg_split('/\r\n|\r|\n/', (string) $text);
+            $clean = [];
+            foreach ($lines as $ln) {
+                $t = trim($ln);
+                if ($t === '' ) continue;
+                if (strpos($t, '>') === 0) break; // começou a citação → para
+                if (preg_match('/^On .+wrote:$/i', $t) || preg_match('/^Em .+escreveu:$/i', $t)) break;
+                $clean[] = $t;
+            }
+            $snippet = trim(implode(' ', $clean));
+            if ($snippet === '') $snippet = trim((string) $text);
+            return mb_substr($snippet, 0, $maxLen);
+        } catch (\Throwable $e) {
+            return '';
+        }
+    }
+
+    /**
+     * Parseia cabeçalhos crus de e-mail (imap_fetchheader) num mapa
+     * chave-minúscula → valor, tratando dobra de linha (folding).
+     */
+    private function parseHeaders($raw)
+    {
+        $out = [];
+        if ($raw === '') return $out;
+        // Junta linhas continuadas (folding: linha seguinte começa com espaço/TAB).
+        $raw = preg_replace('/\r\n[ \t]+/', ' ', $raw);
+        foreach (preg_split('/\r\n|\n/', $raw) as $line) {
+            $pos = strpos($line, ':');
+            if ($pos === false) continue;
+            $key = strtolower(trim(substr($line, 0, $pos)));
+            $val = trim(substr($line, $pos + 1));
+            if ($key === '') continue;
+            // Se o header repetir, mantém o primeiro (ex.: Received aparece várias vezes).
+            if (!isset($out[$key])) $out[$key] = $val;
+        }
+        return $out;
+    }
+
+    /**
      * Retorna o total de e-mails na caixa.
      */
     public function getTotal($search = null)

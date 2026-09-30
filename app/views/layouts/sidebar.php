@@ -199,7 +199,7 @@
             <?php $canLinkedin = Permissions::canAccess($role, 'linkedin'); ?>
             <?php $canLeadcapture = Permissions::canAccess($role, 'leadcapture'); ?>
             <?php $canLeadcaptureAdmin = Permissions::canAccess($role, 'leadcapture_admin'); ?>
-            <?php $crmSectionActive = in_array($currentPage ?? '', ['crm', 'crm_dashboard', 'crm_commissions', 'crm_leads', 'crm_calls', 'crm_capture', 'crm_prospecting', 'sequences', 'linkedin_queue', 'linkedin_run', 'leadcapture_opps', 'leadcapture_config', 'leadcapture_health']); ?>
+            <?php $crmSectionActive = in_array($currentPage ?? '', ['crm', 'crm_dashboard', 'crm_commissions', 'crm_leads', 'crm_calls', 'crm_capture', 'crm_prospecting', 'crm_no_interest', 'sequences', 'linkedin_queue', 'linkedin_run', 'leadcapture_opps', 'leadcapture_config', 'leadcapture_health']); ?>
             <li class="nav-item">
                 <a class="nav-link d-flex align-items-center justify-content-between <?= ($currentPage ?? '') === 'crm' ? 'active' : '' ?>" href="<?= baseUrl('crm') ?>">
                     <span class="nav-link-body"><i class="bi bi-kanban"></i> <span class="nav-text">CRM</span></span>
@@ -223,6 +223,11 @@
                 <li class="nav-item">
                     <a class="nav-link <?= ($currentPage ?? '') === 'crm_prospecting' ? 'active' : '' ?>" href="<?= baseUrl('crm/prospecting') ?>" style="padding-left:2.6rem;font-size:0.85rem;">
                         <i class="bi bi-robot"></i> Prospecção Automática
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link <?= ($currentPage ?? '') === 'crm_no_interest' ? 'active' : '' ?>" href="<?= baseUrl('crm/noInterest') ?>" style="padding-left:2.6rem;font-size:0.85rem;">
+                        <i class="bi bi-person-dash"></i> Leads sem interesse
                     </a>
                 </li>
                 <?php endif; ?>

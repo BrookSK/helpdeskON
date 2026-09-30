@@ -136,6 +136,12 @@ class SequenceEngine
             $this->db->update('whatsapp_contacts', ['unsubscribed' => 0], 'id = ?', [$contactId]);
             $contact['unsubscribed'] = 0;
         }
+        // Defesa em profundidade: no disparo AUTOMÁTICO, quem tem a etiqueta
+        // "sem interesse" (mesmo sem o flag unsubscribed) não é inscrito. O
+        // operador pode forçar manualmente (forceRestart).
+        if (!$forceRestart && $this->hasNoInterestLabel($contactId)) {
+            return ['success' => false, 'error' => 'Lead marcado como sem interesse.'];
+        }
 
         // Elegibilidade por CANAL da sequência (email / whatsapp / mixed).
         // - email:    exige e-mail
@@ -321,14 +327,26 @@ class SequenceEngine
             return true;
         }
 
-        // E-mail: resposta registrada (replied_at) posterior à referência
+        // E-mail: resposta registrada posterior à referência. Considera tanto a
+        // marca replied_at (na outbound) quanto a linha inbound real (received_at),
+        // gravada pela detecção casada por cabeçalho.
         try {
             $lastReplyEmail = $this->db->fetch(
-                "SELECT MAX(replied_at) t FROM email_messages WHERE contact_id = ? AND replied_at IS NOT NULL", [$contactId]);
+                "SELECT MAX(COALESCE(received_at, replied_at)) t FROM email_messages
+                 WHERE contact_id = ? AND (replied_at IS NOT NULL OR direction='inbound')", [$contactId]);
             if ($lastReplyEmail && $lastReplyEmail['t'] && strtotime($lastReplyEmail['t']) >= $ref) {
                 return true;
             }
-        } catch (\Throwable $e) { /* coluna pode não existir */ }
+        } catch (\Throwable $e) {
+            // Fallback p/ schema sem received_at.
+            try {
+                $lastReplyEmail = $this->db->fetch(
+                    "SELECT MAX(replied_at) t FROM email_messages WHERE contact_id = ? AND replied_at IS NOT NULL", [$contactId]);
+                if ($lastReplyEmail && $lastReplyEmail['t'] && strtotime($lastReplyEmail['t']) >= $ref) {
+                    return true;
+                }
+            } catch (\Throwable $e2) { /* coluna pode não existir */ }
+        }
 
         return false;
     }
@@ -870,6 +888,23 @@ class SequenceEngine
                     $this->logExec($participant['id'], $nodeId, $type, 'skipped', 'Lead sem telefone: bloco de WhatsApp pulado.');
                     return 'skipped';
                 }
+                // Respeita a janela de horário/dias (bug: WhatsApp saía de madrugada
+                // e fim de semana). Fora da janela → reagenda p/ próximo horário válido.
+                if (!$this->enforceWindow($participant, $seq, $testMode, $manualForce)) {
+                    $this->logExec($participant['id'], $nodeId, $type, 'skipped', 'Fora da janela de envio: reagendado para o próximo horário permitido.');
+                    return 'skipped';
+                }
+                // Teto diário compartilhado (e-mail + WhatsApp): não estoura o daily_limit.
+                if (!$testMode) {
+                    $key = $seq['id'];
+                    $sentByAccount[$key] = ($sentByAccount[$key] ?? 0);
+                    if ($this->sentToday($seq['id']) + $sentByAccount[$key] >= (int) $seq['daily_limit']) {
+                        $this->reschedule($participant, date('Y-m-d H:i:s', strtotime('+1 hour')));
+                        $this->logExec($participant['id'], $nodeId, $type, 'skipped', 'Limite diário atingido: reagendado.');
+                        return 'skipped';
+                    }
+                    $sentByAccount[$key] = ($sentByAccount[$key] ?? 0) + 1;
+                }
                 $waResult = $this->doWhatsapp($participant, $node);
                 $this->advance($participant, $node['next'] ?? null, $nodes);
                 $this->logExec($participant['id'], $nodeId, $type, $waResult === true ? 'done' : 'failed', is_string($waResult) ? $waResult : null);
@@ -900,8 +935,15 @@ class SequenceEngine
                 if ($aiMode === 'decision' && !empty($node['data']['faq_active'])) {
                     $ag = $this->doAiAgent($participant, $node);
                     $intent = $ag['intent'] ?? 'unclear';
-                    // Roteamento centralizado (SequenceAiRules): só recusa EXPLÍCITA
-                    // encerra; indecisão/limite de interações segue ao agendamento.
+                    // Falha TÉCNICA da IA não decide o lead: mantém no nó e
+                    // reprocessa depois (não encerra/tag nem agenda por erro nosso).
+                    if (!empty($ag['error'])) {
+                        $this->reschedule($participant, date('Y-m-d H:i:s', strtotime('+15 minutes')));
+                        $this->logExec($participant['id'], $nodeId, $type, 'failed', 'Erro técnico da IA — reprocessar: ' . ($ag['detail'] ?? ''));
+                        return 'skipped';
+                    }
+                    // Roteamento centralizado (SequenceAiRules): só interesse CLARO
+                    // agenda; recusa/indecisão/limite encerram com tag "sem interesse".
                     $action = SequenceAiRules::agentAction(
                         $intent, !empty($ag['active']), (int)($ag['turns'] ?? 0), (int)($ag['max_turns'] ?? 6));
                     if ($action === SequenceAiRules::ACTION_ADVANCE_YES) {
@@ -924,15 +966,16 @@ class SequenceEngine
                 }
                 $ai = $this->doAi($participant, $node);
                 if ($aiMode === 'decision') {
-                    // Ramifica conforme a decisão SIM/NÃO da IA. Se a chamada
-                    // FALHOU tecnicamente (sem chave/HTTP), NÃO tratamos como
-                    // recusa do lead: seguimos para o AGENDAMENTO (SIM) para não
-                    // derrubar o lead por um erro nosso.
+                    // Falha TÉCNICA da IA (sem chave/HTTP/exception) NÃO decide o
+                    // lead: não é recusa nem interesse. Mantém no nó e reprocessa
+                    // no próximo ciclo (evita agendar ou encerrar por erro nosso).
                     if (!empty($ai['error'])) {
-                        $action = SequenceAiRules::ACTION_ADVANCE_YES;
-                    } else {
-                        $action = SequenceAiRules::decisionAction(!empty($ai['decision']));
+                        $this->reschedule($participant, date('Y-m-d H:i:s', strtotime('+15 minutes')));
+                        $this->logExec($participant['id'], $nodeId, $type, 'failed', 'Erro técnico da IA — reprocessar: ' . ($ai['detail'] ?? ''));
+                        return 'skipped';
                     }
+                    // Ramifica conforme a decisão SIM/NÃO da IA.
+                    $action = SequenceAiRules::decisionAction(!empty($ai['decision']));
                     $branch = $action === SequenceAiRules::ACTION_ADVANCE_YES ? ($node['nextYes'] ?? null) : ($node['nextNo'] ?? null);
                     $this->advance($participant, $branch, $nodes);
                     // Analytics: registra interesse classificado pela IA + objeção.
@@ -977,6 +1020,11 @@ class SequenceEngine
                 return 'skipped';
 
             case 'schedule':
+                // Envio de link de agendamento também respeita a janela.
+                if (!$this->enforceWindow($participant, $seq, $testMode, $manualForce)) {
+                    $this->logExec($participant['id'], $nodeId, $type, 'skipped', 'Fora da janela de envio: agendamento reagendado.');
+                    return 'skipped';
+                }
                 $sch = $this->doSchedule($participant, $node);
                 $this->advance($participant, $node['next'] ?? null, $nodes);
                 $this->logExec($participant['id'], $nodeId, $type, empty($sch['error']) ? 'done' : 'failed', $sch['detail'] ?? null);
@@ -1003,10 +1051,15 @@ class SequenceEngine
                 $agentActive = !isset($node['data']['active']) || !empty($node['data']['active']);
                 $ag = $this->doAiAgent($participant, $node);
                 $intent = $ag['intent'] ?? 'unclear';
-                // Roteamento centralizado (SequenceAiRules): apenas a recusa
-                // EXPLÍCITA do lead segue pela saída NÃO (encerra). Indecisão no
-                // modo classificação, ou limite de interações no modo ativo,
-                // seguem para o AGENDAMENTO (saída SIM) — nunca encerram sozinhos.
+                // Falha TÉCNICA da IA não decide o lead: mantém no nó e reprocessa
+                // depois (não encerra/tag nem agenda por erro nosso).
+                if (!empty($ag['error'])) {
+                    $this->reschedule($participant, date('Y-m-d H:i:s', strtotime('+15 minutes')));
+                    $this->logExec($participant['id'], $nodeId, $type, 'failed', 'Erro técnico da IA — reprocessar: ' . ($ag['detail'] ?? ''));
+                    return 'skipped';
+                }
+                // Roteamento centralizado (SequenceAiRules): só interesse CLARO
+                // agenda; recusa/indecisão/limite encerram com tag "sem interesse".
                 $action = SequenceAiRules::agentAction(
                     $intent, $agentActive, (int)($ag['turns'] ?? 0), (int)($ag['max_turns'] ?? 6));
                 if ($action === SequenceAiRules::ACTION_ADVANCE_YES) {
@@ -1554,13 +1607,13 @@ class SequenceEngine
         if (!$contact) return ['intent' => 'unclear', 'active' => $agentActive, 'turns' => (int)($participant['ai_agent_turns'] ?? 0), 'max_turns' => $maxTurns, 'detail' => 'Lead não encontrado', 'error' => 'no_contact'];
 
         // Trava de segurança (apenas no modo ATIVO): limite de interações para não
-        // ficar preso no loop de dúvidas para sempre. Ao atingir, NÃO encerra por
-        // cansaço — o lead nunca recusou. Sinaliza 'unclear' para que a regra
-        // (SequenceAiRules::agentAction) encaminhe ao AGENDAMENTO (saída SIM).
+        // ficar preso no loop de dúvidas para sempre. Ao atingir SEM interesse
+        // claro, a regra (SequenceAiRules::agentAction) encerra com tag "sem
+        // interesse" (saída NÃO) — já demos várias chances de demonstrar interesse.
         $turns = (int)($participant['ai_agent_turns'] ?? 0);
         if ($agentActive && $turns >= $maxTurns) {
-            (new LeadTimelineService())->add($contactId, 'note', 'Atendente IA atingiu o limite de interações — encaminhando ao agendamento (saída SIM), sem recusa do lead.', ['channel' => 'ai_agent']);
-            return ['intent' => 'unclear', 'active' => true, 'turns' => $turns, 'max_turns' => $maxTurns, 'limit' => true, 'detail' => 'Limite de interações atingido — segue para agendamento.', 'error' => null];
+            (new LeadTimelineService())->add($contactId, 'note', 'Atendente IA atingiu o limite de interações sem interesse claro — encerrando (saída NÃO / sem interesse).', ['channel' => 'ai_agent']);
+            return ['intent' => 'unclear', 'active' => true, 'turns' => $turns, 'max_turns' => $maxTurns, 'limit' => true, 'detail' => 'Limite de interações atingido — encerra sem interesse.', 'error' => null];
         }
 
         $context = $this->buildAiContext($contactId, $contact);
@@ -2203,42 +2256,90 @@ class SequenceEngine
         } catch (\Throwable $e) {}
 
         $parts = [];
-        // Mensagens de WhatsApp recebidas após o último envio.
+        // Mensagens de WhatsApp recebidas após o último envio. Considera texto E
+        // a transcrição de áudio (resposta por áudio: message_text vem vazio, mas
+        // a transcrição do Whisper carrega o conteúdo — ex.: recusa falada).
         try {
             $rows = $this->db->fetchAll(
-                "SELECT message_text, timestamp FROM whatsapp_messages
-                 WHERE contact_id = ? AND from_me = 0 AND message_text IS NOT NULL AND message_text <> ''
+                "SELECT message_text, transcription, timestamp FROM whatsapp_messages
+                 WHERE contact_id = ? AND from_me = 0
+                   AND (
+                        (message_text IS NOT NULL AND message_text <> '')
+                     OR (transcription IS NOT NULL AND transcription <> '')
+                   )
                  ORDER BY id DESC LIMIT 8", [$contactId]);
             $rows = array_reverse($rows);
             foreach ($rows as $m) {
                 if ($refTs > 0 && !empty($m['timestamp']) && strtotime($m['timestamp']) < $refTs) continue;
-                $parts[] = mb_substr($m['message_text'], 0, 300);
+                $txt = trim((string) ($m['message_text'] ?? ''));
+                if ($txt === '' && !empty($m['transcription'])) $txt = trim((string) $m['transcription']);
+                if ($txt === '') continue;
+                $parts[] = mb_substr($txt, 0, 300);
             }
-        } catch (\Throwable $e) {}
+        } catch (\Throwable $e) {
+            // Fallback para schema sem a coluna transcription: só texto.
+            try {
+                $rows = $this->db->fetchAll(
+                    "SELECT message_text, timestamp FROM whatsapp_messages
+                     WHERE contact_id = ? AND from_me = 0 AND message_text IS NOT NULL AND message_text <> ''
+                     ORDER BY id DESC LIMIT 8", [$contactId]);
+                $rows = array_reverse($rows);
+                foreach ($rows as $m) {
+                    if ($refTs > 0 && !empty($m['timestamp']) && strtotime($m['timestamp']) < $refTs) continue;
+                    $parts[] = mb_substr($m['message_text'], 0, 300);
+                }
+            } catch (\Throwable $e2) {}
+        }
 
-        // Resposta de e-mail recente (snippet), se posterior ao último envio.
+        // Resposta de e-mail recente (snippet). Prioriza a linha INBOUND real
+        // (direction='inbound') gravada pela detecção casada por cabeçalho, que
+        // carrega o texto real da resposta em reply_snippet + received_at. Cai no
+        // caminho antigo (replied_at na outbound) quando não houver inbound.
         if (empty($parts)) {
             try {
                 $em = $this->db->fetch(
-                    "SELECT reply_snippet, replied_at FROM email_messages
-                     WHERE contact_id = ? AND replied_at IS NOT NULL ORDER BY replied_at DESC LIMIT 1", [$contactId]);
+                    "SELECT reply_snippet, COALESCE(received_at, replied_at) AS ts
+                     FROM email_messages
+                     WHERE contact_id = ? AND reply_snippet IS NOT NULL AND reply_snippet <> ''
+                     ORDER BY id DESC LIMIT 1", [$contactId]);
                 if ($em && !empty($em['reply_snippet'])) {
-                    if (!($refTs > 0 && strtotime($em['replied_at']) < $refTs)) {
+                    $emTs = !empty($em['ts']) ? strtotime($em['ts']) : 0;
+                    if (!($refTs > 0 && $emTs > 0 && $emTs < $refTs)) {
                         $parts[] = mb_substr($em['reply_snippet'], 0, 300);
                     }
                 }
-            } catch (\Throwable $e) {}
+            } catch (\Throwable $e) {
+                // Fallback p/ schema sem reply_snippet/received_at.
+                try {
+                    $em = $this->db->fetch(
+                        "SELECT reply_snippet, replied_at FROM email_messages
+                         WHERE contact_id = ? AND replied_at IS NOT NULL ORDER BY replied_at DESC LIMIT 1", [$contactId]);
+                    if ($em && !empty($em['reply_snippet'])) {
+                        if (!($refTs > 0 && strtotime($em['replied_at']) < $refTs)) {
+                            $parts[] = mb_substr($em['reply_snippet'], 0, 300);
+                        }
+                    }
+                } catch (\Throwable $e2) {}
+            }
         }
 
         // Fallback: se nada após o último envio (ex.: sem timestamp confiável),
-        // usa a última mensagem recebida do lead.
+        // usa a última mensagem recebida do lead (texto ou transcrição de áudio).
         if (empty($parts)) {
             try {
                 $last = $this->db->fetch(
-                    "SELECT message_text FROM whatsapp_messages
-                     WHERE contact_id = ? AND from_me = 0 AND message_text IS NOT NULL AND message_text <> ''
+                    "SELECT message_text, transcription FROM whatsapp_messages
+                     WHERE contact_id = ? AND from_me = 0
+                       AND (
+                            (message_text IS NOT NULL AND message_text <> '')
+                         OR (transcription IS NOT NULL AND transcription <> '')
+                       )
                      ORDER BY id DESC LIMIT 1", [$contactId]);
-                if ($last && !empty($last['message_text'])) $parts[] = mb_substr($last['message_text'], 0, 300);
+                if ($last) {
+                    $txt = trim((string) ($last['message_text'] ?? ''));
+                    if ($txt === '' && !empty($last['transcription'])) $txt = trim((string) $last['transcription']);
+                    if ($txt !== '') $parts[] = mb_substr($txt, 0, 300);
+                }
             } catch (\Throwable $e) {}
         }
 
@@ -2316,6 +2417,21 @@ class SequenceEngine
                 [$contactId, $labelId]
             );
         } catch (\Throwable $e) { /* silencioso */ }
+    }
+
+    /** Contato tem a etiqueta "sem interesse" vinculada? (bloqueia reprospecção). */
+    private function hasNoInterestLabel($contactId)
+    {
+        if (!$contactId) return false;
+        try {
+            $r = $this->db->fetch(
+                "SELECT 1 FROM whatsapp_contact_labels ccl
+                 JOIN whatsapp_labels l ON l.id = ccl.label_id
+                 WHERE ccl.contact_id = ? AND LOWER(l.name) IN ('sem interesse','sem interese') LIMIT 1",
+                [$contactId]
+            );
+            return (bool) $r;
+        } catch (\Throwable $e) { return false; }
     }
 
     private function moveCard($contactId, $columnId)
@@ -2608,27 +2724,75 @@ class SequenceEngine
 
     private function withinWindow($seq)
     {
-        if (!$seq['send_weekends'] && in_array(date('N'), ['6', '7'])) return false;
-        $now = date('H:i:s');
-        return $now >= $seq['window_start'] && $now <= $seq['window_end'];
+        // Decisão centralizada em SequenceWindowRules (pura/testável): considera
+        // dias da semana (days_of_week), fim de semana (send_weekends) e horário.
+        return SequenceWindowRules::canSendNow(
+            $seq['window_start'] ?? '08:00:00',
+            $seq['window_end'] ?? '18:00:00',
+            $seq['days_of_week'] ?? null,
+            !empty($seq['send_weekends'])
+        );
     }
 
     private function nextWindowStart($seq)
     {
-        $today = date('Y-m-d') . ' ' . $seq['window_start'];
-        if (strtotime($today) > time()) return $today;
-        return date('Y-m-d', strtotime('+1 day')) . ' ' . $seq['window_start'];
+        // Próximo instante válido (dia permitido + dentro da janela).
+        $ts = SequenceWindowRules::nextSendTime(
+            $seq['window_start'] ?? '08:00:00',
+            $seq['window_end'] ?? '18:00:00',
+            $seq['days_of_week'] ?? null,
+            !empty($seq['send_weekends'])
+        );
+        return date('Y-m-d H:i:s', $ts);
+    }
+
+    /**
+     * Portão único de JANELA para blocos que ENVIAM mensagem (WhatsApp, resposta
+     * ao lead, agendamento). Se estiver fora da janela de horário/dias da
+     * sequência, reagenda o participante para o próximo horário válido e devolve
+     * false (o chamador deve interromper o passo, sem enviar).
+     *
+     * $manualForce (disparo manual do operador) e $testMode ignoram a janela — a
+     * ação é intencional/instantânea; o limite diário e demais regras seguem.
+     *
+     * @return bool true = pode enviar agora; false = reagendado, não envie.
+     */
+    private function enforceWindow($participant, $seq, $testMode, $manualForce)
+    {
+        if ($testMode || $manualForce) return true;
+        if ($this->withinWindow($seq)) return true;
+        $this->reschedule($participant, $this->nextWindowStart($seq));
+        return false;
     }
 
     private function sentToday($sequenceId)
     {
+        // E-mails enviados hoje por esta sequência.
         $r = $this->db->fetch(
             "SELECT COUNT(*) t FROM email_messages m
              JOIN sequence_participants sp ON sp.id = m.sequence_participant_id
              WHERE sp.sequence_id = ? AND m.direction='outbound' AND DATE(m.sent_at) = CURDATE()",
             [$sequenceId]
         );
-        return (int) ($r['t'] ?? 0);
+        $emails = (int) ($r['t'] ?? 0);
+
+        // WhatsApp enviados hoje pela sequência (bug: o teto diário ignorava o
+        // WhatsApp e permitia estourar o daily_limit). Conta as mensagens
+        // outbound gravadas pelo motor (sender_name='Prospecção') para os
+        // contatos que participam desta sequência, no dia de hoje.
+        $wa = 0;
+        try {
+            $rw = $this->db->fetch(
+                "SELECT COUNT(*) t FROM whatsapp_messages wm
+                 JOIN sequence_participants sp ON sp.contact_id = wm.contact_id
+                 WHERE sp.sequence_id = ? AND wm.from_me = 1
+                   AND wm.sender_name = 'Prospecção' AND DATE(wm.timestamp) = CURDATE()",
+                [$sequenceId]
+            );
+            $wa = (int) ($rw['t'] ?? 0);
+        } catch (\Throwable $e) { /* se a coluna/tabela variar, ignora o WhatsApp no teto */ }
+
+        return $emails + $wa;
     }
 
     private function resolveAccount($accountId)

@@ -173,16 +173,30 @@ class EmailMessageService
         // Injeta tracking no corpo (pixel + reescrita de links)
         $trackedBody = $this->injectTracking($body, $token);
 
+        // Carimba o envio para rastreio confiável da RESPOSTA:
+        //  - Message-ID com o track_token embutido (<seq-{token}@dominio>);
+        //  - Reply-To com o token como +tag (segunda âncora de casamento).
+        // Assim a resposta do lead volta com nosso identificador em
+        // In-Reply-To/References/To, e casamos por header (não por remetente).
+        $senderEmail = $account['email'] ?? '';
+        $midDomain = (strpos($senderEmail, '@') !== false)
+            ? substr($senderEmail, strpos($senderEmail, '@') + 1)
+            : (parse_url('http://' . ($account['smtp_host'] ?? 'localhost'), PHP_URL_HOST) ?: 'localhost');
+        $emailMessageId = EmailReplyRules::buildMessageId($token, $midDomain);
+        $replyTo = $senderEmail !== '' ? EmailReplyRules::buildReplyTo($senderEmail, $token) : null;
+
         // Envia via SMTP (reusa a engine existente)
         $result = $this->prospection->sendEmail(
             $account, $to, $subject, $trackedBody,
-            $params['cc'] ?? null, $params['bcc'] ?? null, []
+            $params['cc'] ?? null, $params['bcc'] ?? null, [],
+            ['message_id' => $emailMessageId, 'reply_to' => $replyTo]
         );
 
         if ($result === true) {
             $this->db->update('email_messages', [
                 'status' => 'sent',
                 'sent_at' => date('Y-m-d H:i:s'),
+                'message_id' => $emailMessageId, // grava para casar a resposta depois
             ], 'id = ?', [$messageId]);
 
             (new LeadTimelineService())->add($contactId, 'email_sent',
@@ -336,7 +350,102 @@ class EmailMessageService
     }
 
     /**
+     * Registra uma resposta de e-mail CASADA por cabeçalho (In-Reply-To /
+     * References / Reply-To com token). É o caminho confiável: só chega aqui uma
+     * mensagem que comprovadamente responde a um envio nosso, já filtrada de
+     * ruído (auto-resposta/bulk/bounce) pela EmailReplyRules.
+     *
+     * Faz: dedupe por (conta, UID); grava a resposta como linha inbound
+     * (direction='inbound', status='received') com snippet; marca replied_at na
+     * mensagem OUTBOUND específica que foi respondida (casada pelo token); e
+     * dispara a triagem por IA (routeReplyToTriage) — o mesmo destino do WhatsApp.
+     *
+     * @param array $msg mensagem do IMAP (uid, from_email, subject, date,
+     *                    message_id, in_reply_to, references, reply_to)
+     * @param string $token track_token extraído dos cabeçalhos (casa a outbound)
+     * @param int|null $accountId conta IMAP onde a mensagem foi lida
+     * @return bool true se registrou (nova resposta), false se ignorada/duplicada
+     */
+    public function registerMatchedReply(array $msg, string $token, $accountId = null)
+    {
+        // A outbound original é a que tem este track_token (carimbado no envio).
+        $outbound = $this->db->fetch(
+            "SELECT id, contact_id, subject FROM email_messages
+             WHERE track_token = ? AND direction='outbound' LIMIT 1",
+            [$token]
+        );
+        if (!$outbound) return false; // token desconhecido → não é resposta nossa
+        $contactId = (int) $outbound['contact_id'];
+
+        // Dedupe por (conta, UID): se já gravamos esta mensagem inbound, ignora.
+        $uid = (int) ($msg['uid'] ?? 0);
+        if ($uid > 0 && $accountId) {
+            $dup = $this->db->fetch(
+                "SELECT id FROM email_messages WHERE email_account_id = ? AND imap_uid = ? AND direction='inbound' LIMIT 1",
+                [$accountId, $uid]
+            );
+            if ($dup) return false;
+        }
+
+        $snippet = trim((string) ($msg['snippet'] ?? ''));
+        $now = date('Y-m-d H:i:s');
+        $receivedAt = !empty($msg['date']) ? date('Y-m-d H:i:s', strtotime($msg['date'])) : $now;
+
+        // 1) Grava a resposta como linha INBOUND (rastro real da conversa).
+        try {
+            $this->db->insert('email_messages', [
+                'contact_id' => $contactId,
+                'email_account_id' => $accountId,
+                'direction' => 'inbound',
+                'origin' => 'sequence',
+                'message_id' => $this->clip($msg['message_id'] ?? null, 255),
+                'in_reply_to' => $this->clip($msg['in_reply_to'] ?? null, 255),
+                'references_header' => $msg['references'] ?? null,
+                'thread_key' => $this->normalize($msg['from_email'] ?? ''),
+                'recipient_email' => $msg['from_email'] ?? null,
+                'subject' => $this->clip($msg['subject'] ?? null, 300),
+                'reply_snippet' => $snippet !== '' ? $snippet : null,
+                'imap_uid' => $uid ?: null,
+                'status' => 'received',
+                'received_at' => $receivedAt,
+            ]);
+        } catch (\Throwable $e) {
+            // Se o schema ainda não tiver as colunas novas, não quebra a detecção.
+            Logger::error('registerMatchedReply inbound insert', ['error' => $e->getMessage(), 'contact' => $contactId]);
+        }
+
+        // 2) Marca replied_at na OUTBOUND específica que foi respondida.
+        if (empty($this->db->fetch("SELECT replied_at FROM email_messages WHERE id = ? AND replied_at IS NOT NULL", [$outbound['id']]))) {
+            $this->db->update('email_messages', ['replied_at' => $now], 'id = ?', [$outbound['id']]);
+            $this->db->insert('email_events', [
+                'message_id' => $outbound['id'], 'contact_id' => $contactId, 'event_type' => 'reply',
+            ]);
+            (new LeadScoreService())->add($contactId, LeadScoreService::W_REPLY, 'resposta recebida (e-mail casado)');
+        }
+
+        (new LeadTimelineService())->add($contactId, 'email_reply',
+            'Lead respondeu por e-mail' . (!empty($msg['subject']) ? ': ' . $msg['subject'] : ''),
+            ['channel' => 'email', 'matched' => true, 'snippet' => mb_substr($snippet, 0, 200)]);
+
+        // 3) Triagem por IA (interesse → agendamento; sem interesse → tag/encerra).
+        //    A triagem lê a resposta real (snippet gravado / última inbound).
+        (new SequenceEngine())->routeReplyToTriage($contactId, 'replied');
+
+        return true;
+    }
+
+    /** Corta uma string para caber numa coluna, preservando null. */
+    private function clip($value, $max)
+    {
+        if ($value === null) return null;
+        $value = (string) $value;
+        return $value !== '' ? mb_substr($value, 0, $max) : null;
+    }
+
+    /**
      * Registra uma resposta recebida do lead (via IMAP) e interrompe follow-ups.
+     * Caminho LEGADO (casamento por remetente+data). Mantido como fallback; o
+     * caminho confiável é registerMatchedReply() (casamento por cabeçalho/token).
      */
     public function registerReply($contactId, $subject = null, $userId = null)
     {
