@@ -22,9 +22,10 @@
 -- SEM backfill: só vale daqui para frente (mensagens antigas ficam sent_by NULL).
 --
 -- Idempotente (checa information_schema) para reexecução segura.
+--
+-- Aplique no banco correto pela CONEXÃO (não força USE), para não afetar o
+-- database errado em ambientes de teste/beta/produção.
 -- =====================================================================
-
-USE helpdesk_on;
 
 -- Coluna sent_by (após sent_via, mantendo a ordem lógica das colunas de envio)
 SET @c := (SELECT COUNT(*) FROM information_schema.COLUMNS
