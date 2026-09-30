@@ -485,4 +485,102 @@ class WhatsappContact
     {
         return $this->db->delete('whatsapp_labels', 'id = ?', [$id]);
     }
+
+    // =========================================
+    // BLOQUEIO DE REENVIO / DUPLICADOS (irmãos)
+    // =========================================
+
+    /** A coluna whatsapp_contacts.linkedin_url existe? (migration 080 pode não ter rodado.) */
+    private function hasLinkedinColumn(): bool
+    {
+        static $has = null;
+        if ($has !== null) return $has;
+        try {
+            $r = $this->db->fetch(
+                "SELECT COUNT(*) c FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'whatsapp_contacts' AND COLUMN_NAME = 'linkedin_url'"
+            );
+            $has = ((int) ($r['c'] ?? 0) > 0);
+        } catch (\Throwable $e) {
+            $has = false;
+        }
+        return $has;
+    }
+
+    /**
+     * Encontra os "irmãos" de um contato: outras fichas que são a MESMA pessoa,
+     * detectadas por chave forte (e-mail igual ou LinkedIn igual). Não inclui o
+     * próprio contato nem grupos. Telefone é excluído de propósito (ver CrmRules).
+     *
+     * @return array<int,array> linhas de whatsapp_contacts (id, lead_email, linkedin_url...)
+     */
+    public function findSiblings($contactId): array
+    {
+        $base = $this->db->fetch(
+            "SELECT id, lead_email" . ($this->hasLinkedinColumn() ? ", linkedin_url" : "") . "
+             FROM whatsapp_contacts WHERE id = ?",
+            [$contactId]
+        );
+        if (!$base) return [];
+
+        $email = mb_strtolower(trim((string) ($base['lead_email'] ?? '')));
+        $linkedin = mb_strtolower(trim((string) ($base['linkedin_url'] ?? '')));
+
+        $conds = [];
+        $params = [];
+        if ($email !== '') {
+            $conds[] = "LOWER(TRIM(lead_email)) = ?";
+            $params[] = $email;
+        }
+        if ($linkedin !== '' && $this->hasLinkedinColumn()) {
+            $conds[] = "LOWER(TRIM(linkedin_url)) = ?";
+            $params[] = $linkedin;
+        }
+        if (empty($conds)) return []; // sem chave forte: não há como identificar irmãos com segurança
+
+        $sql = "SELECT * FROM whatsapp_contacts
+                WHERE id <> ? AND COALESCE(is_group,0) = 0 AND (" . implode(' OR ', $conds) . ")";
+        return $this->db->fetchAll($sql, array_merge([$contactId], $params));
+    }
+
+    /**
+     * Bloqueia o contato para novos envios (unsubscribed=1) e PROPAGA o bloqueio
+     * aos irmãos (mesma pessoa por e-mail/LinkedIn). Registra na timeline.
+     *
+     * Idempotente: contatos já bloqueados não são reprocessados nem duplicam nota.
+     * O motor de envio (SequenceEngine) respeita unsubscribed=1, então isto
+     * efetivamente impede reenvio por qualquer campanha, inclusive para os
+     * duplicados.
+     *
+     * @return int quantidade de contatos bloqueados agora (0 se já estavam todos).
+     */
+    public function unsubscribeWithSiblings($contactId, string $reason = 'Sem interesse'): int
+    {
+        $timeline = new LeadTimelineService();
+        $blocked = 0;
+
+        // 1) O próprio contato.
+        $self = $this->db->fetch("SELECT id, unsubscribed FROM whatsapp_contacts WHERE id = ?", [$contactId]);
+        if (!$self) return 0;
+        if ((int) ($self['unsubscribed'] ?? 0) !== 1) {
+            $this->db->update('whatsapp_contacts', ['unsubscribed' => 1], 'id = ?', [$contactId]);
+            $timeline->add($contactId, 'note', 'Lead bloqueado para novos envios: ' . $reason, ['action' => 'unsubscribe']);
+            $blocked++;
+        }
+
+        // 2) Os irmãos (duplicados da mesma pessoa).
+        foreach ($this->findSiblings($contactId) as $sib) {
+            if ((int) ($sib['unsubscribed'] ?? 0) === 1) continue;
+            $this->db->update('whatsapp_contacts', ['unsubscribed' => 1], 'id = ?', [$sib['id']]);
+            $timeline->add(
+                (int) $sib['id'],
+                'note',
+                'Lead bloqueado por ser duplicado do contato #' . $contactId . ' (' . $reason . ')',
+                ['action' => 'unsubscribe', 'sibling_of' => (int) $contactId]
+            );
+            $blocked++;
+        }
+
+        return $blocked;
+    }
 }

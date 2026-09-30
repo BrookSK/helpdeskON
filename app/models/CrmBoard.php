@@ -295,6 +295,17 @@ class CrmBoard
                 'outcome_at' => date('Y-m-d H:i:s'),
             ]);
         }
+
+        // Colunas terminais de prospecção ("Sem Interesse"/"Sem Resposta") bloqueiam
+        // novos envios: marca unsubscribed=1 e PROPAGA aos irmãos (duplicados).
+        if (CrmRules::isNotInterestedColumn($columnName) || CrmRules::isNoReplyColumn($columnName)) {
+            try {
+                (new WhatsappContact())->unsubscribeWithSiblings(
+                    (int) $contactId,
+                    CrmRules::isNotInterestedColumn($columnName) ? 'Sem interesse' : 'Sem resposta'
+                );
+            } catch (\Throwable $e) { /* não interrompe o desfecho por falha no bloqueio */ }
+        }
         return true;
     }
 

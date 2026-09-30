@@ -181,4 +181,48 @@ final class CrmRulesTest extends TestCase
         $this->assertSame(0.0, $c['total']);
     }
 
+    // ---- isSameLead (detecção de irmãos / duplicados) ----
+
+    public function testMesmoLeadPorEmail(): void
+    {
+        $this->assertTrue(CrmRules::isSameLead(
+            ['email' => 'paulo@empresa.com'],
+            ['email' => 'PAULO@Empresa.com  '] // caixa/espaço não importam
+        ));
+    }
+
+    public function testMesmoLeadPorLinkedin(): void
+    {
+        $this->assertTrue(CrmRules::isSameLead(
+            ['linkedin' => 'https://linkedin.com/in/paulo'],
+            ['linkedin' => 'https://linkedin.com/in/paulo']
+        ));
+    }
+
+    public function testEmailDiferenteLinkedinDiferenteNaoCasa(): void
+    {
+        $this->assertFalse(CrmRules::isSameLead(
+            ['email' => 'a@x.com', 'linkedin' => 'https://linkedin.com/in/a'],
+            ['email' => 'b@x.com', 'linkedin' => 'https://linkedin.com/in/b']
+        ));
+    }
+
+    public function testChavesVaziasNuncaCasam(): void
+    {
+        // Dois contatos sem e-mail e sem LinkedIn NÃO são irmãos (evita bloquear
+        // gente diferente só porque ambos estão sem chave forte).
+        $this->assertFalse(CrmRules::isSameLead(
+            ['email' => '', 'linkedin' => null],
+            ['email' => null, 'linkedin' => '']
+        ));
+    }
+
+    public function testCasaPorUmaChaveMesmoComOutraDivergente(): void
+    {
+        // Mesmo e-mail basta, ainda que o LinkedIn difira.
+        $this->assertTrue(CrmRules::isSameLead(
+            ['email' => 'p@x.com', 'linkedin' => 'https://linkedin.com/in/p1'],
+            ['email' => 'p@x.com', 'linkedin' => 'https://linkedin.com/in/p2']
+        ));
+    }
 }

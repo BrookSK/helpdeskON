@@ -98,6 +98,46 @@ class CrmRules
     }
 
     /**
+     * Dois contatos são "irmãos" (a mesma pessoa em fichas diferentes) quando
+     * compartilham uma chave FORTE de identidade: e-mail ou URL do LinkedIn.
+     *
+     * Usada para propagar o bloqueio (unsubscribed) entre duplicados: se um
+     * contato recusa/entra em "Sem Interesse"/"Sem Resposta", os irmãos também
+     * são bloqueados. O telefone é DELIBERADAMENTE excluído: "últimos 8 dígitos"
+     * pode gerar falso positivo, e aqui a ação (bloquear envio) precisa ser
+     * confiável. E-mail e LinkedIn são identificadores exatos.
+     *
+     * Regra pura: recebe os valores JÁ normalizados (e-mail em minúsculas sem
+     * espaços; LinkedIn trimado) e compara. Vazio nunca casa.
+     *
+     * @param array{email?:?string,linkedin?:?string} $a
+     * @param array{email?:?string,linkedin?:?string} $b
+     */
+    public static function isSameLead(array $a, array $b): bool
+    {
+        $emailA = self::normStrongKey($a['email'] ?? null);
+        $emailB = self::normStrongKey($b['email'] ?? null);
+        if ($emailA !== null && $emailA === $emailB) {
+            return true;
+        }
+
+        $liA = self::normStrongKey($a['linkedin'] ?? null);
+        $liB = self::normStrongKey($b['linkedin'] ?? null);
+        if ($liA !== null && $liA === $liB) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /** Normaliza uma chave forte para comparação: minúsculas, trim; vazio => null. */
+    private static function normStrongKey($value): ?string
+    {
+        $v = mb_strtolower(trim((string) $value));
+        return $v !== '' ? $v : null;
+    }
+
+    /**
      * Normaliza um número para discagem, garantindo um ÚNICO prefixo 55 (Brasil).
      * Remove tudo que não é dígito e colapsa "55" repetidos no início.
      */
