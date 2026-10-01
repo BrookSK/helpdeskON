@@ -858,11 +858,8 @@
 
         <!-- Integrações: API de demandas (agora dentro do "Salvar Configurações") -->
         <div class="card mb-4">
-            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+            <div class="card-header bg-white d-flex align-items-center">
                 <h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-plug"></i> Integração — API de demandas</h6>
-                <a href="<?= baseUrl('settings/apiDocs') ?>" class="btn btn-outline-info btn-sm" target="_blank" rel="noopener">
-                    <i class="bi bi-journal-code"></i> Documentação da API de demandas
-                </a>
             </div>
             <div class="card-body">
                 <p class="text-muted small mb-3">

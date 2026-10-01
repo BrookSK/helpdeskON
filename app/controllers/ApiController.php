@@ -230,6 +230,25 @@ class ApiController extends Controller
         return implode("\n", $headerLines) . "\n\n" . $description;
     }
 
+    /**
+     * GET /api/documentos — página de documentação pública da API v1.
+     *
+     * Página estática (sem login): descreve exclusivamente o que está
+     * implementado hoje (POST /api/v1/tickets, autenticação por X-Api-Key e o
+     * callback de mudança de status). Não expõe chaves nem dados sensíveis.
+     */
+    public function documentos()
+    {
+        $appName  = Config::get('app_name') ?: 'ON Solutions Helpdesk';
+        $faviconUrl = Config::get('app_favicon');
+        $logoUrl  = Config::get('app_logo');
+        $base     = baseUrl('');
+        $apiBase  = rtrim(baseUrl(''), '/');
+        $keyPrefix = ApiKey::KEY_PREFIX;
+        require APP_PATH . '/views/api/documentos.php';
+        exit;
+    }
+
     // Transcrever e organizar demanda via OpenAI
     public function transcribe()
     {

@@ -318,6 +318,24 @@
             </li>
             <?php endif; ?>
 
+            <?php // ===== Desenvolvedor (API) ===== ?>
+            <?php if (Permissions::canAccess($role, 'settings')): ?>
+            <?php $developerSectionActive = in_array($currentPage ?? '', ['api_docs']); ?>
+            <li class="nav-item">
+                <a class="nav-link d-flex align-items-center justify-content-between <?= $developerSectionActive ? 'active' : '' ?>" href="<?= baseUrl('api/documentos') ?>" target="_blank" rel="noopener">
+                    <span class="nav-link-body"><i class="bi bi-code-slash"></i> <span class="nav-text">Desenvolvedor</span></span>
+                    <i class="bi bi-chevron-down developer-caret <?= $developerSectionActive ? '' : 'collapsed-caret' ?>" onclick="event.preventDefault();event.stopPropagation();toggleSubnav(this, 'developer-subnav');" style="font-size:0.7rem;padding:4px;cursor:pointer;transition:transform 0.2s;"></i>
+                </a>
+            </li>
+            <ul class="nav flex-column" id="developer-subnav" style="<?= $developerSectionActive ? '' : 'display:none;' ?>list-style:none;padding-left:0;">
+                <li class="nav-item">
+                    <a class="nav-link <?= ($currentPage ?? '') === 'api_docs' ? 'active' : '' ?>" href="<?= baseUrl('api/documentos') ?>" target="_blank" rel="noopener" style="padding-left:2.6rem;font-size:0.85rem;">
+                        <i class="bi bi-file-earmark-code"></i> Documentos API
+                    </a>
+                </li>
+            </ul>
+            <?php endif; ?>
+
             <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'notifications' ? 'active' : '' ?>" href="<?= baseUrl('notifications') ?>">
                     <i class="bi bi-bell"></i> Notificações
