@@ -793,6 +793,12 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
 /* Week/Day view */
 .cal-time-slot { height: 50px; border-bottom: 1px solid #eee; position: relative; }
 .cal-time-label { font-size: 0.7rem; color: #999; width: 50px; text-align: right; padding-right: 8px; }
+/* Faixa "dia todo" (all-day) no topo da Semana/Dia: abriga as barras
+   contínuas multi-dia, igual ao Mês. */
+.cal-allday-row td { background: #fcfcfd; border-bottom: 2px solid #e2e8f0; vertical-align: middle; }
+.cal-allday-label { color: #94a3b8; font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.3px; }
+.cal-allday-band { padding: 3px 0; overflow: visible; }
+.cal-allday-band .cal-span-event { height: 22px; }
 /* Legenda de cores */
 .cal-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; padding: 8px 4px 12px; border-bottom: 1px solid #eef0f2; margin-bottom: 8px; }
 .cal-legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: 0.72rem; color: #556; }
@@ -1774,18 +1780,121 @@ function getEventsForDay(cellDate) {
     return Object.values(map);
 }
 
+// ---- Helpers compartilhados de "span" multi-dia (usados por Mês e por
+//      Semana/Dia, para que o comportamento seja idêntico nas duas visões). ----
+
+// Normaliza uma data para 00:00 local.
+function spanStartOfDay(d) { const x = new Date(d); x.setHours(0,0,0,0); return x; }
+
+// Gera os segmentos de eventos (barras contínuas estilo Google Agenda) que
+// tocam o intervalo [rangeStart..rangeEnd] (ambos no mesmo "row" de dias
+// contíguos: uma semana no Mês, ou a faixa all-day na Semana/Dia).
+// numCols = quantidade de colunas (dias) do intervalo.
+// Mesma regra do Mês: um card com start_date+end_date vira uma barra; o
+// due_date vira um marcador de 1 dia (só quando fora do intervalo dev).
+function buildSpanSegments(rangeDays) {
+    const first = rangeDays[0];
+    const last = rangeDays[rangeDays.length - 1];
+    const lastIdx = rangeDays.length - 1;
+    const segments = [];
+
+    calendarEvents.forEach(ev => {
+        let evStart = null, evEnd = null;
+        if (ev.start_date && ev.end_date) {
+            evStart = spanStartOfDay(ev.start_date);
+            evEnd = spanStartOfDay(ev.end_date);
+        } else if (ev.start_date && !ev.end_date) {
+            evStart = spanStartOfDay(ev.start_date);
+            evEnd = new Date(evStart);
+        }
+
+        // Segmento do intervalo de desenvolvimento (start→end).
+        if (evStart && evEnd) {
+            const segStart = new Date(Math.max(evStart.getTime(), first.getTime()));
+            const segEnd = new Date(Math.min(evEnd.getTime(), last.getTime()));
+            if (segStart <= last && segEnd >= first) {
+                const colStart = Math.round((segStart - first) / 86400000);
+                const colEnd = Math.round((segEnd - first) / 86400000);
+                const isStart = evStart.getTime() === segStart.getTime();
+                const isEnd = evEnd.getTime() === segEnd.getTime();
+                segments.push({ ...ev, type: 'dev', colStart: Math.max(0, colStart), colEnd: Math.min(lastIdx, colEnd), isStart, isEnd });
+            }
+        }
+
+        // Marcador de prazo (due_date) de 1 dia, só se não cair dentro do dev.
+        if (ev.due_date) {
+            const dd = spanStartOfDay(ev.due_date);
+            if (dd >= first && dd <= last) {
+                const col = Math.round((dd - first) / 86400000);
+                const alreadyHasDev = evStart && evEnd && dd.getTime() >= evStart.getTime() && dd.getTime() <= evEnd.getTime();
+                if (!alreadyHasDev) {
+                    segments.push({ ...ev, type: 'due', colStart: Math.max(0, col), colEnd: Math.max(0, col), isStart: true, isEnd: true });
+                }
+            }
+        }
+    });
+
+    return segments;
+}
+
+// Aloca "lanes" (linhas) para os segmentos evitando sobreposição horizontal.
+// Retorna o número de lanes usadas (cada seg recebe seg.lane).
+function allocateSpanLanes(segments) {
+    segments.sort((a, b) => a.colStart - b.colStart || (b.colEnd - b.colStart) - (a.colEnd - a.colStart));
+    const lanes = [];
+    segments.forEach(seg => {
+        let placed = false;
+        for (let i = 0; i < lanes.length; i++) {
+            const lastInLane = lanes[i][lanes[i].length - 1];
+            if (lastInLane.colEnd < seg.colStart) {
+                lanes[i].push(seg);
+                seg.lane = i;
+                placed = true;
+                break;
+            }
+        }
+        if (!placed) { seg.lane = lanes.length; lanes.push([seg]); }
+    });
+    return lanes.length;
+}
+
+// Monta o HTML de uma barra de span (reaproveitado por Mês e faixa all-day).
+// numCols = número de colunas do intervalo (7 na semana, 1 no dia, 7 no mês).
+function spanEventHtml(seg, numCols, today) {
+    const cat = deadlineCategory(seg, today);
+    const left = (seg.colStart / numCols * 100).toFixed(2);
+    const width = ((seg.colEnd - seg.colStart + 1) / numCols * 100).toFixed(2);
+    const top = seg.lane * 26 + 2;
+    const pLabel = priorityLabelsJs[seg.priority] || seg.priority;
+    const brL = seg.isStart ? '5px' : '0';
+    const brR = seg.isEnd ? '5px' : '0';
+    const titleAttr = escAttr(seg.title);
+    return `<div class="cal-span-event cat-${cat.key}" onclick="openCardModal(${seg.id})"
+        style="left:${left}%;width:${width}%;top:${top}px;
+        background:${cat.bg};border-left:3px solid ${cat.border};color:${cat.text};
+        border-radius:${brL} ${brR} ${brR} ${brL};"
+        title="${titleAttr}">
+        <span class="cal-span-title">${escHtml(seg.title)}</span>
+        ${seg.isStart ? `<span class="cal-span-info">
+            ${seg.company_name ? '<i class="bi bi-building"></i> ' + escHtml(seg.company_name) + ' ' : ''}
+            <i class="bi bi-person"></i> ${escHtml(seg.assigned_name || '—')}
+        </span>
+        <span class="cal-span-badges">
+            <span class="cal-span-tag">${escHtml(pLabel)}</span>
+        </span>` : ''}
+    </div>`;
+}
+
 // Helper for time grid (week/day views)
 function getEventsForHour(dayDate, hour) {
     const results = [];
     const dayStr = dayDate.toISOString().slice(0,10);
     calendarEvents.forEach(e => {
         let type = null;
-        if (e.start_date && e.end_date) {
-            const sd = new Date(e.start_date); sd.setHours(0,0,0,0);
-            const ed = new Date(e.end_date); ed.setHours(0,0,0,0);
-            const checkDate = new Date(dayDate); checkDate.setHours(0,0,0,0);
-            if (checkDate >= sd && checkDate <= ed && hour === 8) type = 'dev';
-        } else if (e.start_date && !e.end_date) {
+        // Eventos com intervalo (start_date + end_date) NÃO entram na grade de
+        // horas: eles são barras contínuas na faixa all-day do topo (igual ao
+        // Mês). Aqui ficam apenas eventos com hora específica de verdade.
+        if (e.start_date && !e.end_date) {
             const sd = new Date(e.start_date);
             if (sd.toISOString().slice(0,10) === dayStr && sd.getHours() === hour) type = 'dev';
         }
@@ -1833,75 +1942,13 @@ function renderCalendar(start, end) {
         const gridStart = weeks[0][0];
         const gridEnd = weeks[weeks.length-1][6];
 
-        // Flatten events into segments per week (Notion-style spanning)
+        // Segmentos por semana usam os helpers compartilhados (mesma lógica
+        // reaproveitada pela faixa all-day da Semana/Dia).
         function getEventSegments(weekDates) {
-            const weekStartStr = dateToStr(weekDates[0]);
-            const weekEndStr = dateToStr(weekDates[6]);
-            const segments = [];
-
-            calendarEvents.forEach(ev => {
-                // Determine event's effective start and end dates
-                let evStart = null, evEnd = null, type = 'dev';
-
-                if (ev.start_date && ev.end_date) {
-                    evStart = new Date(ev.start_date); evStart.setHours(0,0,0,0);
-                    evEnd = new Date(ev.end_date); evEnd.setHours(0,0,0,0);
-                } else if (ev.start_date && !ev.end_date) {
-                    evStart = new Date(ev.start_date); evStart.setHours(0,0,0,0);
-                    evEnd = new Date(evStart);
-                }
-
-                // Dev range segment
-                if (evStart && evEnd) {
-                    const segStart = new Date(Math.max(evStart.getTime(), weekDates[0].getTime()));
-                    const segEnd = new Date(Math.min(evEnd.getTime(), weekDates[6].getTime()));
-                    if (segStart <= weekDates[6] && segEnd >= weekDates[0]) {
-                        const colStart = Math.round((segStart - weekDates[0]) / 86400000);
-                        const colEnd = Math.round((segEnd - weekDates[0]) / 86400000);
-                        const isStart = evStart.getTime() === segStart.getTime();
-                        const isEnd = evEnd.getTime() === segEnd.getTime();
-                        segments.push({ ...ev, type: 'dev', colStart: Math.max(0, colStart), colEnd: Math.min(6, colEnd), isStart, isEnd });
-                    }
-                }
-
-                // Due date segment (single day)
-                if (ev.due_date) {
-                    const dd = new Date(ev.due_date); dd.setHours(0,0,0,0);
-                    if (dd >= weekDates[0] && dd <= weekDates[6]) {
-                        const col = Math.round((dd - weekDates[0]) / 86400000);
-                        // Don't duplicate if same as dev range end
-                        const alreadyHasDev = evStart && evEnd && dd.getTime() >= evStart.getTime() && dd.getTime() <= evEnd.getTime();
-                        if (!alreadyHasDev) {
-                            segments.push({ ...ev, type: 'due', colStart: Math.max(0, col), colEnd: Math.max(0, col), isStart: true, isEnd: true });
-                        }
-                    }
-                }
-            });
-
-            return segments;
+            return buildSpanSegments(weekDates);
         }
-
-        // Allocate lanes (rows) for segments avoiding overlap
         function allocateLanes(segments) {
-            segments.sort((a, b) => a.colStart - b.colStart || (b.colEnd - b.colStart) - (a.colEnd - a.colStart));
-            const lanes = []; // each lane is array of segments
-            segments.forEach(seg => {
-                let placed = false;
-                for (let i = 0; i < lanes.length; i++) {
-                    const lastInLane = lanes[i][lanes[i].length - 1];
-                    if (lastInLane.colEnd < seg.colStart) {
-                        lanes[i].push(seg);
-                        seg.lane = i;
-                        placed = true;
-                        break;
-                    }
-                }
-                if (!placed) {
-                    seg.lane = lanes.length;
-                    lanes.push([seg]);
-                }
-            });
-            return lanes.length;
+            return allocateSpanLanes(segments);
         }
 
         // Build HTML
@@ -1931,32 +1978,9 @@ function renderCalendar(start, end) {
             const eventsHeight = laneCount > 0 ? laneCount * 26 + 4 : 4;
             html += `<div class="cal-month-events" style="min-height:${eventsHeight}px;">`;
             segments.forEach(seg => {
-                // Cor definida pelo prazo/status (regras da demanda), consistente
-                // em todos os segmentos do mesmo card.
-                const cat = deadlineCategory(seg, today);
-                const left = (seg.colStart / 7 * 100).toFixed(2);
-                const width = ((seg.colEnd - seg.colStart + 1) / 7 * 100).toFixed(2);
-                const top = seg.lane * 26 + 2;
-                const pLabel = priorityLabelsJs[seg.priority] || seg.priority;
-
-                const borderRadiusLeft = seg.isStart ? '5px' : '0';
-                const borderRadiusRight = seg.isEnd ? '5px' : '0';
-                const title = escAttr(seg.title);
-
-                html += `<div class="cal-span-event cat-${cat.key}" onclick="openCardModal(${seg.id})"
-                    style="left:${left}%;width:${width}%;top:${top}px;
-                    background:${cat.bg};border-left:3px solid ${cat.border};color:${cat.text};
-                    border-radius:${borderRadiusLeft} ${borderRadiusRight} ${borderRadiusRight} ${borderRadiusLeft};"
-                    title="${title}">
-                    <span class="cal-span-title">${escHtml(seg.title)}</span>
-                    ${seg.isStart ? `<span class="cal-span-info">
-                        ${seg.company_name ? '<i class="bi bi-building"></i> ' + escHtml(seg.company_name) + ' ' : ''}
-                        <i class="bi bi-person"></i> ${escHtml(seg.assigned_name || '—')}
-                    </span>
-                    <span class="cal-span-badges">
-                        <span class="cal-span-tag">${escHtml(pLabel)}</span>
-                    </span>` : ''}
-                </div>`;
+                // Barra multi-dia renderizada pelo helper compartilhado (mesma
+                // aparência na Semana/Dia). 7 colunas = dias da semana.
+                html += spanEventHtml(seg, 7, today);
             });
             html += '</div>';
             html += '</div>'; // end week
@@ -1977,12 +2001,38 @@ function renderCalendar(start, end) {
 function renderTimeGrid(container, startDate, numDays) {
     const days = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
     const today = startOfDay(new Date());
+
+    // Dias cobertos pela grade (para a faixa all-day no topo).
+    const gridDays = [];
+    for (let d = 0; d < numDays; d++) {
+        const dd = spanStartOfDay(startDate); dd.setDate(dd.getDate() + d);
+        gridDays.push(dd);
+    }
+
+    // Faixa all-day: barras contínuas multi-dia, exatamente como no Mês.
+    const spanSegments = buildSpanSegments(gridDays);
+    const spanLanes = allocateSpanLanes(spanSegments);
+
     let html = '<div style="overflow-x:auto;"><table style="min-width:'+(numDays>1?'700px':'100%')+'"><thead><tr><th style="width:50px;"></th>';
     for (let d = 0; d < numDays; d++) {
         const dd = new Date(startDate); dd.setDate(dd.getDate() + d);
         html += `<th>${days[dd.getDay()]} ${dd.getDate()}/${dd.getMonth()+1}</th>`;
     }
     html += '</tr></thead><tbody>';
+
+    // Linha all-day (só aparece quando há pelo menos um card de intervalo).
+    if (spanSegments.length > 0) {
+        const bandHeight = spanLanes * 26 + 6;
+        html += '<tr class="cal-allday-row">';
+        html += '<td class="cal-time-label cal-allday-label">dia todo</td>';
+        html += `<td colspan="${numDays}" style="padding:0;">
+            <div class="cal-allday-band" style="position:relative;min-height:${bandHeight}px;">`;
+        spanSegments.forEach(seg => {
+            html += spanEventHtml(seg, numDays, today);
+        });
+        html += `</div></td>`;
+        html += '</tr>';
+    }
     for (let h = 6; h <= 22; h++) {
         html += '<tr>';
         html += `<td class="cal-time-label">${String(h).padStart(2,'0')}:00</td>`;

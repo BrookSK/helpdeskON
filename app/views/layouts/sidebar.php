@@ -329,8 +329,7 @@
             </li>
             <ul class="nav flex-column" id="developer-subnav" style="<?= $developerSectionActive ? '' : 'display:none;' ?>list-style:none;padding-left:0;">
                 <li class="nav-item">
-                    <a class="nav-link <?= ($currentPage ?? '') === 'api_docs' ? 'active' : '' ?>" href="<?= baseUrl('api/documentos') ?>" target="_blank" rel="noopener" style="padding-left:2.6rem;font-size:0.85rem;">
-                        <i class="bi bi-file-earmark-code"></i> Documentos API
+                    <a class="nav-link <?= ($currentPage ?? '') === 'api_docs' ? 'active' : '' ?>" href="<?= baseUrl('api/documentos') ?>" target="_blank" rel="noopener" style="padding-left:2.6rem;font-size:0.85rem;">                        <i class="bi bi-file-earmark-code"></i> Documentação da API
                     </a>
                 </li>
             </ul>
