@@ -1997,19 +1997,49 @@ function renderCalendar(start, end) {
 function renderTimeGrid(container, startDate, numDays) {
     const days = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
     const today = startOfDay(new Date());
+
+    // Barra única contínua (multi-dia) atravessando os dias — mesma lógica do
+    // Mês. Cards com start_date+end_date viram UMA barra que se estende, em vez
+    // de se repetir dia a dia na grade de horas.
+    const gridDays = [];
+    for (let d = 0; d < numDays; d++) {
+        const dd = spanStartOfDay(startDate); dd.setDate(dd.getDate() + d);
+        gridDays.push(dd);
+    }
+    const spanSegments = buildSpanSegments(gridDays).filter(s => s.type === 'dev');
+    const spanLanes = allocateSpanLanes(spanSegments);
+    // Ids dos cards que já viram barra contínua: não repetir na grade de horas.
+    const spannedIds = new Set(spanSegments.map(s => s.id));
+
     let html = '<div style="overflow-x:auto;"><table style="min-width:'+(numDays>1?'700px':'100%')+'"><thead><tr><th style="width:50px;"></th>';
     for (let d = 0; d < numDays; d++) {
         const dd = new Date(startDate); dd.setDate(dd.getDate() + d);
         html += `<th>${days[dd.getDay()]} ${dd.getDate()}/${dd.getMonth()+1}</th>`;
     }
     html += '</tr></thead><tbody>';
+
+    // Linha com a(s) barra(s) contínua(s), sem rótulo e sem fundo destacado.
+    if (spanSegments.length > 0) {
+        const bandHeight = spanLanes * 26 + 4;
+        html += '<tr>';
+        html += '<td style="padding:0;border:none;"></td>';
+        html += `<td colspan="${numDays}" style="padding:0;border:none;">
+            <div style="position:relative;min-height:${bandHeight}px;">`;
+        spanSegments.forEach(seg => {
+            html += spanEventHtml(seg, numDays, today);
+        });
+        html += `</div></td>`;
+        html += '</tr>';
+    }
+
     for (let h = 6; h <= 22; h++) {
         html += '<tr>';
         html += `<td class="cal-time-label">${String(h).padStart(2,'0')}:00</td>`;
         for (let d = 0; d < numDays; d++) {
             const dd = new Date(startDate); dd.setDate(dd.getDate() + d);
             html += '<td class="cal-time-slot" style="position:relative;">';
-            const hourEvents = getEventsForHour(dd, h);
+            // Eventos de intervalo já estão na barra contínua acima; não repetir.
+            const hourEvents = getEventsForHour(dd, h).filter(e => !spannedIds.has(e.id));
             hourEvents.forEach(e => {
                 const cat = deadlineCategory(e, today);
                 const pLabel = priorityLabelsJs[e.priority] || '';
