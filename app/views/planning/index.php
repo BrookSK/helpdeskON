@@ -793,12 +793,6 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
 /* Week/Day view */
 .cal-time-slot { height: 50px; border-bottom: 1px solid #eee; position: relative; }
 .cal-time-label { font-size: 0.7rem; color: #999; width: 50px; text-align: right; padding-right: 8px; }
-/* Faixa "dia todo" (all-day) no topo da Semana/Dia: abriga as barras
-   contínuas multi-dia, igual ao Mês. */
-.cal-allday-row td { background: #fcfcfd; border-bottom: 2px solid #e2e8f0; vertical-align: middle; }
-.cal-allday-label { color: #94a3b8; font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.3px; }
-.cal-allday-band { padding: 3px 0; overflow: visible; }
-.cal-allday-band .cal-span-event { height: 22px; }
 /* Legenda de cores */
 .cal-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; padding: 8px 4px 12px; border-bottom: 1px solid #eef0f2; margin-bottom: 8px; }
 .cal-legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: 0.72rem; color: #556; }
@@ -1891,10 +1885,12 @@ function getEventsForHour(dayDate, hour) {
     const dayStr = dayDate.toISOString().slice(0,10);
     calendarEvents.forEach(e => {
         let type = null;
-        // Eventos com intervalo (start_date + end_date) NÃO entram na grade de
-        // horas: eles são barras contínuas na faixa all-day do topo (igual ao
-        // Mês). Aqui ficam apenas eventos com hora específica de verdade.
-        if (e.start_date && !e.end_date) {
+        if (e.start_date && e.end_date) {
+            const sd = new Date(e.start_date); sd.setHours(0,0,0,0);
+            const ed = new Date(e.end_date); ed.setHours(0,0,0,0);
+            const checkDate = new Date(dayDate); checkDate.setHours(0,0,0,0);
+            if (checkDate >= sd && checkDate <= ed && hour === 8) type = 'dev';
+        } else if (e.start_date && !e.end_date) {
             const sd = new Date(e.start_date);
             if (sd.toISOString().slice(0,10) === dayStr && sd.getHours() === hour) type = 'dev';
         }
@@ -2001,38 +1997,12 @@ function renderCalendar(start, end) {
 function renderTimeGrid(container, startDate, numDays) {
     const days = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
     const today = startOfDay(new Date());
-
-    // Dias cobertos pela grade (para a faixa all-day no topo).
-    const gridDays = [];
-    for (let d = 0; d < numDays; d++) {
-        const dd = spanStartOfDay(startDate); dd.setDate(dd.getDate() + d);
-        gridDays.push(dd);
-    }
-
-    // Faixa all-day: barras contínuas multi-dia, exatamente como no Mês.
-    const spanSegments = buildSpanSegments(gridDays);
-    const spanLanes = allocateSpanLanes(spanSegments);
-
     let html = '<div style="overflow-x:auto;"><table style="min-width:'+(numDays>1?'700px':'100%')+'"><thead><tr><th style="width:50px;"></th>';
     for (let d = 0; d < numDays; d++) {
         const dd = new Date(startDate); dd.setDate(dd.getDate() + d);
         html += `<th>${days[dd.getDay()]} ${dd.getDate()}/${dd.getMonth()+1}</th>`;
     }
     html += '</tr></thead><tbody>';
-
-    // Linha all-day (só aparece quando há pelo menos um card de intervalo).
-    if (spanSegments.length > 0) {
-        const bandHeight = spanLanes * 26 + 6;
-        html += '<tr class="cal-allday-row">';
-        html += '<td class="cal-time-label cal-allday-label">dia todo</td>';
-        html += `<td colspan="${numDays}" style="padding:0;">
-            <div class="cal-allday-band" style="position:relative;min-height:${bandHeight}px;">`;
-        spanSegments.forEach(seg => {
-            html += spanEventHtml(seg, numDays, today);
-        });
-        html += `</div></td>`;
-        html += '</tr>';
-    }
     for (let h = 6; h <= 22; h++) {
         html += '<tr>';
         html += `<td class="cal-time-label">${String(h).padStart(2,'0')}:00</td>`;
