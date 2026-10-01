@@ -322,9 +322,9 @@
             <?php if (Permissions::canAccess($role, 'settings')): ?>
             <?php $developerSectionActive = in_array($currentPage ?? '', ['api_docs']); ?>
             <li class="nav-item">
-                <a class="nav-link d-flex align-items-center justify-content-between <?= $developerSectionActive ? 'active' : '' ?>" href="<?= baseUrl('api/documentos') ?>" target="_blank" rel="noopener">
+                <a class="nav-link d-flex align-items-center justify-content-between <?= $developerSectionActive ? 'active' : '' ?>" href="#" onclick="event.preventDefault();toggleSubnav(document.querySelector('.developer-caret'), 'developer-subnav');">
                     <span class="nav-link-body"><i class="bi bi-code-slash"></i> <span class="nav-text">Desenvolvedor</span></span>
-                    <i class="bi bi-chevron-down developer-caret <?= $developerSectionActive ? '' : 'collapsed-caret' ?>" onclick="event.preventDefault();event.stopPropagation();toggleSubnav(this, 'developer-subnav');" style="font-size:0.7rem;padding:4px;cursor:pointer;transition:transform 0.2s;"></i>
+                    <i class="bi bi-chevron-down developer-caret <?= $developerSectionActive ? '' : 'collapsed-caret' ?>" style="font-size:0.7rem;padding:4px;cursor:pointer;transition:transform 0.2s;"></i>
                 </a>
             </li>
             <ul class="nav flex-column" id="developer-subnav" style="<?= $developerSectionActive ? '' : 'display:none;' ?>list-style:none;padding-left:0;">
