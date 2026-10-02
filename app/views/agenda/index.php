@@ -18,7 +18,6 @@ $urgencyMeta = [
 ];
 $tempMeta = ['frio' => ['Frio', '#1565c0'], 'morno' => ['Morno', '#e65100'], 'quente' => ['Quente', '#c62828']];
 
-<?php
 /*
  * Separação Agenda principal × Histórico.
  *
