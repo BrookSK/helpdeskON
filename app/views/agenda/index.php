@@ -84,11 +84,23 @@ $totalHistory = array_sum(array_map('count', $groupedHistory));
     <!-- LEGENDA DE CORES (visível quando a aba Histórico ou o Calendário estiver ativo) -->
     <div id="color-legend" class="mb-3" style="display:none;">
         <div class="d-flex flex-wrap gap-2 align-items-center p-2 rounded" style="background:#f8f9fa;font-size:.72rem;">
-            <strong class="me-1"><i class="bi bi-circle-fill" style="font-size:.6rem;"></i> Legenda:</strong>
-            <span class="d-flex align-items-center gap-1"><span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:#1565c0;"></span> Dentro do prazo</span>
-            <span class="d-flex align-items-center gap-1"><span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:#f9a825;"></span> Próximo do vencimento (&lt; 24h)</span>
-            <span class="d-flex align-items-center gap-1"><span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:#c62828;"></span> No dia / vencido (não concluído)</span>
-            <span class="d-flex align-items-center gap-1"><span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:rgba(76,175,80,.5);"></span> Concluído (realizada / convertida)</span>
+            <strong class="me-1">Legenda:</strong>
+            <span class="d-flex align-items-center gap-1">
+                <span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:#e7effd;border-left:3px solid #2563eb;"></span>
+                <span style="color:#1e3a8a;">Dentro do prazo</span>
+            </span>
+            <span class="d-flex align-items-center gap-1">
+                <span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:#fef7d6;border-left:3px solid #f59e0b;"></span>
+                <span style="color:#7a5900;">Próximo do vencimento (&lt; 24h)</span>
+            </span>
+            <span class="d-flex align-items-center gap-1">
+                <span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:#fde8e8;border-left:3px solid #dc2626;"></span>
+                <span style="color:#991b1b;">No dia / vencido (não concluído)</span>
+            </span>
+            <span class="d-flex align-items-center gap-1">
+                <span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:rgba(129,199,132,0.35);border-left:3px solid rgba(76,175,80,0.7);"></span>
+                <span style="color:#2e5b31;">Concluído (realizada / convertida)</span>
+            </span>
         </div>
     </div>
 
@@ -368,7 +380,7 @@ function copyQuickLink() {
 .cal-daynum { font-size: 0.72rem; font-weight: 600; color: #556; }
 .cal-cell-add { position: absolute; top: 3px; right: 4px; opacity: 0; font-size: 0.7rem; color: var(--primary); cursor: pointer; }
 .cal-grid td:hover .cal-cell-add { opacity: 1; }
-.cal-event { font-size: 0.68rem; padding: 2px 6px; border-radius: 5px; margin-bottom: 2px; color: #fff; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-event { font-size: 0.68rem; padding: 2px 6px 2px 7px; border-radius: 4px; margin-bottom: 2px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
 .cal-week td { height: 300px; }
 </style>
 
@@ -509,43 +521,51 @@ function renderCalendar(start, end) {
 }
 function dayContent(dayStr) {
     return eventsForDay(dayStr).map(e => {
-        const color = calEventColor(e, dayStr);
+        const cat = calEventCat(e);
         const time = (e.meeting_at || '').slice(11, 16);
-        return `<div class="cal-event" style="background:${color}" onclick="event.stopPropagation();openMeetingModal(${e.id})" title="${escapeAttr(e.title)}">${time ? time + ' ' : ''}${escapeHtml(e.title)}</div>`;
+        return `<div class="cal-event" style="background:${cat.bg};border-left:3px solid ${cat.border};color:${cat.text};" onclick="event.stopPropagation();openMeetingModal(${e.id})" title="${escapeAttr(e.title)}">${time ? time + ' ' : ''}${escapeHtml(e.title)}</div>`;
     }).join('');
 }
 
 /**
- * Cor temporal de um evento no calendário:
- *   - Passado concluído (realizada/convertida) → verde claro semi-transparente
- *   - Passado não concluído (> grace 2h)       → vermelho
- *   - No dia de hoje (mas ainda dentro do grace)→ vermelho
- *   - Próximo do vencimento (< 24h)             → amarelo
- *   - Futuro (> 24h)                            → azul
- *   - Sem data                                  → cinza (fallback)
+ * Categoria de cor de um evento no calendário (mesmo padrão visual do Planejamento):
+ * fundo claro + borda esquerda forte + texto escuro.
+ *
+ *   - Passado concluído (realizada/convertida) → verde claro
+ *   - Passado não concluído (> grace 2h)       → vermelho claro
+ *   - No dia / dentro do grace de 2h           → vermelho claro
+ *   - Próximo do vencimento (< 24h)            → amarelo claro
+ *   - Futuro (> 24h)                           → azul claro
+ *   - Sem data                                 → cinza (fallback)
  */
-function calEventColor(e, dayStr) {
-    const GRACE_MS  = 2 * 3600 * 1000;
-    const NEAR_MS   = 24 * 3600 * 1000;
+const CAL_CATS = {
+    on_track: { bg: '#e7effd', border: '#2563eb', text: '#1e3a8a' },
+    near_due: { bg: '#fef7d6', border: '#f59e0b', text: '#7a5900' },
+    overdue:  { bg: '#fde8e8', border: '#dc2626', text: '#991b1b' },
+    done:     { bg: 'rgba(129,199,132,0.35)', border: 'rgba(76,175,80,0.7)', text: '#2e5b31' },
+    none:     { bg: '#f0f0f0', border: '#aaa',    text: '#555' },
+};
+function calEventCat(e) {
+    const GRACE_MS = 2 * 3600 * 1000;
+    const NEAR_MS  = 24 * 3600 * 1000;
     const concluded = ['realizada', 'convertida'].includes(e.status);
 
-    if (!e.meeting_at) return '#888'; // sem data → cinza
+    if (!e.meeting_at) return CAL_CATS.none;
 
     const meetingTs = new Date(e.meeting_at.replace(' ', 'T')).getTime();
     const nowTs     = Date.now();
     const diffMs    = meetingTs - nowTs; // positivo = futuro
 
     if (diffMs + GRACE_MS < 0) {
-        // Passou o grace period — já está no Histórico, mas pode aparecer no calendário
-        return concluded ? 'rgba(76,175,80,0.55)' : '#c62828';
+        // Passou o grace period
+        return concluded ? CAL_CATS.done : CAL_CATS.overdue;
     }
     if (diffMs < 0) {
-        // Dentro do grace (passou mas ainda na Agenda) — vermelho para chamar atenção
-        return '#c62828';
+        // Dentro do grace (passou mas ainda na Agenda)
+        return CAL_CATS.overdue;
     }
-    // Evento futuro
-    if (diffMs <= NEAR_MS) return '#f9a825'; // próximo do vencimento → amarelo
-    return '#1565c0';                         // dentro do prazo → azul
+    if (diffMs <= NEAR_MS) return CAL_CATS.near_due;
+    return CAL_CATS.on_track;
 }
 
 function escapeHtml(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
