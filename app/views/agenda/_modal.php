@@ -122,6 +122,7 @@
                             <option value="comercial">Comercial</option>
                             <option value="operacional">Operacional</option>
                             <option value="externo">Convite externo</option>
+                            <option value="interno">Interno</option>
                         </select>
                     </div>
                     <div class="col-md-7">
@@ -517,11 +518,12 @@ function resetMeetingForm() {
 }
 
 // Mostra/oculta os campos comerciais/briefing conforme o tipo de reunião.
-// Operacional: só título, descrição, data/horário e participantes.
+// Operacional/Interno: só título, descrição, data/horário e participantes.
 // Externo: título, descrição, data/horário, convidados externos e registrar agendamento.
 function onMeetingTypeChange() {
     const type = document.getElementById('mt-type').value;
-    const isOperational = type === 'operacional';
+    // 'interno' tem exatamente o mesmo comportamento visual de 'operacional'.
+    const isOperational = type === 'operacional' || type === 'interno';
     const isExternal = type === 'externo';
     const isCommercial = !isOperational && !isExternal;
 
@@ -694,7 +696,7 @@ function fillMeeting(m) {
     document.getElementById('meeting-modal-title').textContent = 'Editar reunião';
     document.getElementById('mt-id').value = m.id;
     const mtType = (m.meeting_type || 'comercial').toString().trim().toLowerCase();
-    document.getElementById('mt-type').value = ['operacional','externo'].includes(mtType) ? mtType : 'comercial';
+    document.getElementById('mt-type').value = ['operacional','externo','interno'].includes(mtType) ? mtType : 'comercial';
     onMeetingTypeChange();
     document.getElementById('mt-contact-id').value = m.contact_id || '';
     document.getElementById('mt-title').value = m.title || '';
@@ -998,9 +1000,9 @@ function collectPayload() {
     const tempVal = bfTemp ? bfTemp.value : document.getElementById('mt-temperature').value;
     document.getElementById('mt-temperature').value = tempVal;
     fd.append('temperature', tempVal);
-    // Operacional e externo usam o seletor de status simplificado (sem estados comerciais).
+    // Operacional, interno e externo usam o seletor de status simplificado (sem estados comerciais).
     const typePayload = document.getElementById('mt-type').value;
-    const usesOpStatus = (typePayload === 'operacional' || typePayload === 'externo');
+    const usesOpStatus = (typePayload === 'operacional' || typePayload === 'interno' || typePayload === 'externo');
     const statusVal = usesOpStatus
         ? document.getElementById('mt-status-op').value
         : document.getElementById('mt-status').value;
@@ -1182,7 +1184,8 @@ function saveMeeting() {
     }
 
     const meetingType = document.getElementById('mt-type').value;
-    const isOperational = meetingType === 'operacional';
+    // 'interno' tem o mesmo fluxo de validação de 'operacional'.
+    const isOperational = meetingType === 'operacional' || meetingType === 'interno';
     const isExternal = meetingType === 'externo';
 
     if (isExternal) {

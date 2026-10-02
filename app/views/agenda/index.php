@@ -17,6 +17,38 @@ $urgencyMeta = [
     'alta' => ['Alta', '#e65100'], 'urgente' => ['Urgente', '#c62828'],
 ];
 $tempMeta = ['frio' => ['Frio', '#1565c0'], 'morno' => ['Morno', '#e65100'], 'quente' => ['Quente', '#c62828']];
+
+<?php
+/*
+ * Separação Agenda principal × Histórico.
+ *
+ * Grace period: um evento só vai para o Histórico 2 horas após meeting_at,
+ * para não sumir da Agenda instantaneamente logo que a reunião começa.
+ * Sem meeting_at → nunca vai para o Histórico (ficam na Agenda).
+ *
+ * Status "concluídos" para efeito de cor no Histórico: realizada, convertida.
+ */
+$gracePeriodSecs = 2 * 3600; // 2 horas
+$now = time();
+
+$groupedActive  = [];   // Agenda principal
+$groupedHistory = [];   // Histórico
+foreach ($statusMeta as $key => $_) {
+    $groupedActive[$key]  = [];
+    $groupedHistory[$key] = [];
+}
+
+foreach ($grouped as $status => $meetings) {
+    foreach ($meetings as $m) {
+        if (!empty($m['meeting_at']) && strtotime($m['meeting_at']) + $gracePeriodSecs < $now) {
+            $groupedHistory[$status][] = $m;
+        } else {
+            $groupedActive[$status][] = $m;
+        }
+    }
+}
+
+$totalHistory = array_sum(array_map('count', $groupedHistory));
 ?>
 
 <div class="main-content">
@@ -27,25 +59,54 @@ $tempMeta = ['frio' => ['Frio', '#1565c0'], 'morno' => ['Morno', '#e65100'], 'qu
         </div>
         <div class="d-flex gap-2">
             <div class="btn-group btn-group-sm" id="view-toggle">
-                <button type="button" class="btn btn-outline-primary active" data-view="kanban"><i class="bi bi-kanban"></i> Kanban</button>
-                <button type="button" class="btn btn-outline-primary" data-view="calendar"><i class="bi bi-calendar3"></i> Calendário</button>
+                <button type="button" class="btn btn-outline-primary" data-view="kanban"><i class="bi bi-kanban"></i> Kanban</button>
+                <button type="button" class="btn btn-outline-primary active" data-view="calendar"><i class="bi bi-calendar3"></i> Calendário</button>
             </div>
             <button class="btn btn-outline-success btn-sm" onclick="openQuickRoom()"><i class="bi bi-camera-reels"></i> Sala rápida</button>
             <button class="btn btn-primary btn-sm" onclick="openMeetingModal()"><i class="bi bi-plus-lg"></i> Nova reunião</button>
         </div>
     </div>
 
+    <!-- ABAS: Agenda principal × Histórico -->
+    <div class="d-flex align-items-center gap-3 mb-3 border-bottom pb-2">
+        <button type="button" class="btn btn-sm px-3 fw-semibold agenda-tab-btn active" data-tab="agenda"
+                style="border:none;border-bottom:3px solid var(--primary,#00BFA6);border-radius:0;background:transparent;color:var(--primary,#00BFA6);">
+            <i class="bi bi-calendar2-check"></i> Agenda
+        </button>
+        <button type="button" class="btn btn-sm px-3 fw-semibold agenda-tab-btn" data-tab="history"
+                style="border:none;border-bottom:3px solid transparent;border-radius:0;background:transparent;color:#888;">
+            <i class="bi bi-clock-history"></i> Histórico
+            <?php if ($totalHistory > 0): ?>
+            <span class="badge rounded-pill ms-1" style="background:#888;font-size:.65rem;"><?= $totalHistory ?></span>
+            <?php endif; ?>
+        </button>
+    </div>
+
+    <!-- LEGENDA DE CORES (visível quando a aba Histórico ou o Calendário estiver ativo) -->
+    <div id="color-legend" class="mb-3" style="display:none;">
+        <div class="d-flex flex-wrap gap-2 align-items-center p-2 rounded" style="background:#f8f9fa;font-size:.72rem;">
+            <strong class="me-1"><i class="bi bi-circle-fill" style="font-size:.6rem;"></i> Legenda:</strong>
+            <span class="d-flex align-items-center gap-1"><span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:#1565c0;"></span> Dentro do prazo</span>
+            <span class="d-flex align-items-center gap-1"><span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:#f9a825;"></span> Próximo do vencimento (&lt; 24h)</span>
+            <span class="d-flex align-items-center gap-1"><span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:#c62828;"></span> No dia / vencido (não concluído)</span>
+            <span class="d-flex align-items-center gap-1"><span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:rgba(76,175,80,.5);"></span> Concluído (realizada / convertida)</span>
+        </div>
+    </div>
+
+    <!-- CONTEÚDO DA ABA AGENDA -->
+    <div id="tab-agenda">
+
     <!-- KANBAN -->
-    <div id="kanban-view">
+    <div id="kanban-view" style="display:none;">
         <div class="agenda-kanban">
             <?php foreach ($statusMeta as $key => $meta): ?>
             <div class="agenda-col" data-status="<?= $key ?>">
                 <div class="agenda-col-head" style="border-top:3px solid <?= $meta[1] ?>">
                     <span class="agenda-col-title"><?= $meta[0] ?></span>
-                    <span class="agenda-col-count"><?= count($grouped[$key] ?? []) ?></span>
+                    <span class="agenda-col-count"><?= count($groupedActive[$key] ?? []) ?></span>
                 </div>
                 <div class="agenda-col-body" data-status="<?= $key ?>">
-                    <?php foreach (($grouped[$key] ?? []) as $m): ?>
+                    <?php foreach (($groupedActive[$key] ?? []) as $m): ?>
                     <?php require APP_PATH . '/views/agenda/_card.php'; ?>
                     <?php endforeach; ?>
                 </div>
@@ -55,7 +116,7 @@ $tempMeta = ['frio' => ['Frio', '#1565c0'], 'morno' => ['Morno', '#e65100'], 'qu
     </div>
 
     <!-- CALENDÁRIO -->
-    <div id="calendar-view" style="display:none;">
+    <div id="calendar-view">
         <div class="card">
             <div class="card-body p-2 p-md-3">
                 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
@@ -74,7 +135,83 @@ $tempMeta = ['frio' => ['Frio', '#1565c0'], 'morno' => ['Morno', '#e65100'], 'qu
             </div>
         </div>
     </div>
-</div>
+
+    </div><!-- /#tab-agenda -->
+
+    <!-- CONTEÚDO DA ABA HISTÓRICO -->
+    <div id="tab-history" style="display:none;">
+
+        <?php if ($totalHistory === 0): ?>
+        <div class="text-center text-muted py-5">
+            <i class="bi bi-clock-history" style="font-size:2.5rem;opacity:.3;"></i>
+            <p class="mt-2 mb-0 small">Nenhum evento no histórico ainda.</p>
+            <p class="text-muted" style="font-size:.75rem;">Eventos aparecem aqui 2 horas após o horário agendado.</p>
+        </div>
+        <?php else: ?>
+
+        <?php
+        /*
+         * Função auxiliar PHP para calcular a cor de um evento no Histórico.
+         * Regras:
+         *   - Passado concluído (realizada/convertida) → verde claro 50% de opacidade
+         *   - Passado não concluído                    → vermelho
+         * (As regras de azul/amarelo/vermelho para eventos futuros são usadas apenas
+         *  no calendário; no Histórico todos os eventos já passaram o grace period.)
+         */
+        function historyCardBg(array $m): string {
+            $concluded = in_array($m['status'], ['realizada', 'convertida'], true);
+            return $concluded ? 'rgba(76,175,80,0.15)' : 'rgba(198,40,40,0.07)';
+        }
+        function historyCardBorder(array $m): string {
+            $concluded = in_array($m['status'], ['realizada', 'convertida'], true);
+            return $concluded ? '3px solid rgba(76,175,80,0.5)' : '3px solid #c62828';
+        }
+        ?>
+
+        <div class="agenda-kanban">
+            <?php foreach ($statusMeta as $key => $meta): ?>
+            <?php if (empty($groupedHistory[$key])): continue; endif; ?>
+            <div class="agenda-col" data-status="<?= $key ?>">
+                <div class="agenda-col-head" style="border-top:3px solid <?= $meta[1] ?>">
+                    <span class="agenda-col-title"><?= $meta[0] ?></span>
+                    <span class="agenda-col-count"><?= count($groupedHistory[$key]) ?></span>
+                </div>
+                <div class="agenda-col-body" data-status="<?= $key ?>">
+                    <?php foreach ($groupedHistory[$key] as $m): ?>
+                    <?php
+                    $um = $urgencyMeta[$m['urgency']] ?? ['—', '#888'];
+                    $tm = !empty($m['temperature']) ? ($tempMeta[$m['temperature']] ?? null) : null;
+                    $clientName = $m['crm_contact_name'] ?? $m['client_name'] ?? null;
+                    $when = !empty($m['meeting_at']) ? date('d/m H:i', strtotime($m['meeting_at'])) : 'Sem data';
+                    $histBg     = historyCardBg($m);
+                    $histBorder = historyCardBorder($m);
+                    $isConcluded = in_array($m['status'], ['realizada', 'convertida'], true);
+                    ?>
+                    <div class="agenda-card"
+                         style="background:<?= $histBg ?>;border-left:<?= $histBorder ?>;<?= $isConcluded ? 'opacity:.85;' : '' ?>"
+                         onclick="openMeetingModal(<?= $m['id'] ?>)">
+                        <h6 class="fw-semibold mb-1"><?= escape($m['title']) ?></h6>
+                        <?php if ($clientName): ?><div class="small text-muted"><i class="bi bi-person"></i> <?= escape($clientName) ?></div><?php endif; ?>
+                        <div class="ac-meta">
+                            <span><i class="bi bi-calendar-event"></i> <?= escape($when) ?></span>
+                            <?php if (!empty($m['assigned_name'])): ?>
+                            <span><i class="bi bi-person-badge"></i> <?= escape($m['assigned_name']) ?></span>
+                            <?php endif; ?>
+                        </div>
+                        <div class="mt-2 d-flex flex-wrap gap-1">
+                            <span class="agenda-badge" style="background:<?= ($statusMeta[$m['status']] ?? ['', '#888'])[1] ?>"><?= ($statusMeta[$m['status']] ?? ['—', ''])[0] ?></span>
+                        </div>
+                    </div>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+            <?php endforeach; ?>
+        </div>
+
+        <?php endif; ?>
+    </div><!-- /#tab-history -->
+
+</div><!-- /.main-content -->
 
 <?php require APP_PATH . '/views/agenda/_modal.php'; ?>
 
@@ -243,7 +380,7 @@ let calDate = new Date();
 let calMode = 'month';
 let calEvents = [];
 
-// ===== Alternância de visão =====
+// ===== Alternância de visão (Kanban / Calendário) =====
 document.querySelectorAll('#view-toggle button').forEach(btn => {
     btn.addEventListener('click', function() {
         document.querySelectorAll('#view-toggle button').forEach(b => b.classList.remove('active'));
@@ -252,7 +389,41 @@ document.querySelectorAll('#view-toggle button').forEach(btn => {
         document.getElementById('kanban-view').style.display = view === 'kanban' ? '' : 'none';
         document.getElementById('calendar-view').style.display = view === 'calendar' ? '' : 'none';
         if (view === 'calendar') loadCalendar();
+        updateLegendVisibility();
     });
+});
+
+// ===== Alternância de abas (Agenda / Histórico) =====
+document.querySelectorAll('.agenda-tab-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+        const tab = this.dataset.tab;
+        // Estado visual dos botões
+        document.querySelectorAll('.agenda-tab-btn').forEach(b => {
+            b.style.borderBottom = '3px solid transparent';
+            b.style.color = '#888';
+        });
+        this.style.borderBottom = '3px solid var(--primary, #00BFA6)';
+        this.style.color = 'var(--primary, #00BFA6)';
+        // Conteúdo
+        document.getElementById('tab-agenda').style.display   = tab === 'agenda'   ? '' : 'none';
+        document.getElementById('tab-history').style.display  = tab === 'history'  ? '' : 'none';
+        // Controles de visão (Kanban/Calendário) só fazem sentido na aba Agenda
+        document.getElementById('view-toggle').style.display  = tab === 'agenda'   ? '' : 'none';
+        updateLegendVisibility();
+    });
+});
+
+function updateLegendVisibility() {
+    // Legenda aparece na aba Histórico ou quando a visão Calendário está ativa
+    const isHistoryTab = document.getElementById('tab-history').style.display !== 'none';
+    const isCalendarView = document.getElementById('calendar-view').style.display !== 'none';
+    document.getElementById('color-legend').style.display = (isHistoryTab || isCalendarView) ? '' : 'none';
+}
+
+// Carrega o calendário automaticamente ao abrir a página (visão padrão = calendário)
+document.addEventListener('DOMContentLoaded', function() {
+    loadCalendar();
+    updateLegendVisibility();
 });
 
 // ===== Calendário =====
@@ -339,10 +510,43 @@ function renderCalendar(start, end) {
 }
 function dayContent(dayStr) {
     return eventsForDay(dayStr).map(e => {
-        const color = (STATUS_META[e.status] || ['', '#888'])[1];
+        const color = calEventColor(e, dayStr);
         const time = (e.meeting_at || '').slice(11, 16);
         return `<div class="cal-event" style="background:${color}" onclick="event.stopPropagation();openMeetingModal(${e.id})" title="${escapeAttr(e.title)}">${time ? time + ' ' : ''}${escapeHtml(e.title)}</div>`;
     }).join('');
+}
+
+/**
+ * Cor temporal de um evento no calendário:
+ *   - Passado concluído (realizada/convertida) → verde claro semi-transparente
+ *   - Passado não concluído (> grace 2h)       → vermelho
+ *   - No dia de hoje (mas ainda dentro do grace)→ vermelho
+ *   - Próximo do vencimento (< 24h)             → amarelo
+ *   - Futuro (> 24h)                            → azul
+ *   - Sem data                                  → cinza (fallback)
+ */
+function calEventColor(e, dayStr) {
+    const GRACE_MS  = 2 * 3600 * 1000;
+    const NEAR_MS   = 24 * 3600 * 1000;
+    const concluded = ['realizada', 'convertida'].includes(e.status);
+
+    if (!e.meeting_at) return '#888'; // sem data → cinza
+
+    const meetingTs = new Date(e.meeting_at.replace(' ', 'T')).getTime();
+    const nowTs     = Date.now();
+    const diffMs    = meetingTs - nowTs; // positivo = futuro
+
+    if (diffMs + GRACE_MS < 0) {
+        // Passou o grace period — já está no Histórico, mas pode aparecer no calendário
+        return concluded ? 'rgba(76,175,80,0.55)' : '#c62828';
+    }
+    if (diffMs < 0) {
+        // Dentro do grace (passou mas ainda na Agenda) — vermelho para chamar atenção
+        return '#c62828';
+    }
+    // Evento futuro
+    if (diffMs <= NEAR_MS) return '#f9a825'; // próximo do vencimento → amarelo
+    return '#1565c0';                         // dentro do prazo → azul
 }
 
 function escapeHtml(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
