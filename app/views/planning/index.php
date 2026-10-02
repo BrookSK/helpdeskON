@@ -257,6 +257,14 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                         <button class="btn btn-sm btn-outline-primary" id="cal-today">Hoje</button>
                     </div>
                 </div>
+                <!-- Legenda de cores por prazo/status -->
+                <div class="cal-legend" aria-label="Legenda de cores do calendário">
+                    <span class="cal-legend-item"><span class="cal-legend-swatch cat-overdue"></span>Passado e não concluído</span>
+                    <span class="cal-legend-item"><span class="cal-legend-swatch cat-done"></span>Passado e concluído</span>
+                    <span class="cal-legend-item"><span class="cal-legend-swatch cat-on_track"></span>Dentro do prazo</span>
+                    <span class="cal-legend-item"><span class="cal-legend-swatch cat-near_due"></span>Próximo do vencimento</span>
+                    <span class="cal-legend-item"><span class="cal-legend-swatch cat-due_today"></span>Na data de vencimento</span>
+                </div>
                 <div id="calendar-container"></div>
             </div>
         </div>
@@ -768,29 +776,47 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
 .cal-month-day-num:last-child { border-right: none; }
 .cal-month-day-num.other-month { opacity: 0.3; }
 .cal-month-day-num.today .day-number { background: var(--primary, #00BFA6); color: #fff; border-radius: 50%; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.75rem; }
-.cal-month-events { position: relative; min-height: 32px; padding: 2px 0; overflow: visible; }
-/* Spanning event bar (Notion-style multi-day) */
-.cal-span-event { position: absolute; height: 24px; display: flex; align-items: center; gap: 4px; padding: 2px 8px; cursor: pointer; overflow: hidden; white-space: nowrap; transition: filter 0.15s, box-shadow 0.15s; z-index: 1; }
-.cal-span-event:hover { filter: brightness(0.88); box-shadow: 0 2px 8px rgba(0,0,0,0.15); z-index: 10; }
-.cal-span-icon { font-size: 0.65rem; flex-shrink: 0; }
-.cal-span-title { font-size: 0.7rem; font-weight: 600; color: #1a1a1a; overflow: hidden; text-overflow: ellipsis; }
-.cal-span-info { font-size: 0.58rem; color: #444; margin-left: 4px; overflow: hidden; text-overflow: ellipsis; flex-shrink: 1; }
+.cal-month-events { position: relative; min-height: 30px; padding: 2px 0; overflow: visible; }
+/* Barra de evento com extensão multi-dia (estilo Google Agenda) */
+.cal-span-event { position: absolute; height: 22px; display: flex; align-items: center; gap: 5px; padding: 2px 8px; cursor: pointer; overflow: hidden; white-space: nowrap; transition: filter 0.15s, box-shadow 0.15s; z-index: 1; }
+.cal-span-event:hover { filter: brightness(0.96); box-shadow: 0 2px 8px rgba(0,0,0,0.12); z-index: 10; }
+.cal-span-title { font-size: 0.7rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.cal-span-info { font-size: 0.6rem; opacity: 0.85; margin-left: 4px; overflow: hidden; text-overflow: ellipsis; flex-shrink: 1; }
 .cal-span-info i { font-size: 0.55rem; }
 .cal-span-badges { display: flex; gap: 2px; margin-left: auto; flex-shrink: 0; }
-.cal-card-badge { font-size: 0.55rem; padding: 1px 5px; border-radius: 3px; color: #fff; font-weight: 600; white-space: nowrap; }
-/* Time grid notion card (week/day) */
-.cal-time-event-notion { position: relative; left: 0; right: 0; font-size: 0.7rem; padding: 3px 6px; border-radius: 5px; background: #f8f9fa; border: 1px solid #e9ecef; cursor: pointer; margin-bottom: 2px; display: flex; align-items: center; gap: 4px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.cal-time-event-notion:hover { background: #e8f5e9; border-color: #c8e6c9; }
+/* Tag discreta (prioridade) que herda a cor do bloco */
+.cal-span-tag { font-size: 0.55rem; padding: 1px 6px; border-radius: 10px; font-weight: 600; white-space: nowrap; background: rgba(255,255,255,0.55); }
+/* Evento na visão semana/dia */
+.cal-time-event { position: relative; font-size: 0.7rem; padding: 3px 7px; border-radius: 4px; cursor: pointer; margin-bottom: 2px; display: flex; align-items: center; gap: 5px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.cal-time-event:hover { filter: brightness(0.96); }
+.cal-time-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
 /* Week/Day view */
 .cal-time-slot { height: 50px; border-bottom: 1px solid #eee; position: relative; }
 .cal-time-label { font-size: 0.7rem; color: #999; width: 50px; text-align: right; padding-right: 8px; }
+/* Legenda de cores */
+.cal-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; padding: 8px 4px 12px; border-bottom: 1px solid #eef0f2; margin-bottom: 8px; }
+.cal-legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: 0.72rem; color: #556; }
+.cal-legend-swatch { width: 14px; height: 14px; border-radius: 3px; border-left-width: 3px; border-left-style: solid; flex-shrink: 0; }
+/* Paleta compartilhada por prazo/status (blocos, tempo e legenda) */
+.cat-overdue   { --cat-bg:#fde8e8; --cat-border:#dc2626; }
+.cat-done      { --cat-bg:rgba(129,199,132,0.5); --cat-border:rgba(76,175,80,0.6); }
+.cat-on_track  { --cat-bg:#e7effd; --cat-border:#2563eb; }
+.cat-near_due  { --cat-bg:#fef7d6; --cat-border:#f59e0b; }
+.cat-due_today { --cat-bg:#fde8e8; --cat-border:#dc2626; }
+.cat-none      { --cat-bg:#eef1f4; --cat-border:#94a3b8; }
+.cal-legend-swatch.cat-overdue,
+.cal-legend-swatch.cat-done,
+.cal-legend-swatch.cat-on_track,
+.cal-legend-swatch.cat-near_due,
+.cal-legend-swatch.cat-due_today { background: var(--cat-bg); border-left-color: var(--cat-border); }
 @media (max-width: 768px) {
     .cal-month-day-num { padding: 4px 4px 2px; font-size: 0.7rem; }
-    .cal-span-event { height: 20px; padding: 1px 4px; }
+    .cal-span-event { height: 18px; padding: 1px 4px; }
     .cal-span-title { font-size: 0.6rem; }
     .cal-span-info { display: none; }
     .cal-span-badges { display: none; }
     .cal-time-label { width: 35px; font-size: 0.6rem; }
+    .cal-legend-item { font-size: 0.66rem; }
 }
 </style>
 
@@ -1667,6 +1693,62 @@ function fmt(d) { return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'
 const statusLabelsJs = {open:'Aberto',in_progress:'Em andamento',em_revisao_interna:'Em Revisão Interna',waiting_client:'Aguardando',em_homologacao:'Em Homologação',aprovado_producao:'Aprov. Produção',completed:'Concluído',denied:'Negado',archived:'Arquivado'};
 const priorityLabelsJs = {low:'Baixa',medium:'Média',high:'Alta',urgent:'Urgente'};
 
+// Status que encerram o fluxo ativo (espelha PlanningRules::INACTIVE_STATUSES).
+const INACTIVE_STATUSES = ['completed', 'denied', 'archived'];
+// Card concluído = status "completed" (não existe flag booleana separada no card).
+function isCompletedStatus(status) { return status === 'completed'; }
+
+// Paleta de cores do calendário por prazo/status (regras da demanda).
+// Cada entrada define: fundo (bg), borda (border), cor do texto (text) e rótulo.
+const DEADLINE_COLORS = {
+    overdue:   { key:'overdue',   bg:'#fde8e8', border:'#dc2626', text:'#991b1b', label:'Passado e não concluído' },
+    done:      { key:'done',      bg:'rgba(129,199,132,0.5)', border:'rgba(76,175,80,0.6)', text:'#2e5b31', label:'Passado e concluído' },
+    on_track:  { key:'on_track',  bg:'#e7effd', border:'#2563eb', text:'#1e3a8a', label:'Dentro do prazo' },
+    near_due:  { key:'near_due',  bg:'#fef7d6', border:'#f59e0b', text:'#7a5900', label:'Próximo do vencimento' },
+    due_today: { key:'due_today', bg:'#fde8e8', border:'#dc2626', text:'#991b1b', label:'Na data de vencimento' },
+    none:      { key:'none',      bg:'#eef1f4', border:'#94a3b8', text:'#475569', label:'Sem prazo definido' },
+};
+
+// Janela (em dias) que caracteriza "próximo do vencimento".
+const NEAR_DUE_DAYS = 2;
+
+// Início do dia (00:00) para comparações estáveis por data.
+function startOfDay(d) { const x = new Date(d); x.setHours(0,0,0,0); return x; }
+
+// Decide a categoria de cor de um evento a partir de status e due_date.
+// Não inventa campos: usa apenas status (conclusão) e due_date (prazo).
+function deadlineCategory(ev, todayRef) {
+    const today = startOfDay(todayRef || new Date());
+    const completed = isCompletedStatus(ev.status);
+
+    if (!ev.due_date) {
+        // Sem prazo: concluído fica verde; caso contrário, dentro do prazo (azul).
+        return completed ? DEADLINE_COLORS.done : DEADLINE_COLORS.none;
+    }
+
+    const due = startOfDay(ev.due_date);
+    const isPast = due < today;
+    const isToday = due.getTime() === today.getTime();
+
+    if (completed) {
+        // Concluído: verde claro translúcido (independe de estar no passado).
+        return DEADLINE_COLORS.done;
+    }
+    // A partir daqui, NÃO concluído.
+    if (isPast) return DEADLINE_COLORS.overdue;       // passado e não concluído -> vermelho
+    if (isToday) return DEADLINE_COLORS.due_today;    // vence hoje -> vermelho
+
+    // Futuro: próximo do vencimento (amarelo) x dentro do prazo (azul).
+    const diffDays = Math.round((due - today) / 86400000);
+    if (diffDays <= NEAR_DUE_DAYS) return DEADLINE_COLORS.near_due;
+    return DEADLINE_COLORS.on_track;
+}
+
+// Escapa HTML para uso seguro em conteúdo (evita quebra/XSS com títulos).
+function escHtml(s) { const d = document.createElement('div'); d.textContent = (s == null ? '' : String(s)); return d.innerHTML; }
+// Escapa para uso em atributos (title="...").
+function escAttr(s) { return (s == null ? '' : String(s)).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
 // Helper: check if a date falls within the card's range or is its due_date
 function getEventsForDay(cellDate) {
     const results = [];
@@ -1692,6 +1774,111 @@ function getEventsForDay(cellDate) {
     return Object.values(map);
 }
 
+// ---- Helpers compartilhados de "span" multi-dia (usados por Mês e por
+//      Semana/Dia, para que o comportamento seja idêntico nas duas visões). ----
+
+// Normaliza uma data para 00:00 local.
+function spanStartOfDay(d) { const x = new Date(d); x.setHours(0,0,0,0); return x; }
+
+// Gera os segmentos de eventos (barras contínuas estilo Google Agenda) que
+// tocam o intervalo [rangeStart..rangeEnd] (ambos no mesmo "row" de dias
+// contíguos: uma semana no Mês, ou a faixa all-day na Semana/Dia).
+// numCols = quantidade de colunas (dias) do intervalo.
+// Mesma regra do Mês: um card com start_date+end_date vira uma barra; o
+// due_date vira um marcador de 1 dia (só quando fora do intervalo dev).
+function buildSpanSegments(rangeDays) {
+    const first = rangeDays[0];
+    const last = rangeDays[rangeDays.length - 1];
+    const lastIdx = rangeDays.length - 1;
+    const segments = [];
+
+    calendarEvents.forEach(ev => {
+        let evStart = null, evEnd = null;
+        if (ev.start_date && ev.end_date) {
+            evStart = spanStartOfDay(ev.start_date);
+            evEnd = spanStartOfDay(ev.end_date);
+        } else if (ev.start_date && !ev.end_date) {
+            evStart = spanStartOfDay(ev.start_date);
+            evEnd = new Date(evStart);
+        }
+
+        // Segmento do intervalo de desenvolvimento (start→end).
+        if (evStart && evEnd) {
+            const segStart = new Date(Math.max(evStart.getTime(), first.getTime()));
+            const segEnd = new Date(Math.min(evEnd.getTime(), last.getTime()));
+            if (segStart <= last && segEnd >= first) {
+                const colStart = Math.round((segStart - first) / 86400000);
+                const colEnd = Math.round((segEnd - first) / 86400000);
+                const isStart = evStart.getTime() === segStart.getTime();
+                const isEnd = evEnd.getTime() === segEnd.getTime();
+                segments.push({ ...ev, type: 'dev', colStart: Math.max(0, colStart), colEnd: Math.min(lastIdx, colEnd), isStart, isEnd });
+            }
+        }
+
+        // Marcador de prazo (due_date) de 1 dia, só se não cair dentro do dev.
+        if (ev.due_date) {
+            const dd = spanStartOfDay(ev.due_date);
+            if (dd >= first && dd <= last) {
+                const col = Math.round((dd - first) / 86400000);
+                const alreadyHasDev = evStart && evEnd && dd.getTime() >= evStart.getTime() && dd.getTime() <= evEnd.getTime();
+                if (!alreadyHasDev) {
+                    segments.push({ ...ev, type: 'due', colStart: Math.max(0, col), colEnd: Math.max(0, col), isStart: true, isEnd: true });
+                }
+            }
+        }
+    });
+
+    return segments;
+}
+
+// Aloca "lanes" (linhas) para os segmentos evitando sobreposição horizontal.
+// Retorna o número de lanes usadas (cada seg recebe seg.lane).
+function allocateSpanLanes(segments) {
+    segments.sort((a, b) => a.colStart - b.colStart || (b.colEnd - b.colStart) - (a.colEnd - a.colStart));
+    const lanes = [];
+    segments.forEach(seg => {
+        let placed = false;
+        for (let i = 0; i < lanes.length; i++) {
+            const lastInLane = lanes[i][lanes[i].length - 1];
+            if (lastInLane.colEnd < seg.colStart) {
+                lanes[i].push(seg);
+                seg.lane = i;
+                placed = true;
+                break;
+            }
+        }
+        if (!placed) { seg.lane = lanes.length; lanes.push([seg]); }
+    });
+    return lanes.length;
+}
+
+// Monta o HTML de uma barra de span (reaproveitado por Mês e faixa all-day).
+// numCols = número de colunas do intervalo (7 na semana, 1 no dia, 7 no mês).
+function spanEventHtml(seg, numCols, today) {
+    const cat = deadlineCategory(seg, today);
+    const left = (seg.colStart / numCols * 100).toFixed(2);
+    const width = ((seg.colEnd - seg.colStart + 1) / numCols * 100).toFixed(2);
+    const top = seg.lane * 26 + 2;
+    const pLabel = priorityLabelsJs[seg.priority] || seg.priority;
+    const brL = seg.isStart ? '5px' : '0';
+    const brR = seg.isEnd ? '5px' : '0';
+    const titleAttr = escAttr(seg.title);
+    return `<div class="cal-span-event cat-${cat.key}" onclick="openCardModal(${seg.id})"
+        style="left:${left}%;width:${width}%;top:${top}px;
+        background:${cat.bg};border-left:3px solid ${cat.border};color:${cat.text};
+        border-radius:${brL} ${brR} ${brR} ${brL};"
+        title="${titleAttr}">
+        <span class="cal-span-title">${escHtml(seg.title)}</span>
+        ${seg.isStart ? `<span class="cal-span-info">
+            ${seg.company_name ? '<i class="bi bi-building"></i> ' + escHtml(seg.company_name) + ' ' : ''}
+            <i class="bi bi-person"></i> ${escHtml(seg.assigned_name || '—')}
+        </span>
+        <span class="cal-span-badges">
+            <span class="cal-span-tag">${escHtml(pLabel)}</span>
+        </span>` : ''}
+    </div>`;
+}
+
 // Helper for time grid (week/day views)
 function getEventsForHour(dayDate, hour) {
     const results = [];
@@ -1714,31 +1901,6 @@ function getEventsForHour(dayDate, hour) {
         if (type) results.push({...e, type});
     });
     return results;
-}
-
-// Render card estilo Notion para o calendário
-function renderCalCard(e) {
-    const typeIcon = e.type === 'due' ? '📦' : '🔨';
-    const typeLabel = e.type === 'due' ? 'ENTREGA' : 'DEV';
-    const pColor = priorityColors[e.priority] || '#666';
-    const sColor = statusColors[e.status] || '#666';
-    const sLabel = statusLabelsJs[e.status] || e.status;
-    const pLabel = priorityLabelsJs[e.priority] || e.priority;
-    return `<div class="cal-card-notion" onclick="openCardModal(${e.id})" title="${e.title}">
-        <div class="cal-card-header">
-            <span class="cal-card-type" style="color:${e.type==='due'?'#2e7d32':pColor}">${typeIcon} ${typeLabel}</span>
-            <span class="cal-card-id">#${e.id}</span>
-        </div>
-        <div class="cal-card-title">${e.title}</div>
-        <div class="cal-card-meta">
-            ${e.company_name ? `<span class="cal-card-company"><i class="bi bi-building"></i> ${e.company_name}</span>` : ''}
-            <span class="cal-card-assigned"><i class="bi bi-person"></i> ${e.assigned_name || 'Não atribuído'}</span>
-        </div>
-        <div class="cal-card-badges">
-            <span class="cal-card-badge" style="background:${pColor}">${pLabel}</span>
-            <span class="cal-card-badge" style="background:${sColor}">${sLabel}</span>
-        </div>
-    </div>`;
 }
 
 function renderCalendar(start, end) {
@@ -1768,99 +1930,21 @@ function renderCalendar(start, end) {
             if (day > totalDays) break;
         }
 
-        // Assign colors to events for visual distinction
-        const eventColorPalette = [
-            'rgba(59,130,246,0.15)', 'rgba(245,158,11,0.15)', 'rgba(16,185,129,0.15)',
-            'rgba(139,92,246,0.15)', 'rgba(236,72,153,0.15)', 'rgba(20,184,166,0.15)',
-            'rgba(249,115,22,0.15)', 'rgba(99,102,241,0.15)'
-        ];
-        const eventBorderPalette = [
-            '#3b82f6', '#f59e0b', '#10b981', '#8b5cf6',
-            '#ec4899', '#14b8a6', '#f97316', '#6366f1'
-        ];
-        const eventColorMap = {};
-        let colorIdx = 0;
-        calendarEvents.forEach(e => {
-            if (!eventColorMap[e.id]) {
-                eventColorMap[e.id] = { bg: eventColorPalette[colorIdx % eventColorPalette.length], border: eventBorderPalette[colorIdx % eventBorderPalette.length] };
-                colorIdx++;
-            }
-        });
+        // Cores dos eventos vêm de deadlineCategory() (prazo/status), aplicadas
+        // por segmento na renderização — sem paleta arbitrária por id.
 
         // For each event, compute its start/end as day indices relative to grid
         function dateToStr(d) { return d.toISOString().slice(0,10); }
         const gridStart = weeks[0][0];
         const gridEnd = weeks[weeks.length-1][6];
 
-        // Flatten events into segments per week (Notion-style spanning)
+        // Segmentos por semana usam os helpers compartilhados (mesma lógica
+        // reaproveitada pela faixa all-day da Semana/Dia).
         function getEventSegments(weekDates) {
-            const weekStartStr = dateToStr(weekDates[0]);
-            const weekEndStr = dateToStr(weekDates[6]);
-            const segments = [];
-
-            calendarEvents.forEach(ev => {
-                // Determine event's effective start and end dates
-                let evStart = null, evEnd = null, type = 'dev';
-
-                if (ev.start_date && ev.end_date) {
-                    evStart = new Date(ev.start_date); evStart.setHours(0,0,0,0);
-                    evEnd = new Date(ev.end_date); evEnd.setHours(0,0,0,0);
-                } else if (ev.start_date && !ev.end_date) {
-                    evStart = new Date(ev.start_date); evStart.setHours(0,0,0,0);
-                    evEnd = new Date(evStart);
-                }
-
-                // Dev range segment
-                if (evStart && evEnd) {
-                    const segStart = new Date(Math.max(evStart.getTime(), weekDates[0].getTime()));
-                    const segEnd = new Date(Math.min(evEnd.getTime(), weekDates[6].getTime()));
-                    if (segStart <= weekDates[6] && segEnd >= weekDates[0]) {
-                        const colStart = Math.round((segStart - weekDates[0]) / 86400000);
-                        const colEnd = Math.round((segEnd - weekDates[0]) / 86400000);
-                        const isStart = evStart.getTime() === segStart.getTime();
-                        const isEnd = evEnd.getTime() === segEnd.getTime();
-                        segments.push({ ...ev, type: 'dev', colStart: Math.max(0, colStart), colEnd: Math.min(6, colEnd), isStart, isEnd });
-                    }
-                }
-
-                // Due date segment (single day)
-                if (ev.due_date) {
-                    const dd = new Date(ev.due_date); dd.setHours(0,0,0,0);
-                    if (dd >= weekDates[0] && dd <= weekDates[6]) {
-                        const col = Math.round((dd - weekDates[0]) / 86400000);
-                        // Don't duplicate if same as dev range end
-                        const alreadyHasDev = evStart && evEnd && dd.getTime() >= evStart.getTime() && dd.getTime() <= evEnd.getTime();
-                        if (!alreadyHasDev) {
-                            segments.push({ ...ev, type: 'due', colStart: Math.max(0, col), colEnd: Math.max(0, col), isStart: true, isEnd: true });
-                        }
-                    }
-                }
-            });
-
-            return segments;
+            return buildSpanSegments(weekDates);
         }
-
-        // Allocate lanes (rows) for segments avoiding overlap
         function allocateLanes(segments) {
-            segments.sort((a, b) => a.colStart - b.colStart || (b.colEnd - b.colStart) - (a.colEnd - a.colStart));
-            const lanes = []; // each lane is array of segments
-            segments.forEach(seg => {
-                let placed = false;
-                for (let i = 0; i < lanes.length; i++) {
-                    const lastInLane = lanes[i][lanes[i].length - 1];
-                    if (lastInLane.colEnd < seg.colStart) {
-                        lanes[i].push(seg);
-                        seg.lane = i;
-                        placed = true;
-                        break;
-                    }
-                }
-                if (!placed) {
-                    seg.lane = lanes.length;
-                    lanes.push([seg]);
-                }
-            });
-            return lanes.length;
+            return allocateSpanLanes(segments);
         }
 
         // Build HTML
@@ -1887,38 +1971,12 @@ function renderCalendar(start, end) {
             html += '</div>';
 
             // Event lanes
-            const eventsHeight = laneCount > 0 ? laneCount * 28 + 4 : 4;
+            const eventsHeight = laneCount > 0 ? laneCount * 26 + 4 : 4;
             html += `<div class="cal-month-events" style="min-height:${eventsHeight}px;">`;
             segments.forEach(seg => {
-                const colors = eventColorMap[seg.id] || { bg: '#f3f4f6', border: '#6b7280' };
-                const left = (seg.colStart / 7 * 100).toFixed(2);
-                const width = ((seg.colEnd - seg.colStart + 1) / 7 * 100).toFixed(2);
-                const top = seg.lane * 28 + 2;
-                const pColor = priorityColors[seg.priority] || '#666';
-                const sColor = statusColors[seg.status] || '#666';
-                const sLabel = statusLabelsJs[seg.status] || seg.status;
-                const pLabel = priorityLabelsJs[seg.priority] || seg.priority;
-                const typeIcon = seg.type === 'due' ? '📦' : '🔨';
-
-                const borderRadiusLeft = seg.isStart ? '6px' : '0';
-                const borderRadiusRight = seg.isEnd ? '6px' : '0';
-
-                html += `<div class="cal-span-event" onclick="openCardModal(${seg.id})" 
-                    style="left:${left}%;width:${width}%;top:${top}px;
-                    background:${colors.bg};border-left:3px solid ${colors.border};
-                    border-radius:${borderRadiusLeft} ${borderRadiusRight} ${borderRadiusRight} ${borderRadiusLeft};"
-                    title="${seg.title}">
-                    <span class="cal-span-icon">${typeIcon}</span>
-                    <span class="cal-span-title">${seg.title}</span>
-                    ${seg.isStart ? `<span class="cal-span-info">
-                        ${seg.company_name ? '<i class="bi bi-building"></i> ' + seg.company_name + ' ' : ''}
-                        <i class="bi bi-person"></i> ${seg.assigned_name || '—'}
-                    </span>
-                    <span class="cal-span-badges">
-                        <span class="cal-card-badge" style="background:${pColor}">${pLabel}</span>
-                        <span class="cal-card-badge" style="background:${sColor}">${sLabel}</span>
-                    </span>` : ''}
-                </div>`;
+                // Barra multi-dia renderizada pelo helper compartilhado (mesma
+                // aparência na Semana/Dia). 7 colunas = dias da semana.
+                html += spanEventHtml(seg, 7, today);
             });
             html += '</div>';
             html += '</div>'; // end week
@@ -1938,24 +1996,57 @@ function renderCalendar(start, end) {
 
 function renderTimeGrid(container, startDate, numDays) {
     const days = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+    const today = startOfDay(new Date());
+
+    // Barra única contínua (multi-dia) atravessando os dias — mesma lógica do
+    // Mês. Cards com start_date+end_date viram UMA barra que se estende, em vez
+    // de se repetir dia a dia na grade de horas.
+    const gridDays = [];
+    for (let d = 0; d < numDays; d++) {
+        const dd = spanStartOfDay(startDate); dd.setDate(dd.getDate() + d);
+        gridDays.push(dd);
+    }
+    const spanSegments = buildSpanSegments(gridDays).filter(s => s.type === 'dev');
+    const spanLanes = allocateSpanLanes(spanSegments);
+    // Ids dos cards que já viram barra contínua: não repetir na grade de horas.
+    const spannedIds = new Set(spanSegments.map(s => s.id));
+
     let html = '<div style="overflow-x:auto;"><table style="min-width:'+(numDays>1?'700px':'100%')+'"><thead><tr><th style="width:50px;"></th>';
     for (let d = 0; d < numDays; d++) {
         const dd = new Date(startDate); dd.setDate(dd.getDate() + d);
         html += `<th>${days[dd.getDay()]} ${dd.getDate()}/${dd.getMonth()+1}</th>`;
     }
     html += '</tr></thead><tbody>';
+
+    // Linha com a(s) barra(s) contínua(s), sem rótulo e sem fundo destacado.
+    if (spanSegments.length > 0) {
+        const bandHeight = spanLanes * 26 + 4;
+        html += '<tr>';
+        html += '<td style="padding:0;border:none;"></td>';
+        html += `<td colspan="${numDays}" style="padding:0;border:none;">
+            <div style="position:relative;min-height:${bandHeight}px;">`;
+        spanSegments.forEach(seg => {
+            html += spanEventHtml(seg, numDays, today);
+        });
+        html += `</div></td>`;
+        html += '</tr>';
+    }
+
     for (let h = 6; h <= 22; h++) {
         html += '<tr>';
         html += `<td class="cal-time-label">${String(h).padStart(2,'0')}:00</td>`;
         for (let d = 0; d < numDays; d++) {
             const dd = new Date(startDate); dd.setDate(dd.getDate() + d);
             html += '<td class="cal-time-slot" style="position:relative;">';
-            const hourEvents = getEventsForHour(dd, h);
+            // Eventos de intervalo já estão na barra contínua acima; não repetir.
+            const hourEvents = getEventsForHour(dd, h).filter(e => !spannedIds.has(e.id));
             hourEvents.forEach(e => {
-                html += `<div class="cal-time-event-notion" onclick="openCardModal(${e.id})" title="${e.title}">
-                    <span class="cal-card-type" style="color:${e.type==='due'?'#2e7d32':priorityColors[e.priority]||'#666'};font-size:0.6rem;">${e.type==='due'?'📦':'🔨'}</span>
-                    <span style="font-weight:500;">${e.title}</span>
-                    <span class="cal-card-badge" style="background:${priorityColors[e.priority]||'#666'};font-size:0.55rem;padding:1px 4px;">${priorityLabelsJs[e.priority]||''}</span>
+                const cat = deadlineCategory(e, today);
+                const pLabel = priorityLabelsJs[e.priority] || '';
+                html += `<div class="cal-time-event cat-${cat.key}" onclick="openCardModal(${e.id})" title="${escAttr(e.title)}"
+                    style="background:${cat.bg};border-left:3px solid ${cat.border};color:${cat.text};">
+                    <span class="cal-time-title">${escHtml(e.title)}</span>
+                    ${pLabel ? `<span class="cal-span-tag">${escHtml(pLabel)}</span>` : ''}
                 </div>`;
             });
             html += '</td>';

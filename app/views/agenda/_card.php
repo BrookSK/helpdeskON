@@ -8,7 +8,8 @@ $when = !empty($m['meeting_at']) ? date('d/m H:i', strtotime($m['meeting_at'])) 
 $meetingType = $m['meeting_type'] ?? 'comercial';
 $isOperational = $meetingType === 'operacional';
 $isExternal = $meetingType === 'externo';
-$isCommercial = !$isOperational && !$isExternal;
+$isInternal = $meetingType === 'interno';
+$isCommercial = !$isOperational && !$isExternal && !$isInternal;
 
 // Convidados externos (para exibir a contagem no card).
 $externalGuests = [];
@@ -16,7 +17,7 @@ if ($isExternal && !empty($m['external_guests'])) {
     $decoded = json_decode($m['external_guests'], true);
     if (is_array($decoded)) $externalGuests = $decoded;
 }
-// Tipo enviado ao Kanban para as regras de arraste (operacional/externo usam status simplificado).
+// Tipo enviado ao Kanban para as regras de arraste (operacional/interno/externo usam status simplificado).
 $cardType = $isCommercial ? 'comercial' : 'operacional';
 ?>
 <div class="agenda-card<?= $isCommercial ? '' : ' agenda-card-op' ?>"
@@ -27,6 +28,8 @@ $cardType = $isCommercial ? 'comercial' : 'operacional';
     <h6 class="fw-semibold mb-1"><?= escape($m['title']) ?></h6>
     <?php if ($isOperational): ?>
     <div class="small"><span class="agenda-badge" style="background:#455a64;">Operacional</span></div>
+    <?php elseif ($isInternal): ?>
+    <div class="small"><span class="agenda-badge" style="background:#6d4c41;">Interno</span></div>
     <?php elseif ($isExternal): ?>
     <div class="small"><span class="agenda-badge" style="background:#4285F4;"><i class="bi bi-person-plus"></i> Convite externo</span></div>
     <?php if (!empty($externalGuests)): ?>

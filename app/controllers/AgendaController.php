@@ -140,10 +140,13 @@ class AgendaController extends Controller
         $title = trim($_POST['title'] ?? '');
         if ($title === '') $this->json(['error' => 'Título obrigatório'], 400);
 
-        // Tipo da reunião: comercial (fluxo atual), operacional (interna, só participantes)
-        // ou externo (convidados que NÃO fazem parte do sistema — demanda #210).
+        // Tipo da reunião: comercial (fluxo atual), operacional (alinhamento de equipe),
+        // externo (convidados que NÃO fazem parte do sistema — demanda #210) ou
+        // interno (uso interno da empresa / eventos externos como participante — demanda #141).
         $meetingType = AgendaRules::normalizeMeetingType($_POST['meeting_type'] ?? '');
-        $isOperational = $meetingType === 'operacional';
+        // 'interno' tem exatamente o mesmo comportamento de 'operacional':
+        // sem cliente CRM, sem briefing, sem fluxo Google — apenas participantes internos.
+        $isOperational = $meetingType === 'operacional' || $meetingType === 'interno';
         $isExternal = $meetingType === 'externo';
 
         $contactId = !empty($_POST['contact_id']) ? intval($_POST['contact_id']) : null;
@@ -408,7 +411,7 @@ class AgendaController extends Controller
             );
             if ($col && strpos((string)$col['ct'], "'externo'") === false) {
                 $db->query("ALTER TABLE agenda_meetings
-                    MODIFY COLUMN meeting_type ENUM('comercial','operacional','externo') NOT NULL DEFAULT 'comercial'");
+                    MODIFY COLUMN meeting_type ENUM('comercial','operacional','externo','interno') NOT NULL DEFAULT 'comercial'");
                 if (class_exists('Logger')) Logger::info('ensureExternalInviteSchema: enum meeting_type atualizado');
             }
         } catch (\Throwable $e) {
@@ -599,7 +602,8 @@ class AgendaController extends Controller
         if (!$meeting) $this->json(['error' => 'Reunião não encontrada'], 404);
 
         $type = $meeting['meeting_type'] ?? 'comercial';
-        if ($type === 'operacional') {
+        // 'interno' compartilha o mesmo fluxo de notificação de 'operacional'.
+        if ($type === 'operacional' || $type === 'interno') {
             $result = $this->notifyParticipants($id);
             $this->json([
                 'success' => true,
@@ -719,7 +723,8 @@ class AgendaController extends Controller
 
         $user = $this->currentUser();
         $meetingType = $meeting['meeting_type'] ?? 'comercial';
-        $isOperational = $meetingType === 'operacional';
+        // 'interno' tem exatamente o mesmo comportamento de 'operacional' na edição.
+        $isOperational = $meetingType === 'operacional' || $meetingType === 'interno';
         $isExternal = $meetingType === 'externo';
         $data = [];
         if (isset($_POST['title'])) $data['title'] = trim($_POST['title']);

@@ -11,7 +11,7 @@
 class AgendaRules
 {
     /** Tipos de reunião aceitos. */
-    public const MEETING_TYPES = ['comercial', 'operacional', 'externo'];
+    public const MEETING_TYPES = ['comercial', 'operacional', 'externo', 'interno'];
 
     /** Urgências aceitas. */
     public const URGENCIES = ['baixa', 'media', 'alta', 'urgente'];
