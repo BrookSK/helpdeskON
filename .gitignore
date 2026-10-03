@@ -16,6 +16,7 @@ public/uploads/recordings/*
 # OS
 .DS_Store
 Thumbs.db
+*.lnk
 logs/app-error.log
 
 # Dependências / testes (PHPUnit)
