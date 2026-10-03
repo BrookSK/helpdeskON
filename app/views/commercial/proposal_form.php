@@ -16,8 +16,8 @@ $isTerminal = in_array($proposal['status'], ['accepted','rejected','cancelled'],
         <div class="d-flex gap-2">
             <a href="<?= baseUrl('proposal') ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> Voltar</a>
             <?php if (!$isTerminal): ?>
-            <button class="btn btn-sm btn-success" onclick="saveProposal()"><i class="bi bi-check-lg"></i> Salvar</button>
-            <button class="btn btn-sm btn-primary" onclick="sendProposal()"><i class="bi bi-send"></i> Enviar ao cliente</button>
+            <button id="btn-save" class="btn btn-sm btn-success" onclick="saveProposal()"><i class="bi bi-check-lg"></i> Salvar</button>
+            <button id="btn-send" class="btn btn-sm btn-primary" onclick="sendProposal()"><i class="bi bi-send"></i> Enviar ao cliente</button>
             <?php endif; ?>
             <?php if ($proposal['status'] === 'accepted'): ?>
             <button class="btn btn-sm btn-dark" onclick="genContract()"><i class="bi bi-file-earmark-check"></i> Gerar contrato</button>
@@ -158,14 +158,35 @@ function body() {
         items: collectItems(),
     };
 }
+// Trava para evitar salvamentos duplicados (clique repetido enquanto salva).
+let SAVING = false;
 async function saveProposal() {
-    const r = await fetch(`${PROP_BASE}proposal/save/${PROPOSAL_ID}`, {
-        method: 'POST', headers: {'Content-Type':'application/json','X-CSRF-Token':CSRF},
-        body: JSON.stringify(body())
-    }).then(x => x.json()).catch(() => ({error:'Falha de rede'}));
-    if (r.error) { alert(r.error); return false; }
-    document.getElementById('grand-total').textContent = money(r.total);
-    return true;
+    if (SAVING) return false;            // já há um save em andamento
+    SAVING = true;
+    const btn = document.getElementById('btn-save');
+    const original = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Salvando...'; }
+    try {
+        const r = await fetch(`${PROP_BASE}proposal/save/${PROPOSAL_ID}`, {
+            method: 'POST', headers: {'Content-Type':'application/json','X-CSRF-Token':CSRF},
+            body: JSON.stringify(body())
+        }).then(x => x.json());
+        if (r.error) { alert(r.error); return false; }
+        document.getElementById('grand-total').textContent = money(r.total);
+        if (btn) {
+            btn.classList.remove('btn-success'); btn.classList.add('btn-outline-success');
+            btn.innerHTML = '<i class="bi bi-check-lg"></i> Salvo!';
+            setTimeout(() => { btn.classList.add('btn-success'); btn.classList.remove('btn-outline-success'); btn.innerHTML = original; }, 1500);
+        }
+        return true;
+    } catch (e) {
+        alert('Falha de rede ao salvar.');
+        if (btn) btn.innerHTML = original;
+        return false;
+    } finally {
+        SAVING = false;
+        if (btn) btn.disabled = false;
+    }
 }
 async function sendProposal() {
     if (!await saveProposal()) return;
