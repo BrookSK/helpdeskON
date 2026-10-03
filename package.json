@@ -4,10 +4,10 @@
   "private": true,
   "description": "Testes E2E (Playwright) do helpdeskON",
   "scripts": {
-    "test:e2e": "playwright test",
-    "test:e2e:headed": "playwright test --headed",
-    "test:e2e:ui": "playwright test --ui",
-    "test:e2e:report": "playwright show-report"
+    "test:e2e": "node node_modules/@playwright/test/cli.js test",
+    "test:e2e:headed": "node node_modules/@playwright/test/cli.js test --headed",
+    "test:e2e:ui": "node node_modules/@playwright/test/cli.js test --ui",
+    "test:e2e:report": "node node_modules/@playwright/test/cli.js show-report"
   },
   "devDependencies": {
     "@playwright/test": "^1.49.0"
