@@ -59,6 +59,8 @@ class VideocallController extends Controller
 
         // Permitir apresentar (compartilhar tela): padrão sim. O admin pode mudar depois.
         $allowPresentation = VideoRoomRules::normalizeAllowPresentation($_POST['allow_presentation'] ?? '1');
+        // Gravação automática: por padrão a sala já grava sozinha ao entrar.
+        $autoRecord = VideoRoomRules::normalizeAutoRecord($_POST['auto_record'] ?? '1');
 
         $token = $this->model->create([
             'title' => $title,
@@ -67,6 +69,7 @@ class VideocallController extends Controller
             'meeting_id' => $meetingId,
             'max_participants' => $max,
             'allow_recording' => 1,
+            'auto_record' => $autoRecord,
             'allow_presentation' => $allowPresentation,
             'status' => 'active',
             'visibility' => $visibility,
@@ -131,6 +134,7 @@ class VideocallController extends Controller
             'loggedUserId' => $loggedUserId,
             'isAdmin' => $isAdmin,
             'allowPresentation' => (int)($room['allow_presentation'] ?? 1) === 1,
+            'autoRecord' => (int)($room['allow_recording'] ?? 1) === 1 && (int)($room['auto_record'] ?? 1) === 1,
             'backgrounds' => $this->backgroundList(),
             'iceServers' => $this->iceServers(),
         ]);
@@ -166,6 +170,7 @@ class VideocallController extends Controller
             'peers' => $peers,
             'title' => $room['title'],
             'allow_presentation' => (int)($room['allow_presentation'] ?? 1) === 1,
+            'auto_record' => (int)($room['allow_recording'] ?? 1) === 1 && (int)($room['auto_record'] ?? 1) === 1,
         ]);
     }
 
@@ -598,10 +603,19 @@ class VideocallController extends Controller
         $recordedName = trim(substr((string)($_POST['recorded_by_name'] ?? ($userName ?? '')), 0, 120)) ?: null;
         $duration = (int)($_POST['duration_sec'] ?? 0) ?: null;
 
-        // Injeta a duração no WebM para o player permitir seek em qualquer ponto.
-        // Se o cliente não informou a duração, usa a calculada pelos timecodes.
-        $calcDur = $this->injectWebmDuration($dest);
-        if ($calcDur !== null && !$duration) $duration = (int)round($calcDur);
+        // A gravação veio em PEDAÇOS concatenados (recChunk). Remuxa para um WebM
+        // íntegro com a timeline completa — sem isso o player/transcrição só veem o
+        // trecho descrito pelo header do 1º pedaço (bug dos ~1min). A duração real
+        // do remux tem prioridade sobre a informada pelo cliente (que pode estar
+        // certa, mas o arquivo precisava ser corrigido de qualquer forma).
+        $remuxDur = $this->remuxWebm($dest);
+        if ($remuxDur !== null) {
+            $duration = (int) round($remuxDur);
+        } else {
+            // Sem ffmpeg: mantém o fallback atual (injeta Duration via timecodes).
+            $calcDur = $this->injectWebmDuration($dest);
+            if ($calcDur !== null && !$duration) $duration = (int)round($calcDur);
+        }
 
         $this->model->addRecording([
             'room_id' => $room['id'],
@@ -639,13 +653,17 @@ class VideocallController extends Controller
             return;
         }
 
-        // Migração preguiçosa: gravações antigas foram salvas sem o campo Duration
-        // no WebM (seek não funcionava). Injeta uma única vez, quando ainda não há
-        // duração registrada. Só corre para requisições SEM Range (a 1ª carga),
-        // para não reescrever o arquivo durante um seek em andamento.
+        // Migração preguiçosa: gravações antigas foram salvas como pedaços concatenados
+        // (timeline truncada ~1min) ou sem o campo Duration (seek não funcionava).
+        // Corrige UMA vez, quando ainda não há duração registrada. Só corre para
+        // requisições SEM Range (a 1ª carga), para não reescrever o arquivo durante
+        // um seek em andamento. Tenta o remux (conserta a timeline inteira) e cai no
+        // injectWebmDuration quando não há ffmpeg.
         if (empty($_SERVER['HTTP_RANGE']) && (int)($rec['duration_sec'] ?? 0) <= 0) {
-            $calcDur = $this->injectWebmDuration($real);
+            $calcDur = $this->remuxWebm($real);
+            if ($calcDur === null) $calcDur = $this->injectWebmDuration($real);
             if ($calcDur !== null) {
+                clearstatcache(true, $real);
                 $this->model->updateRecording($rec['token'], ['duration_sec' => (int)round($calcDur)]);
             }
         }
@@ -692,6 +710,8 @@ class VideocallController extends Controller
             'transcript' => $rec['transcript'] ?? null,
             'transcript_json' => $rec['transcript_json'] ? json_decode($rec['transcript_json'], true) : null,
             'summary' => ($st === 'error') ? null : ($rec['summary'] ?? null),
+            'minutes' => $rec['minutes'] ?? null,
+            'minutes_status' => $rec['minutes_status'] ?? 'none',
             'error_message' => ($st === 'error') ? ($rec['summary'] ?? 'Falha ao transcrever.') : null,
             'url' => rtrim(baseUrl(''), '/') . '/videocall/recording/' . $rec['token'],
         ]);
@@ -795,7 +815,246 @@ class VideocallController extends Controller
             'transcribe_status' => 'done',
             'transcribed_at' => date('Y-m-d H:i:s'),
         ]);
-        $this->json(['success' => true, 'summary' => $summary]);
+
+        // Minuta/ata automática: logo após a transcrição+resumo, gera a ata
+        // estruturada (editável depois). Não interrompe o fluxo se a IA falhar.
+        $minutes = $this->generateMinutesContent($recToken, $transcript, $ai);
+
+        $this->json(['success' => true, 'summary' => $summary, 'minutes' => $minutes]);
+    }
+
+    /**
+     * Gera a MINUTA/ATA a partir da transcrição e salva em video_recordings.
+     * Usada tanto no fluxo automático (após saveTranscript) quanto no botão de
+     * "regerar". Devolve o conteúdo gerado (ou '' se não foi possível). Nunca
+     * lança: em falha, marca minutes_status='error' e segue.
+     *
+     * @param OpenAiClient|null $ai  Cliente já instanciado (reaproveita), ou null.
+     */
+    private function generateMinutesContent($recToken, string $transcript, $ai = null): string
+    {
+        if (!MeetingMinutesRules::canGenerate($transcript)) {
+            return '';
+        }
+        if (!($ai instanceof OpenAiClient)) $ai = new OpenAiClient();
+        if (!$ai->isConfigured()) {
+            // Sem IA configurada: não é erro de execução, apenas não há como gerar.
+            return '';
+        }
+
+        $this->model->updateRecording($recToken, ['minutes_status' => MeetingMinutesRules::STATUS_PROCESSING]);
+
+        // Contexto da reunião (título/data) a partir da sala, quando disponível.
+        $title = null;
+        $dateLabel = null;
+        try {
+            $rec = $this->model->findRecordingByToken($recToken);
+            $room = $rec ? $this->model->findById($rec['room_id']) : null;
+            if ($room) {
+                $title = $room['title'] ?? null;
+                if (!empty($rec['created_at'])) $dateLabel = date('d/m/Y', strtotime($rec['created_at']));
+            }
+        } catch (\Throwable $e) { /* contexto é opcional */ }
+
+        try {
+            $res = $ai->chat(
+                MeetingMinutesRules::buildMessages($transcript, $title, $dateLabel),
+                ['model' => 'gpt-4o-mini', 'temperature' => 0.3, 'max_tokens' => 1500]
+            );
+            if (empty($res['success']) || trim((string)($res['content'] ?? '')) === '') {
+                $this->model->updateRecording($recToken, ['minutes_status' => MeetingMinutesRules::STATUS_ERROR]);
+                return '';
+            }
+            $minutes = MeetingMinutesRules::sanitizeContent($res['content']);
+            $this->model->updateRecording($recToken, [
+                'minutes' => $minutes,
+                'minutes_status' => MeetingMinutesRules::STATUS_DONE,
+                'minutes_generated_at' => date('Y-m-d H:i:s'),
+            ]);
+            // Envio automático do link da minuta (WhatsApp + e-mail) à equipe e ao
+            // cliente — só uma vez (idempotente por minutes_sent_at). Não interrompe.
+            try { $this->deliverMinutes($recToken); } catch (\Throwable $e) {
+                if (class_exists('Logger')) Logger::error('deliverMinutes falhou', ['rec' => $recToken, 'error' => $e->getMessage()]);
+            }
+            return $minutes;
+        } catch (\Throwable $e) {
+            $this->model->updateRecording($recToken, ['minutes_status' => MeetingMinutesRules::STATUS_ERROR]);
+            if (class_exists('Logger')) {
+                Logger::error('generateMinutesContent falhou', ['rec' => $recToken, 'error' => $e->getMessage()]);
+            }
+            return '';
+        }
+    }
+
+    /**
+     * (Re)gera a minuta de uma gravação já transcrita. Logado, com permissão.
+     * Útil quando a geração automática falhou ou a transcrição foi refeita.
+     */
+    public function generateMinutes($recToken = null)
+    {
+        $this->requireLogin();
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $recToken = $this->tokenFromUrl($recToken, 2);
+        $rec = $recToken ? $this->model->findRecordingByToken($recToken) : null;
+        if (!$rec) $this->json(['error' => 'Gravação não encontrada'], 404);
+
+        $user = $this->currentUser();
+        if (!$this->model->canUserSeeRecording($rec, $user['id'], $user['role'])) {
+            $this->json(['error' => 'Sem permissão para esta gravação.'], 403);
+        }
+
+        $transcript = (string)($rec['transcript'] ?? '');
+        if (!MeetingMinutesRules::canGenerate($transcript)) {
+            $this->json(['error' => 'A gravação ainda não tem transcrição para gerar a minuta.'], 400);
+        }
+
+        $this->releaseSession();
+        @set_time_limit(0);
+        $minutes = $this->generateMinutesContent($recToken, $transcript);
+        if ($minutes === '') $this->json(['error' => 'Não foi possível gerar a minuta (verifique a IA).'], 502);
+        $this->json(['success' => true, 'minutes' => $minutes]);
+    }
+
+    /**
+     * Salva a minuta editada manualmente. Logado, com permissão.
+     * A ata é um documento editável: a equipe ajusta antes de enviar ao cliente.
+     */
+    public function saveMinutes($recToken = null)
+    {
+        $this->requireLogin();
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $recToken = $this->tokenFromUrl($recToken, 2);
+        $rec = $recToken ? $this->model->findRecordingByToken($recToken) : null;
+        if (!$rec) $this->json(['error' => 'Gravação não encontrada'], 404);
+
+        $user = $this->currentUser();
+        if (!$this->model->canUserSeeRecording($rec, $user['id'], $user['role'])) {
+            $this->json(['error' => 'Sem permissão para esta gravação.'], 403);
+        }
+
+        $raw = file_get_contents('php://input');
+        $body = json_decode($raw, true);
+        if (!is_array($body)) $body = $_POST;
+        $minutes = MeetingMinutesRules::sanitizeContent($body['minutes'] ?? '');
+
+        $this->model->updateRecording($recToken, [
+            'minutes' => $minutes,
+            'minutes_status' => MeetingMinutesRules::STATUS_DONE,
+        ]);
+        $this->json(['success' => true]);
+    }
+
+    /**
+     * Envia o LINK PÚBLICO da minuta por WhatsApp + e-mail para os participantes
+     * internos da reunião e para o cliente. Idempotente: só envia uma vez por
+     * gravação (controla por minutes_sent_at). Reaproveita WhatsappNotifier/Mailer.
+     *
+     * O destinatário recebe um link para a página imprimível (minutesView), onde
+     * lê e imprime/salva em PDF — não enviamos arquivo anexado.
+     *
+     * @param bool $force Reenvia mesmo que já tenha sido enviado (uso manual).
+     * @return array{sent_whats:int,sent_email:int,recipients:int}
+     */
+    private function deliverMinutes($recToken, bool $force = false): array
+    {
+        $result = ['sent_whats' => 0, 'sent_email' => 0, 'recipients' => 0];
+        $rec = $this->model->findRecordingByToken($recToken);
+        if (!$rec) return $result;
+
+        // Só envia se há minuta pronta.
+        if (empty($rec['minutes']) || !MeetingMinutesRules::canGenerate((string)$rec['minutes'])) return $result;
+        // Idempotência: já enviado e sem forçar -> não reenvia.
+        if (!$force && !empty($rec['minutes_sent_at'])) return $result;
+
+        // Reúne destinatários a partir da reunião vinculada (equipe + cliente).
+        $participants = [];
+        $client = [];
+        $meetingTitle = null;
+        $room = $this->model->findById($rec['room_id']);
+        if ($room && !empty($room['meeting_id'])) {
+            try {
+                $agenda = new AgendaMeeting();
+                $meeting = $agenda->findById((int)$room['meeting_id']);
+                if ($meeting) {
+                    $meetingTitle = $meeting['title'] ?? null;
+                    $participants = $agenda->getParticipantContacts((int)$room['meeting_id']) ?: [];
+                    // Cliente: snapshot da reunião (client_*) ou dados do contato do CRM.
+                    $client = [
+                        'name' => $meeting['client_name'] ?? ($meeting['crm_contact_name'] ?? ''),
+                        'email' => $meeting['client_email'] ?? ($meeting['lead_email'] ?? null),
+                        'phone' => $meeting['client_phone'] ?? ($meeting['crm_contact_phone'] ?? null),
+                    ];
+                }
+            } catch (\Throwable $e) { /* sem reunião vinculada: segue sem destinatários */ }
+        }
+        if ($meetingTitle === null) $meetingTitle = $room['title'] ?? null;
+
+        $recipients = MeetingMinutesDelivery::buildRecipients($participants, $client);
+        $result['recipients'] = count($recipients);
+        if (empty($recipients)) return $result;
+
+        $link = $this->publicBase() . '/videocall/minutesView/' . $rec['token'];
+        $companyName = trim((string) Config::get('app_name')) ?: null;
+
+        foreach ($recipients as $r) {
+            if (!empty($r['phone'])) {
+                $msg = MeetingMinutesDelivery::whatsappMessage($r['name'], $link, $meetingTitle, $companyName);
+                try { if (WhatsappNotifier::sendToPhone($r['phone'], $msg, $r['name'])) $result['sent_whats']++; }
+                catch (\Throwable $e) { /* não interrompe os demais envios */ }
+            }
+            if (!empty($r['email'])) {
+                $subject = MeetingMinutesDelivery::emailSubject($meetingTitle);
+                $bodyHtml = MeetingMinutesDelivery::emailBody($r['name'], $link, $meetingTitle);
+                try { if (Mailer::send($r['email'], $subject, $bodyHtml)) $result['sent_email']++; }
+                catch (\Throwable $e) { /* não interrompe os demais envios */ }
+            }
+        }
+
+        $this->model->updateRecording($recToken, ['minutes_sent_at' => date('Y-m-d H:i:s')]);
+        return $result;
+    }
+
+    /**
+     * Reenvia manualmente o link da minuta (botão na tela). Logado, com permissão.
+     */
+    public function sendMinutes($recToken = null)
+    {
+        $this->requireLogin();
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $recToken = $this->tokenFromUrl($recToken, 2);
+        $rec = $recToken ? $this->model->findRecordingByToken($recToken) : null;
+        if (!$rec) $this->json(['error' => 'Gravação não encontrada'], 404);
+
+        $user = $this->currentUser();
+        if (!$this->model->canUserSeeRecording($rec, $user['id'], $user['role'])) {
+            $this->json(['error' => 'Sem permissão para esta gravação.'], 403);
+        }
+        if (empty($rec['minutes'])) $this->json(['error' => 'Não há minuta para enviar.'], 400);
+
+        $this->releaseSession();
+        @set_time_limit(0);
+        $r = $this->deliverMinutes($recToken, true);
+        $this->json(['success' => true] + $r);
+    }
+
+    /**
+     * Página PÚBLICA e imprimível da minuta (sem login) — é o link enviado ao
+     * cliente/equipe. Mostra a ata com header/footer da empresa e botão imprimir.
+     */
+    public function minutesView($recToken = null)
+    {
+        $recToken = $this->tokenFromUrl($recToken, 2);
+        $rec = $recToken ? $this->model->findRecordingByToken($recToken) : null;
+        if (!$rec || empty($rec['minutes'])) {
+            $this->renderMessage('Minuta indisponível', 'Este link de minuta não é válido ou a ata ainda não foi gerada.');
+            return;
+        }
+        $room = $this->model->findById($rec['room_id']);
+        $this->view('videocall/minutes', [
+            'rec' => $rec,
+            'room' => $room,
+            'minutes' => (string) $rec['minutes'],
+        ]);
     }
 
     // ============================================================
@@ -818,11 +1077,12 @@ class VideocallController extends Controller
      * recebe pedaços há alguns minutos, o gravador provavelmente caiu — então
      * salvamos o que já foi enviado como uma gravação normal (nada se perde).
      */
-    private function recoverOrphanRecordings()
+    public function recoverOrphanRecordings($idleSecs = 120)
     {
+        $recovered = 0;
         $dir = PUBLIC_PATH . '/uploads/recordings';
-        if (!is_dir($dir)) return;
-        $idleSecs = 120; // 2 min sem novos pedaços = considerado interrompido
+        if (!is_dir($dir)) return $recovered;
+        $idleSecs = max(30, (int) $idleSecs); // nunca menos de 30s para não cortar quem ainda grava
         foreach (glob($dir . '/part_*.webm') as $part) {
             if (!is_file($part)) continue;
             if (time() - filemtime($part) < $idleSecs) continue; // ainda gravando
@@ -840,7 +1100,10 @@ class VideocallController extends Controller
             if (!@rename($part, $dest)) { @copy($part, $dest); @unlink($part); }
             @unlink($metaFile);
 
-            $calcDur = $this->injectWebmDuration($dest); // habilita o seek
+            // Remuxa o .part concatenado para um WebM válido (timeline completa).
+            // Fallback: injeta Duration via timecodes quando não há ffmpeg.
+            $remuxDur = $this->remuxWebm($dest);
+            $calcDur = $remuxDur !== null ? $remuxDur : $this->injectWebmDuration($dest);
 
             try {
                 $this->model->addRecording([
@@ -853,8 +1116,10 @@ class VideocallController extends Controller
                     'recorded_by' => $meta['recorded_by'] ?? null,
                     'recorded_by_name' => ($meta['recorded_by_name'] ?? null) ? ($meta['recorded_by_name'] . ' (recuperada)') : 'Gravação recuperada',
                 ]);
+                $recovered++;
             } catch (\Throwable $e) { /* ignora entradas problemáticas */ }
         }
+        return $recovered;
     }
 
     /** Exclui uma gravação (arquivo + registro). Só quem tem acesso pode. */
@@ -1112,6 +1377,59 @@ class VideocallController extends Controller
             return ((int)$m[1]) * 3600 + ((int)$m[2]) * 60 + (float)$m[3];
         }
         return 0;
+    }
+
+    /**
+     * Remuxa um WebM gravado por streaming de pedaços (MediaRecorder.start(timeslice))
+     * para um WebM VÁLIDO e com timeline completa.
+     *
+     * Por que é necessário: quando a gravação é enviada em pedaços e os bytes são
+     * simplesmente CONCATENADOS no servidor (recChunk/recoverOrphanRecordings), só o
+     * PRIMEIRO pedaço traz o cabeçalho EBML + Segment/Info/Tracks. Os pedaços
+     * seguintes são apenas clusters de mídia "soltos". O arquivo contém todos os
+     * bytes (o tamanho bate com a reunião inteira), mas players e decoders só
+     * enxergam a duração que o header do 1º pedaço descreve — daí a reunião de 12min
+     * aparecer com ~1min e a transcrição/resumo (que usam audio.duration) cobrirem só
+     * esse trecho.
+     *
+     * O ffmpeg lê os clusters tolerantemente e reescreve um container íntegro com
+     * "-c copy" (SEM recomprimir: rápido e sem perda). Depois disso o seek, a duração,
+     * a transcrição e o resumo passam a cobrir a gravação toda.
+     *
+     * @return float|null Duração em segundos do arquivo remuxado, ou null se não foi
+     *                    possível remuxar (ffmpeg ausente/falha) — nesse caso o chamador
+     *                    mantém o arquivo original e segue com o fallback atual.
+     */
+    private function remuxWebm($path)
+    {
+        $ffmpeg = $this->ffmpegBin();
+        if (!$ffmpeg || !is_file($path)) return null;
+
+        $tmp = $path . '.remux.webm';
+        @unlink($tmp);
+        // -fflags +genpts: regenera timestamps a partir dos clusters (os pedaços não
+        // trazem PTS global). -c copy: só re-encapsula, não recomprime.
+        $cmd = escapeshellarg($ffmpeg) . ' -y -fflags +genpts -i ' . escapeshellarg($path)
+            . ' -c copy -f webm ' . escapeshellarg($tmp) . ' 2>&1';
+        $this->runShell($cmd);
+
+        // Só adota o remux se gerou um arquivo plausível (não vazio e sem truncar).
+        if (!is_file($tmp) || filesize($tmp) < 1024) {
+            @unlink($tmp);
+            return null;
+        }
+        $dur = $this->mediaDuration($ffmpeg, $tmp);
+        if ($dur <= 0) {
+            // ffmpeg não reconheceu a duração: não confiamos no resultado.
+            @unlink($tmp);
+            return null;
+        }
+        // Substitui o original pelo remuxado.
+        if (!@rename($tmp, $path)) {
+            if (@copy($tmp, $path)) { @unlink($tmp); }
+            else { @unlink($tmp); return null; }
+        }
+        return $dur;
     }
 
     /** Formata segundos como mm:ss (ou hh:mm:ss). */

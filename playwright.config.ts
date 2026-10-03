@@ -13,7 +13,13 @@ import { defineConfig, devices } from '@playwright/test';
  * do PHPUnit; criam seus próprios dados via API/UI e limpam quando aplicável.
  */
 
-const PHP = process.env.PHP_BIN || 'C:\\php\\php.exe';
+// Resolve o binário PHP: variável de ambiente > C:\php\php.exe (symlink padrão)
+// > C:\wamp64\bin\php\php8.5.0\php.exe (fallback local com WAMP)
+import { existsSync } from 'fs';
+const PHP_DEFAULT = existsSync('C:\\php\\php.exe')
+  ? 'C:\\php\\php.exe'
+  : 'C:\\wamp64\\bin\\php\\php8.5.0\\php.exe';
+const PHP = process.env.PHP_BIN || PHP_DEFAULT;
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.E2E_PORT || 8199);
 const BASE_URL = `http://${HOST}:${PORT}`;

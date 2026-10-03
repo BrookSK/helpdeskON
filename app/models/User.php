@@ -160,6 +160,67 @@ class User
         return $this->db->update('users', ['is_active' => $newStatus], 'id = ?', [$id]);
     }
 
+    /**
+     * Verifica se um PIN de CLIENTE (6 dígitos, distinto do external_pin de
+     * equipe) já está em uso por outro usuário.
+     */
+    public function clientPinExists($pin, $exceptId = null)
+    {
+        $pin = trim((string)$pin);
+        if ($pin === '') return false;
+        if ($exceptId) {
+            return (bool) $this->db->fetch(
+                "SELECT id FROM users WHERE client_pin = ? AND id <> ? LIMIT 1",
+                [$pin, $exceptId]
+            );
+        }
+        return (bool) $this->db->fetch("SELECT id FROM users WHERE client_pin = ? LIMIT 1", [$pin]);
+    }
+
+    /**
+     * Define (ou gera) o PIN de cliente de um usuário, garantindo unicidade.
+     * Só faz sentido para usuários com role 'client' (validado no controller).
+     * Retorna o PIN definido, ou null em falha.
+     */
+    public function setClientPin($userId, ?string $pin = null): ?string
+    {
+        if ($pin === null) {
+            // Gera um PIN único (algumas tentativas para evitar colisão).
+            for ($i = 0; $i < 10; $i++) {
+                $candidate = ClientPinRules::generate();
+                if (!$this->clientPinExists($candidate, $userId)) { $pin = $candidate; break; }
+            }
+            if ($pin === null) return null;
+        } else {
+            $pin = ClientPinRules::normalize($pin);
+            if ($pin === '' || $this->clientPinExists($pin, $userId)) return null;
+        }
+        $this->db->update('users', ['client_pin' => $pin], 'id = ?', [$userId]);
+        return $pin;
+    }
+
+    /** Remove o PIN de cliente de um usuário. */
+    public function clearClientPin($userId)
+    {
+        return $this->db->update('users', ['client_pin' => null], 'id = ?', [$userId]);
+    }
+
+    /**
+     * Retorna o usuário CLIENTE ativo dono do PIN de cliente informado.
+     * Usado no login simplificado do cliente (/clientpin). Diferente de
+     * findByPin (que é o PIN de equipe do /solicitacaoexterna).
+     */
+    public function findByClientPin($pin)
+    {
+        $pin = ClientPinRules::normalize($pin);
+        if ($pin === '') return null;
+        $user = $this->db->fetch(
+            "SELECT * FROM users WHERE client_pin = ? AND role = 'client' AND is_active = 1 LIMIT 1",
+            [$pin]
+        );
+        return $user ?: null;
+    }
+
     /** Quantos super_admins ATIVOS existem no sistema. */
     public function countActiveSuperAdmins()
     {

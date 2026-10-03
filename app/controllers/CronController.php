@@ -523,7 +523,13 @@ class CronController extends Controller
             Logger::error('runProspecting: falha no lembrete de vencimento de cards', ['error' => $e->getMessage()]);
         }
 
-        // 6) Régua de homologação (48h): 3 contatos (0h/24h/~42h) + liberação
+        // 6) Encerra gravações órfãs (gravador caiu sem finalizar). Pendurado aqui
+        //    para reaproveitar um cron já agendado, sem exigir tarefa nova no servidor.
+        try { (new VideocallController())->recoverOrphanRecordings(); } catch (\Throwable $e) {
+            Logger::error('runProspecting: falha ao finalizar gravações órfãs', ['error' => $e->getMessage()]);
+        }
+
+        // 7) Régua de homologação (48h): 3 contatos (0h/24h/~42h) + liberação
         //    automática para produção ao fim das 48h sem manifestação do cliente.
         //    Pendurado aqui para reaproveitar um cron já agendado. Idempotente via
         //    homolog_contactN_at / homolog_auto_released_at. Regra em HomologacaoRules.
@@ -545,6 +551,22 @@ class CronController extends Controller
         @set_time_limit(120);
         $sent = $this->sendBookingReminders();
         $this->json(['success' => true, 'reminders_sent' => $sent]);
+    }
+
+    /**
+     * GET /cron/finalizeRecordings?token=XXX
+     * Encerra server-side as gravações cujo gravador caiu/saiu sem finalizar
+     * (arquivos .part sem novos pedaços há alguns minutos): promove o que já foi
+     * enviado a uma gravação normal. Antes isso só acontecia quando alguém abria a
+     * tela de gravações; agora um cron garante o encerramento mesmo que ninguém
+     * abra a lista. Idempotente e seguro (só mexe em .part parados).
+     */
+    public function finalizeRecordings()
+    {
+        $this->validateToken();
+        @set_time_limit(300);
+        $recovered = (new VideocallController())->recoverOrphanRecordings();
+        $this->json(['success' => true, 'recovered' => (int) $recovered]);
     }
 
     /** Dispara os lembretes das reuniões próximas. Retorna a quantidade enviada. */

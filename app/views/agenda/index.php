@@ -258,6 +258,14 @@ $totalHistory = array_sum(array_map('count', $groupedHistory));
                         </div>
                     </div>
 
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="qr-auto-record" checked>
+                        <label class="form-check-label small" for="qr-auto-record">
+                            <i class="bi bi-record-circle text-danger"></i> Gravar a reunião automaticamente
+                            <div class="text-muted" style="font-size:.72rem;">Começa a gravar sozinho quando o primeiro participante entra. Depois geramos transcrição, resumo e minuta.</div>
+                        </label>
+                    </div>
+
                     <div class="mb-2" id="qr-admins-block" style="display:none;">
                         <label class="form-label small fw-medium">Administradores da sala</label>
                         <select id="qr-admins" class="form-select form-select-sm" multiple size="4">
@@ -307,6 +315,7 @@ function resetQuickRoom() {
     document.getElementById('qr-title').value = '';
     const pub = document.querySelector('input[name="qr-visibility"][value="public"]');
     if (pub) pub.checked = true;
+    const ar = document.getElementById('qr-auto-record'); if (ar) ar.checked = true;
     Array.from(document.getElementById('qr-admins').options).forEach(o => o.selected = false);
     onQrVisibilityChange();
     document.getElementById('qr-form').style.display = '';
@@ -327,6 +336,7 @@ function createQuickRoom() {
     fd.append('title', document.getElementById('qr-title').value.trim() || 'Sala rápida');
     const visibility = document.querySelector('input[name="qr-visibility"]:checked')?.value || 'public';
     fd.append('visibility', visibility);
+    fd.append('auto_record', document.getElementById('qr-auto-record')?.checked ? '1' : '0');
     if (visibility === 'private') {
         Array.from(document.getElementById('qr-admins').selectedOptions).forEach(o => fd.append('admins[]', o.value));
     }
