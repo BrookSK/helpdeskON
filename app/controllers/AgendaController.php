@@ -315,21 +315,17 @@ class AgendaController extends Controller
             // Reunião operacional: notifica os participantes por WhatsApp + e-mail
             $this->notifyParticipants($id);
         } elseif ($isExternal) {
-            // Convite externo: gera (se pedido) o link do Google Agenda e envia o
-            // convite padronizado aos convidados externos por e-mail + WhatsApp.
             $this->prepareExternalGoogleLink($id);
             $this->notifyExternalGuests($id);
-            // Notifica também os participantes internos ENVOLVIDOS (os selecionados
-            // no modal) para que a equipe da reunião fique ciente. Não faz broadcast
-            // para toda a empresa.
             $this->notifyParticipants($id);
         } elseif (!empty($data['meeting_at'])) {
-            // Integração Google Agenda/Meet + convites ao cliente (email + WhatsApp)
-            // Se o evento já foi criado no modal (link gerado), só envia os convites; senão cria agora
             $this->createGoogleEventAndInvites($id, !$preEventId);
-            // Notifica também a equipe (participantes internos) por WhatsApp + e-mail
             $this->notifyParticipants($id);
         }
+
+        // Sincroniza meeting_id e auto_record na sala nativa se o link já existia
+        // (sala criada antes do save via modal — meeting_id ficava NULL).
+        $this->syncNativeRoomLink($id, $autoRecord);
 
         $this->json(['success' => true, 'meeting' => $this->model->findById($id)]);
     }
@@ -799,6 +795,9 @@ class AgendaController extends Controller
             if (!empty($_POST['resend_notifications'])) {
                 $this->notifyParticipants($id);
             }
+            // Sincroniza a sala nativa com o auto_record atualizado.
+            $autoRecordUpdated = (int)($data['auto_record'] ?? AgendaRules::normalizeAutoRecord($meeting['auto_record'] ?? 0));
+            $this->syncNativeRoomLink($id, $autoRecordUpdated);
             $this->json(['success' => true, 'meeting' => $this->model->findById($id)]);
             return;
         }
@@ -1200,8 +1199,32 @@ class AgendaController extends Controller
     }
 
     // ===== Helpers =====
-    private function saveBriefingFromPost($contactId, $userId)
+
+    /**
+     * Se o meet_link da reunião aponta para uma sala nativa do sistema,
+     * garante que essa sala tenha meeting_id e auto_record sincronizados.
+     * Cobre o caso em que a sala foi criada no modal antes do save da reunião
+     * (ficando com meeting_id = NULL e auto_record = 0 no banco).
+     */
+    private function syncNativeRoomLink($meetingId, $autoRecord)
     {
+        try {
+            $meeting = $this->model->findById($meetingId);
+            if (!$meeting || empty($meeting['meet_link'])) return;
+            if (!VideoRoomRules::isNativeRoomLink($meeting['meet_link'])) return;
+
+            // Extrai o token do link: /videocall/room/{token}
+            if (!preg_match('#/videocall/room/([A-Za-z0-9]+)#', $meeting['meet_link'], $m)) return;
+            $token = $m[1];
+
+            Database::getInstance()->query(
+                "UPDATE video_rooms SET meeting_id = ?, auto_record = ? WHERE token = ?",
+                [(int) $meetingId, (int) $autoRecord, $token]
+            );
+        } catch (\Throwable $e) { /* ignora — não interrompe o fluxo */ }
+    }
+
+    private function saveBriefingFromPost($contactId, $userId)    {
         // Só grava se algum campo de briefing foi enviado
         $keys = ['need', 'main_pain', 'current_solution', 'expected_goal', 'urgency', 'investment_range',
                  'decision_level', 'lead_temperature', 'lead_source', 'main_objection', 'next_step', 'notes'];
