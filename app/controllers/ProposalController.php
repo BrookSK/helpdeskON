@@ -233,10 +233,7 @@ class ProposalController extends Controller
 
         $this->model->changeStatus($proposal['id'], ProposalRules::STATUS_ACCEPTED, null, ['responded_at' => date('Y-m-d H:i:s')]);
         $this->model->addEvent($proposal['id'], null, 'accepted', 'Cliente aceitou a proposta');
-        $this->notifyTeam($proposal, 'Proposta aceita', "O cliente aceitou a proposta \"{$proposal['title']}\".");
-        // Aviso à equipe pelo WhatsApp do grupo (complementar ao sino).
-        try { WhatsappNotifier::sendToDefaultGroup(ProposalDelivery::teamWhatsapp('accepted', $proposal['title'] ?? null)); }
-        catch (\Throwable $e) { /* não interrompe */ }
+        $this->notifyTeamResponse($proposal, 'accepted');
         $this->json(['success' => true]);
     }
 
@@ -259,10 +256,7 @@ class ProposalController extends Controller
             'reject_reason' => $reason,
         ]);
         $this->model->addEvent($proposal['id'], null, 'rejected', 'Cliente recusou. Motivo: ' . $reason);
-        $this->notifyTeam($proposal, 'Proposta recusada', "O cliente recusou a proposta \"{$proposal['title']}\". Motivo: {$reason}");
-        // Aviso à equipe pelo WhatsApp do grupo (complementar ao sino).
-        try { WhatsappNotifier::sendToDefaultGroup(ProposalDelivery::teamWhatsapp('rejected', $proposal['title'] ?? null, $reason)); }
-        catch (\Throwable $e) { /* não interrompe */ }
+        $this->notifyTeamResponse($proposal, 'rejected', $reason);
         $this->json(['success' => true]);
     }
 
@@ -280,6 +274,35 @@ class ProposalController extends Controller
                 'type' => 'system',
             ]);
         } catch (\Throwable $e) { /* não interrompe a resposta ao cliente */ }
+    }
+
+    /**
+     * Avisa a equipe quando o cliente responde: sino (criador) + WhatsApp pessoal
+     * do criador (se tiver telefone) + WhatsApp do grupo padrão. Nunca interrompe.
+     */
+    private function notifyTeamResponse(array $proposal, string $event, ?string $reason = null): void
+    {
+        $title = $proposal['title'] ?? null;
+        $sinoTitle = $event === 'accepted' ? 'Proposta aceita' : 'Proposta recusada';
+        $sinoMsg = $event === 'accepted'
+            ? "O cliente aceitou a proposta \"{$title}\"."
+            : "O cliente recusou a proposta \"{$title}\"." . ($reason ? " Motivo: {$reason}" : '');
+        $this->notifyTeam($proposal, $sinoTitle, $sinoMsg);
+
+        $wa = ProposalDelivery::teamWhatsapp($event, $title, $reason);
+
+        // WhatsApp pessoal do criador (se tiver telefone cadastrado).
+        try {
+            if (!empty($proposal['created_by'])) {
+                $creator = (new User())->findById((int)$proposal['created_by']);
+                if ($creator && !empty($creator['phone'])) {
+                    WhatsappNotifier::sendToPhone($creator['phone'], $wa, $creator['name'] ?? null);
+                }
+            }
+        } catch (\Throwable $e) { /* não interrompe */ }
+
+        // WhatsApp do grupo da equipe (se habilitado nas Settings).
+        try { WhatsappNotifier::sendToDefaultGroup($wa); } catch (\Throwable $e) { /* não interrompe */ }
     }
 
     private function publicBase(): string
