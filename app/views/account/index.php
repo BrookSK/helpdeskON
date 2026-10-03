@@ -94,8 +94,7 @@
             </div>
         </div>
 
-        <?php // ===== PIN de acesso — apenas para o cliente ===== ?>
-        <?php if (($userData['role'] ?? '') === 'client'): ?>
+        <?php // ===== PIN de acesso — para qualquer usuário ===== ?>
         <div class="col-lg-6">
             <div class="card">
                 <div class="card-header bg-white">
@@ -132,7 +131,6 @@
                 </div>
             </div>
         </div>
-        <?php endif; ?>
     </div>
 </div>
 

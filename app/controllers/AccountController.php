@@ -95,9 +95,8 @@ class AccountController extends Controller
     }
 
     /**
-     * Permite ao próprio CLIENTE alterar seu PIN de acesso (4 dígitos). O PIN é
-     * gerado pelo sistema na criação da conta; aqui o cliente pode trocá-lo.
-     * Só faz sentido para o papel 'client'.
+     * Permite ao próprio usuário (qualquer papel) definir/alterar seu PIN de
+     * acesso de 4 dígitos, usado para entrar pela opção "Entrar com PIN".
      */
     public function updateClientPin()
     {
@@ -107,10 +106,6 @@ class AccountController extends Controller
         }
 
         $user = $this->currentUser();
-        if (($user['role'] ?? '') !== 'client') {
-            flash('error', 'Apenas clientes possuem PIN de acesso.');
-            $this->redirect('account');
-        }
 
         $pin = trim($_POST['client_pin'] ?? '');
         if (!ClientPinRules::isValidFormat($pin)) {

@@ -112,26 +112,24 @@ class UsersController extends Controller
             'is_active' => 1,
         ]);
 
-        // PIN de login do CLIENTE: o primeiro PIN é gerado pelo sistema. Se o
-        // admin digitou um PIN manualmente no formulário, respeita-o (validando
-        // 4 dígitos + unicidade); senão gera um automático. O cliente pode
-        // alterá-lo depois na "Minha Conta".
-        if ($role === 'client') {
-            $manualClientPin = trim($_POST['client_pin'] ?? '');
-            if ($manualClientPin !== '') {
-                if (!ClientPinRules::isValidFormat($manualClientPin)) {
-                    flash('error', 'O PIN do cliente deve ter exatamente 4 dígitos numéricos.');
-                    $this->redirect('users/create');
-                }
-                if ($this->userModel->clientPinExists($manualClientPin)) {
-                    flash('error', 'Este PIN de cliente já existe.');
-                    $this->redirect('users/create');
-                }
-                $this->userModel->setClientPin($userId, $manualClientPin);
-            } else {
-                // Primeiro acesso: sistema gera o PIN automaticamente.
-                $this->userModel->setClientPin($userId);
+        // PIN de login (por usuário, qualquer papel): o primeiro PIN é gerado
+        // pelo sistema. Se o admin digitou um PIN manualmente, respeita-o
+        // (validando 4 dígitos + unicidade); senão gera um automático. O usuário
+        // pode alterá-lo depois na "Minha Conta".
+        $manualClientPin = trim($_POST['client_pin'] ?? '');
+        if ($manualClientPin !== '') {
+            if (!ClientPinRules::isValidFormat($manualClientPin)) {
+                flash('error', 'O PIN de acesso deve ter exatamente 4 dígitos numéricos.');
+                $this->redirect('users/create');
             }
+            if ($this->userModel->clientPinExists($manualClientPin)) {
+                flash('error', 'Este PIN de acesso já existe.');
+                $this->redirect('users/create');
+            }
+            $this->userModel->setClientPin($userId, $manualClientPin);
+        } else {
+            // Primeiro acesso: sistema gera o PIN automaticamente.
+            $this->userModel->setClientPin($userId);
         }
 
         if ($sendInvite) {
@@ -353,28 +351,23 @@ class UsersController extends Controller
             $data['external_pin'] = null;
         }
 
-        // PIN de login do CLIENTE (4 dígitos, coluna client_pin). Só para 'client'.
-        if ($role === 'client') {
-            if (!empty($_POST['client_pin_remove'])) {
-                $this->userModel->clearClientPin($id);
-            } else {
-                $newClientPin = trim($_POST['client_pin'] ?? '');
-                if ($newClientPin !== '') {
-                    if (!ClientPinRules::isValidFormat($newClientPin)) {
-                        flash('error', 'O PIN do cliente deve ter exatamente 4 dígitos numéricos.');
-                        $this->redirect('users/edit/' . $id);
-                    }
-                    if ($this->userModel->clientPinExists($newClientPin, $id)) {
-                        flash('error', 'Este PIN de cliente já existe.');
-                        $this->redirect('users/edit/' . $id);
-                    }
-                    $this->userModel->setClientPin($id, $newClientPin);
-                }
-                // Vazio e sem "remover": mantém o PIN atual.
-            }
+        // PIN de login (4 dígitos, coluna client_pin) — por usuário, qualquer papel.
+        if (!empty($_POST['client_pin_remove'])) {
+            $this->userModel->clearClientPin($id);
         } else {
-            // Papel deixou de ser cliente: revoga o PIN de cliente.
-            $data['client_pin'] = null;
+            $newClientPin = trim($_POST['client_pin'] ?? '');
+            if ($newClientPin !== '') {
+                if (!ClientPinRules::isValidFormat($newClientPin)) {
+                    flash('error', 'O PIN de acesso deve ter exatamente 4 dígitos numéricos.');
+                    $this->redirect('users/edit/' . $id);
+                }
+                if ($this->userModel->clientPinExists($newClientPin, $id)) {
+                    flash('error', 'Este PIN de acesso já existe.');
+                    $this->redirect('users/edit/' . $id);
+                }
+                $this->userModel->setClientPin($id, $newClientPin);
+            }
+            // Vazio e sem "remover": mantém o PIN atual.
         }
 
         $db = Database::getInstance();

@@ -206,16 +206,16 @@ class User
     }
 
     /**
-     * Retorna o usuário CLIENTE ativo dono do PIN de cliente informado.
-     * Usado no login simplificado do cliente (/clientpin). Diferente de
-     * findByPin (que é o PIN de equipe do /solicitacaoexterna).
+     * Retorna o usuário ATIVO dono do PIN informado (login por PIN, /clientpin).
+     * O PIN é por usuário: vale para qualquer papel. Diferente de findByPin
+     * (que é o PIN de equipe de 4 dígitos do /solicitacaoexterna).
      */
     public function findByClientPin($pin)
     {
         $pin = ClientPinRules::normalize($pin);
         if ($pin === '') return null;
         $user = $this->db->fetch(
-            "SELECT * FROM users WHERE client_pin = ? AND role = 'client' AND is_active = 1 LIMIT 1",
+            "SELECT * FROM users WHERE client_pin = ? AND is_active = 1 LIMIT 1",
             [$pin]
         );
         return $user ?: null;

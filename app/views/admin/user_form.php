@@ -158,16 +158,16 @@
                     </div>
                 </div>
 
-                <!-- PIN de login do CLIENTE (4 dígitos) — apenas para o papel Cliente -->
-                <div id="client-pin-field" class="card mb-3" style="<?= ($editUser['role'] ?? 'client') === 'client' ? '' : 'display:none' ?>">
+                <!-- PIN de login (4 dígitos) — para qualquer usuário -->
+                <div id="client-pin-field" class="card mb-3">
                     <div class="card-header bg-white fw-medium" style="font-size:0.9rem">
-                        <i class="bi bi-key-fill"></i> PIN de acesso do cliente
+                        <i class="bi bi-key-fill"></i> PIN de acesso (login por PIN)
                     </div>
                     <div class="card-body">
                         <p class="small text-muted mb-2">
-                            PIN de <strong>4 dígitos</strong> para o cliente acessar a área dele direto na
+                            PIN de <strong>4 dígitos</strong> para este usuário entrar direto na
                             tela de login (botão <em>Entrar com PIN</em>), sem usar email e senha.
-                            O sistema gera um PIN automaticamente ao criar o cliente; aqui você pode alterá-lo.
+                            Dá o mesmo acesso do login normal. Aqui você pode definir ou alterá-lo.
                         </p>
                         <?php $hasClientPin = !empty($editUser['client_pin']); ?>
                         <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
@@ -443,9 +443,7 @@ function toggleCompanyFields() {
     const pinTeamRoles = ['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial', 'marketing'];
     if (pinField) pinField.style.display = pinTeamRoles.includes(role) ? '' : 'none';
 
-    // PIN de login do cliente: só para o papel Cliente.
-    const clientPinField = document.getElementById('client-pin-field');
-    if (clientPinField) clientPinField.style.display = role === 'client' ? '' : 'none';
+    // PIN de login (por usuário): disponível para qualquer papel — sempre visível.
 }
 
 // Mostra/esconde o campo do PIN do cliente ao clicar em "Definir/Alterar PIN".
