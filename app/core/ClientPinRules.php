@@ -5,17 +5,18 @@
  *
  * Este PIN é DIFERENTE do external_pin de EQUIPE (migration 126, usado em
  * /solicitacaoexterna para criar demanda em nome do atendente). O PIN do cliente
- * é um login simplificado do PRÓPRIO cliente, que cai na página de nova demanda
- * vinculada ao usuário dele — sem acessar dados de outro cliente.
+ * é um login simplificado do PRÓPRIO cliente, que entra como o próprio cliente.
  *
- * Para não colidir com o PIN de equipe (4 dígitos), o PIN do cliente usa 6
- * dígitos. A validação de formato e a normalização ficam aqui, testáveis.
+ * Ambos os PINs têm 4 dígitos, mas são colunas e fluxos de login distintos
+ * (client_pin via /clientpin x external_pin via /solicitacaoexterna); cada um é
+ * único dentro do seu próprio tipo. A validação de formato e a normalização
+ * ficam aqui, testáveis.
  */
 class ClientPinRules
 {
-    public const PIN_LENGTH = 6;
+    public const PIN_LENGTH = 4;
 
-    /** Formato válido do PIN do cliente: exatamente 6 dígitos. */
+    /** Formato válido do PIN do cliente: exatamente 4 dígitos. */
     public static function isValidFormat(?string $pin): bool
     {
         return is_string($pin) && preg_match('/^\d{' . self::PIN_LENGTH . '}$/', trim($pin)) === 1;
@@ -51,9 +52,10 @@ class ClientPinRules
         return self::isValidFormat($user['client_pin'] ?? null);
     }
 
-    /** Gera um PIN de 6 dígitos aleatório (zero-padded). O caller garante unicidade. */
+    /** Gera um PIN aleatório de PIN_LENGTH dígitos (zero-padded). O caller garante unicidade. */
     public static function generate(): string
     {
-        return str_pad((string) random_int(0, 999999), self::PIN_LENGTH, '0', STR_PAD_LEFT);
+        $max = (int) str_repeat('9', self::PIN_LENGTH); // ex.: 4 dígitos -> 9999
+        return str_pad((string) random_int(0, $max), self::PIN_LENGTH, '0', STR_PAD_LEFT);
     }
 }

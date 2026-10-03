@@ -5,25 +5,26 @@ use PHPUnit\Framework\TestCase;
 use ClientPinRules;
 
 /**
- * Testes unitários das regras puras do PIN de login do cliente (Fase 9).
- * Cobre: formato 6 dígitos (distinto do PIN de equipe de 4), normalização,
- * papel permitido e condição de autenticação.
+ * Testes unitários das regras puras do PIN de login do cliente.
+ * Cobre: formato 4 dígitos, normalização, papel permitido e condição de
+ * autenticação. (O PIN do cliente e o PIN de equipe têm 4 dígitos, mas são
+ * colunas/fluxos de login distintos.)
  */
 final class ClientPinRulesTest extends TestCase
 {
-    public function testFormato6Digitos(): void
+    public function testFormato4Digitos(): void
     {
-        $this->assertTrue(ClientPinRules::isValidFormat('123456'));
-        $this->assertFalse(ClientPinRules::isValidFormat('1234'));   // PIN de equipe (4) não serve
+        $this->assertTrue(ClientPinRules::isValidFormat('1234'));
+        $this->assertFalse(ClientPinRules::isValidFormat('123'));
         $this->assertFalse(ClientPinRules::isValidFormat('12345'));
-        $this->assertFalse(ClientPinRules::isValidFormat('abcdef'));
+        $this->assertFalse(ClientPinRules::isValidFormat('abcd'));
         $this->assertFalse(ClientPinRules::isValidFormat(null));
         $this->assertFalse(ClientPinRules::isValidFormat(''));
     }
 
     public function testNormalize(): void
     {
-        $this->assertSame('123456', ClientPinRules::normalize('  123456  '));
+        $this->assertSame('1234', ClientPinRules::normalize('  1234  '));
         $this->assertSame('', ClientPinRules::normalize('12'));
     }
 
@@ -37,23 +38,23 @@ final class ClientPinRulesTest extends TestCase
 
     public function testCanAuthenticate(): void
     {
-        $ok = ['role' => 'client', 'is_active' => 1, 'client_pin' => '654321'];
+        $ok = ['role' => 'client', 'is_active' => 1, 'client_pin' => '6543'];
         $this->assertTrue(ClientPinRules::canAuthenticate($ok));
         // Papel errado.
-        $this->assertFalse(ClientPinRules::canAuthenticate(['role' => 'super_admin', 'is_active' => 1, 'client_pin' => '654321']));
+        $this->assertFalse(ClientPinRules::canAuthenticate(['role' => 'super_admin', 'is_active' => 1, 'client_pin' => '6543']));
         // Inativo.
-        $this->assertFalse(ClientPinRules::canAuthenticate(['role' => 'client', 'is_active' => 0, 'client_pin' => '654321']));
+        $this->assertFalse(ClientPinRules::canAuthenticate(['role' => 'client', 'is_active' => 0, 'client_pin' => '6543']));
         // PIN inválido.
         $this->assertFalse(ClientPinRules::canAuthenticate(['role' => 'client', 'is_active' => 1, 'client_pin' => '12']));
         // Null.
         $this->assertFalse(ClientPinRules::canAuthenticate(null));
     }
 
-    public function testGenerateTem6Digitos(): void
+    public function testGenerateTem4Digitos(): void
     {
         for ($i = 0; $i < 20; $i++) {
             $pin = ClientPinRules::generate();
-            $this->assertSame(6, strlen($pin));
+            $this->assertSame(4, strlen($pin));
             $this->assertTrue(ClientPinRules::isValidFormat($pin));
         }
     }
