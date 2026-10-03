@@ -44,14 +44,24 @@ class FinanceController extends Controller
         $name = trim($_POST['name'] ?? '');
         if ($name === '') $this->json(['error' => 'Informe o nome da conta.'], 400);
         $purpose = in_array($_POST['purpose'] ?? '', ['parcela','recorrente','outra'], true) ? $_POST['purpose'] : 'outra';
-        $id = $this->accounts->create([
-            'name' => $name,
-            'purpose' => $purpose,
-            'asaas_token' => trim($_POST['asaas_token'] ?? '') ?: null,
-            'sandbox' => !empty($_POST['sandbox']) ? 1 : 0,
-            'active' => 1,
-            'created_by' => $user['id'],
-        ]);
+        try {
+            $id = $this->accounts->create([
+                'name' => $name,
+                'purpose' => $purpose,
+                'asaas_token' => trim($_POST['asaas_token'] ?? '') ?: null,
+                'sandbox' => !empty($_POST['sandbox']) ? 1 : 0,
+                'active' => 1,
+                'created_by' => $user['id'],
+            ]);
+        } catch (\Throwable $e) {
+            // Mensagem clara em vez de erro HTML genérico (ex.: tabela ainda não
+            // criada neste banco — rodar as migrations da esteira).
+            $msg = $e->getMessage();
+            if (stripos($msg, "doesn't exist") !== false || stripos($msg, '42S02') !== false) {
+                $this->json(['error' => 'As tabelas do Financeiro ainda não foram criadas neste ambiente. Rode as migrations da esteira (migrate_esteira.php) e tente de novo.'], 503);
+            }
+            $this->json(['error' => 'Não foi possível salvar a conta. Tente novamente.'], 500);
+        }
         $this->json(['success' => true, 'id' => $id]);
     }
 
