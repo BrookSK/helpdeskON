@@ -18,7 +18,7 @@ $statusBadge = [
             <h5 class="mb-0">Propostas / Orçamentos</h5>
             <small class="text-muted">Processo comercial — da elaboração ao aceite</small>
         </div>
-        <button class="btn btn-primary btn-sm" onclick="newProposal()"><i class="bi bi-plus-lg"></i> Nova proposta</button>
+        <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#newProposalModal"><i class="bi bi-plus-lg"></i> Nova proposta</button>
     </div>
 
     <div class="card mb-3">
@@ -61,17 +61,91 @@ $statusBadge = [
     </div>
 </div>
 
+<!-- Modal: Nova proposta -->
+<div class="modal fade" id="newProposalModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title"><i class="bi bi-file-earmark-text"></i> Nova proposta</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label small fw-medium">Título da proposta *</label>
+          <input type="text" id="np-title" class="form-control form-control-sm" placeholder="Ex.: Desenvolvimento do site institucional" autofocus>
+        </div>
+        <div class="mb-3">
+          <label class="form-label small fw-medium">Lead / contato (CRM)</label>
+          <select id="np-lead" class="form-select form-select-sm">
+            <option value="">— Sem vínculo —</option>
+            <?php foreach (($leads ?? []) as $l): ?>
+            <option value="<?= (int)$l['id'] ?>"
+                    data-name="<?= escape($l['contact_name'] ?? '') ?>"
+                    data-phone="<?= escape($l['phone'] ?? '') ?>">
+              <?= escape($l['contact_name'] ?: ('Contato #' . (int)$l['id'])) ?><?= !empty($l['phone']) ? ' · ' . escape($l['phone']) : '' ?>
+            </option>
+            <?php endforeach; ?>
+          </select>
+          <small class="text-muted">Vincula a proposta ao lead do CRM (rastreabilidade da esteira).</small>
+        </div>
+        <div class="row g-2">
+          <div class="col-12">
+            <label class="form-label small">Nome do cliente</label>
+            <input type="text" id="np-client-name" class="form-control form-control-sm" placeholder="Preenche ao escolher o lead">
+          </div>
+          <div class="col-7">
+            <label class="form-label small">E-mail</label>
+            <input type="email" id="np-client-email" class="form-control form-control-sm">
+          </div>
+          <div class="col-5">
+            <label class="form-label small">Telefone</label>
+            <input type="text" id="np-client-phone" class="form-control form-control-sm">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-sm btn-primary" id="np-save"><i class="bi bi-check-lg"></i> Criar proposta</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 const PROP_BASE = '<?= baseUrl("") ?>';
 const CSRF = '<?= csrf_token() ?>';
-function newProposal() {
-    const title = prompt('Título da proposta:');
-    if (!title) return;
-    const fd = new FormData(); fd.append('csrf_token', CSRF); fd.append('title', title);
-    fetch(`${PROP_BASE}proposal/store`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
-        .then(r => r.json()).then(d => { if (d.error) { alert(d.error); return; } location.href = `${PROP_BASE}proposal/edit/${d.id}`; })
-        .catch(() => alert('Erro ao criar a proposta.'));
-}
+
+// Ao escolher um lead, preenche nome/telefone do cliente (snapshot).
+document.getElementById('np-lead').addEventListener('change', function () {
+    const opt = this.options[this.selectedIndex];
+    const name = opt.getAttribute('data-name') || '';
+    const phone = opt.getAttribute('data-phone') || '';
+    if (this.value) {
+        if (!document.getElementById('np-client-name').value) document.getElementById('np-client-name').value = name;
+        if (!document.getElementById('np-client-phone').value) document.getElementById('np-client-phone').value = phone;
+    }
+});
+
+document.getElementById('np-save').addEventListener('click', async function () {
+    const title = document.getElementById('np-title').value.trim();
+    if (!title) { alert('Informe o título da proposta.'); return; }
+    this.disabled = true;
+    const fd = new FormData();
+    fd.append('csrf_token', CSRF);
+    fd.append('title', title);
+    fd.append('contact_id', document.getElementById('np-lead').value);
+    fd.append('client_name', document.getElementById('np-client-name').value.trim());
+    fd.append('client_email', document.getElementById('np-client-email').value.trim());
+    fd.append('client_phone', document.getElementById('np-client-phone').value.trim());
+    try {
+        const d = await fetch(`${PROP_BASE}proposal/store`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} }).then(r => r.json());
+        if (d.error) { alert(d.error); this.disabled = false; return; }
+        location.href = `${PROP_BASE}proposal/edit/${d.id}`;
+    } catch (e) {
+        alert('Erro ao criar a proposta.');
+        this.disabled = false;
+    }
+});
 </script>
 
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>

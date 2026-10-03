@@ -27,7 +27,14 @@ class ProposalController extends Controller
             $filters['status'] = $_GET['status'];
         }
         $proposals = $this->model->getAll($filters);
-        $this->view('commercial/proposals', ['user' => $user, 'proposals' => $proposals, 'statuses' => ProposalRules::STATUSES]);
+        $leads = [];
+        try { $leads = (new WhatsappContact())->getLeadsForSelect(); } catch (\Throwable $e) { $leads = []; }
+        $this->view('commercial/proposals', [
+            'user' => $user,
+            'proposals' => $proposals,
+            'statuses' => ProposalRules::STATUSES,
+            'leads' => $leads,
+        ]);
     }
 
     /** Tela de edição (montagem) de uma proposta. */
