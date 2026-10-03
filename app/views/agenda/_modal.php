@@ -1096,6 +1096,8 @@ function collectPayload() {
     fd.append('auto_record', (arChk && arChk.checked) ? '1' : '0');
     return fd;
 }
+
+function showMeetLink(link) {
     const hint = document.getElementById('mt-meet-hint');
     if (link) {
         hint.innerHTML = '<span class="text-success"><i class="bi bi-check-circle-fill"></i> Link gerado:</span> '
