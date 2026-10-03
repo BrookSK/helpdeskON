@@ -137,7 +137,8 @@ final class ProvisioningTest extends TestCase
     {
         $id = $this->novoProvisioning();
         $this->assertNotNull($this->prov->findStepByKey($id, 'deploy'));
-        $this->assertNull($this->prov->findStepByKey($id, 'inexistente'));
+        // Database::fetch() retorna false (não null) quando não há linha.
+        $this->assertEmpty($this->prov->findStepByKey($id, 'inexistente'));
         $this->prov->addEvent($id, $this->userId, 'nota', 'teste');
         $this->assertNotEmpty($this->prov->getEvents($id));
     }

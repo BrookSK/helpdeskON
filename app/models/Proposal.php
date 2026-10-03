@@ -51,7 +51,7 @@ class Proposal
         if (!empty($filters['status'])) { $sql .= " AND p.status = ?"; $params[] = $filters['status']; }
         if (!empty($filters['contact_id'])) { $sql .= " AND p.contact_id = ?"; $params[] = (int)$filters['contact_id']; }
         $sql .= " ORDER BY p.id DESC";
-        return $this->db->fetchAll($sql, $params);
+        try { return $this->db->fetchAll($sql, $params); } catch (\Throwable $e) { return []; }
     }
 
     public function create($data)

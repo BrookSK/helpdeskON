@@ -129,6 +129,9 @@ final class ProviderTest extends TestCase
         $id = $this->novo();
         $this->prov->addDocument($id, 'Contrato PJ', null, 'assinado');
         $this->assertCount(1, $this->prov->getDocuments($id));
+        // O model Provider::create() não gera evento (quem gera é o controller).
+        // Registramos um evento explicitamente e conferimos a trilha.
+        $this->prov->addEvent($id, $this->userId, 'nota', 'teste');
         $this->assertNotEmpty($this->prov->getEvents($id));
     }
 }

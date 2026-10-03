@@ -22,7 +22,13 @@ class FinanceAccount
         $sql = "SELECT * FROM finance_accounts";
         if ($onlyActive) $sql .= " WHERE active = 1";
         $sql .= " ORDER BY name";
-        return $this->db->fetchAll($sql);
+        // Degrada sem quebrar a tela se a migration 147 ainda não foi aplicada
+        // neste banco (ex.: ambiente beta sem as tabelas da esteira).
+        try {
+            return $this->db->fetchAll($sql);
+        } catch (\Throwable $e) {
+            return [];
+        }
     }
 
     public function create($data)
