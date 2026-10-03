@@ -22,11 +22,22 @@ $isTerminal = in_array($proposal['status'], ['accepted','rejected','cancelled'],
             <?php if ($proposal['status'] === 'accepted'): ?>
             <button class="btn btn-sm btn-dark" onclick="genContract()"><i class="bi bi-file-earmark-check"></i> Gerar contrato</button>
             <?php endif; ?>
+            <?php if ($proposal['status'] === 'rejected'): ?>
+            <button class="btn btn-sm btn-warning" onclick="reopenProposal()"><i class="bi bi-arrow-counterclockwise"></i> Reabrir para editar</button>
+            <?php endif; ?>
         </div>
     </div>
 
     <?php if ($proposal['status'] === 'accepted'): ?>
     <div class="alert alert-success py-2"><i class="bi bi-check-circle"></i> Proposta aceita pelo cliente. Gere o contrato para seguir a esteira.</div>
+    <?php endif; ?>
+
+    <?php if ($proposal['status'] === 'rejected'): ?>
+    <div class="alert alert-danger py-2">
+        <i class="bi bi-x-circle"></i> <strong>Proposta recusada pelo cliente.</strong>
+        <?php if (!empty($proposal['reject_reason'])): ?><br><span class="small">Motivo: <?= escape($proposal['reject_reason']) ?></span><?php endif; ?>
+        <br><span class="small text-muted">Clique em <strong>Reabrir para editar</strong> para ajustar e reenviar.</span>
+    </div>
     <?php endif; ?>
 
     <div class="row g-3">
@@ -191,11 +202,28 @@ async function saveProposal() {
 async function sendProposal() {
     if (!await saveProposal()) return;
     if (!confirm('Enviar a proposta ao cliente? Ela ficará disponível pelo link público.')) return;
+    const btn = document.getElementById('btn-send');
+    const orig = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Enviando...'; }
     const fd = new FormData(); fd.append('csrf_token', CSRF);
     const r = await fetch(`${PROP_BASE}proposal/send/${PROPOSAL_ID}`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(x => x.json()).catch(() => ({error:'Falha de rede'}));
+    if (btn) { btn.disabled = false; btn.innerHTML = orig; }
     if (r.error) { alert(r.error); return; }
-    prompt('Proposta enviada. Link público para o cliente:', r.link);
+
+    // Feedback do que foi enviado ao cliente.
+    let msg = 'Proposta marcada como enviada.\n';
+    const canais = [];
+    if (r.sent_whats) canais.push('WhatsApp');
+    if (r.sent_email) canais.push('e-mail');
+    if (canais.length) {
+        msg += 'Enviada ao cliente por: ' + canais.join(' e ') + '.';
+    } else if (r.no_contact) {
+        msg += 'Atenção: o cliente não tem telefone/e-mail cadastrado — nada foi enviado automaticamente. Copie o link e envie manualmente:\n' + r.link;
+    } else {
+        msg += 'Não foi possível enviar automaticamente (verifique WhatsApp/SMTP). Envie o link manualmente:\n' + r.link;
+    }
+    alert(msg);
     location.reload();
 }
 // Adicionar item a partir do catálogo.
@@ -206,6 +234,16 @@ document.getElementById('svc-pick').addEventListener('change', function() {
 });
 // Carrega os itens existentes.
 if (EXISTING_ITEMS.length) EXISTING_ITEMS.forEach(it => addRow(it)); else addRow();
+
+// Reabre uma proposta recusada para edição (volta para "em elaboração").
+async function reopenProposal() {
+    if (!confirm('Reabrir esta proposta recusada para editar? Ela volta para "em elaboração".')) return;
+    const fd = new FormData(); fd.append('csrf_token', CSRF); fd.append('status', 'draft');
+    const r = await fetch(`${PROP_BASE}proposal/status/${PROPOSAL_ID}`, { method:'POST', body: fd, headers:{'X-Requested-With':'XMLHttpRequest'} })
+        .then(x=>x.json()).catch(()=>({error:'Falha de rede'}));
+    if (r.error) { alert(r.error); return; }
+    location.reload();
+}
 
 const CONTRACT_TEMPLATES = <?= json_encode($contractTemplates ?? [], JSON_UNESCAPED_UNICODE) ?: '[]' ?>;
 async function genContract() {

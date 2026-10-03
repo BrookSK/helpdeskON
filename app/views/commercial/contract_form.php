@@ -87,7 +87,19 @@ async function sendReview() {
     const fd = new FormData(); fd.append('csrf_token', CSRF);
     const r = await fetch(`${BASE}contract/sendForReview/${CID}`, { method:'POST', body: fd, headers:{'X-Requested-With':'XMLHttpRequest'} }).then(x=>x.json()).catch(()=>({error:'Falha de rede'}));
     if (r.error) { alert(r.error); return; }
-    prompt('Enviado. Link público para o cliente aprovar:', r.link); location.reload();
+
+    let msg = 'Contrato enviado para aprovação.\n';
+    const canais = [];
+    if (r.sent_whats) canais.push('WhatsApp');
+    if (r.sent_email) canais.push('e-mail');
+    if (canais.length) {
+        msg += 'Enviado ao cliente por: ' + canais.join(' e ') + '.';
+    } else if (r.no_contact) {
+        msg += 'Atenção: o cliente não tem telefone/e-mail cadastrado. Copie o link e envie manualmente:\n' + r.link;
+    } else {
+        msg += 'Não foi possível enviar automaticamente (verifique WhatsApp/SMTP). Envie o link manualmente:\n' + r.link;
+    }
+    alert(msg); location.reload();
 }
 async function sendSignature() {
     if (!confirm('Enviar o contrato para assinatura na ClickSign?')) return;

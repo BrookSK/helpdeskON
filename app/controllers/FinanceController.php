@@ -145,7 +145,46 @@ class FinanceController extends Controller
         $this->projects->replaceCharges($id, $plan, $accountByKind);
         if (isset($body['total'])) $this->projects->update($id, ['total_value' => FinanceRules::money($body['total'])]);
 
-        $this->json(['success' => true, 'charges' => $this->projects->getCharges($id)]);
+        $charges = $this->projects->getCharges($id);
+
+        // Avisa o cliente sobre o plano de pagamento (WhatsApp + e-mail), quando
+        // solicitado (notify=1) e houver contato. Nunca interrompe o salvamento.
+        $delivery = ['sent_whats' => 0, 'sent_email' => 0, 'no_contact' => true];
+        if (!empty($body['notify_client'])) {
+            $delivery = $this->notifyClientPlan($project, $charges);
+        }
+
+        $this->json(['success' => true, 'charges' => $charges, 'delivery' => $delivery]);
+    }
+
+    /**
+     * Resolve o contato do cliente (via contrato vinculado) e envia o resumo do
+     * plano por WhatsApp + e-mail. Nunca interrompe.
+     */
+    private function notifyClientPlan(array $project, array $charges): array
+    {
+        $out = ['sent_whats' => 0, 'sent_email' => 0, 'no_contact' => true];
+        // O contato do cliente vem do contrato que originou o projeto financeiro.
+        $contract = !empty($project['contract_id']) ? (new Contract())->findById((int)$project['contract_id']) : null;
+        $name  = trim((string)($contract['client_name'] ?? '')) ?: 'Cliente';
+        $email = FinanceDelivery::normalizeEmail($contract['client_email'] ?? null);
+        $phone = FinanceDelivery::normalizePhone($contract['client_phone'] ?? null);
+        $company = trim((string) Config::get('app_name')) ?: null;
+
+        if ($phone) {
+            $out['no_contact'] = false;
+            $msg = FinanceDelivery::clientWhatsapp($name, $charges, $company);
+            try { if (WhatsappNotifier::sendToPhone($phone, $msg, $name)) $out['sent_whats']++; }
+            catch (\Throwable $e) { /* não interrompe */ }
+        }
+        if ($email) {
+            $out['no_contact'] = false;
+            $subject = FinanceDelivery::clientEmailSubject($company);
+            $html = Mailer::template($subject, FinanceDelivery::clientEmailBody($name, $charges));
+            try { if (Mailer::send($email, $subject, $html)) $out['sent_email']++; }
+            catch (\Throwable $e) { /* não interrompe */ }
+        }
+        return $out;
     }
 
     /** Marca manualmente uma cobrança como paga (quando não há Asaas no fluxo). */

@@ -114,7 +114,62 @@ class ContractController extends Controller
             $this->json(['error' => 'Não é possível enviar para aprovação neste estado.'], 409);
         }
         $link = $this->publicBase() . '/contract/show/' . $contract['public_token'];
-        $this->json(['success' => true, 'link' => $link]);
+
+        // Envia o link ao CLIENTE por WhatsApp + e-mail (quando houver contato).
+        $delivery = $this->deliverToClient($contract, $link);
+
+        $this->json([
+            'success' => true,
+            'link' => $link,
+            'sent_whats' => $delivery['sent_whats'],
+            'sent_email' => $delivery['sent_email'],
+            'no_contact' => $delivery['no_contact'],
+        ]);
+    }
+
+    /**
+     * Envia o link do contrato ao cliente (WhatsApp + e-mail). Nunca interrompe.
+     */
+    private function deliverToClient(array $contract, string $link): array
+    {
+        $out = ['sent_whats' => 0, 'sent_email' => 0, 'no_contact' => true];
+        $c = ContractDelivery::clientContact($contract);
+        $company = trim((string) Config::get('app_name')) ?: null;
+        $title = $contract['title'] ?? null;
+
+        if (!empty($c['phone'])) {
+            $out['no_contact'] = false;
+            $msg = ContractDelivery::clientWhatsapp($c['name'], $link, $title, $company);
+            try { if (WhatsappNotifier::sendToPhone($c['phone'], $msg, $c['name'])) $out['sent_whats']++; }
+            catch (\Throwable $e) { /* não interrompe */ }
+        }
+        if (!empty($c['email'])) {
+            $out['no_contact'] = false;
+            $subject = ContractDelivery::clientEmailSubject($title);
+            $html = Mailer::template($subject, ContractDelivery::clientEmailBody($c['name'], $link, $title));
+            try { if (Mailer::send($c['email'], $subject, $html)) $out['sent_email']++; }
+            catch (\Throwable $e) { /* não interrompe */ }
+        }
+        return $out;
+    }
+
+    /**
+     * Avisa a equipe quando há evento do cliente/assinatura: sino (criador) +
+     * WhatsApp pessoal do criador + WhatsApp do grupo. Nunca interrompe.
+     */
+    private function notifyTeamResponse(array $contract, string $event, string $sinoTitle, string $sinoMsg, ?string $reason = null): void
+    {
+        $this->notifyTeam($contract, $sinoTitle, $sinoMsg);
+        $wa = ContractDelivery::teamWhatsapp($event, $contract['title'] ?? null, $reason);
+        try {
+            if (!empty($contract['created_by'])) {
+                $creator = (new User())->findById((int)$contract['created_by']);
+                if ($creator && !empty($creator['phone'])) {
+                    WhatsappNotifier::sendToPhone($creator['phone'], $wa, $creator['name'] ?? null);
+                }
+            }
+        } catch (\Throwable $e) { /* não interrompe */ }
+        try { WhatsappNotifier::sendToDefaultGroup($wa); } catch (\Throwable $e) { /* não interrompe */ }
     }
 
     /**
@@ -198,7 +253,8 @@ class ContractController extends Controller
         }
         $this->model->changeStatus($contract['id'], ContractRules::STATUS_APPROVED, null, ['approved_at' => date('Y-m-d H:i:s')]);
         $this->model->addEvent($contract['id'], null, 'approved', 'Cliente aprovou o contrato');
-        $this->notifyTeam($contract, 'Contrato aprovado', "O cliente aprovou o contrato \"{$contract['title']}\". Pronto para enviar à assinatura.");
+        $this->notifyTeamResponse($contract, 'approved', 'Contrato aprovado',
+            "O cliente aprovou o contrato \"{$contract['title']}\". Pronto para enviar à assinatura.");
         $this->json(['success' => true]);
     }
 
@@ -217,7 +273,8 @@ class ContractController extends Controller
 
         $this->model->changeStatus($contract['id'], ContractRules::STATUS_CLIENT_REJECTED, null, ['reject_reason' => $reason]);
         $this->model->addEvent($contract['id'], null, 'rejected', 'Cliente pediu ajuste: ' . $reason);
-        $this->notifyTeam($contract, 'Contrato: ajuste solicitado', "O cliente pediu ajustes no contrato \"{$contract['title']}\": {$reason}");
+        $this->notifyTeamResponse($contract, 'rejected', 'Contrato: ajuste solicitado',
+            "O cliente pediu ajustes no contrato \"{$contract['title']}\": {$reason}", $reason);
         $this->json(['success' => true]);
     }
 
@@ -250,7 +307,8 @@ class ContractController extends Controller
             if ($contract && $contract['status'] !== ContractRules::STATUS_SIGNED) {
                 $this->model->changeStatus($contract['id'], ContractRules::STATUS_SIGNED, null, ['signed_at' => date('Y-m-d H:i:s')]);
                 $this->model->addEvent($contract['id'], null, 'signed', 'Assinatura confirmada pela ClickSign');
-                $this->notifyTeam($contract, 'Contrato assinado', "O contrato \"{$contract['title']}\" foi assinado. Siga para o financeiro.");
+                $this->notifyTeamResponse($contract, 'signed', 'Contrato assinado',
+                    "O contrato \"{$contract['title']}\" foi assinado. Siga para o financeiro.");
             }
         } elseif ($docKey && $action === 'cancelled') {
             $contract = $this->model->findByClickSignDocKey($docKey);
