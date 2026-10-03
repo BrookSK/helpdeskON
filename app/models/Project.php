@@ -35,7 +35,7 @@ class Project
         if (!empty($filters['status'])) { $sql .= " AND p.status = ?"; $params[] = $filters['status']; }
         if (!empty($filters['company_id'])) { $sql .= " AND p.company_id = ?"; $params[] = (int)$filters['company_id']; }
         $sql .= " ORDER BY p.id DESC";
-        return $this->db->fetchAll($sql, $params);
+        try { return $this->db->fetchAll($sql, $params); } catch (\Throwable $e) { return []; }
     }
 
     public function getByCompany($companyId)

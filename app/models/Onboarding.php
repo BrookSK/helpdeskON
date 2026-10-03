@@ -30,7 +30,7 @@ class Onboarding
         $params = [];
         if (!empty($filters['status'])) { $sql .= " AND status = ?"; $params[] = $filters['status']; }
         $sql .= " ORDER BY id DESC";
-        return $this->db->fetchAll($sql, $params);
+        try { return $this->db->fetchAll($sql, $params); } catch (\Throwable $e) { return []; }
     }
 
     public function create($data)
