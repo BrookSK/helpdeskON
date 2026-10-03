@@ -107,7 +107,8 @@ $minutesJson = json_encode($minutesDecoded, JSON_UNESCAPED_UNICODE | JSON_UNESCA
     <div class="side">
         <div class="tabs">
             <button class="tab active" id="tab-tr-btn" onclick="showTab('tr')">Transcrição</button>
-            <button class="tab" id="tab-sm-btn" onclick="showTab('sm')">Ata</button>
+            <button class="tab" id="tab-rs-btn" onclick="showTab('rs')">Resumo</button>
+            <button class="tab" id="tab-sm-btn" onclick="showTab('sm')">Minuta</button>
         </div>
         <div class="tab-body" id="tab-tr">
             <div id="tr-list"></div>
@@ -116,17 +117,20 @@ $minutesJson = json_encode($minutesDecoded, JSON_UNESCAPED_UNICODE | JSON_UNESCA
                 <button class="btn btn-sm btn-brand" id="tr-btn" onclick="startTranscription()"><i class="bi bi-magic"></i> Transcrever com IA</button>
             </div>
         </div>
+        <div class="tab-body" id="tab-rs" style="display:none;">
+            <div id="rs-empty" class="muted" style="font-size:.86rem;">Sem resumo ainda. Ele é gerado automaticamente junto com a transcrição.</div>
+            <div id="rs-body" class="minutes-resumo" style="display:none;"></div>
+        </div>
         <div class="tab-body" id="tab-sm" style="display:none;">
-            <!-- Ata estruturada em seções separadas -->
-            <div id="sm-empty" class="muted" style="font-size:.86rem;">Sem ata ainda. Ela é gerada automaticamente junto com a transcrição.</div>
+            <div id="sm-empty" class="muted" style="font-size:.86rem;">Sem minuta ainda. Ela é gerada automaticamente junto com a transcrição.</div>
             <div id="sm-minutes" style="display:none;">
-                <div class="minutes-section">
-                    <div class="minutes-label"><i class="bi bi-file-text"></i> Resumo Geral</div>
-                    <div id="min-resumo" class="minutes-resumo"></div>
-                </div>
                 <div class="minutes-section">
                     <div class="minutes-label"><i class="bi bi-list-ul"></i> Tópicos Discutidos</div>
                     <ul id="min-topicos" class="minutes-list"></ul>
+                </div>
+                <div class="minutes-section">
+                    <div class="minutes-label" style="color:#e8a838;"><i class="bi bi-exclamation-circle"></i> Tópicos Não Resolvidos</div>
+                    <ul id="min-topicos-nr" class="minutes-list"></ul>
                 </div>
                 <div class="minutes-section">
                     <div class="minutes-label"><i class="bi bi-check2-square"></i> Decisões Tomadas</div>
@@ -140,7 +144,8 @@ $minutesJson = json_encode($minutesDecoded, JSON_UNESCAPED_UNICODE | JSON_UNESCA
         </div>
         <div class="toolbar">
             <button class="btn btn-sm btn-outline-light" onclick="copyTranscript()"><i class="bi bi-clipboard"></i> Copiar transcrição</button>
-            <button class="btn btn-sm btn-outline-light" onclick="copyMinutes()"><i class="bi bi-clipboard-check"></i> Copiar ata</button>
+            <button class="btn btn-sm btn-outline-light" onclick="copyMinutes()"><i class="bi bi-clipboard-check"></i> Copiar minuta</button>
+            <button class="btn btn-sm btn-outline-light" onclick="exportMinutePdf()"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
         </div>
     </div>
 </div>
@@ -214,41 +219,52 @@ function setSpeed(s, btn) {
     if (btn) btn.classList.add('active');
 }
 function showTab(w) {
-    document.getElementById('tab-tr-btn').classList.toggle('active', w === 'tr');
-    document.getElementById('tab-sm-btn').classList.toggle('active', w === 'sm');
-    document.getElementById('tab-tr').style.display = (w === 'tr') ? 'block' : 'none';
-    document.getElementById('tab-sm').style.display = (w === 'sm') ? 'block' : 'none';
+    ['tr','rs','sm'].forEach(t => {
+        document.getElementById('tab-' + t + '-btn').classList.toggle('active', t === w);
+        document.getElementById('tab-' + t).style.display = (t === w) ? 'block' : 'none';
+    });
 }
 
 /**
- * Renderiza a ata estruturada (minutes) em seções separadas.
- * Retrocompatível: se minutes é null e existe summary legado (texto livre),
- * exibe no campo resumo como fallback.
+ * Renderiza o resumo na aba Resumo e a minuta estruturada na aba Minuta.
  */
 function renderMinutes() {
-    const emptyEl  = document.getElementById('sm-empty');
-    const wrapEl   = document.getElementById('sm-minutes');
+    // --- Aba Resumo ---
+    const rsEmpty = document.getElementById('rs-empty');
+    const rsBody  = document.getElementById('rs-body');
+    if (minutes && minutes.resumo) {
+        rsEmpty.style.display = 'none';
+        rsBody.style.display = '';
+        rsBody.textContent = minutes.resumo;
+    } else {
+        rsEmpty.style.display = '';
+        rsBody.style.display = 'none';
+    }
+
+    // --- Aba Minuta ---
+    const smEmpty   = document.getElementById('sm-empty');
+    const smMinutes = document.getElementById('sm-minutes');
     if (!minutes) {
-        emptyEl.style.display = '';
-        wrapEl.style.display = 'none';
+        smEmpty.style.display = '';
+        smMinutes.style.display = 'none';
         return;
     }
-    emptyEl.style.display = 'none';
-    wrapEl.style.display = '';
+    smEmpty.style.display = 'none';
+    smMinutes.style.display = '';
 
-    document.getElementById('min-resumo').textContent = minutes.resumo || '';
-
-    const renderList = (id, arr) => {
+    const renderList = (id, arr, emptyMsg) => {
         const ul = document.getElementById(id);
+        if (!ul) return;
         if (!arr || !arr.length) {
-            ul.innerHTML = '<li class="minutes-empty">Nenhum item identificado.</li>';
+            ul.innerHTML = '<li class="minutes-empty">' + (emptyMsg || 'Nenhum item identificado.') + '</li>';
             return;
         }
         ul.innerHTML = arr.map(item => `<li>${esc(item)}</li>`).join('');
     };
-    renderList('min-topicos',  minutes.topicos);
-    renderList('min-decisoes', minutes.decisoes);
-    renderList('min-proximos', minutes.proximos_passos);
+    renderList('min-topicos',    minutes.topicos,                'Nenhum item identificado.');
+    renderList('min-topicos-nr', minutes.topicos_nao_resolvidos, 'Nenhum tópico em aberto.');
+    renderList('min-decisoes',   minutes.decisoes,               'Nenhuma decisão registrada.');
+    renderList('min-proximos',   minutes.proximos_passos,        'Nenhum próximo passo identificado.');
 }
 
 function copyTranscript() {
@@ -257,18 +273,23 @@ function copyTranscript() {
     navigator.clipboard?.writeText(txt).then(()=>alert('Transcrição copiada! Cole no GPT para gerar as tarefas.'));
 }
 
-/** Copia a ata em texto plano (formato legível para colar em e-mail ou doc). */
+/** Copia a minuta em texto plano. */
 function copyMinutes() {
-    if (!minutes) { alert('Sem ata para copiar.'); return; }
+    if (!minutes) { alert('Sem minuta para copiar.'); return; }
     const lines = [];
     if (minutes.resumo) {
-        lines.push('=== RESUMO GERAL ===');
+        lines.push('=== RESUMO ===');
         lines.push(minutes.resumo);
         lines.push('');
     }
     if (minutes.topicos && minutes.topicos.length) {
         lines.push('=== TÓPICOS DISCUTIDOS ===');
         minutes.topicos.forEach(t => lines.push('• ' + t));
+        lines.push('');
+    }
+    if (minutes.topicos_nao_resolvidos && minutes.topicos_nao_resolvidos.length) {
+        lines.push('=== TÓPICOS NÃO RESOLVIDOS ===');
+        minutes.topicos_nao_resolvidos.forEach(t => lines.push('• ' + t));
         lines.push('');
     }
     if (minutes.decisoes && minutes.decisoes.length) {
@@ -280,7 +301,47 @@ function copyMinutes() {
         lines.push('=== PRÓXIMOS PASSOS ===');
         minutes.proximos_passos.forEach(p => lines.push('• ' + p));
     }
-    navigator.clipboard?.writeText(lines.join('\n').trim()).then(()=>alert('Ata copiada!'));
+    navigator.clipboard?.writeText(lines.join('\n').trim()).then(()=>alert('Minuta copiada!'));
+}
+
+/** Gera e baixa a minuta como PDF via impressão do navegador. */
+function exportMinutePdf() {
+    if (!minutes) { alert('Sem minuta para exportar.'); return; }
+
+    const title = document.querySelector('.top h1')?.textContent || 'Minuta de Reunião';
+
+    const sec = (label, items, color) => {
+        if (!items || !items.length) return '';
+        return `<div style="margin-bottom:18px;">
+            <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:${color || '#00BFA6'};margin-bottom:6px;">${label}</div>
+            <ul style="margin:0;padding-left:18px;">${items.map(i => `<li style="margin-bottom:4px;font-size:13px;">${i}</li>`).join('')}</ul>
+        </div>`;
+    };
+
+    const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+    <title>Minuta — ${title}</title>
+    <style>
+        body { font-family:'Segoe UI',Arial,sans-serif; color:#1a1a2e; padding:32px 40px; max-width:780px; margin:0 auto; }
+        h1 { font-size:20px; margin:0 0 4px; }
+        .meta { font-size:12px; color:#666; margin-bottom:24px; }
+        .resumo { font-size:13px; line-height:1.7; color:#333; background:#f5f5f5; padding:14px 16px; border-radius:8px; margin-bottom:20px; }
+        @media print { body { padding:16px; } }
+    </style></head><body>
+    <h1>Minuta de Reunião</h1>
+    <div class="meta">${title} · Gerada em ${new Date().toLocaleDateString('pt-BR')}</div>
+    ${minutes.resumo ? `<div class="resumo">${minutes.resumo}</div>` : ''}
+    ${sec('Tópicos Discutidos', minutes.topicos)}
+    ${sec('Tópicos Não Resolvidos', minutes.topicos_nao_resolvidos, '#c07a00')}
+    ${sec('Decisões Tomadas', minutes.decisoes)}
+    ${sec('Próximos Passos', minutes.proximos_passos)}
+    </body></html>`;
+
+    const win = window.open('', '_blank');
+    if (!win) { alert('Permita pop-ups para exportar o PDF.'); return; }
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    setTimeout(() => { win.print(); }, 400);
 }
 
 function copyShare() { navigator.clipboard?.writeText(SHARE_URL).then(()=>alert('Link copiado:\n'+SHARE_URL)).catch(()=>alert(SHARE_URL)); }
@@ -331,8 +392,8 @@ async function startTranscription() {
         }
         try { actx.close(); } catch (e) {}
 
-        // 3) Salva a transcrição montada e gera o resumo no servidor.
-        trProgress('Gerando o resumo…');
+        // 3) Salva a transcrição montada e gera a minuta no servidor.
+        trProgress('Gerando a minuta…');
         const save = await fetch(`${BASE}/videocall/saveTranscript/${REC_TOKEN}`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ segments: allSegs })

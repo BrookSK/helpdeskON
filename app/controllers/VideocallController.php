@@ -1495,11 +1495,12 @@ class VideocallController extends Controller
         if ($header !== '')       $header .= "\n";
 
         $systemPrompt =
-            'Você é um assistente especializado em gerar atas de reunião em português do Brasil. ' .
-            'Analise a transcrição fornecida e produza uma ata estruturada. ' .
-            'Responda SOMENTE com um objeto JSON válido com estas 4 chaves (sem nenhum texto fora do JSON): ' .
+            'Você é um assistente especializado em gerar minutas de reunião em português do Brasil. ' .
+            'Analise a transcrição fornecida e produza uma minuta estruturada. ' .
+            'Responda SOMENTE com um objeto JSON válido com estas 5 chaves (sem nenhum texto fora do JSON): ' .
             '"resumo" (string: parágrafo geral descrevendo o contexto e objetivo da reunião), ' .
-            '"topicos" (array de strings: principais tópicos discutidos, em bullets), ' .
+            '"topicos" (array de strings: principais tópicos discutidos e concluídos, em bullets), ' .
+            '"topicos_nao_resolvidos" (array de strings: tópicos citados mas sem conclusão, sem encaminhamento claro ou deixados em aberto), ' .
             '"decisoes" (array de strings: decisões formalmente tomadas durante a reunião), ' .
             '"proximos_passos" (array de strings: tarefas, ações e próximos passos identificados, ' .
             'idealmente com responsável e prazo quando mencionados na transcrição). ' .
@@ -1531,10 +1532,11 @@ class VideocallController extends Controller
         if (!is_array($data)) return '';
 
         $minutes = [
-            'resumo'          => trim((string)($data['resumo']          ?? '')),
-            'topicos'         => array_values(array_filter((array)($data['topicos']         ?? []), 'is_string')),
-            'decisoes'        => array_values(array_filter((array)($data['decisoes']        ?? []), 'is_string')),
-            'proximos_passos' => array_values(array_filter((array)($data['proximos_passos'] ?? []), 'is_string')),
+            'resumo'                => trim((string)($data['resumo']          ?? '')),
+            'topicos'               => array_values(array_filter((array)($data['topicos']               ?? []), 'is_string')),
+            'topicos_nao_resolvidos'=> array_values(array_filter((array)($data['topicos_nao_resolvidos'] ?? []), 'is_string')),
+            'decisoes'              => array_values(array_filter((array)($data['decisoes']              ?? []), 'is_string')),
+            'proximos_passos'       => array_values(array_filter((array)($data['proximos_passos']       ?? []), 'is_string')),
         ];
 
         return json_encode($minutes, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
