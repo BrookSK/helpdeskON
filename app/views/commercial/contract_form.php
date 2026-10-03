@@ -14,7 +14,7 @@ $labels = [
             <small class="text-muted"><?= escape($contract['title']) ?> · <?= $labels[$contract['status']] ?? $contract['status'] ?></small>
         </div>
         <div class="d-flex gap-2">
-            <a href="<?= baseUrl('contracts') ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> Voltar</a>
+            <a href="<?= baseUrl('contract') ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> Voltar</a>
             <?php if ($canEdit): ?>
             <button class="btn btn-sm btn-success" onclick="saveContract()"><i class="bi bi-check-lg"></i> Salvar</button>
             <button class="btn btn-sm btn-primary" onclick="sendReview()"><i class="bi bi-send"></i> Enviar p/ aprovação</button>
@@ -77,7 +77,7 @@ function cbody() {
         client_email: document.getElementById('c-email').value.trim(), client_phone: document.getElementById('c-phone').value.trim() };
 }
 async function saveContract() {
-    const r = await fetch(`${BASE}contracts/save/${CID}`, { method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':CSRF}, body: JSON.stringify(cbody()) })
+    const r = await fetch(`${BASE}contract/save/${CID}`, { method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':CSRF}, body: JSON.stringify(cbody()) })
         .then(x=>x.json()).catch(()=>({error:'Falha de rede'}));
     if (r.error) { alert(r.error); return false; } return true;
 }
@@ -85,14 +85,14 @@ async function sendReview() {
     if (!await saveContract()) return;
     if (!confirm('Enviar o contrato ao cliente para aprovação?')) return;
     const fd = new FormData(); fd.append('csrf_token', CSRF);
-    const r = await fetch(`${BASE}contracts/sendForReview/${CID}`, { method:'POST', body: fd, headers:{'X-Requested-With':'XMLHttpRequest'} }).then(x=>x.json()).catch(()=>({error:'Falha de rede'}));
+    const r = await fetch(`${BASE}contract/sendForReview/${CID}`, { method:'POST', body: fd, headers:{'X-Requested-With':'XMLHttpRequest'} }).then(x=>x.json()).catch(()=>({error:'Falha de rede'}));
     if (r.error) { alert(r.error); return; }
     prompt('Enviado. Link público para o cliente aprovar:', r.link); location.reload();
 }
 async function sendSignature() {
     if (!confirm('Enviar o contrato para assinatura na ClickSign?')) return;
     const fd = new FormData(); fd.append('csrf_token', CSRF);
-    const r = await fetch(`${BASE}contracts/sendForSignature/${CID}`, { method:'POST', body: fd, headers:{'X-Requested-With':'XMLHttpRequest'} }).then(x=>x.json()).catch(()=>({error:'Falha de rede'}));
+    const r = await fetch(`${BASE}contract/sendForSignature/${CID}`, { method:'POST', body: fd, headers:{'X-Requested-With':'XMLHttpRequest'} }).then(x=>x.json()).catch(()=>({error:'Falha de rede'}));
     if (r.error) { alert(r.error); return; }
     alert('Contrato enviado para assinatura. Acompanhe o status aqui — será atualizado quando o cliente assinar.'); location.reload();
 }

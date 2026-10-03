@@ -24,7 +24,7 @@ $statusBadge = [
     <div class="card mb-3">
         <div class="card-body py-2 px-3 d-flex gap-2 align-items-center">
             <label class="small text-muted mb-0">Status:</label>
-            <select class="form-select form-select-sm" style="width:auto;" onchange="location.href='<?= baseUrl('proposals') ?>'+(this.value?('?status='+this.value):'')">
+            <select class="form-select form-select-sm" style="width:auto;" onchange="location.href='<?= baseUrl('proposal') ?>'+(this.value?('?status='+this.value):'')">
                 <option value="">Todos</option>
                 <?php foreach ($statuses as $st): ?>
                 <option value="<?= $st ?>" <?= (($_GET['status'] ?? '') === $st) ? 'selected' : '' ?>><?= $statusLabels[$st] ?? $st ?></option>
@@ -44,7 +44,7 @@ $statusBadge = [
                         <?php if (empty($proposals)): ?>
                         <tr><td colspan="7" class="text-center text-muted py-4">Nenhuma proposta.</td></tr>
                         <?php else: foreach ($proposals as $p): ?>
-                        <tr style="cursor:pointer;" onclick="location.href='<?= baseUrl('proposals/edit/' . (int)$p['id']) ?>'">
+                        <tr style="cursor:pointer;" onclick="location.href='<?= baseUrl('proposal/edit/' . (int)$p['id']) ?>'">
                             <td><?= (int)$p['id'] ?></td>
                             <td class="fw-medium"><?= escape($p['title']) ?></td>
                             <td><?= escape($p['client_name'] ?: ($p['crm_contact_name'] ?? '—')) ?></td>
@@ -68,8 +68,8 @@ function newProposal() {
     const title = prompt('Título da proposta:');
     if (!title) return;
     const fd = new FormData(); fd.append('csrf_token', CSRF); fd.append('title', title);
-    fetch(`${PROP_BASE}proposals/store`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
-        .then(r => r.json()).then(d => { if (d.error) { alert(d.error); return; } location.href = `${PROP_BASE}proposals/edit/${d.id}`; })
+    fetch(`${PROP_BASE}proposal/store`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json()).then(d => { if (d.error) { alert(d.error); return; } location.href = `${PROP_BASE}proposal/edit/${d.id}`; })
         .catch(() => alert('Erro ao criar a proposta.'));
 }
 </script>
