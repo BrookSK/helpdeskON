@@ -102,7 +102,7 @@
                 <h6 class="modal-title"><i class="bi bi-calendar2-week"></i> <span id="meeting-modal-title">Nova reunião</span></h6>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <div class="modal-body">
+            <div class="modal-body" style="min-height:420px;">
                 <input type="hidden" id="mt-id">
                 <input type="hidden" id="mt-contact-id">
                 <input type="hidden" id="mt-google-event-id">
@@ -233,10 +233,6 @@
                             </button>
                         </div>
                     </div>
-
-                    <!-- ===== Convite externo (demanda #210) ===== -->
-                    <!-- Convidados que NÃO fazem parte do sistema: nome + e-mail e/ou telefone. -->
-                    <div class="col-12 mt-external-only" style="display:none;">
 
                     <!-- ===== Gravação automática (operacional / interno) ===== -->
                     <!-- Mostrado apenas nos tipos de reunião que se beneficiam de ata automática.
