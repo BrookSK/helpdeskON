@@ -54,6 +54,12 @@
             </button>
         </form>
 
+        <div class="text-center mt-3">
+            <a href="<?= baseUrl('login') ?>" class="text-decoration-none" style="font-size:0.82rem;color:var(--primary);">
+                <i class="bi bi-arrow-left"></i> Entrar com usuário e senha
+            </a>
+        </div>
+
         <div class="text-center mt-4">
             <small class="text-muted" style="font-size:0.75rem">&copy; <?= date('Y') ?> ON Solutions. Todos os direitos reservados.</small>
         </div>

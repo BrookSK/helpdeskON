@@ -111,7 +111,7 @@
             <hr style="border-top:1px solid #e8e8e8;">
             <span class="position-absolute top-50 start-50 translate-middle px-2 bg-white text-muted" style="font-size:0.75rem;">ou</span>
         </div>
-        <a href="<?= baseUrl('solicitacaoexterna') ?>" class="btn btn-outline-primary w-100" style="border-color:var(--primary);color:var(--primary);border-radius:10px;padding:12px;font-weight:600;font-size:0.95rem;">
+        <a href="<?= baseUrl('clientpin') ?>" class="btn btn-outline-primary w-100" style="border-color:var(--primary);color:var(--primary);border-radius:10px;padding:12px;font-weight:600;font-size:0.95rem;">
             Entrar com PIN
         </a>
 

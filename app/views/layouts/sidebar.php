@@ -240,21 +240,14 @@
             </li>
             <?php endif; ?>
 
-            <?php // ===== WhatsApp & CRM ===== ?>
-            <?php $canWhatsapp = Permissions::canAccess($role, 'whatsapp'); ?>
+            <?php // ===== CRM ===== ?>
             <?php $canCrm = Permissions::canAccess($role, 'crm'); ?>
-            <?php if (($canWhatsapp || $canCrm) && $role !== 'client'): ?>
+            <?php if ($canCrm && $role !== 'client'): ?>
             <li class="nav-item mt-3">
-                <small class="text-uppercase px-3" style="font-size:0.65rem;color:rgba(255,255,255,0.35);letter-spacing:0.5px;">WhatsApp & CRM</small>
+                <small class="text-uppercase px-3" style="font-size:0.65rem;color:rgba(255,255,255,0.35);letter-spacing:0.5px;">CRM</small>
             </li>
             <?php endif; ?>
-            <?php if ($canWhatsapp): ?>
-            <li class="nav-item">
-                <a class="nav-link <?= in_array($currentPage ?? '', ['whatsapp', 'whatsapp_chat']) ? 'active' : '' ?>" href="<?= baseUrl('whatsapp/chat') ?>">
-                    <i class="bi bi-whatsapp"></i> WhatsApp Chat
-                </a>
-            </li>
-            <?php endif; ?>
+
             <?php if ($canCrm): ?>
             <?php $canApollo = Permissions::canAccess($role, 'crm_apollo'); ?>
             <?php $canProspecting = Permissions::canAccess($role, 'crm_prospecting'); ?>
