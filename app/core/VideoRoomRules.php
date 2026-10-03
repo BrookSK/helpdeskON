@@ -71,6 +71,16 @@ class VideoRoomRules
     }
 
     /**
+     * Normaliza a flag de gravação automática. A sala grava sozinha ao entrar por
+     * padrão (vem marcada); só desliga quando o valor for exatamente '0'/0/false
+     * (checkbox desmarcado). É ortogonal a allow_recording.
+     */
+    public static function normalizeAutoRecord($value): int
+    {
+        return ($value === '0' || $value === 0 || $value === false) ? 0 : 1;
+    }
+
+    /**
      * Um tipo de sinal é válido para a sinalização?
      */
     public static function isValidSignal($kind): bool

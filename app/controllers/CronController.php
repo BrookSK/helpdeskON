@@ -523,6 +523,12 @@ class CronController extends Controller
             Logger::error('runProspecting: falha no lembrete de vencimento de cards', ['error' => $e->getMessage()]);
         }
 
+        // 6) Encerra gravações órfãs (gravador caiu sem finalizar). Pendurado aqui
+        //    para reaproveitar um cron já agendado, sem exigir tarefa nova no servidor.
+        try { (new VideocallController())->recoverOrphanRecordings(); } catch (\Throwable $e) {
+            Logger::error('runProspecting: falha ao finalizar gravações órfãs', ['error' => $e->getMessage()]);
+        }
+
         $this->json(['success' => empty($result['error']), 'result' => $result, 'sequences' => $engineStats]);
     }
 
@@ -537,6 +543,22 @@ class CronController extends Controller
         @set_time_limit(120);
         $sent = $this->sendBookingReminders();
         $this->json(['success' => true, 'reminders_sent' => $sent]);
+    }
+
+    /**
+     * GET /cron/finalizeRecordings?token=XXX
+     * Encerra server-side as gravações cujo gravador caiu/saiu sem finalizar
+     * (arquivos .part sem novos pedaços há alguns minutos): promove o que já foi
+     * enviado a uma gravação normal. Antes isso só acontecia quando alguém abria a
+     * tela de gravações; agora um cron garante o encerramento mesmo que ninguém
+     * abra a lista. Idempotente e seguro (só mexe em .part parados).
+     */
+    public function finalizeRecordings()
+    {
+        $this->validateToken();
+        @set_time_limit(300);
+        $recovered = (new VideocallController())->recoverOrphanRecordings();
+        $this->json(['success' => true, 'recovered' => (int) $recovered]);
     }
 
     /** Dispara os lembretes das reuniões próximas. Retorna a quantidade enviada. */

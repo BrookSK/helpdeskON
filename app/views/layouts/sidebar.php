@@ -123,6 +123,69 @@
                 </a>
             </li>
             <?php endif; ?>
+            <?php if (Permissions::canAccess($role, 'proposals')): ?>
+            <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'proposals' ? 'active' : '' ?>" href="<?= baseUrl('proposals') ?>">
+                    <i class="bi bi-file-earmark-text"></i> Propostas
+                </a>
+            </li>
+            <?php endif; ?>
+            <?php if (Permissions::canAccess($role, 'contracts')): ?>
+            <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'contracts' ? 'active' : '' ?>" href="<?= baseUrl('contracts') ?>">
+                    <i class="bi bi-file-earmark-check"></i> Contratos
+                </a>
+            </li>
+            <?php endif; ?>
+            <?php if (Permissions::canAccess($role, 'finance')): ?>
+            <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'finance' ? 'active' : '' ?>" href="<?= baseUrl('finance') ?>">
+                    <i class="bi bi-cash-coin"></i> Financeiro
+                </a>
+            </li>
+            <?php endif; ?>
+            <?php if (Permissions::canAccess($role, 'onboarding')): ?>
+            <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'onboarding' ? 'active' : '' ?>" href="<?= baseUrl('onboarding') ?>">
+                    <i class="bi bi-rocket-takeoff"></i> Onboarding
+                </a>
+            </li>
+            <?php endif; ?>
+            <?php if (Permissions::canAccess($role, 'credentials')): ?>
+            <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'credentials' ? 'active' : '' ?>" href="<?= baseUrl('credential') ?>">
+                    <i class="bi bi-shield-lock"></i> Credenciais
+                </a>
+            </li>
+            <?php endif; ?>
+            <?php if (Permissions::canAccess($role, 'provisioning')): ?>
+            <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'provisioning' ? 'active' : '' ?>" href="<?= baseUrl('provisioning') ?>">
+                    <i class="bi bi-hdd-network"></i> Provisionamento
+                </a>
+            </li>
+            <?php endif; ?>
+            <?php if (Permissions::canAccess($role, 'providers')): ?>
+            <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'providers' ? 'active' : '' ?>" href="<?= baseUrl('provider') ?>">
+                    <i class="bi bi-person-badge"></i> Prestadores
+                </a>
+            </li>
+            <?php endif; ?>
+            <?php if (Permissions::canAccess($role, 'projects')): ?>
+            <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'projects' ? 'active' : '' ?>" href="<?= baseUrl('project') ?>">
+                    <i class="bi bi-kanban"></i> Projetos
+                </a>
+            </li>
+            <?php endif; ?>
+            <?php if (Permissions::canAccess($role, 'service_catalog')): ?>
+            <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'service_catalog' ? 'active' : '' ?>" href="<?= baseUrl('servicecatalog') ?>">
+                    <i class="bi bi-card-checklist"></i> Catálogo de serviços
+                </a>
+            </li>
+            <?php endif; ?>
             <?php $canPerfCom = Permissions::canAccess($role, 'performance_comercial'); ?>
             <?php $canPerfOp = Permissions::canAccess($role, 'performance_operacional'); ?>
             <?php if ($canPerfCom || $canPerfOp): ?>

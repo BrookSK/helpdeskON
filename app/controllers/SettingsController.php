@@ -105,6 +105,10 @@ class SettingsController extends Controller
             'openai_api_key',
             'buffer_api_key',
             'apollo_api_key', 'apollo_base_url', 'apollo_webhook_token',
+            // Integrações da esteira comercial
+            'clicksign_access_token', 'clicksign_webhook_secret',
+            'asaas_webhook_token',
+            'lrv_cloud_api_key', 'lrv_cloud_webhook_secret',
             'app_public_url',
             'google_client_id', 'google_client_secret', 'google_refresh_token', 'google_calendar_id',
             // Agendamento público (bloco "Agendamento" das sequências)
@@ -182,6 +186,8 @@ class SettingsController extends Controller
         }
         // Buffer: modo teste/simulação (não chama a API real ao agendar)
         Config::set('buffer_test_mode', isset($_POST['buffer_test_mode']) ? '1' : '0');
+        // ClickSign: ambiente de testes (sandbox) — checkbox
+        Config::set('clicksign_sandbox', isset($_POST['clicksign_sandbox']) ? '1' : '0');
 
         // Upload de Logo
         if (!empty($_FILES['app_logo']['name']) && $_FILES['app_logo']['error'] === UPLOAD_ERR_OK) {
