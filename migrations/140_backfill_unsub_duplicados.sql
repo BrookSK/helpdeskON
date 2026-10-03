@@ -48,7 +48,7 @@ SET @sql := IF(@has_linkedin > 0,
      SET wc.unsubscribed = 1
      WHERE COALESCE(wc.unsubscribed, 0) = 0
        AND COALESCE(wc.is_group, 0) = 0
-       AND wc.linkedin_url IS NOT NULL AND TRIM(wc.linkedin_url) <> ''
+       AND wc.linkedin_url IS NOT NULL AND TRIM(wc.linkedin_url) <> ''''
        AND EXISTS (
            SELECT 1 FROM (SELECT * FROM whatsapp_contacts) sib
            WHERE sib.id <> wc.id
