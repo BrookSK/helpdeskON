@@ -1045,6 +1045,8 @@ async function doJoin(takeover) {
     if (res.error) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-box-arrow-in-right"></i> Entrar na chamada'; showLobbyError(res.error); return; }
 
     isAdmin = !!res.is_admin;
+    // Guarda se a sala pede gravação automática (vem do agendamento).
+    if (res.auto_record !== undefined) window._roomAutoRecord = !!res.auto_record;
     enterCall(res);
 }
 
@@ -1071,6 +1073,18 @@ function enterCall(res) {
     startStateHeartbeat();
     // Anuncia meu estado inicial (nome/mic/câmera) para todos já sincronizarem.
     setTimeout(broadcastMyState, 700);
+
+    // Gravação automática: inicia somente se a sala pediu E o usuário é o host
+    // (criador da reunião). O delay de 2s garante que as streams de mídia e o
+    // peer local já estejam completamente prontos antes de abrir o MediaRecorder.
+    if (window._roomAutoRecord && res.self && res.self.is_host) {
+        setTimeout(() => {
+            if (!mediaRecorder || mediaRecorder.state === 'inactive') {
+                startRecording();
+                toast('🔴 Gravação automática iniciada conforme configurado no agendamento.');
+            }
+        }, 2000);
+    }
 }
 
 // ---- Espera (sala privada) ----

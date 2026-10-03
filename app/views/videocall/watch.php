@@ -5,9 +5,20 @@ $recToken = htmlspecialchars($rec['token'], ENT_QUOTES);
 $videoUrl = htmlspecialchars($videoUrl, ENT_QUOTES);
 $status = $rec['transcribe_status'] ?? 'none';
 $durationSec = (int)($rec['duration_sec'] ?? 0);
-$summary = (string)($rec['summary'] ?? '');
-$segJson = json_encode($segments ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+$rawSummary = (string)($rec['summary'] ?? '');
 $shareUrl = $base . '/videocall/share/' . $recToken;
+$segJson = json_encode($segments ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+// Tenta decodificar o summary como JSON estruturado de ata.
+// Retrocompatível: se não for JSON válido, encapsula o texto legado em resumo.
+$minutesDecoded = null;
+if ($rawSummary !== '') {
+    $decoded = json_decode($rawSummary, true);
+    if (is_array($decoded) && isset($decoded['resumo'])) {
+        $minutesDecoded = $decoded;
+    }
+}
+$minutesJson = json_encode($minutesDecoded, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -54,7 +65,18 @@ $shareUrl = $base . '/videocall/share/' . $recToken;
         .empty { color:#9aa2c0; text-align:center; padding:30px 10px; }
         .spin { width:26px; height:26px; border:3px solid #33375a; border-top-color:var(--brand); border-radius:50%; display:inline-block; animation:spin 1s linear infinite; vertical-align:middle; }
         @keyframes spin { to { transform:rotate(360deg); } }
-    </style>
+        /* Ata estruturada */
+        .minutes-section { margin-bottom:16px; }
+        .minutes-section:last-child { margin-bottom:0; }
+        .minutes-label { font-size:.72rem; font-weight:700; letter-spacing:.07em; text-transform:uppercase;
+                         color:var(--brand); margin-bottom:6px; display:flex; align-items:center; gap:5px; }
+        .minutes-resumo { font-size:.88rem; line-height:1.65; color:#d0d4e8; }
+        .minutes-list { list-style:none; margin:0; padding:0; }
+        .minutes-list li { font-size:.86rem; line-height:1.5; padding:4px 0 4px 18px; position:relative; color:#c8cce0; border-bottom:1px solid rgba(255,255,255,.04); }
+        .minutes-list li:last-child { border-bottom:none; }
+        .minutes-list li::before { content:''; position:absolute; left:4px; top:10px;
+                                   width:6px; height:6px; border-radius:50%; background:var(--brand); }
+        .minutes-empty { color:#9aa2c0; font-size:.82rem; font-style:italic; }    </style>
 </head>
 <body>
 <div class="top">
@@ -85,7 +107,7 @@ $shareUrl = $base . '/videocall/share/' . $recToken;
     <div class="side">
         <div class="tabs">
             <button class="tab active" id="tab-tr-btn" onclick="showTab('tr')">Transcrição</button>
-            <button class="tab" id="tab-sm-btn" onclick="showTab('sm')">Resumo</button>
+            <button class="tab" id="tab-sm-btn" onclick="showTab('sm')">Ata</button>
         </div>
         <div class="tab-body" id="tab-tr">
             <div id="tr-list"></div>
@@ -95,11 +117,30 @@ $shareUrl = $base . '/videocall/share/' . $recToken;
             </div>
         </div>
         <div class="tab-body" id="tab-sm" style="display:none;">
-            <div id="sm-body" class="summary-body"></div>
+            <!-- Ata estruturada em seções separadas -->
+            <div id="sm-empty" class="muted" style="font-size:.86rem;">Sem ata ainda. Ela é gerada automaticamente junto com a transcrição.</div>
+            <div id="sm-minutes" style="display:none;">
+                <div class="minutes-section">
+                    <div class="minutes-label"><i class="bi bi-file-text"></i> Resumo Geral</div>
+                    <div id="min-resumo" class="minutes-resumo"></div>
+                </div>
+                <div class="minutes-section">
+                    <div class="minutes-label"><i class="bi bi-list-ul"></i> Tópicos Discutidos</div>
+                    <ul id="min-topicos" class="minutes-list"></ul>
+                </div>
+                <div class="minutes-section">
+                    <div class="minutes-label"><i class="bi bi-check2-square"></i> Decisões Tomadas</div>
+                    <ul id="min-decisoes" class="minutes-list"></ul>
+                </div>
+                <div class="minutes-section">
+                    <div class="minutes-label"><i class="bi bi-arrow-right-circle"></i> Próximos Passos</div>
+                    <ul id="min-proximos" class="minutes-list"></ul>
+                </div>
+            </div>
         </div>
         <div class="toolbar">
             <button class="btn btn-sm btn-outline-light" onclick="copyTranscript()"><i class="bi bi-clipboard"></i> Copiar transcrição</button>
-            <button class="btn btn-sm btn-outline-light" onclick="copySummary()"><i class="bi bi-clipboard-check"></i> Copiar resumo</button>
+            <button class="btn btn-sm btn-outline-light" onclick="copyMinutes()"><i class="bi bi-clipboard-check"></i> Copiar ata</button>
         </div>
     </div>
 </div>
@@ -110,7 +151,9 @@ const REC_TOKEN = '<?= $recToken ?>';
 const VIDEO_URL = '<?= $videoUrl ?>';
 const SHARE_URL = '<?= htmlspecialchars($shareUrl, ENT_QUOTES) ?>';
 let segments = <?= $segJson ?: '[]' ?>;
-let summary = <?= json_encode($summary, JSON_UNESCAPED_UNICODE) ?>;
+// minutes: objeto estruturado {resumo, topicos[], decisoes[], proximos_passos[]}
+// null quando ainda não gerado. summary (legado) mantido apenas para retrocompat.
+let minutes = <?= $minutesJson ?: 'null' ?>;
 let status = '<?= $status ?>';
 const player = document.getElementById('player');
 
@@ -176,20 +219,71 @@ function showTab(w) {
     document.getElementById('tab-tr').style.display = (w === 'tr') ? 'block' : 'none';
     document.getElementById('tab-sm').style.display = (w === 'sm') ? 'block' : 'none';
 }
-function renderSummary() {
-    document.getElementById('sm-body').innerHTML = summary ? esc(summary) : '<div class="muted">Sem resumo ainda. Ele é gerado junto com a transcrição.</div>';
+
+/**
+ * Renderiza a ata estruturada (minutes) em seções separadas.
+ * Retrocompatível: se minutes é null e existe summary legado (texto livre),
+ * exibe no campo resumo como fallback.
+ */
+function renderMinutes() {
+    const emptyEl  = document.getElementById('sm-empty');
+    const wrapEl   = document.getElementById('sm-minutes');
+    if (!minutes) {
+        emptyEl.style.display = '';
+        wrapEl.style.display = 'none';
+        return;
+    }
+    emptyEl.style.display = 'none';
+    wrapEl.style.display = '';
+
+    document.getElementById('min-resumo').textContent = minutes.resumo || '';
+
+    const renderList = (id, arr) => {
+        const ul = document.getElementById(id);
+        if (!arr || !arr.length) {
+            ul.innerHTML = '<li class="minutes-empty">Nenhum item identificado.</li>';
+            return;
+        }
+        ul.innerHTML = arr.map(item => `<li>${esc(item)}</li>`).join('');
+    };
+    renderList('min-topicos',  minutes.topicos);
+    renderList('min-decisoes', minutes.decisoes);
+    renderList('min-proximos', minutes.proximos_passos);
 }
 
-function copyShare() { navigator.clipboard?.writeText(SHARE_URL).then(()=>alert('Link copiado:\n'+SHARE_URL)).catch(()=>alert(SHARE_URL)); }
 function copyTranscript() {
     const txt = (segments && segments.length) ? segments.map(s => '[' + fmt(s.start) + '] ' + s.text).join('\n') : '';
     if (!txt) { alert('Sem transcrição para copiar.'); return; }
     navigator.clipboard?.writeText(txt).then(()=>alert('Transcrição copiada! Cole no GPT para gerar as tarefas.'));
 }
-function copySummary() {
-    if (!summary) { alert('Sem resumo para copiar.'); return; }
-    navigator.clipboard?.writeText(summary).then(()=>alert('Resumo copiado!'));
+
+/** Copia a ata em texto plano (formato legível para colar em e-mail ou doc). */
+function copyMinutes() {
+    if (!minutes) { alert('Sem ata para copiar.'); return; }
+    const lines = [];
+    if (minutes.resumo) {
+        lines.push('=== RESUMO GERAL ===');
+        lines.push(minutes.resumo);
+        lines.push('');
+    }
+    if (minutes.topicos && minutes.topicos.length) {
+        lines.push('=== TÓPICOS DISCUTIDOS ===');
+        minutes.topicos.forEach(t => lines.push('• ' + t));
+        lines.push('');
+    }
+    if (minutes.decisoes && minutes.decisoes.length) {
+        lines.push('=== DECISÕES TOMADAS ===');
+        minutes.decisoes.forEach(d => lines.push('• ' + d));
+        lines.push('');
+    }
+    if (minutes.proximos_passos && minutes.proximos_passos.length) {
+        lines.push('=== PRÓXIMOS PASSOS ===');
+        minutes.proximos_passos.forEach(p => lines.push('• ' + p));
+    }
+    navigator.clipboard?.writeText(lines.join('\n').trim()).then(()=>alert('Ata copiada!'));
 }
+
+function copyShare() { navigator.clipboard?.writeText(SHARE_URL).then(()=>alert('Link copiado:\n'+SHARE_URL)).catch(()=>alert(SHARE_URL)); }
 
 const CHUNK_SECONDS = 600; // 10 min por pedaço (fica bem abaixo dos 25 MB em WAV 16kHz mono)
 
@@ -215,19 +309,25 @@ async function startTranscription() {
         const chunks = Math.max(1, Math.ceil(total / CHUNK_SECONDS));
 
         // 2) Corta em pedaços e transcreve cada um, juntando os segmentos.
+        // O offset é acumulado pela duração REAL de cada chunk (endSec - startSec),
+        // não por CHUNK_SECONDS fixo — isso garante minutagem precisa mesmo quando
+        // o último pedaço (ou qualquer pedaço) tem duração diferente de 600s.
         let allSegs = [];
+        let accOffset = 0; // offset acumulado em segundos
         for (let i = 0; i < chunks; i++) {
             const startSec = i * CHUNK_SECONDS;
             const endSec = Math.min(total, startSec + CHUNK_SECONDS);
+            const chunkDuration = endSec - startSec; // duração real deste pedaço
             trProgress('Transcrevendo parte ' + (i + 1) + ' de ' + chunks + '…');
             const wav = audioSliceToWav(audio, startSec, endSec, sr);
             const fd = new FormData();
             fd.append('audio', wav, 'parte.wav');
-            fd.append('offset', String(startSec));
+            fd.append('offset', String(accOffset)); // offset acumulado real
             fd.append('index', String(i));
             const r = await fetch(`${BASE}/videocall/transcribeChunk/${REC_TOKEN}`, { method: 'POST', body: fd }).then(x => x.json());
             if (r.error) throw new Error(r.error);
             allSegs = allSegs.concat(r.segments || []);
+            accOffset += chunkDuration; // avança pelo tempo real do pedaço
         }
         try { actx.close(); } catch (e) {}
 
@@ -239,9 +339,14 @@ async function startTranscription() {
         }).then(x => x.json());
         if (save.error) throw new Error(save.error);
 
-        segments = allSegs; summary = save.summary || ''; status = 'done';
+        segments = allSegs;
+        // save.summary é o JSON serializado da ata estruturada.
+        // Tenta decodificar; se falhar, guarda null (ata não disponível).
+        try { minutes = JSON.parse(save.summary || 'null'); } catch (e) { minutes = null; }
+        if (minutes && typeof minutes !== 'object') minutes = null;
+        status = 'done';
         document.getElementById('tr-empty').style.display = 'none';
-        renderSegments(); renderSummary();
+        renderSegments(); renderMinutes();
     } catch (e) {
         document.getElementById('tr-empty').style.display = 'block';
         document.getElementById('tr-empty').innerHTML = '<p class="text-danger">Falha ao transcrever: ' + esc(e.message || 'erro') + '</p>'
@@ -301,8 +406,11 @@ function pollStatus() {
             const r = await fetch(`${BASE}/videocall/recordingInfo/${REC_TOKEN}`).then(x => x.json());
             if (r.status === 'done') {
                 clearInterval(pollTimer); pollTimer = null;
-                segments = r.transcript_json || []; summary = r.summary || ''; status = 'done';
-                renderSegments(); renderSummary();
+                segments = r.transcript_json || [];
+                // r.minutes é o objeto estruturado da ata (novo); fallback para null.
+                minutes = (r.minutes && typeof r.minutes === 'object') ? r.minutes : null;
+                status = 'done';
+                renderSegments(); renderMinutes();
             } else if (r.status === 'error') {
                 clearInterval(pollTimer); pollTimer = null;
                 document.getElementById('tr-empty').innerHTML = '<p class="text-danger">' + esc(r.error_message || 'A transcrição falhou.') + '</p>'
@@ -313,7 +421,7 @@ function pollStatus() {
 }
 
 renderSegments();
-renderSummary();
+renderMinutes();
 </script>
 </body>
 </html>

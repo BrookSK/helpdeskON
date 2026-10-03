@@ -237,6 +237,24 @@
                     <!-- ===== Convite externo (demanda #210) ===== -->
                     <!-- Convidados que NÃO fazem parte do sistema: nome + e-mail e/ou telefone. -->
                     <div class="col-12 mt-external-only" style="display:none;">
+
+                    <!-- ===== Gravação automática (operacional / interno) ===== -->
+                    <!-- Mostrado apenas nos tipos de reunião que se beneficiam de ata automática.
+                         Exige que a sala de vídeo do sistema esteja selecionada para fazer sentido;
+                         mas aceita qualquer opção — o host pode gravar manualmente na sala. -->
+                    <div class="col-12 mt-autorecord-block" style="display:none;">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" role="switch" id="mt-auto-record" value="1">
+                            <label class="form-check-label small fw-medium" for="mt-auto-record">
+                                <i class="bi bi-record-circle text-danger"></i> Gravar automaticamente ao iniciar
+                            </label>
+                        </div>
+                        <small class="text-muted">A gravação começa assim que o responsável entrar na sala de vídeo. A ata é gerada após a transcrição.</small>
+                    </div>
+
+                    <!-- ===== Convite externo (demanda #210) ===== -->
+                    <!-- Convidados que NÃO fazem parte do sistema: nome + e-mail e/ou telefone. -->
+                    <div class="col-12 mt-external-only" style="display:none;">
                         <div class="d-flex align-items-center justify-content-between mb-1">
                             <label class="form-label small fw-medium mb-0"><i class="bi bi-person-plus"></i> Convidados externos *</label>
                             <button type="button" class="btn btn-sm btn-outline-secondary py-0" onclick="addExternalGuestRow()">
@@ -441,6 +459,7 @@
             <div class="modal-footer justify-content-between">
                 <button class="btn btn-sm btn-outline-danger" id="mt-delete-btn" onclick="deleteMeeting()" style="display:none;"><i class="bi bi-trash"></i> Excluir</button>
                 <div class="d-flex gap-2">
+                    <a href="#" class="btn btn-sm btn-outline-success" id="mt-minutes-btn" target="_blank" style="display:none;"><i class="bi bi-file-text"></i> Ver Ata</a>
                     <button type="button" class="btn btn-sm btn-outline-info" id="mt-resend-btn" onclick="resendNotifications()" style="display:none;"><i class="bi bi-send"></i> Reenviar notificações</button>
                     <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Fechar</button>
                     <button class="btn btn-sm btn-primary" onclick="saveMeeting()"><i class="bi bi-check-lg"></i> Salvar</button>
@@ -501,6 +520,9 @@ function resetMeetingForm() {
     if (extWrap) extWrap.innerHTML = '';
     const regChk = document.getElementById('mt-register-google');
     if (regChk) regChk.checked = false;
+    // Gravação automática
+    const arChk = document.getElementById('mt-auto-record');
+    if (arChk) arChk.checked = false;
     // Origem do cliente padrão: CRM
     const srcSel = document.getElementById('mt-client-source');
     if (srcSel) srcSel.value = 'crm';
@@ -513,6 +535,8 @@ function resetMeetingForm() {
     document.querySelectorAll('.mt-new-client').forEach(el => el.style.display = 'none');
     document.getElementById('mt-delete-btn').style.display = 'none';
     document.getElementById('mt-resend-btn').style.display = 'none';
+    const minutesBtn = document.getElementById('mt-minutes-btn');
+    if (minutesBtn) { minutesBtn.style.display = 'none'; minutesBtn.href = '#'; }
     clearBriefing();
     onMeetingTypeChange();
 }
@@ -539,6 +563,17 @@ function onMeetingTypeChange() {
     document.querySelectorAll('.mt-external-only').forEach(el => {
         el.style.display = isExternal ? '' : 'none';
     });
+
+    // Toggle de gravação automática: visível apenas para operacional/interno.
+    // Ao mudar de tipo, reseta o toggle para não gravar por padrão.
+    const arBlock = document.querySelector('.mt-autorecord-block');
+    if (arBlock) {
+        arBlock.style.display = isOperational ? '' : 'none';
+        if (!isOperational) {
+            const arChkOp = document.getElementById('mt-auto-record');
+            if (arChkOp) arChkOp.checked = false;
+        }
+    }
 
     if (isExternal) {
         // Garante ao menos uma linha de convidado ao entrar no modo externo.
@@ -744,8 +779,22 @@ function fillMeeting(m) {
     // Urgência e temperatura são campos únicos (briefing). Usa os do briefing; se vazios, cai nos da reunião.
     syncInherited(m.urgency || 'media', m.temperature || '');
     if (m.meet_link) showMeetLink(m.meet_link);
+    // Gravação automática
+    const arChkFill = document.getElementById('mt-auto-record');
+    if (arChkFill) arChkFill.checked = String(m.auto_record) === '1' || m.auto_record === 1 || m.auto_record === true;
     document.getElementById('mt-delete-btn').style.display = '';
     document.getElementById('mt-resend-btn').style.display = '';
+    // Botão "Ver Ata": visível se a reunião tem gravação com ata gerada.
+    const minutesBtnFill = document.getElementById('mt-minutes-btn');
+    if (minutesBtnFill) {
+        if (m.minutes_url) {
+            minutesBtnFill.href = m.minutes_url;
+            minutesBtnFill.style.display = '';
+        } else {
+            minutesBtnFill.style.display = 'none';
+            minutesBtnFill.href = '#';
+        }
+    }
 }
 
 // Mostra/oculta campo "Quem fechou" conforme o status
@@ -1042,10 +1091,11 @@ function collectPayload() {
     }
     // Briefing
     BF_FIELDS.forEach(k => fd.append('bf_' + k, document.getElementById('bf-' + k).value));
+    // Gravação automática (operacional/interno)
+    const arChk = document.getElementById('mt-auto-record');
+    fd.append('auto_record', (arChk && arChk.checked) ? '1' : '0');
     return fd;
 }
-
-function showMeetLink(link) {
     const hint = document.getElementById('mt-meet-hint');
     if (link) {
         hint.innerHTML = '<span class="text-success"><i class="bi bi-check-circle-fill"></i> Link gerado:</span> '

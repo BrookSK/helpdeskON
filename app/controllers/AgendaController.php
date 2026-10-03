@@ -96,6 +96,13 @@ class AgendaController extends Controller
         }
         $meeting['briefing'] = $briefing;
         $meeting['participants'] = $this->model->getParticipants($id);
+
+        // Link para a ata: token da gravação mais recente com ata gerada para esta reunião.
+        $minutesToken = $this->model->getLatestMinutesToken($id);
+        $meeting['minutes_url'] = $minutesToken
+            ? (rtrim((string) Config::get('app_public_url'), '/') ?: rtrim(baseUrl(''), '/')) . '/videocall/watch/' . $minutesToken
+            : null;
+
         $this->json(['meeting' => $meeting]);
     }
 
@@ -183,6 +190,10 @@ class AgendaController extends Controller
         // uma sala vinculada. É ortogonal ao Meet do Google.
         $useVideoRoom = !empty($_POST['use_video_room']) || (($_POST['video_conference'] ?? '') === 'system');
 
+        // Gravação automática: só disponível para reuniões operacionais/internas.
+        // Para outros tipos o valor é ignorado e fixado em 0.
+        $autoRecord = ($isOperational) ? AgendaRules::normalizeAutoRecord($_POST['auto_record'] ?? 0) : 0;
+
         $data = [
             'title' => $title,
             'meeting_type' => $meetingType,
@@ -196,6 +207,7 @@ class AgendaController extends Controller
             'status' => AgendaRules::normalizeStatus($_POST['status'] ?? ''),
             'meeting_at' => AgendaRules::normalizeMeetingAt($_POST['meeting_at'] ?? ''),
             'notes' => trim($_POST['notes'] ?? '') ?: null,
+            'auto_record' => $autoRecord,
         ];
 
         // Reunião operacional: sem cliente CRM, briefing ou e-mail do cliente.
@@ -274,7 +286,7 @@ class AgendaController extends Controller
         // Sala de vídeo do sistema (nativa): cria e vincula à reunião quando pedido.
         // Ortogonal ao Meet: a reunião pode ter os dois. Não interrompe o fluxo se falhar.
         if ($useVideoRoom) {
-            $this->createSystemVideoRoom($id, $user, $participantIds);
+            $this->createSystemVideoRoom($id, $user, $participantIds, $autoRecord);
         }
 
         // Salva/atualiza o briefing do cliente (só reunião comercial com contato vinculado)
@@ -736,6 +748,11 @@ class AgendaController extends Controller
         if (isset($_POST['notes'])) $data['notes'] = trim($_POST['notes']) ?: null;
         if (isset($_POST['client_email'])) $data['client_email'] = trim($_POST['client_email']) ?: null;
 
+        // auto_record: só aplica em reuniões operacionais/internas.
+        if ($isOperational && isset($_POST['auto_record'])) {
+            $data['auto_record'] = AgendaRules::normalizeAutoRecord($_POST['auto_record']);
+        }
+
         // Se convertida, salva quem fechou; se saiu de convertida, limpa
         if (isset($data['status'])) {
             if ($data['status'] === 'convertida' && !empty($_POST['closed_by'])) {
@@ -1071,7 +1088,7 @@ class AgendaController extends Controller
      *
      * @return array|null Dados da sala criada (ou existente), ou null em falha.
      */
-    private function createSystemVideoRoom($meetingId, $user, array $participantIds = [])
+    private function createSystemVideoRoom($meetingId, $user, array $participantIds = [], int $autoRecord = 0)
     {
         try {
             $meeting = $this->model->findById($meetingId);
@@ -1097,6 +1114,7 @@ class AgendaController extends Controller
                 'meeting_id' => (int) $meetingId,
                 'max_participants' => $max,
                 'allow_recording' => 1,
+                'auto_record' => $autoRecord,
                 'allow_presentation' => $allowPresentation,
                 'status' => 'active',
                 'visibility' => $visibility,
@@ -1144,7 +1162,9 @@ class AgendaController extends Controller
         $user = $this->currentUser();
         $participantIds = array_map(fn($p) => (int) $p['id'], $this->model->getParticipants($id));
 
-        $room = $this->createSystemVideoRoom($id, $user, $participantIds);
+        // Propaga auto_record da reunião para a sala (caso ainda não exista sala).
+        $autoRecord = AgendaRules::normalizeAutoRecord($meeting['auto_record'] ?? 0);
+        $room = $this->createSystemVideoRoom($id, $user, $participantIds, $autoRecord);
         if (!$room) $this->json(['error' => 'Não foi possível criar a sala de vídeo.'], 500);
 
         $publicUrl = rtrim((string) Config::get('app_public_url'), '/') ?: rtrim(baseUrl(''), '/');

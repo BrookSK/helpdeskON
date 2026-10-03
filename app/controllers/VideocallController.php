@@ -253,6 +253,7 @@ class VideocallController extends Controller
             'self' => ['peer_id' => $peerId, 'name' => $name, 'is_host' => $isHost, 'is_admin' => $isAdmin],
             'peers' => $this->formatPeers($existing),
             'allow_recording' => (int)$room['allow_recording'] === 1,
+            'auto_record' => (int)($room['auto_record'] ?? 0) === 1,
             'visibility' => $visibility,
             'is_admin' => $isAdmin,
         ]);
@@ -687,11 +688,20 @@ class VideocallController extends Controller
         if (!$rec) $this->json(['error' => 'Gravação não encontrada'], 404);
 
         $st = $rec['transcribe_status'] ?? 'none';
+        // O campo summary agora armazena JSON estruturado da ata.
+        // Tenta decodificar; se não for JSON válido, trata como texto legado (retrocompat.).
+        $rawSummary = ($st === 'error') ? null : ($rec['summary'] ?? null);
+        $minutesObj = null;
+        if ($rawSummary !== null) {
+            $decoded = json_decode($rawSummary, true);
+            $minutesObj = (is_array($decoded) && isset($decoded['resumo'])) ? $decoded : null;
+        }
         $this->json([
             'status' => $st,
             'transcript' => $rec['transcript'] ?? null,
             'transcript_json' => $rec['transcript_json'] ? json_decode($rec['transcript_json'], true) : null,
-            'summary' => ($st === 'error') ? null : ($rec['summary'] ?? null),
+            'summary' => $rawSummary,
+            'minutes' => $minutesObj,
             'error_message' => ($st === 'error') ? ($rec['summary'] ?? 'Falha ao transcrever.') : null,
             'url' => rtrim(baseUrl(''), '/') . '/videocall/recording/' . $rec['token'],
         ]);
@@ -777,15 +787,12 @@ class VideocallController extends Controller
         $this->releaseSession();
         @set_time_limit(0);
 
-        // Resumo por IA.
+        // Ata estruturada por IA (contexto da reunião + JSON com seções).
         $summary = '';
         $ai = new OpenAiClient();
         if ($ai->isConfigured()) {
-            $res = $ai->chat([
-                ['role' => 'system', 'content' => 'Você resume reuniões em português do Brasil. Produza: (1) um parágrafo geral, (2) tópicos principais em bullets, (3) decisões tomadas e (4) próximos passos / tarefas. Seja objetivo.'],
-                ['role' => 'user', 'content' => "Resuma a reunião a seguir (formato [mm:ss] texto):\n\n" . mb_substr($transcript, 0, 48000)],
-            ], ['model' => 'gpt-4o-mini', 'temperature' => 0.4, 'max_tokens' => 900]);
-            if (!empty($res['success'])) $summary = $res['content'];
+            $ctx = $this->buildMeetingContext($rec);
+            $summary = $this->generateMinutes($transcript, $ctx, $ai);
         }
 
         $this->model->updateRecording($recToken, [
@@ -1047,14 +1054,12 @@ class VideocallController extends Controller
         }
         $transcript = trim($transcript);
 
-        // Resumo a partir da transcrição.
+        // Ata estruturada por IA (contexto da reunião + JSON com seções).
+        $rec = $this->model->findRecordingByToken($recToken);
         $summary = '';
-        if ($transcript !== '') {
-            $res = $ai->chat([
-                ['role' => 'system', 'content' => 'Você resume reuniões em português do Brasil. Produza: (1) um parágrafo geral, (2) tópicos principais em bullets, (3) decisões tomadas e (4) próximos passos / tarefas. Seja objetivo.'],
-                ['role' => 'user', 'content' => "Resuma a reunião a seguir (formato [mm:ss] texto):\n\n" . mb_substr($transcript, 0, 48000)],
-            ], ['model' => 'gpt-4o-mini', 'temperature' => 0.4, 'max_tokens' => 900]);
-            if (!empty($res['success'])) $summary = $res['content'];
+        if ($transcript !== '' && $rec) {
+            $ctx = $this->buildMeetingContext($rec);
+            $summary = $this->generateMinutes($transcript, $ctx, $ai);
         }
 
         $this->model->updateRecording($recToken, [
@@ -1395,9 +1400,148 @@ class VideocallController extends Controller
         exit;
     }
 
-    /** Página simples de mensagem (link inválido/expirado/encerrado). */
-    private function renderMessage($title, $message)
+    // ============================================================
+    // Ata estruturada (geração de minuta com IA)
+    // ============================================================
+
+    /**
+     * Resolve o contexto da reunião vinculada a uma gravação.
+     * Retorna array com: title, meeting_type, meeting_at, participants[].
+     * Todos os campos são strings seguras para inserir no prompt.
+     *
+     * @param  array $rec  Linha de video_recordings
+     * @return array{title:string, meeting_type:string, meeting_at:string, participants:string}
+     */
+    private function buildMeetingContext(array $rec): array
     {
+        $ctx = [
+            'title'        => '',
+            'meeting_type' => '',
+            'meeting_at'   => '',
+            'participants' => '',
+        ];
+
+        // 1) Sala de vídeo → título e meeting_id
+        $room = $this->model->findById($rec['room_id']);
+        if (!$room) return $ctx;
+
+        $ctx['title'] = trim((string)($room['title'] ?? ''));
+
+        // 2) Se há reunião vinculada, busca detalhes na agenda
+        $meetingId = (int)($room['meeting_id'] ?? 0);
+        if ($meetingId > 0) {
+            try {
+                $meeting = Database::getInstance()->fetch(
+                    "SELECT title, meeting_type, meeting_at FROM agenda_meetings WHERE id = ? LIMIT 1",
+                    [$meetingId]
+                );
+                if ($meeting) {
+                    if (!empty($meeting['title']))    $ctx['title']        = trim((string)$meeting['title']);
+                    if (!empty($meeting['meeting_type'])) {
+                        $typeLabels = ['comercial' => 'Comercial', 'operacional' => 'Operacional',
+                                       'interno' => 'Interno', 'externo' => 'Externo'];
+                        $ctx['meeting_type'] = $typeLabels[$meeting['meeting_type']] ?? ucfirst((string)$meeting['meeting_type']);
+                    }
+                    if (!empty($meeting['meeting_at'])) {
+                        $ctx['meeting_at'] = date('d/m/Y \à\s H:i', strtotime($meeting['meeting_at']));
+                    }
+
+                    // Participantes internos da reunião
+                    $parts = Database::getInstance()->fetchAll(
+                        "SELECT u.name FROM agenda_meeting_participants amp
+                         JOIN users u ON u.id = amp.user_id
+                         WHERE amp.meeting_id = ? ORDER BY u.name",
+                        [$meetingId]
+                    );
+                    if (!empty($parts)) {
+                        $ctx['participants'] = implode(', ', array_column($parts, 'name'));
+                    }
+                }
+            } catch (\Throwable $e) { /* ignora — usa o que já tem */ }
+        }
+
+        return $ctx;
+    }
+
+    /**
+     * Gera a ata estruturada a partir da transcrição usando a OpenAI.
+     *
+     * Retorna um array JSON com as seções da ata. Em caso de falha retorna
+     * string vazia para não bloquear o salvamento.
+     *
+     * Estrutura retornada (JSON serializado):
+     * {
+     *   "resumo":          "...",          // parágrafo geral
+     *   "topicos":         ["...", "..."], // bullets
+     *   "decisoes":        ["...", "..."], // decisões tomadas
+     *   "proximos_passos": ["...", "..."]  // próximos passos / tarefas
+     * }
+     *
+     * @param  string       $transcript  Transcrição completa com marcas de tempo
+     * @param  array        $ctx         Contexto da reunião (buildMeetingContext)
+     * @param  OpenAiClient $ai
+     * @return string  JSON serializado (ou '' em caso de falha)
+     */
+    private function generateMinutes(string $transcript, array $ctx, OpenAiClient $ai): string
+    {
+        if (!$ai->isConfigured() || $transcript === '') return '';
+
+        // Monta o cabeçalho de contexto para enriquecer o prompt.
+        $header = '';
+        if ($ctx['title'])        $header .= "Reunião: {$ctx['title']}\n";
+        if ($ctx['meeting_type']) $header .= "Tipo: {$ctx['meeting_type']}\n";
+        if ($ctx['meeting_at'])   $header .= "Data/hora: {$ctx['meeting_at']}\n";
+        if ($ctx['participants']) $header .= "Participantes: {$ctx['participants']}\n";
+        if ($header !== '')       $header .= "\n";
+
+        $systemPrompt =
+            'Você é um assistente especializado em gerar atas de reunião em português do Brasil. ' .
+            'Analise a transcrição fornecida e produza uma ata estruturada. ' .
+            'Responda SOMENTE com um objeto JSON válido com estas 4 chaves (sem nenhum texto fora do JSON): ' .
+            '"resumo" (string: parágrafo geral descrevendo o contexto e objetivo da reunião), ' .
+            '"topicos" (array de strings: principais tópicos discutidos, em bullets), ' .
+            '"decisoes" (array de strings: decisões formalmente tomadas durante a reunião), ' .
+            '"proximos_passos" (array de strings: tarefas, ações e próximos passos identificados, ' .
+            'idealmente com responsável e prazo quando mencionados na transcrição). ' .
+            'Se uma seção não tiver conteúdo claro na transcrição, retorne array vazio []. ' .
+            'Seja direto e objetivo; evite repetir informações entre seções.';
+
+        $userPrompt = $header .
+            "Transcrição da reunião (formato [mm:ss] texto):\n\n" .
+            mb_substr($transcript, 0, 48000);
+
+        $res = $ai->chat(
+            [
+                ['role' => 'system', 'content' => $systemPrompt],
+                ['role' => 'user',   'content' => $userPrompt],
+            ],
+            [
+                'model'           => 'gpt-4o-mini',
+                'temperature'     => 0.3,
+                'max_tokens'      => 1200,
+                'response_format' => ['type' => 'json_object'],
+                'timeout'         => 60,
+            ]
+        );
+
+        if (empty($res['success'])) return '';
+
+        // Valida que veio um JSON com as chaves esperadas; normaliza se necessário.
+        $data = json_decode($res['content'], true);
+        if (!is_array($data)) return '';
+
+        $minutes = [
+            'resumo'          => trim((string)($data['resumo']          ?? '')),
+            'topicos'         => array_values(array_filter((array)($data['topicos']         ?? []), 'is_string')),
+            'decisoes'        => array_values(array_filter((array)($data['decisoes']        ?? []), 'is_string')),
+            'proximos_passos' => array_values(array_filter((array)($data['proximos_passos'] ?? []), 'is_string')),
+        ];
+
+        return json_encode($minutes, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    }
+
+    /** Página simples de mensagem (link inválido/expirado/encerrado). */
+    private function renderMessage($title, $message)    {
         $t = htmlspecialchars($title, ENT_QUOTES);
         $m = htmlspecialchars($message, ENT_QUOTES);
         $fav = Config::get('app_favicon');

@@ -319,4 +319,28 @@ class AgendaMeeting
         }
         return $result;
     }
+
+    /**
+     * Retorna o token da gravação mais recente com ata gerada (transcribe_status='done'
+     * e summary não-vazio) vinculada à reunião via video_rooms.meeting_id.
+     * Retorna null se não houver nenhuma.
+     */
+    public function getLatestMinutesToken($meetingId)
+    {
+        $meetingId = (int)$meetingId;
+        if ($meetingId <= 0) return null;
+        $row = $this->db->fetch(
+            "SELECT r.token
+             FROM video_recordings r
+             JOIN video_rooms vr ON vr.id = r.room_id
+             WHERE vr.meeting_id = ?
+               AND r.transcribe_status = 'done'
+               AND r.summary IS NOT NULL
+               AND r.summary <> ''
+             ORDER BY r.created_at DESC
+             LIMIT 1",
+            [$meetingId]
+        );
+        return $row ? $row['token'] : null;
+    }
 }
