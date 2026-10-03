@@ -220,6 +220,13 @@
                                 <label class="form-check-label small" for="mt-rv-private"><i class="bi bi-shield-lock"></i> Privada (entrada aprovada)</label>
                             </div>
                         </div>
+                        <div class="form-check mt-2 mb-0">
+                            <input class="form-check-input" type="checkbox" id="mt-room-auto-record" checked>
+                            <label class="form-check-label small" for="mt-room-auto-record">
+                                <i class="bi bi-record-circle text-danger"></i> Gravar automaticamente
+                                <span class="text-muted" style="font-size:.72rem;">— começa ao entrar; gera transcrição, resumo e minuta.</span>
+                            </label>
+                        </div>
                         <div id="mt-room-admins-block" class="mt-2" style="display:none;">
                             <label class="form-label small fw-medium mb-1">Administradores da sala (aprovam a entrada)</label>
                             <select id="mt-room-admins" class="form-select form-select-sm" multiple size="4">
@@ -472,6 +479,8 @@ function resetMeetingForm() {
     if (roomOpts) roomOpts.style.display = 'none';
     const rvPublic = document.getElementById('mt-rv-public');
     if (rvPublic) rvPublic.checked = true;
+    const rvAutoRec = document.getElementById('mt-room-auto-record');
+    if (rvAutoRec) rvAutoRec.checked = true;
     const roomAdminsBlk = document.getElementById('mt-room-admins-block');
     if (roomAdminsBlk) roomAdminsBlk.style.display = 'none';
     ['mt-title','mt-meeting-at','mt-new-name','mt-new-phone','mt-notes','mt-client-email','mt-client-name','mt-client-phone'].forEach(f => document.getElementById(f).value = '');
@@ -1150,6 +1159,7 @@ function generateVideoRoom(btn) {
     if (mid) fd.append('meeting_id', mid);
     const visibility = document.querySelector('input[name="mt-room-visibility"]:checked')?.value || 'public';
     fd.append('visibility', visibility);
+    fd.append('auto_record', document.getElementById('mt-room-auto-record')?.checked ? '1' : '0');
     if (visibility === 'private') {
         Array.from(document.getElementById('mt-room-admins').selectedOptions).forEach(o => fd.append('admins[]', o.value));
     }

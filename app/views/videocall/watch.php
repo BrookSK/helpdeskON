@@ -6,6 +6,10 @@ $videoUrl = htmlspecialchars($videoUrl, ENT_QUOTES);
 $status = $rec['transcribe_status'] ?? 'none';
 $durationSec = (int)($rec['duration_sec'] ?? 0);
 $summary = (string)($rec['summary'] ?? '');
+$minutes = (string)($rec['minutes'] ?? '');
+$minutesStatus = $rec['minutes_status'] ?? 'none';
+// Só a equipe (área logada) edita/gera a minuta; no link público ela é só leitura.
+$canEditMinutes = empty($isPublic);
 $segJson = json_encode($segments ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 $shareUrl = $base . '/videocall/share/' . $recToken;
 ?>
@@ -86,6 +90,7 @@ $shareUrl = $base . '/videocall/share/' . $recToken;
         <div class="tabs">
             <button class="tab active" id="tab-tr-btn" onclick="showTab('tr')">Transcrição</button>
             <button class="tab" id="tab-sm-btn" onclick="showTab('sm')">Resumo</button>
+            <button class="tab" id="tab-mn-btn" onclick="showTab('mn')">Minuta</button>
         </div>
         <div class="tab-body" id="tab-tr">
             <div id="tr-list"></div>
@@ -97,9 +102,27 @@ $shareUrl = $base . '/videocall/share/' . $recToken;
         <div class="tab-body" id="tab-sm" style="display:none;">
             <div id="sm-body" class="summary-body"></div>
         </div>
+        <div class="tab-body" id="tab-mn" style="display:none;">
+            <div id="mn-view" class="summary-body"></div>
+            <div id="mn-empty" class="empty" style="display:none;">
+                <p>A minuta (ata) ainda não foi gerada.</p>
+                <?php if ($canEditMinutes): ?>
+                <button class="btn btn-sm btn-brand" id="mn-gen-btn" onclick="generateMinutes()"><i class="bi bi-magic"></i> Gerar minuta com IA</button>
+                <p class="muted mt-2" style="font-size:.78rem;">Requer que a reunião já tenha transcrição.</p>
+                <?php endif; ?>
+            </div>
+            <?php if ($canEditMinutes): ?>
+            <textarea id="mn-edit" class="form-control" style="display:none;min-height:48vh;background:var(--panel2);color:#e8eaf1;border-color:#33375a;font-size:.86rem;line-height:1.5;"></textarea>
+            <?php endif; ?>
+        </div>
         <div class="toolbar">
             <button class="btn btn-sm btn-outline-light" onclick="copyTranscript()"><i class="bi bi-clipboard"></i> Copiar transcrição</button>
             <button class="btn btn-sm btn-outline-light" onclick="copySummary()"><i class="bi bi-clipboard-check"></i> Copiar resumo</button>
+            <?php if ($canEditMinutes): ?>
+            <button class="btn btn-sm btn-outline-warning" id="mn-edit-btn" onclick="toggleMinutesEdit()" style="display:none;"><i class="bi bi-pencil"></i> Editar minuta</button>
+            <button class="btn btn-sm btn-brand" id="mn-save-btn" onclick="saveMinutes()" style="display:none;"><i class="bi bi-check-lg"></i> Salvar minuta</button>
+            <button class="btn btn-sm btn-outline-info" id="mn-send-btn" onclick="sendMinutes()" style="display:none;"><i class="bi bi-send"></i> Enviar minuta</button>
+            <?php endif; ?>
         </div>
     </div>
 </div>
@@ -112,6 +135,10 @@ const SHARE_URL = '<?= htmlspecialchars($shareUrl, ENT_QUOTES) ?>';
 let segments = <?= $segJson ?: '[]' ?>;
 let summary = <?= json_encode($summary, JSON_UNESCAPED_UNICODE) ?>;
 let status = '<?= $status ?>';
+let minutes = <?= json_encode($minutes, JSON_UNESCAPED_UNICODE) ?>;
+let minutesStatus = '<?= $minutesStatus ?>';
+const CAN_EDIT_MINUTES = <?= $canEditMinutes ? 'true' : 'false' ?>;
+let minutesEditing = false;
 const player = document.getElementById('player');
 
 // -------------------------------------------------------------------
@@ -173,11 +200,96 @@ function setSpeed(s, btn) {
 function showTab(w) {
     document.getElementById('tab-tr-btn').classList.toggle('active', w === 'tr');
     document.getElementById('tab-sm-btn').classList.toggle('active', w === 'sm');
+    const mnBtn = document.getElementById('tab-mn-btn');
+    if (mnBtn) mnBtn.classList.toggle('active', w === 'mn');
     document.getElementById('tab-tr').style.display = (w === 'tr') ? 'block' : 'none';
     document.getElementById('tab-sm').style.display = (w === 'sm') ? 'block' : 'none';
+    const mnTab = document.getElementById('tab-mn');
+    if (mnTab) mnTab.style.display = (w === 'mn') ? 'block' : 'none';
+    // Mostra os botões de minuta só quando a aba Minuta está aberta.
+    const editBtn = document.getElementById('mn-edit-btn');
+    const saveBtn = document.getElementById('mn-save-btn');
+    const sendBtn = document.getElementById('mn-send-btn');
+    if (editBtn) editBtn.style.display = (w === 'mn' && !!minutes && !minutesEditing) ? '' : 'none';
+    if (saveBtn) saveBtn.style.display = (w === 'mn' && minutesEditing) ? '' : 'none';
+    if (sendBtn) sendBtn.style.display = (w === 'mn' && !!minutes && !minutesEditing) ? '' : 'none';
+}
+async function sendMinutes() {
+    if (!CAN_EDIT_MINUTES) return;
+    if (!confirm('Enviar o link da minuta por WhatsApp e e-mail aos participantes e ao cliente?')) return;
+    const btn = document.getElementById('mn-send-btn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Enviando…'; }
+    try {
+        const r = await fetch(`${BASE}/videocall/sendMinutes/${REC_TOKEN}`, { method: 'POST' }).then(x => x.json());
+        if (r.error) { alert(r.error); return; }
+        alert('Minuta enviada. WhatsApp: ' + (r.sent_whats || 0) + ' · E-mail: ' + (r.sent_email || 0) + ' (destinatários: ' + (r.recipients || 0) + ').');
+    } catch (e) { alert('Falha ao enviar a minuta.'); }
+    finally { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-send"></i> Enviar minuta'; } }
 }
 function renderSummary() {
     document.getElementById('sm-body').innerHTML = summary ? esc(summary) : '<div class="muted">Sem resumo ainda. Ele é gerado junto com a transcrição.</div>';
+}
+function renderMinutes() {
+    const view = document.getElementById('mn-view');
+    const empty = document.getElementById('mn-empty');
+    const edit = document.getElementById('mn-edit');
+    if (!view) return;
+    if (minutes && minutes.trim() !== '') {
+        if (empty) empty.style.display = 'none';
+        view.style.display = minutesEditing ? 'none' : 'block';
+        view.innerHTML = esc(minutes);
+        if (edit) { edit.style.display = minutesEditing ? 'block' : 'none'; }
+    } else {
+        view.style.display = 'none';
+        view.innerHTML = '';
+        if (edit) edit.style.display = 'none';
+        if (empty) {
+            empty.style.display = 'block';
+            // Mensagem conforme o estado da geração.
+            if (minutesStatus === 'processing') empty.querySelector('p').textContent = 'Gerando a minuta…';
+            else if (minutesStatus === 'error') empty.querySelector('p').textContent = 'A geração da minuta falhou. Tente novamente.';
+        }
+    }
+    // Atualiza visibilidade dos botões quando a aba já está aberta.
+    const mnTab = document.getElementById('tab-mn');
+    if (mnTab && mnTab.style.display === 'block') showTab('mn');
+}
+function toggleMinutesEdit() {
+    if (!CAN_EDIT_MINUTES) return;
+    minutesEditing = true;
+    const edit = document.getElementById('mn-edit');
+    if (edit) { edit.value = minutes || ''; }
+    renderMinutes();
+    showTab('mn');
+}
+async function saveMinutes() {
+    if (!CAN_EDIT_MINUTES) return;
+    const edit = document.getElementById('mn-edit');
+    const val = edit ? edit.value : minutes;
+    const btn = document.getElementById('mn-save-btn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Salvando…'; }
+    try {
+        const r = await fetch(`${BASE}/videocall/saveMinutes/${REC_TOKEN}`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ minutes: val })
+        }).then(x => x.json());
+        if (r.error) { alert(r.error); return; }
+        minutes = val; minutesStatus = 'done'; minutesEditing = false;
+        renderMinutes();
+    } catch (e) { alert('Falha ao salvar a minuta.'); }
+    finally { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-check-lg"></i> Salvar minuta'; } }
+}
+async function generateMinutes() {
+    if (!CAN_EDIT_MINUTES) return;
+    const btn = document.getElementById('mn-gen-btn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Gerando…'; }
+    minutesStatus = 'processing'; renderMinutes();
+    try {
+        const r = await fetch(`${BASE}/videocall/generateMinutes/${REC_TOKEN}`, { method: 'POST' }).then(x => x.json());
+        if (r.error) { minutesStatus = 'error'; renderMinutes(); alert(r.error); return; }
+        minutes = r.minutes || ''; minutesStatus = 'done'; renderMinutes();
+    } catch (e) { minutesStatus = 'error'; renderMinutes(); alert('Falha ao gerar a minuta.'); }
+    finally { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-magic"></i> Gerar minuta com IA'; } }
 }
 
 function copyShare() { navigator.clipboard?.writeText(SHARE_URL).then(()=>alert('Link copiado:\n'+SHARE_URL)).catch(()=>alert(SHARE_URL)); }
@@ -240,8 +352,10 @@ async function startTranscription() {
         if (save.error) throw new Error(save.error);
 
         segments = allSegs; summary = save.summary || ''; status = 'done';
+        // A minuta é gerada automaticamente junto com a transcrição/resumo.
+        if (typeof save.minutes === 'string' && save.minutes.trim() !== '') { minutes = save.minutes; minutesStatus = 'done'; }
         document.getElementById('tr-empty').style.display = 'none';
-        renderSegments(); renderSummary();
+        renderSegments(); renderSummary(); renderMinutes();
     } catch (e) {
         document.getElementById('tr-empty').style.display = 'block';
         document.getElementById('tr-empty').innerHTML = '<p class="text-danger">Falha ao transcrever: ' + esc(e.message || 'erro') + '</p>'
@@ -302,7 +416,9 @@ function pollStatus() {
             if (r.status === 'done') {
                 clearInterval(pollTimer); pollTimer = null;
                 segments = r.transcript_json || []; summary = r.summary || ''; status = 'done';
-                renderSegments(); renderSummary();
+                if (typeof r.minutes === 'string') { minutes = r.minutes; }
+                if (r.minutes_status) { minutesStatus = r.minutes_status; }
+                renderSegments(); renderSummary(); renderMinutes();
             } else if (r.status === 'error') {
                 clearInterval(pollTimer); pollTimer = null;
                 document.getElementById('tr-empty').innerHTML = '<p class="text-danger">' + esc(r.error_message || 'A transcrição falhou.') + '</p>'
@@ -314,6 +430,7 @@ function pollStatus() {
 
 renderSegments();
 renderSummary();
+renderMinutes();
 </script>
 </body>
 </html>

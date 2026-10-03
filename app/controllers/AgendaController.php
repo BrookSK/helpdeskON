@@ -1089,6 +1089,8 @@ class AgendaController extends Controller
             $visibility = AgendaRules::normalizeVideoVisibility($_POST['video_visibility'] ?? 'public');
             $max = AgendaRules::clampVideoMaxParticipants($_POST['video_max_participants'] ?? 15);
             $allowPresentation = (($_POST['video_allow_presentation'] ?? '1') === '0') ? 0 : 1;
+            // Gravação automática: vem marcada por padrão (desligável no form).
+            $autoRecord = VideoRoomRules::normalizeAutoRecord($_POST['video_auto_record'] ?? '1');
 
             $token = $videoModel->create([
                 'title' => $meeting['title'],
@@ -1097,6 +1099,7 @@ class AgendaController extends Controller
                 'meeting_id' => (int) $meetingId,
                 'max_participants' => $max,
                 'allow_recording' => 1,
+                'auto_record' => $autoRecord,
                 'allow_presentation' => $allowPresentation,
                 'status' => 'active',
                 'visibility' => $visibility,

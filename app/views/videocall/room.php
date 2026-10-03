@@ -9,6 +9,8 @@ $isAdmin = !empty($isAdmin);
 $allowPresentation = !isset($allowPresentation) ? true : (bool)$allowPresentation;
 // Em sala privada, gravar é só para administradores.
 $canRecord = $allowRec && !($visibility === 'private' && !$isAdmin);
+// Gravação automática: só vale se a sala pede auto_record E este usuário pode gravar.
+$autoRecord = (!isset($autoRecord) ? true : (bool)$autoRecord) && $canRecord;
 $iceJson = json_encode($iceServers ?? [], JSON_UNESCAPED_SLASHES);
 $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
 ?>
@@ -522,6 +524,8 @@ const ROOM_VISIBILITY = '<?= $visibility ?>';
 const IS_LOGGED = <?= !empty($loggedUserId) ? 'true' : 'false' ?>;
 let isAdmin = <?= $isAdmin ? 'true' : 'false' ?>;
 let allowPresentation = <?= $allowPresentation ? 'true' : 'false' ?>;
+const AUTO_RECORD = <?= $autoRecord ? 'true' : 'false' ?>;
+const CAN_RECORD = <?= $canRecord ? 'true' : 'false' ?>;
 
 // ---- Detecção de dispositivo/rede (otimização mobile e 4G) ----
 const IS_MOBILE = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || (('ontouchstart' in window) && Math.min(screen.width, screen.height) < 820);
@@ -1071,6 +1075,27 @@ function enterCall(res) {
     startStateHeartbeat();
     // Anuncia meu estado inicial (nome/mic/câmera) para todos já sincronizarem.
     setTimeout(broadcastMyState, 700);
+    // Gravação automática: a sala começa a gravar sozinha. Para evitar várias
+    // gravações simultâneas (mesh), só o PRIMEIRO participante (sala vazia ao
+    // entrar) inicia. Quem entra depois assume que alguém já está gravando.
+    maybeStartAutoRecording();
+}
+
+// Inicia a gravação automaticamente quando a sala está configurada para isso
+// (AUTO_RECORD) e eu sou o primeiro na sala. Idempotente e silencioso em falha.
+let autoRecordTried = false;
+function maybeStartAutoRecording() {
+    if (!AUTO_RECORD || !CAN_RECORD || autoRecordTried) return;
+    autoRecordTried = true;
+    // Já há alguém? então provavelmente já estão gravando: não duplica.
+    if (peers.size > 0) return;
+    // Dá um respiro para o stream/áudio estabilizar antes de compor a gravação.
+    setTimeout(() => {
+        if (!joined) return;
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') return; // já gravando
+        if (peers.size > 0) return; // alguém entrou nesse meio-tempo
+        try { startRecording(); } catch (e) { /* não bloqueia a reunião */ }
+    }, 1500);
 }
 
 // ---- Espera (sala privada) ----
@@ -1401,6 +1426,7 @@ function layoutGrid() {
         } else {
             if (n === 1) cols = 1;
             else if (n === 2) cols = 2;
+            else if (n === 3) cols = 3;      // 3 pessoas: uma do lado da outra (linha única)
             else if (n <= 4) cols = 2;
             else if (n <= 9) cols = 3;
             else cols = 4;
@@ -2986,7 +3012,18 @@ function hangup() {
 }
 function onKicked() { if (!joined) return; joined = false; teardown({ icon: '↪️', text: 'Chamada movida para outra guia' }, 'Você entrou nesta chamada em outra aba deste navegador. Esta sessão foi encerrada para evitar duplicidade.'); }
 
-window.addEventListener('beforeunload', () => { if (joined) { try { navigator.sendBeacon(`${BASE}/videocall/leave/${ROOM_TOKEN}`, new URLSearchParams({ peer_id: peerId })); } catch (e) {} } });
+window.addEventListener('beforeunload', () => {
+    if (!joined) return;
+    try { navigator.sendBeacon(`${BASE}/videocall/leave/${ROOM_TOKEN}`, new URLSearchParams({ peer_id: peerId })); } catch (e) {}
+    // Se eu estava gravando e fechei a aba sem parar, pede ao servidor para
+    // finalizar o que já subiu (sem depender do cron de gravações órfãs).
+    if (recSessId && mediaRecorder && mediaRecorder.state !== 'inactive') {
+        try {
+            const dur = Math.floor((recElapsedMs + (recResumeTs ? (Date.now() - recResumeTs) : 0)) / 1000);
+            navigator.sendBeacon(`${BASE}/videocall/recFinalize/${ROOM_TOKEN}`, new URLSearchParams({ sess: recSessId, duration_sec: dur, recorded_by_name: myName }));
+        } catch (e) {}
+    }
+});
 
 // ---- utils ----
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }

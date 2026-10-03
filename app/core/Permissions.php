@@ -52,6 +52,15 @@ class Permissions
         'linkedin',
         'leadcapture',
         'leadcapture_admin',
+        'service_catalog',      // Catálogo de serviços (esteira comercial)
+        'proposals',            // Propostas/orçamentos (esteira comercial)
+        'contracts',            // Contratos + assinatura (esteira comercial)
+        'finance',              // Financeiro: parcelas, recorrência, Asaas (esteira comercial)
+        'onboarding',           // Onboarding por etapas pós-entrada paga (esteira comercial)
+        'credentials',          // Cofre de credenciais do cliente (restrito a super_admin/developer)
+        'provisioning',         // Provisionamento de infra no LRV Cloud (esteira comercial)
+        'providers',            // Contratação de prestadores (gestão interna, só super_admin/developer)
+        'projects',             // Projetos entregues + garantia (esteira comercial)
         // Prospecção / marketing / social
         'prospection',
         'marketing',
@@ -81,6 +90,7 @@ class Permissions
             'tickets', 'planning', 'agenda', 'performance_comercial',
             'prospection', 'videocall',
             'crm', 'crm_apollo', 'crm_prospecting', 'sequences', 'linkedin', 'leadcapture',
+            'service_catalog', 'proposals', 'contracts', 'onboarding', 'provisioning', 'projects',
         ],
         'attendant' => [
             'dashboard', 'account', 'notifications', 'whatsapp', 'rdo',

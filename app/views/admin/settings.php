@@ -964,10 +964,223 @@
             </div>
         </div>
 
+        <!-- ============================================================= -->
+        <!-- Integrações da esteira comercial (ClickSign, Asaas, LRV Cloud) -->
+        <!-- Cada card tem um botão (?) que abre um guia passo a passo.     -->
+        <!-- ============================================================= -->
+        <div class="card mb-4">
+            <div class="card-header bg-white d-flex align-items-center justify-content-between">
+                <h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-plug"></i> Integrações da esteira comercial</h6>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small">Chaves e webhooks das plataformas usadas na esteira (proposta → contrato → financeiro → provisionamento). Clique no <i class="bi bi-question-circle"></i> de cada bloco para ver o passo a passo de onde pegar cada valor. Tudo é salvo no botão <strong>"Salvar Configurações"</strong> abaixo.</p>
+
+                <!-- ClickSign -->
+                <div class="border rounded p-3 mb-3">
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <strong class="small"><i class="bi bi-vector-pen"></i> ClickSign (assinatura de contrato)</strong>
+                        <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" data-bs-toggle="modal" data-bs-target="#helpClicksign" title="Como configurar">
+                            <i class="bi bi-question-circle"></i> Como configurar
+                        </button>
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-md-6">
+                            <label class="form-label small">Access Token</label>
+                            <input type="password" name="clicksign_access_token" class="form-control form-control-sm" value="<?= escape($settings['clicksign_access_token'] ?? '') ?>" placeholder="token da conta ClickSign">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small">Webhook Secret (HMAC)</label>
+                            <input type="password" name="clicksign_webhook_secret" class="form-control form-control-sm" value="<?= escape($settings['clicksign_webhook_secret'] ?? '') ?>" placeholder="segredo p/ validar o webhook">
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-check mt-2">
+                                <input class="form-check-input" type="checkbox" name="clicksign_sandbox" value="1" id="clicksign_sandbox" <?= (($settings['clicksign_sandbox'] ?? '') === '1') ? 'checked' : '' ?>>
+                                <label class="form-check-label small" for="clicksign_sandbox">Usar ambiente de testes (sandbox)</label>
+                            </div>
+                        </div>
+                        <div class="col-12">
+                            <small class="text-muted">URL do webhook para colar no painel ClickSign: <code><?= escape(rtrim((string)($settings['app_public_url'] ?? baseUrl('')), '/')) ?>/contract/clicksignWebhook</code></small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Asaas (3 contas) -->
+                <div class="border rounded p-3 mb-3">
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <strong class="small"><i class="bi bi-cash-coin"></i> Asaas (cobranças / financeiro)</strong>
+                        <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" data-bs-toggle="modal" data-bs-target="#helpAsaas" title="Como configurar">
+                            <i class="bi bi-question-circle"></i> Como configurar
+                        </button>
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-md-6">
+                            <label class="form-label small">Token do webhook (validação)</label>
+                            <input type="password" name="asaas_webhook_token" class="form-control form-control-sm" value="<?= escape($settings['asaas_webhook_token'] ?? '') ?>" placeholder="token que você define e cola no Asaas">
+                        </div>
+                        <div class="col-12">
+                            <small class="text-muted">As 3 contas Asaas (parcela/recorrente/outra) são cadastradas em <a href="<?= baseUrl('finance/accounts') ?>">Financeiro → Contas Asaas</a>, cada uma com seu próprio token. URL do webhook: <code><?= escape(rtrim((string)($settings['app_public_url'] ?? baseUrl('')), '/')) ?>/finance/asaasWebhook?token=SEU_TOKEN</code></small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LRV Cloud -->
+                <div class="border rounded p-3">
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <strong class="small"><i class="bi bi-hdd-network"></i> LRV Cloud (provisionamento)</strong>
+                        <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" data-bs-toggle="modal" data-bs-target="#helpLrv" title="Como configurar">
+                            <i class="bi bi-question-circle"></i> Como configurar
+                        </button>
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-md-6">
+                            <label class="form-label small">API Key</label>
+                            <input type="password" name="lrv_cloud_api_key" class="form-control form-control-sm" value="<?= escape($settings['lrv_cloud_api_key'] ?? '') ?>" placeholder="lrv_live_... (ou lrv_test_ p/ sandbox)">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small">Webhook Secret (HMAC)</label>
+                            <input type="password" name="lrv_cloud_webhook_secret" class="form-control form-control-sm" value="<?= escape($settings['lrv_cloud_webhook_secret'] ?? '') ?>" placeholder="segredo exibido ao criar o webhook">
+                        </div>
+                        <div class="col-12">
+                            <small class="text-muted">URL do webhook para o painel LRV Cloud: <code><?= escape(rtrim((string)($settings['app_public_url'] ?? baseUrl('')), '/')) ?>/provisioning/lrvWebhook?id=ID_DO_PROVISIONAMENTO</code></small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <button type="submit" class="btn btn-primary px-4">
             <i class="bi bi-check-lg"></i> Salvar Configurações
         </button>
     </form>
+
+    <!-- ===================== MODAIS DE AJUDA (passo a passo) ===================== -->
+    <!-- ClickSign -->
+    <div class="modal fade" id="helpClicksign" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h6 class="modal-title"><i class="bi bi-vector-pen"></i> Como configurar o ClickSign</h6>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+          </div>
+          <div class="modal-body small">
+            <p class="fw-semibold mb-1">1. Onde pegar o Access Token</p>
+            <ol class="mb-3">
+              <li>Entre na sua conta ClickSign em <a href="https://app.clicksign.com" target="_blank" rel="noopener">app.clicksign.com</a> (ou <a href="https://sandbox.clicksign.com" target="_blank" rel="noopener">sandbox.clicksign.com</a> para testes).</li>
+              <li>No menu do seu perfil/empresa, vá em <strong>Configurações → API</strong> (ou "Integrações / Chaves de API").</li>
+              <li>Copie o <strong>Access Token</strong> e cole no campo <em>Access Token</em> aqui.</li>
+              <li>Se estiver usando a conta de testes, marque a caixa <em>"Usar ambiente de testes (sandbox)"</em>.</li>
+            </ol>
+            <p class="fw-semibold mb-1">2. Configurar o webhook (confirmação da assinatura)</p>
+            <ol class="mb-3">
+              <li>Ainda no painel ClickSign, vá em <strong>Configurações → Webhooks</strong>.</li>
+              <li>Em "URL", cole: <code id="cs-webhook-url"></code></li>
+              <li>Defina um <strong>segredo (secret)</strong> para o webhook e cole o MESMO valor no campo <em>Webhook Secret (HMAC)</em> aqui. É isso que valida que o aviso veio mesmo da ClickSign.</li>
+              <li>Ative os eventos de <strong>documento finalizado/assinado</strong> (close / auto_close).</li>
+            </ol>
+            <p class="fw-semibold mb-1">✅ O que fazer</p>
+            <ul class="mb-2">
+              <li>Testar primeiro no sandbox, com a caixa de testes marcada.</li>
+              <li>Guardar o Access Token com segurança (ele dá acesso à sua conta).</li>
+            </ul>
+            <p class="fw-semibold mb-1">⛔ O que NÃO fazer</p>
+            <ul class="mb-0">
+              <li>Não usar o token de produção enquanto estiver testando.</li>
+              <li>Não deixar o Webhook Secret em branco — sem ele, não dá para confiar na confirmação de assinatura.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Asaas -->
+    <div class="modal fade" id="helpAsaas" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h6 class="modal-title"><i class="bi bi-cash-coin"></i> Como configurar o Asaas</h6>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+          </div>
+          <div class="modal-body small">
+            <p class="text-muted">A empresa usa <strong>3 contas Asaas</strong> (uma para parcelas, uma para recorrência, uma "outra"). Cada conta tem seu próprio token.</p>
+            <p class="fw-semibold mb-1">1. Onde pegar o token de cada conta</p>
+            <ol class="mb-3">
+              <li>Entre na conta Asaas em <a href="https://www.asaas.com" target="_blank" rel="noopener">asaas.com</a> (ou sandbox em <a href="https://sandbox.asaas.com" target="_blank" rel="noopener">sandbox.asaas.com</a>).</li>
+              <li>Vá em <strong>Minha Conta → Integrações → Chave de API (API Key)</strong>.</li>
+              <li>Copie a chave. <strong>Repita para cada uma das 3 contas.</strong></li>
+            </ol>
+            <p class="fw-semibold mb-1">2. Onde cadastrar as 3 contas aqui no sistema</p>
+            <ol class="mb-3">
+              <li>Vá em <a href="<?= baseUrl('finance/accounts') ?>">Financeiro → Contas Asaas</a>.</li>
+              <li>Crie uma conta por finalidade (parcela / recorrente / outra), colando o token de cada uma e marcando "sandbox" se for teste.</li>
+            </ol>
+            <p class="fw-semibold mb-1">3. Webhook (confirmação de pagamento)</p>
+            <ol class="mb-3">
+              <li>Defina um <strong>token</strong> qualquer (uma senha sua) e cole no campo <em>Token do webhook</em> aqui.</li>
+              <li>No painel Asaas de <strong>cada conta</strong>, vá em <strong>Integrações → Webhooks</strong> e cadastre a URL: <code id="asaas-webhook-url"></code></li>
+              <li>Ative os eventos de <strong>pagamento confirmado/recebido</strong> (PAYMENT_CONFIRMED, PAYMENT_RECEIVED).</li>
+            </ol>
+            <p class="fw-semibold mb-1">✅ O que fazer</p>
+            <ul class="mb-2">
+              <li>Usar o mesmo token do webhook nas 3 contas (fica mais simples).</li>
+              <li>Testar no sandbox antes de ligar em produção.</li>
+            </ul>
+            <p class="fw-semibold mb-1">⛔ O que NÃO fazer</p>
+            <ul class="mb-0">
+              <li>Não confundir o token da API (que fica em cada conta) com o token do webhook (que você define).</li>
+              <li>Não considerar um pagamento "pago" só porque a cobrança foi criada — o status real vem pelo webhook.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- LRV Cloud -->
+    <div class="modal fade" id="helpLrv" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h6 class="modal-title"><i class="bi bi-hdd-network"></i> Como configurar o LRV Cloud</h6>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+          </div>
+          <div class="modal-body small">
+            <p class="fw-semibold mb-1">1. Onde pegar a API Key</p>
+            <ol class="mb-3">
+              <li>Entre no painel do LRV Cloud em <a href="https://cloud.lrvweb.com.br" target="_blank" rel="noopener">cloud.lrvweb.com.br</a>.</li>
+              <li>Vá em <strong>Painel → API Keys → Criar</strong>.</li>
+              <li>Marque os escopos necessários: <code>clients.write</code>, <code>hosting.write</code>, <code>databases.write</code>, <code>applications.write</code>, <code>domains.write</code> (e os <code>.read</code> correspondentes).</li>
+              <li>Para testar, crie uma chave <code>lrv_test_</code> (sandbox); para valer, <code>lrv_live_</code>. Cole no campo <em>API Key</em> aqui.</li>
+            </ol>
+            <p class="fw-semibold mb-1">2. Configurar o webhook (status do provisionamento)</p>
+            <ol class="mb-3">
+              <li>No painel LRV Cloud, vá em <strong>Webhooks → Criar</strong>.</li>
+              <li>Em "URL", cole: <code id="lrv-webhook-url"></code> (troque <code>ID_DO_PROVISIONAMENTO</code> pelo id real quando aplicável, ou use um webhook por processo).</li>
+              <li>Ao criar, o painel mostra um <strong>secret UMA ÚNICA VEZ</strong> — copie e cole no campo <em>Webhook Secret (HMAC)</em> aqui.</li>
+              <li>Ative os eventos: <code>hosting.created</code>, <code>hosting.ready</code>, <code>application.installed</code>, <code>application.deployed</code>, <code>domain.added</code>.</li>
+            </ol>
+            <p class="fw-semibold mb-1">✅ O que fazer</p>
+            <ul class="mb-2">
+              <li>Começar com a chave de sandbox (<code>lrv_test_</code>): os writes são simulados e os reads retornam dados reais.</li>
+              <li>Guardar o Webhook Secret assim que aparecer (não dá para vê-lo de novo).</li>
+            </ul>
+            <p class="fw-semibold mb-1">⛔ O que NÃO fazer</p>
+            <ul class="mb-0">
+              <li>Não provisionar VPS de verdade com a chave de produção antes de validar o fluxo no sandbox.</li>
+              <li>Não dar escopos de escrita que você não vai usar (princípio do menor privilégio).</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- Preenche as URLs de webhook dentro dos modais com a base pública real -->
+    <script>
+    (function () {
+        var base = '<?= escape(rtrim((string)($settings['app_public_url'] ?? baseUrl('')), '/')) ?>';
+        var set = function (id, path) { var el = document.getElementById(id); if (el) el.textContent = base + path; };
+        set('cs-webhook-url', '/contract/clicksignWebhook');
+        set('asaas-webhook-url', '/finance/asaasWebhook?token=SEU_TOKEN');
+        set('lrv-webhook-url', '/provisioning/lrvWebhook?id=ID_DO_PROVISIONAMENTO');
+    })();
+    </script>
 
     <!-- Form real (vazio, sem campos visíveis) que recebe o submit de "Gerar
          chave". Os campos acima se associam a ele via atributo form=, o que
