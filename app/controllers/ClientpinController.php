@@ -70,7 +70,7 @@ class ClientpinController extends Controller
         $pin = trim($_POST['pin'] ?? '');
         if (!ClientPinRules::isValidFormat($pin)) {
             $this->registerAttempt();
-            flash('error', 'Informe um PIN válido de 6 dígitos.');
+            flash('error', 'Informe um PIN válido de 4 dígitos.');
             $this->redirect('clientpin');
         }
 
@@ -86,11 +86,11 @@ class ClientpinController extends Controller
         unset($_SESSION['external_access'], $_SESSION['client_pin_access'],
               $_SESSION['impersonator'], $_SESSION['active_company_id']);
 
-        // O acesso por PIN do cliente estabelece uma SESSÃO DE LOGIN REAL do
-        // próprio cliente (mesmas chaves do login por senha), para que ele caia
-        // na área interna normal (sidebar do cliente) e tenha acesso às mesmas
-        // opções (Minhas Demandas, Cronograma, Documentos), começando em
-        // "Nova Demanda". $owner é a linha completa de users (findByClientPin).
+        // O acesso por PIN estabelece uma SESSÃO DE LOGIN REAL do usuário dono
+        // do PIN (mesmas chaves do login por senha), com os mesmos acessos do
+        // papel dele. Vale para qualquer papel (o PIN é por usuário), caindo na
+        // área interna começando em "Nova Demanda". $owner é a linha completa
+        // de users (findByClientPin).
         $_SESSION['user_id'] = (int)$owner['id'];
         $_SESSION['user_name'] = $owner['name'];
         $_SESSION['user_email'] = $owner['email'] ?? '';

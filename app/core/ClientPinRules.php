@@ -30,17 +30,17 @@ class ClientPinRules
     }
 
     /**
-     * Só papéis de CLIENTE podem usar o PIN de cliente. Impede que um PIN
-     * atribuído a um usuário interno sirva de login simplificado (segurança).
+     * O PIN é por USUÁRIO: qualquer papel pode usá-lo para entrar (não apenas
+     * clientes). A única exigência é ter um papel definido.
      */
     public static function roleCanUseClientPin(?string $role): bool
     {
-        return $role === 'client';
+        return is_string($role) && $role !== '';
     }
 
     /**
-     * O usuário resolvido pelo PIN pode entrar no ambiente do cliente?
-     * Precisa ser client, estar ativo e ter o PIN definido.
+     * O usuário resolvido pelo PIN pode entrar? Precisa estar ativo e ter o PIN
+     * definido (4 dígitos). Vale para qualquer papel — o PIN é por usuário.
      *
      * @param array|null $user linha de users (role, is_active, client_pin)
      */

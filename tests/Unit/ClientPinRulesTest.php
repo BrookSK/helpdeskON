@@ -28,23 +28,26 @@ final class ClientPinRulesTest extends TestCase
         $this->assertSame('', ClientPinRules::normalize('12'));
     }
 
-    public function testRoleCanUseClientPin(): void
+    public function testRoleCanUseClientPinAceitaQualquerPapel(): void
     {
+        // O PIN é por usuário: qualquer papel definido pode usá-lo.
         $this->assertTrue(ClientPinRules::roleCanUseClientPin('client'));
-        $this->assertFalse(ClientPinRules::roleCanUseClientPin('super_admin'));
-        $this->assertFalse(ClientPinRules::roleCanUseClientPin('developer'));
+        $this->assertTrue(ClientPinRules::roleCanUseClientPin('super_admin'));
+        $this->assertTrue(ClientPinRules::roleCanUseClientPin('developer'));
+        // Sem papel definido não vale.
         $this->assertFalse(ClientPinRules::roleCanUseClientPin(null));
+        $this->assertFalse(ClientPinRules::roleCanUseClientPin(''));
     }
 
     public function testCanAuthenticate(): void
     {
-        $ok = ['role' => 'client', 'is_active' => 1, 'client_pin' => '6543'];
-        $this->assertTrue(ClientPinRules::canAuthenticate($ok));
-        // Papel errado.
-        $this->assertFalse(ClientPinRules::canAuthenticate(['role' => 'super_admin', 'is_active' => 1, 'client_pin' => '6543']));
-        // Inativo.
+        // Qualquer papel ativo com PIN válido autentica.
+        $this->assertTrue(ClientPinRules::canAuthenticate(['role' => 'client', 'is_active' => 1, 'client_pin' => '6543']));
+        $this->assertTrue(ClientPinRules::canAuthenticate(['role' => 'super_admin', 'is_active' => 1, 'client_pin' => '6543']));
+        $this->assertTrue(ClientPinRules::canAuthenticate(['role' => 'developer', 'is_active' => 1, 'client_pin' => '1234']));
+        // Inativo não autentica.
         $this->assertFalse(ClientPinRules::canAuthenticate(['role' => 'client', 'is_active' => 0, 'client_pin' => '6543']));
-        // PIN inválido.
+        // PIN inválido não autentica.
         $this->assertFalse(ClientPinRules::canAuthenticate(['role' => 'client', 'is_active' => 1, 'client_pin' => '12']));
         // Null.
         $this->assertFalse(ClientPinRules::canAuthenticate(null));
