@@ -1,16 +1,11 @@
 <?php
 
 /**
- * Regras puras (sem banco/HTTP) do PIN de login do CLIENTE (Fase 9).
+ * Regras puras (sem banco/HTTP) do PIN de login por usuário.
  *
- * Este PIN é DIFERENTE do external_pin de EQUIPE (migration 126, usado em
- * /solicitacaoexterna para criar demanda em nome do atendente). O PIN do cliente
- * é um login simplificado do PRÓPRIO cliente, que entra como o próprio cliente.
- *
- * Ambos os PINs têm 4 dígitos, mas são colunas e fluxos de login distintos
- * (client_pin via /clientpin x external_pin via /solicitacaoexterna); cada um é
- * único dentro do seu próprio tipo. A validação de formato e a normalização
- * ficam aqui, testáveis.
+ * O PIN (users.client_pin, 4 dígitos) é o acesso rápido via /clientpin: entra
+ * como o próprio usuário, com os mesmos acessos do login por senha. Vale para
+ * qualquer papel. A validação de formato e a normalização ficam aqui, testáveis.
  */
 class ClientPinRules
 {

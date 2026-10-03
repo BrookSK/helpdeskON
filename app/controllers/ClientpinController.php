@@ -1,17 +1,13 @@
 <?php
 
 /**
- * Login simplificado do CLIENTE por PIN.
+ * Login por PIN (/clientpin).
  *
- * Página pública em /clientpin onde o PRÓPRIO cliente informa seu PIN de 6
- * dígitos (users.client_pin, role=client). Ao validar, abrimos uma SESSÃO DE
- * LOGIN REAL do cliente (as mesmas chaves do login por senha) e o levamos à
- * área interna normal, começando na tela de Nova Demanda (tickets/create) —
- * com a sidebar e as mesmas opções que o cliente teria logando com senha.
- *
- * NÃO confundir com /solicitacaoexterna (PIN de EQUIPE, 4 dígitos, cria demanda
- * em nome do atendente, numa tela externa isolada). Aqui o PIN é do próprio
- * cliente e dá acesso à área dele.
+ * Página pública onde o usuário informa seu PIN de 4 dígitos (users.client_pin).
+ * Ao validar, abrimos uma SESSÃO DE LOGIN REAL (as mesmas chaves do login por
+ * senha) e o levamos à área interna, começando na tela de Nova Demanda
+ * (tickets/create) — com os mesmos acessos do login normal. Vale para qualquer
+ * papel: o PIN é por usuário.
  */
 class ClientpinController extends Controller
 {
