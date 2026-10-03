@@ -155,14 +155,18 @@ class AcessosController extends Controller
         $this->requireModule('acessos');
         $this->requireAjax();
 
-        $user     = $this->currentUser();
-        $password = $this->model->getPassword((int)$id, $user['id']);
+        $user = $this->currentUser();
 
-        if ($password === null) {
-            $this->json(['error' => 'Acesso não encontrado ou sem senha cadastrada.'], 404);
+        // Verifica se o registro existe e pertence ao usuário
+        $row = $this->model->findById((int)$id, $user['id']);
+        if (!$row) {
+            $this->json(['error' => 'Acesso não encontrado.'], 200);
         }
 
-        $this->json(['password' => $password]);
+        $password = $this->model->getPassword((int)$id, $user['id']);
+
+        // Senha pode ser null se não foi cadastrada
+        $this->json(['password' => $password ?? '']);
     }
 
     // ------------------------------------------------------------------ //
