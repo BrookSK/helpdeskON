@@ -156,7 +156,44 @@ class ProposalController extends Controller
         }
         $this->model->changeStatus($id, ProposalRules::STATUS_SENT, $user['id'], ['sent_at' => date('Y-m-d H:i:s')]);
         $link = $this->publicBase() . '/proposal/show/' . $proposal['public_token'];
-        $this->json(['success' => true, 'link' => $link]);
+
+        // Envia o link ao CLIENTE por WhatsApp + e-mail (quando houver contato).
+        $delivery = $this->deliverToClient($proposal, $link);
+
+        $this->json([
+            'success' => true,
+            'link' => $link,
+            'sent_whats' => $delivery['sent_whats'],
+            'sent_email' => $delivery['sent_email'],
+            'no_contact' => $delivery['no_contact'],
+        ]);
+    }
+
+    /**
+     * Envia o link da proposta ao cliente (WhatsApp + e-mail). Nunca interrompe:
+     * canais são complementares. Retorna o que foi enviado.
+     */
+    private function deliverToClient(array $proposal, string $link): array
+    {
+        $out = ['sent_whats' => 0, 'sent_email' => 0, 'no_contact' => true];
+        $c = ProposalDelivery::clientContact($proposal);
+        $company = trim((string) Config::get('app_name')) ?: null;
+        $title = $proposal['title'] ?? null;
+
+        if (!empty($c['phone'])) {
+            $out['no_contact'] = false;
+            $msg = ProposalDelivery::clientWhatsapp($c['name'], $link, $title, $company);
+            try { if (WhatsappNotifier::sendToPhone($c['phone'], $msg, $c['name'])) $out['sent_whats']++; }
+            catch (\Throwable $e) { /* não interrompe */ }
+        }
+        if (!empty($c['email'])) {
+            $out['no_contact'] = false;
+            $subject = ProposalDelivery::clientEmailSubject($title);
+            $html = Mailer::template($subject, ProposalDelivery::clientEmailBody($c['name'], $link, $title));
+            try { if (Mailer::send($c['email'], $subject, $html)) $out['sent_email']++; }
+            catch (\Throwable $e) { /* não interrompe */ }
+        }
+        return $out;
     }
 
     // ================= Área pública (sem login, por token) =================
@@ -197,6 +234,9 @@ class ProposalController extends Controller
         $this->model->changeStatus($proposal['id'], ProposalRules::STATUS_ACCEPTED, null, ['responded_at' => date('Y-m-d H:i:s')]);
         $this->model->addEvent($proposal['id'], null, 'accepted', 'Cliente aceitou a proposta');
         $this->notifyTeam($proposal, 'Proposta aceita', "O cliente aceitou a proposta \"{$proposal['title']}\".");
+        // Aviso à equipe pelo WhatsApp do grupo (complementar ao sino).
+        try { WhatsappNotifier::sendToDefaultGroup(ProposalDelivery::teamWhatsapp('accepted', $proposal['title'] ?? null)); }
+        catch (\Throwable $e) { /* não interrompe */ }
         $this->json(['success' => true]);
     }
 
@@ -220,6 +260,9 @@ class ProposalController extends Controller
         ]);
         $this->model->addEvent($proposal['id'], null, 'rejected', 'Cliente recusou. Motivo: ' . $reason);
         $this->notifyTeam($proposal, 'Proposta recusada', "O cliente recusou a proposta \"{$proposal['title']}\". Motivo: {$reason}");
+        // Aviso à equipe pelo WhatsApp do grupo (complementar ao sino).
+        try { WhatsappNotifier::sendToDefaultGroup(ProposalDelivery::teamWhatsapp('rejected', $proposal['title'] ?? null, $reason)); }
+        catch (\Throwable $e) { /* não interrompe */ }
         $this->json(['success' => true]);
     }
 

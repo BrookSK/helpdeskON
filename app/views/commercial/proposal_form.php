@@ -191,11 +191,28 @@ async function saveProposal() {
 async function sendProposal() {
     if (!await saveProposal()) return;
     if (!confirm('Enviar a proposta ao cliente? Ela ficará disponível pelo link público.')) return;
+    const btn = document.getElementById('btn-send');
+    const orig = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Enviando...'; }
     const fd = new FormData(); fd.append('csrf_token', CSRF);
     const r = await fetch(`${PROP_BASE}proposal/send/${PROPOSAL_ID}`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(x => x.json()).catch(() => ({error:'Falha de rede'}));
+    if (btn) { btn.disabled = false; btn.innerHTML = orig; }
     if (r.error) { alert(r.error); return; }
-    prompt('Proposta enviada. Link público para o cliente:', r.link);
+
+    // Feedback do que foi enviado ao cliente.
+    let msg = 'Proposta marcada como enviada.\n';
+    const canais = [];
+    if (r.sent_whats) canais.push('WhatsApp');
+    if (r.sent_email) canais.push('e-mail');
+    if (canais.length) {
+        msg += 'Enviada ao cliente por: ' + canais.join(' e ') + '.';
+    } else if (r.no_contact) {
+        msg += 'Atenção: o cliente não tem telefone/e-mail cadastrado — nada foi enviado automaticamente. Copie o link e envie manualmente:\n' + r.link;
+    } else {
+        msg += 'Não foi possível enviar automaticamente (verifique WhatsApp/SMTP). Envie o link manualmente:\n' + r.link;
+    }
+    alert(msg);
     location.reload();
 }
 // Adicionar item a partir do catálogo.
