@@ -289,6 +289,18 @@ class AgendaController extends Controller
             $this->createSystemVideoRoom($id, $user, $participantIds, $autoRecord);
         }
 
+        // Propaga auto_record para a sala de vídeo ativa vinculada à reunião.
+        // Cobre o caso em que a sala foi criada antes do save (via generateVideoRoom
+        // no modal) e ficou com auto_record = 0 no banco.
+        if ($autoRecord || $useVideoRoom) {
+            try {
+                Database::getInstance()->query(
+                    "UPDATE video_rooms SET auto_record = ? WHERE meeting_id = ? AND status = 'active'",
+                    [$autoRecord, (int) $id]
+                );
+            } catch (\Throwable $e) { /* ignora — não interrompe o fluxo */ }
+        }
+
         // Salva/atualiza o briefing do cliente (só reunião comercial com contato vinculado)
         if (!$isOperational && $contactId) {
             $this->saveBriefingFromPost($contactId, $user['id']);
@@ -763,6 +775,17 @@ class AgendaController extends Controller
         }
 
         if (!empty($data)) $this->model->update($id, $data);
+
+        // Propaga auto_record para a sala de vídeo ativa vinculada — garante
+        // sincronia mesmo quando a sala foi criada antes do save da reunião.
+        if ($isOperational && isset($data['auto_record'])) {
+            try {
+                Database::getInstance()->query(
+                    "UPDATE video_rooms SET auto_record = ? WHERE meeting_id = ? AND status = 'active'",
+                    [(int) $data['auto_record'], (int) $id]
+                );
+            } catch (\Throwable $e) { /* ignora */ }
+        }
 
         // Atualiza participantes da equipe
         if (isset($_POST['participants'])) {
