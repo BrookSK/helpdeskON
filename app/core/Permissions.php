@@ -60,6 +60,7 @@ class Permissions
         // Administração
         'companies',
         'users',
+        'acessos',
         'settings',
         // Área do cliente
         'client_tickets',
