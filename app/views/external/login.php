@@ -39,8 +39,8 @@
             <?php else: ?>
             <span class="logo-text">ON</span><span class="fs-4 fw-light text-dark"> Solutions</span>
             <?php endif; ?>
-            <p class="text-muted mt-2 mb-0" style="font-size:0.9rem"><i class="bi bi-box-arrow-in-right"></i> Solicitação externa</p>
-            <p class="text-muted mb-0" style="font-size:0.8rem">Informe o PIN do atendente para abrir uma demanda.</p>
+            <p class="text-muted mt-2 mb-0" style="font-size:0.9rem"><i class="bi bi-box-arrow-in-right"></i> Acesso por PIN</p>
+            <p class="text-muted mb-0" style="font-size:0.8rem">Informe seu PIN de 4 dígitos para abrir uma nova demanda.</p>
         </div>
 
         <?php if ($error = flash('error')): ?>
@@ -62,6 +62,12 @@
                 <i class="bi bi-unlock"></i> Entrar
             </button>
         </form>
+
+        <div class="text-center mt-3">
+            <a href="<?= baseUrl('login') ?>" class="text-decoration-none" style="font-size:0.82rem;color:var(--primary);">
+                <i class="bi bi-arrow-left"></i> Entrar com usuário e senha
+            </a>
+        </div>
 
         <div class="text-center mt-4">
             <small class="text-muted" style="font-size:0.75rem">&copy; <?= date('Y') ?> ON Solutions. Todos os direitos reservados.</small>

@@ -548,6 +548,9 @@ class TicketsController extends Controller
             );
         }
 
+        // Demandas relacionadas (Suporte -> Incidente -> Correção).
+        $relations = $this->ticketModel->getRelations($id);
+
         // Atendentes atualmente vinculados a esta demanda (para marcar os checkboxes)
         $assignedAttendants = $this->ticketModel->getAttendants($id);
         $assignedAttendantIds = array_map(function ($a) { return (int)$a['id']; }, $assignedAttendants);
@@ -566,6 +569,7 @@ class TicketsController extends Controller
             'assignedAttendantIds' => $assignedAttendantIds,
             'technicalGrouped' => $technicalGrouped,
             'internalNotes' => $internalNotes,
+            'relations' => $relations,
         ]);
     }
 
@@ -583,7 +587,7 @@ class TicketsController extends Controller
         }
 
         $status = $_POST['status'] ?? '';
-        $validStatuses = ['open', 'in_progress', 'em_revisao_interna', 'waiting_client', 'em_homologacao', 'aprovado_producao', 'completed', 'denied', 'archived'];
+        $validStatuses = TicketAccess::STATUSES;
         if (!in_array($status, $validStatuses)) {
             if ($this->isAjax()) {
                 $this->json(['error' => 'Status inválido'], 400);
@@ -616,7 +620,64 @@ class TicketsController extends Controller
         $previousTicket = $this->ticketModel->findById($id);
         $previousStatus = $previousTicket['status'] ?? null;
 
+        // Recusa (escopo/homologação) EXIGE motivo. Registrado antes da mudança
+        // de status para preservar a justificativa junto da demanda.
+        $reason = trim($_POST['reason'] ?? '');
+        $sideEffects = [];
+
+        // Recusa na HOMOLOGAÇÃO (em_homologacao -> denied): guarda o motivo.
+        if ($previousStatus === 'em_homologacao' && $status === 'denied') {
+            if ($reason === '') {
+                if ($this->isAjax()) {
+                    $this->json(['error' => 'Informe o motivo da recusa.'], 400);
+                }
+                flash('error', 'Informe o motivo da recusa.');
+                $this->redirect('tickets/show/' . $id);
+                return;
+            }
+            $sideEffects['homolog_denied_reason'] = $reason;
+        }
+
+        // Decisão de ESCOPO (aguardando_aprovacao_escopo -> in_progress):
+        // o cliente aprova ou recusa. A recusa é sinalizada por reject=1 + motivo.
+        if ($previousStatus === ScopeRules::STATUS_AGUARDANDO && $status === 'in_progress') {
+            $isReject = !empty($_POST['reject']);
+            if ($isReject) {
+                $clean = ScopeRules::sanitizeRejectionReason($reason);
+                if ($clean === null) {
+                    if ($this->isAjax()) {
+                        $this->json(['error' => 'Informe o motivo da recusa do escopo.'], 400);
+                    }
+                    flash('error', 'Informe o motivo da recusa do escopo.');
+                    $this->redirect('tickets/show/' . $id);
+                    return;
+                }
+                $sideEffects['scope_rejected_reason'] = $clean;
+            } else {
+                $sideEffects['scope_approved_at'] = date('Y-m-d H:i:s');
+                $sideEffects['scope_rejected_reason'] = null;
+            }
+        }
+
+        // Entrada em HOMOLOGAÇÃO: inicia a janela de 48h e zera os contatos da
+        // régua (idempotente — só reinicia ao (re)entrar em homologação).
+        if ($status === 'em_homologacao' && $previousStatus !== 'em_homologacao') {
+            $sideEffects['homolog_started_at'] = date('Y-m-d H:i:s');
+            $sideEffects['homolog_contact1_at'] = null;
+            $sideEffects['homolog_contact2_at'] = null;
+            $sideEffects['homolog_contact3_at'] = null;
+            $sideEffects['homolog_auto_released_at'] = null;
+        }
+
+        // Entrada em APROVAÇÃO DE ESCOPO: carimba o envio do escopo ao cliente.
+        if ($status === ScopeRules::STATUS_AGUARDANDO && $previousStatus !== ScopeRules::STATUS_AGUARDANDO) {
+            $sideEffects['scope_submitted_at'] = date('Y-m-d H:i:s');
+        }
+
         $this->ticketModel->updateStatus($id, $status);
+        if (!empty($sideEffects)) {
+            $this->ticketModel->update($id, $sideEffects);
+        }
 
         // Sincronizar card do planejamento
         $planningCard = new PlanningCard();
@@ -645,6 +706,184 @@ class TicketsController extends Controller
 
         flash('success', 'Status atualizado com sucesso!');
         $this->redirect('tickets/show/' . $id);
+    }
+
+    /**
+     * Define/edita o ESCOPO TÉCNICO de uma demanda e, opcionalmente, envia ao
+     * cliente para aprovação (muda o status para aguardando_aprovacao_escopo).
+     * Apenas equipe (super_admin/attendant/whatsapp_agent).
+     */
+    public function saveScope($id = null)
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
+            $this->redirect('tickets');
+        }
+
+        $ticket = $this->ticketModel->findById($id);
+        if (!$ticket) {
+            flash('error', 'Demanda não encontrada.');
+            $this->redirect('tickets');
+        }
+
+        $scope = [
+            'escopo_incluido' => trim($_POST['escopo_incluido'] ?? ''),
+            'escopo_excluido' => trim($_POST['escopo_excluido'] ?? ''),
+            'escopo_execucao' => trim($_POST['escopo_execucao'] ?? ''),
+        ];
+        $estimativa = $_POST['estimativa_dias'] ?? '';
+        $data = [
+            'escopo_incluido' => $scope['escopo_incluido'] ?: null,
+            'escopo_excluido' => $scope['escopo_excluido'] ?: null,
+            'escopo_execucao' => $scope['escopo_execucao'] ?: null,
+            'estimativa_dias' => ($estimativa !== '' && ctype_digit((string)$estimativa)) ? (int)$estimativa : null,
+        ];
+
+        // "Enviar ao cliente" exige escopo mínimo (o que será feito).
+        $sendToClient = !empty($_POST['send_to_client']);
+        if ($sendToClient && !ScopeRules::isScopeComplete($scope)) {
+            flash('error', 'Preencha ao menos "o que será desenvolvido" antes de enviar o escopo ao cliente.');
+            $this->redirect('tickets/show/' . $id);
+        }
+
+        $this->ticketModel->update($id, $data);
+
+        if ($sendToClient) {
+            // Reaproveita o fluxo central de mudança de status (carimba
+            // scope_submitted_at, sincroniza card e notifica) via updateStatus.
+            $this->ticketModel->updateStatus($id, ScopeRules::STATUS_AGUARDANDO);
+            $this->ticketModel->update($id, ['scope_submitted_at' => date('Y-m-d H:i:s')]);
+            (new PlanningCard())->syncFromTicket($id, ScopeRules::STATUS_AGUARDANDO);
+            $fresh = $this->ticketModel->findById($id);
+            $this->sendStatusChangeNotification($fresh, ScopeRules::STATUS_AGUARDANDO);
+            flash('success', 'Escopo enviado ao cliente para aprovação.');
+        } else {
+            flash('success', 'Escopo salvo.');
+        }
+        $this->redirect('tickets/show/' . $id);
+    }
+
+    /**
+     * Define/edita os campos do fluxo de SUPORTE: gravidade, prazos (análise e
+     * resolução), solução temporária e identificação de problema de terceiros.
+     * Apenas equipe. A gravidade determina o prazo interno de análise (SupportRules).
+     */
+    public function saveSupport($id = null)
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
+            $this->redirect('tickets');
+        }
+
+        $ticket = $this->ticketModel->findById($id);
+        if (!$ticket) {
+            flash('error', 'Demanda não encontrada.');
+            $this->redirect('tickets');
+        }
+
+        $severity = SupportRules::normalizeSeverity($_POST['support_severity'] ?? '');
+        $data = ['support_severity' => $severity];
+
+        // Prazo de análise derivado da gravidade (a partir de agora, se definida).
+        if ($severity !== null) {
+            $data['support_analysis_due_at'] = SupportRules::analysisDueAt(date('Y-m-d H:i:s'), $severity);
+        } else {
+            $data['support_analysis_due_at'] = null;
+        }
+
+        // Prazo previsto de resolução (minutos, faixa 30min–48h).
+        $resMin = $_POST['support_resolution_minutes'] ?? '';
+        if ($resMin !== '' && SupportRules::isValidResolutionMinutes($resMin)) {
+            $data['support_resolution_due_at'] = date('Y-m-d H:i:s', time() + ((int)$resMin) * 60);
+        } elseif (($_POST['clear_resolution'] ?? '') === '1') {
+            $data['support_resolution_due_at'] = null;
+        }
+
+        // Solução temporária e problema de terceiros.
+        $data['support_workaround'] = trim($_POST['support_workaround'] ?? '') ?: null;
+        $data['is_third_party'] = !empty($_POST['is_third_party']) ? 1 : 0;
+        $data['third_party_name'] = trim($_POST['third_party_name'] ?? '') ?: null;
+        $data['third_party_notes'] = trim($_POST['third_party_notes'] ?? '') ?: null;
+
+        $this->ticketModel->update($id, $data);
+        flash('success', 'Dados de suporte atualizados.');
+        $this->redirect('tickets/show/' . $id);
+    }
+
+    /**
+     * Define a previsão de publicação em produção (equipe).
+     */
+    public function savePrevisao($id = null)
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
+            $this->redirect('tickets');
+        }
+        $previsao = trim($_POST['previsao_publicacao'] ?? '');
+        $valid = $previsao !== '' && \DateTime::createFromFormat('Y-m-d', $previsao) !== false;
+        $this->ticketModel->update($id, ['previsao_publicacao' => $valid ? $previsao : null]);
+        flash('success', 'Previsão de publicação atualizada.');
+        $this->redirect('tickets/show/' . $id);
+    }
+
+    /**
+     * Relaciona esta demanda a outra (Suporte -> Incidente -> Correção).
+     * Cria a aresta direcionada em ticket_relations. Apenas equipe.
+     */
+    public function relate($id = null)
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
+            $this->redirect('tickets');
+        }
+
+        $target = (int)($_POST['target_ticket_id'] ?? 0);
+        $type = $_POST['relation_type'] ?? 'relacionado';
+        $validTypes = ['suporte', 'incidente', 'correcao', 'relacionado'];
+        if (!in_array($type, $validTypes, true)) {
+            $type = 'relacionado';
+        }
+
+        if ($target <= 0 || $target == (int)$id) {
+            flash('error', 'Selecione uma demanda válida para relacionar.');
+            $this->redirect('tickets/show/' . $id);
+        }
+
+        $targetTicket = $this->ticketModel->findById($target);
+        if (!$targetTicket) {
+            flash('error', 'Demanda de destino não encontrada.');
+            $this->redirect('tickets/show/' . $id);
+        }
+
+        $user = $this->currentUser();
+        $db = Database::getInstance();
+        try {
+            $db->query(
+                "INSERT IGNORE INTO ticket_relations (source_ticket_id, target_ticket_id, relation_type, created_by)
+                 VALUES (?, ?, ?, ?)",
+                [(int)$id, $target, $type, (int)$user['id']]
+            );
+            flash('success', 'Demanda relacionada com sucesso.');
+        } catch (\Throwable $e) {
+            flash('error', 'Não foi possível relacionar a demanda.');
+        }
+        $this->redirect('tickets/show/' . $id);
+    }
+
+    /**
+     * Remove um relacionamento entre demandas. Apenas equipe.
+     */
+    public function unrelate($relationId = null)
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$relationId) {
+            $this->redirect('tickets');
+        }
+        $db = Database::getInstance();
+        $rel = $db->fetch("SELECT source_ticket_id FROM ticket_relations WHERE id = ?", [(int)$relationId]);
+        $db->query("DELETE FROM ticket_relations WHERE id = ?", [(int)$relationId]);
+        flash('success', 'Relacionamento removido.');
+        $this->redirect('tickets/show/' . ($rel['source_ticket_id'] ?? ''));
     }
 
     // Atualizar prioridade do ticket

@@ -75,6 +75,7 @@ function statusLabel($status)
     $labels = [
         'open' => 'Aberto',
         'in_progress' => 'Em andamento',
+        'aguardando_aprovacao_escopo' => 'Aprovação de Escopo',
         'em_revisao_interna' => 'Em Revisão Interna',
         'waiting_client' => 'Aguardando',
         'em_homologacao' => 'Em Homologação',
