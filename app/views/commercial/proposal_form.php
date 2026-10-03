@@ -14,7 +14,7 @@ $isTerminal = in_array($proposal['status'], ['accepted','rejected','cancelled'],
             <small class="text-muted"><?= escape($proposal['title']) ?> · <span id="p-status-label"><?= escape($proposal['status']) ?></span></small>
         </div>
         <div class="d-flex gap-2">
-            <a href="<?= baseUrl('proposals') ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> Voltar</a>
+            <a href="<?= baseUrl('proposal') ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> Voltar</a>
             <?php if (!$isTerminal): ?>
             <button class="btn btn-sm btn-success" onclick="saveProposal()"><i class="bi bi-check-lg"></i> Salvar</button>
             <button class="btn btn-sm btn-primary" onclick="sendProposal()"><i class="bi bi-send"></i> Enviar ao cliente</button>
@@ -159,7 +159,7 @@ function body() {
     };
 }
 async function saveProposal() {
-    const r = await fetch(`${PROP_BASE}proposals/save/${PROPOSAL_ID}`, {
+    const r = await fetch(`${PROP_BASE}proposal/save/${PROPOSAL_ID}`, {
         method: 'POST', headers: {'Content-Type':'application/json','X-CSRF-Token':CSRF},
         body: JSON.stringify(body())
     }).then(x => x.json()).catch(() => ({error:'Falha de rede'}));
@@ -171,7 +171,7 @@ async function sendProposal() {
     if (!await saveProposal()) return;
     if (!confirm('Enviar a proposta ao cliente? Ela ficará disponível pelo link público.')) return;
     const fd = new FormData(); fd.append('csrf_token', CSRF);
-    const r = await fetch(`${PROP_BASE}proposals/send/${PROPOSAL_ID}`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
+    const r = await fetch(`${PROP_BASE}proposal/send/${PROPOSAL_ID}`, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(x => x.json()).catch(() => ({error:'Falha de rede'}));
     if (r.error) { alert(r.error); return; }
     prompt('Proposta enviada. Link público para o cliente:', r.link);
@@ -197,10 +197,10 @@ async function genContract() {
     }
     const fd = new FormData(); fd.append('csrf_token', CSRF); fd.append('proposal_id', PROPOSAL_ID);
     if (templateId) fd.append('template_id', templateId);
-    const r = await fetch(`${PROP_BASE}contracts/fromProposal`, { method:'POST', body: fd, headers:{'X-Requested-With':'XMLHttpRequest'} })
+    const r = await fetch(`${PROP_BASE}contract/fromProposal`, { method:'POST', body: fd, headers:{'X-Requested-With':'XMLHttpRequest'} })
         .then(x=>x.json()).catch(()=>({error:'Falha de rede'}));
     if (r.error) { alert(r.error); return; }
-    location.href = `${PROP_BASE}contracts/edit/${r.id}`;
+    location.href = `${PROP_BASE}contract/edit/${r.id}`;
 }
 </script>
 

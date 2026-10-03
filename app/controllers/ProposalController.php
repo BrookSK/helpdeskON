@@ -27,7 +27,14 @@ class ProposalController extends Controller
             $filters['status'] = $_GET['status'];
         }
         $proposals = $this->model->getAll($filters);
-        $this->view('commercial/proposals', ['user' => $user, 'proposals' => $proposals, 'statuses' => ProposalRules::STATUSES]);
+        $leads = [];
+        try { $leads = (new WhatsappContact())->getLeadsForSelect(); } catch (\Throwable $e) { $leads = []; }
+        $this->view('commercial/proposals', [
+            'user' => $user,
+            'proposals' => $proposals,
+            'statuses' => ProposalRules::STATUSES,
+            'leads' => $leads,
+        ]);
     }
 
     /** Tela de edição (montagem) de uma proposta. */
@@ -148,14 +155,18 @@ class ProposalController extends Controller
             $this->model->changeStatus($id, ProposalRules::STATUS_READY, $user['id']);
         }
         $this->model->changeStatus($id, ProposalRules::STATUS_SENT, $user['id'], ['sent_at' => date('Y-m-d H:i:s')]);
-        $link = $this->publicBase() . '/proposal/view/' . $proposal['public_token'];
+        $link = $this->publicBase() . '/proposal/show/' . $proposal['public_token'];
         $this->json(['success' => true, 'link' => $link]);
     }
 
     // ================= Área pública (sem login, por token) =================
 
-    /** Página pública da proposta (link enviado ao cliente). */
-    public function view($token = null)
+    /**
+     * Página pública da proposta (link enviado ao cliente).
+     * Nome 'show' (não 'view') para não colidir com Controller::view(), que
+     * renderiza templates e é usado internamente aqui.
+     */
+    public function show($token = null)
     {
         $token = $this->tokenFromUrl($token);
         $proposal = $token ? $this->model->findByToken($token) : null;

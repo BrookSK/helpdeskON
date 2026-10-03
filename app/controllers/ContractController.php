@@ -113,7 +113,7 @@ class ContractController extends Controller
         if (!$this->model->changeStatus($id, ContractRules::STATUS_CLIENT_REVIEW, $user['id'])) {
             $this->json(['error' => 'Não é possível enviar para aprovação neste estado.'], 409);
         }
-        $link = $this->publicBase() . '/contract/view/' . $contract['public_token'];
+        $link = $this->publicBase() . '/contract/show/' . $contract['public_token'];
         $this->json(['success' => true, 'link' => $link]);
     }
 
@@ -171,7 +171,11 @@ class ContractController extends Controller
 
     // ================= Área pública (cliente, por token) =================
 
-    public function view($token = null)
+    /**
+     * Página pública do contrato (link ao cliente). Nome 'show' (não 'view')
+     * para não colidir com Controller::view(), usado internamente aqui.
+     */
+    public function show($token = null)
     {
         $token = $this->tokenFromUrl($token);
         $contract = $token ? $this->model->findByToken($token) : null;
