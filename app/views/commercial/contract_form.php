@@ -16,8 +16,8 @@ $labels = [
         <div class="d-flex gap-2">
             <a href="<?= baseUrl('contract') ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> Voltar</a>
             <?php if ($canEdit): ?>
-            <button class="btn btn-sm btn-success" onclick="saveContract()"><i class="bi bi-check-lg"></i> Salvar</button>
-            <button class="btn btn-sm btn-primary" onclick="sendReview()"><i class="bi bi-send"></i> Enviar p/ aprovação</button>
+            <button id="btn-save" class="btn btn-sm btn-success" onclick="saveContract()"><i class="bi bi-check-lg"></i> Salvar</button>
+            <button id="btn-review" class="btn btn-sm btn-primary" onclick="sendReview()"><i class="bi bi-send"></i> Enviar p/ aprovação</button>
             <?php endif; ?>
             <?php if ($canSign): ?>
             <button class="btn btn-sm btn-dark" onclick="sendSignature()"><i class="bi bi-pen"></i> Enviar p/ assinatura (ClickSign)</button>
@@ -128,10 +128,31 @@ function cbody() {
     return { title: document.getElementById('c-title').value.trim(), body: document.getElementById('c-body').value,
         client_email: document.getElementById('c-email').value.trim(), client_phone: document.getElementById('c-phone').value.trim() };
 }
+let SAVING = false;
 async function saveContract() {
-    const r = await fetch(`${BASE}contract/save/${CID}`, { method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':CSRF}, body: JSON.stringify(cbody()) })
-        .then(x=>x.json()).catch(()=>({error:'Falha de rede'}));
-    if (r.error) { alert(r.error); return false; } return true;
+    if (SAVING) return false;
+    SAVING = true;
+    const btn = document.getElementById('btn-save');
+    const original = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Salvando...'; }
+    try {
+        const r = await fetch(`${BASE}contract/save/${CID}`, { method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':CSRF}, body: JSON.stringify(cbody()) })
+            .then(x=>x.json());
+        if (r.error) { alert(r.error); return false; }
+        if (btn) {
+            btn.classList.remove('btn-success'); btn.classList.add('btn-outline-success');
+            btn.innerHTML = '<i class="bi bi-check-lg"></i> Salvo!';
+            setTimeout(() => { btn.classList.add('btn-success'); btn.classList.remove('btn-outline-success'); btn.innerHTML = original; }, 1500);
+        }
+        return true;
+    } catch (e) {
+        alert('Falha de rede ao salvar.');
+        if (btn) btn.innerHTML = original;
+        return false;
+    } finally {
+        SAVING = false;
+        if (btn) btn.disabled = false;
+    }
 }
 async function sendReview() {
     if (!await saveContract()) return;

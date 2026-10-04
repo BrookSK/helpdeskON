@@ -218,6 +218,12 @@ class ContractController extends Controller
         if (!$contract) $this->json(['error' => 'Contrato não encontrado'], 404);
         $user = $this->currentUser();
 
+        // Reenvio após ajuste: 'client_rejected' volta a 'draft' antes de ir para
+        // 'client_review' (a máquina de estados não permite o salto direto).
+        if ($contract['status'] === ContractRules::STATUS_CLIENT_REJECTED) {
+            $this->model->changeStatus($id, ContractRules::STATUS_DRAFT, $user['id']);
+        }
+
         if (!$this->model->changeStatus($id, ContractRules::STATUS_CLIENT_REVIEW, $user['id'])) {
             $this->json(['error' => 'Não é possível enviar para aprovação neste estado.'], 409);
         }
