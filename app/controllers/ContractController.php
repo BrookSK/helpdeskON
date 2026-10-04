@@ -365,10 +365,18 @@ class ContractController extends Controller
             $this->json(['error' => 'Integração ClickSign não configurada (defina clicksign_access_token em Configurações).'], 400);
         }
 
-        // 1) Cria o documento na ClickSign a partir do corpo (HTML -> base64 data URI).
-        $html = '<html><meta charset="utf-8"><body>' . ($contract['body'] ?? '') . '</body></html>';
-        $dataUri = 'data:text/html;base64,' . base64_encode($html);
-        $path = '/helpdeskon/contrato-' . $contract['id'] . '-' . substr($contract['public_token'], 0, 8) . '.html';
+        // 1) Gera o PDF do contrato (a ClickSign aceita PDF/DOC/imagem/TXT — não HTML)
+        //    e envia como data URI base64.
+        if (!PdfGenerator::isAvailable()) {
+            $this->json(['error' => 'Gerador de PDF não instalado no servidor. Rode "composer require dompdf/dompdf" e tente novamente.'], 500);
+        }
+        try {
+            $pdf = PdfGenerator::fromHtml((string)($contract['body'] ?? ''));
+        } catch (\Throwable $e) {
+            $this->json(['error' => 'Falha ao gerar o PDF do contrato: ' . $e->getMessage()], 500);
+        }
+        $dataUri = 'data:application/pdf;base64,' . base64_encode($pdf);
+        $path = '/helpdeskon/contrato-' . $contract['id'] . '-' . substr($contract['public_token'], 0, 8) . '.pdf';
         $doc = $api->createDocument($path, $dataUri);
         if (empty($doc['success']) || empty($doc['data']['document']['key'])) {
             $this->json(['error' => 'Falha ao criar o documento na ClickSign: ' . ($doc['error'] ?? 'desconhecido')], 502);
