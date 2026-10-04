@@ -22,8 +22,13 @@ class ScopeRules
     /** Status para onde a demanda vai quando o cliente APROVA o escopo. */
     public const STATUS_APROVADO = 'in_progress';
 
-    /** Status para onde a demanda volta quando o cliente RECUSA o escopo. */
-    public const STATUS_RECUSADO = 'in_progress';
+    /**
+     * Status para onde a demanda volta quando o cliente RECUSA o escopo: "Aberto".
+     * A demanda fica em aberto (com o motivo registrado) para a equipe refazer o
+     * escopo e reenviar ao cliente; o card do Planejamento também fica "Aberto",
+     * com a tag "Recusado".
+     */
+    public const STATUS_RECUSADO = 'open';
 
     /**
      * O escopo está completo o suficiente para ser enviado ao cliente?

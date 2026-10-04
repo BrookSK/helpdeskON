@@ -126,7 +126,8 @@ class PlanningCard
                            u.name as assigned_name,
                            co.name as company_name,
                            cb.name as created_by_name,
-                           t.category as category
+                           t.category as category,
+                           t.scope_rejected_reason as scope_rejected_reason
                     FROM planning_cards pc
                     LEFT JOIN users u ON pc.assigned_to = u.id
                     LEFT JOIN companies co ON pc.company_id = co.id
