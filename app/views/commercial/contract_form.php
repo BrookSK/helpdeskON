@@ -46,7 +46,20 @@ $labels = [
                         <div class="col-md-4"><label class="form-label small">E-mail do cliente</label><input id="c-email" class="form-control form-control-sm" value="<?= escape($contract['client_email'] ?? '') ?>" <?= $canEdit?'':'disabled' ?>></div>
                         <div class="col-md-3"><label class="form-label small">Telefone</label><input id="c-phone" class="form-control form-control-sm" value="<?= escape($contract['client_phone'] ?? '') ?>" <?= $canEdit?'':'disabled' ?>></div>
                     </div>
-                    <label class="form-label small">Corpo do contrato (HTML)</label>
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <label class="form-label small mb-0">Corpo do contrato (HTML)</label>
+                        <?php if ($canEdit && !empty($templates)): ?>
+                        <div class="d-flex align-items-center gap-1">
+                            <select id="c-template" class="form-select form-select-sm" style="width:auto;font-size:0.8rem;">
+                                <option value="">Carregar de um modelo…</option>
+                                <?php foreach ($templates as $t): ?>
+                                <option value="<?= (int)$t['id'] ?>"><?= escape($t['name']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2" onclick="loadTemplate()">Carregar</button>
+                        </div>
+                        <?php endif; ?>
+                    </div>
                     <textarea id="c-body" class="form-control" style="min-height:52vh;font-family:ui-monospace,Consolas,monospace;font-size:.85rem;" <?= $canEdit?'':'disabled' ?>><?= escape($contract['body'] ?? '') ?></textarea>
                 </div>
             </div>
@@ -72,6 +85,23 @@ $labels = [
 const BASE = '<?= baseUrl("") ?>';
 const CSRF = '<?= csrf_token() ?>';
 const CID = <?= (int)$contract['id'] ?>;
+// Carrega o corpo de um modelo JÁ com as variáveis preenchidas pelos dados do
+// contrato (o backend faz a substituição dos {{...}}).
+async function loadTemplate() {
+    const sel = document.getElementById('c-template');
+    if (!sel || !sel.value) { alert('Escolha um modelo.'); return; }
+    const ta = document.getElementById('c-body');
+    if (ta.value.trim() && !confirm('Isto substitui o conteúdo atual do contrato pelo modelo (com as variáveis preenchidas). Continuar?')) return;
+    const fd = new FormData();
+    fd.append('csrf_token', CSRF);
+    fd.append('contract_id', CID);
+    fd.append('template_id', sel.value);
+    const r = await fetch(`${BASE}contract/renderTemplate`, { method:'POST', body: fd, headers:{'X-Requested-With':'XMLHttpRequest'} })
+        .then(x=>x.json()).catch(()=>({error:'Falha de rede'}));
+    if (r.error) { alert(r.error); return; }
+    ta.value = r.body || '';
+}
+
 function cbody() {
     return { title: document.getElementById('c-title').value.trim(), body: document.getElementById('c-body').value,
         client_email: document.getElementById('c-email').value.trim(), client_phone: document.getElementById('c-phone').value.trim() };
