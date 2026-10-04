@@ -78,4 +78,34 @@ final class ProjectRulesTest extends TestCase
         $this->assertFalse(ProjectRules::canOpenTicket($entregue));
         $this->assertStringContainsString('sem garantia', ProjectRules::blockReason($entregue));
     }
+
+    // ===== Fluxo de Entrega: publicação, documentação e aceite =====
+
+    public function testCanPublishSomenteEmAndamentoOuPlanejamento(): void
+    {
+        $this->assertTrue(ProjectRules::canPublish(['status' => 'planning']));
+        $this->assertTrue(ProjectRules::canPublish(['status' => 'in_progress']));
+        // Já entregue / em garantia / encerrado / cancelado não re-publica.
+        $this->assertFalse(ProjectRules::canPublish(['status' => 'delivered']));
+        $this->assertFalse(ProjectRules::canPublish(['status' => 'warranty']));
+        $this->assertFalse(ProjectRules::canPublish(['status' => 'closed']));
+        $this->assertFalse(ProjectRules::canPublish(['status' => 'cancelled']));
+        $this->assertFalse(ProjectRules::canPublish([])); // sem status
+    }
+
+    public function testDocumentationDelivered(): void
+    {
+        $this->assertFalse(ProjectRules::documentationDelivered([]));
+        $this->assertFalse(ProjectRules::documentationDelivered(['documentation_delivered_at' => null]));
+        $this->assertFalse(ProjectRules::documentationDelivered(['documentation_delivered_at' => '']));
+        $this->assertTrue(ProjectRules::documentationDelivered(['documentation_delivered_at' => '2026-10-03 10:00:00']));
+    }
+
+    public function testClientAccepted(): void
+    {
+        $this->assertFalse(ProjectRules::clientAccepted([]));
+        $this->assertFalse(ProjectRules::clientAccepted(['client_accepted_at' => null]));
+        $this->assertFalse(ProjectRules::clientAccepted(['client_accepted_at' => '']));
+        $this->assertTrue(ProjectRules::clientAccepted(['client_accepted_at' => '2026-10-03 10:00:00']));
+    }
 }

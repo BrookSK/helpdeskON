@@ -113,4 +113,31 @@ class ProjectRules
         }
         return 'Garantia encerrada e sem contrato de suporte ativo.';
     }
+
+    // ===== Fluxo de Entrega: publicação, documentação e aceite =====
+
+    /**
+     * O projeto pode ser publicado em produção? Só faz sentido publicar um
+     * projeto que ainda está em andamento (planning/in_progress). Projetos já
+     * entregues/em garantia/encerrados não são re-publicados por este fluxo.
+     *
+     * @param array $project linha de projects (status)
+     */
+    public static function canPublish(array $project): bool
+    {
+        $status = $project['status'] ?? '';
+        return in_array($status, [self::STATUS_PLANNING, self::STATUS_IN_PROGRESS], true);
+    }
+
+    /** A documentação/manual foi entregue ao cliente? */
+    public static function documentationDelivered(array $project): bool
+    {
+        return !empty($project['documentation_delivered_at']);
+    }
+
+    /** O cliente realizou o aceite formal da entrega? */
+    public static function clientAccepted(array $project): bool
+    {
+        return !empty($project['client_accepted_at']);
+    }
 }
