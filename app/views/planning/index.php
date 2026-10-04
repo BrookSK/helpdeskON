@@ -659,47 +659,6 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                                                 </div>
                                             </div>
                                         </div>
-
-                                        <!-- Suporte -->
-                                        <div class="card mb-3">
-                                            <div class="card-header bg-white py-2"><h6 class="mb-0" style="font-size:0.85rem"><i class="bi bi-life-preserver"></i> Suporte</h6></div>
-                                            <div class="card-body">
-                                                <div class="mb-2">
-                                                    <label class="form-label fw-medium small">Gravidade</label>
-                                                    <select id="scope-support-severity" class="form-select form-select-sm">
-                                                        <option value="">— sem gravidade —</option>
-                                                        <?php foreach (SupportRules::SEVERITIES as $sev): ?>
-                                                        <option value="<?= $sev ?>"><?= escape(SupportRules::severityLabel($sev)) ?></option>
-                                                        <?php endforeach; ?>
-                                                    </select>
-                                                </div>
-                                                <div class="mb-2">
-                                                    <label class="form-label fw-medium small">Prazo de resolução (min, 30 a 2880)</label>
-                                                    <input type="number" id="scope-support-resolution" class="form-control form-control-sm" min="30" max="2880">
-                                                </div>
-                                                <div class="form-check mb-2">
-                                                    <input class="form-check-input" type="checkbox" id="scope-support-clear-resolution" value="1">
-                                                    <label class="form-check-label small" for="scope-support-clear-resolution">Limpar prazo de resolução</label>
-                                                </div>
-                                                <div class="mb-2">
-                                                    <label class="form-label fw-medium small">Solução temporária</label>
-                                                    <textarea id="scope-support-workaround" class="form-control form-control-sm" rows="2"></textarea>
-                                                </div>
-                                                <div class="form-check mb-2">
-                                                    <input class="form-check-input" type="checkbox" id="scope-support-third-party" value="1">
-                                                    <label class="form-check-label small" for="scope-support-third-party">Problema de terceiros</label>
-                                                </div>
-                                                <div class="mb-2">
-                                                    <label class="form-label fw-medium small">Terceiro responsável</label>
-                                                    <input type="text" id="scope-support-third-name" class="form-control form-control-sm">
-                                                </div>
-                                                <div class="mb-2">
-                                                    <label class="form-label fw-medium small">Andamento/evidências</label>
-                                                    <textarea id="scope-support-third-notes" class="form-control form-control-sm" rows="2"></textarea>
-                                                </div>
-                                                <button type="button" class="btn btn-outline-primary btn-sm w-100" onclick="saveSupportAjax()">Salvar suporte</button>
-                                            </div>
-                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -1823,15 +1782,6 @@ function fillScopeTab() {
 
     // Previsão (campo date espera YYYY-MM-DD)
     document.getElementById('scope-previsao').value = t.previsao_publicacao ? String(t.previsao_publicacao).slice(0, 10) : '';
-
-    // Suporte
-    document.getElementById('scope-support-severity').value = t.support_severity || '';
-    document.getElementById('scope-support-resolution').value = '';
-    document.getElementById('scope-support-clear-resolution').checked = false;
-    document.getElementById('scope-support-workaround').value = t.support_workaround || '';
-    document.getElementById('scope-support-third-party').checked = !!(t.is_third_party && String(t.is_third_party) !== '0');
-    document.getElementById('scope-support-third-name').value = t.third_party_name || '';
-    document.getElementById('scope-support-third-notes').value = t.third_party_notes || '';
 }
 
 // Helper: POST via fetch para as rotas tickets/* que agora respondem JSON em AJAX.
@@ -1872,26 +1822,6 @@ function savePrevisaoAjax() {
             location.reload();
         } else {
             alert('Erro: ' + (res.data.error || 'Não foi possível salvar a previsão.'));
-        }
-    }).catch(() => alert('Erro na requisição.'));
-}
-
-function saveSupportAjax() {
-    if (!currentTicket || !currentTicket.id) return;
-    const fd = new FormData();
-    fd.append('support_severity', document.getElementById('scope-support-severity').value);
-    fd.append('support_resolution_minutes', document.getElementById('scope-support-resolution').value);
-    if (document.getElementById('scope-support-clear-resolution').checked) fd.append('clear_resolution', '1');
-    fd.append('support_workaround', document.getElementById('scope-support-workaround').value);
-    if (document.getElementById('scope-support-third-party').checked) fd.append('is_third_party', '1');
-    fd.append('third_party_name', document.getElementById('scope-support-third-name').value);
-    fd.append('third_party_notes', document.getElementById('scope-support-third-notes').value);
-    scopePost('tickets/saveSupport/' + currentTicket.id, fd).then(res => {
-        if (res.ok && res.data.success) {
-            alert('Dados de suporte atualizados.');
-            location.reload();
-        } else {
-            alert('Erro: ' + (res.data.error || 'Não foi possível salvar o suporte.'));
         }
     }).catch(() => alert('Erro na requisição.'));
 }
