@@ -3,6 +3,36 @@
 <?php require APP_PATH . '/views/layouts/sidebar.php'; ?>
 
 <?php
+// Helpers da tag/selo de categoria (mesmas cores da tela da demanda).
+if (!function_exists('categoryBadgeClass')) {
+    function categoryBadgeClass(?string $category): string
+    {
+        switch (strtolower(trim((string)$category))) {
+            case 'suporte':         return 'bg-danger';
+            case 'desenvolvimento': return 'bg-primary';
+            case 'design':          return 'text-white';
+            case 'marketing':       return 'bg-warning text-dark';
+            default:                return 'bg-secondary';
+        }
+    }
+}
+if (!function_exists('categoryBadgeStyle')) {
+    function categoryBadgeStyle(?string $category): string
+    {
+        return strtolower(trim((string)$category)) === 'design' ? 'background-color:#6f42c1;' : '';
+    }
+}
+if (!function_exists('categoryLabel')) {
+    function categoryLabel(?string $category): string
+    {
+        $c = strtolower(trim((string)$category));
+        $map = ['suporte' => 'Suporte', 'desenvolvimento' => 'Desenvolvimento', 'design' => 'Design', 'marketing' => 'Marketing', 'outro' => 'Outro'];
+        return $map[$c] ?? ucfirst($c);
+    }
+}
+?>
+
+<?php
 $statusLabels = [
     'open' => ['Aberto', '#1565c0'],
     'in_progress' => ['Em andamento', '#e65100'],
@@ -218,6 +248,11 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                                     <span class="priority-<?= $card['priority'] ?>" style="font-size:0.7rem"><?= $priorityLabels[$card['priority']] ?? '' ?></span>
                                 </div>
                                 <div class="fw-medium" style="font-size:0.82rem;word-break:break-word;"><?= escape($card['title']) ?></div>
+                                <?php if (!empty($card['category'])): ?>
+                                <div class="mt-1">
+                                    <span class="badge <?= categoryBadgeClass($card['category']) ?>" style="font-size:0.62rem;<?= categoryBadgeStyle($card['category']) ?>"><?= escape(categoryLabel($card['category'])) ?></span>
+                                </div>
+                                <?php endif; ?>
                                 <div class="text-muted mt-2" style="font-size:0.7rem">
                                     <?php if ($card['company_name']): ?>
                                     <span><i class="bi bi-building"></i> <?= escape($card['company_name']) ?></span><br>
@@ -405,6 +440,7 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                         <h6 class="modal-title mb-0 fw-bold" id="detail-title" style="word-break:break-word;white-space:normal;">Card</h6>
                     </div>
                     <div class="d-flex align-items-center gap-2">
+                        <span class="badge" id="detail-category-badge" style="display:none;"></span>
                         <span class="badge rounded-pill" id="detail-priority-badge"></span>
                         <span class="badge rounded-pill" id="detail-status-badge"></span>
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -1030,6 +1066,7 @@ function addCardToBoard(card) {
             '<span class="priority-' + esc(card.priority) + '" style="font-size:0.7rem">' + (priorityLabelsMap[card.priority] || '') + '</span>' +
         '</div>' +
         '<div class="fw-medium" style="font-size:0.82rem;word-break:break-word;">' + esc(card.title) + '</div>' +
+        (card.category ? '<div class="mt-1">' + categoryBadgeHtml(card.category) + '</div>' : '') +
         '<div class="text-muted mt-2" style="font-size:0.7rem">' +
             (card.company_name ? '<span><i class="bi bi-building"></i> ' + esc(card.company_name) + '</span><br>' : '') +
             (card.created_by_name ? '<span><i class="bi bi-person-badge"></i> ' + esc(card.created_by_name) + '</span><br>' : '') +
@@ -1086,6 +1123,29 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 });
 
+// Helpers JS da tag de categoria (espelham os helpers PHP / cores da tela da demanda).
+function categoryLabelJs(cat) {
+    const map = { suporte: 'Suporte', desenvolvimento: 'Desenvolvimento', design: 'Design', marketing: 'Marketing', outro: 'Outro' };
+    const c = String(cat || '').toLowerCase().trim();
+    return map[c] || (c ? c.charAt(0).toUpperCase() + c.slice(1) : '');
+}
+function categoryBadgeClassJs(cat) {
+    switch (String(cat || '').toLowerCase().trim()) {
+        case 'suporte': return 'bg-danger';
+        case 'desenvolvimento': return 'bg-primary';
+        case 'design': return 'text-white';
+        case 'marketing': return 'bg-warning text-dark';
+        default: return 'bg-secondary';
+    }
+}
+function categoryBadgeStyleJs(cat) {
+    return String(cat || '').toLowerCase().trim() === 'design' ? 'background-color:#6f42c1;' : '';
+}
+function categoryBadgeHtml(cat) {
+    if (!cat) return '';
+    return '<span class="badge ' + categoryBadgeClassJs(cat) + '" style="font-size:0.62rem;' + categoryBadgeStyleJs(cat) + '">' + esc(categoryLabelJs(cat)) + '</span>';
+}
+
 function openCardModal(id) {
     currentCardId = id;
     fetch(BASE + 'planning/get/' + id).then(r => r.json()).then(data => {
@@ -1105,6 +1165,21 @@ function openCardModal(id) {
         stBadge.textContent = statusLabelsMap[c.status] || c.status;
         stBadge.style.background = statusColorsMap[c.status] || '#666';
         stBadge.style.color = '#fff';
+
+        // Tag de categoria (vem do ticket vinculado, via JOIN em findById).
+        const catBadge = document.getElementById('detail-category-badge');
+        if (catBadge) {
+            const cat = c.category || (data.ticket && data.ticket.category) || '';
+            if (cat) {
+                catBadge.textContent = categoryLabelJs(cat);
+                catBadge.className = 'badge ' + categoryBadgeClassJs(cat);
+                catBadge.style.cssText = categoryBadgeStyleJs(cat);
+                catBadge.style.display = '';
+            } else {
+                catBadge.style.display = 'none';
+                catBadge.textContent = '';
+            }
+        }
 
         // Propriedades (painel direito)
         document.getElementById('detail-title-input').value = c.title;
