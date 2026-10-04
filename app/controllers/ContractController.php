@@ -31,6 +31,112 @@ class ContractController extends Controller
         $this->view('commercial/contracts', ['user' => $user, 'contracts' => $contracts, 'statuses' => ContractRules::STATUSES]);
     }
 
+    // ================= Modelos de contrato (CRUD) =================
+
+    /** Lista/gerencia os modelos de contrato reutilizáveis. */
+    public function templates()
+    {
+        $this->requireModule('contracts');
+        $user = $this->currentUser();
+        $this->view('commercial/contract_templates', [
+            'user' => $user,
+            'templates' => (new ContractTemplate())->getAll(false),
+        ]);
+    }
+
+    /** Tela de edição do corpo de um modelo (novo quando sem id). */
+    public function editTemplate($id = null)
+    {
+        $this->requireModule('contracts');
+        $user = $this->currentUser();
+        $template = $id ? (new ContractTemplate())->findById($id) : null;
+        $this->view('commercial/contract_template_form', [
+            'user' => $user,
+            'template' => $template,
+            'vars' => ContractTemplateVars::catalog(),
+        ]);
+    }
+
+    /** Cria ou atualiza um modelo (POST). */
+    public function saveTemplate($id = null)
+    {
+        $this->requireModule('contracts');
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+
+        $raw = file_get_contents('php://input');
+        $body = json_decode($raw, true);
+        if (!is_array($body)) $body = $_POST;
+
+        $name = trim($body['name'] ?? '');
+        if ($name === '') $this->json(['error' => 'Informe o nome do modelo.'], 400);
+        $data = [
+            'name' => $name,
+            'body' => (string)($body['body'] ?? ''),
+            'active' => !empty($body['active']) ? 1 : 1, // nasce ativo
+        ];
+        $model = new ContractTemplate();
+        if ($id) {
+            $model->update((int)$id, ['name' => $data['name'], 'body' => $data['body']]);
+            $this->json(['success' => true, 'id' => (int)$id]);
+        }
+        $newId = $model->create($data);
+        $this->json(['success' => true, 'id' => $newId]);
+    }
+
+    /** Ativa/desativa um modelo. */
+    public function toggleTemplate($id = null)
+    {
+        $this->requireModule('contracts');
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+        (new ContractTemplate())->toggleActive((int)$id);
+        $this->json(['success' => true]);
+    }
+
+    /**
+     * Renderiza um modelo com as variáveis já preenchidas pelos dados do
+     * contrato atual (POST: contract_id, template_id). Usado pelo botão
+     * "Carregar de um modelo" no editor do contrato.
+     */
+    public function renderTemplate()
+    {
+        $this->requireModule('contracts');
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+
+        $templateId = (int)($_POST['template_id'] ?? 0);
+        $contractId = (int)($_POST['contract_id'] ?? 0);
+        $tpl = $templateId ? (new ContractTemplate())->findById($templateId) : null;
+        if (!$tpl) $this->json(['error' => 'Modelo não encontrado.'], 404);
+
+        $contract = $contractId ? $this->model->findById($contractId) : null;
+        // Monta os valores a partir do contrato (que já tem os dados do cliente).
+        $prestador = (string) Config::get('app_name');
+        $empresaCliente = null;
+        if ($contract && !empty($contract['company_id'])) {
+            $co = Database::getInstance()->fetch("SELECT name FROM companies WHERE id = ?", [(int)$contract['company_id']]);
+            $empresaCliente = $co['name'] ?? null;
+        }
+        // O contrato guarda client_name/email/phone e proposal_id; usamos a
+        // proposta vinculada p/ total/validade/tipo quando houver.
+        $proposalLike = [
+            'client_name'  => $contract['client_name'] ?? '',
+            'client_email' => $contract['client_email'] ?? '',
+            'client_phone' => $contract['client_phone'] ?? '',
+            'title'        => $contract['title'] ?? '',
+        ];
+        if ($contract && !empty($contract['proposal_id'])) {
+            $p = (new Proposal())->findById((int)$contract['proposal_id']);
+            if ($p) {
+                $proposalLike['title'] = $p['title'] ?? $proposalLike['title'];
+                $proposalLike['total'] = $p['total'] ?? 0;
+                $proposalLike['validity_date'] = $p['validity_date'] ?? null;
+                $proposalLike['contract_type'] = $p['contract_type'] ?? null;
+            }
+        }
+        $values = ContractTemplateVars::valuesFromProposal($proposalLike, $prestador, $empresaCliente);
+        $rendered = ContractTemplateVars::render((string)($tpl['body'] ?? ''), $values);
+        $this->json(['success' => true, 'body' => $rendered]);
+    }
+
     public function edit($id = null)
     {
         $this->requireModule('contracts');
@@ -44,6 +150,8 @@ class ContractController extends Controller
             'events' => $this->model->getEvents($id),
             'canEdit' => ContractRules::canEditBody($contract['status']),
             'canSign' => ContractRules::canSendToSignature($contract['status']),
+            // Modelos ativos para o botão "Carregar de um modelo" (só com corpo editável).
+            'templates' => (new ContractTemplate())->getAll(true),
         ]);
     }
 
@@ -109,6 +217,12 @@ class ContractController extends Controller
         $contract = $this->model->findById($id);
         if (!$contract) $this->json(['error' => 'Contrato não encontrado'], 404);
         $user = $this->currentUser();
+
+        // Reenvio após ajuste: 'client_rejected' volta a 'draft' antes de ir para
+        // 'client_review' (a máquina de estados não permite o salto direto).
+        if ($contract['status'] === ContractRules::STATUS_CLIENT_REJECTED) {
+            $this->model->changeStatus($id, ContractRules::STATUS_DRAFT, $user['id']);
+        }
 
         if (!$this->model->changeStatus($id, ContractRules::STATUS_CLIENT_REVIEW, $user['id'])) {
             $this->json(['error' => 'Não é possível enviar para aprovação neste estado.'], 409);
