@@ -477,6 +477,13 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                                         <i class="bi bi-chat-dots"></i> Comentários <span class="badge bg-secondary ms-1" id="tab-comentarios-badge" style="font-size:0.6rem;">0</span>
                                     </button>
                                 </li>
+                                <!-- Aba Escopo: escopo técnico, previsão e suporte da demanda vinculada.
+                                     Fica desabilitada quando o card não está ligado a uma demanda. -->
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link small py-2" id="tab-escopo" data-bs-toggle="tab" data-bs-target="#pane-escopo" type="button" role="tab">
+                                        <i class="bi bi-file-earmark-text"></i> Escopo
+                                    </button>
+                                </li>
                             </ul>
 
                             <div class="tab-content p-3">
@@ -493,13 +500,6 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                                             <p class="mb-0 text-muted small mt-2">Este card não está vinculado a nenhuma demanda.</p>
                                         </div>
                                         <div id="ticket-data-section" style="display:none;">
-                                            <!-- Ação da equipe: abrir pop-up de Escopo técnico / Previsão / Suporte.
-                                                 Só faz sentido quando o card está vinculado a uma demanda (ticket). -->
-                                            <div class="d-flex justify-content-end mb-2">
-                                                <button type="button" class="btn btn-sm btn-primary" onclick="openScopeModal()">
-                                                    <i class="bi bi-file-earmark-text"></i> Escopo / Previsão / Suporte
-                                                </button>
-                                            </div>
                                             <!-- Info da demanda -->
                                             <div class="card mb-3">
                                                 <div class="card-header py-2 px-3 bg-light d-flex justify-content-between align-items-center">
@@ -584,6 +584,103 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                                     <div class="d-flex gap-2 mt-2 align-items-end">
                                         <textarea id="comment-input" class="form-control form-control-sm" placeholder="Escreva um comentário..." rows="2" style="resize:vertical;" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();addComment();}"></textarea>
                                         <button class="btn btn-sm btn-primary" onclick="addComment()" style="height:fit-content;"><i class="bi bi-send"></i></button>
+                                    </div>
+                                </div>
+
+                                <!-- ABA ESCOPO (escopo técnico / previsão / suporte da demanda) -->
+                                <div class="tab-pane fade" id="pane-escopo" role="tabpanel">
+                                    <!-- Mensagem quando o card não tem demanda vinculada -->
+                                    <div class="alert alert-light border text-center py-4" id="scope-no-ticket-msg" style="display:none;">
+                                        <i class="bi bi-file-earmark-text fs-3 text-muted"></i>
+                                        <p class="mb-0 text-muted small mt-2">Este card não está vinculado a nenhuma demanda. O escopo técnico, a previsão e o suporte só se aplicam a cards com demanda.</p>
+                                    </div>
+
+                                    <div id="scope-fields-section">
+                                        <div class="alert alert-light border small mb-3">
+                                            Demanda <strong id="scope-ticket-ref">#</strong>
+                                        </div>
+
+                                        <!-- Escopo técnico -->
+                                        <div class="card mb-3">
+                                            <div class="card-header bg-white py-2"><h6 class="mb-0" style="font-size:0.85rem"><i class="bi bi-file-earmark-text"></i> Escopo técnico</h6></div>
+                                            <div class="card-body">
+                                                <div class="mb-2">
+                                                    <label class="form-label fw-medium small">O que será desenvolvido</label>
+                                                    <textarea id="scope-incluido" class="form-control form-control-sm" rows="3"></textarea>
+                                                </div>
+                                                <div class="mb-2">
+                                                    <label class="form-label fw-medium small">O que NÃO será desenvolvido</label>
+                                                    <textarea id="scope-excluido" class="form-control form-control-sm" rows="3"></textarea>
+                                                </div>
+                                                <div class="mb-2">
+                                                    <label class="form-label fw-medium small">Como será executado</label>
+                                                    <textarea id="scope-execucao" class="form-control form-control-sm" rows="3"></textarea>
+                                                </div>
+                                                <div class="mb-2">
+                                                    <label class="form-label fw-medium small">Estimativa (dias)</label>
+                                                    <input type="number" id="scope-estimativa" class="form-control form-control-sm" min="0">
+                                                </div>
+                                                <div class="d-flex gap-2 flex-wrap">
+                                                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="saveScopeAjax(false)">Salvar escopo</button>
+                                                    <button type="button" class="btn btn-primary btn-sm" onclick="saveScopeAjax(true)">Enviar ao cliente para aprovação</button>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Previsão de publicação -->
+                                        <div class="card mb-3">
+                                            <div class="card-header bg-white py-2"><h6 class="mb-0" style="font-size:0.85rem"><i class="bi bi-calendar-event"></i> Previsão de publicação</h6></div>
+                                            <div class="card-body">
+                                                <div class="d-flex gap-2 align-items-end flex-wrap">
+                                                    <div class="flex-grow-1">
+                                                        <label class="form-label fw-medium small">Data</label>
+                                                        <input type="date" id="scope-previsao" class="form-control form-control-sm">
+                                                    </div>
+                                                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="savePrevisaoAjax()">Salvar</button>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Suporte -->
+                                        <div class="card mb-3">
+                                            <div class="card-header bg-white py-2"><h6 class="mb-0" style="font-size:0.85rem"><i class="bi bi-life-preserver"></i> Suporte</h6></div>
+                                            <div class="card-body">
+                                                <div class="mb-2">
+                                                    <label class="form-label fw-medium small">Gravidade</label>
+                                                    <select id="scope-support-severity" class="form-select form-select-sm">
+                                                        <option value="">— sem gravidade —</option>
+                                                        <?php foreach (SupportRules::SEVERITIES as $sev): ?>
+                                                        <option value="<?= $sev ?>"><?= escape(SupportRules::severityLabel($sev)) ?></option>
+                                                        <?php endforeach; ?>
+                                                    </select>
+                                                </div>
+                                                <div class="mb-2">
+                                                    <label class="form-label fw-medium small">Prazo de resolução (min, 30 a 2880)</label>
+                                                    <input type="number" id="scope-support-resolution" class="form-control form-control-sm" min="30" max="2880">
+                                                </div>
+                                                <div class="form-check mb-2">
+                                                    <input class="form-check-input" type="checkbox" id="scope-support-clear-resolution" value="1">
+                                                    <label class="form-check-label small" for="scope-support-clear-resolution">Limpar prazo de resolução</label>
+                                                </div>
+                                                <div class="mb-2">
+                                                    <label class="form-label fw-medium small">Solução temporária</label>
+                                                    <textarea id="scope-support-workaround" class="form-control form-control-sm" rows="2"></textarea>
+                                                </div>
+                                                <div class="form-check mb-2">
+                                                    <input class="form-check-input" type="checkbox" id="scope-support-third-party" value="1">
+                                                    <label class="form-check-label small" for="scope-support-third-party">Problema de terceiros</label>
+                                                </div>
+                                                <div class="mb-2">
+                                                    <label class="form-label fw-medium small">Terceiro responsável</label>
+                                                    <input type="text" id="scope-support-third-name" class="form-control form-control-sm">
+                                                </div>
+                                                <div class="mb-2">
+                                                    <label class="form-label fw-medium small">Andamento/evidências</label>
+                                                    <textarea id="scope-support-third-notes" class="form-control form-control-sm" rows="2"></textarea>
+                                                </div>
+                                                <button type="button" class="btn btn-outline-primary btn-sm w-100" onclick="saveSupportAjax()">Salvar suporte</button>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -758,109 +855,6 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
         </div>
     </div>
 </div><!-- end main-content -->
-
-<!-- ===== MODAL: Escopo técnico / Previsão / Suporte (equipe) ===== -->
-<!-- Pop-up aberto pelo botão da aba Demanda do card. Edita os campos que moram
-     na tabela `tickets` (escopo, previsão, suporte) via AJAX, sem sair do Kanban.
-     Reaproveita as rotas tickets/saveScope, tickets/savePrevisao e
-     tickets/saveSupport (que respondem JSON quando chamadas via AJAX). -->
-<div class="modal fade" id="scopeModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-scrollable modal-fullscreen-sm-down">
-        <div class="modal-content">
-            <div class="modal-header py-2">
-                <h6 class="modal-title mb-0 fw-bold"><i class="bi bi-file-earmark-text"></i> Escopo / Previsão / Suporte</h6>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
-            </div>
-            <div class="modal-body">
-                <div class="alert alert-light border small mb-3" id="scope-ticket-hint">
-                    Demanda <strong id="scope-ticket-ref">#</strong>
-                </div>
-
-                <!-- Escopo técnico -->
-                <div class="card mb-3">
-                    <div class="card-header bg-white py-2"><h6 class="mb-0" style="font-size:0.85rem"><i class="bi bi-file-earmark-text"></i> Escopo técnico</h6></div>
-                    <div class="card-body">
-                        <div class="mb-2">
-                            <label class="form-label fw-medium small">O que será desenvolvido</label>
-                            <textarea id="scope-incluido" class="form-control form-control-sm" rows="3"></textarea>
-                        </div>
-                        <div class="mb-2">
-                            <label class="form-label fw-medium small">O que NÃO será desenvolvido</label>
-                            <textarea id="scope-excluido" class="form-control form-control-sm" rows="3"></textarea>
-                        </div>
-                        <div class="mb-2">
-                            <label class="form-label fw-medium small">Como será executado</label>
-                            <textarea id="scope-execucao" class="form-control form-control-sm" rows="3"></textarea>
-                        </div>
-                        <div class="mb-2">
-                            <label class="form-label fw-medium small">Estimativa (dias)</label>
-                            <input type="number" id="scope-estimativa" class="form-control form-control-sm" min="0">
-                        </div>
-                        <div class="d-flex gap-2 flex-wrap">
-                            <button type="button" class="btn btn-outline-primary btn-sm" onclick="saveScopeAjax(false)">Salvar escopo</button>
-                            <button type="button" class="btn btn-primary btn-sm" onclick="saveScopeAjax(true)">Enviar ao cliente para aprovação</button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Previsão de publicação -->
-                <div class="card mb-3">
-                    <div class="card-header bg-white py-2"><h6 class="mb-0" style="font-size:0.85rem"><i class="bi bi-calendar-event"></i> Previsão de publicação</h6></div>
-                    <div class="card-body">
-                        <div class="d-flex gap-2 align-items-end flex-wrap">
-                            <div class="flex-grow-1">
-                                <label class="form-label fw-medium small">Data</label>
-                                <input type="date" id="scope-previsao" class="form-control form-control-sm">
-                            </div>
-                            <button type="button" class="btn btn-outline-primary btn-sm" onclick="savePrevisaoAjax()">Salvar</button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Suporte -->
-                <div class="card mb-3">
-                    <div class="card-header bg-white py-2"><h6 class="mb-0" style="font-size:0.85rem"><i class="bi bi-life-preserver"></i> Suporte</h6></div>
-                    <div class="card-body">
-                        <div class="mb-2">
-                            <label class="form-label fw-medium small">Gravidade</label>
-                            <select id="scope-support-severity" class="form-select form-select-sm">
-                                <option value="">— sem gravidade —</option>
-                                <?php foreach (SupportRules::SEVERITIES as $sev): ?>
-                                <option value="<?= $sev ?>"><?= escape(SupportRules::severityLabel($sev)) ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                        </div>
-                        <div class="mb-2">
-                            <label class="form-label fw-medium small">Prazo de resolução (min, 30 a 2880)</label>
-                            <input type="number" id="scope-support-resolution" class="form-control form-control-sm" min="30" max="2880">
-                        </div>
-                        <div class="form-check mb-2">
-                            <input class="form-check-input" type="checkbox" id="scope-support-clear-resolution" value="1">
-                            <label class="form-check-label small" for="scope-support-clear-resolution">Limpar prazo de resolução</label>
-                        </div>
-                        <div class="mb-2">
-                            <label class="form-label fw-medium small">Solução temporária</label>
-                            <textarea id="scope-support-workaround" class="form-control form-control-sm" rows="2"></textarea>
-                        </div>
-                        <div class="form-check mb-2">
-                            <input class="form-check-input" type="checkbox" id="scope-support-third-party" value="1">
-                            <label class="form-check-label small" for="scope-support-third-party">Problema de terceiros</label>
-                        </div>
-                        <div class="mb-2">
-                            <label class="form-label fw-medium small">Terceiro responsável</label>
-                            <input type="text" id="scope-support-third-name" class="form-control form-control-sm">
-                        </div>
-                        <div class="mb-2">
-                            <label class="form-label fw-medium small">Andamento/evidências</label>
-                            <textarea id="scope-support-third-notes" class="form-control form-control-sm" rows="2"></textarea>
-                        </div>
-                        <button type="button" class="btn btn-outline-primary btn-sm w-100" onclick="saveSupportAjax()">Salvar suporte</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
 
 <!-- Quill Editor -->
 <link href="https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.snow.css" rel="stylesheet">
@@ -1364,8 +1358,10 @@ function renderTicketData(data) {
     const ticketSection = document.getElementById('ticket-data-section');
     const demandaBadge = document.getElementById('tab-demanda-badge');
 
-    // Guarda a demanda vinculada (ou null) para o pop-up de Escopo/Previsão/Suporte.
+    // Guarda a demanda vinculada (ou null) para a aba Escopo/Previsão/Suporte.
     currentTicket = data.ticket || null;
+    // Preenche (ou limpa) a aba Escopo com os dados da demanda.
+    fillScopeTab();
 
     if (!data.ticket) {
         noTicketMsg.style.display = '';
@@ -1781,13 +1777,22 @@ function renderComments(comments) {
     container.scrollTop = container.scrollHeight;
 }
 
-// ====== POP-UP: Escopo técnico / Previsão / Suporte (equipe) ======
-// Abre o modal preenchendo os campos a partir da demanda vinculada ao card.
-function openScopeModal() {
+// ====== ABA ESCOPO: escopo técnico / previsão / suporte (equipe) ======
+// Preenche a aba Escopo a partir da demanda vinculada ao card. Chamada ao abrir
+// o card (dentro de renderTicketData). Sem demanda vinculada, mostra o aviso.
+function fillScopeTab() {
+    const noMsg = document.getElementById('scope-no-ticket-msg');
+    const fields = document.getElementById('scope-fields-section');
+    if (!noMsg || !fields) return;
+
     if (!currentTicket || !currentTicket.id) {
-        alert('Este card não está vinculado a uma demanda.');
+        noMsg.style.display = '';
+        fields.style.display = 'none';
         return;
     }
+    noMsg.style.display = 'none';
+    fields.style.display = '';
+
     const t = currentTicket;
     document.getElementById('scope-ticket-ref').textContent = '#' + t.id + (t.title ? ' — ' + t.title : '');
 
@@ -1808,8 +1813,6 @@ function openScopeModal() {
     document.getElementById('scope-support-third-party').checked = !!(t.is_third_party && String(t.is_third_party) !== '0');
     document.getElementById('scope-support-third-name').value = t.third_party_name || '';
     document.getElementById('scope-support-third-notes').value = t.third_party_notes || '';
-
-    new bootstrap.Modal(document.getElementById('scopeModal')).show();
 }
 
 // Helper: POST via fetch para as rotas tickets/* que agora respondem JSON em AJAX.
