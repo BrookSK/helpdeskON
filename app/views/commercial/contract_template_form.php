@@ -31,8 +31,15 @@
                 </div>
                 <small class="text-muted d-block mt-1">Essas variáveis são preenchidas automaticamente com os dados do cliente/proposta ao gerar o contrato.</small>
             </div>
-            <label class="form-label small fw-medium mb-0">Corpo do contrato (aceita HTML)</label>
+            <div class="d-flex justify-content-between align-items-center mb-1">
+                <label class="form-label small fw-medium mb-0">Corpo do contrato (aceita HTML)</label>
+                <div class="btn-group btn-group-sm" role="group">
+                    <button type="button" id="tpl-edit-btn" class="btn btn-outline-secondary active" onclick="showTplTab('edit')"><i class="bi bi-code-slash"></i> Editar</button>
+                    <button type="button" id="tpl-prev-btn" class="btn btn-outline-secondary" onclick="showTplTab('prev')"><i class="bi bi-eye"></i> Pré-visualizar</button>
+                </div>
+            </div>
             <textarea id="t-body" class="form-control" rows="16" style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:0.85rem;"><?= escape($template['body'] ?? '') ?></textarea>
+            <div id="t-preview" class="border rounded p-4 bg-white" style="min-height:40vh;display:none;overflow:auto;"></div>
         </div>
     </div>
 </div>
@@ -41,6 +48,22 @@
 const BASE = '<?= baseUrl("") ?>';
 const CSRF = '<?= csrf_token() ?>';
 const TPL_ID = <?= $isNew ? 'null' : (int)$template['id'] ?>;
+
+// Alterna entre editar e pré-visualizar o corpo do modelo.
+function showTplTab(which) {
+    const ta = document.getElementById('t-body');
+    const prev = document.getElementById('t-preview');
+    const bEdit = document.getElementById('tpl-edit-btn');
+    const bPrev = document.getElementById('tpl-prev-btn');
+    if (which === 'prev') {
+        prev.innerHTML = ta.value || '<p class="text-muted">Sem conteúdo.</p>';
+        prev.style.display = 'block'; ta.style.display = 'none';
+        bPrev.classList.add('active'); bEdit.classList.remove('active');
+    } else {
+        prev.style.display = 'none'; ta.style.display = 'block';
+        bEdit.classList.add('active'); bPrev.classList.remove('active');
+    }
+}
 
 // Insere {{variavel}} na posição do cursor do textarea do corpo.
 function insertVar(key) {

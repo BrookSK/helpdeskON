@@ -46,8 +46,11 @@ $labels = [
                         <div class="col-md-4"><label class="form-label small">E-mail do cliente</label><input id="c-email" class="form-control form-control-sm" value="<?= escape($contract['client_email'] ?? '') ?>" <?= $canEdit?'':'disabled' ?>></div>
                         <div class="col-md-3"><label class="form-label small">Telefone</label><input id="c-phone" class="form-control form-control-sm" value="<?= escape($contract['client_phone'] ?? '') ?>" <?= $canEdit?'':'disabled' ?>></div>
                     </div>
-                    <div class="d-flex justify-content-between align-items-center mb-1">
-                        <label class="form-label small mb-0">Corpo do contrato (HTML)</label>
+                    <div class="d-flex justify-content-between align-items-center mb-1 flex-wrap gap-2">
+                        <div class="btn-group btn-group-sm" role="group">
+                            <button type="button" id="tab-edit-btn" class="btn btn-outline-secondary active" onclick="showBodyTab('edit')"><i class="bi bi-code-slash"></i> Editar HTML</button>
+                            <button type="button" id="tab-prev-btn" class="btn btn-outline-secondary" onclick="showBodyTab('prev')"><i class="bi bi-eye"></i> Pré-visualizar</button>
+                        </div>
                         <?php if ($canEdit && !empty($templates)): ?>
                         <div class="d-flex align-items-center gap-1">
                             <select id="c-template" class="form-select form-select-sm" style="width:auto;font-size:0.8rem;">
@@ -61,6 +64,7 @@ $labels = [
                         <?php endif; ?>
                     </div>
                     <textarea id="c-body" class="form-control" style="min-height:52vh;font-family:ui-monospace,Consolas,monospace;font-size:.85rem;" <?= $canEdit?'':'disabled' ?>><?= escape($contract['body'] ?? '') ?></textarea>
+                    <div id="c-preview" class="border rounded p-4 bg-white" style="min-height:52vh;display:none;overflow:auto;"></div>
                 </div>
             </div>
         </div>
@@ -85,6 +89,24 @@ $labels = [
 const BASE = '<?= baseUrl("") ?>';
 const CSRF = '<?= csrf_token() ?>';
 const CID = <?= (int)$contract['id'] ?>;
+
+// Alterna entre editar o HTML e ver a pré-visualização formatada.
+function showBodyTab(which) {
+    const ta = document.getElementById('c-body');
+    const prev = document.getElementById('c-preview');
+    const bEdit = document.getElementById('tab-edit-btn');
+    const bPrev = document.getElementById('tab-prev-btn');
+    if (which === 'prev') {
+        prev.innerHTML = ta.value || '<p class="text-muted">Sem conteúdo.</p>';
+        prev.style.display = 'block';
+        ta.style.display = 'none';
+        bPrev.classList.add('active'); bEdit.classList.remove('active');
+    } else {
+        prev.style.display = 'none';
+        ta.style.display = 'block';
+        bEdit.classList.add('active'); bPrev.classList.remove('active');
+    }
+}
 // Carrega o corpo de um modelo JÁ com as variáveis preenchidas pelos dados do
 // contrato (o backend faz a substituição dos {{...}}).
 async function loadTemplate() {
