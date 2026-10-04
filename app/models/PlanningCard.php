@@ -39,7 +39,8 @@ class PlanningCard
                        co.name as company_name,
                        cb.name as created_by_name,
                        cb.role as created_by_role,
-                       t.category as category
+                       t.category as category,
+                       t.scope_rejected_reason as scope_rejected_reason
                 FROM planning_cards pc
                 LEFT JOIN users u ON pc.assigned_to = u.id
                 LEFT JOIN tickets t ON pc.ticket_id = t.id

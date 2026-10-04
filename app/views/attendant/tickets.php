@@ -30,6 +30,19 @@ if (!function_exists('categoryLabel')) {
         return $map[$c] ?? ucfirst($c);
     }
 }
+// --- Tag informativa "Recusado": aparece quando o cliente recusou o escopo
+// (scope_rejected_reason preenchido). NÃO altera fluxo nem status real; é só um
+// selo para identificar na lista quais demandas tiveram o escopo recusado.
+// Some sozinha quando o escopo é reaprovado (o fluxo zera o motivo). ---
+if (!function_exists('scopeRejectedBadge')) {
+    function scopeRejectedBadge(?string $reason): string
+    {
+        if (trim((string)$reason) === '') {
+            return '';
+        }
+        return '<span class="badge bg-danger ms-1" style="font-size:0.65rem;" title="Escopo recusado pelo cliente">Recusado</span>';
+    }
+}
 ?>
 
 <div class="main-content">
@@ -141,7 +154,7 @@ if (!function_exists('categoryLabel')) {
                             </td>
                             <td><?= escape($c['company_name'] ?? '-') ?></td>
                             <td><?= escape($c['assigned_name'] ?? 'Não atribuído') ?></td>
-                            <td><span class="badge-status badge-<?= $c['status'] ?>"><?= statusLabel($c['status']) ?></span></td>
+                            <td><span class="badge-status badge-<?= $c['status'] ?>"><?= statusLabel($c['status']) ?></span><?= scopeRejectedBadge($c['scope_rejected_reason'] ?? null) ?></td>
                             <td><span class="priority-<?= $c['priority'] ?>"><?= priorityLabel($c['priority']) ?></span></td>
                             <td><?= !empty($c['updated_at']) ? timeAgo($c['updated_at']) : (!empty($c['created_at']) ? timeAgo($c['created_at']) : '-') ?></td>
                             <td>
@@ -166,7 +179,7 @@ if (!function_exists('categoryLabel')) {
                 <a href="<?= baseUrl('tickets/showCard/' . $c['id']) ?>" class="d-block text-decoration-none mb-2 p-3 border rounded-3">
                     <div class="d-flex justify-content-between align-items-start mb-1">
                         <span class="fw-medium text-dark text-truncate" style="max-width:70%">#<?= $c['id'] ?> <?= escape($c['title']) ?></span>
-                        <span class="badge-status badge-<?= $c['status'] ?>"><?= statusLabel($c['status']) ?></span>
+                        <span class="text-end"><span class="badge-status badge-<?= $c['status'] ?>"><?= statusLabel($c['status']) ?></span><?= scopeRejectedBadge($c['scope_rejected_reason'] ?? null) ?></span>
                     </div>
                     <div class="d-flex gap-2 align-items-center flex-wrap" style="font-size:0.75rem">
                         <?php if (!empty($c['category'])): ?>

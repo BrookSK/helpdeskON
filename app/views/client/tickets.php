@@ -30,6 +30,19 @@ if (!function_exists('categoryLabel')) {
         return $map[$c] ?? ucfirst($c);
     }
 }
+// --- Tag informativa "Recusado": aparece quando o cliente recusou o escopo
+// (scope_rejected_reason preenchido). NÃO altera o fluxo nem o status real da
+// demanda; é só um selo visual para identificar na lista quais tiveram o escopo
+// recusado. Some sozinha quando o escopo é reaprovado (o fluxo zera o motivo). ---
+if (!function_exists('scopeRejectedBadge')) {
+    function scopeRejectedBadge(?string $reason): string
+    {
+        if (trim((string)$reason) === '') {
+            return '';
+        }
+        return '<span class="badge bg-danger ms-1" style="font-size:0.65rem;" title="Escopo recusado pelo cliente">Recusado</span>';
+    }
+}
 ?>
 
 <div class="main-content">
@@ -72,7 +85,7 @@ if (!function_exists('categoryLabel')) {
                             <td class="text-truncate" style="max-width:200px"><?= escape($t['title']) ?></td>
                             <?php if (!empty($isOwner)): ?><td style="font-size:0.85rem"><?= escape($t['client_name'] ?? '-') ?></td><?php endif; ?>
                             <td><?php if (!empty($t['category'])): ?><span class="badge <?= categoryBadgeClass($t['category']) ?>" style="<?= categoryBadgeStyle($t['category']) ?>"><?= escape(categoryLabel($t['category'])) ?></span><?php else: ?>-<?php endif; ?></td>
-                            <td><span class="badge-status badge-<?= $t['status'] ?>"><?= statusLabel($t['status']) ?></span></td>
+                            <td><span class="badge-status badge-<?= $t['status'] ?>"><?= statusLabel($t['status']) ?></span><?= scopeRejectedBadge($t['scope_rejected_reason'] ?? null) ?></td>
                             <td><span class="priority-<?= $t['priority'] ?>"><?= priorityLabel($t['priority']) ?></span></td>
                             <td><?= escape($t['attendant_name'] ?? 'Aguardando') ?></td>
                             <td><?= date('d/m/Y', strtotime($t['created_at'])) ?></td>
@@ -91,7 +104,7 @@ if (!function_exists('categoryLabel')) {
                 <a href="<?= baseUrl('tickets/show/' . $t['id']) ?>" class="d-block text-decoration-none mb-2 p-3 border rounded-3">
                     <div class="d-flex justify-content-between align-items-start mb-1">
                         <span class="fw-medium text-dark text-truncate" style="max-width:65%">#<?= $t['client_ticket_number'] ?? $t['id'] ?> <?= escape($t['title']) ?></span>
-                        <span class="badge-status badge-<?= $t['status'] ?>"><?= statusLabel($t['status']) ?></span>
+                        <span class="text-end"><span class="badge-status badge-<?= $t['status'] ?>"><?= statusLabel($t['status']) ?></span><?= scopeRejectedBadge($t['scope_rejected_reason'] ?? null) ?></span>
                     </div>
                     <div class="d-flex gap-2 align-items-center flex-wrap" style="font-size:0.75rem">
                         <?php if (!empty($t['category'])): ?>
