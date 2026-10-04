@@ -248,9 +248,15 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                                     <span class="priority-<?= $card['priority'] ?>" style="font-size:0.7rem"><?= $priorityLabels[$card['priority']] ?? '' ?></span>
                                 </div>
                                 <div class="fw-medium" style="font-size:0.82rem;word-break:break-word;"><?= escape($card['title']) ?></div>
-                                <?php if (!empty($card['category'])): ?>
-                                <div class="mt-1">
+                                <?php if (!empty($card['category']) || !empty($card['scope_rejected_reason'])): ?>
+                                <div class="mt-1 d-flex flex-wrap gap-1">
+                                    <?php if (!empty($card['category'])): ?>
                                     <span class="badge <?= categoryBadgeClass($card['category']) ?>" style="font-size:0.62rem;<?= categoryBadgeStyle($card['category']) ?>"><?= escape(categoryLabel($card['category'])) ?></span>
+                                    <?php endif; ?>
+                                    <?php if (!empty($card['scope_rejected_reason'])): ?>
+                                    <!-- Tag informativa: escopo recusado pelo cliente (ainda não reaprovado). -->
+                                    <span class="badge bg-danger" style="font-size:0.62rem;" title="Escopo recusado pelo cliente">Recusado</span>
+                                    <?php endif; ?>
                                 </div>
                                 <?php endif; ?>
                                 <div class="text-muted mt-2" style="font-size:0.7rem">

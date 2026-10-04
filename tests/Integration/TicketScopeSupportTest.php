@@ -102,11 +102,13 @@ final class TicketScopeSupportTest extends TestCase
 
     public function testRecusaDeEscopoGuardaMotivo(): void
     {
+        // Recusa do escopo: a demanda volta para "Aberto" (open), com o motivo
+        // preservado, para a equipe refazer o escopo e reenviar ao cliente.
         $id = $this->novoTicket(['status' => 'aguardando_aprovacao_escopo']);
         $this->tickets->update($id, ['scope_rejected_reason' => 'Mudar o layout']);
-        $this->tickets->updateStatus($id, 'in_progress');
+        $this->tickets->updateStatus($id, 'open');
         $t = $this->tickets->findById($id);
-        $this->assertSame('in_progress', $t['status']);
+        $this->assertSame('open', $t['status']);
         $this->assertSame('Mudar o layout', $t['scope_rejected_reason']);
     }
 

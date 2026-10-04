@@ -78,7 +78,8 @@ class TicketAccess
      *
      * O cliente age em dois momentos do fluxo:
      *  - APROVAÇÃO DE ESCOPO (aguardando_aprovacao_escopo): aprova (segue para
-     *    in_progress) ou recusa (volta para in_progress, com motivo registrado);
+     *    in_progress) ou recusa (volta para "open"/Aberto, com motivo registrado,
+     *    para a equipe refazer o escopo e reenviar);
      *  - HOMOLOGAÇÃO (em_homologacao): aprova (aprovado_producao) ou recusa
      *    (denied, com motivo registrado).
      */
@@ -88,9 +89,9 @@ class TicketAccess
             return in_array($newStatus, ['aprovado_producao', 'denied'], true);
         }
         if ($currentStatus === 'aguardando_aprovacao_escopo') {
-            // Aprovar o escopo leva a in_progress; recusar também retorna a
-            // in_progress (para ajustes), com o motivo registrado à parte.
-            return $newStatus === 'in_progress';
+            // Aprovar o escopo leva a in_progress; recusar volta para "open"
+            // (Aberto), com o motivo registrado à parte, para a equipe refazer.
+            return in_array($newStatus, ['in_progress', 'open'], true);
         }
         return false;
     }

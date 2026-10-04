@@ -515,33 +515,33 @@ class TicketsController extends Controller
             $sideEffects['homolog_denied_reason'] = $reason;
         }
 
-        // Decisão de ESCOPO (aguardando_aprovacao_escopo -> in_progress):
-        // o cliente aprova ou recusa. A recusa é sinalizada por reject=1 + motivo.
-        // approveScopeKeepCardOpen controla o Bug 2: na APROVAÇÃO, o ticket vai
-        // para in_progress (visão do cliente = "Em andamento"), mas o card do
-        // Planejamento deve ficar em "Aberto" (open) para a equipe pegar a tarefa.
+        // Decisão de ESCOPO (a partir de aguardando_aprovacao_escopo):
+        //  - APROVAR  -> status in_progress ("Em andamento" na visão do cliente),
+        //    mas o card do Planejamento fica em "Aberto" (open) para a equipe pegar
+        //    a tarefa (approveScopeKeepCardOpen).
+        //  - RECUSAR  -> status "open" (Aberto), com o motivo registrado, para a
+        //    equipe refazer o escopo e reenviar ao cliente. O card também fica
+        //    "Aberto" e a tag "Recusado" aparece (scope_rejected_reason preenchido).
         $approveScopeKeepCardOpen = false;
-        if ($previousStatus === ScopeRules::STATUS_AGUARDANDO && $status === 'in_progress') {
-            $isReject = !empty($_POST['reject']);
-            if ($isReject) {
-                $clean = ScopeRules::sanitizeRejectionReason($reason);
-                if ($clean === null) {
-                    if ($this->isAjax()) {
-                        $this->json(['error' => 'Informe o motivo da recusa do escopo.'], 400);
-                    }
-                    flash('error', 'Informe o motivo da recusa do escopo.');
-                    $this->redirect('tickets/show/' . $id);
-                    return;
+        if ($previousStatus === ScopeRules::STATUS_AGUARDANDO && $status === 'open') {
+            // Recusa do escopo: exige motivo.
+            $clean = ScopeRules::sanitizeRejectionReason($reason);
+            if ($clean === null) {
+                if ($this->isAjax()) {
+                    $this->json(['error' => 'Informe o motivo da recusa do escopo.'], 400);
                 }
-                $sideEffects['scope_rejected_reason'] = $clean;
-            } else {
-                $sideEffects['scope_approved_at'] = date('Y-m-d H:i:s');
-                // Escopo aprovado: a demanda avança, então nenhum banner de recusa
-                // pendente deve permanecer (nem de escopo nem de homologação).
-                $sideEffects['scope_rejected_reason'] = null;
-                $sideEffects['homolog_denied_reason'] = null;
-                $approveScopeKeepCardOpen = true;
+                flash('error', 'Informe o motivo da recusa do escopo.');
+                $this->redirect('tickets/show/' . $id);
+                return;
             }
+            $sideEffects['scope_rejected_reason'] = $clean;
+        } elseif ($previousStatus === ScopeRules::STATUS_AGUARDANDO && $status === 'in_progress') {
+            // Aprovação do escopo: a demanda avança, nenhum banner de recusa
+            // pendente deve permanecer (nem de escopo nem de homologação).
+            $sideEffects['scope_approved_at'] = date('Y-m-d H:i:s');
+            $sideEffects['scope_rejected_reason'] = null;
+            $sideEffects['homolog_denied_reason'] = null;
+            $approveScopeKeepCardOpen = true;
         }
 
         // Ao chegar em "Aprovado p/ Produção", nenhuma recusa pendente faz sentido.

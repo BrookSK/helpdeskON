@@ -50,10 +50,11 @@ final class ScopeRulesTest extends TestCase
         $this->assertFalse($semMotivo['ok']);
         $this->assertNotNull($semMotivo['error']);
 
-        // Com motivo -> volta para in_progress carregando o motivo saneado.
+        // Com motivo -> volta para "open" (Aberto) carregando o motivo saneado,
+        // para a equipe refazer o escopo e reenviar ao cliente.
         $comMotivo = ScopeRules::resolveDecision('reject', '  Mudar o layout  ');
         $this->assertTrue($comMotivo['ok']);
-        $this->assertSame('in_progress', $comMotivo['status']);
+        $this->assertSame('open', $comMotivo['status']);
         $this->assertSame('Mudar o layout', $comMotivo['reason']);
     }
 

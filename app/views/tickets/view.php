@@ -171,9 +171,11 @@ if (!function_exists('categoryLabel')) {
                         </button>
                     </div>
                     <div id="scope-reject-box" class="mt-3 d-none">
+                        <!-- Recusa do escopo: volta a demanda para "Aberto" (status=open),
+                             com o motivo, para a equipe refazer o escopo e reenviar. -->
                         <form action="<?= baseUrl('tickets/updateStatus/' . $ticket['id']) ?>" method="POST">
                             <?= csrf_field() ?>
-                            <input type="hidden" name="status" value="in_progress">
+                            <input type="hidden" name="status" value="open">
                             <input type="hidden" name="reject" value="1">
                             <label class="form-label fw-medium small">Motivo da recusa *</label>
                             <textarea name="reason" class="form-control form-control-sm mb-2" rows="3" required placeholder="Explique o que precisa ser ajustado no escopo"></textarea>
