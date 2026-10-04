@@ -493,6 +493,13 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                                             <p class="mb-0 text-muted small mt-2">Este card não está vinculado a nenhuma demanda.</p>
                                         </div>
                                         <div id="ticket-data-section" style="display:none;">
+                                            <!-- Ação da equipe: abrir pop-up de Escopo técnico / Previsão / Suporte.
+                                                 Só faz sentido quando o card está vinculado a uma demanda (ticket). -->
+                                            <div class="d-flex justify-content-end mb-2">
+                                                <button type="button" class="btn btn-sm btn-primary" onclick="openScopeModal()">
+                                                    <i class="bi bi-file-earmark-text"></i> Escopo / Previsão / Suporte
+                                                </button>
+                                            </div>
                                             <!-- Info da demanda -->
                                             <div class="card mb-3">
                                                 <div class="card-header py-2 px-3 bg-light d-flex justify-content-between align-items-center">
@@ -752,6 +759,109 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
     </div>
 </div><!-- end main-content -->
 
+<!-- ===== MODAL: Escopo técnico / Previsão / Suporte (equipe) ===== -->
+<!-- Pop-up aberto pelo botão da aba Demanda do card. Edita os campos que moram
+     na tabela `tickets` (escopo, previsão, suporte) via AJAX, sem sair do Kanban.
+     Reaproveita as rotas tickets/saveScope, tickets/savePrevisao e
+     tickets/saveSupport (que respondem JSON quando chamadas via AJAX). -->
+<div class="modal fade" id="scopeModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable modal-fullscreen-sm-down">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title mb-0 fw-bold"><i class="bi bi-file-earmark-text"></i> Escopo / Previsão / Suporte</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-light border small mb-3" id="scope-ticket-hint">
+                    Demanda <strong id="scope-ticket-ref">#</strong>
+                </div>
+
+                <!-- Escopo técnico -->
+                <div class="card mb-3">
+                    <div class="card-header bg-white py-2"><h6 class="mb-0" style="font-size:0.85rem"><i class="bi bi-file-earmark-text"></i> Escopo técnico</h6></div>
+                    <div class="card-body">
+                        <div class="mb-2">
+                            <label class="form-label fw-medium small">O que será desenvolvido</label>
+                            <textarea id="scope-incluido" class="form-control form-control-sm" rows="3"></textarea>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label fw-medium small">O que NÃO será desenvolvido</label>
+                            <textarea id="scope-excluido" class="form-control form-control-sm" rows="3"></textarea>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label fw-medium small">Como será executado</label>
+                            <textarea id="scope-execucao" class="form-control form-control-sm" rows="3"></textarea>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label fw-medium small">Estimativa (dias)</label>
+                            <input type="number" id="scope-estimativa" class="form-control form-control-sm" min="0">
+                        </div>
+                        <div class="d-flex gap-2 flex-wrap">
+                            <button type="button" class="btn btn-outline-primary btn-sm" onclick="saveScopeAjax(false)">Salvar escopo</button>
+                            <button type="button" class="btn btn-primary btn-sm" onclick="saveScopeAjax(true)">Enviar ao cliente para aprovação</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Previsão de publicação -->
+                <div class="card mb-3">
+                    <div class="card-header bg-white py-2"><h6 class="mb-0" style="font-size:0.85rem"><i class="bi bi-calendar-event"></i> Previsão de publicação</h6></div>
+                    <div class="card-body">
+                        <div class="d-flex gap-2 align-items-end flex-wrap">
+                            <div class="flex-grow-1">
+                                <label class="form-label fw-medium small">Data</label>
+                                <input type="date" id="scope-previsao" class="form-control form-control-sm">
+                            </div>
+                            <button type="button" class="btn btn-outline-primary btn-sm" onclick="savePrevisaoAjax()">Salvar</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Suporte -->
+                <div class="card mb-3">
+                    <div class="card-header bg-white py-2"><h6 class="mb-0" style="font-size:0.85rem"><i class="bi bi-life-preserver"></i> Suporte</h6></div>
+                    <div class="card-body">
+                        <div class="mb-2">
+                            <label class="form-label fw-medium small">Gravidade</label>
+                            <select id="scope-support-severity" class="form-select form-select-sm">
+                                <option value="">— sem gravidade —</option>
+                                <?php foreach (SupportRules::SEVERITIES as $sev): ?>
+                                <option value="<?= $sev ?>"><?= escape(SupportRules::severityLabel($sev)) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label fw-medium small">Prazo de resolução (min, 30 a 2880)</label>
+                            <input type="number" id="scope-support-resolution" class="form-control form-control-sm" min="30" max="2880">
+                        </div>
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="checkbox" id="scope-support-clear-resolution" value="1">
+                            <label class="form-check-label small" for="scope-support-clear-resolution">Limpar prazo de resolução</label>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label fw-medium small">Solução temporária</label>
+                            <textarea id="scope-support-workaround" class="form-control form-control-sm" rows="2"></textarea>
+                        </div>
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="checkbox" id="scope-support-third-party" value="1">
+                            <label class="form-check-label small" for="scope-support-third-party">Problema de terceiros</label>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label fw-medium small">Terceiro responsável</label>
+                            <input type="text" id="scope-support-third-name" class="form-control form-control-sm">
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label fw-medium small">Andamento/evidências</label>
+                            <textarea id="scope-support-third-notes" class="form-control form-control-sm" rows="2"></textarea>
+                        </div>
+                        <button type="button" class="btn btn-outline-primary btn-sm w-100" onclick="saveSupportAjax()">Salvar suporte</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Quill Editor -->
 <link href="https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.snow.css" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.js"></script>
@@ -859,6 +969,8 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
 <script>
 const BASE = '<?= baseUrl("") ?>';
 let currentCardId = null;
+// Demanda (ticket) vinculada ao card aberto. Alimenta o pop-up de Escopo/Previsão/Suporte.
+let currentTicket = null;
 let quill = null;
 let calendarEvents = [];
 let calDate = new Date();
@@ -1251,6 +1363,9 @@ function renderTicketData(data) {
     const noTicketMsg = document.getElementById('no-ticket-msg');
     const ticketSection = document.getElementById('ticket-data-section');
     const demandaBadge = document.getElementById('tab-demanda-badge');
+
+    // Guarda a demanda vinculada (ou null) para o pop-up de Escopo/Previsão/Suporte.
+    currentTicket = data.ticket || null;
 
     if (!data.ticket) {
         noTicketMsg.style.display = '';
@@ -1664,6 +1779,99 @@ function renderComments(comments) {
         </div>
     `).join('');
     container.scrollTop = container.scrollHeight;
+}
+
+// ====== POP-UP: Escopo técnico / Previsão / Suporte (equipe) ======
+// Abre o modal preenchendo os campos a partir da demanda vinculada ao card.
+function openScopeModal() {
+    if (!currentTicket || !currentTicket.id) {
+        alert('Este card não está vinculado a uma demanda.');
+        return;
+    }
+    const t = currentTicket;
+    document.getElementById('scope-ticket-ref').textContent = '#' + t.id + (t.title ? ' — ' + t.title : '');
+
+    // Escopo
+    document.getElementById('scope-incluido').value = t.escopo_incluido || '';
+    document.getElementById('scope-excluido').value = t.escopo_excluido || '';
+    document.getElementById('scope-execucao').value = t.escopo_execucao || '';
+    document.getElementById('scope-estimativa').value = (t.estimativa_dias != null ? t.estimativa_dias : '');
+
+    // Previsão (campo date espera YYYY-MM-DD)
+    document.getElementById('scope-previsao').value = t.previsao_publicacao ? String(t.previsao_publicacao).slice(0, 10) : '';
+
+    // Suporte
+    document.getElementById('scope-support-severity').value = t.support_severity || '';
+    document.getElementById('scope-support-resolution').value = '';
+    document.getElementById('scope-support-clear-resolution').checked = false;
+    document.getElementById('scope-support-workaround').value = t.support_workaround || '';
+    document.getElementById('scope-support-third-party').checked = !!(t.is_third_party && String(t.is_third_party) !== '0');
+    document.getElementById('scope-support-third-name').value = t.third_party_name || '';
+    document.getElementById('scope-support-third-notes').value = t.third_party_notes || '';
+
+    new bootstrap.Modal(document.getElementById('scopeModal')).show();
+}
+
+// Helper: POST via fetch para as rotas tickets/* que agora respondem JSON em AJAX.
+function scopePost(url, formData) {
+    return fetch(BASE + url, {
+        method: 'POST',
+        body: formData,
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    }).then(r => r.json().catch(() => ({ error: 'Resposta inválida do servidor.' })).then(data => ({ ok: r.ok, data })));
+}
+
+function saveScopeAjax(sendToClient) {
+    if (!currentTicket || !currentTicket.id) return;
+    const fd = new FormData();
+    fd.append('escopo_incluido', document.getElementById('scope-incluido').value);
+    fd.append('escopo_excluido', document.getElementById('scope-excluido').value);
+    fd.append('escopo_execucao', document.getElementById('scope-execucao').value);
+    fd.append('estimativa_dias', document.getElementById('scope-estimativa').value);
+    if (sendToClient) fd.append('send_to_client', '1');
+
+    scopePost('tickets/saveScope/' + currentTicket.id, fd).then(res => {
+        if (res.ok && res.data.success) {
+            alert(sendToClient ? 'Escopo enviado ao cliente para aprovação.' : 'Escopo salvo.');
+            location.reload();
+        } else {
+            alert('Erro: ' + (res.data.error || 'Não foi possível salvar o escopo.'));
+        }
+    }).catch(() => alert('Erro na requisição.'));
+}
+
+function savePrevisaoAjax() {
+    if (!currentTicket || !currentTicket.id) return;
+    const fd = new FormData();
+    fd.append('previsao_publicacao', document.getElementById('scope-previsao').value);
+    scopePost('tickets/savePrevisao/' + currentTicket.id, fd).then(res => {
+        if (res.ok && res.data.success) {
+            alert('Previsão de publicação atualizada.');
+            location.reload();
+        } else {
+            alert('Erro: ' + (res.data.error || 'Não foi possível salvar a previsão.'));
+        }
+    }).catch(() => alert('Erro na requisição.'));
+}
+
+function saveSupportAjax() {
+    if (!currentTicket || !currentTicket.id) return;
+    const fd = new FormData();
+    fd.append('support_severity', document.getElementById('scope-support-severity').value);
+    fd.append('support_resolution_minutes', document.getElementById('scope-support-resolution').value);
+    if (document.getElementById('scope-support-clear-resolution').checked) fd.append('clear_resolution', '1');
+    fd.append('support_workaround', document.getElementById('scope-support-workaround').value);
+    if (document.getElementById('scope-support-third-party').checked) fd.append('is_third_party', '1');
+    fd.append('third_party_name', document.getElementById('scope-support-third-name').value);
+    fd.append('third_party_notes', document.getElementById('scope-support-third-notes').value);
+    scopePost('tickets/saveSupport/' + currentTicket.id, fd).then(res => {
+        if (res.ok && res.data.success) {
+            alert('Dados de suporte atualizados.');
+            location.reload();
+        } else {
+            alert('Erro: ' + (res.data.error || 'Não foi possível salvar o suporte.'));
+        }
+    }).catch(() => alert('Erro na requisição.'));
 }
 
 function addComment() {

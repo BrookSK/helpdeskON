@@ -62,7 +62,10 @@ class PlanningCard
             $params[] = $filters['company_id'];
         }
         if (!empty($filters['assigned_to'])) {
-            $sql .= " AND pc.assigned_to = ?";
+            // Inclui também os cards SEM atendente (assigned_to IS NULL): demandas
+            // novas, ainda não atribuídas, precisam aparecer para a equipe poder
+            // pegá-las — senão o filtro de atendente padrão as esconderia.
+            $sql .= " AND (pc.assigned_to = ? OR pc.assigned_to IS NULL)";
             $params[] = $filters['assigned_to'];
         }
         if (!empty($filters['hide_completed'])) {

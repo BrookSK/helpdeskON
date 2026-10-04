@@ -517,6 +517,10 @@ class TicketsController extends Controller
 
         // Decisão de ESCOPO (aguardando_aprovacao_escopo -> in_progress):
         // o cliente aprova ou recusa. A recusa é sinalizada por reject=1 + motivo.
+        // approveScopeKeepCardOpen controla o Bug 2: na APROVAÇÃO, o ticket vai
+        // para in_progress (visão do cliente = "Em andamento"), mas o card do
+        // Planejamento deve ficar em "Aberto" (open) para a equipe pegar a tarefa.
+        $approveScopeKeepCardOpen = false;
         if ($previousStatus === ScopeRules::STATUS_AGUARDANDO && $status === 'in_progress') {
             $isReject = !empty($_POST['reject']);
             if ($isReject) {
@@ -532,23 +536,39 @@ class TicketsController extends Controller
                 $sideEffects['scope_rejected_reason'] = $clean;
             } else {
                 $sideEffects['scope_approved_at'] = date('Y-m-d H:i:s');
+                // Escopo aprovado: a demanda avança, então nenhum banner de recusa
+                // pendente deve permanecer (nem de escopo nem de homologação).
                 $sideEffects['scope_rejected_reason'] = null;
+                $sideEffects['homolog_denied_reason'] = null;
+                $approveScopeKeepCardOpen = true;
             }
+        }
+
+        // Ao chegar em "Aprovado p/ Produção", nenhuma recusa pendente faz sentido.
+        if ($status === 'aprovado_producao') {
+            $sideEffects['scope_rejected_reason'] = null;
+            $sideEffects['homolog_denied_reason'] = null;
         }
 
         // Entrada em HOMOLOGAÇÃO: inicia a janela de 48h e zera os contatos da
         // régua (idempotente — só reinicia ao (re)entrar em homologação).
+        // Também limpa a recusa de homologação anterior: ao reenviar para
+        // homologação, o banner "Homologação recusada" não deve ficar preso.
         if ($status === 'em_homologacao' && $previousStatus !== 'em_homologacao') {
             $sideEffects['homolog_started_at'] = date('Y-m-d H:i:s');
             $sideEffects['homolog_contact1_at'] = null;
             $sideEffects['homolog_contact2_at'] = null;
             $sideEffects['homolog_contact3_at'] = null;
             $sideEffects['homolog_auto_released_at'] = null;
+            $sideEffects['homolog_denied_reason'] = null;
         }
 
-        // Entrada em APROVAÇÃO DE ESCOPO: carimba o envio do escopo ao cliente.
+        // (Re)entrada em APROVAÇÃO DE ESCOPO: carimba o envio do escopo ao cliente
+        // e começa uma nova rodada de aprovação, então limpa a recusa de escopo
+        // anterior (o banner "Escopo recusado" some).
         if ($status === ScopeRules::STATUS_AGUARDANDO && $previousStatus !== ScopeRules::STATUS_AGUARDANDO) {
             $sideEffects['scope_submitted_at'] = date('Y-m-d H:i:s');
+            $sideEffects['scope_rejected_reason'] = null;
         }
 
         $this->ticketModel->updateStatus($id, $status);
@@ -556,9 +576,12 @@ class TicketsController extends Controller
             $this->ticketModel->update($id, $sideEffects);
         }
 
-        // Sincronizar card do planejamento
+        // Sincronizar card do planejamento.
+        // Bug 2: ao APROVAR o escopo, o ticket vai para "Em andamento" (visão do
+        // cliente), mas o card da equipe deve ficar em "Aberto" (open) para ser
+        // pego no Kanban. Nos demais casos, o card espelha o status do ticket.
         $planningCard = new PlanningCard();
-        $planningCard->syncFromTicket($id, $status);
+        $planningCard->syncFromTicket($id, $approveScopeKeepCardOpen ? 'open' : $status);
 
         // Notificar cliente sobre mudança de status
         $ticket = $this->ticketModel->findById($id);
@@ -619,7 +642,11 @@ class TicketsController extends Controller
         // "Enviar ao cliente" exige escopo mínimo (o que será feito).
         $sendToClient = !empty($_POST['send_to_client']);
         if ($sendToClient && !ScopeRules::isScopeComplete($scope)) {
-            flash('error', 'Preencha ao menos "o que será desenvolvido" antes de enviar o escopo ao cliente.');
+            $msg = 'Preencha ao menos "o que será desenvolvido" antes de enviar o escopo ao cliente.';
+            if ($this->isAjax()) {
+                $this->json(['error' => $msg], 400);
+            }
+            flash('error', $msg);
             $this->redirect('tickets/show/' . $id);
         }
 
@@ -628,15 +655,26 @@ class TicketsController extends Controller
         if ($sendToClient) {
             // Reaproveita o fluxo central de mudança de status (carimba
             // scope_submitted_at, sincroniza card e notifica) via updateStatus.
+            // Começa uma nova rodada de aprovação: limpa a recusa de escopo
+            // anterior para o banner "Escopo recusado" não ficar preso.
             $this->ticketModel->updateStatus($id, ScopeRules::STATUS_AGUARDANDO);
-            $this->ticketModel->update($id, ['scope_submitted_at' => date('Y-m-d H:i:s')]);
+            $this->ticketModel->update($id, [
+                'scope_submitted_at' => date('Y-m-d H:i:s'),
+                'scope_rejected_reason' => null,
+            ]);
             (new PlanningCard())->syncFromTicket($id, ScopeRules::STATUS_AGUARDANDO);
             $fresh = $this->ticketModel->findById($id);
             $this->sendStatusChangeNotification($fresh, ScopeRules::STATUS_AGUARDANDO);
-            flash('success', 'Escopo enviado ao cliente para aprovação.');
+            $successMsg = 'Escopo enviado ao cliente para aprovação.';
         } else {
-            flash('success', 'Escopo salvo.');
+            $successMsg = 'Escopo salvo.';
         }
+        // Chamada via AJAX (pop-up do Planejamento) responde JSON; o form
+        // tradicional da tela da demanda mantém flash + redirect.
+        if ($this->isAjax()) {
+            $this->json(['success' => true]);
+        }
+        flash('success', $successMsg);
         $this->redirect('tickets/show/' . $id);
     }
 
@@ -683,6 +721,9 @@ class TicketsController extends Controller
         $data['third_party_notes'] = trim($_POST['third_party_notes'] ?? '') ?: null;
 
         $this->ticketModel->update($id, $data);
+        if ($this->isAjax()) {
+            $this->json(['success' => true]);
+        }
         flash('success', 'Dados de suporte atualizados.');
         $this->redirect('tickets/show/' . $id);
     }
@@ -699,6 +740,9 @@ class TicketsController extends Controller
         $previsao = trim($_POST['previsao_publicacao'] ?? '');
         $valid = $previsao !== '' && \DateTime::createFromFormat('Y-m-d', $previsao) !== false;
         $this->ticketModel->update($id, ['previsao_publicacao' => $valid ? $previsao : null]);
+        if ($this->isAjax()) {
+            $this->json(['success' => true]);
+        }
         flash('success', 'Previsão de publicação atualizada.');
         $this->redirect('tickets/show/' . $id);
     }
