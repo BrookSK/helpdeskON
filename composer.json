@@ -3,7 +3,8 @@
     "description": "HelpdeskON - aplicação PHP (MVC próprio)",
     "type": "project",
     "require": {
-        "php": ">=8.3"
+        "php": ">=8.3",
+        "dompdf/dompdf": "^3.1"
     },
     "require-dev": {
         "phpunit/phpunit": "*"
