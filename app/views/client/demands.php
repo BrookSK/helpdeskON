@@ -19,6 +19,34 @@ $priorityLabels = [
     'high' => ['Alta', 'orange'],
     'urgent' => ['Urgente', 'danger'],
 ];
+
+// --- Tag de categoria: cor do badge por categoria (suporte=vermelho, dev=azul, design=roxo, marketing=laranja, outro=secondary) ---
+if (!function_exists('categoryBadgeClass')) {
+    function categoryBadgeClass(?string $category): string
+    {
+        switch (strtolower(trim((string)$category))) {
+            case 'suporte':         return 'bg-danger';
+            case 'desenvolvimento': return 'bg-primary';
+            case 'design':          return 'text-white'; // roxo via style inline
+            case 'marketing':       return 'bg-warning text-dark';
+            default:                return 'bg-secondary';
+        }
+    }
+}
+if (!function_exists('categoryBadgeStyle')) {
+    function categoryBadgeStyle(?string $category): string
+    {
+        return strtolower(trim((string)$category)) === 'design' ? 'background-color:#6f42c1;' : '';
+    }
+}
+if (!function_exists('categoryLabel')) {
+    function categoryLabel(?string $category): string
+    {
+        $map = ['suporte' => 'Suporte', 'desenvolvimento' => 'Desenvolvimento', 'design' => 'Design', 'marketing' => 'Marketing', 'outro' => 'Outro'];
+        $c = strtolower(trim((string)$category));
+        return $map[$c] ?? ucfirst($c);
+    }
+}
 ?>
 
 <div class="main-content">
@@ -87,7 +115,12 @@ $priorityLabels = [
                         <?php foreach ($cards as $card): ?>
                         <tr>
                             <td class="text-muted"><?= $card['id'] ?></td>
-                            <td><?= escape($card['title']) ?></td>
+                            <td>
+                                <?= escape($card['title']) ?>
+                                <?php if (!empty($card['category'])): ?>
+                                <span class="badge <?= categoryBadgeClass($card['category']) ?> ms-1" style="<?= categoryBadgeStyle($card['category']) ?>"><?= escape(categoryLabel($card['category'])) ?></span>
+                                <?php endif; ?>
+                            </td>
                             <td><?= escape($card['company_name'] ?? '-') ?></td>
                             <td>
                                 <?php $st = $statusLabels[$card['status']] ?? [$card['status'], 'secondary']; ?>
@@ -115,6 +148,9 @@ $priorityLabels = [
                         <span class="badge bg-<?= $st[1] ?>"><?= $st[0] ?></span>
                     </div>
                     <div class="d-flex gap-2 align-items-center flex-wrap" style="font-size:0.75rem">
+                        <?php if (!empty($card['category'])): ?>
+                        <span class="badge <?= categoryBadgeClass($card['category']) ?>" style="<?= categoryBadgeStyle($card['category']) ?>"><?= escape(categoryLabel($card['category'])) ?></span>
+                        <?php endif; ?>
                         <span class="text-muted"><i class="bi bi-building"></i> <?= escape($card['company_name'] ?? '-') ?></span>
                         <?php $pr = $priorityLabels[$card['priority']] ?? [$card['priority'], 'secondary']; ?>
                         <span class="badge bg-<?= $pr[1] ?>"><?= $pr[0] ?></span>

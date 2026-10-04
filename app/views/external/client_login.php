@@ -44,15 +44,21 @@
         <form action="<?= baseUrl('clientpin/authenticate') ?>" method="POST">
             <?= csrf_field() ?>
             <div class="mb-4">
-                <label class="form-label fw-medium text-center w-100" style="font-size:0.85rem">PIN de acesso (6 dígitos)</label>
-                <input type="text" name="pin" class="form-control pin-input" maxlength="6" inputmode="numeric"
-                       autocomplete="off" placeholder="••••••" required autofocus
-                       oninput="this.value=this.value.replace(/\D/g,'').slice(0,6)">
+                <label class="form-label fw-medium text-center w-100" style="font-size:0.85rem">PIN de acesso (4 dígitos)</label>
+                <input type="text" name="pin" class="form-control pin-input" maxlength="4" inputmode="numeric"
+                       autocomplete="off" placeholder="••••" required autofocus
+                       oninput="this.value=this.value.replace(/\D/g,'').slice(0,4)">
             </div>
             <button type="submit" class="btn btn-ext btn-primary w-100 text-white">
                 <i class="bi bi-unlock"></i> Entrar
             </button>
         </form>
+
+        <div class="text-center mt-3">
+            <a href="<?= baseUrl('login') ?>" class="text-decoration-none" style="font-size:0.82rem;color:var(--primary);">
+                <i class="bi bi-arrow-left"></i> Entrar com usuário e senha
+            </a>
+        </div>
 
         <div class="text-center mt-4">
             <small class="text-muted" style="font-size:0.75rem">&copy; <?= date('Y') ?> ON Solutions. Todos os direitos reservados.</small>

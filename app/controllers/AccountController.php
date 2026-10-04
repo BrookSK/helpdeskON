@@ -93,4 +93,37 @@ class AccountController extends Controller
         flash('success', 'Senha alterada com sucesso!');
         $this->redirect('account');
     }
+
+    /**
+     * Permite ao próprio usuário (qualquer papel) definir/alterar seu PIN de
+     * acesso de 4 dígitos, usado para entrar pela opção "Entrar com PIN".
+     */
+    public function updateClientPin()
+    {
+        $this->requireLogin();
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            $this->redirect('account');
+        }
+
+        $user = $this->currentUser();
+
+        $pin = trim($_POST['client_pin'] ?? '');
+        if (!ClientPinRules::isValidFormat($pin)) {
+            flash('error', 'O PIN deve ter exatamente 4 dígitos numéricos.');
+            $this->redirect('account');
+        }
+        if ($this->userModel->clientPinExists($pin, $user['id'])) {
+            flash('error', 'Este PIN já está em uso. Escolha outro.');
+            $this->redirect('account');
+        }
+
+        $saved = $this->userModel->setClientPin($user['id'], $pin);
+        if ($saved === null) {
+            flash('error', 'Não foi possível salvar o PIN. Tente outro.');
+            $this->redirect('account');
+        }
+
+        flash('success', 'PIN de acesso atualizado com sucesso!');
+        $this->redirect('account');
+    }
 }

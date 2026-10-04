@@ -39,7 +39,11 @@ class ClientCredential
             $params[] = $companyId;
         }
         $sql .= " ORDER BY co.name, c.service_label";
-        $rows = $this->db->fetchAll($sql, $params);
+        try {
+            $rows = $this->db->fetchAll($sql, $params);
+        } catch (\Throwable $e) {
+            return [];
+        }
         foreach ($rows as &$r) {
             $r['secret_mask'] = CredentialCrypto::mask($r['secret_encrypted'] ?? null);
             unset($r['secret_encrypted']);

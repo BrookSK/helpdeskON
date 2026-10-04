@@ -31,6 +31,112 @@ class ContractController extends Controller
         $this->view('commercial/contracts', ['user' => $user, 'contracts' => $contracts, 'statuses' => ContractRules::STATUSES]);
     }
 
+    // ================= Modelos de contrato (CRUD) =================
+
+    /** Lista/gerencia os modelos de contrato reutilizáveis. */
+    public function templates()
+    {
+        $this->requireModule('contracts');
+        $user = $this->currentUser();
+        $this->view('commercial/contract_templates', [
+            'user' => $user,
+            'templates' => (new ContractTemplate())->getAll(false),
+        ]);
+    }
+
+    /** Tela de edição do corpo de um modelo (novo quando sem id). */
+    public function editTemplate($id = null)
+    {
+        $this->requireModule('contracts');
+        $user = $this->currentUser();
+        $template = $id ? (new ContractTemplate())->findById($id) : null;
+        $this->view('commercial/contract_template_form', [
+            'user' => $user,
+            'template' => $template,
+            'vars' => ContractTemplateVars::catalog(),
+        ]);
+    }
+
+    /** Cria ou atualiza um modelo (POST). */
+    public function saveTemplate($id = null)
+    {
+        $this->requireModule('contracts');
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+
+        $raw = file_get_contents('php://input');
+        $body = json_decode($raw, true);
+        if (!is_array($body)) $body = $_POST;
+
+        $name = trim($body['name'] ?? '');
+        if ($name === '') $this->json(['error' => 'Informe o nome do modelo.'], 400);
+        $data = [
+            'name' => $name,
+            'body' => (string)($body['body'] ?? ''),
+            'active' => !empty($body['active']) ? 1 : 1, // nasce ativo
+        ];
+        $model = new ContractTemplate();
+        if ($id) {
+            $model->update((int)$id, ['name' => $data['name'], 'body' => $data['body']]);
+            $this->json(['success' => true, 'id' => (int)$id]);
+        }
+        $newId = $model->create($data);
+        $this->json(['success' => true, 'id' => $newId]);
+    }
+
+    /** Ativa/desativa um modelo. */
+    public function toggleTemplate($id = null)
+    {
+        $this->requireModule('contracts');
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+        (new ContractTemplate())->toggleActive((int)$id);
+        $this->json(['success' => true]);
+    }
+
+    /**
+     * Renderiza um modelo com as variáveis já preenchidas pelos dados do
+     * contrato atual (POST: contract_id, template_id). Usado pelo botão
+     * "Carregar de um modelo" no editor do contrato.
+     */
+    public function renderTemplate()
+    {
+        $this->requireModule('contracts');
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+
+        $templateId = (int)($_POST['template_id'] ?? 0);
+        $contractId = (int)($_POST['contract_id'] ?? 0);
+        $tpl = $templateId ? (new ContractTemplate())->findById($templateId) : null;
+        if (!$tpl) $this->json(['error' => 'Modelo não encontrado.'], 404);
+
+        $contract = $contractId ? $this->model->findById($contractId) : null;
+        // Monta os valores a partir do contrato (que já tem os dados do cliente).
+        $prestador = (string) Config::get('app_name');
+        $empresaCliente = null;
+        if ($contract && !empty($contract['company_id'])) {
+            $co = Database::getInstance()->fetch("SELECT name FROM companies WHERE id = ?", [(int)$contract['company_id']]);
+            $empresaCliente = $co['name'] ?? null;
+        }
+        // O contrato guarda client_name/email/phone e proposal_id; usamos a
+        // proposta vinculada p/ total/validade/tipo quando houver.
+        $proposalLike = [
+            'client_name'  => $contract['client_name'] ?? '',
+            'client_email' => $contract['client_email'] ?? '',
+            'client_phone' => $contract['client_phone'] ?? '',
+            'title'        => $contract['title'] ?? '',
+        ];
+        if ($contract && !empty($contract['proposal_id'])) {
+            $p = (new Proposal())->findById((int)$contract['proposal_id']);
+            if ($p) {
+                $proposalLike['title'] = $p['title'] ?? $proposalLike['title'];
+                $proposalLike['total'] = $p['total'] ?? 0;
+                $proposalLike['validity_date'] = $p['validity_date'] ?? null;
+                $proposalLike['contract_type'] = $p['contract_type'] ?? null;
+            }
+        }
+        $values = ContractTemplateVars::valuesFromProposal($proposalLike, $prestador, $empresaCliente);
+        $rendered = ContractTemplateVars::render((string)($tpl['body'] ?? ''), $values);
+        $this->json(['success' => true, 'body' => $rendered]);
+    }
+
     public function edit($id = null)
     {
         $this->requireModule('contracts');
@@ -44,6 +150,8 @@ class ContractController extends Controller
             'events' => $this->model->getEvents($id),
             'canEdit' => ContractRules::canEditBody($contract['status']),
             'canSign' => ContractRules::canSendToSignature($contract['status']),
+            // Modelos ativos para o botão "Carregar de um modelo" (só com corpo editável).
+            'templates' => (new ContractTemplate())->getAll(true),
         ]);
     }
 
@@ -110,11 +218,72 @@ class ContractController extends Controller
         if (!$contract) $this->json(['error' => 'Contrato não encontrado'], 404);
         $user = $this->currentUser();
 
+        // Reenvio após ajuste: 'client_rejected' volta a 'draft' antes de ir para
+        // 'client_review' (a máquina de estados não permite o salto direto).
+        if ($contract['status'] === ContractRules::STATUS_CLIENT_REJECTED) {
+            $this->model->changeStatus($id, ContractRules::STATUS_DRAFT, $user['id']);
+        }
+
         if (!$this->model->changeStatus($id, ContractRules::STATUS_CLIENT_REVIEW, $user['id'])) {
             $this->json(['error' => 'Não é possível enviar para aprovação neste estado.'], 409);
         }
-        $link = $this->publicBase() . '/contract/view/' . $contract['public_token'];
-        $this->json(['success' => true, 'link' => $link]);
+        $link = $this->publicBase() . '/contract/show/' . $contract['public_token'];
+
+        // Envia o link ao CLIENTE por WhatsApp + e-mail (quando houver contato).
+        $delivery = $this->deliverToClient($contract, $link);
+
+        $this->json([
+            'success' => true,
+            'link' => $link,
+            'sent_whats' => $delivery['sent_whats'],
+            'sent_email' => $delivery['sent_email'],
+            'no_contact' => $delivery['no_contact'],
+        ]);
+    }
+
+    /**
+     * Envia o link do contrato ao cliente (WhatsApp + e-mail). Nunca interrompe.
+     */
+    private function deliverToClient(array $contract, string $link): array
+    {
+        $out = ['sent_whats' => 0, 'sent_email' => 0, 'no_contact' => true];
+        $c = ContractDelivery::clientContact($contract);
+        $company = trim((string) Config::get('app_name')) ?: null;
+        $title = $contract['title'] ?? null;
+
+        if (!empty($c['phone'])) {
+            $out['no_contact'] = false;
+            $msg = ContractDelivery::clientWhatsapp($c['name'], $link, $title, $company);
+            try { if (WhatsappNotifier::sendToPhone($c['phone'], $msg, $c['name'])) $out['sent_whats']++; }
+            catch (\Throwable $e) { /* não interrompe */ }
+        }
+        if (!empty($c['email'])) {
+            $out['no_contact'] = false;
+            $subject = ContractDelivery::clientEmailSubject($title);
+            $html = Mailer::template($subject, ContractDelivery::clientEmailBody($c['name'], $link, $title));
+            try { if (Mailer::send($c['email'], $subject, $html)) $out['sent_email']++; }
+            catch (\Throwable $e) { /* não interrompe */ }
+        }
+        return $out;
+    }
+
+    /**
+     * Avisa a equipe quando há evento do cliente/assinatura: sino (criador) +
+     * WhatsApp pessoal do criador + WhatsApp do grupo. Nunca interrompe.
+     */
+    private function notifyTeamResponse(array $contract, string $event, string $sinoTitle, string $sinoMsg, ?string $reason = null): void
+    {
+        $this->notifyTeam($contract, $sinoTitle, $sinoMsg);
+        $wa = ContractDelivery::teamWhatsapp($event, $contract['title'] ?? null, $reason);
+        try {
+            if (!empty($contract['created_by'])) {
+                $creator = (new User())->findById((int)$contract['created_by']);
+                if ($creator && !empty($creator['phone'])) {
+                    WhatsappNotifier::sendToPhone($creator['phone'], $wa, $creator['name'] ?? null);
+                }
+            }
+        } catch (\Throwable $e) { /* não interrompe */ }
+        try { WhatsappNotifier::sendToDefaultGroup($wa); } catch (\Throwable $e) { /* não interrompe */ }
     }
 
     /**
@@ -171,7 +340,11 @@ class ContractController extends Controller
 
     // ================= Área pública (cliente, por token) =================
 
-    public function view($token = null)
+    /**
+     * Página pública do contrato (link ao cliente). Nome 'show' (não 'view')
+     * para não colidir com Controller::view(), usado internamente aqui.
+     */
+    public function show($token = null)
     {
         $token = $this->tokenFromUrl($token);
         $contract = $token ? $this->model->findByToken($token) : null;
@@ -194,7 +367,8 @@ class ContractController extends Controller
         }
         $this->model->changeStatus($contract['id'], ContractRules::STATUS_APPROVED, null, ['approved_at' => date('Y-m-d H:i:s')]);
         $this->model->addEvent($contract['id'], null, 'approved', 'Cliente aprovou o contrato');
-        $this->notifyTeam($contract, 'Contrato aprovado', "O cliente aprovou o contrato \"{$contract['title']}\". Pronto para enviar à assinatura.");
+        $this->notifyTeamResponse($contract, 'approved', 'Contrato aprovado',
+            "O cliente aprovou o contrato \"{$contract['title']}\". Pronto para enviar à assinatura.");
         $this->json(['success' => true]);
     }
 
@@ -213,7 +387,8 @@ class ContractController extends Controller
 
         $this->model->changeStatus($contract['id'], ContractRules::STATUS_CLIENT_REJECTED, null, ['reject_reason' => $reason]);
         $this->model->addEvent($contract['id'], null, 'rejected', 'Cliente pediu ajuste: ' . $reason);
-        $this->notifyTeam($contract, 'Contrato: ajuste solicitado', "O cliente pediu ajustes no contrato \"{$contract['title']}\": {$reason}");
+        $this->notifyTeamResponse($contract, 'rejected', 'Contrato: ajuste solicitado',
+            "O cliente pediu ajustes no contrato \"{$contract['title']}\": {$reason}", $reason);
         $this->json(['success' => true]);
     }
 
@@ -246,7 +421,8 @@ class ContractController extends Controller
             if ($contract && $contract['status'] !== ContractRules::STATUS_SIGNED) {
                 $this->model->changeStatus($contract['id'], ContractRules::STATUS_SIGNED, null, ['signed_at' => date('Y-m-d H:i:s')]);
                 $this->model->addEvent($contract['id'], null, 'signed', 'Assinatura confirmada pela ClickSign');
-                $this->notifyTeam($contract, 'Contrato assinado', "O contrato \"{$contract['title']}\" foi assinado. Siga para o financeiro.");
+                $this->notifyTeamResponse($contract, 'signed', 'Contrato assinado',
+                    "O contrato \"{$contract['title']}\" foi assinado. Siga para o financeiro.");
             }
         } elseif ($docKey && $action === 'cancelled') {
             $contract = $this->model->findByClickSignDocKey($docKey);

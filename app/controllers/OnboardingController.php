@@ -86,7 +86,47 @@ class OnboardingController extends Controller
         if (!$this->onboardings->start($id, $entryPaid, $user['id'])) {
             $this->json(['error' => 'Não foi possível iniciar: entrada ainda não paga.'], 409);
         }
-        $this->json(['success' => true]);
+        // Avisa o ponto focal do cliente que a implantação começou (WhatsApp/e-mail).
+        $delivery = $this->notifyClientStart($onb);
+        $this->json(['success' => true, 'delivery' => $delivery]);
+    }
+
+    /**
+     * Avisa o cliente (ponto focal principal) que o onboarding/implantação
+     * começou. Usa WhatsApp + e-mail. Nunca interrompe.
+     */
+    private function notifyClientStart(array $onb): array
+    {
+        $out = ['sent_whats' => 0, 'sent_email' => 0, 'no_contact' => true];
+        $contacts = $this->onboardings->getContacts((int)$onb['id'], $onb['company_id'] ?? null);
+        if (empty($contacts)) return $out;
+        // Prioriza o ponto focal principal.
+        $focal = $contacts[0];
+        foreach ($contacts as $c) { if (!empty($c['is_primary'])) { $focal = $c; break; } }
+
+        $name = trim((string)($focal['name'] ?? '')) ?: 'Cliente';
+        $phone = preg_replace('/\D+/', '', (string)($focal['phone'] ?? ''));
+        $email = filter_var(trim((string)($focal['email'] ?? '')), FILTER_VALIDATE_EMAIL) ? trim((string)$focal['email']) : null;
+        $company = trim((string) Config::get('app_name')) ?: null;
+        $titulo = $onb['title'] ?? 'seu projeto';
+
+        $msg = "Olá, {$name}!\n\n" . ($company ? "*{$company}*\n" : '')
+            . "Boas notícias: a implantação de \"{$titulo}\" começou! "
+            . "Nossa equipe vai conduzir as etapas e manteremos você informado. Qualquer dúvida, é só chamar.";
+
+        if ($phone !== '' && strlen($phone) >= 10) {
+            $out['no_contact'] = false;
+            try { if (WhatsappNotifier::sendToPhone($phone, $msg, $name)) $out['sent_whats']++; } catch (\Throwable $e) {}
+        }
+        if ($email) {
+            $out['no_contact'] = false;
+            $subject = 'Sua implantação começou' . ($company ? " — {$company}" : '');
+            $html = Mailer::template($subject, "<p>Olá, <strong>" . htmlspecialchars($name) . "</strong>!</p>"
+                . "<p>Boas notícias: a implantação de <strong>" . htmlspecialchars($titulo) . "</strong> começou!</p>"
+                . "<p>Nossa equipe vai conduzir as etapas e manteremos você informado. Qualquer dúvida, é só chamar.</p>");
+            try { if (Mailer::send($email, $subject, $html)) $out['sent_email']++; } catch (\Throwable $e) {}
+        }
+        return $out;
     }
 
     /**

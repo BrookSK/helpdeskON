@@ -1,15 +1,13 @@
 <?php
 
 /**
- * Login simplificado do CLIENTE por PIN (Fase 9).
+ * Login por PIN (/clientpin).
  *
- * Página pública em /clientpin onde o PRÓPRIO cliente informa seu PIN de 6
- * dígitos (users.client_pin, role=client) e cai direto na criação de uma nova
- * demanda vinculada a ELE — sem ver dados de outro cliente.
- *
- * NÃO confundir com /solicitacaoexterna (PIN de EQUIPE, 4 dígitos, cria demanda
- * em nome do atendente). Aqui a sessão é 'client_pin_access', isolada da sessão
- * de login normal e da sessão externa de equipe.
+ * Página pública onde o usuário informa seu PIN de 4 dígitos (users.client_pin).
+ * Ao validar, abrimos uma SESSÃO DE LOGIN REAL (as mesmas chaves do login por
+ * senha) e o levamos à área interna, começando na tela de Nova Demanda
+ * (tickets/create) — com os mesmos acessos do login normal. Vale para qualquer
+ * papel: o PIN é por usuário.
  */
 class ClientpinController extends Controller
 {
@@ -22,13 +20,6 @@ class ClientpinController extends Controller
 
     private const MAX_TRIES = 5;
     private const WINDOW = 300;
-
-    private function requireClient()
-    {
-        if (empty($_SESSION['client_pin_access']['user_id'])) {
-            $this->redirect('clientpin');
-        }
-    }
 
     private function rateLimited(): bool
     {
@@ -51,16 +42,11 @@ class ClientpinController extends Controller
         }
     }
 
-    private function clientOwner()
-    {
-        $id = $_SESSION['client_pin_access']['user_id'] ?? null;
-        return $id ? $this->userModel->findById($id) : null;
-    }
-
+    /** Tela de entrada: formulário do PIN. Se já logado, vai à Nova Demanda. */
     public function index()
     {
-        if (!empty($_SESSION['client_pin_access']['user_id'])) {
-            $this->redirect('clientpin/novaDemanda');
+        if (!empty($_SESSION['user_id'])) {
+            $this->redirect('tickets/create');
         }
         $this->renderExternal('external/client_login', []);
     }
@@ -80,7 +66,7 @@ class ClientpinController extends Controller
         $pin = trim($_POST['pin'] ?? '');
         if (!ClientPinRules::isValidFormat($pin)) {
             $this->registerAttempt();
-            flash('error', 'Informe um PIN válido de 6 dígitos.');
+            flash('error', 'Informe um PIN válido de 4 dígitos.');
             $this->redirect('clientpin');
         }
 
@@ -92,90 +78,37 @@ class ClientpinController extends Controller
         }
 
         unset($_SESSION['client_pin_attempts']);
-        // Higiene: encerra qualquer sessão de login normal ou de equipe neste navegador.
-        unset($_SESSION['user_id'], $_SESSION['user_name'], $_SESSION['user_email'],
-              $_SESSION['user_role'], $_SESSION['user_avatar'], $_SESSION['user_company_id'],
-              $_SESSION['user_is_company_owner'], $_SESSION['active_company_id'], $_SESSION['impersonator'],
-              $_SESSION['external_access']);
+        // Higiene: encerra qualquer sessão residual de acesso externo/impersonação.
+        unset($_SESSION['external_access'], $_SESSION['client_pin_access'],
+              $_SESSION['impersonator'], $_SESSION['active_company_id']);
 
-        $_SESSION['client_pin_access'] = [
-            'user_id' => (int)$owner['id'],
-            'user_name' => $owner['name'],
-            'company_id' => $owner['company_id'] ?? null,
-            'started_at' => time(),
-        ];
-        $this->redirect('clientpin/novaDemanda');
-    }
+        // O acesso por PIN estabelece uma SESSÃO DE LOGIN REAL do usuário dono
+        // do PIN (mesmas chaves do login por senha), com os mesmos acessos do
+        // papel dele. Vale para qualquer papel (o PIN é por usuário), caindo na
+        // área interna começando em "Nova Demanda". $owner é a linha completa
+        // de users (findByClientPin).
+        $_SESSION['user_id'] = (int)$owner['id'];
+        $_SESSION['user_name'] = $owner['name'];
+        $_SESSION['user_email'] = $owner['email'] ?? '';
+        $_SESSION['user_role'] = $owner['role'];
+        $_SESSION['user_avatar'] = $owner['avatar'] ?? null;
+        $_SESSION['user_company_id'] = $owner['company_id'] ?? null;
+        $_SESSION['user_is_company_owner'] = $owner['is_company_owner'] ?? 0;
 
-    public function novaDemanda()
-    {
-        $this->requireClient();
-        $owner = $this->clientOwner();
-        if (!$owner) {
-            unset($_SESSION['client_pin_access']);
-            $this->redirect('clientpin');
-        }
-        $this->renderExternal('external/client_nova_demanda', ['owner' => $owner]);
-    }
-
-    public function store()
-    {
-        $this->requireClient();
-        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->redirect('clientpin/novaDemanda');
-        if (!verify_csrf($_POST['csrf_token'] ?? '')) {
-            flash('error', 'Sessão expirada. Recarregue a página e tente novamente.');
-            $this->redirect('clientpin/novaDemanda');
-        }
-        $owner = $this->clientOwner();
-        if (!$owner) {
-            unset($_SESSION['client_pin_access']);
-            $this->redirect('clientpin');
+        // Auditoria: registra o acesso por PIN de cliente.
+        if (class_exists('ActivityLogger')) {
+            try { ActivityLogger::logLogin((int)$owner['id'], 'client_pin'); } catch (\Throwable $e) {}
         }
 
-        $title = trim($_POST['title'] ?? '');
-        $description = trim($_POST['description'] ?? '');
-        $category = trim($_POST['category'] ?? '');
-        $priority = in_array($_POST['priority'] ?? '', ['low', 'medium', 'high', 'urgent']) ? $_POST['priority'] : 'medium';
-        if ($title === '' || $description === '') {
-            flash('error', 'Título e descrição são obrigatórios.');
-            $this->redirect('clientpin/novaDemanda');
-        }
-
-        $db = Database::getInstance();
-        // Demanda vinculada ao PRÓPRIO cliente (client_id = o usuário cliente).
-        $lastNumber = $db->fetch("SELECT MAX(client_ticket_number) as last_num FROM tickets WHERE client_id = ?", [(int)$owner['id']]);
-        $ticketNumber = ($lastNumber['last_num'] ?? 0) + 1;
-
-        $ticketModel = new Ticket();
-        $ticketId = $ticketModel->create([
-            'client_id' => (int)$owner['id'],
-            'title' => $title,
-            'description' => $description,
-            'category' => $category ?: null,
-            'priority' => $priority,
-            'status' => 'open',
-            'client_ticket_number' => $ticketNumber,
-        ]);
-
-        // Card no planejamento vinculado à empresa do cliente.
-        try {
-            $ticket = $ticketModel->findById($ticketId);
-            (new PlanningCard())->createFromTicket($ticket, $owner['company_id'] ?? null);
-        } catch (\Throwable $e) {}
-
-        $this->renderExternal('external/client_sucesso', [
-            'owner' => $owner,
-            'ticketTitle' => $title,
-            'ticketNumber' => $ticketNumber,
-        ]);
+        // Cai direto na tela interna de Nova Demanda (com a sidebar do cliente).
+        $this->redirect('tickets/create');
     }
 
-    public function logout()
-    {
-        unset($_SESSION['client_pin_access']);
-        $this->redirect('clientpin');
-    }
-
+    /**
+     * Renderiza a view "externa" standalone da tela de PIN (sem sidebar).
+     * A criação da demanda em si acontece na área interna (tickets/create),
+     * após a sessão de login do cliente ter sido estabelecida.
+     */
     private function renderExternal($view, $data = [])
     {
         extract($data);

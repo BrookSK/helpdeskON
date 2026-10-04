@@ -27,7 +27,14 @@ class ProposalController extends Controller
             $filters['status'] = $_GET['status'];
         }
         $proposals = $this->model->getAll($filters);
-        $this->view('commercial/proposals', ['user' => $user, 'proposals' => $proposals, 'statuses' => ProposalRules::STATUSES]);
+        $leads = [];
+        try { $leads = (new WhatsappContact())->getLeadsForSelect(); } catch (\Throwable $e) { $leads = []; }
+        $this->view('commercial/proposals', [
+            'user' => $user,
+            'proposals' => $proposals,
+            'statuses' => ProposalRules::STATUSES,
+            'leads' => $leads,
+        ]);
     }
 
     /** Tela de edição (montagem) de uma proposta. */
@@ -148,14 +155,55 @@ class ProposalController extends Controller
             $this->model->changeStatus($id, ProposalRules::STATUS_READY, $user['id']);
         }
         $this->model->changeStatus($id, ProposalRules::STATUS_SENT, $user['id'], ['sent_at' => date('Y-m-d H:i:s')]);
-        $link = $this->publicBase() . '/proposal/view/' . $proposal['public_token'];
-        $this->json(['success' => true, 'link' => $link]);
+        $link = $this->publicBase() . '/proposal/show/' . $proposal['public_token'];
+
+        // Envia o link ao CLIENTE por WhatsApp + e-mail (quando houver contato).
+        $delivery = $this->deliverToClient($proposal, $link);
+
+        $this->json([
+            'success' => true,
+            'link' => $link,
+            'sent_whats' => $delivery['sent_whats'],
+            'sent_email' => $delivery['sent_email'],
+            'no_contact' => $delivery['no_contact'],
+        ]);
+    }
+
+    /**
+     * Envia o link da proposta ao cliente (WhatsApp + e-mail). Nunca interrompe:
+     * canais são complementares. Retorna o que foi enviado.
+     */
+    private function deliverToClient(array $proposal, string $link): array
+    {
+        $out = ['sent_whats' => 0, 'sent_email' => 0, 'no_contact' => true];
+        $c = ProposalDelivery::clientContact($proposal);
+        $company = trim((string) Config::get('app_name')) ?: null;
+        $title = $proposal['title'] ?? null;
+
+        if (!empty($c['phone'])) {
+            $out['no_contact'] = false;
+            $msg = ProposalDelivery::clientWhatsapp($c['name'], $link, $title, $company);
+            try { if (WhatsappNotifier::sendToPhone($c['phone'], $msg, $c['name'])) $out['sent_whats']++; }
+            catch (\Throwable $e) { /* não interrompe */ }
+        }
+        if (!empty($c['email'])) {
+            $out['no_contact'] = false;
+            $subject = ProposalDelivery::clientEmailSubject($title);
+            $html = Mailer::template($subject, ProposalDelivery::clientEmailBody($c['name'], $link, $title));
+            try { if (Mailer::send($c['email'], $subject, $html)) $out['sent_email']++; }
+            catch (\Throwable $e) { /* não interrompe */ }
+        }
+        return $out;
     }
 
     // ================= Área pública (sem login, por token) =================
 
-    /** Página pública da proposta (link enviado ao cliente). */
-    public function view($token = null)
+    /**
+     * Página pública da proposta (link enviado ao cliente).
+     * Nome 'show' (não 'view') para não colidir com Controller::view(), que
+     * renderiza templates e é usado internamente aqui.
+     */
+    public function show($token = null)
     {
         $token = $this->tokenFromUrl($token);
         $proposal = $token ? $this->model->findByToken($token) : null;
@@ -185,7 +233,7 @@ class ProposalController extends Controller
 
         $this->model->changeStatus($proposal['id'], ProposalRules::STATUS_ACCEPTED, null, ['responded_at' => date('Y-m-d H:i:s')]);
         $this->model->addEvent($proposal['id'], null, 'accepted', 'Cliente aceitou a proposta');
-        $this->notifyTeam($proposal, 'Proposta aceita', "O cliente aceitou a proposta \"{$proposal['title']}\".");
+        $this->notifyTeamResponse($proposal, 'accepted');
         $this->json(['success' => true]);
     }
 
@@ -208,7 +256,7 @@ class ProposalController extends Controller
             'reject_reason' => $reason,
         ]);
         $this->model->addEvent($proposal['id'], null, 'rejected', 'Cliente recusou. Motivo: ' . $reason);
-        $this->notifyTeam($proposal, 'Proposta recusada', "O cliente recusou a proposta \"{$proposal['title']}\". Motivo: {$reason}");
+        $this->notifyTeamResponse($proposal, 'rejected', $reason);
         $this->json(['success' => true]);
     }
 
@@ -226,6 +274,35 @@ class ProposalController extends Controller
                 'type' => 'system',
             ]);
         } catch (\Throwable $e) { /* não interrompe a resposta ao cliente */ }
+    }
+
+    /**
+     * Avisa a equipe quando o cliente responde: sino (criador) + WhatsApp pessoal
+     * do criador (se tiver telefone) + WhatsApp do grupo padrão. Nunca interrompe.
+     */
+    private function notifyTeamResponse(array $proposal, string $event, ?string $reason = null): void
+    {
+        $title = $proposal['title'] ?? null;
+        $sinoTitle = $event === 'accepted' ? 'Proposta aceita' : 'Proposta recusada';
+        $sinoMsg = $event === 'accepted'
+            ? "O cliente aceitou a proposta \"{$title}\"."
+            : "O cliente recusou a proposta \"{$title}\"." . ($reason ? " Motivo: {$reason}" : '');
+        $this->notifyTeam($proposal, $sinoTitle, $sinoMsg);
+
+        $wa = ProposalDelivery::teamWhatsapp($event, $title, $reason);
+
+        // WhatsApp pessoal do criador (se tiver telefone cadastrado).
+        try {
+            if (!empty($proposal['created_by'])) {
+                $creator = (new User())->findById((int)$proposal['created_by']);
+                if ($creator && !empty($creator['phone'])) {
+                    WhatsappNotifier::sendToPhone($creator['phone'], $wa, $creator['name'] ?? null);
+                }
+            }
+        } catch (\Throwable $e) { /* não interrompe */ }
+
+        // WhatsApp do grupo da equipe (se habilitado nas Settings).
+        try { WhatsappNotifier::sendToDefaultGroup($wa); } catch (\Throwable $e) { /* não interrompe */ }
     }
 
     private function publicBase(): string

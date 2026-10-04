@@ -126,7 +126,7 @@ class Ticket
 
     public function getGroupedByStatus($attendantId = null, $allowedCompanies = null)
     {
-        $statuses = ['open', 'in_progress', 'em_revisao_interna', 'waiting_client', 'em_homologacao', 'aprovado_producao', 'completed', 'denied', 'archived'];
+        $statuses = TicketAccess::STATUSES;
         $result = [];
         foreach ($statuses as $status) {
             $sql = "SELECT t.*, c.name as client_name, tr.name as technical_name
@@ -412,7 +412,7 @@ class Ticket
      */
     public function getGroupedByAssignee($userId)
     {
-        $statuses = ['open', 'in_progress', 'em_revisao_interna', 'waiting_client', 'em_homologacao', 'aprovado_producao', 'completed', 'denied', 'archived'];
+        $statuses = TicketAccess::STATUSES;
         $result = [];
         foreach ($statuses as $status) {
             $result[$status] = $this->db->fetchAll(
@@ -722,5 +722,45 @@ class Ticket
 
         $sql .= " GROUP BY t.status ORDER BY total DESC";
         return $this->db->fetchAll($sql, $params);
+    }
+
+    /**
+     * Relacionamentos de uma demanda (ticket <-> ticket), nos dois sentidos.
+     * Retorna, para cada relação, o ticket "do outro lado", o tipo e a direção.
+     * Usado para mostrar o encadeamento Suporte -> Incidente -> Correção.
+     */
+    public function getRelations($ticketId)
+    {
+        return $this->db->fetchAll(
+            "SELECT r.id, r.relation_type, 'outgoing' AS direction,
+                    t.id AS other_id, t.title AS other_title, t.status AS other_status, t.category AS other_category
+               FROM ticket_relations r
+               JOIN tickets t ON t.id = r.target_ticket_id
+              WHERE r.source_ticket_id = ?
+             UNION ALL
+             SELECT r.id, r.relation_type, 'incoming' AS direction,
+                    t.id AS other_id, t.title AS other_title, t.status AS other_status, t.category AS other_category
+               FROM ticket_relations r
+               JOIN tickets t ON t.id = r.source_ticket_id
+              WHERE r.target_ticket_id = ?
+             ORDER BY id DESC",
+            [$ticketId, $ticketId]
+        );
+    }
+
+    /**
+     * Demandas EM HOMOLOGAÇÃO com a janela de 48h em andamento (homolog_started_at
+     * preenchido e sem liberação automática ainda). Usado pela régua de 48h no cron.
+     */
+    public function getHomologacaoEmAndamento()
+    {
+        return $this->db->fetchAll(
+            "SELECT t.*, c.name AS client_name, c.email AS client_email, c.phone AS client_phone
+               FROM tickets t
+               LEFT JOIN users c ON t.client_id = c.id
+              WHERE t.status = 'em_homologacao'
+                AND t.homolog_started_at IS NOT NULL
+                AND t.homolog_auto_released_at IS NULL"
+        );
     }
 }

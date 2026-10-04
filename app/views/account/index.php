@@ -93,6 +93,44 @@
                 </div>
             </div>
         </div>
+
+        <?php // ===== PIN de acesso — para qualquer usuário ===== ?>
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header bg-white">
+                    <h6 class="mb-0"><i class="bi bi-key"></i> PIN de Acesso</h6>
+                </div>
+                <div class="card-body">
+                    <p class="small text-muted mb-3">
+                        Use este PIN de 4 dígitos para entrar rapidamente pela opção
+                        <strong>Entrar com PIN</strong> na tela de login, sem digitar email e senha.
+                    </p>
+                    <?php $accHasPin = !empty($userData['client_pin']); ?>
+                    <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+                        <span class="text-muted small">PIN atual:</span>
+                        <?php if ($accHasPin): ?>
+                        <span class="badge bg-light text-dark border" style="font-size:1rem;letter-spacing:3px;padding:6px 12px;">
+                            <?= escape($userData['client_pin']) ?>
+                        </span>
+                        <?php else: ?>
+                        <span class="badge bg-secondary">Nenhum PIN definido</span>
+                        <?php endif; ?>
+                    </div>
+                    <form action="<?= baseUrl('account/updateClientPin') ?>" method="POST">
+                        <div class="mb-3">
+                            <label class="form-label fw-medium">Novo PIN (4 dígitos)</label>
+                            <input type="text" name="client_pin" class="form-control" maxlength="4" inputmode="numeric"
+                                   autocomplete="off" placeholder="Ex: 1234" required
+                                   oninput="this.value=this.value.replace(/\D/g,'').slice(0,4)">
+                            <small class="text-muted">Somente números.</small>
+                        </div>
+                        <button type="submit" class="btn btn-outline-primary w-100">
+                            <i class="bi bi-key"></i> <?= $accHasPin ? 'Alterar PIN' : 'Definir PIN' ?>
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 

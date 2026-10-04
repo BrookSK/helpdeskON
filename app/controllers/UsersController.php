@@ -67,24 +67,6 @@ class UsersController extends Controller
             }
         }
 
-        // Acesso externo (PIN) — apenas para papéis de equipe.
-        $teamRolesPin = ['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial', 'marketing'];
-        $externalPin = null;
-        if (in_array($role, $teamRolesPin)) {
-            $rawPin = trim($_POST['external_pin'] ?? '');
-            if ($rawPin !== '') {
-                if (!preg_match('/^\d{4}$/', $rawPin)) {
-                    flash('error', 'O PIN deve ter exatamente 4 dígitos numéricos.');
-                    $this->redirect('users/create');
-                }
-                if ($this->userModel->pinExists($rawPin)) {
-                    flash('error', 'Este PIN já existe.');
-                    $this->redirect('users/create');
-                }
-                $externalPin = $rawPin;
-            }
-        }
-
         $db = Database::getInstance();
         // Se nenhuma senha for informada, gera uma aleatória e envia convite de primeiro acesso
         $sendInvite = empty($password);
@@ -108,9 +90,28 @@ class UsersController extends Controller
             'apollo_daily_credits' => ($role === 'comercial') ? max(0, intval($_POST['apollo_daily_credits'] ?? 0)) : 0,
             'sip_user' => trim($_POST['sip_user'] ?? '') ?: null,
             'sip_password' => trim($_POST['sip_password'] ?? '') ?: null,
-            'external_pin' => $externalPin,
             'is_active' => 1,
         ]);
+
+        // PIN de login (por usuário, qualquer papel): o primeiro PIN é gerado
+        // pelo sistema. Se o admin digitou um PIN manualmente, respeita-o
+        // (validando 4 dígitos + unicidade); senão gera um automático. O usuário
+        // pode alterá-lo depois na "Minha Conta".
+        $manualClientPin = trim($_POST['client_pin'] ?? '');
+        if ($manualClientPin !== '') {
+            if (!ClientPinRules::isValidFormat($manualClientPin)) {
+                flash('error', 'O PIN de acesso deve ter exatamente 4 dígitos numéricos.');
+                $this->redirect('users/create');
+            }
+            if ($this->userModel->clientPinExists($manualClientPin)) {
+                flash('error', 'Este PIN de acesso já existe.');
+                $this->redirect('users/create');
+            }
+            $this->userModel->setClientPin($userId, $manualClientPin);
+        } else {
+            // Primeiro acesso: sistema gera o PIN automaticamente.
+            $this->userModel->setClientPin($userId);
+        }
 
         if ($sendInvite) {
             // Enviar link de definição de senha (auto-login após definir)
@@ -303,32 +304,23 @@ class UsersController extends Controller
             $data['sip_password'] = trim($_POST['sip_password']);
         }
 
-        // Acesso externo (PIN) — apenas para papéis de equipe.
-        $teamRolesPin = ['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial', 'marketing'];
-        if (in_array($role, $teamRolesPin)) {
-            // Remover PIN atual
-            if (!empty($_POST['external_pin_remove'])) {
-                $data['external_pin'] = null;
-            } else {
-                $newPin = trim($_POST['external_pin'] ?? '');
-                if ($newPin !== '') {
-                    // Exige exatamente 4 dígitos numéricos.
-                    if (!preg_match('/^\d{4}$/', $newPin)) {
-                        flash('error', 'O PIN deve ter exatamente 4 dígitos numéricos.');
-                        $this->redirect('users/edit/' . $id);
-                    }
-                    // Unicidade entre todos os usuários (ignorando o próprio).
-                    if ($this->userModel->pinExists($newPin, $id)) {
-                        flash('error', 'Este PIN já existe.');
-                        $this->redirect('users/edit/' . $id);
-                    }
-                    $data['external_pin'] = $newPin;
-                }
-                // Se veio vazio e sem "remover", mantém o PIN atual (não altera).
-            }
+        // PIN de login (4 dígitos, coluna client_pin) — por usuário, qualquer papel.
+        if (!empty($_POST['client_pin_remove'])) {
+            $this->userModel->clearClientPin($id);
         } else {
-            // Papel deixou de ser de equipe: revoga qualquer PIN existente.
-            $data['external_pin'] = null;
+            $newClientPin = trim($_POST['client_pin'] ?? '');
+            if ($newClientPin !== '') {
+                if (!ClientPinRules::isValidFormat($newClientPin)) {
+                    flash('error', 'O PIN de acesso deve ter exatamente 4 dígitos numéricos.');
+                    $this->redirect('users/edit/' . $id);
+                }
+                if ($this->userModel->clientPinExists($newClientPin, $id)) {
+                    flash('error', 'Este PIN de acesso já existe.');
+                    $this->redirect('users/edit/' . $id);
+                }
+                $this->userModel->setClientPin($id, $newClientPin);
+            }
+            // Vazio e sem "remover": mantém o PIN atual.
         }
 
         $db = Database::getInstance();

@@ -53,7 +53,7 @@ class Contract
         $params = [];
         if (!empty($filters['status'])) { $sql .= " AND c.status = ?"; $params[] = $filters['status']; }
         $sql .= " ORDER BY c.id DESC";
-        return $this->db->fetchAll($sql, $params);
+        try { return $this->db->fetchAll($sql, $params); } catch (\Throwable $e) { return []; }
     }
 
     public function create($data)
@@ -115,6 +115,17 @@ class Contract
     public function createFromProposal(array $proposal, ?array $template, $userId): int
     {
         $body = $template['body'] ?? '';
+        // Substitui as variáveis {{...}} do modelo pelos dados da proposta.
+        if ($body !== '' && class_exists('ContractTemplateVars')) {
+            $prestador = class_exists('Config') ? (string) Config::get('app_name') : null;
+            $empresaCliente = null;
+            if (!empty($proposal['company_id'])) {
+                $co = $this->db->fetch("SELECT name FROM companies WHERE id = ?", [(int)$proposal['company_id']]);
+                $empresaCliente = $co['name'] ?? null;
+            }
+            $values = ContractTemplateVars::valuesFromProposal($proposal, $prestador, $empresaCliente);
+            $body = ContractTemplateVars::render($body, $values);
+        }
         return $this->create([
             'public_token' => $this->generateToken(),
             'title'        => 'Contrato — ' . ($proposal['title'] ?? 'Proposta'),

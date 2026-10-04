@@ -105,6 +105,16 @@
             <button type="submit" class="btn btn-login btn-primary w-100 text-white">Entrar</button>
         </form>
 
+        <!-- Acesso rápido por PIN: leva à área de Nova Demanda (sem usuário/senha).
+             Cada usuário com acesso ao sistema pode ter um PIN de 4 dígitos. -->
+        <div class="position-relative my-3 text-center">
+            <hr style="border-top:1px solid #e8e8e8;">
+            <span class="position-absolute top-50 start-50 translate-middle px-2 bg-white text-muted" style="font-size:0.75rem;">ou</span>
+        </div>
+        <a href="<?= baseUrl('clientpin') ?>" class="btn btn-outline-primary w-100" style="border-color:var(--primary);color:var(--primary);border-radius:10px;padding:12px;font-weight:600;font-size:0.95rem;">
+            Entrar com PIN
+        </a>
+
         <div class="text-center mt-3">
             <a href="<?= baseUrl('password/forgot') ?>" class="text-decoration-none" style="font-size:0.82rem;color:var(--primary);">
                 Esqueceu sua senha?

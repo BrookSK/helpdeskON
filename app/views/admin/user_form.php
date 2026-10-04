@@ -120,38 +120,42 @@
                     </div>
                 </div>
 
-                <!-- Acesso externo (PIN) — apenas para papéis de equipe (não clientes) -->
-                <?php $teamRolesList = ['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial', 'marketing']; ?>
-                <div id="external-pin-field" class="card mb-3" style="<?= in_array($editUser['role'] ?? '', $teamRolesList) ? '' : 'display:none' ?>">
+                <!-- PIN de login (4 dígitos) — para qualquer usuário -->
+                <div id="client-pin-field" class="card mb-3">
                     <div class="card-header bg-white fw-medium" style="font-size:0.9rem">
-                        <i class="bi bi-key"></i> Acesso externo (PIN)
+                        <i class="bi bi-key-fill"></i> PIN de acesso (login por PIN)
                     </div>
                     <div class="card-body">
                         <p class="small text-muted mb-2">
-                            PIN de <strong>4 dígitos</strong> usado por clientes na página de <strong>solicitação externa</strong>
-                            para criar demandas em seu nome. Deve ser único entre todos os usuários.
+                            PIN de <strong>4 dígitos</strong> para este usuário entrar direto na
+                            tela de login (botão <em>Entrar com PIN</em>), sem usar email e senha.
+                            Dá o mesmo acesso do login normal. Aqui você pode definir ou alterá-lo.
                         </p>
-                        <?php $hasPin = !empty($editUser['external_pin']); ?>
-                        <div class="d-flex align-items-center gap-2 mb-2">
-                            <span class="badge <?= $hasPin ? 'bg-success' : 'bg-secondary' ?>">
-                                <i class="bi bi-<?= $hasPin ? 'check-circle' : 'dash-circle' ?>"></i>
-                                <?= $hasPin ? 'PIN cadastrado' : 'Sem PIN' ?>
+                        <?php $hasClientPin = !empty($editUser['client_pin']); ?>
+                        <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+                            <span class="badge <?= $hasClientPin ? 'bg-success' : 'bg-secondary' ?>">
+                                <i class="bi bi-<?= $hasClientPin ? 'check-circle' : 'dash-circle' ?>"></i>
+                                <?= $hasClientPin ? 'PIN cadastrado' : 'Sem PIN' ?>
                             </span>
-                            <button type="button" class="btn btn-sm btn-outline-primary" id="btn-create-pin" onclick="togglePinInput()">
-                                <i class="bi bi-key"></i> <?= $hasPin ? 'Alterar PIN' : 'Criar PIN' ?>
+                            <?php if ($hasClientPin): ?>
+                            <span class="badge bg-light text-dark border" style="font-size:0.85rem;letter-spacing:1px;">
+                                <i class="bi bi-eye"></i> <?= escape($editUser['client_pin']) ?>
+                            </span>
+                            <?php endif; ?>
+                            <button type="button" class="btn btn-sm btn-outline-primary" id="btn-client-pin" onclick="toggleClientPinInput()">
+                                <i class="bi bi-key"></i> <?= $hasClientPin ? 'Alterar PIN' : 'Definir PIN' ?>
                             </button>
                         </div>
-                        <!-- O valor do PIN nunca é exibido; o campo começa vazio. -->
-                        <div id="pin-input-wrapper" style="display:none;">
+                        <div id="client-pin-wrapper" style="display:none;">
                             <label class="form-label fw-medium small">PIN (4 dígitos)</label>
-                            <input type="text" name="external_pin" id="external-pin-input" class="form-control" maxlength="4"
+                            <input type="text" name="client_pin" id="client-pin-input" class="form-control" maxlength="4"
                                    inputmode="numeric" autocomplete="off" placeholder="Ex: 1234"
                                    oninput="this.value=this.value.replace(/\D/g,'').slice(0,4)">
                             <small class="text-muted">Somente números. Deixe em branco para manter o PIN atual.</small>
-                            <?php if ($hasPin): ?>
+                            <?php if ($hasClientPin): ?>
                             <div class="form-check mt-2">
-                                <input class="form-check-input" type="checkbox" name="external_pin_remove" value="1" id="pin-remove">
-                                <label class="form-check-label small" for="pin-remove">Remover o PIN atual (revoga o acesso externo deste usuário)</label>
+                                <input class="form-check-input" type="checkbox" name="client_pin_remove" value="1" id="client-pin-remove">
+                                <label class="form-check-label small" for="client-pin-remove">Remover o PIN (o cliente deixa de poder entrar por PIN)</label>
                             </div>
                             <?php endif; ?>
                         </div>
@@ -396,27 +400,22 @@ function toggleCompanyFields() {
     const commissionField = document.getElementById('commission-field');
     if (commissionField) commissionField.style.display = role === 'comercial' ? '' : 'none';
 
-    // Acesso externo (PIN): disponível para papéis de equipe (não clientes).
-    const pinField = document.getElementById('external-pin-field');
-    const pinTeamRoles = ['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial', 'marketing'];
-    if (pinField) pinField.style.display = pinTeamRoles.includes(role) ? '' : 'none';
+    // PIN de login (por usuário): disponível para qualquer papel — sempre visível.
 }
 
-// Mostra/esconde o campo do PIN ao clicar em "Criar/Alterar PIN".
-function togglePinInput() {
-    const wrap = document.getElementById('pin-input-wrapper');
+// Mostra/esconde o campo do PIN do cliente ao clicar em "Definir/Alterar PIN".
+function toggleClientPinInput() {
+    const wrap = document.getElementById('client-pin-wrapper');
     if (!wrap) return;
-    const show = wrap.style.display === 'none' || wrap.style.display === '';
-    // Alterna: se estava escondido, mostra e foca; se visível, esconde e limpa.
     if (wrap.style.display === 'none') {
         wrap.style.display = '';
-        const inp = document.getElementById('external-pin-input');
+        const inp = document.getElementById('client-pin-input');
         if (inp) inp.focus();
     } else {
         wrap.style.display = 'none';
-        const inp = document.getElementById('external-pin-input');
+        const inp = document.getElementById('client-pin-input');
         if (inp) inp.value = '';
-        const rm = document.getElementById('pin-remove');
+        const rm = document.getElementById('client-pin-remove');
         if (rm) rm.checked = false;
     }
 }

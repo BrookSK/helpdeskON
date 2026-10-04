@@ -83,12 +83,34 @@ class ClickSignApi
         }
         $decoded = json_decode($raw, true);
         $ok = $http >= 200 && $http < 300;
+
+        // Extrai a mensagem de erro que a ClickSign devolve no corpo, para o
+        // operador entender o 401/403/422 (token inválido, ambiente errado, etc.).
+        $detail = '';
+        if (!$ok && is_array($decoded)) {
+            if (!empty($decoded['errors'])) {
+                $errs = $decoded['errors'];
+                $detail = is_array($errs) ? implode('; ', array_map(fn($e) => is_array($e) ? json_encode($e) : (string)$e, $errs)) : (string)$errs;
+            } elseif (!empty($decoded['message'])) {
+                $detail = (string)$decoded['message'];
+            }
+        }
+        if (!$ok && $detail === '' && is_string($raw)) {
+            $detail = trim(strip_tags($raw)); // às vezes vem HTML (ex.: 403 do proxy)
+            if (strlen($detail) > 180) $detail = substr($detail, 0, 180) . '…';
+        }
+        $hint = '';
+        if ($http === 401 || $http === 403) {
+            $env = $this->sandbox ? 'sandbox (teste)' : 'produção';
+            $hint = " — verifique: (1) o token está correto; (2) o ambiente configurado é {$env} e o token é desse mesmo ambiente; (3) sua conta ClickSign tem a API v1 habilitada.";
+        }
+
         return [
             'success' => $ok,
             'http' => $http,
             'data' => is_array($decoded) ? $decoded : null,
             'raw' => $raw,
-            'error' => $ok ? null : ('ClickSign retornou HTTP ' . $http),
+            'error' => $ok ? null : ('ClickSign HTTP ' . $http . ($detail !== '' ? ': ' . $detail : '') . $hint),
         ];
     }
 }

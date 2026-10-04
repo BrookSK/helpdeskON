@@ -138,7 +138,14 @@ async function post(url, data) {
 }
 async function startOnb() {
     const r = await post(`onboarding/start/${OID}`, {});
-    if (r.error) { alert(r.error); return; } location.reload();
+    if (r.error) { alert(r.error); return; }
+    const d = r.delivery || {};
+    const canais = [];
+    if (d.sent_whats) canais.push('WhatsApp');
+    if (d.sent_email) canais.push('e-mail');
+    if (canais.length) alert('Onboarding iniciado. Cliente avisado por: ' + canais.join(' e ') + '.');
+    else if (d.no_contact) alert('Onboarding iniciado. Cadastre um ponto focal com telefone/e-mail para avisar o cliente.');
+    location.reload();
 }
 async function completeStep(stepId, required) {
     let met = true;

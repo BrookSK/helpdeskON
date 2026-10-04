@@ -24,7 +24,7 @@ class ServiceCatalog
         $sql = "SELECT * FROM service_catalog";
         if ($onlyActive) $sql .= " WHERE active = 1";
         $sql .= " ORDER BY name";
-        return $this->db->fetchAll($sql);
+        try { return $this->db->fetchAll($sql); } catch (\Throwable $e) { return []; }
     }
 
     public function create($data)

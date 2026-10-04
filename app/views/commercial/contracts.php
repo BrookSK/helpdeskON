@@ -17,12 +17,13 @@ $badge = [
             <h5 class="mb-0">Contratos</h5>
             <small class="text-muted">Da elaboração à assinatura (ClickSign)</small>
         </div>
+        <a href="<?= baseUrl('contract/templates') ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-file-earmark-ruled"></i> Modelos de contrato</a>
     </div>
 
     <div class="card mb-3">
         <div class="card-body py-2 px-3 d-flex gap-2 align-items-center">
             <label class="small text-muted mb-0">Status:</label>
-            <select class="form-select form-select-sm" style="width:auto;" onchange="location.href='<?= baseUrl('contracts') ?>'+(this.value?('?status='+this.value):'')">
+            <select class="form-select form-select-sm" style="width:auto;" onchange="location.href='<?= baseUrl('contract') ?>'+(this.value?('?status='+this.value):'')">
                 <option value="">Todos</option>
                 <?php foreach ($statuses as $st): ?>
                 <option value="<?= $st ?>" <?= (($_GET['status'] ?? '') === $st) ? 'selected' : '' ?>><?= $labels[$st] ?? $st ?></option>
@@ -40,7 +41,7 @@ $badge = [
                         <?php if (empty($contracts)): ?>
                         <tr><td colspan="6" class="text-center text-muted py-4">Nenhum contrato. Gere a partir de uma proposta aceita.</td></tr>
                         <?php else: foreach ($contracts as $c): ?>
-                        <tr style="cursor:pointer;" onclick="location.href='<?= baseUrl('contracts/edit/' . (int)$c['id']) ?>'">
+                        <tr style="cursor:pointer;" onclick="location.href='<?= baseUrl('contract/edit/' . (int)$c['id']) ?>'">
                             <td><?= (int)$c['id'] ?></td>
                             <td class="fw-medium"><?= escape($c['title']) ?></td>
                             <td><?= escape($c['client_name'] ?: '—') ?></td>

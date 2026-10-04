@@ -22,8 +22,9 @@ class TicketAccess
 
     /** Status válidos de uma demanda. */
     public const STATUSES = [
-        'open', 'in_progress', 'em_revisao_interna', 'waiting_client',
-        'em_homologacao', 'aprovado_producao', 'completed', 'denied', 'archived',
+        'open', 'in_progress', 'aguardando_aprovacao_escopo', 'em_revisao_interna',
+        'waiting_client', 'em_homologacao', 'aprovado_producao', 'completed',
+        'denied', 'archived',
     ];
 
     public static function isTeam(?string $role): bool
@@ -74,12 +75,23 @@ class TicketAccess
 
     /**
      * O cliente pode mudar o status da demanda para $newStatus?
-     * Regra de negócio existente: o cliente só age quando a demanda está em
-     * homologação, aprovando (aprovado_producao) ou reprovando (denied).
+     *
+     * O cliente age em dois momentos do fluxo:
+     *  - APROVAÇÃO DE ESCOPO (aguardando_aprovacao_escopo): aprova (segue para
+     *    in_progress) ou recusa (volta para in_progress, com motivo registrado);
+     *  - HOMOLOGAÇÃO (em_homologacao): aprova (aprovado_producao) ou recusa
+     *    (denied, com motivo registrado).
      */
     public static function clientCanChangeStatus(?string $currentStatus, ?string $newStatus): bool
     {
-        return $currentStatus === 'em_homologacao'
-            && in_array($newStatus, ['aprovado_producao', 'denied'], true);
+        if ($currentStatus === 'em_homologacao') {
+            return in_array($newStatus, ['aprovado_producao', 'denied'], true);
+        }
+        if ($currentStatus === 'aguardando_aprovacao_escopo') {
+            // Aprovar o escopo leva a in_progress; recusar também retorna a
+            // in_progress (para ajustes), com o motivo registrado à parte.
+            return $newStatus === 'in_progress';
+        }
+        return false;
     }
 }

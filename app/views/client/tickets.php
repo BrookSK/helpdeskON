@@ -2,6 +2,36 @@
 <?php require APP_PATH . '/views/layouts/header.php'; ?>
 <?php require APP_PATH . '/views/layouts/sidebar.php'; ?>
 
+<?php
+// --- Tag de categoria: cor do badge por categoria (suporte=vermelho, dev=azul, design=roxo, marketing=laranja, outro=secondary) ---
+if (!function_exists('categoryBadgeClass')) {
+    function categoryBadgeClass(?string $category): string
+    {
+        switch (strtolower(trim((string)$category))) {
+            case 'suporte':         return 'bg-danger';
+            case 'desenvolvimento': return 'bg-primary';
+            case 'design':          return 'text-white'; // roxo via style inline
+            case 'marketing':       return 'bg-warning text-dark';
+            default:                return 'bg-secondary';
+        }
+    }
+}
+if (!function_exists('categoryBadgeStyle')) {
+    function categoryBadgeStyle(?string $category): string
+    {
+        return strtolower(trim((string)$category)) === 'design' ? 'background-color:#6f42c1;' : '';
+    }
+}
+if (!function_exists('categoryLabel')) {
+    function categoryLabel(?string $category): string
+    {
+        $map = ['suporte' => 'Suporte', 'desenvolvimento' => 'Desenvolvimento', 'design' => 'Design', 'marketing' => 'Marketing', 'outro' => 'Outro'];
+        $c = strtolower(trim((string)$category));
+        return $map[$c] ?? ucfirst($c);
+    }
+}
+?>
+
 <div class="main-content">
     <div class="top-bar">
         <div>
@@ -41,7 +71,7 @@
                             <td><?= $t['client_ticket_number'] ?? $t['id'] ?></td>
                             <td class="text-truncate" style="max-width:200px"><?= escape($t['title']) ?></td>
                             <?php if (!empty($isOwner)): ?><td style="font-size:0.85rem"><?= escape($t['client_name'] ?? '-') ?></td><?php endif; ?>
-                            <td><?= escape($t['category'] ?? '-') ?></td>
+                            <td><?php if (!empty($t['category'])): ?><span class="badge <?= categoryBadgeClass($t['category']) ?>" style="<?= categoryBadgeStyle($t['category']) ?>"><?= escape(categoryLabel($t['category'])) ?></span><?php else: ?>-<?php endif; ?></td>
                             <td><span class="badge-status badge-<?= $t['status'] ?>"><?= statusLabel($t['status']) ?></span></td>
                             <td><span class="priority-<?= $t['priority'] ?>"><?= priorityLabel($t['priority']) ?></span></td>
                             <td><?= escape($t['attendant_name'] ?? 'Aguardando') ?></td>
@@ -64,6 +94,9 @@
                         <span class="badge-status badge-<?= $t['status'] ?>"><?= statusLabel($t['status']) ?></span>
                     </div>
                     <div class="d-flex gap-2 align-items-center flex-wrap" style="font-size:0.75rem">
+                        <?php if (!empty($t['category'])): ?>
+                        <span class="badge <?= categoryBadgeClass($t['category']) ?>" style="<?= categoryBadgeStyle($t['category']) ?>"><?= escape(categoryLabel($t['category'])) ?></span>
+                        <?php endif; ?>
                         <?php if (!empty($isOwner) && !empty($t['client_name'])): ?>
                         <span class="text-dark fw-medium"><i class="bi bi-person"></i> <?= escape($t['client_name']) ?></span>
                         <?php endif; ?>

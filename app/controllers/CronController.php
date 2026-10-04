@@ -529,6 +529,14 @@ class CronController extends Controller
             Logger::error('runProspecting: falha ao finalizar gravações órfãs', ['error' => $e->getMessage()]);
         }
 
+        // 7) Régua de homologação (48h): 3 contatos (0h/24h/~42h) + liberação
+        //    automática para produção ao fim das 48h sem manifestação do cliente.
+        //    Pendurado aqui para reaproveitar um cron já agendado. Idempotente via
+        //    homolog_contactN_at / homolog_auto_released_at. Regra em HomologacaoRules.
+        try { $this->processHomologacaoRegua(); } catch (\Throwable $e) {
+            Logger::error('runProspecting: falha na régua de homologação (48h)', ['error' => $e->getMessage()]);
+        }
+
         $this->json(['success' => empty($result['error']), 'result' => $result, 'sequences' => $engineStats]);
     }
 
@@ -836,6 +844,89 @@ class CronController extends Controller
     }
 
     /**
+     * GET /cron/homologacaoRegua?token=XXX
+     * Processa a régua de homologação de 48h (3 contatos + liberação). Idempotente.
+     */
+    public function homologacaoRegua()
+    {
+        $this->validateToken();
+        @set_time_limit(120);
+        $result = $this->processHomologacaoRegua();
+        $this->json(['success' => true, 'homologacao' => $result]);
+    }
+
+    /**
+     * Régua de homologação de 48 horas (demanda: fluxo de Nova Demanda).
+     *
+     * Para cada demanda EM HOMOLOGAÇÃO com janela em andamento, consulta a regra
+     * pura HomologacaoRules::nextAction (testável) e executa a ação devida:
+     *   - contact1 (0h):  entrega disponível para homologação;
+     *   - contact2 (24h): sem retorno, pedir validação + previsão;
+     *   - contact3 (~42h): publicação nas próximas 6h;
+     *   - release (48h):  libera automaticamente para produção (aprovado_producao).
+     *
+     * Idempotente: cada contato é carimbado (homolog_contactN_at) e só é enviado
+     * uma vez; a liberação carimba homolog_auto_released_at. Reaproveita o
+     * WhatsappNotifier/Mailer existentes. Nunca lança (best-effort).
+     *
+     * @return array estatísticas (contatos enviados, liberações)
+     */
+    private function processHomologacaoRegua(): array
+    {
+        $db = Database::getInstance();
+        $ticketModel = new Ticket();
+        $stats = ['contact1' => 0, 'contact2' => 0, 'contact3' => 0, 'released' => 0];
+
+        $rows = $ticketModel->getHomologacaoEmAndamento();
+        foreach ($rows as $t) {
+            try {
+                $startedAt = $t['homolog_started_at'];
+                $hours = HomologacaoRules::hoursElapsed($startedAt);
+                $sent = [
+                    'contact1' => !empty($t['homolog_contact1_at']),
+                    'contact2' => !empty($t['homolog_contact2_at']),
+                    'contact3' => !empty($t['homolog_contact3_at']),
+                    'released' => !empty($t['homolog_auto_released_at']),
+                ];
+                $action = HomologacaoRules::nextAction($hours, $sent);
+                if ($action === HomologacaoRules::ACTION_NONE) {
+                    continue;
+                }
+
+                if ($action === HomologacaoRules::ACTION_RELEASE) {
+                    // 48h sem manifestação: segue para produção automaticamente.
+                    $ticketModel->updateStatus((int)$t['id'], 'aprovado_producao');
+                    $ticketModel->update((int)$t['id'], ['homolog_auto_released_at' => date('Y-m-d H:i:s')]);
+                    (new PlanningCard())->syncFromTicket((int)$t['id'], 'aprovado_producao');
+                    $stats['released']++;
+                    continue;
+                }
+
+                // Contatos: monta e envia a mensagem (WhatsApp ao cliente, se houver).
+                $msg = HomologacaoRules::contactMessage($action, [
+                    'ticket_number' => $t['client_ticket_number'] ?? $t['id'],
+                    'title' => $t['title'] ?? '',
+                    'previsao' => !empty($t['previsao_publicacao']) ? date('d/m/Y', strtotime($t['previsao_publicacao'])) : '',
+                ]);
+                if (!empty($t['client_phone'])) {
+                    try { WhatsappNotifier::sendToPhone($t['client_phone'], $msg, $t['client_name'] ?? null); } catch (\Throwable $e) {}
+                }
+                if (!empty($t['client_email'])) {
+                    try { Mailer::send($t['client_email'], 'Homologação da sua demanda', Mailer::template('Homologação', '<p>' . htmlspecialchars($msg) . '</p>')); } catch (\Throwable $e) {}
+                }
+
+                // Carimba o contato correspondente (idempotência).
+                $col = ['contact1' => 'homolog_contact1_at', 'contact2' => 'homolog_contact2_at', 'contact3' => 'homolog_contact3_at'][$action];
+                $ticketModel->update((int)$t['id'], [$col => date('Y-m-d H:i:s')]);
+                $stats[$action]++;
+            } catch (\Throwable $e) {
+                Logger::error('processHomologacaoRegua', ['ticket' => $t['id'] ?? null, 'error' => $e->getMessage()]);
+            }
+        }
+        return $stats;
+    }
+
+    /**
      * GET /cron/index
      * Página de status/info sobre os crons disponíveis.
      */
@@ -991,6 +1082,7 @@ class CronController extends Controller
                 'GET /cron/runProspecting?token=XXX' => 'Automação de prospecção Apollo (Search→reveal→CRM→sequência)',
                 'GET /cron/cardDueReminders?token=XXX' => 'Lembrete WhatsApp ao responsável de cards de Planejamento com prazo faltando <24h',
                 'GET /cron/checkMissingReports?token=XXX' => 'Verifica profissionais sem Relatório Diário e notifica via WhatsApp/e-mail',
+                'GET /cron/homologacaoRegua?token=XXX' => 'Régua de homologação (48h): 3 contatos + liberação automática para produção',
             ],
             'tip' => 'Configure cron_token em Configurações para proteger este endpoint.',
         ]);

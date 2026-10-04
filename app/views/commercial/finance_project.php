@@ -42,7 +42,11 @@ $stBadge = ['pending'=>'secondary','paid'=>'success','overdue'=>'danger','cancel
                             <select id="f-inst-method" class="form-select form-select-sm"><option value="boleto">Boleto</option><option value="pix">Pix</option><option value="cartao">Cartão</option></select>
                         </div>
                     </div>
-                    <button class="btn btn-sm btn-primary mt-3" onclick="savePlan()"><i class="bi bi-calculator"></i> Gerar plano</button>
+                    <div class="form-check mt-3">
+                        <input class="form-check-input" type="checkbox" id="f-notify" checked>
+                        <label class="form-check-label small" for="f-notify">Avisar o cliente (WhatsApp/e-mail) com o resumo do plano</label>
+                    </div>
+                    <button class="btn btn-sm btn-primary mt-2" onclick="savePlan()"><i class="bi bi-calculator"></i> Gerar plano</button>
                     <?php if (empty($accounts)): ?>
                     <p class="text-muted small mt-2 mb-0">Nenhuma conta Asaas cadastrada ainda. <a href="<?= baseUrl('finance/accounts') ?>">Cadastrar</a>.</p>
                     <?php endif; ?>
@@ -94,10 +98,20 @@ async function savePlan() {
         first_installment_due: document.getElementById('f-inst-due').value,
         installment_interval_days: document.getElementById('f-inst-interval').value,
         installment_method: document.getElementById('f-inst-method').value,
+        notify_client: document.getElementById('f-notify').checked ? 1 : 0,
     };
     const r = await fetch(`${BASE}finance/savePlan/${PID}`, { method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':CSRF}, body: JSON.stringify(body) })
         .then(x=>x.json()).catch(()=>({error:'Falha de rede'}));
     if (r.error) { alert(r.error); return; }
+    const d = r.delivery || {};
+    if (body.notify_client) {
+        const canais = [];
+        if (d.sent_whats) canais.push('WhatsApp');
+        if (d.sent_email) canais.push('e-mail');
+        if (canais.length) alert('Plano gerado. Cliente avisado por: ' + canais.join(' e ') + '.');
+        else if (d.no_contact) alert('Plano gerado. O cliente não tem telefone/e-mail no contrato — avise manualmente.');
+        else alert('Plano gerado, mas não foi possível avisar automaticamente (verifique WhatsApp/SMTP).');
+    }
     location.reload();
 }
 async function markPaid(chargeId) {
