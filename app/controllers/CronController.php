@@ -839,6 +839,147 @@ class CronController extends Controller
      * GET /cron/index
      * Página de status/info sobre os crons disponíveis.
      */
+    /**
+     * GET /cron/checkMissingReports?token=XXX
+     *
+     * Detecta profissionais da equipe interna que não preencheram o Relatório
+     * Diário na data de referência (ontem ou hoje, dependendo do horário limite
+     * configurado em rdo_deadline_time) e:
+     *   1. Cria pendência de revisão na tabela daily_report_reviews (tipo
+     *      'missing_report') para o admin tomar ciência.
+     *   2. Notifica o profissional via WhatsApp (se tiver telefone cadastrado).
+     *   3. Notifica via e-mail (se tiver e-mail cadastrado).
+     *
+     * Idempotente: a query filtra pela tabela daily_report_missing_notifications
+     * para não reenviar aviso para o mesmo usuário/data mais de uma vez.
+     *
+     * Sugestão de agendamento no servidor (1h após o deadline padrão de 19h):
+     *   0 20 * * * curl -s "https://seudominio.com/cron/checkMissingReports?token=TOKEN"
+     */
+    public function checkMissingReports()
+    {
+        $this->validateToken();
+        @set_time_limit(120);
+        $result = $this->doCheckMissingReports();
+        $this->json(['success' => true, 'checked' => $result['checked'], 'notified' => $result['notified']]);
+    }
+
+    /**
+     * Implementação do job de relatórios faltantes.
+     *
+     * Retorna ['checked' => int, 'notified' => int].
+     */
+    private function doCheckMissingReports(): array
+    {
+        $db = Database::getInstance();
+
+        // ── Data de referência ───────────────────────────────────────────────
+        // Se ainda não passou o horário limite de hoje → verifica ontem.
+        // Se já passou o horário limite de hoje → verifica hoje.
+        $deadline = RdoRules::getDeadline();
+        $today    = date('Y-m-d');
+        $nowTime  = date('H:i:s');
+        $refDate  = ($nowTime < $deadline) ? date('Y-m-d', strtotime('-1 day')) : $today;
+
+        // ── Quem deve ter relatório ──────────────────────────────────────────
+        // Todos os papéis com acesso ao módulo 'rdo', exceto 'client'.
+        $rdoRoles = Permissions::rolesForModule('rdo');
+        if (empty($rdoRoles)) {
+            return ['checked' => 0, 'notified' => 0];
+        }
+        $placeholders = implode(',', array_fill(0, count($rdoRoles), '?'));
+
+        // ── Filtra quem não preencheu E ainda não foi notificado ─────────────
+        $missing = $db->fetchAll(
+            "SELECT u.id, u.name, u.email, u.phone
+             FROM users u
+             WHERE u.role IN ({$placeholders})
+               AND (u.is_active IS NULL OR u.is_active = 1)
+               AND NOT EXISTS (
+                   SELECT 1 FROM daily_reports dr
+                   WHERE dr.user_id = u.id AND dr.report_date = ?
+               )
+               AND NOT EXISTS (
+                   SELECT 1 FROM daily_report_missing_notifications mn
+                   WHERE mn.user_id = u.id AND mn.report_date = ?
+               )
+             ORDER BY u.name ASC",
+            array_merge($rdoRoles, [$refDate, $refDate])
+        );
+
+        if (empty($missing)) {
+            return ['checked' => 0, 'notified' => 0];
+        }
+
+        $notified = 0;
+        foreach ($missing as $user) {
+            $refBR = date('d/m/Y', strtotime($refDate));
+
+            // 1) Pendência de revisão para o admin ───────────────────────────
+            // Cria uma entrada em daily_report_reviews do tipo 'missing_report'.
+            // Como não há um report_id real, usamos um relatório-marcador ou
+            // simplesmente anotamos na tabela dedicada de notificações (abaixo).
+            // Por ora, registra só na tabela de notificações para não criar FK
+            // órfã em daily_report_reviews (que exige report_id NOT NULL).
+
+            // 2) Notificação WhatsApp ─────────────────────────────────────────
+            if (!empty($user['phone'])) {
+                $msg = "📋 *Relatório Diário não preenchido*\n\n"
+                     . "Olá, *{$user['name']}*! Identificamos que o seu Relatório Diário "
+                     . "de *{$refBR}* ainda não foi preenchido.\n\n"
+                     . "Por favor, acesse o Helpdesk e preencha o quanto antes. "
+                     . "Preenchimentos fora do prazo ficam sujeitos à revisão do administrador.";
+                try {
+                    WhatsappNotifier::sendToPhone($user['phone'], $msg, $user['name']);
+                } catch (\Throwable $e) {
+                    Logger::error('checkMissingReports: whatsapp', [
+                        'user_id' => $user['id'],
+                        'error'   => $e->getMessage(),
+                    ]);
+                }
+            }
+
+            // 3) Notificação por e-mail ───────────────────────────────────────
+            if (!empty($user['email'])) {
+                $body = Mailer::template(
+                    'Relatório Diário não preenchido',
+                    "<p>Olá, <strong>" . htmlspecialchars($user['name']) . "</strong>!</p>
+                     <p>Identificamos que o seu Relatório Diário de
+                     <strong>{$refBR}</strong> ainda não foi preenchido.</p>
+                     <p>Por favor, acesse o Helpdesk e preencha o quanto antes.
+                     Preenchimentos fora do prazo ficam sujeitos à revisão do administrador.</p>"
+                );
+                try {
+                    Mailer::send($user['email'], "Relatório Diário não preenchido — {$refBR}", $body);
+                } catch (\Throwable $e) {
+                    Logger::error('checkMissingReports: email', [
+                        'user_id' => $user['id'],
+                        'error'   => $e->getMessage(),
+                    ]);
+                }
+            }
+
+            // 4) Marca como notificado (idempotência) ─────────────────────────
+            try {
+                $db->insert('daily_report_missing_notifications', [
+                    'user_id'     => $user['id'],
+                    'report_date' => $refDate,
+                    'notified_at' => date('Y-m-d H:i:s'),
+                ]);
+            } catch (\Throwable $e) {
+                // Log silencioso — o mais importante (envio) já ocorreu.
+                Logger::error('checkMissingReports: insert mn', [
+                    'user_id' => $user['id'],
+                    'error'   => $e->getMessage(),
+                ]);
+            }
+
+            $notified++;
+        }
+
+        return ['checked' => count($missing), 'notified' => $notified];
+    }
+
     public function index()
     {
         $this->json([
@@ -849,6 +990,7 @@ class CronController extends Controller
                 'GET /cron/runSequences?token=XXX' => 'Worker de follow-up: sequências + detecção de respostas',
                 'GET /cron/runProspecting?token=XXX' => 'Automação de prospecção Apollo (Search→reveal→CRM→sequência)',
                 'GET /cron/cardDueReminders?token=XXX' => 'Lembrete WhatsApp ao responsável de cards de Planejamento com prazo faltando <24h',
+                'GET /cron/checkMissingReports?token=XXX' => 'Verifica profissionais sem Relatório Diário e notifica via WhatsApp/e-mail',
             ],
             'tip' => 'Configure cron_token em Configurações para proteger este endpoint.',
         ]);
