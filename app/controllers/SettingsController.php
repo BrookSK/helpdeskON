@@ -105,10 +105,8 @@ class SettingsController extends Controller
             'openai_api_key',
             'buffer_api_key',
             'apollo_api_key', 'apollo_base_url', 'apollo_webhook_token',
-            // Integrações da esteira comercial
-            'clicksign_access_token', 'clicksign_webhook_secret',
-            'asaas_webhook_token',
-            'lrv_cloud_api_key', 'lrv_cloud_webhook_secret',
+            // (As chaves secretas da esteira — clicksign/asaas/lrv — são tratadas
+            //  separadamente abaixo: campo em branco PRESERVA o valor já salvo.)
             'app_public_url',
             'google_client_id', 'google_client_secret', 'google_refresh_token', 'google_calendar_id',
             // Agendamento público (bloco "Agendamento" das sequências)
@@ -140,6 +138,20 @@ class SettingsController extends Controller
         // Deixar o campo em branco preserva a credencial já salva (nunca é reexibida no frontend).
         if (isset($_POST['nvoip_oauth_client_credential']) && trim($_POST['nvoip_oauth_client_credential']) !== '') {
             Config::set('nvoip_oauth_client_credential', trim($_POST['nvoip_oauth_client_credential']));
+        }
+
+        // Chaves SECRETAS da esteira comercial (ClickSign/Asaas/LRV): só atualiza
+        // quando o campo vem PREENCHIDO. Em branco, mantém o valor salvo — evita
+        // apagar a chave sem querer quando o campo password volta vazio no POST.
+        $secretFields = [
+            'clicksign_access_token', 'clicksign_webhook_secret',
+            'asaas_webhook_token',
+            'lrv_cloud_api_key', 'lrv_cloud_webhook_secret',
+        ];
+        foreach ($secretFields as $sf) {
+            if (isset($_POST[$sf]) && trim($_POST[$sf]) !== '') {
+                Config::set($sf, trim($_POST[$sf]));
+            }
         }
 
 

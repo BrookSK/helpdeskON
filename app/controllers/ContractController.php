@@ -31,6 +31,62 @@ class ContractController extends Controller
         $this->view('commercial/contracts', ['user' => $user, 'contracts' => $contracts, 'statuses' => ContractRules::STATUSES]);
     }
 
+    /**
+     * Diagnóstico da integração ClickSign (só super_admin). Mostra, sem revelar
+     * o token, se está configurado, para qual ambiente aponta e o resultado de
+     * uma chamada de teste (GET /documents) — útil para entender erros 401/403.
+     * Acesse: /contract/clicksignDiag
+     */
+    public function clicksignDiag()
+    {
+        $this->requireRole(['super_admin']);
+        header('Content-Type: text/plain; charset=utf-8');
+
+        $token = (string) Config::get('clicksign_access_token');
+        $sandboxCfg = ((string) Config::get('clicksign_sandbox')) === '1';
+        $isHmlg = (stripos($token, '_hmlg_') !== false || stripos($token, '_test_') !== false);
+        $sandboxEfetivo = $sandboxCfg || $isHmlg;
+
+        echo "=== Diagnóstico ClickSign ===\n";
+        echo "Token configurado: " . ($token !== '' ? ('sim (' . strlen($token) . ' caracteres, começa com "' . substr($token, 0, 4) . '…")') : 'NÃO') . "\n";
+        echo "Checkbox sandbox nas Settings: " . ($sandboxCfg ? 'marcado' : 'desmarcado') . "\n";
+        echo "Token parece de homologação (_hmlg_/_test_): " . ($isHmlg ? 'sim' : 'não') . "\n";
+        echo "Ambiente efetivo usado: " . ($sandboxEfetivo ? 'SANDBOX (sandbox.clicksign.com)' : 'PRODUÇÃO (app.clicksign.com)') . "\n";
+        echo "Webhook secret configurado: " . (((string) Config::get('clicksign_webhook_secret')) !== '' ? 'sim' : 'não') . "\n\n";
+
+        if ($token === '') {
+            echo "AÇÃO: cole o Access Token em Configurações → ClickSign e salve.\n";
+            return;
+        }
+
+        // Chamada de teste: lista documentos (GET). Mostra o que a ClickSign responde.
+        $base = $sandboxEfetivo ? ClickSignRules::BASE_SANDBOX : ClickSignRules::BASE_PROD;
+        $url = $base . '/api/v1/documents?access_token=' . rawurlencode($token);
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 20,
+            CURLOPT_HTTPHEADER => ['Accept: application/json', 'Content-Type: application/json'],
+        ]);
+        $raw = curl_exec($ch);
+        $http = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err = curl_error($ch);
+        curl_close($ch);
+
+        echo "Teste GET /api/v1/documents -> HTTP {$http}\n";
+        if ($raw === false) { echo "Erro de conexão: {$err}\n"; return; }
+        echo "Resposta (início):\n" . substr((string)$raw, 0, 600) . "\n\n";
+
+        if ($http >= 200 && $http < 300) {
+            echo "RESULTADO: credencial OK neste ambiente. Se criar documento ainda falhar com\n";
+            echo "'e-mail do usuário da API não configurada', defina o usuário da API no painel\n";
+            echo "da ClickSign DESTE MESMO ambiente (Configurações → API → E-mail do usuário da API).\n";
+        } elseif ($http === 401 || $http === 403) {
+            echo "RESULTADO: a ClickSign recusou a credencial NESTE ambiente. Verifique se o token\n";
+            echo "é deste ambiente (produção x sandbox) e se o 'E-mail do usuário da API' está salvo\n";
+            echo "na conta deste ambiente.\n";
+        }
+    }
+
     // ================= Modelos de contrato (CRUD) =================
 
     /** Lista/gerencia os modelos de contrato reutilizáveis. */
