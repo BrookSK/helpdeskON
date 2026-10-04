@@ -248,14 +248,27 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                                     <span class="priority-<?= $card['priority'] ?>" style="font-size:0.7rem"><?= $priorityLabels[$card['priority']] ?? '' ?></span>
                                 </div>
                                 <div class="fw-medium" style="font-size:0.82rem;word-break:break-word;"><?= escape($card['title']) ?></div>
-                                <?php if (!empty($card['category']) || !empty($card['scope_rejected_reason'])): ?>
+                                <?php
+                                // Tag de MARCO de aprovação (uma só, da mais avançada para a menos):
+                                //  1) Aprovado p/ Produção (status aprovado_producao)
+                                //  2) Recusado (escopo recusado pelo cliente, não reaprovado)
+                                //  3) Aprovado (escopo aprovado pelo cliente)
+                                $milestoneTag = null;
+                                if (($card['status'] ?? '') === 'aprovado_producao') {
+                                    $milestoneTag = ['label' => 'Aprov. Produção', 'class' => 'bg-success', 'title' => 'Aprovado para produção'];
+                                } elseif (!empty($card['scope_rejected_reason'])) {
+                                    $milestoneTag = ['label' => 'Recusado', 'class' => 'bg-danger', 'title' => 'Escopo recusado pelo cliente'];
+                                } elseif (!empty($card['scope_approved_at'])) {
+                                    $milestoneTag = ['label' => 'Aprovado', 'class' => 'bg-success', 'title' => 'Escopo aprovado pelo cliente'];
+                                }
+                                ?>
+                                <?php if (!empty($card['category']) || $milestoneTag !== null): ?>
                                 <div class="mt-1 d-flex flex-wrap gap-1">
                                     <?php if (!empty($card['category'])): ?>
                                     <span class="badge <?= categoryBadgeClass($card['category']) ?>" style="font-size:0.62rem;<?= categoryBadgeStyle($card['category']) ?>"><?= escape(categoryLabel($card['category'])) ?></span>
                                     <?php endif; ?>
-                                    <?php if (!empty($card['scope_rejected_reason'])): ?>
-                                    <!-- Tag informativa: escopo recusado pelo cliente (ainda não reaprovado). -->
-                                    <span class="badge bg-danger" style="font-size:0.62rem;" title="Escopo recusado pelo cliente">Recusado</span>
+                                    <?php if ($milestoneTag !== null): ?>
+                                    <span class="badge <?= $milestoneTag['class'] ?>" style="font-size:0.62rem;" title="<?= escape($milestoneTag['title']) ?>"><?= escape($milestoneTag['label']) ?></span>
                                     <?php endif; ?>
                                 </div>
                                 <?php endif; ?>
