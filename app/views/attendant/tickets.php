@@ -2,6 +2,36 @@
 <?php require APP_PATH . '/views/layouts/header.php'; ?>
 <?php require APP_PATH . '/views/layouts/sidebar.php'; ?>
 
+<?php
+// Helpers da tag/selo de categoria (mesmas cores das demais telas).
+if (!function_exists('categoryBadgeClass')) {
+    function categoryBadgeClass(?string $category): string
+    {
+        switch (strtolower(trim((string)$category))) {
+            case 'suporte':         return 'bg-danger';
+            case 'desenvolvimento': return 'bg-primary';
+            case 'design':          return 'text-white';
+            case 'marketing':       return 'bg-warning text-dark';
+            default:                return 'bg-secondary';
+        }
+    }
+}
+if (!function_exists('categoryBadgeStyle')) {
+    function categoryBadgeStyle(?string $category): string
+    {
+        return strtolower(trim((string)$category)) === 'design' ? 'background-color:#6f42c1;' : '';
+    }
+}
+if (!function_exists('categoryLabel')) {
+    function categoryLabel(?string $category): string
+    {
+        $c = strtolower(trim((string)$category));
+        $map = ['suporte' => 'Suporte', 'desenvolvimento' => 'Desenvolvimento', 'design' => 'Design', 'marketing' => 'Marketing', 'outro' => 'Outro'];
+        return $map[$c] ?? ucfirst($c);
+    }
+}
+?>
+
 <div class="main-content">
     <div class="top-bar">
         <div>
@@ -88,6 +118,7 @@
                         <tr>
                             <th>#</th>
                             <th>Título</th>
+                            <th>Categoria</th>
                             <th>Empresa</th>
                             <th>Atendente</th>
                             <th>Status</th>
@@ -101,6 +132,13 @@
                         <tr>
                             <td><?= $c['id'] ?></td>
                             <td class="text-truncate" style="max-width:220px"><?= escape($c['title']) ?></td>
+                            <td>
+                                <?php if (!empty($c['category'])): ?>
+                                <span class="badge <?= categoryBadgeClass($c['category']) ?>" style="font-size:0.68rem;<?= categoryBadgeStyle($c['category']) ?>"><?= escape(categoryLabel($c['category'])) ?></span>
+                                <?php else: ?>
+                                <span class="text-muted">-</span>
+                                <?php endif; ?>
+                            </td>
                             <td><?= escape($c['company_name'] ?? '-') ?></td>
                             <td><?= escape($c['assigned_name'] ?? 'Não atribuído') ?></td>
                             <td><span class="badge-status badge-<?= $c['status'] ?>"><?= statusLabel($c['status']) ?></span></td>
@@ -117,7 +155,7 @@
                         </tr>
                         <?php endforeach; ?>
                         <?php if (empty($cards)): ?>
-                        <tr><td colspan="8" class="text-center text-muted py-4">Nenhuma demanda encontrada.</td></tr>
+                        <tr><td colspan="9" class="text-center text-muted py-4">Nenhuma demanda encontrada.</td></tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
@@ -131,6 +169,9 @@
                         <span class="badge-status badge-<?= $c['status'] ?>"><?= statusLabel($c['status']) ?></span>
                     </div>
                     <div class="d-flex gap-2 align-items-center flex-wrap" style="font-size:0.75rem">
+                        <?php if (!empty($c['category'])): ?>
+                        <span class="badge <?= categoryBadgeClass($c['category']) ?>" style="font-size:0.65rem;<?= categoryBadgeStyle($c['category']) ?>"><?= escape(categoryLabel($c['category'])) ?></span>
+                        <?php endif; ?>
                         <span class="text-muted"><i class="bi bi-building"></i> <?= escape($c['company_name'] ?? '-') ?></span>
                         <span class="text-muted"><i class="bi bi-person"></i> <?= escape($c['assigned_name'] ?? 'Não atribuído') ?></span>
                         <span class="priority-<?= $c['priority'] ?>"><?= priorityLabel($c['priority']) ?></span>
