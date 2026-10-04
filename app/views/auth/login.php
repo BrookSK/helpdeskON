@@ -48,6 +48,29 @@
             background: var(--primary-dark);
             border-color: var(--primary-dark);
         }
+        /* Botão "Entrar com PIN": contorno verde da identidade visual.
+           Evita o azul padrão que o Bootstrap aplicaria no hover de
+           .btn-outline-primary. */
+        .btn-pin {
+            border: 2px solid var(--primary);
+            color: var(--primary);
+            background: transparent;
+            border-radius: 10px;
+            padding: 12px;
+            font-weight: 600;
+            font-size: 0.95rem;
+            transition: background-color .15s ease, color .15s ease, border-color .15s ease;
+        }
+        .btn-pin:hover,
+        .btn-pin:focus,
+        .btn-pin:active {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: #fff;
+        }
+        .btn-pin:focus {
+            box-shadow: 0 0 0 0.2rem rgba(0,191,166,0.25);
+        }
         .form-control {
             border-radius: 10px;
             padding: 12px 15px;
@@ -111,7 +134,7 @@
             <hr style="border-top:1px solid #e8e8e8;">
             <span class="position-absolute top-50 start-50 translate-middle px-2 bg-white text-muted" style="font-size:0.75rem;">ou</span>
         </div>
-        <a href="<?= baseUrl('clientpin') ?>" class="btn btn-outline-primary w-100" style="border-color:var(--primary);color:var(--primary);border-radius:10px;padding:12px;font-weight:600;font-size:0.95rem;">
+        <a href="<?= baseUrl('clientpin') ?>" class="btn btn-pin w-100">
             Entrar com PIN
         </a>
 
