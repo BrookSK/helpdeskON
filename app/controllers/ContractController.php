@@ -31,6 +31,66 @@ class ContractController extends Controller
         $this->view('commercial/contracts', ['user' => $user, 'contracts' => $contracts, 'statuses' => ContractRules::STATUSES]);
     }
 
+    // ================= Modelos de contrato (CRUD) =================
+
+    /** Lista/gerencia os modelos de contrato reutilizáveis. */
+    public function templates()
+    {
+        $this->requireModule('contracts');
+        $user = $this->currentUser();
+        $this->view('commercial/contract_templates', [
+            'user' => $user,
+            'templates' => (new ContractTemplate())->getAll(false),
+        ]);
+    }
+
+    /** Tela de edição do corpo de um modelo (novo quando sem id). */
+    public function editTemplate($id = null)
+    {
+        $this->requireModule('contracts');
+        $user = $this->currentUser();
+        $template = $id ? (new ContractTemplate())->findById($id) : null;
+        $this->view('commercial/contract_template_form', [
+            'user' => $user,
+            'template' => $template,
+        ]);
+    }
+
+    /** Cria ou atualiza um modelo (POST). */
+    public function saveTemplate($id = null)
+    {
+        $this->requireModule('contracts');
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+
+        $raw = file_get_contents('php://input');
+        $body = json_decode($raw, true);
+        if (!is_array($body)) $body = $_POST;
+
+        $name = trim($body['name'] ?? '');
+        if ($name === '') $this->json(['error' => 'Informe o nome do modelo.'], 400);
+        $data = [
+            'name' => $name,
+            'body' => (string)($body['body'] ?? ''),
+            'active' => !empty($body['active']) ? 1 : 1, // nasce ativo
+        ];
+        $model = new ContractTemplate();
+        if ($id) {
+            $model->update((int)$id, ['name' => $data['name'], 'body' => $data['body']]);
+            $this->json(['success' => true, 'id' => (int)$id]);
+        }
+        $newId = $model->create($data);
+        $this->json(['success' => true, 'id' => $newId]);
+    }
+
+    /** Ativa/desativa um modelo. */
+    public function toggleTemplate($id = null)
+    {
+        $this->requireModule('contracts');
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+        (new ContractTemplate())->toggleActive((int)$id);
+        $this->json(['success' => true]);
+    }
+
     public function edit($id = null)
     {
         $this->requireModule('contracts');

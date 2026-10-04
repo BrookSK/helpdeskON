@@ -245,22 +245,53 @@ async function reopenProposal() {
     location.reload();
 }
 
-const CONTRACT_TEMPLATES = <?= json_encode($contractTemplates ?? [], JSON_UNESCAPED_UNICODE) ?: '[]' ?>;
-async function genContract() {
-    let templateId = '';
-    if (CONTRACT_TEMPLATES.length) {
-        const opts = CONTRACT_TEMPLATES.map(t => `${t.id}: ${t.name}`).join('\n');
-        const pick = prompt('Informe o ID do modelo de contrato (ou deixe vazio para em branco):\n' + opts);
-        if (pick === null) return;
-        templateId = pick.trim();
-    }
+// Abre o modal de escolha do modelo de contrato.
+function genContract() {
+    const modal = new bootstrap.Modal(document.getElementById('genContractModal'));
+    modal.show();
+}
+// Confirma a geração com o modelo escolhido no dropdown.
+async function confirmGenContract() {
+    const templateId = document.getElementById('gc-template').value;
+    const btn = document.getElementById('gc-confirm');
+    const orig = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Gerando...';
     const fd = new FormData(); fd.append('csrf_token', CSRF); fd.append('proposal_id', PROPOSAL_ID);
     if (templateId) fd.append('template_id', templateId);
     const r = await fetch(`${PROP_BASE}contract/fromProposal`, { method:'POST', body: fd, headers:{'X-Requested-With':'XMLHttpRequest'} })
         .then(x=>x.json()).catch(()=>({error:'Falha de rede'}));
+    btn.disabled = false; btn.innerHTML = orig;
     if (r.error) { alert(r.error); return; }
     location.href = `${PROP_BASE}contract/edit/${r.id}`;
 }
 </script>
+
+<!-- Modal: gerar contrato (escolher modelo) -->
+<div class="modal fade" id="genContractModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title"><i class="bi bi-file-earmark-check"></i> Gerar contrato</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label small fw-medium">Modelo de contrato</label>
+        <select id="gc-template" class="form-select form-select-sm">
+          <option value="">— Em branco (sem modelo) —</option>
+          <?php foreach (($contractTemplates ?? []) as $t): ?>
+          <option value="<?= (int)$t['id'] ?>"><?= escape($t['name']) ?></option>
+          <?php endforeach; ?>
+        </select>
+        <small class="text-muted d-block mt-2">
+          O corpo do modelo é copiado para o contrato e pode ser editado depois.
+          <a href="<?= baseUrl('contract/templates') ?>" target="_blank">Gerenciar modelos</a>.
+        </small>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" id="gc-confirm" class="btn btn-sm btn-primary" onclick="confirmGenContract()"><i class="bi bi-check-lg"></i> Gerar contrato</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>
