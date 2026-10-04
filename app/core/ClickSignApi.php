@@ -38,6 +38,12 @@ class ClickSignApi
         return ClickSignRules::isConfigured($this->accessToken);
     }
 
+    /** Ambiente efetivo (sandbox x produção) usado nas chamadas. */
+    public function isSandbox(): bool
+    {
+        return $this->sandbox;
+    }
+
     /**
      * Cria um documento a partir de um conteúdo (ex.: HTML/base64). Retorna a
      * resposta decodificada; a chave do documento fica em data['document']['key'].
@@ -63,6 +69,20 @@ class ClickSignApi
     public function cancelDocument(string $documentKey): array
     {
         return $this->request('PATCH', '/api/v1/documents/' . rawurlencode($documentKey) . '/cancel', []);
+    }
+
+    /**
+     * Dispara a NOTIFICAÇÃO de assinatura por e-mail ao signatário. Sem isso, o
+     * signatário é criado/vinculado mas não recebe o e-mail para assinar.
+     * Usa o request_signature_key gerado no addSigner().
+     */
+    public function notifySigner(string $requestSignatureKey, ?string $message = null): array
+    {
+        $payload = ['request_signature_key' => $requestSignatureKey];
+        if ($message !== null && trim($message) !== '') {
+            $payload['message'] = $message;
+        }
+        return $this->request('POST', '/api/v1/notifications', $payload);
     }
 
     /** Realiza a requisição HTTP (JSON) com o access_token em query string. */
