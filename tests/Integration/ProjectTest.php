@@ -91,4 +91,83 @@ final class ProjectTest extends TestCase
         $this->proj->addEvent($id, $this->userId, 'nota', 'teste');
         $this->assertNotEmpty($this->proj->getEvents($id));
     }
+
+    // ===== Fluxo de Entrega: publicação, documentação, reunião e aceite =====
+
+    public function testMarkPublishedGravaDataEEvento(): void
+    {
+        $id = $this->novo(['status' => 'in_progress']);
+        $this->assertTrue($this->proj->markPublished($id, $this->userId));
+        $p = $this->proj->findById($id);
+        $this->assertNotNull($p['published_at']);
+        $tipos = array_map(fn($e) => $e['event_type'], $this->proj->getEvents($id));
+        $this->assertContains('published', $tipos);
+    }
+
+    public function testMarkDocumentationGravaCamposEEvento(): void
+    {
+        $id = $this->novo();
+        $this->assertTrue($this->proj->markDocumentation($id, 'https://docs.exemplo/manual.pdf', $this->userId));
+        $p = $this->proj->findById($id);
+        $this->assertSame('https://docs.exemplo/manual.pdf', $p['manual_url']);
+        $this->assertNotNull($p['documentation_delivered_at']);
+    }
+
+    public function testLinkDeliveryMeetingGravaDataManual(): void
+    {
+        $id = $this->novo();
+        $this->assertTrue($this->proj->linkDeliveryMeeting($id, 0, '2026-10-10 14:00:00', $this->userId));
+        $p = $this->proj->findById($id);
+        $this->assertSame('2026-10-10 14:00:00', $p['delivery_meeting_at']);
+    }
+
+    public function testSetAcceptanceTokenEBuscaPorToken(): void
+    {
+        $id = $this->novo();
+        $token = $this->proj->setAcceptanceToken($id, $this->userId);
+        $this->assertNotNull($token);
+        $this->assertSame(32, strlen($token)); // bin2hex(16 bytes)
+        $found = $this->proj->findByAcceptanceToken($token);
+        $this->assertNotNull($found);
+        $this->assertSame($id, (int)$found['id']);
+    }
+
+    public function testRegisterClientAcceptanceIniciaGarantia(): void
+    {
+        // Projeto do tipo 'zero' tem garantia; o aceite inicia a janela.
+        $id = $this->novo(['contract_type' => 'zero', 'status' => 'in_progress']);
+        $this->assertTrue($this->proj->registerClientAcceptance($id, $this->userId));
+        $p = $this->proj->findById($id);
+        $this->assertNotNull($p['client_accepted_at']);
+        $this->assertSame($this->userId, (int)$p['client_accepted_by']);
+        // Garantia calculada e status em garantia.
+        $this->assertNotNull($p['warranty_ends_at']);
+        $this->assertSame('warranty', $p['status']);
+    }
+
+    public function testGetWarrantyEndingSoonEMarkWarrantyWarnSent(): void
+    {
+        // Entrega hoje: garantia de 90 dias -> NÃO deve aparecer em "15 dias".
+        $recent = $this->novo(['contract_type' => 'zero', 'status' => 'in_progress']);
+        $this->proj->markDelivered($recent, $this->userId);
+
+        // Projeto cuja garantia termina em ~10 dias -> deve aparecer.
+        $soon = $this->novo(['contract_type' => 'zero']);
+        $this->proj->update($soon, [
+            'status' => 'warranty',
+            'delivered_at' => date('Y-m-d H:i:s', strtotime('-80 days')),
+            'warranty_ends_at' => date('Y-m-d H:i:s', strtotime('+10 days')),
+        ]);
+
+        $rows = $this->proj->getWarrantyEndingSoon(15);
+        $ids = array_map(fn($r) => (int)$r['id'], $rows);
+        $this->assertContains($soon, $ids, 'Projeto a 10 dias do fim deve aparecer');
+        $this->assertNotContains($recent, $ids, 'Projeto a 90 dias não deve aparecer');
+
+        // Após carimbar, não aparece mais (idempotência).
+        $this->proj->markWarrantyWarnSent($soon);
+        $rows2 = $this->proj->getWarrantyEndingSoon(15);
+        $ids2 = array_map(fn($r) => (int)$r['id'], $rows2);
+        $this->assertNotContains($soon, $ids2, 'Projeto já avisado não deve reaparecer');
+    }
 }

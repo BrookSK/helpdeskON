@@ -1071,6 +1071,93 @@ class CronController extends Controller
         return ['checked' => count($missing), 'notified' => $notified];
     }
 
+    /**
+     * GET /cron/warrantyWarnings?token=XXX
+     *
+     * Avisa o cliente (e o gestor) quando a garantia de um projeto está a 15 dias
+     * ou menos do fim, oferecendo o contrato de suporte. Idempotente: carimba
+     * warranty_warn_sent_at para não reavisar o mesmo projeto.
+     *
+     * Sugestão de agendamento (diário de manhã):
+     *   0 9 * * * curl -s "https://seudominio.com/cron/warrantyWarnings?token=TOKEN"
+     */
+    public function warrantyWarnings()
+    {
+        $this->validateToken();
+        @set_time_limit(120);
+        $result = $this->doWarrantyWarnings();
+        $this->json(['success' => true, 'warned' => $result]);
+    }
+
+    /** Dispara os avisos de fim de garantia. Retorna a quantidade avisada. */
+    private function doWarrantyWarnings(): int
+    {
+        $projectModel = new Project();
+        $rows = $projectModel->getWarrantyEndingSoon(ProjectRules::WARRANTY_WARNING_DAYS);
+        if (empty($rows)) {
+            return 0;
+        }
+
+        $warned = 0;
+        foreach ($rows as $p) {
+            // Guarda extra: a decisão vem da regra pura (testável).
+            if (!ProjectRules::shouldWarnWarrantyEnding($p['warranty_ends_at'] ?? null)) {
+                continue;
+            }
+
+            $daysLeft = ProjectRules::warrantyDaysLeft($p['warranty_ends_at'] ?? null);
+            $endBR    = date('d/m/Y', strtotime($p['warranty_ends_at']));
+
+            // Contato principal do cliente (dono da empresa).
+            $contact = ['name' => null, 'phone' => null, 'email' => null];
+            if (!empty($p['company_id'])) {
+                $users = (new Company())->getUsers((int)$p['company_id']);
+                $owner = $users[0] ?? null;
+                if ($owner) {
+                    $contact['name']  = $owner['name']  ?? null;
+                    $contact['phone'] = $owner['phone'] ?? null;
+                    $contact['email'] = $owner['email'] ?? null;
+                }
+            }
+
+            $msg = "⚠️ *Fim da garantia se aproximando*\n\n"
+                 . "Olá" . (!empty($contact['name']) ? ", {$contact['name']}" : '') . "! A garantia do projeto "
+                 . "\"{$p['name']}\" termina em *{$daysLeft} dia(s)* ({$endBR}).\n\n"
+                 . "Para continuar com atendimento após esse prazo, consulte nosso contrato de suporte. "
+                 . "Estamos à disposição.";
+
+            if (!empty($contact['phone'])) {
+                try { WhatsappNotifier::sendToPhone($contact['phone'], $msg, $contact['name']); } catch (\Throwable $e) {
+                    Logger::error('warrantyWarnings: whatsapp', ['project' => $p['id'], 'error' => $e->getMessage()]);
+                }
+            }
+            if (!empty($contact['email'])) {
+                $body = Mailer::template('Fim da garantia se aproximando',
+                    "<p>Olá" . (!empty($contact['name']) ? ', <strong>' . htmlspecialchars($contact['name']) . '</strong>' : '') . "!</p>
+                     <p>A garantia do projeto <strong>" . htmlspecialchars($p['name']) . "</strong> termina em
+                     <strong>{$daysLeft} dia(s)</strong> ({$endBR}).</p>
+                     <p>Para manter o atendimento após esse prazo, consulte nosso contrato de suporte.</p>");
+                try { Mailer::send($contact['email'], 'Fim da garantia do seu projeto', $body); } catch (\Throwable $e) {
+                    Logger::error('warrantyWarnings: email', ['project' => $p['id'], 'error' => $e->getMessage()]);
+                }
+            }
+
+            // Aviso interno ao grupo da equipe (best-effort).
+            try {
+                WhatsappNotifier::sendToDefaultGroup(
+                    "⚠️ Garantia do projeto \"{$p['name']}\" (" . ($p['company_name'] ?? 'sem cliente') . ") "
+                    . "termina em {$daysLeft} dia(s) ({$endBR}). Ofereça o contrato de suporte."
+                );
+            } catch (\Throwable $e) {}
+
+            // Carimba (idempotência): não reavisa o mesmo projeto.
+            try { $projectModel->markWarrantyWarnSent((int)$p['id']); } catch (\Throwable $e) {}
+
+            $warned++;
+        }
+        return $warned;
+    }
+
     public function index()
     {
         $this->json([
@@ -1083,6 +1170,7 @@ class CronController extends Controller
                 'GET /cron/cardDueReminders?token=XXX' => 'Lembrete WhatsApp ao responsável de cards de Planejamento com prazo faltando <24h',
                 'GET /cron/checkMissingReports?token=XXX' => 'Verifica profissionais sem Relatório Diário e notifica via WhatsApp/e-mail',
                 'GET /cron/homologacaoRegua?token=XXX' => 'Régua de homologação (48h): 3 contatos + liberação automática para produção',
+                'GET /cron/warrantyWarnings?token=XXX' => 'Aviso 15 dias antes do fim da garantia do projeto (cliente + gestor)',
             ],
             'tip' => 'Configure cron_token em Configurações para proteger este endpoint.',
         ]);

@@ -22,12 +22,13 @@ class ClickSignApi
         $this->accessToken = $accessToken ?? (string) Config::get('clicksign_access_token');
         $this->sandbox = $sandbox ?? (((string) Config::get('clicksign_sandbox')) === '1');
 
-        // Segurança: tokens de homologação da ClickSign têm o marcador "_hmlg_".
-        // Se o token é de homologação, força o ambiente sandbox (evita o erro
-        // "e-mail do usuário da API não configurada" ao enviar token de teste
-        // para a URL de produção, e vice-versa).
+        // Segurança (apenas para HOMOLOGAÇÃO): tokens de homologação da ClickSign
+        // trazem o marcador "_hmlg_"/"_test_". Se o token é de homologação, força
+        // o ambiente sandbox para não enviar token de teste à URL de produção.
+        // Tokens de PRODUÇÃO não têm esses marcadores -> respeita a configuração
+        // (produção quando o checkbox "sandbox" está desmarcado).
         $tok = (string) $this->accessToken;
-        if (stripos($tok, '_hmlg_') !== false || stripos($tok, '_test_') !== false || stripos($tok, 'sandbox') !== false) {
+        if (stripos($tok, '_hmlg_') !== false || stripos($tok, '_test_') !== false) {
             $this->sandbox = true;
         }
     }

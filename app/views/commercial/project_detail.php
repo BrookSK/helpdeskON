@@ -53,6 +53,46 @@ $st = $project['status'];
                     </div>
                 </div>
             </div>
+
+            <!-- Entrega formal: publicação, documentação, reunião e aceite -->
+            <div class="card mt-3">
+                <div class="card-header py-2"><strong>Entrega & Aceite</strong></div>
+                <div class="card-body">
+                    <dl class="row mb-0 small">
+                        <dt class="col-5">Publicado em produção</dt>
+                        <dd class="col-7"><?= !empty($project['published_at']) ? date('d/m/Y H:i', strtotime($project['published_at'])) : '<span class="text-muted">—</span>' ?></dd>
+
+                        <dt class="col-5">Documentação/manual</dt>
+                        <dd class="col-7">
+                            <?php if (!empty($project['documentation_delivered_at'])): ?>
+                                Entregue em <?= date('d/m/Y', strtotime($project['documentation_delivered_at'])) ?>
+                                <?php if (!empty($project['manual_url'])): ?>
+                                · <a href="<?= escape($project['manual_url']) ?>" target="_blank" rel="noopener">abrir manual</a>
+                                <?php endif; ?>
+                            <?php else: ?>
+                                <span class="text-muted">Não entregue</span>
+                            <?php endif; ?>
+                        </dd>
+
+                        <dt class="col-5">Reunião de entrega</dt>
+                        <dd class="col-7"><?= !empty($project['delivery_meeting_at']) ? date('d/m/Y H:i', strtotime($project['delivery_meeting_at'])) : '<span class="text-muted">—</span>' ?></dd>
+
+                        <dt class="col-5">Aceite do cliente</dt>
+                        <dd class="col-7"><?= !empty($project['client_accepted_at']) ? ('<span class="text-success">Aceito em ' . date('d/m/Y H:i', strtotime($project['client_accepted_at'])) . '</span>') : '<span class="text-muted">Pendente</span>' ?></dd>
+                    </dl>
+                    <hr>
+                    <div class="d-flex gap-2 flex-wrap">
+                        <?php if (in_array($st, ['planning','in_progress'], true)): ?>
+                        <button class="btn btn-sm btn-outline-primary" onclick="publish()"><i class="bi bi-cloud-arrow-up"></i> Publicar em produção</button>
+                        <?php endif; ?>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="markDoc()"><i class="bi bi-file-earmark-text"></i> Registrar documentação</button>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="linkMeeting()"><i class="bi bi-calendar-event"></i> Vincular reunião</button>
+                        <?php if (empty($project['client_accepted_at'])): ?>
+                        <button class="btn btn-sm btn-outline-success" onclick="genAcceptance()"><i class="bi bi-link-45deg"></i> Gerar link de aceite</button>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
         </div>
         <div class="col-lg-6">
             <div class="card">
@@ -92,6 +132,30 @@ async function deliver() {
 async function toggleSupport(active) {
     const r = await post(`project/toggleSupport/${PID}`, { active });
     if (r.error) { alert(r.error); return; } location.reload();
+}
+async function publish() {
+    if (!confirm('Confirmar a publicação em produção? O cliente será notificado.')) return;
+    const r = await post(`project/publish/${PID}`, {});
+    if (r.error) { alert(r.error); return; } location.reload();
+}
+async function markDoc() {
+    const url = prompt('Link do manual/documentação (opcional):', '');
+    if (url === null) return; // cancelou
+    const r = await post(`project/markDocumentation/${PID}`, { manual_url: url.trim() });
+    if (r.error) { alert(r.error); return; } location.reload();
+}
+async function linkMeeting() {
+    const dt = prompt('Data/hora da reunião de entrega (AAAA-MM-DD HH:MM):', '');
+    if (dt === null || dt.trim() === '') return;
+    const r = await post(`project/linkMeeting/${PID}`, { meeting_at: dt.trim() });
+    if (r.error) { alert(r.error); return; } location.reload();
+}
+async function genAcceptance() {
+    if (!confirm('Gerar o link de aceite e enviar ao cliente?')) return;
+    const r = await post(`project/generateAcceptanceLink/${PID}`, {});
+    if (r.error) { alert(r.error); return; }
+    prompt('Link de aceite gerado (enviado ao cliente). Copie se precisar:', r.link || '');
+    location.reload();
 }
 </script>
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>
