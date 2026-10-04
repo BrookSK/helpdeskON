@@ -82,7 +82,17 @@ class ClickSignApi
         if ($message !== null && trim($message) !== '') {
             $payload['message'] = $message;
         }
-        return $this->request('POST', '/api/v1/notifications', $payload);
+        // Endpoint principal da v1 para notificar por e-mail.
+        $r = $this->request('POST', '/api/v1/notifications', $payload);
+        if (!empty($r['success'])) return $r;
+
+        // Fallback: algumas contas usam o endpoint de "notify" (reenvio da
+        // solicitação de assinatura). Mantém a mesma chave.
+        $r2 = $this->request('POST', '/api/v1/notify', $payload);
+        if (!empty($r2['success'])) return $r2;
+
+        // Retorna o erro mais informativo dos dois.
+        return $r2 + ['first_try_error' => $r['error'] ?? null];
     }
 
     /** Realiza a requisição HTTP (JSON) com o access_token em query string. */

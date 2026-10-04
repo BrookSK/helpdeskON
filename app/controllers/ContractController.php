@@ -464,24 +464,51 @@ class ContractController extends Controller
 
         $clientReqKey = null;      // guardado para enviar o link ao cliente por WhatsApp
         $clientSignerKey = null;
+        $clientWhatsOk = false;    // WhatsApp (nosso) entregue ao cliente?
         $notifiedCount = 0;
         $fails = [];
+        $detalhes = [];            // detalhe por signatário (p/ histórico e retorno)
+        $company = trim((string) Config::get('app_name')) ?: null;
 
         foreach ($toSign as $sg) {
-            if (empty($sg['email'])) { $fails[] = ($sg['name'] . ': sem e-mail'); continue; }
+            $tag = $sg['name'] . ' (' . $sg['role'] . ')';
+            if (empty($sg['email'])) { $fails[] = $tag . ': sem e-mail'; $detalhes[] = $tag . ': SEM E-MAIL'; continue; }
+
             $signer = $api->createSigner($sg['email'], $sg['name'] ?: 'Signatário', $sg['phone'] ?? null);
             if (empty($signer['success']) || empty($signer['data']['signer']['key'])) {
-                $fails[] = ($sg['name'] . ': ' . ($signer['error'] ?? 'falha ao criar signatário'));
+                $msg = $signer['error'] ?? 'falha ao criar signatário';
+                $fails[] = $tag . ': ' . $msg; $detalhes[] = $tag . ': ERRO criar signatário (' . $msg . ')';
                 continue;
             }
             $sk = $signer['data']['signer']['key'];
             $list = $api->addSigner($docKey, $sk, 'sign');
             $rk = $list['data']['list']['request_signature_key'] ?? null;
-            if ($rk) {
-                $notif = $api->notifySigner($rk, 'Olá! Segue o contrato "' . ($contract['title'] ?? '') . '" para sua assinatura.');
-                if (!empty($notif['success'])) $notifiedCount++;
+            if (!$rk) {
+                $fails[] = $tag . ': ' . ($list['error'] ?? 'falha ao vincular ao documento');
+                $detalhes[] = $tag . ': ERRO vincular (' . ($list['error'] ?? '?') . ')';
+                continue;
             }
-            if ($sg['role'] === 'cliente') { $clientReqKey = $rk; $clientSignerKey = $sk; }
+
+            // Notificação por e-mail (ClickSign).
+            $notif = $api->notifySigner($rk, 'Olá! Segue o contrato "' . ($contract['title'] ?? '') . '" para sua assinatura.');
+            $emailOk = !empty($notif['success']);
+            if ($emailOk) $notifiedCount++;
+
+            // WhatsApp com o link de assinatura (nosso sistema) — para QUALQUER
+            // signatário que tenha telefone (cliente e empresa).
+            $signUrl = $base . '/sign/' . $rk;
+            $waOk = false;
+            if (!empty($sg['phone'])) {
+                $wa = "Olá" . ($sg['name'] ? ', ' . $sg['name'] : '') . "!\n\n"
+                    . ($company ? "*{$company}*\n" : '')
+                    . "O contrato \"" . ($contract['title'] ?? '') . "\" está pronto para sua assinatura. Assine pelo link:\n" . $signUrl;
+                try { $waOk = (bool) WhatsappNotifier::sendToPhone($sg['phone'], $wa, $sg['name'] ?? null); }
+                catch (\Throwable $e) { /* não interrompe */ }
+            }
+            $detalhes[] = $tag . ': e-mail ' . ($emailOk ? 'OK' : 'FALHOU') . ($emailOk ? '' : ' (' . ($notif['error'] ?? '?') . ')')
+                        . ', whats ' . (!empty($sg['phone']) ? ($waOk ? 'OK' : 'FALHOU') : 'sem telefone');
+
+            if ($sg['role'] === 'cliente') { $clientReqKey = $rk; $clientSignerKey = $sk; $clientWhatsOk = $waOk; }
         }
 
         $this->model->changeStatus($id, ContractRules::STATUS_AWAITING_SIGNATURE, $user['id'], [
@@ -491,28 +518,20 @@ class ContractController extends Controller
             'sent_signature_at' => date('Y-m-d H:i:s'),
         ]);
         $this->model->addEvent($id, $user['id'], 'signature_sent',
-            'Enviado para assinatura na ClickSign (' . count($toSign) . ' signatário(s), ' . $notifiedCount . ' notificado(s))'
-            . (empty($fails) ? '' : ' — falhas: ' . implode('; ', $fails)));
+            'Enviado para assinatura (' . count($toSign) . ' signatário(s)). ' . implode(' | ', $detalhes));
 
-        // Link de assinatura do CLIENTE: também envia por WhatsApp (além do e-mail da ClickSign).
+        // O WhatsApp ao cliente (e aos signatários da empresa) já foi enviado
+        // dentro do loop acima; aqui só expomos o resultado no retorno.
         $clientSignUrl = $clientReqKey ? ($base . '/sign/' . $clientReqKey) : null;
-        $sentWhats = false;
-        if ($clientSignUrl && !empty($contract['client_phone'])) {
-            $company = trim((string) Config::get('app_name')) ?: null;
-            $waMsg = "Olá" . ($contract['client_name'] ? ', ' . $contract['client_name'] : '') . "!\n\n"
-                . ($company ? "*{$company}*\n" : '')
-                . "Seu contrato \"" . ($contract['title'] ?? '') . "\" está pronto para assinatura. Assine pelo link:\n" . $clientSignUrl;
-            try { $sentWhats = (bool) WhatsappNotifier::sendToPhone($contract['client_phone'], $waMsg, $contract['client_name'] ?? null); }
-            catch (\Throwable $e) { /* não interrompe */ }
-        }
 
         $this->json([
             'success' => true,
             'signers' => count($toSign),
             'notified' => $notifiedCount,
-            'sent_whats' => $sentWhats,
+            'sent_whats' => $clientWhatsOk,
             'sign_url' => $clientSignUrl,
             'fails' => $fails,
+            'detalhes' => $detalhes,
         ]);
     }
 
