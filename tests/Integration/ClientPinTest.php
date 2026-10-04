@@ -6,10 +6,9 @@ use User;
 use Database;
 
 /**
- * Testes de integração do PIN de login do cliente (Fase 9) contra
- * helpdesk_on_test. Cobre: gerar/definir PIN único, resolver por PIN só clientes
- * ativos, e que o PIN do cliente (client_pin) NÃO colide com o external_pin de
- * equipe (campos distintos — não quebra o /solicitacaoexterna).
+ * Testes de integração do PIN de login por usuário (contra helpdesk_on_test).
+ * Cobre: gerar/definir PIN único de 4 dígitos, resolver por PIN apenas usuários
+ * ativos, e que o PIN vale para QUALQUER papel (não só clientes).
  */
 final class ClientPinTest extends TestCase
 {
@@ -34,24 +33,23 @@ final class ClientPinTest extends TestCase
         }
     }
 
-    private function novoCliente(array $over = []): int
+    private function novoUsuario(array $over = []): int
     {
         $u = uniqid();
         $id = (int) $this->db->insert('users', array_merge([
-            'name' => "Cli {$u}", 'email' => "cp_{$u}@example.test",
+            'name' => "User {$u}", 'email' => "cp_{$u}@example.test",
             'password' => password_hash('x', PASSWORD_BCRYPT), 'role' => 'client', 'is_active' => 1,
         ], $over));
         $this->userIds[] = $id;
         return $id;
     }
 
-    public function testGeraPinUnicoEResolve(): void
+    public function testGeraPinUnicoDe4DigitosEResolve(): void
     {
-        $id = $this->novoCliente();
+        $id = $this->novoUsuario();
         $pin = $this->users->setClientPin($id, null);
         $this->assertNotNull($pin);
-        $this->assertSame(6, strlen($pin));
-        // Resolve o cliente pelo PIN.
+        $this->assertSame(4, strlen($pin));
         $found = $this->users->findByClientPin($pin);
         $this->assertNotNull($found);
         $this->assertSame($id, (int)$found['id']);
@@ -59,42 +57,33 @@ final class ClientPinTest extends TestCase
 
     public function testPinDuplicadoRecusado(): void
     {
-        $id1 = $this->novoCliente();
-        $pin = $this->users->setClientPin($id1, '246810');
-        $this->assertSame('246810', $pin);
-        // Outro cliente não pode usar o mesmo PIN.
-        $id2 = $this->novoCliente();
-        $this->assertNull($this->users->setClientPin($id2, '246810'));
+        $id1 = $this->novoUsuario();
+        $pin = $this->users->setClientPin($id1, '2468');
+        $this->assertSame('2468', $pin);
+        // Outro usuário não pode usar o mesmo PIN.
+        $id2 = $this->novoUsuario();
+        $this->assertNull($this->users->setClientPin($id2, '2468'));
     }
 
-    public function testClienteInativoNaoResolve(): void
+    public function testUsuarioInativoNaoResolve(): void
     {
-        $id = $this->novoCliente(['is_active' => 0]);
-        $this->users->setClientPin($id, '135790');
-        $this->assertNull($this->users->findByClientPin('135790'));
+        $id = $this->novoUsuario(['is_active' => 0]);
+        $this->users->setClientPin($id, '1357');
+        $this->assertNull($this->users->findByClientPin('1357'));
     }
 
-    public function testNaoColideComPinDeEquipe(): void
+    public function testPinValeParaQualquerPapel(): void
     {
-        // Um usuário de EQUIPE com external_pin (4 dígitos) e um CLIENTE com
-        // client_pin (6 dígitos) coexistem sem interferência.
-        $u = uniqid();
-        $team = (int) $this->db->insert('users', [
-            'name' => "Eq {$u}", 'email' => "eq_{$u}@example.test",
-            'password' => password_hash('x', PASSWORD_BCRYPT), 'role' => 'attendant',
-            'is_active' => 1, 'external_pin' => '4321',
-        ]);
-        $this->userIds[] = $team;
+        // O PIN é por usuário: um papel de equipe (ex.: developer) também loga.
+        $dev = $this->novoUsuario(['role' => 'developer', 'email' => 'dev_' . uniqid() . '@example.test']);
+        $this->users->setClientPin($dev, '7788');
+        $found = $this->users->findByClientPin('7788');
+        $this->assertNotNull($found);
+        $this->assertSame($dev, (int)$found['id']);
+        $this->assertSame('developer', $found['role']);
 
-        $cli = $this->novoCliente();
-        $this->users->setClientPin($cli, '432100');
-
-        // findByClientPin não acha o PIN de equipe (campo diferente).
-        $this->assertNull($this->users->findByClientPin('4321'));
-        // findByPin (equipe) não acha o client_pin.
-        $this->assertNull($this->users->findByPin('432100'));
-        // Cada um resolve pelo seu campo.
-        $this->assertSame($cli, (int)$this->users->findByClientPin('432100')['id']);
-        $this->assertSame($team, (int)$this->users->findByPin('4321')['id']);
+        $admin = $this->novoUsuario(['role' => 'super_admin', 'email' => 'adm_' . uniqid() . '@example.test']);
+        $this->users->setClientPin($admin, '9900');
+        $this->assertSame($admin, (int)$this->users->findByClientPin('9900')['id']);
     }
 }

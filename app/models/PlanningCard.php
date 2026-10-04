@@ -18,7 +18,8 @@ class PlanningCard
                     an.name as analyst_name,
                     cb.name as created_by_name,
                     co.name as company_name,
-                    t.title as ticket_title
+                    t.title as ticket_title,
+                    t.category as category
              FROM planning_cards pc
              LEFT JOIN users u ON pc.assigned_to = u.id
              LEFT JOIN users tr ON pc.technical_responsible_id = tr.id
@@ -37,9 +38,11 @@ class PlanningCard
                        u.name as assigned_name,
                        co.name as company_name,
                        cb.name as created_by_name,
-                       cb.role as created_by_role
+                       cb.role as created_by_role,
+                       t.category as category
                 FROM planning_cards pc
                 LEFT JOIN users u ON pc.assigned_to = u.id
+                LEFT JOIN tickets t ON pc.ticket_id = t.id
                 LEFT JOIN companies co ON pc.company_id = co.id
                 LEFT JOIN users cb ON pc.created_by = cb.id
                 WHERE 1=1";
@@ -118,11 +121,13 @@ class PlanningCard
             $sql = "SELECT pc.*, 
                            u.name as assigned_name,
                            co.name as company_name,
-                           cb.name as created_by_name
+                           cb.name as created_by_name,
+                           t.category as category
                     FROM planning_cards pc
                     LEFT JOIN users u ON pc.assigned_to = u.id
                     LEFT JOIN companies co ON pc.company_id = co.id
                     LEFT JOIN users cb ON pc.created_by = cb.id
+                    LEFT JOIN tickets t ON pc.ticket_id = t.id
                     WHERE pc.status = ?";
             $params = [$status];
 

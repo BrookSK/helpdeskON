@@ -117,42 +117,6 @@ class User
         return false;
     }
 
-    /**
-     * Verifica se um PIN de acesso externo já está em uso por outro usuário.
-     * $exceptId permite ignorar o próprio usuário ao editar.
-     */
-    public function pinExists($pin, $exceptId = null)
-    {
-        $pin = trim((string)$pin);
-        if ($pin === '') return false;
-        if ($exceptId) {
-            $row = $this->db->fetch(
-                "SELECT id FROM users WHERE external_pin = ? AND id <> ? LIMIT 1",
-                [$pin, $exceptId]
-            );
-        } else {
-            $row = $this->db->fetch(
-                "SELECT id FROM users WHERE external_pin = ? LIMIT 1",
-                [$pin]
-            );
-        }
-        return (bool)$row;
-    }
-
-    /**
-     * Retorna o usuário da equipe (ativo) dono do PIN de acesso externo informado.
-     * Usado no login da página /solicitacaoexterna.
-     */
-    public function findByPin($pin)
-    {
-        $pin = trim((string)$pin);
-        if ($pin === '') return null;
-        return $this->db->fetch(
-            "SELECT * FROM users WHERE external_pin = ? AND is_active = 1 LIMIT 1",
-            [$pin]
-        ) ?: null;
-    }
-
     public function toggleActive($id)
     {
         $user = $this->findById($id);
@@ -161,8 +125,8 @@ class User
     }
 
     /**
-     * Verifica se um PIN de CLIENTE (6 dígitos, distinto do external_pin de
-     * equipe) já está em uso por outro usuário.
+     * Verifica se um PIN de login (4 dígitos, coluna client_pin) já está em uso
+     * por outro usuário. $exceptId ignora o próprio usuário ao editar.
      */
     public function clientPinExists($pin, $exceptId = null)
     {
@@ -207,8 +171,7 @@ class User
 
     /**
      * Retorna o usuário ATIVO dono do PIN informado (login por PIN, /clientpin).
-     * O PIN é por usuário: vale para qualquer papel. Diferente de findByPin
-     * (que é o PIN de equipe de 4 dígitos do /solicitacaoexterna).
+     * O PIN é por usuário: vale para qualquer papel.
      */
     public function findByClientPin($pin)
     {
