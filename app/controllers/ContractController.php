@@ -148,6 +148,67 @@ class ContractController extends Controller
         $this->json(['success' => true]);
     }
 
+    // ================= Signatários da empresa (CRUD) =================
+
+    /** Lista/gerencia os signatários da empresa (lado contratada). */
+    public function signers()
+    {
+        $this->requireModule('contracts');
+        $this->view('commercial/contract_signers', [
+            'user' => $this->currentUser(),
+            'signers' => (new ContractSigner())->getAll(false),
+        ]);
+    }
+
+    /** Cria um signatário da empresa (POST). */
+    public function storeSigner()
+    {
+        $this->requireModule('contracts');
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $user = $this->currentUser();
+        $name = trim($_POST['name'] ?? '');
+        $email = trim($_POST['email'] ?? '');
+        if ($name === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $this->json(['error' => 'Informe nome e um e-mail válido.'], 400);
+        }
+        $id = (new ContractSigner())->create([
+            'name' => $name, 'email' => $email,
+            'phone' => $_POST['phone'] ?? null,
+            'role_label' => $_POST['role_label'] ?? null,
+            'is_default' => !empty($_POST['is_default']),
+            'created_by' => $user['id'],
+        ]);
+        $this->json(['success' => true, 'id' => $id]);
+    }
+
+    /** Atualiza um signatário da empresa (POST). */
+    public function updateSigner($id = null)
+    {
+        $this->requireModule('contracts');
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+        $name = trim($_POST['name'] ?? '');
+        $email = trim($_POST['email'] ?? '');
+        if ($name === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $this->json(['error' => 'Informe nome e um e-mail válido.'], 400);
+        }
+        (new ContractSigner())->update((int)$id, [
+            'name' => $name, 'email' => $email,
+            'phone' => $_POST['phone'] ?? null,
+            'role_label' => $_POST['role_label'] ?? null,
+            'is_default' => !empty($_POST['is_default']),
+        ]);
+        $this->json(['success' => true]);
+    }
+
+    /** Ativa/desativa um signatário da empresa. */
+    public function toggleSigner($id = null)
+    {
+        $this->requireModule('contracts');
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+        (new ContractSigner())->toggleActive((int)$id);
+        $this->json(['success' => true]);
+    }
+
     /**
      * Renderiza um modelo com as variáveis já preenchidas pelos dados do
      * contrato atual (POST: contract_id, template_id). Usado pelo botão
@@ -208,6 +269,8 @@ class ContractController extends Controller
             'canSign' => ContractRules::canSendToSignature($contract['status']),
             // Modelos ativos para o botão "Carregar de um modelo" (só com corpo editável).
             'templates' => (new ContractTemplate())->getAll(true),
+            // Signatários da empresa (para escolher quem assina junto com o cliente).
+            'companySigners' => (new ContractSigner())->getAll(true),
         ]);
     }
 
@@ -382,24 +445,94 @@ class ContractController extends Controller
             $this->json(['error' => 'Falha ao criar o documento na ClickSign: ' . ($doc['error'] ?? 'desconhecido')], 502);
         }
         $docKey = $doc['data']['document']['key'];
+        $base = ClickSignRules::baseUrl($api->isSandbox());
 
-        // 2) Cria o signatário (cliente) e 3) vincula ao documento.
-        $signer = $api->createSigner($contract['client_email'], $contract['client_name'] ?: 'Cliente', $contract['client_phone'] ?? null);
-        if (empty($signer['success']) || empty($signer['data']['signer']['key'])) {
-            $this->json(['error' => 'Falha ao criar o signatário na ClickSign.'], 502);
+        // Monta a lista de signatários: o CLIENTE + os signatários da empresa
+        // escolhidos (POST company_signers[]). Cada um é criado e vinculado.
+        $toSign = [];
+        $toSign[] = [
+            'email' => (string)$contract['client_email'],
+            'name'  => $contract['client_name'] ?: 'Cliente',
+            'phone' => $contract['client_phone'] ?? null,
+            'role'  => 'cliente',
+        ];
+        $companyIds = $_POST['company_signers'] ?? [];
+        if (!is_array($companyIds)) $companyIds = array_filter(explode(',', (string)$companyIds));
+        foreach ((new ContractSigner())->findByIds($companyIds) as $cs) {
+            $toSign[] = ['email' => $cs['email'], 'name' => $cs['name'], 'phone' => $cs['phone'] ?? null, 'role' => 'empresa'];
         }
-        $signerKey = $signer['data']['signer']['key'];
-        $list = $api->addSigner($docKey, $signerKey, 'sign');
-        $reqKey = $list['data']['list']['request_signature_key'] ?? null;
+
+        $clientReqKey = null;      // guardado para enviar o link ao cliente por WhatsApp
+        $clientSignerKey = null;
+        $clientWhatsOk = false;    // WhatsApp (nosso) entregue ao cliente?
+        $notifiedCount = 0;
+        $fails = [];
+        $detalhes = [];            // detalhe por signatário (p/ histórico e retorno)
+        $company = trim((string) Config::get('app_name')) ?: null;
+
+        foreach ($toSign as $sg) {
+            $tag = $sg['name'] . ' (' . $sg['role'] . ')';
+            if (empty($sg['email'])) { $fails[] = $tag . ': sem e-mail'; $detalhes[] = $tag . ': SEM E-MAIL'; continue; }
+
+            $signer = $api->createSigner($sg['email'], $sg['name'] ?: 'Signatário', $sg['phone'] ?? null);
+            if (empty($signer['success']) || empty($signer['data']['signer']['key'])) {
+                $msg = $signer['error'] ?? 'falha ao criar signatário';
+                $fails[] = $tag . ': ' . $msg; $detalhes[] = $tag . ': ERRO criar signatário (' . $msg . ')';
+                continue;
+            }
+            $sk = $signer['data']['signer']['key'];
+            $list = $api->addSigner($docKey, $sk, 'sign');
+            $rk = $list['data']['list']['request_signature_key'] ?? null;
+            if (!$rk) {
+                $fails[] = $tag . ': ' . ($list['error'] ?? 'falha ao vincular ao documento');
+                $detalhes[] = $tag . ': ERRO vincular (' . ($list['error'] ?? '?') . ')';
+                continue;
+            }
+
+            // Notificação por e-mail (ClickSign).
+            $notif = $api->notifySigner($rk, 'Olá! Segue o contrato "' . ($contract['title'] ?? '') . '" para sua assinatura.');
+            $emailOk = !empty($notif['success']);
+            if ($emailOk) $notifiedCount++;
+
+            // WhatsApp com o link de assinatura (nosso sistema) — para QUALQUER
+            // signatário que tenha telefone (cliente e empresa).
+            $signUrl = $base . '/sign/' . $rk;
+            $waOk = false;
+            if (!empty($sg['phone'])) {
+                $wa = "Olá" . ($sg['name'] ? ', ' . $sg['name'] : '') . "!\n\n"
+                    . ($company ? "*{$company}*\n" : '')
+                    . "O contrato \"" . ($contract['title'] ?? '') . "\" está pronto para sua assinatura. Assine pelo link:\n" . $signUrl;
+                try { $waOk = (bool) WhatsappNotifier::sendToPhone($sg['phone'], $wa, $sg['name'] ?? null); }
+                catch (\Throwable $e) { /* não interrompe */ }
+            }
+            $detalhes[] = $tag . ': e-mail ' . ($emailOk ? 'OK' : 'FALHOU') . ($emailOk ? '' : ' (' . ($notif['error'] ?? '?') . ')')
+                        . ', whats ' . (!empty($sg['phone']) ? ($waOk ? 'OK' : 'FALHOU') : 'sem telefone');
+
+            if ($sg['role'] === 'cliente') { $clientReqKey = $rk; $clientSignerKey = $sk; $clientWhatsOk = $waOk; }
+        }
 
         $this->model->changeStatus($id, ContractRules::STATUS_AWAITING_SIGNATURE, $user['id'], [
             'clicksign_doc_key' => $docKey,
-            'clicksign_signer_key' => $signerKey,
-            'clicksign_request_key' => $reqKey,
+            'clicksign_signer_key' => $clientSignerKey,
+            'clicksign_request_key' => $clientReqKey,
             'sent_signature_at' => date('Y-m-d H:i:s'),
         ]);
-        $this->model->addEvent($id, $user['id'], 'signature_sent', 'Enviado para assinatura na ClickSign');
-        $this->json(['success' => true]);
+        $this->model->addEvent($id, $user['id'], 'signature_sent',
+            'Enviado para assinatura (' . count($toSign) . ' signatário(s)). ' . implode(' | ', $detalhes));
+
+        // O WhatsApp ao cliente (e aos signatários da empresa) já foi enviado
+        // dentro do loop acima; aqui só expomos o resultado no retorno.
+        $clientSignUrl = $clientReqKey ? ($base . '/sign/' . $clientReqKey) : null;
+
+        $this->json([
+            'success' => true,
+            'signers' => count($toSign),
+            'notified' => $notifiedCount,
+            'sent_whats' => $clientWhatsOk,
+            'sign_url' => $clientSignUrl,
+            'fails' => $fails,
+            'detalhes' => $detalhes,
+        ]);
     }
 
     // ================= Área pública (cliente, por token) =================
