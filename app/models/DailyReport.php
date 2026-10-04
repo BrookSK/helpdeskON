@@ -1,8 +1,12 @@
 <?php
 
 /**
- * Model do RDO (Relatório Diário). Persistência em daily_reports +
- * daily_report_attachments + daily_report_collaborators.
+ * Model do RDO (Relatório Diário). Persistência em:
+ *   daily_reports              → o relatório em si.
+ *   daily_report_attachments   → anexos (áudio/imagem/arquivo).
+ *   daily_report_collaborators → colaboradores/prestadores do dia.
+ *   daily_report_reviews       → pendências de revisão para o admin.
+ *   daily_report_history       → audit trail de todas as ações.
  *
  * O ESCOPO de visibilidade (quem vê o quê) é responsabilidade do controller,
  * que passa $ownerId nos filtros quando o papel não tem visão global. O model
@@ -16,6 +20,10 @@ class DailyReport
     {
         $this->db = Database::getInstance();
     }
+
+    // =========================================================================
+    // Relatório principal
+    // =========================================================================
 
     public function findById($id)
     {
@@ -33,8 +41,8 @@ class DailyReport
     /**
      * Lista relatórios com filtros opcionais.
      * $filters: user_id (escopo do dono), company_id (projeto/obra), search
-     * (texto em título/atividades/ocorrências), date (report_date exata),
-     * date_from, date_to, status, has_occurrence.
+     * (texto em título/atividades/ocorrências/pendências/plano), date (exata),
+     * date_from, date_to, status, has_occurrence, review_status.
      */
     public function getList($filters = [])
     {
@@ -57,9 +65,11 @@ class DailyReport
             $params[] = $filters['company_id'];
         }
         if (!empty($filters['search'])) {
-            $sql .= " AND (dr.title LIKE ? OR dr.activities LIKE ? OR dr.occurrences LIKE ?)";
+            $sql .= " AND (dr.title LIKE ? OR dr.activities LIKE ? OR dr.occurrences LIKE ?
+                           OR dr.pending_tasks LIKE ? OR dr.next_day_plan LIKE ?)";
             $like = '%' . $filters['search'] . '%';
             $params[] = $like; $params[] = $like; $params[] = $like;
+            $params[] = $like; $params[] = $like;
         }
         if (!empty($filters['date'])) {
             $sql .= " AND dr.report_date = ?";
@@ -81,6 +91,10 @@ class DailyReport
             $sql .= " AND dr.has_occurrence = ?";
             $params[] = (int) $filters['has_occurrence'];
         }
+        if (!empty($filters['review_status'])) {
+            $sql .= " AND dr.review_status = ?";
+            $params[] = $filters['review_status'];
+        }
 
         // Agrupa por projeto/obra (empresa): relatórios sem empresa vão para o
         // fim; dentro de cada projeto, os mais recentes primeiro.
@@ -89,7 +103,7 @@ class DailyReport
     }
 
     /**
-     * Cards de resumo: total, finalizado, em andamento e com ocorrência.
+     * Cards de resumo: total, finalizado, em andamento, com ocorrência e com pendência.
      * Respeita o mesmo escopo de $filters['user_id'] (dono) que a listagem.
      */
     public function getStats($filters = [])
@@ -118,16 +132,18 @@ class DailyReport
                 COUNT(*) AS total,
                 COALESCE(SUM(status = 'finalizado'), 0) AS finalizado,
                 COALESCE(SUM(status = 'em_andamento'), 0) AS em_andamento,
-                COALESCE(SUM(has_occurrence = 1), 0) AS ocorrencias
+                COALESCE(SUM(has_occurrence = 1), 0) AS ocorrencias,
+                COALESCE(SUM(review_status = 'pending_review'), 0) AS pendencias
              FROM daily_reports {$where}",
             $params
         );
 
         return [
-            'total' => (int) ($row['total'] ?? 0),
-            'finalizado' => (int) ($row['finalizado'] ?? 0),
-            'em_andamento' => (int) ($row['em_andamento'] ?? 0),
+            'total'       => (int) ($row['total']       ?? 0),
+            'finalizado'  => (int) ($row['finalizado']  ?? 0),
+            'em_andamento'=> (int) ($row['em_andamento']?? 0),
             'ocorrencias' => (int) ($row['ocorrencias'] ?? 0),
+            'pendencias'  => (int) ($row['pendencias']  ?? 0),
         ];
     }
 
@@ -146,7 +162,9 @@ class DailyReport
         return $this->db->delete('daily_reports', 'id = ?', [$id]);
     }
 
-    // ===== Anexos =====
+    // =========================================================================
+    // Anexos
+    // =========================================================================
 
     public function getAttachments($reportId)
     {
@@ -171,7 +189,9 @@ class DailyReport
         return $this->db->delete('daily_report_attachments', 'id = ?', [$id]);
     }
 
-    // ===== Colaboradores / prestadores =====
+    // =========================================================================
+    // Colaboradores / prestadores
+    // =========================================================================
 
     public function getCollaborators($reportId)
     {
@@ -194,11 +214,118 @@ class DailyReport
             $name = trim($c['collaborator_name'] ?? '');
             if ($name === '') continue;
             $this->db->insert('daily_report_collaborators', [
-                'report_id' => $reportId,
-                'collaborator_name' => $name,
-                'kind' => RdoRules::normalizeCollaboratorKind($c['kind'] ?? 'colaborador'),
-                'notes' => isset($c['notes']) ? (trim($c['notes']) ?: null) : null,
+                'report_id'          => $reportId,
+                'collaborator_name'  => $name,
+                'kind'               => RdoRules::normalizeCollaboratorKind($c['kind'] ?? 'colaborador'),
+                'notes'              => isset($c['notes']) ? (trim($c['notes']) ?: null) : null,
             ]);
         }
+    }
+
+    // =========================================================================
+    // Revisões (pendências de aprovação)
+    // =========================================================================
+
+    /**
+     * Cria uma pendência de revisão. Retorna o id inserido.
+     *
+     * $data deve conter: report_id, type, requested_by.
+     * Campos opcionais: payload_json, notes.
+     */
+    public function createReview(array $data): int
+    {
+        return (int) $this->db->insert('daily_report_reviews', $data);
+    }
+
+    /** Busca uma revisão pelo id. */
+    public function findReview(int $reviewId): ?array
+    {
+        $r = $this->db->fetch(
+            "SELECT r.*, u.name AS requester_name, a.name AS reviewer_name
+             FROM daily_report_reviews r
+             LEFT JOIN users u ON r.requested_by = u.id
+             LEFT JOIN users a ON r.reviewed_by  = a.id
+             WHERE r.id = ?",
+            [$reviewId]
+        );
+        return $r ?: null;
+    }
+
+    /** Busca revisões pendentes de um relatório (status = 'pending'). */
+    public function getPendingReviewsForReport(int $reportId): array
+    {
+        return $this->db->fetchAll(
+            "SELECT * FROM daily_report_reviews WHERE report_id = ? AND status = 'pending' ORDER BY requested_at ASC",
+            [$reportId]
+        );
+    }
+
+    /**
+     * Lista TODAS as pendências com status='pending', com dados do relatório e autor.
+     * Usado na aba de revisão do admin.
+     */
+    public function getAllPendingReviews(): array
+    {
+        return $this->db->fetchAll(
+            "SELECT r.*,
+                    u.name  AS requester_name,
+                    dr.report_date, dr.title, dr.activities, dr.status AS report_status,
+                    dr.review_status,
+                    ow.name AS owner_name
+             FROM daily_report_reviews r
+             JOIN daily_reports dr ON r.report_id = dr.id
+             JOIN users u          ON r.requested_by = u.id
+             JOIN users ow         ON dr.user_id = ow.id
+             WHERE r.status = 'pending'
+             ORDER BY r.requested_at ASC",
+            []
+        );
+    }
+
+    /** Atualiza campos de uma revisão (status, reviewed_by, reviewed_at, notes). */
+    public function updateReview(int $reviewId, array $data): void
+    {
+        $this->db->update('daily_report_reviews', $data, 'id = ?', [$reviewId]);
+    }
+
+    /**
+     * Verifica se o relatório ainda tem alguma revisão pendente.
+     * Usado para decidir se review_status volta para 'none'.
+     */
+    public function hasPendingReviews(int $reportId): bool
+    {
+        $row = $this->db->fetch(
+            "SELECT COUNT(*) AS cnt FROM daily_report_reviews WHERE report_id = ? AND status = 'pending'",
+            [$reportId]
+        );
+        return (int) ($row['cnt'] ?? 0) > 0;
+    }
+
+    // =========================================================================
+    // Histórico (audit trail)
+    // =========================================================================
+
+    /**
+     * Insere uma entrada no histórico do relatório.
+     *
+     * $data deve conter: report_id, changed_by, action.
+     * Campos opcionais: snapshot_json, review_id, notes.
+     */
+    public function addHistory(array $data): void
+    {
+        $this->db->insert('daily_report_history', $data);
+    }
+
+    /** Retorna o histórico de um relatório, mais recente primeiro. */
+    public function getHistory(int $reportId): array
+    {
+        return $this->db->fetchAll(
+            "SELECT h.*, u.name AS actor_name
+             FROM daily_report_history h
+             LEFT JOIN users u ON h.changed_by = u.id
+             WHERE h.report_id = ?
+             ORDER BY h.changed_at DESC",
+            [$reportId]
+        );
     }
 }

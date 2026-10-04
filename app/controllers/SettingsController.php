@@ -115,6 +115,8 @@ class SettingsController extends Controller
             'booking_min_advance_days', 'booking_work_start', 'booking_work_end',
             'booking_slot_minutes', 'booking_days_of_week', 'booking_duration_min',
             'booking_notify_hours_before', 'booking_link_expiry_days',
+            // Relatório Diário (RDO)
+            'rdo_deadline_time',
             'webhook_url', 'webhook_phones', 'webhook_names', 'webhook_enabled',
             'webhook_message_template',
             'whatsapp_number', 'whatsapp_message', 'whatsapp_enabled',

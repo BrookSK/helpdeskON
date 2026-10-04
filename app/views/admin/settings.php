@@ -317,6 +317,25 @@
             </div>
         </div>
 
+        <!-- Relatório Diário (RDO) -->
+        <div class="card mb-4">
+            <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-journal-text"></i> Relatório Diário (RDO)</h6></div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    Define o horário limite para preenchimento do relatório diário.
+                    Após esse horário, o relatório fica bloqueado e o profissional precisa solicitar liberação ao administrador.
+                </p>
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <label class="form-label fw-medium small">Horário limite de preenchimento</label>
+                        <input type="time" name="rdo_deadline_time" class="form-control form-control-sm"
+                               value="<?= escape(substr($settings['rdo_deadline_time'] ?? '19:00:00', 0, 5)) ?>">
+                        <small class="text-muted">Padrão: 19:00. Relatórios preenchidos após esse horário geram pendência de revisão.</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- URL pública do sistema (tracking de e-mail, webhooks) -->
         <div class="card mb-4">
             <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.9rem"><i class="bi bi-link-45deg"></i> URL pública do sistema</h6></div>
