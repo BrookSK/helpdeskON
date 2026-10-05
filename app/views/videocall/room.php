@@ -99,14 +99,20 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
         .filmstrip::-webkit-scrollbar { height:6px; }
         .filmstrip::-webkit-scrollbar-thumb { background:#33375a; border-radius:6px; }
 
-        .tile { position:relative; background:#000; border-radius:14px; overflow:hidden; min-height:0; min-width:0; }
+        /* contain isola layout/paint de cada tile: mudar um tile (borda de "falando",
+           badge, etc.) não força o navegador a recalcular a sala inteira. */
+        .tile { position:relative; background:#000; border-radius:14px; overflow:hidden; min-height:0; min-width:0; contain:layout paint style; }
         /* Animação do bloco surgindo/saindo (experiência estilo Meet). */
         .tile.tile-in { animation:tileIn .28s cubic-bezier(.2,.8,.2,1); }
         .tile.tile-out { animation:tileOut .22s ease forwards; }
         @keyframes tileIn { from { opacity:0; transform:scale(.86); } to { opacity:1; transform:scale(1); } }
         @keyframes tileOut { from { opacity:1; transform:scale(1); } to { opacity:0; transform:scale(.86); } }
         .tile .vwrap { position:absolute; inset:0; overflow:hidden; }
-        .tile video { width:100%; height:100%; object-fit:cover; background:#000; transition:transform .12s ease; transform-origin:center center; }
+        /* transform:translateZ(0) + backface-visibility promove o vídeo a uma camada
+           de GPU própria: o compositing de várias câmeras fica mais leve. A
+           transition só vale para o zoom de tiles de TELA (classe .screen). */
+        .tile video { width:100%; height:100%; object-fit:cover; background:#000; transform-origin:center center; transform:translateZ(0); backface-visibility:hidden; }
+        .tile.screen video { transition:transform .12s ease; }
         .tile.self video { transform:scaleX(-1); }
         .tile.screen video { object-fit:contain; }
         /* Câmera em retrato (celular em pé) num tile largo: mostra inteira, sem cortar o rosto. */
@@ -696,11 +702,14 @@ async function startBgPipeline() {
         bgCanvas = document.createElement('canvas');
         bgCtx = bgCanvas.getContext('2d');
     }
-    // Canvas na resolução REAL da câmera: a pessoa é desenhada do vídeo original
-    // em alta, então não há perda de nitidez. Teto de segurança em 1920 de largura.
+    // Canvas de processamento: teto de 1280 de largura. O fundo é um efeito; a
+    // câmera já sai em qualidade adaptativa (480p/720p na maioria dos casos), então
+    // processar acima de 1280 só gasta CPU/GPU à toa. Baixar o teto de 1920->1280
+    // reduz bastante o custo do pipeline sem diferença visível perceptível.
     const settings = vtrack.getSettings();
     let cw = settings.width || 1280, ch = settings.height || 720;
-    if (cw > 1920) { ch = Math.round(ch * (1920 / cw)); cw = 1920; }
+    const BG_MAX_W = 1280;
+    if (cw > BG_MAX_W) { ch = Math.round(ch * (BG_MAX_W / cw)); cw = BG_MAX_W; }
     bgCanvas.width = cw;
     bgCanvas.height = ch;
 
@@ -720,9 +729,11 @@ async function startBgPipeline() {
             bgBusy = false;
         }
     };
-    bgRafId = setInterval(tick, 33); // ~30fps quando visível
+    // ~20fps é suave o suficiente para vídeo de reunião e ~1/3 mais leve que 30fps
+    // no segmenter (que é o passo mais caro). Em reunião, movimento é baixo.
+    bgRafId = setInterval(tick, 50); // ~20fps quando visível
 
-    processedStream = bgCanvas.captureStream(30);
+    processedStream = bgCanvas.captureStream(20);
     return processedStream.getVideoTracks()[0];
 }
 
@@ -2275,7 +2286,7 @@ function attachSpeaking(id, stream) {
         analyser.smoothingTimeConstant = 0.6;
         src.connect(analyser); // não conecta ao destino (evita eco/duplicar áudio)
         speakingMon.set(id, { analyser, data: new Uint8Array(analyser.fftSize), src, speaking: false, silentFrames: 0 });
-        if (!speakingLoopOn) { speakingLoopOn = true; requestAnimationFrame(speakingLoop); }
+        startSpeakingLoop();
     } catch (e) {}
 }
 
@@ -2283,37 +2294,43 @@ function detachSpeaking(id) {
     const m = speakingMon.get(id);
     if (m) { try { m.src.disconnect(); } catch (e) {} speakingMon.delete(id); }
     tileEl(id)?.classList.remove('speaking');
+    // Sem ninguém para monitorar, encerra o loop (não gasta CPU à toa).
+    if (speakingMon.size === 0 && speakingTimer) { clearInterval(speakingTimer); speakingTimer = null; speakingLoopOn = false; }
 }
 
-let _spkLast = 0;
-function speakingLoop(ts) {
+let speakingTimer = null;
+// Usa setInterval (10 fps) em vez de requestAnimationFrame: o rAF acordava o
+// loop 60x/s só para processar a 15; a 10 fps o indicador de "falando" continua
+// imperceptivelmente igual e os wakeups caem ~6x. O loop também só existe
+// enquanto há alguém sendo monitorado.
+function startSpeakingLoop() {
+    if (speakingLoopOn) return;
+    speakingLoopOn = true;
+    speakingTimer = setInterval(speakingTick, 100);
+}
+function speakingTick() {
     if (!speakingLoopOn) return;
-    // ~15 fps é suficiente e leve para o celular.
-    if (ts - _spkLast >= 66) {
-        _spkLast = ts;
-        speakingMon.forEach((m, id) => {
-            const t = tileEl(id);
-            if (!t) return;
-            // Se estiver mutado, nunca marca como falando.
-            const muted = (id === peerId) ? !micOn : t.classList.contains('mic-off');
-            let level = 0;
-            if (!muted) {
-                m.analyser.getByteTimeDomainData(m.data);
-                let sum = 0;
-                for (let i = 0; i < m.data.length; i++) { const v = (m.data[i] - 128) / 128; sum += v * v; }
-                level = Math.sqrt(sum / m.data.length); // RMS 0..1
-            }
-            const THRESH = 0.045; // limiar de voz
-            if (level > THRESH) {
-                m.silentFrames = 0;
-                if (!m.speaking) { m.speaking = true; t.classList.add('speaking'); }
-            } else {
-                // Histerese: só apaga após alguns quadros em silêncio (evita piscar).
-                if (m.speaking && ++m.silentFrames > 8) { m.speaking = false; t.classList.remove('speaking'); }
-            }
-        });
-    }
-    requestAnimationFrame(speakingLoop);
+    speakingMon.forEach((m, id) => {
+        const t = tileEl(id);
+        if (!t) return;
+        // Se estiver mutado, nunca marca como falando.
+        const muted = (id === peerId) ? !micOn : t.classList.contains('mic-off');
+        let level = 0;
+        if (!muted) {
+            m.analyser.getByteTimeDomainData(m.data);
+            let sum = 0;
+            for (let i = 0; i < m.data.length; i++) { const v = (m.data[i] - 128) / 128; sum += v * v; }
+            level = Math.sqrt(sum / m.data.length); // RMS 0..1
+        }
+        const THRESH = 0.045; // limiar de voz
+        if (level > THRESH) {
+            m.silentFrames = 0;
+            if (!m.speaking) { m.speaking = true; t.classList.add('speaking'); }
+        } else {
+            // Histerese: só apaga após alguns ciclos em silêncio (evita piscar).
+            if (m.speaking && ++m.silentFrames > 6) { m.speaking = false; t.classList.remove('speaking'); }
+        }
+    });
 }
 
 // Remove um tile com animação de saída.
