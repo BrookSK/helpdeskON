@@ -35,7 +35,9 @@ class OnboardingRules
             ['step_key' => 'tech_responsible', 'title' => 'Definir responsável técnico', 'required' => 1],
             ['step_key' => 'focal_points',     'title' => 'Cadastrar pontos focais', 'required' => 0],
             ['step_key' => 'kickoff',          'title' => 'Reunião de onboarding (kickoff)', 'required' => 0],
+            ['step_key' => 'service_scope',    'title' => 'Revisar catálogo de serviço / orçamento por módulo', 'required' => 0],
             ['step_key' => 'tech_survey',      'title' => 'Levantamento técnico', 'required' => 0],
+            ['step_key' => 'pipeline_decision','title' => 'Definir: projeto do zero vs entra na esteira (CX)', 'required' => 1],
             ['step_key' => 'environment',      'title' => 'Configuração de ambiente', 'required' => 1],
             ['step_key' => 'server',           'title' => 'Servidor configurado', 'required' => 1],
             ['step_key' => 'storage',          'title' => 'Armazenamento configurado', 'required' => 1],
@@ -58,6 +60,26 @@ class OnboardingRules
     public static function normalizePipeline($v): ?string
     {
         return in_array($v, [self::PIPELINE_CX, self::PIPELINE_OUT], true) ? $v : null;
+    }
+
+    /** Tipos de projeto (coluna onboardings.project_type). */
+    public const PROJECT_TYPES = ['zero', 'esteira', 'manutencao', 'outro'];
+
+    public static function normalizeProjectType($v): ?string
+    {
+        return in_array($v, self::PROJECT_TYPES, true) ? $v : null;
+    }
+
+    /**
+     * Deriva o pipeline a partir do tipo de projeto quando não informado
+     * explicitamente: 'esteira' => esteira_cx; 'zero'/'manutencao'/'outro' =>
+     * fora_esteira. Retorna null se o tipo for desconhecido.
+     */
+    public static function pipelineFromProjectType(?string $projectType): ?string
+    {
+        $t = self::normalizeProjectType($projectType);
+        if ($t === null) return null;
+        return $t === 'esteira' ? self::PIPELINE_CX : self::PIPELINE_OUT;
     }
 
     /**

@@ -80,4 +80,26 @@ final class OnboardingRulesTest extends TestCase
         $this->assertSame(OnboardingRules::PIPELINE_CX, OnboardingRules::normalizePipeline('esteira_cx'));
         $this->assertNull(OnboardingRules::normalizePipeline('nope'));
     }
+
+    public function testNormalizeProjectType(): void
+    {
+        $this->assertSame('zero', OnboardingRules::normalizeProjectType('zero'));
+        $this->assertSame('esteira', OnboardingRules::normalizeProjectType('esteira'));
+        $this->assertNull(OnboardingRules::normalizeProjectType('invalido'));
+    }
+
+    public function testPipelineFromProjectType(): void
+    {
+        $this->assertSame(OnboardingRules::PIPELINE_CX, OnboardingRules::pipelineFromProjectType('esteira'));
+        $this->assertSame(OnboardingRules::PIPELINE_OUT, OnboardingRules::pipelineFromProjectType('zero'));
+        $this->assertSame(OnboardingRules::PIPELINE_OUT, OnboardingRules::pipelineFromProjectType('manutencao'));
+        $this->assertNull(OnboardingRules::pipelineFromProjectType('xpto'));
+    }
+
+    public function testEtapasPadraoIncluemCatalogoEDecisaoPipeline(): void
+    {
+        $keys = array_column(OnboardingRules::defaultSteps(), 'step_key');
+        $this->assertContains('service_scope', $keys);
+        $this->assertContains('pipeline_decision', $keys);
+    }
 }

@@ -19,6 +19,32 @@ class User
         return $this->db->fetch("SELECT * FROM users WHERE email = ?", [$email]);
     }
 
+    /**
+     * Cria (ou reaproveita por e-mail) um usuário de acesso para um PRESTADOR,
+     * com o papel derivado da função (developer/marketing/attendant/analyst).
+     * Senha aleatória — o acesso real se dá por convite de 1º acesso / PIN.
+     * Retorna o id do usuário (novo ou existente), ou null se faltar e-mail.
+     */
+    public function createForProvider(string $name, ?string $email, ?string $phone, string $role)
+    {
+        $email = trim((string)$email);
+        if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) return null;
+        $existing = $this->findByEmail($email);
+        if ($existing) return (int)$existing['id'];
+
+        $allowed = ['developer', 'marketing', 'attendant', 'analyst'];
+        $role = in_array($role, $allowed, true) ? $role : 'developer';
+
+        return (int) $this->db->insert('users', [
+            'name' => trim($name) !== '' ? trim($name) : 'Prestador',
+            'email' => $email,
+            'password' => password_hash(bin2hex(random_bytes(8)), PASSWORD_DEFAULT),
+            'phone' => trim((string)$phone) ?: null,
+            'role' => $role,
+            'is_active' => 1,
+        ]);
+    }
+
     public function getAll($role = null)
     {
         // Subquery: nº de empresas ADICIONAIS (Multi-Empresas), sem contar a principal.

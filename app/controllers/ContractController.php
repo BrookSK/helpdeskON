@@ -618,8 +618,14 @@ class ContractController extends Controller
             if ($contract && $contract['status'] !== ContractRules::STATUS_SIGNED) {
                 $this->model->changeStatus($contract['id'], ContractRules::STATUS_SIGNED, null, ['signed_at' => date('Y-m-d H:i:s')]);
                 $this->model->addEvent($contract['id'], null, 'signed', 'Assinatura confirmada pela ClickSign');
+                // Emenda automática contrato -> financeiro: ao assinar, já cria o
+                // projeto financeiro (se ainda não existir). O onboarding só começa
+                // depois da ENTRADA PAGA (regra do financeiro), então aqui paramos
+                // no financeiro, que é o próximo passo real do fluxo.
+                $financeId = $this->ensureFinanceProject($contract);
+                $extra = $financeId ? " Projeto financeiro #{$financeId} criado — defina o plano de pagamento." : ' Siga para o financeiro.';
                 $this->notifyTeamResponse($contract, 'signed', 'Contrato assinado',
-                    "O contrato \"{$contract['title']}\" foi assinado. Siga para o financeiro.");
+                    "O contrato \"{$contract['title']}\" foi assinado." . $extra);
             }
         } elseif ($docKey && $action === 'cancelled') {
             $contract = $this->model->findByClickSignDocKey($docKey);
@@ -633,6 +639,32 @@ class ContractController extends Controller
     }
 
     // ================= Helpers =================
+
+    /**
+     * Garante o projeto financeiro do contrato assinado (idempotente). Retorna o
+     * id do projeto (novo ou existente) ou null em falha. O total vem da proposta
+     * vinculada, quando houver. Nunca interrompe o webhook.
+     */
+    private function ensureFinanceProject(array $contract): ?int
+    {
+        try {
+            $fp = new FinanceProject();
+            $existing = $fp->findByContract((int)$contract['id']);
+            if ($existing) return (int)$existing['id'];
+
+            $total = 0.0;
+            if (!empty($contract['proposal_id'])) {
+                $p = (new Proposal())->findById((int)$contract['proposal_id']);
+                if ($p) $total = (float)$p['total'];
+            }
+            // created_by: usa o criador do contrato (webhook não tem usuário logado).
+            $userId = !empty($contract['created_by']) ? (int)$contract['created_by'] : null;
+            return (int) $fp->createFromContract($contract, $total, $userId);
+        } catch (\Throwable $e) {
+            if (class_exists('Logger')) Logger::error('ensureFinanceProject falhou', ['contract' => $contract['id'] ?? null, 'error' => $e->getMessage()]);
+            return null;
+        }
+    }
 
     private function notifyTeam($contract, $title, $message)
     {

@@ -13,6 +13,11 @@ class Provider
         $this->db = Database::getInstance();
     }
 
+    public function generateToken(): string
+    {
+        return bin2hex(random_bytes(16));
+    }
+
     public function findById($id)
     {
         return $this->db->fetch(
@@ -22,6 +27,175 @@ class Provider
              WHERE p.id = ?",
             [$id]
         );
+    }
+
+    public function findByToken($token)
+    {
+        $token = trim((string)$token);
+        if ($token === '') return null;
+        return $this->db->fetch("SELECT * FROM providers WHERE public_token = ? LIMIT 1", [$token]);
+    }
+
+    public function findByClickSignDocKey($key)
+    {
+        $key = trim((string)$key);
+        if ($key === '') return null;
+        return $this->db->fetch("SELECT * FROM providers WHERE clicksign_doc_key = ? LIMIT 1", [$key]);
+    }
+
+    /** Garante um token público para o link da proposta (idempotente). */
+    public function ensureToken($id): string
+    {
+        $p = $this->findById($id);
+        if ($p && !empty($p['public_token'])) return $p['public_token'];
+        $token = $this->generateToken();
+        $this->db->update('providers', ['public_token' => $token], 'id = ?', [$id]);
+        return $token;
+    }
+
+    // ================= Proposta por link =================
+
+    /** Marca a proposta como enviada (carimba data) e avança o status p/ proposal. */
+    public function markProposalSent($id, $userId = null): void
+    {
+        $this->db->update('providers', ['proposal_sent_at' => date('Y-m-d H:i:s')], 'id = ?', [$id]);
+        $p = $this->findById($id);
+        if ($p && $p['status'] === ProviderRules::STATUS_PROSPECT) {
+            $this->changeStatus($id, ProviderRules::STATUS_PROPOSAL, $userId);
+        }
+        $this->addEvent($id, $userId, 'proposal_sent', 'Proposta enviada ao prestador');
+    }
+
+    /** Prestador aceitou a proposta (via link público). Avança p/ contract. */
+    public function acceptProposal($id): bool
+    {
+        $p = $this->findById($id);
+        if (!$p) return false;
+        $this->db->update('providers', [
+            'proposal_accepted_at' => date('Y-m-d H:i:s'),
+            'proposal_responded_at' => date('Y-m-d H:i:s'),
+        ], 'id = ?', [$id]);
+        if ($p['status'] === ProviderRules::STATUS_PROPOSAL) {
+            $this->changeStatus($id, ProviderRules::STATUS_CONTRACT, null);
+        }
+        $this->addEvent($id, null, 'proposal_accepted', 'Prestador aceitou a proposta');
+        return true;
+    }
+
+    /** Prestador recusou a proposta (motivo obrigatório). Volta p/ prospect. */
+    public function rejectProposal($id, string $reason): bool
+    {
+        $p = $this->findById($id);
+        if (!$p) return false;
+        $this->db->update('providers', [
+            'proposal_reject_reason' => ProviderRules::sanitizeReason($reason),
+            'proposal_responded_at' => date('Y-m-d H:i:s'),
+        ], 'id = ?', [$id]);
+        if ($p['status'] === ProviderRules::STATUS_PROPOSAL) {
+            $this->changeStatus($id, ProviderRules::STATUS_PROSPECT, null);
+        }
+        $this->addEvent($id, null, 'proposal_rejected', 'Prestador recusou. Motivo: ' . ProviderRules::sanitizeReason($reason));
+        return true;
+    }
+
+    // ================= Assinatura (ClickSign) =================
+
+    public function setSignatureKeys($id, string $docKey, ?string $requestKey): void
+    {
+        $this->db->update('providers', [
+            'clicksign_doc_key' => $docKey,
+            'clicksign_request_key' => $requestKey,
+        ], 'id = ?', [$id]);
+    }
+
+    /** Marca o contrato do prestador como assinado e ativa o prestador. */
+    public function markSigned($id): bool
+    {
+        $p = $this->findById($id);
+        if (!$p) return false;
+        $this->db->update('providers', ['signed_at' => date('Y-m-d H:i:s')], 'id = ?', [$id]);
+        if ($p['status'] === ProviderRules::STATUS_CONTRACT) {
+            $this->changeStatus($id, ProviderRules::STATUS_ACTIVE, null);
+        }
+        $this->addEvent($id, null, 'signed', 'Contrato do prestador assinado');
+        return true;
+    }
+
+    // ================= Revisão de valor =================
+
+    public function getRevisions($providerId)
+    {
+        return $this->db->fetchAll(
+            "SELECT r.*, ur.name AS requested_by_name, ua.name AS reviewed_by_name
+             FROM provider_revisions r
+             LEFT JOIN users ur ON r.requested_by = ur.id
+             LEFT JOIN users ua ON r.reviewed_by = ua.id
+             WHERE r.provider_id = ? ORDER BY r.id DESC",
+            [$providerId]
+        );
+    }
+
+    public function findRevision($id)
+    {
+        return $this->db->fetch("SELECT * FROM provider_revisions WHERE id = ?", [$id]);
+    }
+
+    public function pendingRevision($providerId)
+    {
+        return $this->db->fetch(
+            "SELECT * FROM provider_revisions WHERE provider_id = ? AND status = 'pending' ORDER BY id DESC LIMIT 1",
+            [$providerId]
+        );
+    }
+
+    public function createRevision($providerId, array $data): int
+    {
+        $p = $this->findById($providerId);
+        $id = $this->db->insert('provider_revisions', [
+            'provider_id'   => $providerId,
+            'old_pay_type'  => $p['pay_type'] ?? null,
+            'old_pay_amount' => $p['pay_amount'] ?? null,
+            'new_pay_type'  => ProviderRules::normalizePayType($data['new_pay_type'] ?? null),
+            'new_pay_amount' => isset($data['new_pay_amount']) && $data['new_pay_amount'] !== '' ? $data['new_pay_amount'] : null,
+            'reason'        => trim((string)($data['reason'] ?? '')) ?: null,
+            'status'        => ProviderRevisionRules::STATUS_PENDING,
+            'requested_by'  => $data['requested_by'] ?? null,
+        ]);
+        $this->addEvent($providerId, $data['requested_by'] ?? null, 'revision_requested', 'Revisão de valor solicitada (aguarda aprovação do gestor)');
+        return $id;
+    }
+
+    /** Aprova a revisão: aplica o novo valor/tipo ao prestador. */
+    public function approveRevision($revisionId, $userId, ?string $notes = null): bool
+    {
+        $rev = $this->findRevision($revisionId);
+        if (!$rev || !ProviderRevisionRules::canReview($rev['status'])) return false;
+        $this->db->update('provider_revisions', [
+            'status' => ProviderRevisionRules::STATUS_APPROVED,
+            'reviewed_by' => $userId,
+            'reviewed_at' => date('Y-m-d H:i:s'),
+            'review_notes' => $notes,
+        ], 'id = ?', [$revisionId]);
+        $upd = [];
+        if (!empty($rev['new_pay_type'])) $upd['pay_type'] = $rev['new_pay_type'];
+        if ($rev['new_pay_amount'] !== null) $upd['pay_amount'] = $rev['new_pay_amount'];
+        if ($upd) $this->update((int)$rev['provider_id'], $upd);
+        $this->addEvent((int)$rev['provider_id'], $userId, 'revision_approved', 'Revisão de valor aprovada pelo gestor');
+        return true;
+    }
+
+    public function rejectRevision($revisionId, $userId, ?string $notes = null): bool
+    {
+        $rev = $this->findRevision($revisionId);
+        if (!$rev || !ProviderRevisionRules::canReview($rev['status'])) return false;
+        $this->db->update('provider_revisions', [
+            'status' => ProviderRevisionRules::STATUS_REJECTED,
+            'reviewed_by' => $userId,
+            'reviewed_at' => date('Y-m-d H:i:s'),
+            'review_notes' => $notes,
+        ], 'id = ?', [$revisionId]);
+        $this->addEvent((int)$rev['provider_id'], $userId, 'revision_rejected', 'Revisão de valor recusada pelo gestor');
+        return true;
     }
 
     public function getAll(array $filters = [])
@@ -144,11 +318,12 @@ class Provider
         return $this->db->fetchAll("SELECT * FROM provider_documents WHERE provider_id = ? ORDER BY id DESC", [$providerId]);
     }
 
-    public function addDocument($providerId, string $label, ?string $filePath = null, ?string $notes = null)
+    public function addDocument($providerId, string $label, ?string $filePath = null, ?string $notes = null, ?string $docType = null)
     {
         return $this->db->insert('provider_documents', [
             'provider_id' => $providerId,
             'doc_label' => $label,
+            'doc_type' => $docType ?: null,
             'file_path' => $filePath,
             'notes' => $notes,
         ]);

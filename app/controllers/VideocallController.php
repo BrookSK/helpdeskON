@@ -984,6 +984,13 @@ class VideocallController extends Controller
                         'email' => $meeting['client_email'] ?? ($meeting['lead_email'] ?? null),
                         'phone' => $meeting['client_phone'] ?? ($meeting['crm_contact_phone'] ?? null),
                     ];
+                    // Pós-reunião: o lead volta ao CRM em "Análise interna" para
+                    // analisarmos os pré-requisitos antes de montar a proposta.
+                    if (!empty($meeting['contact_id']) && class_exists('CrmBoard')) {
+                        try {
+                            (new CrmBoard())->moveContactToColumn((int)$meeting['contact_id'], CrmRules::COLUMN_INTERNAL_ANALYSIS);
+                        } catch (\Throwable $e) { /* não interrompe o envio da minuta */ }
+                    }
                 }
             } catch (\Throwable $e) { /* sem reunião vinculada: segue sem destinatários */ }
         }

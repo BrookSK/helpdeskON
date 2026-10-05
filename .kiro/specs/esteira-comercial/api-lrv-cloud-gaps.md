@@ -46,3 +46,42 @@ staging_url`, guardadas em `provisionings`.
   `/provisioning/lrvWebhook?id={provisioning_id}` no painel do LRV Cloud.
 - O envio/efeito real (criar VPS/app de verdade) depende de credenciais e só é
   validável no ambiente com a API ativa — não é testável no ambiente de dev.
+
+## Git Repositories (criação de repo na org + acesso aos devs) — RESOLVIDO
+
+> Decisão (cliente/dev da LRV): a criação do repositório na organização e a
+> concessão de acesso aos desenvolvedores são feitas **pela API do LRV Cloud**,
+> não por integração GitHub direta no helpdeskON. O helpdeskON apenas **consome**.
+> A API v1 já expõe os endpoints (conferido na OpenAPI atualizada) e eles já
+> são consumidos aqui.
+
+### Endpoints usados (contrato real da OpenAPI v1)
+
+| Necessidade | Método/endpoint | Payload | Retorno |
+|-------------|-----------------|---------|---------|
+| Criar repositório na org | `POST /api/v1/git/repositories` | `name` (obrig.), `private` (default true), `org?`, `description?`, `external_ref?`, `client_id?` | 201 `data.{id, full_name, html_url, clone_url, ssh_url, visibility}`; dispara `git.repository.created` |
+| Detalhe (com colaboradores) | `GET /api/v1/git/repositories/show?id=` | — | dados do repo |
+| Conceder acesso a devs | `POST /api/v1/git/repositories/collaborators` | `id` (repo), `usernames[]`, `permission` (pull/triage/push/maintain/admin, default push) | 200 `data.collaborators` + `data.errors`; dispara `git.collaborator.added` |
+| Revogar acesso | `POST /api/v1/git/repositories/collaborators/remove` | `id`, `username` | 200; dispara `git.collaborator.removed` |
+
+> Erros possíveis: 502 (o provedor Git retornou erro), 503 (integração Git não
+> configurada na plataforma). Escopo exigido: `git.write`.
+
+### Como o helpdeskON consome (lado nosso — implementado)
+
+- `LrvCloudApi`: `createRepository()`, `showRepository()`,
+  `addRepositoryCollaborators()`, `removeRepositoryCollaborator()` — mesmo padrão
+  de `request()` (header `X-API-Key`, retorno `success/available/http/data/error`).
+- Etapas de provisionamento dependentes do **pipeline** (`ProvisioningRules::defaultSteps($cap, $pipeline)`):
+  - **fora_esteira**: `create_client → create_repo → grant_dev_access → create_vps
+    → create_database → create_app → deploy → staging → collect_credentials → deliver`.
+    O `create_repo` salva `lrv_repo_id` + `git_repo` (clone_url) + `repo_url`
+    (html_url); o `create_app` usa esse `git_repo` automaticamente.
+  - **esteira_cx**: `create_client → register_cx_repo (manual) → grant_dev_access
+    (manual) → collect_credentials → deliver`. Não cria repo/VPS/app pela nossa
+    automação — o repo é do CX e o analista registra; só o acesso ao repo importa.
+- Webhooks mapeados em `interpretEvent`: `client.created`, `git.repository.created`,
+  `git.collaborator.added`, além de `hosting.*`, `application.*`, `domain.added`.
+- Migration **158** adiciona `provisionings.lrv_repo_id` e `provisionings.repo_url`.
+- `grant_dev_access` recebe os usernames do GitHub via POST `dev_usernames`
+  (lista separada por vírgula/espaço) e `dev_permission` (default push).

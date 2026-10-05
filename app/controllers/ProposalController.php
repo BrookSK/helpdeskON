@@ -257,6 +257,14 @@ class ProposalController extends Controller
         ]);
         $this->model->addEvent($proposal['id'], null, 'rejected', 'Cliente recusou. Motivo: ' . $reason);
         $this->notifyTeamResponse($proposal, 'rejected', $reason);
+
+        // Volta o card do lead para "Análise interna" (refazer a proposta) — não é
+        // perda, é retrabalho. Nunca interrompe a resposta ao cliente.
+        if (!empty($proposal['contact_id'])) {
+            try {
+                (new CrmBoard())->moveContactToColumn((int)$proposal['contact_id'], CrmRules::COLUMN_INTERNAL_ANALYSIS);
+            } catch (\Throwable $e) { /* não interrompe */ }
+        }
         $this->json(['success' => true]);
     }
 

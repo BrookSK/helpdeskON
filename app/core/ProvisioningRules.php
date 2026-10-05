@@ -43,6 +43,8 @@ class ProvisioningRules
         // POST /databases). Todas as etapas agora são automatizáveis.
         return [
             'create_client'   => true,  // POST /clients
+            'create_repo'     => true,  // POST /git/repositories
+            'grant_dev_access'=> true,  // POST /git/repositories/collaborators
             'create_vps'      => true,  // POST /hosting (provisiona)
             'create_database' => true,  // POST /databases
             'create_app'      => true,  // POST /applications/git
@@ -53,17 +55,44 @@ class ProvisioningRules
     }
 
     /**
-     * Etapas padrão do provisionamento (ordem). mode é definido pela capacidade
-     * atual da API: 'auto' só quando o endpoint existe; senão 'manual'.
+     * Etapas padrão do provisionamento (ordem), dependentes do PIPELINE:
      *
+     * - fora_esteira (projeto do zero fora do CX): tudo automatizável pela API
+     *   LRV — cria repositório na org, concede acesso aos devs, provisiona
+     *   VPS/banco/app, faz deploy e homologação.
+     * - esteira_cx (projeto que entra na esteira do CX): NÃO cria infra nem
+     *   repositório pela nossa automação. Fica a pendência MANUAL do analista
+     *   registrar no helpdeskON o repositório já criado no CX e conceder o acesso
+     *   aos devs — só o acesso ao repo é necessário (sem banco/infra por aqui).
+     *
+     * mode é 'auto' só quando o endpoint existe E o pipeline permite; senão 'manual'.
+     *
+     * @param string|null $pipeline PIPELINE_OUT (default) ou PIPELINE_CX
      * @return array<int,array{step_key:string,title:string,required:int,mode:string}>
      */
-    public static function defaultSteps(?array $capabilities = null): array
+    public static function defaultSteps(?array $capabilities = null, ?string $pipeline = null): array
     {
         $cap = $capabilities ?? self::apiCapabilities();
+        $pipe = self::normalizePipeline($pipeline) ?? self::PIPELINE_OUT;
         $mode = fn(string $key) => (($cap[$key] ?? false) === true) ? 'auto' : 'manual';
+
+        if ($pipe === self::PIPELINE_CX) {
+            // Esteira CX: o repositório é criado no CX pelo analista. Nós só
+            // registramos o repo e garantimos o acesso dos devs (ambos manuais).
+            return [
+                ['step_key' => 'create_client',     'title' => 'Criar conta do cliente no LRV Cloud', 'required' => 1, 'mode' => $mode('create_client')],
+                ['step_key' => 'register_cx_repo',  'title' => 'Analista registrar repositório do CX', 'required' => 1, 'mode' => 'manual'],
+                ['step_key' => 'grant_dev_access',  'title' => 'Conceder acesso aos desenvolvedores',  'required' => 1, 'mode' => 'manual'],
+                ['step_key' => 'collect_credentials','title' => 'Reunir credenciais no cofre',         'required' => 1, 'mode' => 'manual'],
+                ['step_key' => 'deliver',           'title' => 'Entregar link + escopo ao cliente',    'required' => 1, 'mode' => 'manual'],
+            ];
+        }
+
+        // Fora da esteira: fluxo automatizado de ponta a ponta.
         return [
             ['step_key' => 'create_client',       'title' => 'Criar conta do cliente no LRV Cloud', 'required' => 1, 'mode' => $mode('create_client')],
+            ['step_key' => 'create_repo',         'title' => 'Criar repositório na organização',    'required' => 1, 'mode' => $mode('create_repo')],
+            ['step_key' => 'grant_dev_access',    'title' => 'Conceder acesso aos desenvolvedores', 'required' => 0, 'mode' => $mode('grant_dev_access')],
             ['step_key' => 'create_vps',          'title' => 'Provisionar VPS',                     'required' => 1, 'mode' => $mode('create_vps')],
             ['step_key' => 'create_database',     'title' => 'Criar banco de dados',                'required' => 1, 'mode' => $mode('create_database')],
             ['step_key' => 'create_app',          'title' => 'Criar aplicação (runtime + Git)',     'required' => 1, 'mode' => $mode('create_app')],
@@ -174,6 +203,12 @@ class ProvisioningRules
     {
         $e = strtolower(trim((string)$eventName));
         switch ($e) {
+            case 'client.created':
+                return ['step_key' => 'create_client', 'done' => true];
+            case 'git.repository.created':
+                return ['step_key' => 'create_repo', 'done' => true];
+            case 'git.collaborator.added':
+                return ['step_key' => 'grant_dev_access', 'done' => true];
             case 'hosting.created':
             case 'hosting.ready':
                 return ['step_key' => 'create_vps', 'done' => true];

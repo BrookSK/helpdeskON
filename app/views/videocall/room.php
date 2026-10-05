@@ -1453,7 +1453,21 @@ function addSelfTile() {
     div.classList.toggle('cam-off', !camOn);
     attachSpeaking(peerId, localStream);
 }
-function removeTile(id) { detachSpeaking(id); const t = tileEl(id); if (t) { t.remove(); tileZoom.delete(id); tilePan.delete(id); pinned.delete(id); layoutGrid(); } }
+function removeTile(id) {
+    detachSpeaking(id);
+    const t = tileEl(id);
+    if (t) {
+        // Para o vídeo ANTES de remover: zera o srcObject para não deixar o último
+        // frame "congelado" na tela (bug ao parar de compartilhar). Sem isso, se o
+        // elemento demora a sair do DOM ou a track remota não dispara 'ended', o
+        // player mantém o print do último quadro.
+        const v = t.querySelector('video');
+        if (v) { try { v.srcObject = null; v.removeAttribute('src'); v.load && v.load(); } catch (e) {} }
+        t.remove();
+        tileZoom.delete(id); tilePan.delete(id); pinned.delete(id);
+        layoutGrid();
+    }
+}
 let lastQualityFloor = -1;
 function updateCount() {
     document.getElementById('peer-count').textContent = (peers.size + 1);
@@ -1638,10 +1652,18 @@ function ensurePeer(remoteId, name, initiator) {
         if (isScreen && track.kind === 'video') {
             if (!entry.screenTile) entry.screenTile = makeTile(remoteId + '-screen', entry.name || name, { screen: true });
             entry.screenTile.querySelector('video').srcObject = stream;
-            // Se a track de tela do outro terminar, remove o tile automaticamente
-            // (evita a "tela congelada" caso o sinal de parada se perca).
-            track.onended = () => { removeTile(remoteId + '-screen'); entry.screenTile = null; };
-            track.onmute = () => { /* mantido; onended cobre a remoção */ };
+            const dropScreen = () => { removeTile(remoteId + '-screen'); entry.screenTile = null; if (entry.screenTrackIds) entry.screenTrackIds.delete(track.id); };
+            // 'ended' = fim definitivo da track. Remove o tile na hora.
+            track.onended = () => { if (entry._screenMuteTimer) { clearTimeout(entry._screenMuteTimer); entry._screenMuteTimer = null; } dropScreen(); };
+            // 'mute' = o remetente removeu a track (removeTrack dispara MUTE no
+            // receptor, não ENDED). É o caso real do "parar de compartilhar".
+            // Como mute também ocorre em quedas momentâneas, aguardamos um curto
+            // período; se não voltar (unmute), removemos o tile para não congelar.
+            track.onmute = () => {
+                if (entry._screenMuteTimer) return;
+                entry._screenMuteTimer = setTimeout(() => { entry._screenMuteTimer = null; if (track.muted || track.readyState === 'ended') dropScreen(); }, 1500);
+            };
+            track.onunmute = () => { if (entry._screenMuteTimer) { clearTimeout(entry._screenMuteTimer); entry._screenMuteTimer = null; } };
         } else if (track.kind === 'video') {
             const novo = !entry.tile;
             entry.hasCam = true;
@@ -1677,7 +1699,14 @@ function ensurePeer(remoteId, name, initiator) {
     pc.onconnectionstatechange = onConnDown;
     pc.oniceconnectionstatechange = onConnDown;
 
-    if (initiator) pc.onnegotiationneeded();
+    // Quem INICIA a oferta é decidido de forma DETERMINÍSTICA pelo id do peer
+    // (o lado "impolite", peerId > remoteId, oferta), independentemente de como o
+    // peer foi descoberto (entrada, sinal 'join' ou reconcile). Isso elimina o
+    // bug em que a 3ª/4ª pessoa entrava e os dois lados criavam o peer como
+    // não-iniciador — ninguém ofertava e a pessoa ficava sem ser vista/ouvida.
+    // O parâmetro 'initiator' vira só uma dica; o critério de id prevalece.
+    const shouldInitiate = initiator || !entry.polite; // !polite === peerId > remoteId
+    if (shouldInitiate) pc.onnegotiationneeded();
     return entry;
 }
 
@@ -1747,17 +1776,44 @@ async function handleSignal(sig) {
     const pc = entry.pc;
     try {
         if (sig.kind === 'offer') {
-            const collision = entry.makingOffer || pc.signalingState !== 'stable';
-            if (collision && !entry.polite) return;
+            // Perfect negotiation: trata a colisão de ofertas (glare) que acontece
+            // quando dois participantes se descobrem ao mesmo tempo (ex.: 3ª/4ª
+            // pessoa entrando). Antes, o lado "impolite" apenas IGNORAVA a oferta e
+            // não reofereçia — a conexão ficava meio-negociada e a pessoa entrava
+            // sem ninguém ver/ouvir ela. Agora:
+            //  - o lado POLITE faz rollback da própria oferta e aceita a do outro;
+            //  - o lado IMPOLITE ignora esta oferta, mas garante que a SUA oferta
+            //    siga (não descarta a negociação).
+            const offerCollision = entry.makingOffer || pc.signalingState !== 'stable';
+            if (offerCollision) {
+                if (!entry.polite) {
+                    // Impolite: mantém a própria oferta. Se por algum motivo não há
+                    // oferta em curso, dispara uma renegociação para não travar.
+                    if (!entry.makingOffer && pc.signalingState === 'stable') {
+                        try { entry.makingOffer = true; await pc.setLocalDescription(await pc.createOffer()); sendSignal(from, 'offer', pc.localDescription); } catch (e) {} finally { entry.makingOffer = false; }
+                    }
+                    return;
+                }
+                // Polite: desfaz a própria oferta pendente para aceitar a do outro.
+                try { await pc.setLocalDescription({ type: 'rollback' }); } catch (e) {}
+            }
             await pc.setRemoteDescription(new RTCSessionDescription(sig.payload));
             await drainIce(entry);
             await pc.setLocalDescription(await pc.createAnswer());
             sendSignal(from, 'answer', pc.localDescription);
         } else if (sig.kind === 'answer') {
-            await pc.setRemoteDescription(new RTCSessionDescription(sig.payload)); await drainIce(entry);
+            // Só aplica a resposta se realmente estamos esperando por uma. Evita
+            // o erro "called in wrong state" quando um answer chega atrasado.
+            if (pc.signalingState === 'have-local-offer') {
+                await pc.setRemoteDescription(new RTCSessionDescription(sig.payload));
+                await drainIce(entry);
+            }
         } else if (sig.kind === 'ice') {
-            if (pc.remoteDescription && pc.remoteDescription.type) await pc.addIceCandidate(new RTCIceCandidate(sig.payload));
-            else entry.pendingIce.push(sig.payload);
+            if (pc.remoteDescription && pc.remoteDescription.type) {
+                try { await pc.addIceCandidate(new RTCIceCandidate(sig.payload)); } catch (e) {}
+            } else {
+                entry.pendingIce.push(sig.payload);
+            }
         }
     } catch (err) { console.warn('signal', sig.kind, err); }
 }
@@ -1956,15 +2012,32 @@ function screenMenuAction(act) {
 
 // Encerra as tracks/tile da tela. announce=true avisa a sala que parou.
 function cleanupScreen(announce) {
+    const touched = new Set();
     if (screenStream) {
         screenStream.getTracks().forEach(t => {
-            t.stop();
-            peers.forEach((entry) => { const s = entry.pc.getSenders().find(x => x.track === t); if (s) { try { entry.pc.removeTrack(s); } catch (e) {} } });
+            // Remove o sender ANTES de parar a track: assim o receptor recebe o
+            // 'mute'/renegociação e limpa o tile (sem frame congelado). Depois para.
+            peers.forEach((entry) => {
+                const s = entry.pc.getSenders().find(x => x.track === t);
+                if (s) { try { entry.pc.removeTrack(s); touched.add(entry); } catch (e) {} }
+            });
+            try { t.stop(); } catch (e) {}
         });
     }
     removeTile(peerId + '-screen');
     screenStream = null;
+    // Avisa a sala (sinal explícito) e força a renegociação para cada peer afetado
+    // — alguns navegadores não disparam onnegotiationneeded de forma confiável no
+    // removeTrack, o que deixava a tela congelada do outro lado.
     if (announce) broadcast('screen', { stop: true });
+    touched.forEach(async (entry) => {
+        if (!entry.pc || entry.pc.signalingState === 'closed') return;
+        try {
+            entry.makingOffer = true;
+            await entry.pc.setLocalDescription(await entry.pc.createOffer());
+            peers.forEach((e2, rid) => { if (e2 === entry) sendSignal(rid, 'offer', entry.pc.localDescription); });
+        } catch (e) {} finally { entry.makingOffer = false; }
+    });
 }
 
 function stopScreen() {
