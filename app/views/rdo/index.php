@@ -349,6 +349,7 @@ const REVIEW_TYPE_LABELS = {
     post_deadline:  'Preenchimento retroativo (data anterior)',
     edit_request:   'Solicitação de alteração',
     unlock_request: 'Solicitação de desbloqueio',
+    missing_report: 'Relatório não preenchido',
 };
 
 function escapeHtml(s) {
@@ -895,6 +896,17 @@ async function loadPendencias() {
         const when     = (r.requested_at || '').substring(0, 16).replace('T', ' ');
         const owner    = escapeHtml(r.owner_name || '—');
         const requester= escapeHtml(r.requester_name || '—');
+
+        // Dia útil sem relatório: item apenas informativo (sem ações).
+        if (r.type === 'missing_report') {
+            return `<div class="border-bottom p-3" style="border-left:4px solid #f0ad4e;background:#fffdf7;">
+                <div class="fw-semibold">
+                    <i class="bi bi-calendar-x text-warning"></i>
+                    ${owner} — <span class="text-muted fw-normal">${dateBR}</span>
+                </div>
+                <div class="small text-muted">Tipo: <strong>${escapeHtml(typeLbl)}</strong></div>
+            </div>`;
+        }
 
         let diffHtml = '';
         if (r.type === 'edit_request' && r.payload) {
