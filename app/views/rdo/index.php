@@ -119,6 +119,8 @@
                     <button type="button" class="btn btn-outline-primary" data-mode="week">Semana</button>
                 </div>
             </div>
+            <!-- Legenda de empresas (cores) — preenchida via JS com as empresas presentes no período -->
+            <div id="rdo-company-legend" class="rdo-legend"></div>
             <div id="rdo-calendar-container"></div>
         </div></div>
     </div>
@@ -181,7 +183,19 @@
 .rdo-cal-cell-add { position: absolute; top: 3px; right: 4px; opacity: 0; font-size: 0.7rem; color: var(--primary,#00BFA6); cursor: pointer; }
 .rdo-cal-grid td:hover .rdo-cal-cell-add { opacity: 1; }
 .rdo-cal-event { font-size: 0.68rem; padding: 2px 6px 2px 7px; border-radius: 4px; margin-bottom: 2px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.rdo-cal-event.done { opacity: 0.6; }
 .rdo-cal-week td { height: 300px; }
+
+/* ===== Legenda de empresas (cores por empresa) ===== */
+.rdo-legend { display: flex; flex-wrap: wrap; gap: 6px 12px; padding: 4px 2px 10px; }
+.rdo-legend:empty { display: none; }
+.rdo-legend-item { display: inline-flex; align-items: center; gap: 5px; font-size: 0.72rem; color: #556; cursor: pointer; user-select: none; padding: 1px 4px; border-radius: 6px; }
+.rdo-legend-item.muted { opacity: 0.4; }
+.rdo-legend-item:hover { background: #f1f3f5; }
+.rdo-legend-dot { width: 11px; height: 11px; border-radius: 3px; flex-shrink: 0; }
+
+/* ponto de cor da empresa usado no kanban/lista */
+.rdo-company-dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: middle; flex-shrink: 0; }
 </style>
 
 <!-- Modal criar/editar -->
@@ -306,6 +320,82 @@ function rdoDateBR(reportDate) {
     return m ? `${m[3]}/${m[2]}/${m[1]}` : '';
 }
 
+// ===== Cor por empresa (identidade visual estável) =====
+// Paleta fixa de cores distinguíveis. Cada empresa recebe uma cor estável
+// derivada do seu company_id, para que a mesma empresa tenha sempre a mesma
+// cor em todas as visões (calendário, kanban, lista) e entre recarregamentos.
+// "Sem cliente" (sem company_id) usa cinza neutro.
+const RDO_COMPANY_PALETTE = [
+    '#2563eb', '#dc2626', '#16a34a', '#d97706', '#7c3aed',
+    '#db2777', '#0891b2', '#ca8a04', '#4f46e5', '#059669',
+    '#e11d48', '#0d9488', '#9333ea', '#ea580c', '#2563eb',
+];
+const RDO_NO_COMPANY_COLOR = '#9aa5b1';
+
+// Normaliza o company_id de um item para número (>0) ou null (sem cliente).
+function rdoCompanyId(it) {
+    const id = it && it.company_id;
+    if (id === null || id === undefined || id === '' || isNaN(id) || Number(id) <= 0) return null;
+    return Number(id);
+}
+// Retorna a cor estável de uma empresa a partir do company_id.
+function rdoCompanyColor(companyId) {
+    if (companyId === null || companyId === undefined) return RDO_NO_COMPANY_COLOR;
+    return RDO_COMPANY_PALETTE[Number(companyId) % RDO_COMPANY_PALETTE.length];
+}
+
+// Conjunto de empresas atualmente ocultas pela legenda (clique p/ filtrar visual).
+// Chave: company_id numérico ou a string 'none' para "Sem cliente".
+let rdoHiddenCompanies = new Set();
+function rdoLegendKey(it) {
+    const id = rdoCompanyId(it);
+    return id === null ? 'none' : id;
+}
+// Itens visíveis após aplicar o toggle da legenda (não altera o filtro do servidor).
+function rdoVisibleItems() {
+    if (rdoHiddenCompanies.size === 0) return rdoItems;
+    return rdoItems.filter(it => !rdoHiddenCompanies.has(rdoLegendKey(it)));
+}
+
+// Monta a legenda de empresas presentes nos itens carregados. Clicar numa
+// empresa oculta/mostra seus eventos no calendário (filtro visual local).
+function renderCompanyLegend() {
+    const box = document.getElementById('rdo-company-legend');
+    if (!box) return;
+    // Empresas únicas presentes, ordem alfabética e "Sem cliente" por último.
+    const seen = new Map();
+    rdoItems.forEach(it => {
+        const key = rdoLegendKey(it);
+        if (!seen.has(key)) {
+            const id = rdoCompanyId(it);
+            seen.set(key, {
+                key,
+                name: id === null ? 'Sem cliente' : (it.company_name || 'Sem cliente'),
+                color: rdoCompanyColor(id),
+                isNone: id === null,
+            });
+        }
+    });
+    const list = Array.from(seen.values()).sort((a, b) => {
+        if (a.isNone !== b.isNone) return a.isNone ? 1 : -1;
+        return String(a.name).localeCompare(String(b.name), 'pt', { sensitivity: 'base' });
+    });
+    if (!list.length) { box.innerHTML = ''; return; }
+    box.innerHTML = list.map(c => {
+        const muted = rdoHiddenCompanies.has(c.key) ? ' muted' : '';
+        return `<span class="rdo-legend-item${muted}" onclick="toggleCompanyLegend('${c.key}')" title="Mostrar/ocultar">
+            <span class="rdo-legend-dot" style="background:${c.color}"></span>${escapeHtml(c.name)}</span>`;
+    }).join('');
+}
+// Alterna visibilidade de uma empresa no calendário e re-renderiza.
+function toggleCompanyLegend(key) {
+    const k = key === 'none' ? 'none' : Number(key);
+    if (rdoHiddenCompanies.has(k)) rdoHiddenCompanies.delete(k);
+    else rdoHiddenCompanies.add(k);
+    renderCompanyLegend();
+    renderCalendar();
+}
+
 async function loadRdos() {
     const params = new URLSearchParams();
     const s = document.getElementById('f-search').value.trim();
@@ -332,6 +422,10 @@ async function loadRdos() {
     document.getElementById('stat-ocorrencias').textContent = data.stats.ocorrencias;
 
     rdoItems = data.items || [];
+    // Remove da seleção de "ocultos" empresas que não existem mais nos itens.
+    const presentKeys = new Set(rdoItems.map(rdoLegendKey));
+    rdoHiddenCompanies.forEach(k => { if (!presentKeys.has(k)) rdoHiddenCompanies.delete(k); });
+    renderCompanyLegend();
     renderActiveView();
 }
 
@@ -377,9 +471,10 @@ function renderList() {
             const projName = it.company_name
                 ? escapeHtml(it.company_name)
                 : '<span class="fst-italic text-muted">Sem cliente</span>';
+            const grpColor = rdoCompanyColor(rdoCompanyId(it));
             html += `<tr class="table-secondary">
                 <td colspan="${colCount}" class="fw-semibold">
-                    <i class="bi bi-building"></i> ${projName}
+                    <span class="rdo-company-dot" style="background:${grpColor}"></span> ${projName}
                 </td>
             </tr>`;
         }
@@ -456,7 +551,8 @@ function renderKanban() {
             const att = Number(it.attachment_count)
                 ? `<span><i class="bi bi-paperclip"></i> ${Number(it.attachment_count)}</span>` : '';
             const who = (RDO.isGlobal && it.user_name) ? `<span><i class="bi bi-person"></i> ${escapeHtml(it.user_name)}</span>` : '';
-            return `<div class="rdo-card ${done ? 'done' : ''}" onclick="viewRdo(${it.id})">
+            const cardColor = rdoCompanyColor(rdoCompanyId(it));
+            return `<div class="rdo-card ${done ? 'done' : ''}" style="border-left-color:${cardColor}" onclick="viewRdo(${it.id})">
                 <h6 class="fw-semibold">${resumo}</h6>
                 <div>${statusBadge(it.status)} ${occ}</div>
                 <div class="rc-meta">
@@ -466,9 +562,10 @@ function renderKanban() {
                 </div>
             </div>`;
         }).join('');
+        const colColor = rdoCompanyColor(col.company_id ?? null);
         return `<div class="rdo-col" data-company="${col.company_id ?? ''}">
-            <div class="rdo-col-head">
-                <span class="rdo-col-title"><i class="bi bi-building"></i> ${escapeHtml(col.company_name)}</span>
+            <div class="rdo-col-head" style="border-top-color:${colColor}">
+                <span class="rdo-col-title"><span class="rdo-company-dot" style="background:${colColor}"></span>${escapeHtml(col.company_name)}</span>
                 <span class="rdo-col-count">${col.items.length}</span>
             </div>
             <div class="rdo-col-body">
@@ -489,17 +586,19 @@ function rdoDayKey(reportDate) {
     return m ? m[1] : null;
 }
 function rdoEventsForDay(dayStr) {
-    return rdoItems.filter(it => rdoDayKey(it.report_date) === dayStr);
+    // Respeita o filtro visual da legenda (empresas ocultas não aparecem).
+    return rdoVisibleItems().filter(it => rdoDayKey(it.report_date) === dayStr);
 }
 function rdoDayContent(dayStr) {
     return rdoEventsForDay(dayStr).map(it => {
         const done = it.status === 'finalizado';
-        const bg = done ? 'rgba(129,199,132,0.35)' : '#fef7d6';
-        const border = done ? 'rgba(76,175,80,0.7)' : '#f59e0b';
-        const text = done ? '#2e5b31' : '#7a5900';
+        // A cor do evento identifica a EMPRESA (não o status). Status finalizado
+        // é indicado por opacidade reduzida (classe .done); ocorrência por ⚠.
+        const color = rdoCompanyColor(rdoCompanyId(it));
         const label = escapeHtml((it.company_name || it.title || it.activities || 'RDO').substring(0, 24));
         const occ = Number(it.has_occurrence) ? '⚠ ' : '';
-        return `<div class="rdo-cal-event" style="background:${bg};border-left:3px solid ${border};color:${text};" onclick="event.stopPropagation();viewRdo(${it.id})" title="${escapeHtml(it.title || it.company_name || '')}">${occ}${label}</div>`;
+        const titleAttr = escapeHtml(((it.company_name ? it.company_name + ' — ' : '') + (it.title || it.activities || '')).trim());
+        return `<div class="rdo-cal-event ${done ? 'done' : ''}" style="background:${color}1f;border-left:3px solid ${color};color:${color};" onclick="event.stopPropagation();viewRdo(${it.id})" title="${titleAttr}">${occ}${label}</div>`;
     }).join('');
 }
 function rdoNavCal(dir) {
