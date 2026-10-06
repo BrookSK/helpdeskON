@@ -855,8 +855,7 @@ class VideocallController extends Controller
         $this->model->updateRecording($recToken, ['minutes_status' => MeetingMinutesRules::STATUS_PROCESSING]);
 
         // Contexto da reunião (título/data) a partir da sala, quando disponível.
-        $title = null;
-        $dateLabel = null;
+        $rec = null; $title = null; $dateLabel = null;
         try {
             $rec = $this->model->findRecordingByToken($recToken);
             $room = $rec ? $this->model->findById($rec['room_id']) : null;
@@ -867,15 +866,29 @@ class VideocallController extends Controller
         } catch (\Throwable $e) { /* contexto é opcional */ }
 
         try {
-            $res = $ai->chat(
-                MeetingMinutesRules::buildMessages($transcript, $title, $dateLabel),
-                ['model' => 'gpt-4o-mini', 'temperature' => 0.3, 'max_tokens' => 1500]
-            );
-            if (empty($res['success']) || trim((string)($res['content'] ?? '')) === '') {
-                $this->model->updateRecording($recToken, ['minutes_status' => MeetingMinutesRules::STATUS_ERROR]);
-                return '';
+            // UNIFICAÇÃO: a ata estruturada (JSON) já foi gerada por IA e salva em
+            // 'summary' no fluxo de transcrição. Derivamos o TEXTO da minuta desse
+            // JSON — SEM uma segunda chamada ao modelo. Só caímos na geração por IA
+            // (fallback) quando não há JSON estruturado disponível.
+            $minutes = '';
+            $structured = $rec['summary'] ?? null;
+            if (is_string($structured) && $structured !== '') {
+                $minutes = MeetingMinutesRules::textFromStructured($structured);
             }
-            $minutes = MeetingMinutesRules::sanitizeContent($res['content']);
+
+            if ($minutes === '') {
+                // Fallback: gera a minuta em texto por IA (quando não há ata estruturada).
+                $res = $ai->chat(
+                    MeetingMinutesRules::buildMessages($transcript, $title, $dateLabel),
+                    ['model' => 'gpt-4o-mini', 'temperature' => 0.3, 'max_tokens' => 1500]
+                );
+                if (empty($res['success']) || trim((string)($res['content'] ?? '')) === '') {
+                    $this->model->updateRecording($recToken, ['minutes_status' => MeetingMinutesRules::STATUS_ERROR]);
+                    return '';
+                }
+                $minutes = MeetingMinutesRules::sanitizeContent($res['content']);
+            }
+
             $this->model->updateRecording($recToken, [
                 'minutes' => $minutes,
                 'minutes_status' => MeetingMinutesRules::STATUS_DONE,
@@ -1344,6 +1357,15 @@ class VideocallController extends Controller
             'transcribe_status' => 'done',
             'transcribed_at' => date('Y-m-d H:i:s'),
         ]);
+
+        // Minuta/ata em texto + envio automático do link (WhatsApp/e-mail). Deriva
+        // do 'summary' estruturado já salvo acima — SEM nova chamada de IA. Antes
+        // este fluxo (transcrição no servidor) não gerava a minuta de texto nem
+        // disparava o envio; a unificação cobre isso de brinde. Não interrompe.
+        if ($transcript !== '') {
+            try { $this->generateMinutesContent($recToken, $transcript, $ai); }
+            catch (\Throwable $e) { if (class_exists('Logger')) Logger::error('minuta pos-transcricao falhou', ['rec' => $recToken, 'error' => $e->getMessage()]); }
+        }
         // Resposta já foi enviada ao cliente; nada a retornar aqui.
     }
 

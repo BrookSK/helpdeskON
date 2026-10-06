@@ -107,6 +107,54 @@ class MeetingMinutesRules
     }
 
     /**
+     * Converte a ata ESTRUTURADA (JSON com resumo/topicos/topicos_nao_resolvidos/
+     * decisoes/proximos_passos) no TEXTO Markdown da minuta — SEM chamar IA.
+     *
+     * Isso unifica os dois formatos de ata que coexistiam: a tela estruturada lê
+     * o JSON; a página pública/PDF e o envio por link usam este texto. Com uma
+     * única geração de IA (o JSON), derivamos o texto aqui, economizando a 2ª
+     * chamada ao modelo.
+     *
+     * Aceita o array já decodificado OU a string JSON. Retorna '' se não houver
+     * conteúdo aproveitável.
+     *
+     * @param array|string|null $structured JSON (string) ou array decodificado.
+     */
+    public static function textFromStructured($structured): string
+    {
+        $data = is_string($structured) ? json_decode($structured, true) : $structured;
+        if (!is_array($data)) return '';
+
+        $resumo  = trim((string)($data['resumo'] ?? ''));
+        $toArr   = function ($v) {
+            return array_values(array_filter(array_map(
+                fn($x) => trim((string)$x),
+                is_array($v) ? $v : []
+            ), fn($x) => $x !== ''));
+        };
+        $topicos    = $toArr($data['topicos'] ?? []);
+        $naoResolv  = $toArr($data['topicos_nao_resolvidos'] ?? []);
+        $decisoes   = $toArr($data['decisoes'] ?? []);
+        $proximos   = $toArr($data['proximos_passos'] ?? []);
+
+        // Sem absolutamente nada aproveitável, não há texto.
+        if ($resumo === '' && !$topicos && !$naoResolv && !$decisoes && !$proximos) return '';
+
+        $bullets = function (array $items, string $vazio): string {
+            if (!$items) return $vazio . "\n";
+            return implode("\n", array_map(fn($i) => '- ' . $i, $items)) . "\n";
+        };
+
+        $out  = "## Resumo\n" . ($resumo !== '' ? $resumo : 'Sem resumo.') . "\n\n";
+        $out .= "## Pontos discutidos\n" . $bullets($topicos, 'Nenhum ponto registrado.') . "\n";
+        $out .= "## Decisões tomadas\n" . $bullets($decisoes, 'Nenhuma decisão registrada.') . "\n";
+        $out .= "## Tópicos em aberto\n" . $bullets($naoResolv, 'Nenhum tópico em aberto.') . "\n";
+        $out .= "## Próximos passos\n" . $bullets($proximos, 'Nenhum próximo passo identificado.');
+
+        return self::sanitizeContent($out);
+    }
+
+    /**
      * Normaliza o conteúdo da minuta recebido para salvar: converte CRLF/CR em LF,
      * remove espaços à direita e limita o tamanho total (defesa). Retorna string
      * limpa (pode ser vazia — o chamador decide se vazio é aceitável).

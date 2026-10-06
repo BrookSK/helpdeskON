@@ -94,4 +94,51 @@ final class MeetingMinutesRulesTest extends TestCase
         $out = MeetingMinutesRules::sanitizeContent($gigante, 4);
         $this->assertSame(4, mb_strlen($out));
     }
+
+    // ---- textFromStructured (unificação: JSON estruturado -> texto, sem IA) ----
+
+    public function testTextFromStructuredMontaSecoes(): void
+    {
+        $json = json_encode([
+            'resumo' => 'Reunião sobre o projeto X.',
+            'topicos' => ['Escopo definido', 'Prazo discutido'],
+            'topicos_nao_resolvidos' => ['Forma de pagamento'],
+            'decisoes' => ['Aprovado o MVP'],
+            'proximos_passos' => ['Enviar proposta até sexta'],
+        ]);
+        $txt = MeetingMinutesRules::textFromStructured($json);
+        $this->assertStringContainsString('Reunião sobre o projeto X.', $txt);
+        $this->assertStringContainsString('Escopo definido', $txt);
+        $this->assertStringContainsString('Forma de pagamento', $txt);
+        $this->assertStringContainsString('Aprovado o MVP', $txt);
+        $this->assertStringContainsString('Enviar proposta até sexta', $txt);
+        // Deve conter os títulos das seções.
+        $this->assertStringContainsString('## Resumo', $txt);
+        $this->assertStringContainsString('## Próximos passos', $txt);
+    }
+
+    public function testTextFromStructuredAceitaArrayOuString(): void
+    {
+        $arr = ['resumo' => 'Oi', 'topicos' => [], 'decisoes' => [], 'proximos_passos' => [], 'topicos_nao_resolvidos' => []];
+        $this->assertStringContainsString('Oi', MeetingMinutesRules::textFromStructured($arr));
+        $this->assertStringContainsString('Oi', MeetingMinutesRules::textFromStructured(json_encode($arr)));
+    }
+
+    public function testTextFromStructuredSecoesVaziasTemFallback(): void
+    {
+        $txt = MeetingMinutesRules::textFromStructured(['resumo' => 'Só resumo.']);
+        $this->assertStringContainsString('Nenhuma decisão registrada.', $txt);
+        $this->assertStringContainsString('Nenhum próximo passo identificado.', $txt);
+    }
+
+    public function testTextFromStructuredVazioRetornaVazio(): void
+    {
+        $this->assertSame('', MeetingMinutesRules::textFromStructured(null));
+        $this->assertSame('', MeetingMinutesRules::textFromStructured('nao-e-json'));
+        $this->assertSame('', MeetingMinutesRules::textFromStructured([]));
+        // Tudo vazio -> sem texto aproveitável.
+        $this->assertSame('', MeetingMinutesRules::textFromStructured([
+            'resumo' => '', 'topicos' => [], 'topicos_nao_resolvidos' => [], 'decisoes' => [], 'proximos_passos' => [],
+        ]));
+    }
 }
