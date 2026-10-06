@@ -109,9 +109,19 @@
                     <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
                         <span class="text-muted small">PIN atual:</span>
                         <?php if ($accHasPin): ?>
-                        <span class="badge bg-light text-dark border" style="font-size:1rem;letter-spacing:3px;padding:6px 12px;">
-                            <?= escape($userData['client_pin']) ?>
+                        <?php // Começa oculto; o olhinho revela/oculta o próprio PIN do usuário. ?>
+                        <span id="account-pin-value"
+                              class="badge bg-light text-dark border"
+                              data-pin="<?= escape($userData['client_pin']) ?>"
+                              style="font-size:1rem;letter-spacing:3px;padding:6px 12px;">
+                            ••••
                         </span>
+                        <button type="button" id="account-pin-toggle"
+                                class="btn btn-sm btn-outline-secondary"
+                                onclick="toggleAccountPin()"
+                                aria-label="Mostrar ou ocultar PIN" aria-pressed="false" title="Mostrar PIN">
+                            <i class="bi bi-eye-slash" id="account-pin-icon"></i>
+                        </button>
                         <?php else: ?>
                         <span class="badge bg-secondary">Nenhum PIN definido</span>
                         <?php endif; ?>
@@ -133,5 +143,28 @@
         </div>
     </div>
 </div>
+
+<script>
+// Olhinho do PIN em "Minha Conta": alterna entre PIN oculto (••••) e visível.
+// O valor real fica em data-pin e só é escrito na tela ao revelar.
+function toggleAccountPin() {
+    var span = document.getElementById('account-pin-value');
+    var icon = document.getElementById('account-pin-icon');
+    var btn = document.getElementById('account-pin-toggle');
+    if (!span || !icon || !btn) return;
+    var revealed = btn.getAttribute('aria-pressed') === 'true';
+    if (revealed) {
+        span.textContent = '••••';
+        icon.className = 'bi bi-eye-slash';
+        btn.setAttribute('aria-pressed', 'false');
+        btn.title = 'Mostrar PIN';
+    } else {
+        span.textContent = span.getAttribute('data-pin') || '••••';
+        icon.className = 'bi bi-eye';
+        btn.setAttribute('aria-pressed', 'true');
+        btn.title = 'Ocultar PIN';
+    }
+}
+</script>
 
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>

@@ -366,6 +366,35 @@ class UsersController extends Controller
         $this->redirect('users');
     }
 
+    /**
+     * Envia ao usuário um link por email para ele (re)definir o PIN de acesso.
+     * O admin NUNCA vê nem escolhe o PIN: apenas dispara o convite. Quem define
+     * o novo PIN é o próprio usuário, na tela segura (clientpin/resetPin).
+     */
+    public function resendPinReset($id = null)
+    {
+        $this->requireRole(['super_admin']);
+        if (!$id) $this->redirect('users');
+
+        $target = $this->userModel->findById($id);
+        if (!$target) {
+            flash('error', 'Usuário não encontrado.');
+            $this->redirect('users');
+        }
+        if (empty($target['email'])) {
+            flash('error', 'Este usuário não tem email cadastrado para receber o link.');
+            $this->redirect('users/edit/' . $id);
+        }
+
+        $sent = $this->userModel->sendPinResetInvite($id);
+        if ($sent) {
+            flash('success', 'Link de redefinição de PIN enviado para o email do usuário.');
+        } else {
+            flash('error', 'Não foi possível enviar o email. Tente novamente.');
+        }
+        $this->redirect('users/edit/' . $id);
+    }
+
     public function delete($id = null)
     {
         $this->requireRole(['super_admin']);
