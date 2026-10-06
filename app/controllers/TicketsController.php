@@ -294,7 +294,24 @@ class TicketsController extends Controller
         );
         $ticketData['client_ticket_number'] = ($lastNumber['last_num'] ?? 0) + 1;
 
-        $ticketId = $this->ticketModel->create($ticketData);
+        // A persistência da demanda e seus efeitos (card, notificações) ficam
+        // em try/catch: assim uma falha de BD (ex.: coluna/constraint divergente
+        // em produção) é LOGADA com contexto útil e devolve uma mensagem clara,
+        // em vez do 500 genérico que não diz nada a quem está criando.
+        try {
+            $ticketId = $this->ticketModel->create($ticketData);
+        } catch (\Throwable $e) {
+            Logger::exception($e, [
+                'ctx' => 'tickets/store',
+                'role' => $user['role'] ?? null,
+                'client_id' => $clientId,
+                'has_attendant' => !empty($attendantId),
+                'has_technical' => !empty($technicalId),
+            ]);
+            flash('error', 'Não foi possível criar a demanda. Verifique os dados e tente novamente. Se persistir, avise o suporte.');
+            $this->redirect('tickets/create');
+            return;
+        }
 
         // Upload de arquivos
         if (!empty($_FILES['attachments']['name'][0])) {
@@ -322,19 +339,27 @@ class TicketsController extends Controller
             }
         }
 
-        // Enviar notificação (lógica compartilhada com a criação via API).
-        (new TicketNotificationService())->notifyNewTicket($ticketId);
+        // Efeitos pós-criação (notificações + card do Planejamento). A demanda
+        // JÁ existe neste ponto; uma falha aqui não deve derrubar a criação nem
+        // mostrar 500. Logamos e seguimos — o card, se faltar, é recriado sob
+        // demanda em showCard().
+        try {
+            // Enviar notificação (lógica compartilhada com a criação via API).
+            (new TicketNotificationService())->notifyNewTicket($ticketId);
 
-        // Na criação, notificar todos os atendentes atribuídos.
-        // O responsável técnico só é notificado quando a demanda entra em Revisão Interna.
-        foreach ($attendantIds as $aId) {
-            $this->notifyAssignment($ticketId, $aId, 'atendente');
+            // Na criação, notificar todos os atendentes atribuídos.
+            // O responsável técnico só é notificado quando a demanda entra em Revisão Interna.
+            foreach ($attendantIds as $aId) {
+                $this->notifyAssignment($ticketId, $aId, 'atendente');
+            }
+
+            // Criar card automático no Planejamento
+            $ticket = $this->ticketModel->findById($ticketId);
+            $planningCard = new PlanningCard();
+            $planningCard->createFromTicket($ticket);
+        } catch (\Throwable $e) {
+            Logger::exception($e, ['ctx' => 'tickets/store:after-create', 'ticket_id' => $ticketId]);
         }
-
-        // Criar card automático no Planejamento
-        $ticket = $this->ticketModel->findById($ticketId);
-        $planningCard = new PlanningCard();
-        $planningCard->createFromTicket($ticket);
 
         flash('success', 'Demanda criada com sucesso!');
         $this->redirect('tickets/show/' . $ticketId);
