@@ -70,6 +70,17 @@ class AgendaRules
     }
 
     /**
+     * Normaliza o flag de gravação automática: 1 somente quando o valor for
+     * '1', 1 ou true (checkbox marcado); qualquer outra coisa retorna 0.
+     * Só faz sentido para reuniões operacionais/internas, mas a normalização
+     * é genérica — a restrição de tipo fica na view/controller.
+     */
+    public static function normalizeAutoRecord($value): int
+    {
+        return ($value === '1' || $value === 1 || $value === true) ? 1 : 0;
+    }
+
+    /**
      * Limita o teto de participantes da sala de vídeo ao intervalo seguro [2, 15].
      */
     public static function clampVideoMaxParticipants($value): int

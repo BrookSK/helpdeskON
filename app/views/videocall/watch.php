@@ -5,13 +5,20 @@ $recToken = htmlspecialchars($rec['token'], ENT_QUOTES);
 $videoUrl = htmlspecialchars($videoUrl, ENT_QUOTES);
 $status = $rec['transcribe_status'] ?? 'none';
 $durationSec = (int)($rec['duration_sec'] ?? 0);
-$summary = (string)($rec['summary'] ?? '');
-$minutes = (string)($rec['minutes'] ?? '');
-$minutesStatus = $rec['minutes_status'] ?? 'none';
-// Só a equipe (área logada) edita/gera a minuta; no link público ela é só leitura.
-$canEditMinutes = empty($isPublic);
-$segJson = json_encode($segments ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+$rawSummary = (string)($rec['summary'] ?? '');
 $shareUrl = $base . '/videocall/share/' . $recToken;
+$segJson = json_encode($segments ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+// Tenta decodificar o summary como JSON estruturado de ata.
+// Retrocompatível: se não for JSON válido, encapsula o texto legado em resumo.
+$minutesDecoded = null;
+if ($rawSummary !== '') {
+    $decoded = json_decode($rawSummary, true);
+    if (is_array($decoded) && isset($decoded['resumo'])) {
+        $minutesDecoded = $decoded;
+    }
+}
+$minutesJson = json_encode($minutesDecoded, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -58,7 +65,18 @@ $shareUrl = $base . '/videocall/share/' . $recToken;
         .empty { color:#9aa2c0; text-align:center; padding:30px 10px; }
         .spin { width:26px; height:26px; border:3px solid #33375a; border-top-color:var(--brand); border-radius:50%; display:inline-block; animation:spin 1s linear infinite; vertical-align:middle; }
         @keyframes spin { to { transform:rotate(360deg); } }
-    </style>
+        /* Ata estruturada */
+        .minutes-section { margin-bottom:16px; }
+        .minutes-section:last-child { margin-bottom:0; }
+        .minutes-label { font-size:.72rem; font-weight:700; letter-spacing:.07em; text-transform:uppercase;
+                         color:var(--brand); margin-bottom:6px; display:flex; align-items:center; gap:5px; }
+        .minutes-resumo { font-size:.88rem; line-height:1.65; color:#d0d4e8; }
+        .minutes-list { list-style:none; margin:0; padding:0; }
+        .minutes-list li { font-size:.86rem; line-height:1.5; padding:4px 0 4px 18px; position:relative; color:#c8cce0; border-bottom:1px solid rgba(255,255,255,.04); }
+        .minutes-list li:last-child { border-bottom:none; }
+        .minutes-list li::before { content:''; position:absolute; left:4px; top:10px;
+                                   width:6px; height:6px; border-radius:50%; background:var(--brand); }
+        .minutes-empty { color:#9aa2c0; font-size:.82rem; font-style:italic; }    </style>
 </head>
 <body>
 <div class="top">
@@ -89,8 +107,8 @@ $shareUrl = $base . '/videocall/share/' . $recToken;
     <div class="side">
         <div class="tabs">
             <button class="tab active" id="tab-tr-btn" onclick="showTab('tr')">Transcrição</button>
-            <button class="tab" id="tab-sm-btn" onclick="showTab('sm')">Resumo</button>
-            <button class="tab" id="tab-mn-btn" onclick="showTab('mn')">Minuta</button>
+            <button class="tab" id="tab-rs-btn" onclick="showTab('rs')">Resumo</button>
+            <button class="tab" id="tab-sm-btn" onclick="showTab('sm')">Minuta</button>
         </div>
         <div class="tab-body" id="tab-tr">
             <div id="tr-list"></div>
@@ -99,30 +117,35 @@ $shareUrl = $base . '/videocall/share/' . $recToken;
                 <button class="btn btn-sm btn-brand" id="tr-btn" onclick="startTranscription()"><i class="bi bi-magic"></i> Transcrever com IA</button>
             </div>
         </div>
-        <div class="tab-body" id="tab-sm" style="display:none;">
-            <div id="sm-body" class="summary-body"></div>
+        <div class="tab-body" id="tab-rs" style="display:none;">
+            <div id="rs-empty" class="muted" style="font-size:.86rem;">Sem resumo ainda. Ele é gerado automaticamente junto com a transcrição.</div>
+            <div id="rs-body" class="minutes-resumo" style="display:none;"></div>
         </div>
-        <div class="tab-body" id="tab-mn" style="display:none;">
-            <div id="mn-view" class="summary-body"></div>
-            <div id="mn-empty" class="empty" style="display:none;">
-                <p>A minuta (ata) ainda não foi gerada.</p>
-                <?php if ($canEditMinutes): ?>
-                <button class="btn btn-sm btn-brand" id="mn-gen-btn" onclick="generateMinutes()"><i class="bi bi-magic"></i> Gerar minuta com IA</button>
-                <p class="muted mt-2" style="font-size:.78rem;">Requer que a reunião já tenha transcrição.</p>
-                <?php endif; ?>
+        <div class="tab-body" id="tab-sm" style="display:none;">
+            <div id="sm-empty" class="muted" style="font-size:.86rem;">Sem minuta ainda. Ela é gerada automaticamente junto com a transcrição.</div>
+            <div id="sm-minutes" style="display:none;">
+                <div class="minutes-section">
+                    <div class="minutes-label"><i class="bi bi-list-ul"></i> Tópicos Discutidos</div>
+                    <ul id="min-topicos" class="minutes-list"></ul>
+                </div>
+                <div class="minutes-section">
+                    <div class="minutes-label" style="color:#e8a838;"><i class="bi bi-exclamation-circle"></i> Tópicos Não Resolvidos</div>
+                    <ul id="min-topicos-nr" class="minutes-list"></ul>
+                </div>
+                <div class="minutes-section">
+                    <div class="minutes-label"><i class="bi bi-check2-square"></i> Decisões Tomadas</div>
+                    <ul id="min-decisoes" class="minutes-list"></ul>
+                </div>
+                <div class="minutes-section">
+                    <div class="minutes-label"><i class="bi bi-arrow-right-circle"></i> Próximos Passos</div>
+                    <ul id="min-proximos" class="minutes-list"></ul>
+                </div>
             </div>
-            <?php if ($canEditMinutes): ?>
-            <textarea id="mn-edit" class="form-control" style="display:none;min-height:48vh;background:var(--panel2);color:#e8eaf1;border-color:#33375a;font-size:.86rem;line-height:1.5;"></textarea>
-            <?php endif; ?>
         </div>
         <div class="toolbar">
             <button class="btn btn-sm btn-outline-light" onclick="copyTranscript()"><i class="bi bi-clipboard"></i> Copiar transcrição</button>
-            <button class="btn btn-sm btn-outline-light" onclick="copySummary()"><i class="bi bi-clipboard-check"></i> Copiar resumo</button>
-            <?php if ($canEditMinutes): ?>
-            <button class="btn btn-sm btn-outline-warning" id="mn-edit-btn" onclick="toggleMinutesEdit()" style="display:none;"><i class="bi bi-pencil"></i> Editar minuta</button>
-            <button class="btn btn-sm btn-brand" id="mn-save-btn" onclick="saveMinutes()" style="display:none;"><i class="bi bi-check-lg"></i> Salvar minuta</button>
-            <button class="btn btn-sm btn-outline-info" id="mn-send-btn" onclick="sendMinutes()" style="display:none;"><i class="bi bi-send"></i> Enviar minuta</button>
-            <?php endif; ?>
+            <button class="btn btn-sm btn-outline-light" onclick="copyMinutes()"><i class="bi bi-clipboard-check"></i> Copiar minuta</button>
+            <button class="btn btn-sm btn-outline-light" onclick="exportMinutePdf()"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
         </div>
     </div>
 </div>
@@ -133,12 +156,10 @@ const REC_TOKEN = '<?= $recToken ?>';
 const VIDEO_URL = '<?= $videoUrl ?>';
 const SHARE_URL = '<?= htmlspecialchars($shareUrl, ENT_QUOTES) ?>';
 let segments = <?= $segJson ?: '[]' ?>;
-let summary = <?= json_encode($summary, JSON_UNESCAPED_UNICODE) ?>;
+// minutes: objeto estruturado {resumo, topicos[], decisoes[], proximos_passos[]}
+// null quando ainda não gerado. summary (legado) mantido apenas para retrocompat.
+let minutes = <?= $minutesJson ?: 'null' ?>;
 let status = '<?= $status ?>';
-let minutes = <?= json_encode($minutes, JSON_UNESCAPED_UNICODE) ?>;
-let minutesStatus = '<?= $minutesStatus ?>';
-const CAN_EDIT_MINUTES = <?= $canEditMinutes ? 'true' : 'false' ?>;
-let minutesEditing = false;
 const player = document.getElementById('player');
 
 // -------------------------------------------------------------------
@@ -198,110 +219,132 @@ function setSpeed(s, btn) {
     if (btn) btn.classList.add('active');
 }
 function showTab(w) {
-    document.getElementById('tab-tr-btn').classList.toggle('active', w === 'tr');
-    document.getElementById('tab-sm-btn').classList.toggle('active', w === 'sm');
-    const mnBtn = document.getElementById('tab-mn-btn');
-    if (mnBtn) mnBtn.classList.toggle('active', w === 'mn');
-    document.getElementById('tab-tr').style.display = (w === 'tr') ? 'block' : 'none';
-    document.getElementById('tab-sm').style.display = (w === 'sm') ? 'block' : 'none';
-    const mnTab = document.getElementById('tab-mn');
-    if (mnTab) mnTab.style.display = (w === 'mn') ? 'block' : 'none';
-    // Mostra os botões de minuta só quando a aba Minuta está aberta.
-    const editBtn = document.getElementById('mn-edit-btn');
-    const saveBtn = document.getElementById('mn-save-btn');
-    const sendBtn = document.getElementById('mn-send-btn');
-    if (editBtn) editBtn.style.display = (w === 'mn' && !!minutes && !minutesEditing) ? '' : 'none';
-    if (saveBtn) saveBtn.style.display = (w === 'mn' && minutesEditing) ? '' : 'none';
-    if (sendBtn) sendBtn.style.display = (w === 'mn' && !!minutes && !minutesEditing) ? '' : 'none';
-}
-async function sendMinutes() {
-    if (!CAN_EDIT_MINUTES) return;
-    if (!confirm('Enviar o link da minuta por WhatsApp e e-mail aos participantes e ao cliente?')) return;
-    const btn = document.getElementById('mn-send-btn');
-    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Enviando…'; }
-    try {
-        const r = await fetch(`${BASE}/videocall/sendMinutes/${REC_TOKEN}`, { method: 'POST' }).then(x => x.json());
-        if (r.error) { alert(r.error); return; }
-        alert('Minuta enviada. WhatsApp: ' + (r.sent_whats || 0) + ' · E-mail: ' + (r.sent_email || 0) + ' (destinatários: ' + (r.recipients || 0) + ').');
-    } catch (e) { alert('Falha ao enviar a minuta.'); }
-    finally { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-send"></i> Enviar minuta'; } }
-}
-function renderSummary() {
-    document.getElementById('sm-body').innerHTML = summary ? esc(summary) : '<div class="muted">Sem resumo ainda. Ele é gerado junto com a transcrição.</div>';
-}
-function renderMinutes() {
-    const view = document.getElementById('mn-view');
-    const empty = document.getElementById('mn-empty');
-    const edit = document.getElementById('mn-edit');
-    if (!view) return;
-    if (minutes && minutes.trim() !== '') {
-        if (empty) empty.style.display = 'none';
-        view.style.display = minutesEditing ? 'none' : 'block';
-        view.innerHTML = esc(minutes);
-        if (edit) { edit.style.display = minutesEditing ? 'block' : 'none'; }
-    } else {
-        view.style.display = 'none';
-        view.innerHTML = '';
-        if (edit) edit.style.display = 'none';
-        if (empty) {
-            empty.style.display = 'block';
-            // Mensagem conforme o estado da geração.
-            if (minutesStatus === 'processing') empty.querySelector('p').textContent = 'Gerando a minuta…';
-            else if (minutesStatus === 'error') empty.querySelector('p').textContent = 'A geração da minuta falhou. Tente novamente.';
-        }
-    }
-    // Atualiza visibilidade dos botões quando a aba já está aberta.
-    const mnTab = document.getElementById('tab-mn');
-    if (mnTab && mnTab.style.display === 'block') showTab('mn');
-}
-function toggleMinutesEdit() {
-    if (!CAN_EDIT_MINUTES) return;
-    minutesEditing = true;
-    const edit = document.getElementById('mn-edit');
-    if (edit) { edit.value = minutes || ''; }
-    renderMinutes();
-    showTab('mn');
-}
-async function saveMinutes() {
-    if (!CAN_EDIT_MINUTES) return;
-    const edit = document.getElementById('mn-edit');
-    const val = edit ? edit.value : minutes;
-    const btn = document.getElementById('mn-save-btn');
-    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Salvando…'; }
-    try {
-        const r = await fetch(`${BASE}/videocall/saveMinutes/${REC_TOKEN}`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ minutes: val })
-        }).then(x => x.json());
-        if (r.error) { alert(r.error); return; }
-        minutes = val; minutesStatus = 'done'; minutesEditing = false;
-        renderMinutes();
-    } catch (e) { alert('Falha ao salvar a minuta.'); }
-    finally { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-check-lg"></i> Salvar minuta'; } }
-}
-async function generateMinutes() {
-    if (!CAN_EDIT_MINUTES) return;
-    const btn = document.getElementById('mn-gen-btn');
-    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Gerando…'; }
-    minutesStatus = 'processing'; renderMinutes();
-    try {
-        const r = await fetch(`${BASE}/videocall/generateMinutes/${REC_TOKEN}`, { method: 'POST' }).then(x => x.json());
-        if (r.error) { minutesStatus = 'error'; renderMinutes(); alert(r.error); return; }
-        minutes = r.minutes || ''; minutesStatus = 'done'; renderMinutes();
-    } catch (e) { minutesStatus = 'error'; renderMinutes(); alert('Falha ao gerar a minuta.'); }
-    finally { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-magic"></i> Gerar minuta com IA'; } }
+    ['tr','rs','sm'].forEach(t => {
+        document.getElementById('tab-' + t + '-btn').classList.toggle('active', t === w);
+        document.getElementById('tab-' + t).style.display = (t === w) ? 'block' : 'none';
+    });
 }
 
-function copyShare() { navigator.clipboard?.writeText(SHARE_URL).then(()=>alert('Link copiado:\n'+SHARE_URL)).catch(()=>alert(SHARE_URL)); }
+/**
+ * Renderiza o resumo na aba Resumo e a minuta estruturada na aba Minuta.
+ */
+function renderMinutes() {
+    // --- Aba Resumo ---
+    const rsEmpty = document.getElementById('rs-empty');
+    const rsBody  = document.getElementById('rs-body');
+    if (minutes && minutes.resumo) {
+        rsEmpty.style.display = 'none';
+        rsBody.style.display = '';
+        rsBody.textContent = minutes.resumo;
+    } else {
+        rsEmpty.style.display = '';
+        rsBody.style.display = 'none';
+    }
+
+    // --- Aba Minuta ---
+    const smEmpty   = document.getElementById('sm-empty');
+    const smMinutes = document.getElementById('sm-minutes');
+    if (!minutes) {
+        smEmpty.style.display = '';
+        smMinutes.style.display = 'none';
+        return;
+    }
+    smEmpty.style.display = 'none';
+    smMinutes.style.display = '';
+
+    const renderList = (id, arr, emptyMsg) => {
+        const ul = document.getElementById(id);
+        if (!ul) return;
+        if (!arr || !arr.length) {
+            ul.innerHTML = '<li class="minutes-empty">' + (emptyMsg || 'Nenhum item identificado.') + '</li>';
+            return;
+        }
+        ul.innerHTML = arr.map(item => `<li>${esc(item)}</li>`).join('');
+    };
+    renderList('min-topicos',    minutes.topicos,                'Nenhum item identificado.');
+    renderList('min-topicos-nr', minutes.topicos_nao_resolvidos, 'Nenhum tópico em aberto.');
+    renderList('min-decisoes',   minutes.decisoes,               'Nenhuma decisão registrada.');
+    renderList('min-proximos',   minutes.proximos_passos,        'Nenhum próximo passo identificado.');
+}
+
 function copyTranscript() {
     const txt = (segments && segments.length) ? segments.map(s => '[' + fmt(s.start) + '] ' + s.text).join('\n') : '';
     if (!txt) { alert('Sem transcrição para copiar.'); return; }
     navigator.clipboard?.writeText(txt).then(()=>alert('Transcrição copiada! Cole no GPT para gerar as tarefas.'));
 }
-function copySummary() {
-    if (!summary) { alert('Sem resumo para copiar.'); return; }
-    navigator.clipboard?.writeText(summary).then(()=>alert('Resumo copiado!'));
+
+/** Copia a minuta em texto plano. */
+function copyMinutes() {
+    if (!minutes) { alert('Sem minuta para copiar.'); return; }
+    const lines = [];
+    if (minutes.resumo) {
+        lines.push('=== RESUMO ===');
+        lines.push(minutes.resumo);
+        lines.push('');
+    }
+    if (minutes.topicos && minutes.topicos.length) {
+        lines.push('=== TÓPICOS DISCUTIDOS ===');
+        minutes.topicos.forEach(t => lines.push('• ' + t));
+        lines.push('');
+    }
+    if (minutes.topicos_nao_resolvidos && minutes.topicos_nao_resolvidos.length) {
+        lines.push('=== TÓPICOS NÃO RESOLVIDOS ===');
+        minutes.topicos_nao_resolvidos.forEach(t => lines.push('• ' + t));
+        lines.push('');
+    }
+    if (minutes.decisoes && minutes.decisoes.length) {
+        lines.push('=== DECISÕES TOMADAS ===');
+        minutes.decisoes.forEach(d => lines.push('• ' + d));
+        lines.push('');
+    }
+    if (minutes.proximos_passos && minutes.proximos_passos.length) {
+        lines.push('=== PRÓXIMOS PASSOS ===');
+        minutes.proximos_passos.forEach(p => lines.push('• ' + p));
+    }
+    navigator.clipboard?.writeText(lines.join('\n').trim()).then(()=>alert('Minuta copiada!'));
 }
+
+/** Gera e baixa a minuta como PDF via impressão do navegador. */
+function exportMinutePdf() {
+    if (!minutes) { alert('Sem minuta para exportar.'); return; }
+
+    const title = document.querySelector('.top h1')?.textContent || 'Minuta de Reunião';
+
+    const sec = (label, items, color) => {
+        if (!items || !items.length) return '';
+        return `<div style="margin-bottom:18px;">
+            <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:${color || '#00BFA6'};margin-bottom:6px;">${label}</div>
+            <ul style="margin:0;padding-left:18px;">${items.map(i => `<li style="margin-bottom:4px;font-size:13px;">${i}</li>`).join('')}</ul>
+        </div>`;
+    };
+
+    const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+    <title>Minuta — ${title}</title>
+    <style>
+        body { font-family:'Segoe UI',Arial,sans-serif; color:#1a1a2e; padding:32px 40px; max-width:780px; margin:0 auto; }
+        h1 { font-size:20px; margin:0 0 4px; }
+        .meta { font-size:12px; color:#666; margin-bottom:24px; }
+        .resumo { font-size:13px; line-height:1.7; color:#333; background:#f5f5f5; padding:14px 16px; border-radius:8px; margin-bottom:20px; }
+        @media print { body { padding:16px; } }
+    </style></head><body>
+    <h1>Minuta de Reunião</h1>
+    <div class="meta">${title} · Gerada em ${new Date().toLocaleDateString('pt-BR')}</div>
+    ${minutes.resumo ? `<div class="resumo">${minutes.resumo}</div>` : ''}
+    ${sec('Tópicos Discutidos', minutes.topicos)}
+    ${sec('Tópicos Não Resolvidos', minutes.topicos_nao_resolvidos, '#c07a00')}
+    ${sec('Decisões Tomadas', minutes.decisoes)}
+    ${sec('Próximos Passos', minutes.proximos_passos)}
+    </body></html>`;
+
+    const win = window.open('', '_blank');
+    if (!win) { alert('Permita pop-ups para exportar o PDF.'); return; }
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    setTimeout(() => { win.print(); }, 400);
+}
+
+function copyShare() { navigator.clipboard?.writeText(SHARE_URL).then(()=>alert('Link copiado:\n'+SHARE_URL)).catch(()=>alert(SHARE_URL)); }
 
 const CHUNK_SECONDS = 600; // 10 min por pedaço (fica bem abaixo dos 25 MB em WAV 16kHz mono)
 
@@ -327,35 +370,44 @@ async function startTranscription() {
         const chunks = Math.max(1, Math.ceil(total / CHUNK_SECONDS));
 
         // 2) Corta em pedaços e transcreve cada um, juntando os segmentos.
+        // O offset é acumulado pela duração REAL de cada chunk (endSec - startSec),
+        // não por CHUNK_SECONDS fixo — isso garante minutagem precisa mesmo quando
+        // o último pedaço (ou qualquer pedaço) tem duração diferente de 600s.
         let allSegs = [];
+        let accOffset = 0; // offset acumulado em segundos
         for (let i = 0; i < chunks; i++) {
             const startSec = i * CHUNK_SECONDS;
             const endSec = Math.min(total, startSec + CHUNK_SECONDS);
+            const chunkDuration = endSec - startSec; // duração real deste pedaço
             trProgress('Transcrevendo parte ' + (i + 1) + ' de ' + chunks + '…');
             const wav = audioSliceToWav(audio, startSec, endSec, sr);
             const fd = new FormData();
             fd.append('audio', wav, 'parte.wav');
-            fd.append('offset', String(startSec));
+            fd.append('offset', String(accOffset)); // offset acumulado real
             fd.append('index', String(i));
             const r = await fetch(`${BASE}/videocall/transcribeChunk/${REC_TOKEN}`, { method: 'POST', body: fd }).then(x => x.json());
             if (r.error) throw new Error(r.error);
             allSegs = allSegs.concat(r.segments || []);
+            accOffset += chunkDuration; // avança pelo tempo real do pedaço
         }
         try { actx.close(); } catch (e) {}
 
-        // 3) Salva a transcrição montada e gera o resumo no servidor.
-        trProgress('Gerando o resumo…');
+        // 3) Salva a transcrição montada e gera a minuta no servidor.
+        trProgress('Gerando a minuta…');
         const save = await fetch(`${BASE}/videocall/saveTranscript/${REC_TOKEN}`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ segments: allSegs })
         }).then(x => x.json());
         if (save.error) throw new Error(save.error);
 
-        segments = allSegs; summary = save.summary || ''; status = 'done';
-        // A minuta é gerada automaticamente junto com a transcrição/resumo.
-        if (typeof save.minutes === 'string' && save.minutes.trim() !== '') { minutes = save.minutes; minutesStatus = 'done'; }
+        segments = allSegs;
+        // save.summary é o JSON serializado da ata estruturada.
+        // Tenta decodificar; se falhar, guarda null (ata não disponível).
+        try { minutes = JSON.parse(save.summary || 'null'); } catch (e) { minutes = null; }
+        if (minutes && typeof minutes !== 'object') minutes = null;
+        status = 'done';
         document.getElementById('tr-empty').style.display = 'none';
-        renderSegments(); renderSummary(); renderMinutes();
+        renderSegments(); renderMinutes();
     } catch (e) {
         document.getElementById('tr-empty').style.display = 'block';
         document.getElementById('tr-empty').innerHTML = '<p class="text-danger">Falha ao transcrever: ' + esc(e.message || 'erro') + '</p>'
@@ -415,10 +467,11 @@ function pollStatus() {
             const r = await fetch(`${BASE}/videocall/recordingInfo/${REC_TOKEN}`).then(x => x.json());
             if (r.status === 'done') {
                 clearInterval(pollTimer); pollTimer = null;
-                segments = r.transcript_json || []; summary = r.summary || ''; status = 'done';
-                if (typeof r.minutes === 'string') { minutes = r.minutes; }
-                if (r.minutes_status) { minutesStatus = r.minutes_status; }
-                renderSegments(); renderSummary(); renderMinutes();
+                segments = r.transcript_json || [];
+                // r.minutes é o objeto estruturado da ata (novo); fallback para null.
+                minutes = (r.minutes && typeof r.minutes === 'object') ? r.minutes : null;
+                status = 'done';
+                renderSegments(); renderMinutes();
             } else if (r.status === 'error') {
                 clearInterval(pollTimer); pollTimer = null;
                 document.getElementById('tr-empty').innerHTML = '<p class="text-danger">' + esc(r.error_message || 'A transcrição falhou.') + '</p>'
@@ -429,7 +482,6 @@ function pollStatus() {
 }
 
 renderSegments();
-renderSummary();
 renderMinutes();
 </script>
 </body>

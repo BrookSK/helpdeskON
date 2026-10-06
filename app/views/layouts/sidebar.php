@@ -339,6 +339,13 @@
                 <?php endif; ?>
             </ul>
             <?php endif; ?>
+            <?php if (Permissions::canAccess($role, 'acessos')): ?>
+            <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'acessos' ? 'active' : '' ?>" href="<?= baseUrl('acessos') ?>">
+                    <i class="bi bi-shield-lock"></i> Acessos
+                </a>
+            </li>
+            <?php endif; ?>
             <?php if (Permissions::canAccess($role, 'settings')): ?>
             <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'settings' ? 'active' : '' ?>" href="<?= baseUrl('settings') ?>">

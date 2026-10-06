@@ -1060,6 +1060,8 @@ async function doJoin(takeover) {
     if (res.error) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-box-arrow-in-right"></i> Entrar na chamada'; showLobbyError(res.error); return; }
 
     isAdmin = !!res.is_admin;
+    // Guarda se a sala pede gravação automática (vem do agendamento).
+    if (res.auto_record !== undefined) window._roomAutoRecord = !!res.auto_record;
     enterCall(res);
 }
 
@@ -1105,7 +1107,10 @@ function maybeStartAutoRecording() {
         if (!joined) return;
         if (mediaRecorder && mediaRecorder.state !== 'inactive') return; // já gravando
         if (peers.size > 0) return; // alguém entrou nesse meio-tempo
-        try { startRecording(); } catch (e) { /* não bloqueia a reunião */ }
+        try {
+            startRecording();
+            toast('🔴 Gravação automática iniciada conforme configurado no agendamento.');
+        } catch (e) { /* não bloqueia a reunião */ }
     }, 1500);
 }
 
