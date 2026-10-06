@@ -311,3 +311,39 @@ CREATE TABLE IF NOT EXISTS provider_revisions (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- FIM. Rode com helpdesk_on_beta SELECIONADO no phpMyAdmin.
+
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 142) agenda_meetings / video_rooms: gravação automática (trabalho da Julia)
+-- ─────────────────────────────────────────────────────────────────────────────
+SET @c := (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agenda_meetings' AND COLUMN_NAME = 'auto_record');
+SET @s := IF(@c = 0, "ALTER TABLE agenda_meetings ADD COLUMN auto_record TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'Gravar automaticamente ao iniciar' AFTER notes", 'SELECT 1');
+PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+
+SET @c := (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'video_rooms' AND COLUMN_NAME = 'auto_record');
+SET @s := IF(@c = 0, "ALTER TABLE video_rooms ADD COLUMN auto_record TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'Gravar automaticamente quando o host entra' AFTER allow_recording", 'SELECT 1');
+PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 143) system_accesses: cofre de credenciais / módulo Acessos (trabalho da Julia)
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS `system_accesses` (
+    `id`            INT            NOT NULL AUTO_INCREMENT,
+    `title`         VARCHAR(120)   NOT NULL,
+    `category`      VARCHAR(60)    NOT NULL DEFAULT 'Geral',
+    `url`           VARCHAR(255)   NULL     DEFAULT NULL,
+    `username`      VARCHAR(150)   NULL     DEFAULT NULL,
+    `password_enc`  TEXT           NULL     DEFAULT NULL   COMMENT 'Senha criptografada (AES-256-CBC)',
+    `notes`         TEXT           NULL     DEFAULT NULL,
+    `company_id`    INT            NULL     DEFAULT NULL,
+    `created_by`    INT            NOT NULL,
+    `created_at`    TIMESTAMP      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`    TIMESTAMP      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_sa_created_by`  (`created_by`),
+    KEY `idx_sa_category`    (`category`),
+    KEY `idx_sa_company_id`  (`company_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- FIM DO CONSOLIDADO (esteira + trabalho da Julia). Rode com o banco da produção
+-- SELECIONADO no phpMyAdmin. É idempotente: pode rodar mais de uma vez.
