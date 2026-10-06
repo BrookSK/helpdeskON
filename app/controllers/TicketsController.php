@@ -189,16 +189,20 @@ class TicketsController extends Controller
         $this->view('attendant/kanban', ['user' => $user, 'grouped' => $grouped, 'myTasksOnly' => false]);
     }
 
-    // Formulário para criar nova demanda (cliente e super_admin)
+    // Formulário para criar nova demanda (cliente, super_admin e developer)
     public function create()
     {
-        $this->requireRole(['client', 'super_admin']);
+        $this->requireRole(['client', 'super_admin', 'developer']);
         $user = $this->currentUser();
 
         $data = ['user' => $user];
 
-        // Se for super_admin, carregar lista de clientes + equipe para atribuição
-        if ($user['role'] === 'super_admin') {
+        // Equipe que cria demanda em nome de clientes (seleciona empresa/cliente,
+        // atendentes e responsável técnico). super_admin e developer têm o mesmo
+        // tratamento aqui — o developer precisa inclusive do campo técnico.
+        $isAdminCreator = in_array($user['role'], ['super_admin', 'developer'], true);
+
+        if ($isAdminCreator) {
             $userModel = new User();
             // Clientes com a empresa vinculada, para seleção hierárquica Empresa > Usuário
             $clients = Database::getInstance()->fetchAll(
@@ -222,7 +226,7 @@ class TicketsController extends Controller
     // Salvar nova demanda
     public function store()
     {
-        $this->requireRole(['client', 'super_admin']);
+        $this->requireRole(['client', 'super_admin', 'developer']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             $this->redirect('tickets');
         }
@@ -239,12 +243,13 @@ class TicketsController extends Controller
             $this->redirect('tickets/create');
         }
 
-        // Determinar o client_id: se super_admin pode selecionar um cliente
+        // Determinar o client_id: equipe admin (super_admin/developer) pode
+        // selecionar o cliente e as atribuições. Cliente comum cria para si.
         $clientId = $user['id'];
         $attendantId = null;
         $attendantIds = [];
         $technicalId = null;
-        if ($user['role'] === 'super_admin') {
+        if (in_array($user['role'], ['super_admin', 'developer'], true)) {
             $selectedClient = $_POST['client_id'] ?? '';
             if (!empty($selectedClient)) {
                 $clientId = (int)$selectedClient;

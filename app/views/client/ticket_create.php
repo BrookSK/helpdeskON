@@ -37,7 +37,7 @@
 
             <form action="<?= baseUrl('tickets/store') ?>" method="POST" enctype="multipart/form-data">
                 <div class="row g-3">
-                    <?php if (($user['role'] ?? '') === 'super_admin' && !empty($clients)): ?>
+                    <?php if (in_array(($user['role'] ?? ''), ['super_admin', 'developer'], true) && !empty($clients)): ?>
                     <div class="col-sm-6">
                         <label class="form-label fw-medium">Empresa *</label>
                         <select id="company-select" class="form-select" required>
