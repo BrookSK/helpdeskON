@@ -731,21 +731,31 @@ class Ticket
      */
     public function getRelations($ticketId)
     {
-        return $this->db->fetchAll(
-            "SELECT r.id, r.relation_type, 'outgoing' AS direction,
-                    t.id AS other_id, t.title AS other_title, t.status AS other_status, t.category AS other_category
-               FROM ticket_relations r
-               JOIN tickets t ON t.id = r.target_ticket_id
-              WHERE r.source_ticket_id = ?
-             UNION ALL
-             SELECT r.id, r.relation_type, 'incoming' AS direction,
-                    t.id AS other_id, t.title AS other_title, t.status AS other_status, t.category AS other_category
-               FROM ticket_relations r
-               JOIN tickets t ON t.id = r.source_ticket_id
-              WHERE r.target_ticket_id = ?
-             ORDER BY id DESC",
-            [$ticketId, $ticketId]
-        );
+        try {
+            return $this->db->fetchAll(
+                "SELECT r.id, r.relation_type, 'outgoing' AS direction,
+                        t.id AS other_id, t.title AS other_title, t.status AS other_status, t.category AS other_category
+                   FROM ticket_relations r
+                   JOIN tickets t ON t.id = r.target_ticket_id
+                  WHERE r.source_ticket_id = ?
+                 UNION ALL
+                 SELECT r.id, r.relation_type, 'incoming' AS direction,
+                        t.id AS other_id, t.title AS other_title, t.status AS other_status, t.category AS other_category
+                   FROM ticket_relations r
+                   JOIN tickets t ON t.id = r.source_ticket_id
+                  WHERE r.target_ticket_id = ?
+                 ORDER BY id DESC",
+                [$ticketId, $ticketId]
+            );
+        } catch (\PDOException $e) {
+            // Degradação graciosa: se a tabela de relações (migration 154) ainda
+            // não foi aplicada no ambiente, a demanda simplesmente não tem
+            // relações — não deve derrubar a tela de visualização com um 500.
+            if (($e->getCode() === '42S02') || strpos($e->getMessage(), "ticket_relations' doesn't exist") !== false) {
+                return [];
+            }
+            throw $e;
+        }
     }
 
     /**

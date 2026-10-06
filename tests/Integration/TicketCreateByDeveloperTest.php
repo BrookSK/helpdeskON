@@ -121,6 +121,42 @@ final class TicketCreateByDeveloperTest extends TestCase
             [$ticketId]
         );
         $this->assertGreaterThan(0, (int)$notif['c'], 'Deveria gerar ao menos uma notificação.');
+
+        // Reproduz o passo que estourava o 500 em produção: após o store(), o
+        // redirect para tickets/show chama getRelations(). Deve retornar uma
+        // lista (vazia para uma demanda nova) sem lançar.
+        $relations = $this->ticket->getRelations($ticketId);
+        $this->assertIsArray($relations, 'getRelations deve retornar array.');
+        $this->assertCount(0, $relations, 'Demanda nova não tem relações.');
+    }
+
+    /**
+     * Garante a degradação graciosa de getRelations quando a tabela
+     * ticket_relations não existe (migration 154 não aplicada no ambiente):
+     * deve retornar [] em vez de propagar PDOException (que virava 500 ao
+     * visualizar a demanda logo após criá-la).
+     */
+    public function testGetRelationsSemTabelaNaoQuebra(): void
+    {
+        $hasTable = $this->db->fetch(
+            "SELECT COUNT(*) AS c FROM information_schema.TABLES
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ticket_relations'"
+        );
+        if ((int)($hasTable['c'] ?? 0) === 0) {
+            // Ambiente já sem a tabela: basta provar que não lança.
+            $this->assertSame([], $this->ticket->getRelations(999999));
+            return;
+        }
+
+        // Ambiente COM a tabela: renomeia temporariamente para simular a ausência,
+        // valida a degradação, e restaura ao final (sempre).
+        try {
+            $this->db->query("RENAME TABLE ticket_relations TO ticket_relations_bkp_test");
+            $this->assertSame([], $this->ticket->getRelations(999999),
+                'Sem a tabela, getRelations deve retornar [] (degradação graciosa).');
+        } finally {
+            try { $this->db->query("RENAME TABLE ticket_relations_bkp_test TO ticket_relations"); } catch (\Throwable $e) {}
+        }
     }
 
     public function testDeveloperCriaDemandaParaClienteSelecionado(): void
