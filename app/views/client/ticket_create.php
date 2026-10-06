@@ -2,6 +2,13 @@
 <?php require APP_PATH . '/views/layouts/header.php'; ?>
 <?php require APP_PATH . '/views/layouts/sidebar.php'; ?>
 
+<style>
+    /* Divisórias de seção do formulário de Nova Demanda */
+    .form-section-title { letter-spacing: .4px; }
+    .form-section-title + .row { margin-top: 0; }
+    .form-section-title:not(:first-child) { margin-top: 1rem; }
+</style>
+
 <div class="main-content">
     <div class="top-bar d-flex justify-content-between align-items-center flex-wrap gap-2">
         <div>
@@ -12,32 +19,33 @@
 
     <?php if (!empty($canShareExternal)): ?>
     <!-- Painel compacto do link de acesso externo -->
-    <div class="border border-success-subtle rounded-3 bg-success bg-opacity-10 px-3 py-2 mb-3">
-        <div class="d-flex align-items-center gap-2 flex-wrap">
+    <div class="border border-success-subtle rounded-3 bg-success bg-opacity-10 px-3 py-3 mb-3">
+        <div class="d-flex align-items-center gap-2 mb-1">
             <i class="bi bi-link-45deg text-success"></i>
             <span class="fw-semibold small">Link de acesso externo</span>
-            <span class="text-muted small flex-grow-1" style="min-width:200px">
-                Envie um link para o cliente abrir uma demanda sem ter acesso ao sistema.
-                Ele acessa com o PIN que você repassar e a demanda cai direto na sua fila.
-            </span>
-            <div class="d-flex align-items-center gap-2 flex-wrap ms-auto">
-                <button type="button" class="btn btn-success btn-sm"
-                        id="btn-share-external"
-                        data-has-pin="<?= !empty($hasExternalPin) ? '1' : '0' ?>"
-                        data-link="<?= escape($externalLink ?? '') ?>"
-                        data-invite-url="<?= escape(baseUrl('tickets/sendExternalInvite')) ?>"
-                        onclick="openShareExternal(this)">
-                    <i class="bi bi-whatsapp"></i> Enviar por WhatsApp
-                </button>
-                <button type="button" class="btn btn-outline-success btn-sm"
-                        id="btn-copy-external"
-                        data-has-pin="<?= !empty($hasExternalPin) ? '1' : '0' ?>"
-                        data-link="<?= escape($externalLink ?? '') ?>"
-                        onclick="copyExternalLink(this)">
-                    <i class="bi bi-clipboard"></i> Copiar link
-                </button>
-                <span id="share-external-msg" class="small"></span>
-            </div>
+        </div>
+        <p class="text-muted small mb-2">
+            Envie um link para o cliente abrir uma demanda sem ter acesso ao sistema.
+            Ele acessa com o PIN que você repassar e a demanda cai direto na sua fila.
+        </p>
+        <!-- Botões e mensagem alinhados embaixo, à esquerda, abaixo do texto -->
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            <button type="button" class="btn btn-success btn-sm"
+                    id="btn-share-external"
+                    data-has-pin="<?= !empty($hasExternalPin) ? '1' : '0' ?>"
+                    data-link="<?= escape($externalLink ?? '') ?>"
+                    data-invite-url="<?= escape(baseUrl('tickets/sendExternalInvite')) ?>"
+                    onclick="openShareExternal(this)">
+                <i class="bi bi-whatsapp"></i> Enviar por WhatsApp
+            </button>
+            <button type="button" class="btn btn-outline-success btn-sm"
+                    id="btn-copy-external"
+                    data-has-pin="<?= !empty($hasExternalPin) ? '1' : '0' ?>"
+                    data-link="<?= escape($externalLink ?? '') ?>"
+                    onclick="copyExternalLink(this)">
+                <i class="bi bi-clipboard"></i> Copiar link
+            </button>
+            <span id="share-external-msg" class="small"></span>
         </div>
         <?php if (empty($hasExternalPin)): ?>
         <div class="text-warning-emphasis small mt-2">
@@ -289,8 +297,12 @@
             </div>
 
             <form action="<?= baseUrl('tickets/store') ?>" method="POST" enctype="multipart/form-data">
-                <div class="row g-3">
-                    <?php if (($user['role'] ?? '') === 'super_admin' && !empty($clients)): ?>
+                <?php if (($user['role'] ?? '') === 'super_admin' && !empty($clients)): ?>
+                <!-- Seção: Encaminhamento (quem solicita e quem atende) -->
+                <div class="form-section-title text-uppercase text-muted fw-semibold small mb-2">
+                    <i class="bi bi-diagram-3"></i> Encaminhamento
+                </div>
+                <div class="row g-3 mb-4">
                     <div class="col-sm-6">
                         <label class="form-label fw-medium">Empresa *</label>
                         <select id="company-select" class="form-select" required>
@@ -359,7 +371,14 @@
                         </select>
                         <small class="text-muted">Hierarquia: Papel &gt; usuários daquele papel</small>
                     </div>
-                    <?php endif; ?>
+                </div>
+                <?php endif; ?>
+
+                <!-- Seção: Detalhes da demanda -->
+                <div class="form-section-title text-uppercase text-muted fw-semibold small mb-2">
+                    <i class="bi bi-card-text"></i> Detalhes da demanda
+                </div>
+                <div class="row g-3">
                     <div class="col-12">
                         <label class="form-label fw-medium">Título *</label>
                         <input type="text" name="title" id="field-title" class="form-control" placeholder="Resumo da sua demanda" required>
@@ -394,12 +413,15 @@
                         <input type="file" name="attachments[]" class="form-control" multiple accept="image/*,video/*,.pdf,.doc,.docx">
                         <small class="text-muted">Máx. 10MB/arquivo (50MB para vídeos). JPG, PNG, GIF, PDF, DOC, MP4, WebM</small>
                     </div>
-                    <div class="col-12 d-flex gap-2 flex-wrap">
-                        <button type="submit" class="btn btn-primary px-4">
-                            <i class="bi bi-send"></i> Enviar Demanda
-                        </button>
-                        <a href="<?= baseUrl('tickets') ?>" class="btn btn-outline-secondary px-4">Cancelar</a>
-                    </div>
+                </div>
+
+                <!-- Barra de ações: botões alinhados embaixo, à esquerda, abaixo dos campos -->
+                <div class="form-actions d-flex gap-2 flex-wrap align-items-center mt-4 pt-3 border-top">
+                    <button type="submit" class="btn btn-primary px-4">
+                        <i class="bi bi-send"></i> Enviar Demanda
+                    </button>
+                    <a href="<?= baseUrl('tickets') ?>" class="btn btn-outline-secondary px-4">Cancelar</a>
+                    <small class="text-muted ms-auto"><span class="text-danger">*</span> Campos obrigatórios</small>
                 </div>
             </form>
         </div>

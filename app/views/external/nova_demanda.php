@@ -26,6 +26,7 @@
         .form-control:focus, .form-select:focus { border-color: var(--primary); box-shadow: 0 0 0 0.2rem rgba(0,191,166,0.15); }
         .btn-ext { background: var(--primary); border-color: var(--primary); border-radius: 10px; font-weight: 600; }
         .btn-ext:hover { background: var(--primary-dark); border-color: var(--primary-dark); }
+        .form-section-title { letter-spacing: .4px; }
     </style>
 </head>
 <body>
@@ -80,7 +81,12 @@
             <div class="card-body p-4">
                 <form action="<?= baseUrl('solicitacaoexterna/store') ?>" method="POST" enctype="multipart/form-data">
                     <?= csrf_field() ?>
-                    <div class="row g-3">
+
+                    <!-- Seção: Identificação -->
+                    <div class="form-section-title text-uppercase text-muted fw-semibold small mb-2">
+                        <i class="bi bi-person-badge"></i> Identificação
+                    </div>
+                    <div class="row g-3 mb-4">
                         <div class="col-sm-6">
                             <label class="form-label fw-medium">Seu nome *</label>
                             <input type="text" name="requester_name" class="form-control" placeholder="Como podemos te identificar?" required>
@@ -98,6 +104,13 @@
                                    class="form-control mt-2" placeholder="Nome da sua empresa" style="display:none;">
                             <small class="text-muted">Opcional. Ajuda a identificar de qual empresa é a solicitação.</small>
                         </div>
+                    </div>
+
+                    <!-- Seção: Detalhes da demanda -->
+                    <div class="form-section-title text-uppercase text-muted fw-semibold small mb-2">
+                        <i class="bi bi-card-text"></i> Detalhes da demanda
+                    </div>
+                    <div class="row g-3">
                         <div class="col-12">
                             <label class="form-label fw-medium">Título *</label>
                             <input type="text" name="title" id="field-title" class="form-control" placeholder="Resumo da sua demanda" required>
@@ -131,12 +144,15 @@
                             <input type="file" name="attachments[]" class="form-control" multiple accept="image/*,video/*,.pdf,.doc,.docx">
                             <small class="text-muted">JPG, PNG, GIF, PDF, DOC, MP4, WebM.</small>
                         </div>
-                        <div class="col-12 d-flex gap-2 flex-wrap">
-                            <button type="submit" class="btn btn-ext btn-primary text-white px-4">
-                                <i class="bi bi-send"></i> Enviar demanda
-                            </button>
-                            <a href="<?= baseUrl('solicitacaoexterna/logout') ?>" class="btn btn-outline-secondary px-4">Cancelar</a>
-                        </div>
+                    </div>
+
+                    <!-- Barra de ações: botões alinhados embaixo, à esquerda, abaixo dos campos -->
+                    <div class="form-actions d-flex gap-2 flex-wrap align-items-center mt-4 pt-3 border-top">
+                        <button type="submit" class="btn btn-ext btn-primary text-white px-4">
+                            <i class="bi bi-send"></i> Enviar demanda
+                        </button>
+                        <a href="<?= baseUrl('solicitacaoexterna/logout') ?>" class="btn btn-outline-secondary px-4">Cancelar</a>
+                        <small class="text-muted ms-auto"><span class="text-danger">*</span> Campos obrigatórios</small>
                     </div>
                 </form>
             </div>
