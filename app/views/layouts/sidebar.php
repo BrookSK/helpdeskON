@@ -38,6 +38,15 @@
                 </a>
             </li>
 
+            <?php // ===== WhatsApp (Chat) — equipe interna (todos menos cliente) ===== ?>
+            <?php if ($role !== 'client' && Permissions::canAccess($role, 'whatsapp')): ?>
+            <li class="nav-item">
+                <a class="nav-link <?= in_array(($currentPage ?? ''), ['whatsapp', 'whatsapp_chat'], true) ? 'active' : '' ?>" href="<?= baseUrl('whatsapp/chat') ?>">
+                    <i class="bi bi-whatsapp"></i> WhatsApp
+                </a>
+            </li>
+            <?php endif; ?>
+
             <?php // ===== Área do cliente ===== ?>
             <?php if ($role === 'client'): ?>
             <li class="nav-item">
