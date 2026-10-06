@@ -385,8 +385,11 @@ class AgendaController extends Controller
             if (!empty($p['phone'])) {
                 $dateFmt = !empty($meeting['meeting_at']) ? date('d/m/Y', strtotime($meeting['meeting_at'])) : 'a definir';
                 $timeFmt = !empty($meeting['meeting_at']) ? date('H\hi', strtotime($meeting['meeting_at'])) : 'a definir';
+                // Saudação personalizada: primeiro nome do destinatário (fallback "equipe").
+                $greetName = trim(explode(' ', trim((string)($p['name'] ?? '')))[0] ?? '');
+                if ($greetName === '') $greetName = 'equipe';
                 $waMsg = "📅 *Reunião agendada*\n\n"
-                    . "Olá, equipe! 👋\n\n"
+                    . "Olá, {$greetName}! 👋\n\n"
                     . "A reunião *{$meeting['title']}* está confirmada.\n\n"
                     . "📅 *Data:* {$dateFmt}\n"
                     . "🕐 *Horário:* {$timeFmt}"
