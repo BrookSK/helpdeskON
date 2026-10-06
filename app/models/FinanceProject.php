@@ -19,6 +19,14 @@ class FinanceProject
         return $this->db->fetch("SELECT * FROM finance_projects WHERE id = ?", [$id]);
     }
 
+    /** Projeto financeiro vinculado a um contrato (idempotência da criação automática). */
+    public function findByContract($contractId)
+    {
+        $contractId = (int)$contractId;
+        if ($contractId <= 0) return null;
+        return $this->db->fetch("SELECT * FROM finance_projects WHERE contract_id = ? ORDER BY id DESC LIMIT 1", [$contractId]);
+    }
+
     public function getAll(array $filters = [])
     {
         $sql = "SELECT * FROM finance_projects WHERE 1=1";

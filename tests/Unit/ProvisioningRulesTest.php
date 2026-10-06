@@ -85,10 +85,65 @@ final class ProvisioningRulesTest extends TestCase
 
     public function testInterpretEvent(): void
     {
+        $this->assertSame(['step_key' => 'create_client', 'done' => true], ProvisioningRules::interpretEvent('client.created'));
+        $this->assertSame(['step_key' => 'create_repo', 'done' => true], ProvisioningRules::interpretEvent('git.repository.created'));
+        $this->assertSame(['step_key' => 'grant_dev_access', 'done' => true], ProvisioningRules::interpretEvent('git.collaborator.added'));
         $this->assertSame(['step_key' => 'create_vps', 'done' => true], ProvisioningRules::interpretEvent('hosting.created'));
         $this->assertSame(['step_key' => 'deploy', 'done' => true], ProvisioningRules::interpretEvent('application.installed'));
         $this->assertSame(['step_key' => 'staging', 'done' => true], ProvisioningRules::interpretEvent('domain.added'));
         $this->assertSame(['step_key' => null, 'done' => false], ProvisioningRules::interpretEvent('ticket.created'));
+    }
+
+    public function testPipelineForaEsteiraTemRepoEInfraAuto(): void
+    {
+        $steps = ProvisioningRules::defaultSteps(null, ProvisioningRules::PIPELINE_OUT);
+        $byKey = [];
+        foreach ($steps as $s) { $byKey[$s['step_key']] = $s; }
+        // Cria repositório e concede acesso automaticamente (API LRV).
+        $this->assertArrayHasKey('create_repo', $byKey);
+        $this->assertSame('auto', $byKey['create_repo']['mode']);
+        $this->assertArrayHasKey('grant_dev_access', $byKey);
+        $this->assertSame('auto', $byKey['grant_dev_access']['mode']);
+        // Infra automática presente.
+        $this->assertArrayHasKey('create_vps', $byKey);
+        $this->assertArrayHasKey('create_app', $byKey);
+        // Não existe a etapa de registro manual do CX fora da esteira.
+        $this->assertArrayNotHasKey('register_cx_repo', $byKey);
+    }
+
+    public function testPipelineEsteiraCxNaoCriaInfraEExigeRegistroManual(): void
+    {
+        $steps = ProvisioningRules::defaultSteps(null, ProvisioningRules::PIPELINE_CX);
+        $byKey = [];
+        foreach ($steps as $s) { $byKey[$s['step_key']] = $s; }
+        // Analista registra o repo do CX e concede acesso — ambos manuais.
+        $this->assertArrayHasKey('register_cx_repo', $byKey);
+        $this->assertSame('manual', $byKey['register_cx_repo']['mode']);
+        $this->assertSame('manual', $byKey['grant_dev_access']['mode']);
+        // Sem criação automática de repo/VPS/app pela nossa automação.
+        $this->assertArrayNotHasKey('create_repo', $byKey);
+        $this->assertArrayNotHasKey('create_vps', $byKey);
+        $this->assertArrayNotHasKey('create_app', $byKey);
+    }
+
+    public function testPipelineInvalidoCaiEmForaEsteira(): void
+    {
+        $steps = ProvisioningRules::defaultSteps(null, 'xpto');
+        $keys = array_column($steps, 'step_key');
+        $this->assertContains('create_repo', $keys);   // comportamento = fora_esteira
+        $this->assertContains('create_vps', $keys);
+    }
+
+    public function testCapacidadeGitDesligadaViraManual(): void
+    {
+        $cap = ProvisioningRules::apiCapabilities();
+        $cap['create_repo'] = false;
+        $cap['grant_dev_access'] = false;
+        $steps = ProvisioningRules::defaultSteps($cap, ProvisioningRules::PIPELINE_OUT);
+        $byKey = [];
+        foreach ($steps as $s) { $byKey[$s['step_key']] = $s; }
+        $this->assertSame('manual', $byKey['create_repo']['mode']);
+        $this->assertSame('manual', $byKey['grant_dev_access']['mode']);
     }
 
     public function testNormalizadoresEIsConfigured(): void

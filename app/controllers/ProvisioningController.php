@@ -59,8 +59,12 @@ class ProvisioningController extends Controller
         $onb = $onboardingId ? $this->onboardings->findById($onboardingId) : null;
         if (!$onb) $this->json(['error' => 'Onboarding não encontrado.'], 404);
 
-        $id = $this->prov->createFromOnboarding($onb, $user['id']);
-        $this->json(['success' => true, 'id' => $id]);
+        // Pipeline: 'esteira_cx' (projeto entra na esteira do CX) ou 'fora_esteira'
+        // (projeto do zero, infra automática pela API LRV). Default fora_esteira.
+        $pipeline = ProvisioningRules::normalizePipeline($_POST['pipeline'] ?? null) ?? ProvisioningRules::PIPELINE_OUT;
+
+        $id = $this->prov->createFromOnboarding($onb, $user['id'], $pipeline);
+        $this->json(['success' => true, 'id' => $id, 'pipeline' => $pipeline]);
     }
 
     public function start($id = null)
@@ -91,7 +95,13 @@ class ProvisioningController extends Controller
         if ($mode === 'manual') {
             // Conclusão manual pelo responsável (sem API).
             $this->prov->completeStep((int)$stepId, false, $user['id']);
-            $this->json(['success' => true, 'mode' => 'manual']);
+            // Ao concluir a ENTREGA, avisa o cliente (link + como usar o sistema).
+            $delivery = null;
+            if (($step['step_key'] ?? '') === 'deliver') {
+                $prov = $this->prov->findById((int)$step['provisioning_id']);
+                if ($prov) $delivery = $this->notifyClientDelivery($prov);
+            }
+            $this->json(['success' => true, 'mode' => 'manual'] + ($delivery ? ['delivery' => $delivery] : []));
         }
 
         // Etapa 'auto': tenta a API conforme a etapa.
@@ -141,6 +151,28 @@ class ProvisioningController extends Controller
                     'phone' => $company['phone'] ?? $p('phone'),
                     'external_ref' => 'prov-' . (int)($prov['id'] ?? 0),
                 ]);
+            case 'create_repo':
+                return $api->createRepository(array_filter([
+                    'name' => $p('repo_name', $this->defaultRepoName($company, $prov)),
+                    'private' => true,
+                    'org' => $p('repo_org'),
+                    'description' => $p('repo_description', ($company['name'] ?? 'Projeto') . ' — helpdeskON'),
+                    'external_ref' => 'prov-' . (int)($prov['id'] ?? 0),
+                    'client_id' => !empty($prov['lrv_client_id']) ? (int)$prov['lrv_client_id'] : null,
+                ], fn($v) => $v !== null && $v !== ''));
+            case 'grant_dev_access':
+                if (empty($prov['lrv_repo_id'])) {
+                    return ['success' => false, 'available' => true, 'error' => 'Crie o repositório antes de conceder acesso aos devs.'];
+                }
+                $usernames = $p('dev_usernames');
+                if (is_string($usernames)) {
+                    $usernames = array_values(array_filter(array_map('trim', preg_split('/[\s,;]+/', $usernames))));
+                }
+                if (empty($usernames) || !is_array($usernames)) {
+                    return ['success' => false, 'available' => true, 'error' => 'Informe os usernames do GitHub dos desenvolvedores (campo "dev_usernames").'];
+                }
+                $permission = $p('dev_permission', 'push');
+                return $api->addRepositoryCollaborators((int)$prov['lrv_repo_id'], $usernames, (string)$permission);
             case 'create_vps':
                 $plan = $p('plan');
                 if ($plan === null) {
@@ -166,9 +198,11 @@ class ProvisioningController extends Controller
                 if (empty($prov['lrv_vps_id'])) {
                     return ['success' => false, 'available' => true, 'error' => 'Provisione a VPS antes de criar a aplicação.'];
                 }
+                // Prioriza o repositório criado automaticamente (clone_url salvo
+                // em git_repo pelo passo create_repo); permite override no POST.
                 $repo = $p('git_repo', $prov['git_repo'] ?? null);
                 if (!$repo) {
-                    return ['success' => false, 'available' => true, 'error' => 'Informe o repositório Git (campo "git_repo").'];
+                    return ['success' => false, 'available' => true, 'error' => 'Informe o repositório Git (campo "git_repo") ou crie o repositório antes.'];
                 }
                 return $api->createApplication(array_filter([
                     'vps_id' => (int)$prov['lrv_vps_id'],
@@ -199,6 +233,12 @@ class ProvisioningController extends Controller
     {
         $upd = [];
         if ($stepKey === 'create_client' && isset($data['id'])) $upd['lrv_client_id'] = (string)$data['id'];
+        if ($stepKey === 'create_repo') {
+            if (isset($data['id'])) $upd['lrv_repo_id'] = (string)$data['id'];
+            // clone_url alimenta o git_repo usado em create_app; guarda a URL web também.
+            if (!empty($data['clone_url'])) $upd['git_repo'] = (string)$data['clone_url'];
+            if (!empty($data['html_url'])) $upd['repo_url'] = (string)$data['html_url'];
+        }
         if ($stepKey === 'create_vps' && isset($data['id'])) $upd['lrv_vps_id'] = (string)$data['id'];
         if ($stepKey === 'create_app') {
             if (isset($data['id'])) $upd['lrv_app_id'] = (string)$data['id'];
@@ -208,6 +248,58 @@ class ProvisioningController extends Controller
             $upd['staging_url'] = (string)$data['staging_url'];
         }
         if (!empty($upd)) $this->prov->update($provId, $upd);
+    }
+
+    /**
+     * Nome padrão do repositório a partir do nome da empresa (slug) + id do
+     * provisionamento, respeitando o formato aceito pela API (letras, números,
+     * ponto, hífen, underline; começa com letra).
+     */
+    private function defaultRepoName(?array $company, ?array $prov): string
+    {
+        $base = strtolower((string)($company['name'] ?? 'projeto'));
+        $base = preg_replace('/[^a-z0-9]+/', '-', $base);     // separadores -> hífen
+        $base = trim((string)$base, '-');
+        if ($base === '' || !preg_match('/^[a-z]/', $base)) $base = 'proj-' . $base;
+        $base = substr($base, 0, 80);
+        return $base . '-' . (int)($prov['id'] ?? 0);
+    }
+
+    /**
+     * Avisa o cliente (dono da empresa) que o ambiente está configurado e ensina
+     * a usar o sistema (link de acesso + homologação + nova demanda). WhatsApp +
+     * e-mail. Nunca interrompe. Retorna um resumo do envio.
+     */
+    private function notifyClientDelivery(array $prov): array
+    {
+        $out = ['sent_whats' => 0, 'sent_email' => 0, 'no_contact' => true];
+        if (empty($prov['company_id'])) return $out;
+
+        $users = (new Company())->getUsers((int)$prov['company_id']);
+        $rcpt = DeliveryNotice::pickRecipient($users);
+        if (!$rcpt['found']) return $out;
+
+        $base = rtrim((string) Config::get('app_public_url'), '/') ?: rtrim(baseUrl(''), '/');
+        $loginUrl = $base;
+        $stagingUrl = trim((string)($prov['staging_url'] ?? '')) ?: null;
+        $newTicketUrl = DeliveryNotice::newTicketUrl($base);
+        $company = trim((string) Config::get('app_name')) ?: null;
+
+        if (!empty($rcpt['phone'])) {
+            $out['no_contact'] = false;
+            $wa = DeliveryNotice::clientWhatsapp($rcpt['name'], $loginUrl, $stagingUrl, $company);
+            try { if (WhatsappNotifier::sendToPhone($rcpt['phone'], $wa, $rcpt['name'])) $out['sent_whats']++; }
+            catch (\Throwable $e) { /* não interrompe */ }
+        }
+        if (!empty($rcpt['email'])) {
+            $out['no_contact'] = false;
+            $subject = DeliveryNotice::emailSubject($company);
+            $html = Mailer::template($subject, DeliveryNotice::emailBody($rcpt['name'], $loginUrl, $stagingUrl, $newTicketUrl));
+            try { if (Mailer::send($rcpt['email'], $subject, $html)) $out['sent_email']++; }
+            catch (\Throwable $e) { /* não interrompe */ }
+        }
+        $this->prov->addEvent((int)$prov['id'], null, 'client_notified', 'Cliente avisado da entrega (acesso + como usar).');
+        return $out;
     }
 
     public function finish($id = null)

@@ -51,18 +51,19 @@ class Provisioning
      * O modo (auto/manual) de cada etapa vem de ProvisioningRules (capacidade
      * atual da API). Status inicial 'pending'.
      */
-    public function createFromOnboarding(array $onboarding, $userId): int
+    public function createFromOnboarding(array $onboarding, $userId, ?string $pipeline = null): int
     {
+        $pipe = ProvisioningRules::normalizePipeline($pipeline) ?? ProvisioningRules::PIPELINE_OUT;
         $id = $this->create([
             'onboarding_id' => $onboarding['id'] ?? null,
             'project_id'    => $onboarding['project_id'] ?? null,
             'company_id'    => $onboarding['company_id'] ?? null,
-            'pipeline_mode' => ProvisioningRules::PIPELINE_OUT,
+            'pipeline_mode' => $pipe,
             'status'        => ProvisioningRules::STATUS_PENDING,
             'created_by'    => $userId,
         ]);
         $pos = 0;
-        foreach (ProvisioningRules::defaultSteps() as $s) {
+        foreach (ProvisioningRules::defaultSteps(null, $pipe) as $s) {
             $this->db->insert('provisioning_steps', [
                 'provisioning_id' => $id,
                 'step_key' => $s['step_key'],

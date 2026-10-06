@@ -6,11 +6,11 @@
  *
  * Base URL: https://cloud.lrvweb.com.br/api/v1/ — auth via header X-API-Key.
  *
- * IMPORTANTE: a API ainda NÃO expõe criar conta de cliente, provisionar VPS, nem
- * criar aplicação/deploy (ver api-lrv-cloud-gaps.md). Os métodos desses passos
- * retornam ['available' => false] para o fluxo registrar uma pendência manual em
- * vez de simular sucesso. Os métodos do que já existe (hosting read/restart,
- * databases, domains, webhooks, tickets) fazem a chamada real.
+ * A API v1 expõe todo o provisionamento consumido aqui: clientes, hosting/VPS,
+ * bancos, aplicações Git (+ deploy/staging), domínios e os repositórios Git
+ * (criar na organização + conceder/revogar acesso a devs). Ver
+ * api-lrv-cloud-gaps.md para o contrato. request() devolve sempre
+ * success/available/http/data/error.
  */
 class LrvCloudApi
 {
@@ -131,6 +131,55 @@ class LrvCloudApi
             return ['success' => false, 'available' => true, 'error' => 'Aplicação ainda não criada para gerar homologação.'];
         }
         return $this->showApplication($appId);
+    }
+
+    // ================= Git Repositories (API v1 — org + colaboradores) =================
+
+    /**
+     * POST /git/repositories — cria um repositório na organização Git configurada
+     * na plataforma. Síncrono (201). Dispara git.repository.created. Escopo git.write.
+     * Retorna data.{id, full_name, html_url, clone_url, ssh_url, visibility}.
+     *
+     * @param array $data name (obrigatório), private?, org?, description?, external_ref?, client_id?
+     */
+    public function createRepository(array $data): array
+    {
+        return $this->request('POST', '/git/repositories', $data);
+    }
+
+    /** GET /git/repositories/show — detalhe do repositório (inclui colaboradores). */
+    public function showRepository(string $repoId): array
+    {
+        return $this->request('GET', '/git/repositories/show?id=' . rawurlencode($repoId));
+    }
+
+    /**
+     * POST /git/repositories/collaborators — concede acesso a um ou mais devs.
+     * Dispara git.collaborator.added por colaborador. Retorna data.collaborators e data.errors.
+     *
+     * @param int $repoId id do repositório (retornado na criação)
+     * @param array $usernames usernames do GitHub
+     * @param string $permission pull|triage|push|maintain|admin (default push)
+     */
+    public function addRepositoryCollaborators(int $repoId, array $usernames, string $permission = 'push'): array
+    {
+        return $this->request('POST', '/git/repositories/collaborators', [
+            'id' => $repoId,
+            'usernames' => array_values($usernames),
+            'permission' => $permission,
+        ]);
+    }
+
+    /**
+     * POST /git/repositories/collaborators/remove — revoga o acesso de um dev
+     * (ou cancela o convite). Dispara git.collaborator.removed. Escopo git.write.
+     */
+    public function removeRepositoryCollaborator(int $repoId, string $username): array
+    {
+        return $this->request('POST', '/git/repositories/collaborators/remove', [
+            'id' => $repoId,
+            'username' => $username,
+        ]);
     }
 
     // ================= HTTP =================

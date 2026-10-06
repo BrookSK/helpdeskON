@@ -62,7 +62,10 @@ class PlanningCard
             $params[] = $filters['company_id'];
         }
         if (!empty($filters['assigned_to'])) {
-            $sql .= " AND pc.assigned_to = ?";
+            // Inclui também os cards SEM atendente (assigned_to IS NULL): demandas
+            // novas, ainda não atribuídas, precisam aparecer para a equipe poder
+            // pegá-las — senão o filtro de atendente padrão as esconderia.
+            $sql .= " AND (pc.assigned_to = ? OR pc.assigned_to IS NULL)";
             $params[] = $filters['assigned_to'];
         }
         if (!empty($filters['hide_completed'])) {
@@ -123,7 +126,9 @@ class PlanningCard
                            u.name as assigned_name,
                            co.name as company_name,
                            cb.name as created_by_name,
-                           t.category as category
+                           t.category as category,
+                           t.scope_rejected_reason as scope_rejected_reason,
+                           t.scope_approved_at as scope_approved_at
                     FROM planning_cards pc
                     LEFT JOIN users u ON pc.assigned_to = u.id
                     LEFT JOIN companies co ON pc.company_id = co.id

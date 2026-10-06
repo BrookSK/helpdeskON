@@ -13,6 +13,71 @@ class CrmController extends Controller
     }
 
     /**
+     * Agenda uma reunião comercial DIRETO da captação/CRM, a partir de um card.
+     * Reaproveita o lead (contact_id) do card e já cria a sala de vídeo nativa
+     * com GRAVAÇÃO AUTOMÁTICA (padrão do fluxo). Assim a captação "agenda uma
+     * reunião com o cliente" sem sair do CRM.
+     *
+     * POST: card_id, meeting_at (opcional), title (opcional).
+     */
+    public function scheduleMeeting()
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $user = $this->currentUser();
+
+        $cardId = (int)($_POST['card_id'] ?? 0);
+        $card = $cardId ? $this->boardModel->findCard($cardId) : null;
+        if (!$card) $this->json(['error' => 'Card não encontrado.'], 404);
+        if (empty($card['contact_id'])) $this->json(['error' => 'Este card não tem um lead vinculado.'], 409);
+
+        $title = trim($_POST['title'] ?? '') ?: ('Reunião — ' . ($card['contact_name'] ?? 'Cliente'));
+        $meetingAt = AgendaRules::normalizeMeetingAt($_POST['meeting_at'] ?? '');
+
+        $agenda = new AgendaMeeting();
+        $meetingId = $agenda->create([
+            'title' => $title,
+            'meeting_type' => 'comercial',
+            'contact_id' => (int)$card['contact_id'],
+            'client_name' => $card['contact_name'] ?? null,
+            'client_phone' => $card['contact_phone'] ?? null,
+            'assigned_to' => $card['assigned_to'] ?? $user['id'],
+            'created_by' => $user['id'],
+            'urgency' => AgendaRules::normalizeUrgency($_POST['urgency'] ?? ''),
+            'temperature' => AgendaRules::normalizeTemperature($_POST['temperature'] ?? ''),
+            'status' => AgendaRules::normalizeStatus('agendada'),
+            'meeting_at' => $meetingAt,
+            'notes' => trim($_POST['notes'] ?? '') ?: null,
+        ]);
+        // O criador participa da reunião (recebe a minuta depois).
+        try { $agenda->setParticipants($meetingId, [$user['id']]); } catch (\Throwable $e) {}
+
+        // Sala de vídeo nativa com gravação automática ligada (padrão do fluxo).
+        $roomUrl = null;
+        try {
+            $room = new VideoRoom();
+            $token = $room->create([
+                'title' => $title,
+                'created_by' => $user['id'],
+                'company_id' => $this->activeCompanyId(),
+                'meeting_id' => $meetingId,
+                'max_participants' => VideoRoomRules::DEFAULT_PARTICIPANTS,
+                'allow_recording' => 1,
+                'auto_record' => VideoRoomRules::normalizeAutoRecord('1'),
+                'allow_presentation' => 1,
+                'status' => 'active',
+                'visibility' => 'public',
+                'expires_at' => date('Y-m-d H:i:s', strtotime('+30 days')),
+            ]);
+            $base = rtrim((string) Config::get('app_public_url'), '/') ?: rtrim(baseUrl(''), '/');
+            $roomUrl = $base . '/videocall/room/' . $token;
+        } catch (\Throwable $e) { /* reunião criada; sala é best-effort */ }
+
+        $this->boardModel->addActivity($cardId, $user['id'], 'note', 'Reunião agendada' . ($meetingAt ? ' para ' . $meetingAt : ''));
+        $this->json(['success' => true, 'meeting_id' => $meetingId, 'room_url' => $roomUrl]);
+    }
+
+    /**
      * Lista de boards
      */
     public function index()

@@ -20,7 +20,7 @@ $labels = [
             <button id="btn-review" class="btn btn-sm btn-primary" onclick="sendReview()"><i class="bi bi-send"></i> Enviar p/ aprovação</button>
             <?php endif; ?>
             <?php if ($canSign): ?>
-            <button class="btn btn-sm btn-dark" onclick="sendSignature()"><i class="bi bi-pen"></i> Enviar p/ assinatura (ClickSign)</button>
+            <button class="btn btn-sm btn-dark" data-bs-toggle="modal" data-bs-target="#signModal"><i class="bi bi-pen"></i> Enviar p/ assinatura (ClickSign)</button>
             <?php endif; ?>
             <?php if ($contract['status'] === 'signed' && Permissions::canAccess($user['role'] ?? null, 'finance')): ?>
             <button class="btn btn-sm btn-success" onclick="startFinance()"><i class="bi bi-cash-coin"></i> Iniciar financeiro</button>
@@ -175,11 +175,19 @@ async function sendReview() {
     alert(msg); location.reload();
 }
 async function sendSignature() {
-    if (!confirm('Enviar o contrato para assinatura na ClickSign?')) return;
+    const btn = document.getElementById('sign-confirm');
+    const orig = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Enviando...';
     const fd = new FormData(); fd.append('csrf_token', CSRF);
+    // Signatários da empresa marcados (o cliente sempre assina, no backend).
+    document.querySelectorAll('.company-signer:checked').forEach(cb => fd.append('company_signers[]', cb.value));
     const r = await fetch(`${BASE}contract/sendForSignature/${CID}`, { method:'POST', body: fd, headers:{'X-Requested-With':'XMLHttpRequest'} }).then(x=>x.json()).catch(()=>({error:'Falha de rede'}));
+    btn.disabled = false; btn.innerHTML = orig;
     if (r.error) { alert(r.error); return; }
-    alert('Contrato enviado para assinatura. Acompanhe o status aqui — será atualizado quando o cliente assinar.'); location.reload();
+    let msg = 'Contrato enviado para assinatura (' + (r.signers || 1) + ' signatário(s), ' + (r.notified || 0) + ' notificado(s) por e-mail).';
+    if (r.sent_whats) msg += '\nLink de assinatura também enviado ao cliente por WhatsApp.';
+    if (r.sign_url) msg += '\nLink de assinatura do cliente:\n' + r.sign_url;
+    if (r.fails && r.fails.length) msg += '\n\nFalhas: ' + r.fails.join('; ');
+    alert(msg); location.reload();
 }
 async function startFinance() {
     if (!confirm('Criar o projeto financeiro a partir deste contrato assinado?')) return;
@@ -189,4 +197,41 @@ async function startFinance() {
     location.href = `${BASE}finance/edit/${r.id}`;
 }
 </script>
+
+<!-- Modal: enviar p/ assinatura (escolher signatários) -->
+<div class="modal fade" id="signModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title"><i class="bi bi-pen"></i> Enviar para assinatura</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="small mb-2"><strong>Cliente</strong> (assina sempre):<br>
+           <span class="text-muted"><?= escape($contract['client_name'] ?? 'Cliente') ?> · <?= escape($contract['client_email'] ?? 'sem e-mail') ?></span></p>
+        <?php if (empty($contract['client_email'])): ?>
+        <div class="alert alert-warning py-2 small">O cliente não tem e-mail. Informe o e-mail do cliente e salve antes de enviar.</div>
+        <?php endif; ?>
+        <hr class="my-2">
+        <label class="form-label small fw-medium mb-1">Signatários da empresa (opcional)</label>
+        <?php if (empty($companySigners)): ?>
+        <p class="small text-muted mb-0">Nenhum signatário da empresa cadastrado.
+           <a href="<?= baseUrl('contract/signers') ?>" target="_blank">Cadastrar</a>.</p>
+        <?php else: foreach ($companySigners as $cs): ?>
+        <div class="form-check">
+            <input class="form-check-input company-signer" type="checkbox" value="<?= (int)$cs['id'] ?>" id="cs-<?= (int)$cs['id'] ?>" <?= ((int)$cs['is_default'] === 1) ? 'checked' : '' ?>>
+            <label class="form-check-label small" for="cs-<?= (int)$cs['id'] ?>">
+                <?= escape($cs['name']) ?> <span class="text-muted">· <?= escape($cs['email']) ?><?= !empty($cs['role_label']) ? ' · ' . escape($cs['role_label']) : '' ?></span>
+            </label>
+        </div>
+        <?php endforeach; endif; ?>
+        <small class="text-muted d-block mt-2">Cada signatário recebe o e-mail da ClickSign para assinar. O link do cliente também é enviado por WhatsApp (se tiver telefone).</small>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" id="sign-confirm" class="btn btn-sm btn-dark" onclick="sendSignature()"><i class="bi bi-pen"></i> Enviar p/ assinatura</button>
+      </div>
+    </div>
+  </div>
+</div>
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>

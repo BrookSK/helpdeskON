@@ -87,9 +87,10 @@ final class TicketAccessTest extends TestCase
 
     public function testClientePodeDecidirEscopoQuandoAguardando(): void
     {
-        // Aprovar/recusar o escopo leva a in_progress (o motivo da recusa é
-        // tratado à parte pelo controller/ScopeRules).
+        // Aprovar o escopo leva a in_progress; recusar volta para "open" (Aberto),
+        // com o motivo tratado à parte pelo controller/ScopeRules.
         $this->assertTrue(TicketAccess::clientCanChangeStatus('aguardando_aprovacao_escopo', 'in_progress'));
+        $this->assertTrue(TicketAccess::clientCanChangeStatus('aguardando_aprovacao_escopo', 'open'));
         // Não pode saltar para outros status a partir da aprovação de escopo.
         $this->assertFalse(TicketAccess::clientCanChangeStatus('aguardando_aprovacao_escopo', 'em_homologacao'));
         $this->assertFalse(TicketAccess::clientCanChangeStatus('aguardando_aprovacao_escopo', 'completed'));

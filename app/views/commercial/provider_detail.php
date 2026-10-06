@@ -58,7 +58,20 @@ $st = $provider['status'];
                                 <?php foreach (['remoto'=>'Remoto','hibrido'=>'Híbrido','presencial'=>'Presencial'] as $k=>$v): ?><option value="<?= $k ?>" <?= ($provider['work_model']??'')===$k?'selected':'' ?>><?= $v ?></option><?php endforeach; ?>
                             </select>
                         </div>
-                        <div class="col-4"><label class="form-label small">Valor (R$)</label><input id="f-pay" class="form-control form-control-sm" value="<?= $provider['pay_amount'] !== null ? number_format((float)$provider['pay_amount'],2,',','.') : '' ?>"></div>
+                        <?php $valorBloqueado = !in_array($st, ['prospect','proposal'], true); ?>
+                        <div class="col-4">
+                            <label class="form-label small">Valor (R$)</label>
+                            <input id="f-pay" class="form-control form-control-sm" value="<?= $provider['pay_amount'] !== null ? number_format((float)$provider['pay_amount'],2,',','.') : '' ?>" <?= $valorBloqueado ? 'disabled title="Após o contrato, mude o valor por uma revisão aprovada pelo gestor."' : '' ?>>
+                        </div>
+                        <div class="col-4"><label class="form-label small">Tipo de pagamento</label>
+                            <select id="f-paytype" class="form-select form-select-sm" <?= $valorBloqueado ? 'disabled' : '' ?>>
+                                <option value="">—</option>
+                                <?php foreach (['mensal'=>'Mensal','hora'=>'Por hora','projeto'=>'Por projeto'] as $k=>$v): ?><option value="<?= $k ?>" <?= ($provider['pay_type']??'')===$k?'selected':'' ?>><?= $v ?></option><?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-4"><label class="form-label small">Disponibilidade</label><input id="f-availability" class="form-control form-control-sm" value="<?= escape($provider['availability'] ?? '') ?>"></div>
+                        <div class="col-6"><label class="form-label small">Prazo / condições</label><input id="f-payterm" class="form-control form-control-sm" value="<?= escape($provider['pay_term'] ?? '') ?>"></div>
+                        <div class="col-6"><label class="form-label small">Forma de pagamento</label><input id="f-paymethod" class="form-control form-control-sm" value="<?= escape($provider['payment_method'] ?? '') ?>" placeholder="pix, transferência, boleto..."></div>
                         <div class="col-12"><label class="form-label small">Escopo (o que faz parte)</label><textarea id="f-scope" class="form-control form-control-sm" rows="2"><?= escape($provider['scope'] ?? '') ?></textarea></div>
                         <div class="col-12"><label class="form-label small">Fora do escopo (o que NÃO faz parte)</label><textarea id="f-out" class="form-control form-control-sm" rows="2"><?= escape($provider['out_of_scope'] ?? '') ?></textarea></div>
                         <div class="col-12"><button class="btn btn-sm btn-primary" onclick="saveProv()">Salvar dados</button></div>
@@ -67,6 +80,121 @@ $st = $provider['status'];
             </div>
         </div>
         <div class="col-lg-7">
+            <!-- Proposta por link -->
+            <?php if (in_array($st, ['prospect','proposal'], true)): ?>
+            <div class="card mb-3">
+                <div class="card-header py-2"><strong>Proposta</strong></div>
+                <div class="card-body">
+                    <?php if (!empty($provider['proposal_sent_at'])): ?>
+                        <p class="small mb-2">Enviada em <?= date('d/m/Y H:i', strtotime($provider['proposal_sent_at'])) ?>.
+                        <?php if (!empty($provider['proposal_accepted_at'])): ?><span class="badge bg-success">aceita</span>
+                        <?php elseif (!empty($provider['proposal_reject_reason'])): ?><span class="badge bg-danger">recusada</span><?php endif; ?>
+                        </p>
+                        <?php if (!empty($provider['proposal_reject_reason'])): ?>
+                        <div class="alert alert-light border py-2 small">Motivo da recusa: <?= escape($provider['proposal_reject_reason']) ?></div>
+                        <?php endif; ?>
+                    <?php endif; ?>
+                    <?php if (!empty($proposalLink)): ?>
+                    <div class="input-group input-group-sm mb-2">
+                        <input class="form-control" value="<?= escape($proposalLink) ?>" readonly onclick="this.select()">
+                        <button class="btn btn-outline-secondary" onclick="navigator.clipboard.writeText('<?= escape($proposalLink) ?>')"><i class="bi bi-clipboard"></i></button>
+                    </div>
+                    <?php endif; ?>
+                    <button class="btn btn-sm btn-primary" onclick="sendProposal()"><i class="bi bi-send"></i> <?= !empty($provider['proposal_sent_at']) ? 'Reenviar proposta' : 'Enviar proposta (WhatsApp + e-mail)' ?></button>
+                    <small class="d-block text-muted mt-1">O prestador recebe um link para aceitar ou recusar com motivo.</small>
+                </div>
+            </div>
+            <?php endif; ?>
+
+            <!-- Assinatura (ClickSign) -->
+            <?php if ($st === 'contract'): ?>
+            <div class="card mb-3 border-primary">
+                <div class="card-header py-2 text-primary"><strong>Contrato · Assinatura</strong></div>
+                <div class="card-body">
+                    <?php if (!empty($provider['signed_at'])): ?>
+                        <p class="small mb-0"><span class="badge bg-success">assinado</span> em <?= date('d/m/Y H:i', strtotime($provider['signed_at'])) ?>.</p>
+                    <?php else: ?>
+                        <?php if (!empty($provider['clicksign_doc_key'])): ?>
+                        <p class="small mb-2">Enviado para assinatura. Aguardando o prestador assinar na ClickSign.</p>
+                        <?php endif; ?>
+                        <button class="btn btn-sm btn-primary" onclick="sendForSignature()"><i class="bi bi-vector-pen"></i> <?= !empty($provider['clicksign_doc_key']) ? 'Reenviar para assinatura' : 'Enviar para assinatura (ClickSign)' ?></button>
+                        <small class="d-block text-muted mt-1">Gera o contrato em PDF e envia ao prestador por e-mail e WhatsApp.</small>
+                    <?php endif; ?>
+                </div>
+            </div>
+            <?php endif; ?>
+
+            <!-- Documentos (checklist CLT/PJ) -->
+            <div class="card mb-3">
+                <div class="card-header py-2"><strong>Documentos (<?= $engage[$provider['engagement_type']] ?? $provider['engagement_type'] ?>)</strong></div>
+                <div class="card-body">
+                    <?php if (!empty($docChecklist)): ?>
+                    <ul class="list-unstyled small mb-3">
+                        <?php foreach ($docChecklist as $d): ?>
+                        <li>
+                            <?php if ($d['present']): ?><i class="bi bi-check-circle-fill text-success"></i>
+                            <?php else: ?><i class="bi bi-circle text-muted"></i><?php endif; ?>
+                            <?= escape($d['label']) ?>
+                        </li>
+                        <?php endforeach; ?>
+                    </ul>
+                    <?php endif; ?>
+                    <div class="row g-2">
+                        <div class="col-5">
+                            <select id="d-type" class="form-select form-select-sm">
+                                <option value="">Tipo…</option>
+                                <?php foreach (($docChecklist ?? []) as $d): ?><option value="<?= escape($d['key']) ?>"><?= escape($d['label']) ?></option><?php endforeach; ?>
+                                <option value="outro">Outro</option>
+                            </select>
+                        </div>
+                        <div class="col-4"><input id="d-label" class="form-control form-control-sm" placeholder="Nome do documento"></div>
+                        <div class="col-3"><button class="btn btn-sm btn-outline-primary w-100" onclick="addDocument()">Registrar</button></div>
+                        <div class="col-12"><input id="d-file" class="form-control form-control-sm" placeholder="Link/caminho do arquivo (opcional)"></div>
+                    </div>
+                    <?php if (!empty($documents)): ?>
+                    <hr class="my-2">
+                    <?php foreach ($documents as $doc): ?>
+                    <div class="small border-bottom py-1"><i class="bi bi-file-earmark-text"></i> <?= escape($doc['doc_label']) ?><?php if (!empty($doc['doc_type'])): ?> <span class="badge bg-light text-dark"><?= escape($doc['doc_type']) ?></span><?php endif; ?></div>
+                    <?php endforeach; ?>
+                    <?php endif; ?>
+                </div>
+            </div>
+
+            <!-- Revisão de valor (aprovação do gestor) -->
+            <?php if (in_array($st, ['contract','active'], true)): ?>
+            <div class="card mb-3">
+                <div class="card-header py-2"><strong>Revisão de valor</strong></div>
+                <div class="card-body">
+                    <?php if (!empty($pendingRevision)): ?>
+                        <div class="alert alert-warning py-2 small mb-2">
+                            Revisão pendente: <strong><?= $pendingRevision['new_pay_amount'] !== null ? ('R$ ' . number_format((float)$pendingRevision['new_pay_amount'],2,',','.')) : '—' ?></strong>
+                            <?= $pendingRevision['new_pay_type'] ? '(' . escape($pendingRevision['new_pay_type']) . ')' : '' ?>
+                            <?php if (!empty($pendingRevision['reason'])): ?><br>Motivo: <?= escape($pendingRevision['reason']) ?><?php endif; ?>
+                        </div>
+                        <?php if (!empty($canApproveRevision)): ?>
+                        <button class="btn btn-sm btn-success" onclick="reviewRevision(<?= (int)$pendingRevision['id'] ?>, 'approve')"><i class="bi bi-check"></i> Aprovar</button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="reviewRevision(<?= (int)$pendingRevision['id'] ?>, 'reject')"><i class="bi bi-x"></i> Recusar</button>
+                        <?php else: ?>
+                        <small class="text-muted">Aguardando aprovação de um gestor.</small>
+                        <?php endif; ?>
+                    <?php else: ?>
+                        <div class="row g-2">
+                            <div class="col-4"><input id="r-amount" class="form-control form-control-sm" placeholder="Novo valor"></div>
+                            <div class="col-4">
+                                <select id="r-type" class="form-select form-select-sm">
+                                    <option value="">Tipo…</option>
+                                    <?php foreach (['mensal'=>'Mensal','hora'=>'Por hora','projeto'=>'Por projeto'] as $k=>$v): ?><option value="<?= $k ?>" <?= ($provider['pay_type']??'')===$k?'selected':'' ?>><?= $v ?></option><?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="col-12"><input id="r-reason" class="form-control form-control-sm" placeholder="Justificativa (obrigatória)"></div>
+                            <div class="col-12"><button class="btn btn-sm btn-outline-primary" onclick="requestRevision()">Solicitar revisão</button></div>
+                        </div>
+                        <small class="d-block text-muted mt-1">O novo valor só vale após a aprovação de um gestor.</small>
+                    <?php endif; ?>
+                </div>
+            </div>
+            <?php endif; ?>
+
             <div class="card mb-3">
                 <div class="card-header py-2 d-flex justify-content-between align-items-center">
                     <strong>Acessos</strong>
@@ -146,18 +274,61 @@ async function post(url, data) {
     return fetch(`${BASE}${url}`, { method:'POST', body: fd, headers:{'X-Requested-With':'XMLHttpRequest'} })
         .then(x=>x.json()).catch(()=>({error:'Falha de rede'}));
 }
+function val(id){ const el=document.getElementById(id); return el ? el.value : ''; }
 async function saveProv() {
     const r = await post(`provider/save/${PRID}`, {
-        name: document.getElementById('f-name').value,
-        email: document.getElementById('f-email').value,
-        role_title: document.getElementById('f-role').value,
-        workload: document.getElementById('f-workload').value,
-        engagement_type: document.getElementById('f-engage').value,
-        work_model: document.getElementById('f-model').value,
-        pay_amount: document.getElementById('f-pay').value,
-        scope: document.getElementById('f-scope').value,
-        out_of_scope: document.getElementById('f-out').value,
+        name: val('f-name'),
+        email: val('f-email'),
+        role_title: val('f-role'),
+        workload: val('f-workload'),
+        engagement_type: val('f-engage'),
+        work_model: val('f-model'),
+        pay_type: val('f-paytype'),
+        pay_amount: val('f-pay'),
+        pay_term: val('f-payterm'),
+        payment_method: val('f-paymethod'),
+        availability: val('f-availability'),
+        scope: val('f-scope'),
+        out_of_scope: val('f-out'),
     });
+    if (r.error) { alert(r.error); return; } location.reload();
+}
+async function sendProposal() {
+    if (!confirm('Enviar a proposta ao prestador por WhatsApp e e-mail?')) return;
+    const r = await post(`provider/sendProposal/${PRID}`, {});
+    if (r.error) { alert(r.error); return; }
+    alert('Proposta enviada.' + (r.no_contact ? ' (sem telefone/e-mail válido — copie o link manualmente)' : ''));
+    location.reload();
+}
+async function sendForSignature() {
+    if (!confirm('Gerar o contrato e enviar para assinatura na ClickSign?')) return;
+    const r = await post(`provider/sendForSignature/${PRID}`, {});
+    if (r.error) { alert(r.error); return; }
+    alert('Enviado para assinatura.');
+    location.reload();
+}
+async function addDocument() {
+    const label = val('d-label').trim();
+    const type = val('d-type');
+    if (!label) { alert('Informe o nome do documento.'); return; }
+    const r = await post(`provider/addDocument/${PRID}`, { doc_label: label, doc_type: type, file_path: val('d-file') });
+    if (r.error) { alert(r.error); return; } location.reload();
+}
+async function requestRevision() {
+    const reason = val('r-reason').trim();
+    if (!reason) { alert('Informe a justificativa.'); return; }
+    const r = await post(`provider/requestRevision/${PRID}`, {
+        new_pay_amount: val('r-amount'), new_pay_type: val('r-type'), reason
+    });
+    if (r.error) { alert(r.error); return; }
+    alert('Revisão solicitada. Aguarde a aprovação do gestor.');
+    location.reload();
+}
+async function reviewRevision(id, action) {
+    const verb = action === 'approve' ? 'Aprovar' : 'Recusar';
+    if (!confirm(verb + ' esta revisão de valor?')) return;
+    const notes = prompt('Observação (opcional):') || '';
+    const r = await post(`provider/${action}Revision/${id}`, { notes });
     if (r.error) { alert(r.error); return; } location.reload();
 }
 async function changeStatus(to) {

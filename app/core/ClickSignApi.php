@@ -22,12 +22,13 @@ class ClickSignApi
         $this->accessToken = $accessToken ?? (string) Config::get('clicksign_access_token');
         $this->sandbox = $sandbox ?? (((string) Config::get('clicksign_sandbox')) === '1');
 
-        // Segurança: tokens de homologação da ClickSign têm o marcador "_hmlg_".
-        // Se o token é de homologação, força o ambiente sandbox (evita o erro
-        // "e-mail do usuário da API não configurada" ao enviar token de teste
-        // para a URL de produção, e vice-versa).
+        // Segurança (apenas para HOMOLOGAÇÃO): tokens de homologação da ClickSign
+        // trazem o marcador "_hmlg_"/"_test_". Se o token é de homologação, força
+        // o ambiente sandbox para não enviar token de teste à URL de produção.
+        // Tokens de PRODUÇÃO não têm esses marcadores -> respeita a configuração
+        // (produção quando o checkbox "sandbox" está desmarcado).
         $tok = (string) $this->accessToken;
-        if (stripos($tok, '_hmlg_') !== false || stripos($tok, '_test_') !== false || stripos($tok, 'sandbox') !== false) {
+        if (stripos($tok, '_hmlg_') !== false || stripos($tok, '_test_') !== false) {
             $this->sandbox = true;
         }
     }
@@ -35,6 +36,12 @@ class ClickSignApi
     public function isConfigured(): bool
     {
         return ClickSignRules::isConfigured($this->accessToken);
+    }
+
+    /** Ambiente efetivo (sandbox x produção) usado nas chamadas. */
+    public function isSandbox(): bool
+    {
+        return $this->sandbox;
     }
 
     /**
@@ -62,6 +69,30 @@ class ClickSignApi
     public function cancelDocument(string $documentKey): array
     {
         return $this->request('PATCH', '/api/v1/documents/' . rawurlencode($documentKey) . '/cancel', []);
+    }
+
+    /**
+     * Dispara a NOTIFICAÇÃO de assinatura por e-mail ao signatário. Sem isso, o
+     * signatário é criado/vinculado mas não recebe o e-mail para assinar.
+     * Usa o request_signature_key gerado no addSigner().
+     */
+    public function notifySigner(string $requestSignatureKey, ?string $message = null): array
+    {
+        $payload = ['request_signature_key' => $requestSignatureKey];
+        if ($message !== null && trim($message) !== '') {
+            $payload['message'] = $message;
+        }
+        // Endpoint principal da v1 para notificar por e-mail.
+        $r = $this->request('POST', '/api/v1/notifications', $payload);
+        if (!empty($r['success'])) return $r;
+
+        // Fallback: algumas contas usam o endpoint de "notify" (reenvio da
+        // solicitação de assinatura). Mantém a mesma chave.
+        $r2 = $this->request('POST', '/api/v1/notify', $payload);
+        if (!empty($r2['success'])) return $r2;
+
+        // Retorna o erro mais informativo dos dois.
+        return $r2 + ['first_try_error' => $r['error'] ?? null];
     }
 
     /** Realiza a requisição HTTP (JSON) com o access_token em query string. */

@@ -310,6 +310,53 @@ class CrmBoard
     }
 
     /**
+     * Move o card mais recente de um contato para a coluna de nome $columnName,
+     * SEM carimbar desfecho de perda (diferente de markOutcomeByContact). Cria a
+     * coluna no board do card se ela ainda não existir. Reabre o card (lead_outcome
+     * volta a 'open') para que o retrabalho interno conte como negócio em aberto.
+     *
+     * Usado quando: a reunião é encerrada (vai para "Análise interna") e quando o
+     * cliente recusa a proposta (volta para "Análise interna" para refazer).
+     *
+     * @return bool true se encontrou um card e aplicou.
+     */
+    public function moveContactToColumn($contactId, string $columnName): bool
+    {
+        $card = $this->db->fetch(
+            "SELECT cc.id, cc.column_id, cur.board_id
+             FROM crm_cards cc
+             LEFT JOIN crm_columns cur ON cc.column_id = cur.id
+             WHERE cc.contact_id = ? ORDER BY cc.id DESC LIMIT 1",
+            [$contactId]
+        );
+        if (!$card || empty($card['board_id'])) return false;
+
+        // Resolve a coluna de destino pelo NOME no board do card; cria se faltar.
+        $target = $this->db->fetch(
+            "SELECT id FROM crm_columns WHERE board_id = ? AND name = ? ORDER BY position ASC LIMIT 1",
+            [$card['board_id'], $columnName]
+        );
+        if (!$target) {
+            // Cria a coluna ao final do board (maior position + 1).
+            $max = $this->db->fetch("SELECT COALESCE(MAX(position), -1) AS p FROM crm_columns WHERE board_id = ?", [$card['board_id']]);
+            $pos = (int)($max['p'] ?? -1) + 1;
+            $newId = $this->db->insert('crm_columns', [
+                'board_id' => (int)$card['board_id'],
+                'name' => $columnName,
+                'position' => $pos,
+            ]);
+            $target = ['id' => $newId];
+        }
+
+        if ((int)$target['id'] !== (int)$card['column_id']) {
+            $this->moveCard($card['id'], (int)$target['id'], 0);
+        }
+        // Garante que o card está "aberto" (retrabalho interno, não é perda/ganho).
+        $this->updateCard($card['id'], ['lead_outcome' => 'open', 'outcome_at' => null]);
+        return true;
+    }
+
+    /**
      * Primeira coluna (menor position) de um board.
      */
     public function getFirstColumn($boardId)

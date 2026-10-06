@@ -72,6 +72,21 @@ class Onboarding
         return $id;
     }
 
+    /**
+     * Define o tipo do projeto (zero/esteira/manutencao/outro) e o pipeline
+     * (esteira_cx/fora_esteira). Se o pipeline não vier, é derivado do tipo.
+     * Registra evento. Retorna o pipeline aplicado (ou null se tipo inválido).
+     */
+    public function setPipeline($onboardingId, ?string $projectType, ?string $pipeline, $userId = null): ?string
+    {
+        $type = OnboardingRules::normalizeProjectType($projectType);
+        if ($type === null) return null;
+        $pipe = OnboardingRules::normalizePipeline($pipeline) ?? OnboardingRules::pipelineFromProjectType($type);
+        $this->update($onboardingId, ['project_type' => $type, 'pipeline_mode' => $pipe]);
+        $this->addEvent($onboardingId, $userId, 'pipeline_set', 'Projeto definido: ' . $type . ' (' . $pipe . ')');
+        return $pipe;
+    }
+
     // ================= Etapas =================
 
     public function getSteps($onboardingId)

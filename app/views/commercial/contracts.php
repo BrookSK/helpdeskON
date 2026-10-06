@@ -17,7 +17,10 @@ $badge = [
             <h5 class="mb-0">Contratos</h5>
             <small class="text-muted">Da elaboração à assinatura (ClickSign)</small>
         </div>
-        <a href="<?= baseUrl('contract/templates') ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-file-earmark-ruled"></i> Modelos de contrato</a>
+        <div class="d-flex gap-2">
+            <a href="<?= baseUrl('contract/signers') ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-people"></i> Signatários da empresa</a>
+            <a href="<?= baseUrl('contract/templates') ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-file-earmark-ruled"></i> Modelos de contrato</a>
+        </div>
     </div>
 
     <div class="card mb-3">
