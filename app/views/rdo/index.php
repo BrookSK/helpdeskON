@@ -178,7 +178,7 @@
         <input type="hidden" id="rdo-transcription">
 
         <!-- Aviso de bloqueio -->
-        <div id="rdo-locked-alert" class="alert alert-warning d-flex align-items-center gap-2 mb-3" style="display:none!important">
+        <div id="rdo-locked-alert" class="alert alert-warning d-none align-items-center gap-2 mb-3">
             <i class="bi bi-lock-fill"></i>
             <div>
                 <strong>Relatório bloqueado.</strong> O prazo de preenchimento já encerrou.
@@ -491,7 +491,9 @@ function openRdoModal() {
     document.getElementById('rdoModalTitle').textContent= 'Novo relatório';
     document.getElementById('record-status').textContent= 'Clique para gravar';
     document.getElementById('record-status').className  = 'text-muted small';
-    document.getElementById('rdo-locked-alert').style.display = 'none';
+    const lockedAlert = document.getElementById('rdo-locked-alert');
+    lockedAlert.classList.add('d-none');
+    lockedAlert.classList.remove('d-flex');
     rdoModal = rdoModal || new bootstrap.Modal(document.getElementById('rdoModal'));
     rdoModal.show();
 }
@@ -517,7 +519,8 @@ async function editRdo(id) {
     // Mostra alerta se bloqueado
     if (Number(it.is_locked)) {
         const alert = document.getElementById('rdo-locked-alert');
-        alert.style.display = '';
+        alert.classList.remove('d-none');
+        alert.classList.add('d-flex');
         const today     = new Date().toISOString().substring(0, 10);
         const isOldDate = it.report_date < today;
         document.getElementById('rdo-locked-reason').textContent = isOldDate
