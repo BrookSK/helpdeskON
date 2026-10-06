@@ -26,7 +26,25 @@
         .form-control:focus, .form-select:focus { border-color: var(--primary); box-shadow: 0 0 0 0.2rem rgba(0,191,166,0.15); }
         .btn-ext { background: var(--primary); border-color: var(--primary); border-radius: 10px; font-weight: 600; }
         .btn-ext:hover { background: var(--primary-dark); border-color: var(--primary-dark); }
-        .form-section-title { letter-spacing: .4px; }
+        .form-section-title {
+            display: flex; align-items: center; gap: 8px;
+            letter-spacing: .4px; color: var(--primary-dark) !important;
+            padding-bottom: 6px; margin-bottom: 14px;
+            border-bottom: 2px solid #E0F7F4;
+        }
+        .form-section-title:not(:first-of-type) { margin-top: 1.75rem; }
+        .nd-sec-icon {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 26px; height: 26px; border-radius: 7px;
+            background: #E0F7F4; color: var(--primary);
+            font-size: .95rem; flex-shrink: 0;
+        }
+        .nd-record-panel {
+            background: linear-gradient(135deg, #E0F7F4, #f3fcfa) !important;
+            border: 1px solid #cdeee8 !important;
+        }
+        .nd-record-panel h6 { color: var(--primary-dark); }
+        .form-actions { border-top-color: #E0F7F4 !important; border-top-width: 2px !important; }
     </style>
 </head>
 <body>
@@ -57,9 +75,9 @@
         <?php endif; ?>
 
         <!-- Gravação de áudio com transcrição automática (mesma da Nova Demanda interna) -->
-        <div class="card mb-3">
+        <div class="card nd-record-panel mb-3">
             <div class="card-body">
-                <h6 class="mb-2" style="font-size:0.9rem"><i class="bi bi-mic"></i> Gravação por voz</h6>
+                <h6 class="mb-2 fw-semibold" style="font-size:0.9rem"><i class="bi bi-mic-fill"></i> Gravação por voz</h6>
                 <p class="text-muted small mb-3">Clique no microfone, descreva sua demanda e o sistema transcreverá e preencherá os campos automaticamente.</p>
                 <div class="d-flex align-items-center gap-3 flex-wrap">
                     <button type="button" id="btn-record" class="btn btn-lg btn-outline-danger rounded-circle flex-shrink-0" style="width:56px;height:56px">
@@ -83,8 +101,8 @@
                     <?= csrf_field() ?>
 
                     <!-- Seção: Identificação -->
-                    <div class="form-section-title text-uppercase text-muted fw-semibold small mb-2">
-                        <i class="bi bi-person-badge"></i> Identificação
+                    <div class="form-section-title text-uppercase fw-semibold small">
+                        <span class="nd-sec-icon"><i class="bi bi-person-badge"></i></span> Identificação
                     </div>
                     <div class="row g-3 mb-4">
                         <div class="col-sm-6">
@@ -107,8 +125,8 @@
                     </div>
 
                     <!-- Seção: Detalhes da demanda -->
-                    <div class="form-section-title text-uppercase text-muted fw-semibold small mb-2">
-                        <i class="bi bi-card-text"></i> Detalhes da demanda
+                    <div class="form-section-title text-uppercase fw-semibold small">
+                        <span class="nd-sec-icon"><i class="bi bi-card-text"></i></span> Detalhes da demanda
                     </div>
                     <div class="row g-3">
                         <div class="col-12">

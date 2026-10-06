@@ -3,10 +3,35 @@
 <?php require APP_PATH . '/views/layouts/sidebar.php'; ?>
 
 <style>
-    /* Divisórias de seção do formulário de Nova Demanda */
-    .form-section-title { letter-spacing: .4px; }
-    .form-section-title + .row { margin-top: 0; }
-    .form-section-title:not(:first-child) { margin-top: 1rem; }
+    /* ===== Nova Demanda — hierarquia visual usando a cor do tema (herdada do header: --primary / --primary-dark / --primary-50) ===== */
+
+    /* Título de seção: faixa com ícone colorido, não mais só cinza */
+    .form-section-title {
+        display: flex; align-items: center; gap: 8px;
+        letter-spacing: .4px; color: var(--primary-dark, #00997D) !important;
+        padding-bottom: 6px; margin-bottom: 14px;
+        border-bottom: 2px solid var(--primary-50, #E0F7F4);
+    }
+    .form-section-title:not(:first-of-type) { margin-top: 1.75rem; }
+    .form-section-title .nd-sec-icon {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 26px; height: 26px; border-radius: 7px;
+        background: var(--primary-50, #E0F7F4); color: var(--primary, #00BFA6);
+        font-size: .95rem; flex-shrink: 0;
+    }
+
+    /* Painel de gravação: tom suave do tema em vez do cinza chapado */
+    .nd-record-panel {
+        background: linear-gradient(135deg, var(--primary-50, #E0F7F4), #f3fcfa);
+        border: 1px solid #cdeee8 !important;
+    }
+    .nd-record-panel h6 { color: var(--primary-dark, #00997D); }
+
+    /* Rótulos dos campos um pouco mais escuros para contraste */
+    .card .form-label.fw-medium { color: #2b3a3a; }
+
+    /* Barra de ações com leve separação colorida */
+    .form-actions { border-top-color: var(--primary-50, #E0F7F4) !important; border-top-width: 2px !important; }
 </style>
 
 <div class="main-content">
@@ -278,8 +303,8 @@
     <div class="card">
         <div class="card-body">
             <!-- Gravação de áudio -->
-            <div class="mb-4 p-3 border rounded-3 bg-light">
-                <h6 class="mb-2" style="font-size:0.9rem"><i class="bi bi-mic"></i> Gravação por Voz</h6>
+            <div class="nd-record-panel mb-4 p-3 border rounded-3">
+                <h6 class="mb-2 fw-semibold" style="font-size:0.9rem"><i class="bi bi-mic-fill"></i> Gravação por Voz</h6>
                 <p class="text-muted small mb-3">Clique no microfone, descreva sua demanda e o sistema transcreverá automaticamente.</p>
                 <div class="d-flex align-items-center gap-3 flex-wrap">
                     <button type="button" id="btn-record" class="btn btn-lg btn-outline-danger rounded-circle flex-shrink-0" style="width:56px;height:56px">
@@ -299,8 +324,8 @@
             <form action="<?= baseUrl('tickets/store') ?>" method="POST" enctype="multipart/form-data">
                 <?php if (($user['role'] ?? '') === 'super_admin' && !empty($clients)): ?>
                 <!-- Seção: Encaminhamento (quem solicita e quem atende) -->
-                <div class="form-section-title text-uppercase text-muted fw-semibold small mb-2">
-                    <i class="bi bi-diagram-3"></i> Encaminhamento
+                <div class="form-section-title text-uppercase fw-semibold small">
+                    <span class="nd-sec-icon"><i class="bi bi-diagram-3"></i></span> Encaminhamento
                 </div>
                 <div class="row g-3 mb-4">
                     <div class="col-sm-6">
@@ -342,20 +367,37 @@
                     <div class="col-sm-6">
                         <label class="form-label fw-medium">Atendentes (comunicação)</label>
                         <?php if (!empty($attendants)): ?>
-                        <div class="border rounded-3 p-2" style="max-height:180px;overflow-y:auto">
-                            <?php foreach (($attendants ?? []) as $att): ?>
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" name="attendant_ids[]" value="<?= $att['id'] ?>" id="att-<?= $att['id'] ?>">
-                                <label class="form-check-label" for="att-<?= $att['id'] ?>">
-                                    <?= escape($att['name']) ?> — <?= roleLabel($att['role']) ?>
-                                </label>
+                        <!-- Botão que abre a lista drop-down de atendentes; selecionados viram "chips" abaixo -->
+                        <div class="dropdown">
+                            <button type="button" class="btn btn-outline-primary btn-sm dropdown-toggle"
+                                    id="att-add-btn" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                                <i class="bi bi-person-plus"></i> Adicionar atendente
+                            </button>
+                            <div class="dropdown-menu p-0 shadow-sm" style="min-width:280px;max-height:260px;overflow-y:auto" id="att-dropdown-menu">
+                                <div class="p-2 border-bottom">
+                                    <input type="text" id="att-search" class="form-control form-control-sm" placeholder="Buscar atendente...">
+                                </div>
+                                <div id="att-options">
+                                    <?php foreach (($attendants ?? []) as $att): ?>
+                                    <button type="button" class="dropdown-item att-option d-flex align-items-center gap-2"
+                                            data-id="<?= (int) $att['id'] ?>"
+                                            data-name="<?= escape($att['name']) ?>"
+                                            data-role="<?= escape(roleLabel($att['role'])) ?>">
+                                        <i class="bi bi-check2 text-success att-check" style="visibility:hidden"></i>
+                                        <span><?= escape($att['name']) ?> <span class="text-muted small">— <?= escape(roleLabel($att['role'])) ?></span></span>
+                                    </button>
+                                    <?php endforeach; ?>
+                                    <div id="att-empty" class="text-muted small text-center py-2" style="display:none">Nenhum atendente encontrado.</div>
+                                </div>
                             </div>
-                            <?php endforeach; ?>
                         </div>
+                        <!-- Chips dos atendentes selecionados (o primeiro adicionado é o principal) + inputs ocultos -->
+                        <div id="att-selected" class="d-flex flex-wrap gap-2 mt-2"></div>
+                        <div id="att-hidden-inputs"></div>
+                        <small class="text-muted d-block mt-1">Selecione um ou mais atendentes. O primeiro adicionado será o principal.</small>
                         <?php else: ?>
                         <p class="text-muted small mb-0">Nenhum atendente disponível.</p>
                         <?php endif; ?>
-                        <small class="text-muted">Selecione um ou mais atendentes. O primeiro marcado será o principal.</small>
                     </div>
                     <div class="col-sm-6">
                         <label class="form-label fw-medium">Responsável Técnico</label>
@@ -375,8 +417,8 @@
                 <?php endif; ?>
 
                 <!-- Seção: Detalhes da demanda -->
-                <div class="form-section-title text-uppercase text-muted fw-semibold small mb-2">
-                    <i class="bi bi-card-text"></i> Detalhes da demanda
+                <div class="form-section-title text-uppercase fw-semibold small">
+                    <span class="nd-sec-icon"><i class="bi bi-card-text"></i></span> Detalhes da demanda
                 </div>
                 <div class="row g-3">
                     <div class="col-12">
@@ -461,6 +503,106 @@
             clientSelect.appendChild(opt);
         });
     });
+})();
+
+// ===== Atendentes (comunicação): botão "Adicionar atendente" + dropdown =====
+// A lista fica recolhida atrás de um botão. Ao clicar numa opção, o atendente
+// vira um "chip" e um input oculto name="attendant_ids[]" é criado — mantendo
+// exatamente o mesmo envio que o backend já espera. O primeiro chip é o
+// "Principal". Clicar de novo na opção (ou no X do chip) remove a seleção.
+(function () {
+    const menu = document.getElementById('att-dropdown-menu');
+    const selectedBox = document.getElementById('att-selected');
+    const hiddenBox = document.getElementById('att-hidden-inputs');
+    const search = document.getElementById('att-search');
+    const emptyMsg = document.getElementById('att-empty');
+    if (!menu || !selectedBox || !hiddenBox) return; // tela sem atendentes
+
+    // Ordem de seleção (ids na ordem em que foram adicionados) = define o principal.
+    const order = [];
+
+    function esc(s) {
+        return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+
+    function optionById(id) {
+        return menu.querySelector('.att-option[data-id="' + id + '"]');
+    }
+
+    function render() {
+        // chips + inputs ocultos, na ordem de seleção
+        selectedBox.innerHTML = '';
+        hiddenBox.innerHTML = '';
+        order.forEach(function (id, idx) {
+            const opt = optionById(id);
+            if (!opt) return;
+            const name = opt.getAttribute('data-name') || '';
+            const role = opt.getAttribute('data-role') || '';
+            const isMain = idx === 0;
+
+            const chip = document.createElement('span');
+            chip.className = 'badge rounded-pill d-inline-flex align-items-center gap-1 ' +
+                (isMain ? 'text-bg-primary' : 'text-bg-light border');
+            chip.innerHTML =
+                (isMain ? '<i class="bi bi-star-fill" title="Principal"></i> ' : '') +
+                esc(name) +
+                ' <span class="' + (isMain ? 'text-white-50' : 'text-muted') + '" style="font-size:.72em">' + esc(role) + '</span>' +
+                ' <a href="#" class="att-remove ' + (isMain ? 'text-white' : 'text-danger') + '" data-id="' + id + '" title="Remover">&times;</a>';
+            selectedBox.appendChild(chip);
+
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'attendant_ids[]';
+            input.value = id;
+            hiddenBox.appendChild(input);
+        });
+
+        // atualiza o "check" nas opções do dropdown
+        menu.querySelectorAll('.att-option').forEach(function (opt) {
+            const chk = opt.querySelector('.att-check');
+            if (chk) chk.style.visibility = order.includes(opt.getAttribute('data-id')) ? 'visible' : 'hidden';
+        });
+    }
+
+    function toggle(id) {
+        const i = order.indexOf(id);
+        if (i >= 0) order.splice(i, 1);
+        else order.push(id);
+        render();
+    }
+
+    // Clique numa opção do dropdown
+    menu.querySelectorAll('.att-option').forEach(function (opt) {
+        opt.addEventListener('click', function (e) {
+            e.preventDefault();
+            toggle(opt.getAttribute('data-id'));
+        });
+    });
+
+    // Remover pelo X do chip
+    selectedBox.addEventListener('click', function (e) {
+        const rm = e.target.closest('.att-remove');
+        if (!rm) return;
+        e.preventDefault();
+        toggle(rm.getAttribute('data-id'));
+    });
+
+    // Busca dentro do dropdown
+    if (search) {
+        search.addEventListener('input', function () {
+            const q = search.value.trim().toLowerCase();
+            let visible = 0;
+            menu.querySelectorAll('.att-option').forEach(function (opt) {
+                const hit = (opt.getAttribute('data-name') || '').toLowerCase().includes(q) ||
+                            (opt.getAttribute('data-role') || '').toLowerCase().includes(q);
+                opt.style.display = hit ? '' : 'none';
+                if (hit) visible++;
+            });
+            if (emptyMsg) emptyMsg.style.display = visible === 0 ? 'block' : 'none';
+        });
+        // Impede que clicar/digitar na busca feche o dropdown
+        search.addEventListener('click', function (e) { e.stopPropagation(); });
+    }
 })();
 
 let mediaRecorder;
