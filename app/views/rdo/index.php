@@ -8,7 +8,14 @@
             <h5 class="mb-0 fw-semibold"><i class="bi bi-journal-text"></i> Relatório Diário</h5>
             <small class="text-muted">Registro e acompanhamento das atividades do dia</small>
         </div>
-        <button class="btn btn-primary btn-sm" onclick="openRdoModal()"><i class="bi bi-plus-lg"></i> Novo relatório</button>
+        <div class="d-flex gap-2">
+            <div class="btn-group btn-group-sm" id="rdo-view-toggle">
+                <button type="button" class="btn btn-outline-primary active" data-view="calendar"><i class="bi bi-calendar3"></i> Calendário</button>
+                <button type="button" class="btn btn-outline-primary" data-view="kanban"><i class="bi bi-kanban"></i> Kanban</button>
+                <button type="button" class="btn btn-outline-primary" data-view="list"><i class="bi bi-list-ul"></i> Lista</button>
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="openRdoModal()"><i class="bi bi-plus-lg"></i> Novo relatório</button>
+        </div>
     </div>
 
     <!-- Cards de resumo -->
@@ -97,29 +104,85 @@
         </div>
     </div></div>
 
-    <!-- Listagem -->
-    <div class="card border-0 shadow-sm"><div class="card-body p-0">
-        <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0">
-                <thead class="table-light">
-                    <tr>
-                        <th>Data</th>
-                        <?php if ($isGlobal): ?><th>Quem</th><?php endif; ?>
-                        <th>Resumo / Atividades</th>
-                        <th>Status</th>
-                        <th class="text-center">Ocor.</th>
-                        <th class="text-center">Anexos</th>
-                        <th>Criado em</th>
-                        <th class="text-end">Ações</th>
-                    </tr>
-                </thead>
-                <tbody id="rdo-tbody">
-                    <tr><td colspan="8" class="text-center text-muted py-4">Carregando...</td></tr>
-                </tbody>
-            </table>
+    <!-- ===== VISÃO: CALENDÁRIO (padrão) ===== -->
+    <div id="rdo-calendar-view">
+        <div class="card border-0 shadow-sm"><div class="card-body p-2 p-md-3">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                <div class="d-flex align-items-center gap-2">
+                    <button class="btn btn-sm btn-outline-secondary" id="rdo-cal-prev"><i class="bi bi-chevron-left"></i></button>
+                    <button class="btn btn-sm btn-outline-secondary" id="rdo-cal-today">Hoje</button>
+                    <button class="btn btn-sm btn-outline-secondary" id="rdo-cal-next"><i class="bi bi-chevron-right"></i></button>
+                    <h6 class="mb-0 ms-2 fw-semibold" id="rdo-cal-title" style="min-width:170px;"></h6>
+                </div>
+                <div class="btn-group btn-group-sm" id="rdo-cal-mode-toggle">
+                    <button type="button" class="btn btn-outline-primary active" data-mode="month">Mês</button>
+                    <button type="button" class="btn btn-outline-primary" data-mode="week">Semana</button>
+                </div>
+            </div>
+            <div id="rdo-calendar-container"></div>
+        </div></div>
+    </div>
+
+    <!-- ===== VISÃO: KANBAN (colunas por empresa) ===== -->
+    <div id="rdo-kanban-view" style="display:none;">
+        <div class="rdo-kanban" id="rdo-kanban-board">
+            <div class="text-muted small py-4">Carregando...</div>
         </div>
-    </div></div>
+    </div>
+
+    <!-- ===== VISÃO: LISTA ===== -->
+    <div id="rdo-list-view" style="display:none;">
+        <div class="card border-0 shadow-sm"><div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Data</th>
+                            <?php if ($isGlobal): ?><th>Quem</th><?php endif; ?>
+                            <th>Resumo / Atividades</th>
+                            <th>Status</th>
+                            <th class="text-center">Ocor.</th>
+                            <th class="text-center">Anexos</th>
+                            <th>Criado em</th>
+                            <th class="text-end">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rdo-tbody">
+                        <tr><td colspan="8" class="text-center text-muted py-4">Carregando...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div></div>
+    </div>
 </div>
+
+<style>
+/* ===== Kanban RDO (colunas por empresa) ===== */
+.rdo-kanban { display: flex; gap: 14px; overflow-x: auto; padding-bottom: 8px; align-items: flex-start; }
+.rdo-col { flex: 0 0 290px; max-width: 290px; background: #f4f6f8; border-radius: 12px; display: flex; flex-direction: column; }
+.rdo-col-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; background: #fff; border-radius: 12px 12px 0 0; border-top: 3px solid #00BFA6; }
+.rdo-col-title { font-size: 0.78rem; font-weight: 700; color: #445; text-transform: uppercase; letter-spacing: .3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rdo-col-count { font-size: 0.66rem; font-weight: 600; background: #eef0f2; color: #667; border-radius: 20px; padding: 1px 8px; flex-shrink: 0; }
+.rdo-col-body { padding: 10px; display: flex; flex-direction: column; gap: 10px; min-height: 60px; }
+.rdo-card { background: #fff; border: 1px solid #eef0f2; border-left: 3px solid #f59e0b; border-radius: 10px; padding: 10px; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.04); transition: box-shadow .15s; }
+.rdo-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+.rdo-card.done { border-left-color: #2e7d32; }
+.rdo-card h6 { font-size: 0.85rem; margin-bottom: 4px; }
+.rdo-card .rc-meta { font-size: 0.7rem; color: #888; display: flex; flex-wrap: wrap; gap: 3px 8px; margin-top: 4px; }
+.rdo-col-empty { color: #99a; font-size: .72rem; text-align: center; padding: 8px 0; }
+
+/* ===== Calendário RDO (grade HTML, mesmo padrão da Agenda) ===== */
+.rdo-cal-grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.rdo-cal-grid th { background: #f8f9fa; text-align: center; font-weight: 600; font-size: 0.72rem; padding: 6px 4px; border: 1px solid #eef0f2; color: #667; text-transform: uppercase; }
+.rdo-cal-grid td { border: 1px solid #eef0f2; vertical-align: top; height: 110px; padding: 4px; position: relative; }
+.rdo-cal-grid td.other-month { background: #fafbfc; }
+.rdo-cal-grid td.today { background: #eef7ff; }
+.rdo-cal-daynum { font-size: 0.72rem; font-weight: 600; color: #556; }
+.rdo-cal-cell-add { position: absolute; top: 3px; right: 4px; opacity: 0; font-size: 0.7rem; color: var(--primary,#00BFA6); cursor: pointer; }
+.rdo-cal-grid td:hover .rdo-cal-cell-add { opacity: 1; }
+.rdo-cal-event { font-size: 0.68rem; padding: 2px 6px 2px 7px; border-radius: 4px; margin-bottom: 2px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.rdo-cal-week td { height: 300px; }
+</style>
 
 <!-- Modal criar/editar -->
 <div class="modal fade" id="rdoModal" tabindex="-1">
@@ -221,6 +284,13 @@ const RDO = {
 
 const KIND_LABELS = { colaborador: 'Colaborador', prestador: 'Prestador' };
 
+// Visão ativa (calendário é o padrão ao abrir a tela) e cache dos itens
+// carregados, para que a troca de visão não exija nova chamada ao servidor.
+let rdoView = 'calendar';
+let rdoItems = [];
+let rdoCalDate = new Date();
+let rdoCalMode = 'month';
+
 function escapeHtml(s) {
     return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
@@ -228,6 +298,12 @@ function statusBadge(st) {
     const lbl = RDO.statusLabels[st] || st;
     const cls = st === 'finalizado' ? 'bg-success' : 'bg-warning text-dark';
     return `<span class="badge ${cls}">${escapeHtml(lbl)}</span>`;
+}
+// Formata um report_date (YYYY-MM-DD ou "YYYY-MM-DD HH:MM:SS") como DD/MM/AAAA.
+// Usa só o prefixo de data, evitando embaralhar quando vem com hora.
+function rdoDateBR(reportDate) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(reportDate || ''));
+    return m ? `${m[3]}/${m[2]}/${m[1]}` : '';
 }
 
 async function loadRdos() {
@@ -255,6 +331,33 @@ async function loadRdos() {
     document.getElementById('stat-andamento').textContent = data.stats.em_andamento;
     document.getElementById('stat-ocorrencias').textContent = data.stats.ocorrencias;
 
+    rdoItems = data.items || [];
+    renderActiveView();
+}
+
+// Renderiza apenas a visão atualmente ativa, usando os itens já em memória.
+function renderActiveView() {
+    if (rdoView === 'kanban') renderKanban();
+    else if (rdoView === 'list') renderList();
+    else renderCalendar();
+}
+
+// ===== Alternância de visão (Calendário / Kanban / Lista) =====
+document.querySelectorAll('#rdo-view-toggle button').forEach(btn => {
+    btn.addEventListener('click', function() {
+        document.querySelectorAll('#rdo-view-toggle button').forEach(b => b.classList.remove('active'));
+        this.classList.add('active');
+        rdoView = this.dataset.view;
+        document.getElementById('rdo-calendar-view').style.display = rdoView === 'calendar' ? '' : 'none';
+        document.getElementById('rdo-kanban-view').style.display   = rdoView === 'kanban'   ? '' : 'none';
+        document.getElementById('rdo-list-view').style.display     = rdoView === 'list'     ? '' : 'none';
+        renderActiveView();
+    });
+});
+
+// ===== VISÃO LISTA ===== (tabela agrupada por empresa, como antes)
+function renderList() {
+    const data = { items: rdoItems };
     const tb = document.getElementById('rdo-tbody');
     // colspan total da tabela (varia se a coluna "Quem" aparece p/ super_admin).
     const colCount = RDO.isGlobal ? 8 : 7;
@@ -281,7 +384,7 @@ async function loadRdos() {
             </tr>`;
         }
 
-        const dateBR = it.report_date ? it.report_date.split('-').reverse().join('/') : '';
+        const dateBR = rdoDateBR(it.report_date);
         const created = it.created_at ? it.created_at.replace('T', ' ').substring(0, 16) : '';
         const resumo = escapeHtml((it.title || it.activities || '').substring(0, 80));
         const occ = Number(it.has_occurrence) ? '<i class="bi bi-exclamation-triangle-fill text-danger"></i>' : '<span class="text-muted">—</span>';
@@ -303,6 +406,170 @@ async function loadRdos() {
     });
     tb.innerHTML = html;
 }
+
+// ===== VISÃO KANBAN ===== (colunas por empresa — opção B)
+// Espelha RdoViewRules::groupByCompany no cliente: uma coluna por empresa,
+// "Sem cliente" sempre por último, empresas em ordem alfabética.
+function rdoCompanyKey(it) {
+    const id = it.company_id;
+    if (id === null || id === undefined || id === '' || isNaN(id) || Number(id) <= 0) return 'none';
+    return 'c' + Number(id);
+}
+function groupByCompany(items) {
+    const map = new Map();
+    items.forEach(it => {
+        const key = rdoCompanyKey(it);
+        if (!map.has(key)) {
+            const isNone = key === 'none';
+            map.set(key, {
+                key,
+                company_id: isNone ? null : Number(it.company_id),
+                company_name: isNone ? 'Sem cliente' : (it.company_name || 'Sem cliente'),
+                items: [],
+            });
+        }
+        map.get(key).items.push(it);
+    });
+    const cols = Array.from(map.values());
+    cols.sort((a, b) => {
+        const aNone = a.key === 'none', bNone = b.key === 'none';
+        if (aNone !== bNone) return aNone ? 1 : -1;
+        return String(a.company_name).localeCompare(String(b.company_name), 'pt', { sensitivity: 'base' });
+    });
+    return cols;
+}
+
+function renderKanban() {
+    const board = document.getElementById('rdo-kanban-board');
+    if (!rdoItems.length) {
+        board.innerHTML = '<div class="text-muted small py-4">Nenhum relatório encontrado.</div>';
+        return;
+    }
+    const cols = groupByCompany(rdoItems);
+    board.innerHTML = cols.map(col => {
+        const cards = col.items.map(it => {
+            const done = it.status === 'finalizado';
+            const dateBR = rdoDateBR(it.report_date);
+            const resumo = escapeHtml((it.title || it.activities || '').substring(0, 70)) || '<span class="text-muted">—</span>';
+            const occ = Number(it.has_occurrence)
+                ? '<span title="Com ocorrência"><i class="bi bi-exclamation-triangle-fill text-danger"></i></span>' : '';
+            const att = Number(it.attachment_count)
+                ? `<span><i class="bi bi-paperclip"></i> ${Number(it.attachment_count)}</span>` : '';
+            const who = (RDO.isGlobal && it.user_name) ? `<span><i class="bi bi-person"></i> ${escapeHtml(it.user_name)}</span>` : '';
+            return `<div class="rdo-card ${done ? 'done' : ''}" onclick="viewRdo(${it.id})">
+                <h6 class="fw-semibold">${resumo}</h6>
+                <div>${statusBadge(it.status)} ${occ}</div>
+                <div class="rc-meta">
+                    <span><i class="bi bi-calendar-event"></i> ${dateBR}</span>
+                    ${who}
+                    ${att}
+                </div>
+            </div>`;
+        }).join('');
+        return `<div class="rdo-col" data-company="${col.company_id ?? ''}">
+            <div class="rdo-col-head">
+                <span class="rdo-col-title"><i class="bi bi-building"></i> ${escapeHtml(col.company_name)}</span>
+                <span class="rdo-col-count">${col.items.length}</span>
+            </div>
+            <div class="rdo-col-body">
+                ${cards || '<div class="rdo-col-empty">Nenhum RDO</div>'}
+            </div>
+        </div>`;
+    }).join('');
+}
+
+// ===== VISÃO CALENDÁRIO ===== (grade HTML, dia = report_date)
+const RDO_MONTHS = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+const RDO_WEEKDAYS = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+function rdoFmtDate(d) {
+    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+function rdoDayKey(reportDate) {
+    const m = /^(\d{4}-\d{2}-\d{2})/.exec(String(reportDate || ''));
+    return m ? m[1] : null;
+}
+function rdoEventsForDay(dayStr) {
+    return rdoItems.filter(it => rdoDayKey(it.report_date) === dayStr);
+}
+function rdoDayContent(dayStr) {
+    return rdoEventsForDay(dayStr).map(it => {
+        const done = it.status === 'finalizado';
+        const bg = done ? 'rgba(129,199,132,0.35)' : '#fef7d6';
+        const border = done ? 'rgba(76,175,80,0.7)' : '#f59e0b';
+        const text = done ? '#2e5b31' : '#7a5900';
+        const label = escapeHtml((it.company_name || it.title || it.activities || 'RDO').substring(0, 24));
+        const occ = Number(it.has_occurrence) ? '⚠ ' : '';
+        return `<div class="rdo-cal-event" style="background:${bg};border-left:3px solid ${border};color:${text};" onclick="event.stopPropagation();viewRdo(${it.id})" title="${escapeHtml(it.title || it.company_name || '')}">${occ}${label}</div>`;
+    }).join('');
+}
+function rdoNavCal(dir) {
+    if (rdoCalMode === 'month') rdoCalDate.setMonth(rdoCalDate.getMonth() + dir);
+    else rdoCalDate.setDate(rdoCalDate.getDate() + 7 * dir);
+    renderCalendar();
+}
+function renderCalendar() {
+    const container = document.getElementById('rdo-calendar-container');
+    const title = document.getElementById('rdo-cal-title');
+    const todayStr = rdoFmtDate(new Date());
+    if (rdoCalMode === 'month') {
+        title.textContent = RDO_MONTHS[rdoCalDate.getMonth()] + ' ' + rdoCalDate.getFullYear();
+        const first = new Date(rdoCalDate.getFullYear(), rdoCalDate.getMonth(), 1);
+        const gridStart = new Date(first); gridStart.setDate(gridStart.getDate() - first.getDay());
+        let html = '<table class="rdo-cal-grid"><thead><tr>' + RDO_WEEKDAYS.map(d => `<th>${d}</th>`).join('') + '</tr></thead><tbody>';
+        let cur = new Date(gridStart);
+        for (let w = 0; w < 6; w++) {
+            html += '<tr>';
+            for (let d = 0; d < 7; d++) {
+                const dayStr = rdoFmtDate(cur);
+                const isOther = cur.getMonth() !== rdoCalDate.getMonth();
+                html += `<td class="${isOther ? 'other-month' : ''} ${dayStr === todayStr ? 'today' : ''}">
+                    <span class="rdo-cal-daynum">${cur.getDate()}</span>
+                    <i class="bi bi-plus-circle-fill rdo-cal-cell-add" onclick="openRdoModalOn('${dayStr}')"></i>
+                    <div>${rdoDayContent(dayStr)}</div></td>`;
+                cur.setDate(cur.getDate() + 1);
+            }
+            html += '</tr>';
+            const monthEnd = new Date(rdoCalDate.getFullYear(), rdoCalDate.getMonth() + 1, 0);
+            if (cur > monthEnd && cur.getDay() === 0) break;
+        }
+        container.innerHTML = html + '</tbody></table>';
+    } else {
+        const ws = new Date(rdoCalDate); ws.setDate(ws.getDate() - ws.getDay());
+        const we = new Date(ws); we.setDate(we.getDate() + 6);
+        title.textContent = `${ws.getDate()} ${RDO_MONTHS[ws.getMonth()].slice(0,3)} - ${we.getDate()} ${RDO_MONTHS[we.getMonth()].slice(0,3)}`;
+        let html = '<table class="rdo-cal-grid rdo-cal-week"><thead><tr>';
+        let cur = new Date(ws);
+        for (let d = 0; d < 7; d++) { html += `<th>${RDO_WEEKDAYS[d]} ${cur.getDate()}</th>`; cur.setDate(cur.getDate() + 1); }
+        html += '</tr></thead><tbody><tr>';
+        cur = new Date(ws);
+        for (let d = 0; d < 7; d++) {
+            const dayStr = rdoFmtDate(cur);
+            html += `<td class="${dayStr === todayStr ? 'today' : ''}">
+                <i class="bi bi-plus-circle-fill rdo-cal-cell-add" onclick="openRdoModalOn('${dayStr}')"></i>
+                <div>${rdoDayContent(dayStr)}</div></td>`;
+            cur.setDate(cur.getDate() + 1);
+        }
+        container.innerHTML = html + '</tr></tbody></table>';
+    }
+}
+// Abre o modal de novo RDO já com a data clicada no calendário.
+function openRdoModalOn(dayStr) {
+    openRdoModal();
+    if (dayStr) document.getElementById('rdo-date').value = dayStr;
+}
+
+// Controles do calendário
+document.getElementById('rdo-cal-prev').addEventListener('click', () => rdoNavCal(-1));
+document.getElementById('rdo-cal-next').addEventListener('click', () => rdoNavCal(1));
+document.getElementById('rdo-cal-today').addEventListener('click', () => { rdoCalDate = new Date(); renderCalendar(); });
+document.querySelectorAll('#rdo-cal-mode-toggle button').forEach(btn => {
+    btn.addEventListener('click', function() {
+        document.querySelectorAll('#rdo-cal-mode-toggle button').forEach(b => b.classList.remove('active'));
+        this.classList.add('active');
+        rdoCalMode = this.dataset.mode;
+        renderCalendar();
+    });
+});
 
 function clearFilters() {
     document.getElementById('f-search').value = '';
@@ -525,7 +792,7 @@ async function viewRdo(id) {
     if (data.error) { alert(data.error); return; }
     const it = data.item;
 
-    const dateBR = it.report_date ? it.report_date.split('-').reverse().join('/') : '—';
+    const dateBR = rdoDateBR(it.report_date) || '—';
     const project = it.company_name
         ? escapeHtml(it.company_name)
         : '<span class="fst-italic text-muted">Sem cliente</span>';
