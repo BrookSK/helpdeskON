@@ -195,6 +195,34 @@ $st = $provider['status'];
             </div>
             <?php endif; ?>
 
+            <!-- Contas a pagar (gerado na assinatura do contrato) -->
+            <?php if (in_array($st, ['contract','active','terminated'], true)): ?>
+            <div class="card mb-3">
+                <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                    <strong>Contas a pagar</strong>
+                    <span class="small text-muted">Pendente: <strong id="pay-pending">—</strong></span>
+                </div>
+                <div class="card-body">
+                    <div id="pay-list"><p class="text-muted small mb-0">Carregando…</p></div>
+                    <hr class="my-2">
+                    <div class="row g-2">
+                        <div class="col-3">
+                            <select id="p-kind" class="form-select form-select-sm">
+                                <option value="hora">Por hora</option>
+                                <option value="mensal">Mensal</option>
+                                <option value="parcela">Parcela</option>
+                            </select>
+                        </div>
+                        <div class="col-3"><input id="p-amount" class="form-control form-control-sm" placeholder="Valor"></div>
+                        <div class="col-3"><input id="p-due" type="date" class="form-control form-control-sm"></div>
+                        <div class="col-3"><button class="btn btn-sm btn-outline-primary w-100" onclick="addPayable()">Lançar</button></div>
+                        <div class="col-12"><input id="p-desc" class="form-control form-control-sm" placeholder="Descrição (opcional)"></div>
+                    </div>
+                    <small class="d-block text-muted mt-1">Lançamentos avulsos (ex.: fechamento de horas do período). Os do contrato são gerados automaticamente na assinatura.</small>
+                </div>
+            </div>
+            <?php endif; ?>
+
             <div class="card mb-3">
                 <div class="card-header py-2 d-flex justify-content-between align-items-center">
                     <strong>Acessos</strong>
@@ -358,5 +386,46 @@ async function terminate() {
     if (r.error) { alert(r.error + (r.pending ? '\nPendentes: ' + r.pending.join(', ') : '')); return; }
     location.reload();
 }
+
+// ===== Contas a pagar =====
+const PAY_KIND_LABEL = { mensal: 'Mensal', hora: 'Por hora', parcela: 'Parcela' };
+const PAY_ST_BADGE = { pending: 'warning text-dark', paid: 'success', cancelled: 'secondary' };
+const PAY_ST_LABEL = { pending: 'Pendente', paid: 'Pago', cancelled: 'Cancelado' };
+function brl(v){ return 'R$ ' + (parseFloat(v||0)).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+async function loadPayables() {
+    const box = document.getElementById('pay-list');
+    if (!box) return;
+    try {
+        const res = await fetch(`${BASE}payable/byProvider/${PRID}`, { headers: {'X-Requested-With':'XMLHttpRequest'} });
+        const data = await res.json();
+        document.getElementById('pay-pending').textContent = brl(data.pending_total);
+        if (!data.items || !data.items.length) { box.innerHTML = '<p class="text-muted small mb-0">Nenhum lançamento.</p>'; return; }
+        box.innerHTML = data.items.map(function(p){
+            const canAct = p.status === 'pending';
+            return '<div class="d-flex justify-content-between align-items-center border-bottom py-1">'
+                + '<div><strong>' + brl(p.amount) + '</strong> '
+                + '<span class="badge bg-light text-dark border ms-1">' + (PAY_KIND_LABEL[p.kind]||p.kind) + '</span> '
+                + '<span class="badge bg-' + (PAY_ST_BADGE[p.status]||'light') + ' ms-1">' + (PAY_ST_LABEL[p.status]||p.status) + '</span>'
+                + (p.description ? ' <small class="text-muted">· ' + escapeHtml(p.description) + '</small>' : '')
+                + (p.due_date ? ' <small class="text-muted">· vence ' + p.due_date + '</small>' : '')
+                + '</div><div>'
+                + (canAct ? '<button class="btn btn-sm btn-outline-success py-0 px-1" onclick="payPayable(' + p.id + ')">Pagar</button> '
+                          + '<button class="btn btn-sm btn-outline-danger py-0 px-1" onclick="cancelPayable(' + p.id + ')">Cancelar</button>' : '')
+                + '</div></div>';
+        }).join('');
+    } catch (e) { box.innerHTML = '<p class="text-danger small mb-0">Falha ao carregar.</p>'; }
+}
+function escapeHtml(s){ const d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML; }
+async function payPayable(id){ if(!confirm('Marcar como pago?'))return; const r=await post(`payable/pay/${id}`,{}); if(r.error){alert(r.error);return;} loadPayables(); }
+async function cancelPayable(id){ if(!confirm('Cancelar este lançamento?'))return; const r=await post(`payable/cancel/${id}`,{}); if(r.error){alert(r.error);return;} loadPayables(); }
+async function addPayable(){
+    const amount = val('p-amount').trim();
+    if (!amount) { alert('Informe o valor.'); return; }
+    const r = await post(`payable/store/${PRID}`, { kind: val('p-kind'), amount: amount, due_date: val('p-due'), description: val('p-desc') });
+    if (r.error) { alert(r.error); return; }
+    document.getElementById('p-amount').value=''; document.getElementById('p-desc').value=''; document.getElementById('p-due').value='';
+    loadPayables();
+}
+document.addEventListener('DOMContentLoaded', function(){ if (document.getElementById('pay-list')) loadPayables(); });
 </script>
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>
