@@ -141,12 +141,13 @@
                         <input type="file" name="attachments[]" class="form-control" multiple accept="image/*,video/*,.pdf,.doc,.docx">
                         <small class="text-muted">Máx. 10MB/arquivo (50MB para vídeos). JPG, PNG, GIF, PDF, DOC, MP4, WebM</small>
                     </div>
-                    <div class="col-12 d-flex gap-2 flex-wrap">
-                        <button type="submit" class="btn btn-primary px-4">
-                            <i class="bi bi-send"></i> Enviar Demanda
-                        </button>
-                        <a href="<?= baseUrl('tickets') ?>" class="btn btn-outline-secondary px-4">Cancelar</a>
-                    </div>
+                </div>
+                <!-- Rodapé de ações: alinhado à esquerda, separado dos campos. -->
+                <div class="d-flex justify-content-start gap-2 flex-wrap mt-4 pt-3 border-top">
+                    <button type="submit" class="btn btn-primary px-4">
+                        <i class="bi bi-send"></i> Enviar Demanda
+                    </button>
+                    <a href="<?= baseUrl('tickets') ?>" class="btn btn-outline-secondary px-4">Cancelar</a>
                 </div>
             </form>
         </div>

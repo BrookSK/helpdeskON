@@ -1087,6 +1087,107 @@ class VideocallController extends Controller
         ]);
     }
 
+    /**
+     * [público] POST /videocall/acknowledgeMinutes/{recToken}
+     * Reconhecimento/assinatura da minuta pelo CLIENTE, autenticado por PIN
+     * (client_pin, 4 dígitos) — espelha ProjectController::confirmAccept.
+     * O PIN precisa pertencer a um usuário da MESMA empresa da sala (quando a
+     * sala tem company_id). Só funciona com a minuta pronta (regra em VideoRoom).
+     */
+    public function acknowledgeMinutes($recToken = null)
+    {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $recToken = $this->tokenFromUrl($recToken, 2);
+        $rec = $recToken ? $this->model->findRecordingByToken($recToken) : null;
+        if (!$rec) $this->json(['error' => 'Minuta não encontrada'], 404);
+
+        if (MinutesAckRules::isAcknowledged($rec['minutes_ack_status'] ?? null)) {
+            $this->json(['error' => 'Esta minuta já foi reconhecida.'], 409);
+        }
+        if (!MinutesAckRules::canAcknowledge($rec['minutes_status'] ?? null, $rec['minutes_ack_status'] ?? null)) {
+            $this->json(['error' => 'A minuta ainda não está pronta para reconhecimento.'], 409);
+        }
+
+        $pin = $_POST['pin'] ?? '';
+        if (!ClientPinRules::isValidFormat($pin)) {
+            $this->json(['error' => 'PIN inválido. Informe os 4 dígitos.'], 400);
+        }
+        $client = (new User())->findByClientPin($pin);
+        if (!$client) $this->json(['error' => 'PIN não reconhecido.'], 403);
+
+        // O PIN precisa ser de um usuário da MESMA empresa da sala (quando houver).
+        $room = $this->model->findById($rec['room_id']);
+        if ($room && !empty($room['company_id'])
+            && (int)($client['company_id'] ?? 0) !== (int)$room['company_id']) {
+            $this->json(['error' => 'Este PIN não corresponde ao cliente desta reunião.'], 403);
+        }
+
+        $ip = $_SERVER['REMOTE_ADDR'] ?? null;
+        if (!$this->model->acknowledgeMinutes($recToken, (int)$client['id'], $ip)) {
+            $this->json(['error' => 'Não foi possível registrar o reconhecimento.'], 409);
+        }
+
+        // Avisa a equipe (sino do criador da sala + grupo). Nunca interrompe.
+        try {
+            $who = $client['name'] ?? 'Cliente';
+            if ($room && !empty($room['created_by'])) {
+                Database::getInstance()->insert('notifications', [
+                    'user_id' => (int)$room['created_by'],
+                    'title'   => 'Minuta reconhecida',
+                    'message' => "{$who} reconheceu/assinou a minuta da reunião \"" . ($room['title'] ?? '') . "\".",
+                    'type'    => 'system',
+                ]);
+            }
+            WhatsappNotifier::sendToDefaultGroup("Minuta reconhecida por {$who} — reunião \"" . ($room['title'] ?? '') . "\".");
+        } catch (\Throwable $e) { /* não interrompe */ }
+
+        $this->json(['success' => true]);
+    }
+
+    /**
+     * [público] POST /videocall/contestMinutes/{recToken}
+     * Contestação (discordância) da minuta pelo cliente, com motivo obrigatório.
+     * Reabre para a equipe refazer/reenviar e notifica a equipe.
+     */
+    public function contestMinutes($recToken = null)
+    {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $recToken = $this->tokenFromUrl($recToken, 2);
+        $rec = $recToken ? $this->model->findRecordingByToken($recToken) : null;
+        if (!$rec) $this->json(['error' => 'Minuta não encontrada'], 404);
+
+        if (MinutesAckRules::isAcknowledged($rec['minutes_ack_status'] ?? null)) {
+            $this->json(['error' => 'Esta minuta já foi reconhecida e não pode ser contestada.'], 409);
+        }
+        if (!MinutesAckRules::canContest($rec['minutes_status'] ?? null, $rec['minutes_ack_status'] ?? null)) {
+            $this->json(['error' => 'A minuta ainda não está pronta.'], 409);
+        }
+
+        $reason = MinutesAckRules::sanitizeContestReason($_POST['reason'] ?? '');
+        if ($reason === null) {
+            $this->json(['error' => 'Descreva o motivo da discordância.'], 400);
+        }
+        if (!$this->model->contestMinutes($recToken, $reason)) {
+            $this->json(['error' => 'Não foi possível registrar a contestação.'], 409);
+        }
+
+        // Avisa a equipe para refazer a minuta. Nunca interrompe.
+        try {
+            $room = $this->model->findById($rec['room_id']);
+            if ($room && !empty($room['created_by'])) {
+                Database::getInstance()->insert('notifications', [
+                    'user_id' => (int)$room['created_by'],
+                    'title'   => 'Minuta contestada',
+                    'message' => "O cliente discordou da minuta da reunião \"" . ($room['title'] ?? '') . "\". Motivo: {$reason}",
+                    'type'    => 'system',
+                ]);
+            }
+            WhatsappNotifier::sendToDefaultGroup("Minuta contestada — reunião \"" . ($room['title'] ?? '') . "\". Motivo: {$reason}");
+        } catch (\Throwable $e) { /* não interrompe */ }
+
+        $this->json(['success' => true]);
+    }
+
     // ============================================================
     // Tela de gravações no Helpdesk (logado) + compartilhamento
     // ============================================================

@@ -219,10 +219,12 @@ class RdoController extends Controller
 
         $companies = (new Company())->getAll();
 
-        // Conta pendências para badge na aba (apenas super_admin)
+        // Conta pendências para badge na aba (apenas super_admin): revisões
+        // reais + dias úteis sem relatório (ausências).
         $pendingCount = 0;
         if (RdoRules::canReview($user['role'])) {
-            $pendingCount = count($this->model->getAllPendingReviews());
+            $pendingCount = count($this->model->getAllPendingReviews())
+                          + count($this->collectMissingAbsences());
         }
 
         $this->view('rdo/index', [
@@ -669,7 +671,60 @@ class RdoController extends Controller
         }
         unset($r);
 
+        // Acrescenta as ausências (dias úteis sem relatório) como itens
+        // informativos do tipo 'missing_report'. Não têm report_id nem ação.
+        $reviews = array_merge($reviews, $this->collectMissingAbsences());
+
         $this->json(['reviews' => $reviews, 'total' => count($reviews)]);
+    }
+
+    /**
+     * Calcula as ausências: para cada profissional com acesso ao RDO, os dias
+     * ÚTEIS (seg–sex) dos últimos RdoRules::MISSING_SCAN_DAYS dias que não têm
+     * relatório. Não depende do cron de notificação — é uma varredura sob
+     * demanda, então nenhum dia "escapa" se o cron não tiver rodado.
+     *
+     * Retorna uma lista de itens no mesmo formato das revisões, com:
+     *   type='missing_report', owner_name, report_date, e payload=null.
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    private function collectMissingAbsences(): array
+    {
+        $today = date('Y-m-d');
+        $from  = date('Y-m-d', strtotime('-' . RdoRules::MISSING_SCAN_DAYS . ' days'));
+        $to    = $today;
+
+        // Nunca cobra ausências antes do marco de adoção do RDO.
+        if ($from < RdoRules::MISSING_START_DATE) {
+            $from = RdoRules::MISSING_START_DATE;
+        }
+
+        $businessDays = RdoRules::businessDaysInRange($from, $to);
+        if (empty($businessDays)) {
+            return [];
+        }
+
+        $roles         = Permissions::rolesForModule('rdo');
+        $professionals = $this->model->getRdoProfessionals($roles);
+
+        $items = [];
+        foreach ($professionals as $pro) {
+            $filled  = $this->model->getReportDatesForUser((int) $pro['id'], $from, $to);
+            $missing = RdoRules::missingDates($businessDays, $filled);
+            foreach ($missing as $date) {
+                $items[] = [
+                    'id'          => null,
+                    'type'        => 'missing_report',
+                    'report_id'   => null,
+                    'owner_name'  => $pro['name'],
+                    'report_date' => $date,
+                    'payload'     => null,
+                ];
+            }
+        }
+
+        return $items;
     }
 
     // =========================================================================

@@ -414,6 +414,20 @@ class ProviderController extends Controller
         }
         $this->providers->addEvent($providerId, null, 'signed_followup', 'Pós-assinatura: acesso criado e pendências de acesso registradas.');
 
+        // 2b) Contas a pagar: gera os lançamentos conforme o tipo de pagamento
+        //     (mensal/hora/projeto). Idempotente (replaceForProvider só mexe nos
+        //     pendentes) e nunca interrompe o fluxo em falha.
+        try {
+            $plan = PayableRules::buildPlanForProvider($p);
+            if (!empty($plan)) {
+                $n = (new Payable())->replaceForProvider($providerId, $plan, $p['created_by'] ?? null);
+                $this->providers->addEvent($providerId, null, 'payables_generated',
+                    "Contas a pagar: {$n} lançamento(s) gerado(s) a partir do contrato.");
+            }
+        } catch (\Throwable $e) {
+            if (class_exists('Logger')) Logger::error('gerar contas a pagar do prestador falhou', ['provider' => $providerId, 'error' => $e->getMessage()]);
+        }
+
         // 3) Notifica a equipe (criador) + grupo.
         $this->notifyTeam((int)($p['created_by'] ?? 0), 'Prestador assinou o contrato',
             "O prestador \"{$p['name']}\" assinou. Acesso criado e pendências de acesso abertas.");

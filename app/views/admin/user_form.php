@@ -121,44 +121,55 @@
                 </div>
 
                 <!-- PIN de login (4 dígitos) — para qualquer usuário -->
+                <?php $hasClientPin = !empty($editUser['client_pin']); ?>
                 <div id="client-pin-field" class="card mb-3">
                     <div class="card-header bg-white fw-medium" style="font-size:0.9rem">
                         <i class="bi bi-key-fill"></i> PIN de acesso (login por PIN)
                     </div>
                     <div class="card-body">
+                        <?php if ($editUser): ?>
+                        <?php // EDIÇÃO: o admin não vê nem escolhe o PIN de outro usuário.
+                              // Só pode disparar um link para o próprio usuário (re)definir
+                              // o PIN, ou remover o PIN existente. ?>
                         <p class="small text-muted mb-2">
-                            PIN de <strong>4 dígitos</strong> para este usuário entrar direto na
-                            tela de login (botão <em>Entrar com PIN</em>), sem usar email e senha.
-                            Dá o mesmo acesso do login normal. Aqui você pode definir ou alterá-lo.
+                            PIN de <strong>4 dígitos</strong> para o usuário entrar pelo botão
+                            <em>Entrar com PIN</em>. Por segurança, o valor é visível apenas para o
+                            próprio usuário. Você pode enviar um link para ele (re)definir o PIN.
                         </p>
-                        <?php $hasClientPin = !empty($editUser['client_pin']); ?>
                         <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
                             <span class="badge <?= $hasClientPin ? 'bg-success' : 'bg-secondary' ?>">
                                 <i class="bi bi-<?= $hasClientPin ? 'check-circle' : 'dash-circle' ?>"></i>
                                 <?= $hasClientPin ? 'PIN cadastrado' : 'Sem PIN' ?>
                             </span>
-                            <?php if ($hasClientPin): ?>
-                            <span class="badge bg-light text-dark border" style="font-size:0.85rem;letter-spacing:1px;">
-                                <i class="bi bi-eye"></i> <?= escape($editUser['client_pin']) ?>
-                            </span>
-                            <?php endif; ?>
-                            <button type="button" class="btn btn-sm btn-outline-primary" id="btn-client-pin" onclick="toggleClientPinInput()">
-                                <i class="bi bi-key"></i> <?= $hasClientPin ? 'Alterar PIN' : 'Definir PIN' ?>
-                            </button>
                         </div>
-                        <div id="client-pin-wrapper" style="display:none;">
-                            <label class="form-label fw-medium small">PIN (4 dígitos)</label>
-                            <input type="text" name="client_pin" id="client-pin-input" class="form-control" maxlength="4"
-                                   inputmode="numeric" autocomplete="off" placeholder="Ex: 1234"
-                                   oninput="this.value=this.value.replace(/\D/g,'').slice(0,4)">
-                            <small class="text-muted">Somente números. Deixe em branco para manter o PIN atual.</small>
+                        <div class="d-flex align-items-center gap-2 flex-wrap">
+                            <a href="<?= baseUrl('users/resendPinReset/' . (int)$editUser['id']) ?>"
+                               class="btn btn-sm btn-outline-primary"
+                               onclick="return confirm('Enviar ao usuário um link por email para redefinir o PIN de acesso?');">
+                                <i class="bi bi-envelope"></i> Reenviar link de redefinição de PIN
+                            </a>
                             <?php if ($hasClientPin): ?>
-                            <div class="form-check mt-2">
+                            <div class="form-check ms-1">
                                 <input class="form-check-input" type="checkbox" name="client_pin_remove" value="1" id="client-pin-remove">
-                                <label class="form-check-label small" for="client-pin-remove">Remover o PIN (o cliente deixa de poder entrar por PIN)</label>
+                                <label class="form-check-label small" for="client-pin-remove">Remover o PIN (revoga o login por PIN)</label>
                             </div>
                             <?php endif; ?>
                         </div>
+                        <small class="text-muted d-block mt-2">O link expira em 24 horas e o valor do PIN nunca é exibido aqui.</small>
+                        <?php else: ?>
+                        <?php // CRIAÇÃO: opcionalmente define um PIN inicial. Se deixado em branco,
+                              // o sistema gera um PIN automático que o usuário pode alterar depois. ?>
+                        <p class="small text-muted mb-2">
+                            PIN de <strong>4 dígitos</strong> para o usuário entrar pelo botão
+                            <em>Entrar com PIN</em>. Opcional: deixe em branco para gerar um
+                            automaticamente. O usuário poderá alterá-lo em "Minha Conta".
+                        </p>
+                        <label class="form-label fw-medium small">PIN inicial (4 dígitos)</label>
+                        <input type="text" name="client_pin" class="form-control" maxlength="4"
+                               inputmode="numeric" autocomplete="off" placeholder="Ex: 1234"
+                               oninput="this.value=this.value.replace(/\D/g,'').slice(0,4)">
+                        <small class="text-muted">Somente números. Em branco = PIN gerado automaticamente.</small>
+                        <?php endif; ?>
                     </div>
                 </div>
                 </div><!-- /#advanced-options -->
@@ -401,23 +412,6 @@ function toggleCompanyFields() {
     if (commissionField) commissionField.style.display = role === 'comercial' ? '' : 'none';
 
     // PIN de login (por usuário): disponível para qualquer papel — sempre visível.
-}
-
-// Mostra/esconde o campo do PIN do cliente ao clicar em "Definir/Alterar PIN".
-function toggleClientPinInput() {
-    const wrap = document.getElementById('client-pin-wrapper');
-    if (!wrap) return;
-    if (wrap.style.display === 'none') {
-        wrap.style.display = '';
-        const inp = document.getElementById('client-pin-input');
-        if (inp) inp.focus();
-    } else {
-        wrap.style.display = 'none';
-        const inp = document.getElementById('client-pin-input');
-        if (inp) inp.value = '';
-        const rm = document.getElementById('client-pin-remove');
-        if (rm) rm.checked = false;
-    }
 }
 
 function toggleNewCompany() {

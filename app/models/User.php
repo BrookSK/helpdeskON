@@ -353,4 +353,55 @@ class User
 
         return Mailer::send($user['email'], 'Defina sua senha - ON Solutions Helpdesk', $htmlBody);
     }
+
+    /**
+     * Gera um token de redefinição de PIN de acesso (client_pin) e envia email
+     * com o link. Usa a mesma tabela password_resets com kind = 'pin', de modo
+     * que o próprio usuário define o novo PIN pela tela segura — sem que o admin
+     * veja ou escolha o valor. O link expira em 24 horas.
+     *
+     * @return bool true se o email foi enviado.
+     */
+    public function sendPinResetInvite($userId)
+    {
+        $user = $this->findById($userId);
+        if (!$user || empty($user['email'])) {
+            return false;
+        }
+
+        $token = bin2hex(random_bytes(32));
+        $expiresAt = date('Y-m-d H:i:s', strtotime('+24 hours'));
+
+        // Invalida tokens de PIN anteriores (não mexe nos de senha).
+        $this->db->query(
+            "UPDATE password_resets SET used_at = NOW()
+             WHERE user_id = ? AND kind = 'pin' AND used_at IS NULL",
+            [$userId]
+        );
+
+        $this->db->insert('password_resets', [
+            'user_id' => $user['id'],
+            'token' => $token,
+            'is_first_access' => 0,
+            'kind' => 'pin',
+            'expires_at' => $expiresAt,
+        ]);
+
+        $link = baseUrl('clientpin/resetPin/' . $token);
+        $htmlBody = Mailer::template(
+            'Redefinição de PIN de acesso',
+            "<p>Olá, <strong>" . htmlspecialchars($user['name']) . "</strong>!</p>
+            <p>Recebemos uma solicitação para redefinir o seu <strong>PIN de acesso</strong> (login por PIN).</p>
+            <p style='text-align:center;margin:25px 0;'>
+                <a href='{$link}' style='background:#00BFA6;color:#fff;padding:12px 30px;border-radius:8px;text-decoration:none;font-weight:600;font-size:0.9rem;display:inline-block;'>
+                    Definir Novo PIN
+                </a>
+            </p>
+            <p>Este link expira em <strong>24 horas</strong>. Por segurança, apenas você verá e definirá o novo PIN.</p>
+            <p style='font-size:0.82rem;color:#999;'>Se você não solicitou, ignore este email: seu PIN atual continua válido.</p>
+            <p style='font-size:0.78rem;color:#bbb;word-break:break-all;'>Link direto: {$link}</p>"
+        );
+
+        return Mailer::send($user['email'], 'Redefinição de PIN de acesso - ON Solutions Helpdesk', $htmlBody);
+    }
 }

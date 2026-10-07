@@ -178,7 +178,7 @@
         <input type="hidden" id="rdo-transcription">
 
         <!-- Aviso de bloqueio -->
-        <div id="rdo-locked-alert" class="alert alert-warning d-flex align-items-center gap-2 mb-3" style="display:none!important">
+        <div id="rdo-locked-alert" class="alert alert-warning d-none align-items-center gap-2 mb-3">
             <i class="bi bi-lock-fill"></i>
             <div>
                 <strong>Relatório bloqueado.</strong> O prazo de preenchimento já encerrou.
@@ -349,6 +349,7 @@ const REVIEW_TYPE_LABELS = {
     post_deadline:  'Preenchimento retroativo (data anterior)',
     edit_request:   'Solicitação de alteração',
     unlock_request: 'Solicitação de desbloqueio',
+    missing_report: 'Relatório não preenchido',
 };
 
 function escapeHtml(s) {
@@ -491,7 +492,9 @@ function openRdoModal() {
     document.getElementById('rdoModalTitle').textContent= 'Novo relatório';
     document.getElementById('record-status').textContent= 'Clique para gravar';
     document.getElementById('record-status').className  = 'text-muted small';
-    document.getElementById('rdo-locked-alert').style.display = 'none';
+    const lockedAlert = document.getElementById('rdo-locked-alert');
+    lockedAlert.classList.add('d-none');
+    lockedAlert.classList.remove('d-flex');
     rdoModal = rdoModal || new bootstrap.Modal(document.getElementById('rdoModal'));
     rdoModal.show();
 }
@@ -517,7 +520,8 @@ async function editRdo(id) {
     // Mostra alerta se bloqueado
     if (Number(it.is_locked)) {
         const alert = document.getElementById('rdo-locked-alert');
-        alert.style.display = '';
+        alert.classList.remove('d-none');
+        alert.classList.add('d-flex');
         const today     = new Date().toISOString().substring(0, 10);
         const isOldDate = it.report_date < today;
         document.getElementById('rdo-locked-reason').textContent = isOldDate
@@ -892,6 +896,17 @@ async function loadPendencias() {
         const when     = (r.requested_at || '').substring(0, 16).replace('T', ' ');
         const owner    = escapeHtml(r.owner_name || '—');
         const requester= escapeHtml(r.requester_name || '—');
+
+        // Dia útil sem relatório: item apenas informativo (sem ações).
+        if (r.type === 'missing_report') {
+            return `<div class="border-bottom p-3" style="border-left:4px solid #f0ad4e;background:#fffdf7;">
+                <div class="fw-semibold">
+                    <i class="bi bi-calendar-x text-warning"></i>
+                    ${owner} — <span class="text-muted fw-normal">${dateBR}</span>
+                </div>
+                <div class="small text-muted">Tipo: <strong>${escapeHtml(typeLbl)}</strong></div>
+            </div>`;
+        }
 
         let diffHtml = '';
         if (r.type === 'edit_request' && r.payload) {

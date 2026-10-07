@@ -328,4 +328,49 @@ class DailyReport
             [$reportId]
         );
     }
+
+    // =========================================================================
+    // Ausências (dias úteis sem relatório)
+    // =========================================================================
+
+    /**
+     * Lista os profissionais internos que DEVERIAM entregar relatório diário:
+     * usuários ativos cujo papel está em $roles (os papéis com acesso ao RDO,
+     * resolvidos no controller via Permissions::rolesForModule('rdo')).
+     *
+     * @param string[] $roles Lista de papéis elegíveis.
+     * @return array<int,array{id:int,name:string}> Usuários (id, name).
+     */
+    public function getRdoProfessionals(array $roles): array
+    {
+        if (empty($roles)) {
+            return [];
+        }
+        $placeholders = implode(',', array_fill(0, count($roles), '?'));
+        return $this->db->fetchAll(
+            "SELECT id, name
+             FROM users
+             WHERE role IN ({$placeholders})
+               AND (is_active IS NULL OR is_active = 1)
+             ORDER BY name ASC",
+            $roles
+        );
+    }
+
+    /**
+     * Retorna, para um usuário, as datas (Y-m-d) em que ele JÁ possui relatório
+     * dentro do período [from, to] inclusivo. Usado para calcular ausências.
+     *
+     * @return string[] Datas Y-m-d.
+     */
+    public function getReportDatesForUser(int $userId, string $from, string $to): array
+    {
+        $rows = $this->db->fetchAll(
+            "SELECT DISTINCT report_date
+             FROM daily_reports
+             WHERE user_id = ? AND report_date >= ? AND report_date <= ?",
+            [$userId, $from, $to]
+        );
+        return array_map(static fn($r) => (string) $r['report_date'], $rows);
+    }
 }

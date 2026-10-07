@@ -47,6 +47,14 @@ class RdoRules
     /** Chave da configuração de horário limite na tabela settings. */
     public const DEADLINE_SETTING_KEY = 'rdo_deadline_time';
 
+    /**
+     * Data (Y-m-d) a partir da qual a cobrança de relatório passa a valer.
+     * Ausências (dias úteis sem relatório) ANTERIORES a esta data são
+     * ignoradas — evita acusar como pendência todo o histórico antes da
+     * adoção do RDO. Marco de início: 25/09/2026.
+     */
+    public const MISSING_START_DATE = '2026-09-25';
+
     /** Tipos válidos de revisão. */
     public const REVIEW_TYPES = ['late_fill', 'post_deadline', 'edit_request', 'unlock_request'];
 
@@ -288,5 +296,67 @@ class RdoRules
             'company_id'    => isset($report['company_id']) ? (int) $report['company_id'] : null,
             'report_date'   => $report['report_date']   ?? null,
         ], JSON_UNESCAPED_UNICODE);
+    }
+
+    // =========================================================================
+    // Ausências (dias úteis sem relatório)
+    // =========================================================================
+
+    /** Nº de dias no período de varredura de ausências (padrão: 30). */
+    public const MISSING_SCAN_DAYS = 30;
+
+    /**
+     * Lista os dias ÚTEIS (segunda a sexta) de um período [start, end],
+     * inclusivo, em formato Y-m-d e ordem crescente.
+     *
+     * Função pura (não lê relógio nem banco): as datas-limite são injetadas,
+     * o que facilita o teste e torna a regra a fonte única de verdade sobre
+     * "quais dias exigem relatório".
+     *
+     * @param string $start Data inicial Y-m-d (inclusive).
+     * @param string $end   Data final   Y-m-d (inclusive).
+     * @return string[]     Lista de datas úteis Y-m-d (vazia se $start > $end).
+     */
+    public static function businessDaysInRange(string $start, string $end): array
+    {
+        $out = [];
+        if ($start > $end) {
+            return $out;
+        }
+        $cur = strtotime($start . ' 00:00:00');
+        $max = strtotime($end . ' 00:00:00');
+        if ($cur === false || $max === false) {
+            return $out;
+        }
+        while ($cur <= $max) {
+            // date('N'): 1 (segunda) a 7 (domingo). Dias úteis = 1..5.
+            if ((int) date('N', $cur) <= 5) {
+                $out[] = date('Y-m-d', $cur);
+            }
+            $cur = strtotime('+1 day', $cur);
+        }
+        return $out;
+    }
+
+    /**
+     * A partir das datas úteis do período e do conjunto de datas que o usuário
+     * JÁ possui relatório, retorna as datas úteis sem relatório (ausências),
+     * em ordem decrescente (mais recentes primeiro).
+     *
+     * @param string[] $businessDays Datas úteis do período (Y-m-d).
+     * @param string[] $filledDates  Datas Y-m-d que já têm relatório.
+     * @return string[]              Datas úteis sem relatório, desc.
+     */
+    public static function missingDates(array $businessDays, array $filledDates): array
+    {
+        $filled = array_flip($filledDates);
+        $missing = [];
+        foreach ($businessDays as $d) {
+            if (!isset($filled[$d])) {
+                $missing[] = $d;
+            }
+        }
+        rsort($missing);
+        return $missing;
     }
 }

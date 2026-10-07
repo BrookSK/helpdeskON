@@ -105,6 +105,81 @@ class ClientpinController extends Controller
     }
 
     /**
+     * Tela pública de definição de PIN via token (link enviado pelo admin).
+     * O admin nunca vê nem escolhe o PIN: quem define é o próprio usuário aqui.
+     */
+    public function resetPin($token = null)
+    {
+        if (!$token) {
+            flash('error', 'Link inválido.');
+            $this->redirect('clientpin');
+        }
+        if (!$this->validatePinToken($token)) {
+            flash('error', 'Link expirado ou inválido. Peça um novo ao administrador.');
+            $this->redirect('clientpin');
+        }
+        $this->renderExternal('external/client_set_pin', ['token' => $token]);
+    }
+
+    /** Processa a definição do novo PIN a partir do token. */
+    public function updatePin()
+    {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            $this->redirect('clientpin');
+        }
+
+        $token = $_POST['token'] ?? '';
+        if (!verify_csrf($_POST['csrf_token'] ?? '')) {
+            flash('error', 'Sessão expirada. Recarregue a página e tente novamente.');
+            $this->redirect('clientpin/resetPin/' . $token);
+        }
+
+        $reset = $this->validatePinToken($token);
+        if (!$reset) {
+            flash('error', 'Link expirado ou inválido. Peça um novo ao administrador.');
+            $this->redirect('clientpin');
+        }
+
+        $pin = trim($_POST['pin'] ?? '');
+        if (!ClientPinRules::isValidFormat($pin)) {
+            flash('error', 'O PIN deve ter exatamente 4 dígitos numéricos.');
+            $this->redirect('clientpin/resetPin/' . $token);
+        }
+        if ($this->userModel->clientPinExists($pin, (int)$reset['user_id'])) {
+            flash('error', 'Este PIN já está em uso. Escolha outro.');
+            $this->redirect('clientpin/resetPin/' . $token);
+        }
+
+        $saved = $this->userModel->setClientPin((int)$reset['user_id'], $pin);
+        if ($saved === null) {
+            flash('error', 'Não foi possível salvar o PIN. Tente outro.');
+            $this->redirect('clientpin/resetPin/' . $token);
+        }
+
+        // Consome o token (não pode ser reutilizado).
+        Database::getInstance()->update(
+            'password_resets',
+            ['used_at' => date('Y-m-d H:i:s')],
+            'id = ?',
+            [$reset['id']]
+        );
+
+        flash('success', 'PIN definido com sucesso! Use-o na opção "Entrar com PIN".');
+        $this->redirect('clientpin');
+    }
+
+    /** Valida um token de redefinição de PIN (kind = 'pin', não usado, não expirado). */
+    private function validatePinToken($token)
+    {
+        return Database::getInstance()->fetch(
+            "SELECT * FROM password_resets
+             WHERE token = ? AND kind = 'pin' AND used_at IS NULL AND expires_at > NOW()
+             LIMIT 1",
+            [$token]
+        );
+    }
+
+    /**
      * Renderiza a view "externa" standalone da tela de PIN (sem sidebar).
      * A criação da demanda em si acontece na área interna (tickets/create),
      * após a sessão de login do cliente ter sido estabelecida.

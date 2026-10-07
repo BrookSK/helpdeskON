@@ -30,6 +30,7 @@ pu_ver.txt
 phpunit_out.txt
 phpunit_result.txt
 setup_result.txt
+setup_out.txt
 tests/setup_test_db.log
 # Saídas de debug/lint/testes geradas na raiz (não versionar)
 *.out.txt

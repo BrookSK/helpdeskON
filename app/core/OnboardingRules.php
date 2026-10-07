@@ -27,14 +27,19 @@ class OnboardingRules
      * As obrigatórias (required=1) travam a conclusão do onboarding até estarem
      * 'done' — espelha a reunião: servidor, armazenamento, acessos.
      *
-     * @return array<int,array{step_key:string,title:string,required:int}>
+     * Cada etapa inclui também 'default_role': o PAPEL responsável padrão
+     * (sugerido) daquela etapa, conforme o guia. Ver STEP_DEFAULT_ROLE.
+     *
+     * @return array<int,array{step_key:string,title:string,required:int,default_role:?string}>
      */
     public static function defaultSteps(): array
     {
-        return [
+        $steps = [
             ['step_key' => 'tech_responsible', 'title' => 'Definir responsável técnico', 'required' => 1],
-            ['step_key' => 'focal_points',     'title' => 'Cadastrar pontos focais', 'required' => 0],
-            ['step_key' => 'kickoff',          'title' => 'Reunião de onboarding (kickoff)', 'required' => 0],
+            // Guia de Onboarding: pontos focais, kickoff e apresentação dos fluxos
+            // são indispensáveis para concluir o onboarding (required=1).
+            ['step_key' => 'focal_points',     'title' => 'Cadastrar pontos focais', 'required' => 1],
+            ['step_key' => 'kickoff',          'title' => 'Reunião de onboarding (kickoff)', 'required' => 1],
             ['step_key' => 'service_scope',    'title' => 'Revisar catálogo de serviço / orçamento por módulo', 'required' => 0],
             ['step_key' => 'tech_survey',      'title' => 'Levantamento técnico', 'required' => 0],
             ['step_key' => 'pipeline_decision','title' => 'Definir: projeto do zero vs entra na esteira (CX)', 'required' => 1],
@@ -43,8 +48,67 @@ class OnboardingRules
             ['step_key' => 'storage',          'title' => 'Armazenamento configurado', 'required' => 1],
             ['step_key' => 'credentials',      'title' => 'Credenciais necessárias disponíveis', 'required' => 1],
             ['step_key' => 'client_access',    'title' => 'Acesso do cliente criado (login + PIN)', 'required' => 0],
-            ['step_key' => 'flows_presented',  'title' => 'Apresentação dos fluxos de atendimento', 'required' => 0],
+            ['step_key' => 'flows_presented',  'title' => 'Apresentação dos fluxos de atendimento', 'required' => 1],
         ];
+        // Anexa o papel responsável padrão (sugerido) de cada etapa.
+        foreach ($steps as &$s) {
+            $s['default_role'] = self::defaultRoleForStep($s['step_key']);
+        }
+        unset($s);
+        return $steps;
+    }
+
+    /**
+     * Responsável PADRÃO (papel) de cada etapa do onboarding, conforme o guia:
+     *   - Atendente: cadastro de pontos focais, kickoff, apresentação dos fluxos.
+     *   - Responsável técnico: definição do técnico, levantamento, acesso do cliente.
+     *   - Analista: ambiente, servidor, armazenamento, credenciais.
+     *   - Líder/Gestor: revisão de catálogo/orçamento e decisão de pipeline.
+     *
+     * É um PAPEL sugerido (não um users.id). A atribuição do usuário real
+     * continua manual; isto só pré-define quem é o dono natural de cada etapa.
+     *
+     * @var array<string,string>
+     */
+    public const STEP_DEFAULT_ROLE = [
+        'tech_responsible'  => 'technical',
+        'focal_points'      => 'attendant',
+        'kickoff'           => 'attendant',
+        'service_scope'     => 'manager',
+        'tech_survey'       => 'technical',
+        'pipeline_decision' => 'manager',
+        'environment'       => 'analyst',
+        'server'            => 'analyst',
+        'storage'           => 'analyst',
+        'credentials'       => 'analyst',
+        'client_access'     => 'technical',
+        'flows_presented'   => 'attendant',
+    ];
+
+    /** Rótulos amigáveis dos papéis padrão de etapa. */
+    public const STEP_ROLE_LABELS = [
+        'attendant' => 'Atendente',
+        'technical' => 'Responsável técnico',
+        'analyst'   => 'Analista',
+        'manager'   => 'Líder / Gestor',
+        'client'    => 'Cliente',
+    ];
+
+    /**
+     * Papel padrão sugerido para uma etapa (pela step_key), ou null se a etapa
+     * não tiver responsável padrão definido.
+     */
+    public static function defaultRoleForStep(?string $stepKey): ?string
+    {
+        if ($stepKey === null) return null;
+        return self::STEP_DEFAULT_ROLE[$stepKey] ?? null;
+    }
+
+    /** Rótulo amigável do papel padrão de uma etapa (ou '—' se não houver). */
+    public static function defaultRoleLabelForStep(?string $stepKey): string
+    {
+        $role = self::defaultRoleForStep($stepKey);
+        return $role !== null ? (self::STEP_ROLE_LABELS[$role] ?? $role) : '—';
     }
 
     public static function normalizeStatus($v): string
