@@ -102,4 +102,46 @@ final class OnboardingRulesTest extends TestCase
         $this->assertContains('service_scope', $keys);
         $this->assertContains('pipeline_decision', $keys);
     }
+
+    /**
+     * Guia de Onboarding: pontos focais, kickoff e apresentação dos fluxos são
+     * etapas INDISPENSÁVEIS — devem ser obrigatórias (required=1) e, portanto,
+     * travar a conclusão do onboarding enquanto não estiverem 'done'.
+     */
+    public function testEtapasDoGuiaSaoObrigatorias(): void
+    {
+        $byKey = [];
+        foreach (OnboardingRules::defaultSteps() as $s) {
+            $byKey[$s['step_key']] = (int) $s['required'];
+        }
+        $this->assertSame(1, $byKey['focal_points'] ?? null, 'Pontos focais deve ser obrigatória');
+        $this->assertSame(1, $byKey['kickoff'] ?? null, 'Kickoff deve ser obrigatória');
+        $this->assertSame(1, $byKey['flows_presented'] ?? null, 'Apresentação dos fluxos deve ser obrigatória');
+    }
+
+    /**
+     * Com as etapas do guia obrigatórias, o onboarding NÃO pode ser concluído
+     * enquanto focal_points/kickoff/flows_presented não estiverem 'done',
+     * mesmo que todas as demais obrigatórias já estejam concluídas.
+     */
+    public function testConclusaoBloqueadaSemEtapasDoGuia(): void
+    {
+        $steps = [];
+        foreach (OnboardingRules::defaultSteps() as $s) {
+            // Todas as obrigatórias começam 'done', exceto as três do guia.
+            $pendentes = ['focal_points', 'kickoff', 'flows_presented'];
+            $s['status'] = in_array($s['step_key'], $pendentes, true) ? 'pending' : 'done';
+            $steps[] = $s;
+        }
+        $this->assertFalse(OnboardingRules::canFinish($steps));
+        $pend = OnboardingRules::pendingRequired($steps);
+        $this->assertContains('Cadastrar pontos focais', $pend);
+        $this->assertContains('Reunião de onboarding (kickoff)', $pend);
+        $this->assertContains('Apresentação dos fluxos de atendimento', $pend);
+
+        // Concluindo as três, o onboarding pode ser finalizado.
+        foreach ($steps as &$s) { $s['status'] = 'done'; }
+        unset($s);
+        $this->assertTrue(OnboardingRules::canFinish($steps));
+    }
 }

@@ -33,8 +33,10 @@ class OnboardingRules
     {
         return [
             ['step_key' => 'tech_responsible', 'title' => 'Definir responsável técnico', 'required' => 1],
-            ['step_key' => 'focal_points',     'title' => 'Cadastrar pontos focais', 'required' => 0],
-            ['step_key' => 'kickoff',          'title' => 'Reunião de onboarding (kickoff)', 'required' => 0],
+            // Guia de Onboarding: pontos focais, kickoff e apresentação dos fluxos
+            // são indispensáveis para concluir o onboarding (required=1).
+            ['step_key' => 'focal_points',     'title' => 'Cadastrar pontos focais', 'required' => 1],
+            ['step_key' => 'kickoff',          'title' => 'Reunião de onboarding (kickoff)', 'required' => 1],
             ['step_key' => 'service_scope',    'title' => 'Revisar catálogo de serviço / orçamento por módulo', 'required' => 0],
             ['step_key' => 'tech_survey',      'title' => 'Levantamento técnico', 'required' => 0],
             ['step_key' => 'pipeline_decision','title' => 'Definir: projeto do zero vs entra na esteira (CX)', 'required' => 1],
@@ -43,7 +45,7 @@ class OnboardingRules
             ['step_key' => 'storage',          'title' => 'Armazenamento configurado', 'required' => 1],
             ['step_key' => 'credentials',      'title' => 'Credenciais necessárias disponíveis', 'required' => 1],
             ['step_key' => 'client_access',    'title' => 'Acesso do cliente criado (login + PIN)', 'required' => 0],
-            ['step_key' => 'flows_presented',  'title' => 'Apresentação dos fluxos de atendimento', 'required' => 0],
+            ['step_key' => 'flows_presented',  'title' => 'Apresentação dos fluxos de atendimento', 'required' => 1],
         ];
     }
 
