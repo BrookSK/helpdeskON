@@ -57,7 +57,14 @@ $st = $onboarding['status'];
                                     <?= escape($s['title']) ?>
                                     <?php if ((int)$s['required'] === 1): ?><span class="badge bg-light text-danger border ms-1" title="Obrigatória">obrigatória</span><?php endif; ?>
                                 </td>
-                                <td><small class="text-muted"><?= escape($s['responsible_name'] ?? '—') ?></small></td>
+                                <td>
+                                    <?php if (!empty($s['responsible_name'])): ?>
+                                        <small class="text-muted"><?= escape($s['responsible_name']) ?></small>
+                                    <?php else: ?>
+                                        <?php $defRole = \OnboardingRules::defaultRoleLabelForStep($s['step_key'] ?? null); ?>
+                                        <small class="text-muted fst-italic" title="Responsável padrão sugerido para esta etapa"><?= escape($defRole) ?></small>
+                                    <?php endif; ?>
+                                </td>
                                 <td><span class="badge bg-<?= $stepBadge[$s['status']] ?? 'secondary' ?>"><?= $stepLabels[$s['status']] ?? $s['status'] ?></span></td>
                                 <td class="text-end">
                                     <?php if ($s['status'] !== 'done' && $st === 'in_progress'): ?>

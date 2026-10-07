@@ -144,4 +144,49 @@ final class OnboardingRulesTest extends TestCase
         unset($s);
         $this->assertTrue(OnboardingRules::canFinish($steps));
     }
+
+    /**
+     * Guia de Onboarding: cada etapa tem um RESPONSÁVEL padrão (papel).
+     * defaultSteps() deve expor 'default_role' coerente com STEP_DEFAULT_ROLE.
+     */
+    public function testEtapasPadraoTrazemResponsavelPadrao(): void
+    {
+        foreach (OnboardingRules::defaultSteps() as $s) {
+            $this->assertArrayHasKey('default_role', $s, "Etapa {$s['step_key']} deve ter default_role");
+            $this->assertSame(
+                OnboardingRules::defaultRoleForStep($s['step_key']),
+                $s['default_role'],
+                "default_role da etapa {$s['step_key']} deve bater com o mapa"
+            );
+        }
+    }
+
+    /**
+     * Papéis padrão específicos conforme o guia (amostra representativa de cada
+     * papel) e rótulos amigáveis.
+     */
+    public function testResponsavelPadraoPorPapel(): void
+    {
+        // Atendente conduz pontos focais, kickoff e apresentação de fluxos.
+        $this->assertSame('attendant', OnboardingRules::defaultRoleForStep('focal_points'));
+        $this->assertSame('attendant', OnboardingRules::defaultRoleForStep('kickoff'));
+        $this->assertSame('attendant', OnboardingRules::defaultRoleForStep('flows_presented'));
+        // Analista cuida de ambiente/servidor/armazenamento/credenciais.
+        $this->assertSame('analyst', OnboardingRules::defaultRoleForStep('environment'));
+        $this->assertSame('analyst', OnboardingRules::defaultRoleForStep('credentials'));
+        // Responsável técnico: definição do técnico, levantamento, acesso do cliente.
+        $this->assertSame('technical', OnboardingRules::defaultRoleForStep('tech_responsible'));
+        $this->assertSame('technical', OnboardingRules::defaultRoleForStep('tech_survey'));
+        // Líder/Gestor: catálogo/orçamento e decisão de pipeline.
+        $this->assertSame('manager', OnboardingRules::defaultRoleForStep('pipeline_decision'));
+
+        // Rótulos amigáveis.
+        $this->assertSame('Atendente', OnboardingRules::defaultRoleLabelForStep('kickoff'));
+        $this->assertSame('Analista', OnboardingRules::defaultRoleLabelForStep('server'));
+
+        // step_key desconhecida: sem papel padrão.
+        $this->assertNull(OnboardingRules::defaultRoleForStep('inexistente'));
+        $this->assertSame('—', OnboardingRules::defaultRoleLabelForStep('inexistente'));
+        $this->assertNull(OnboardingRules::defaultRoleForStep(null));
+    }
 }
