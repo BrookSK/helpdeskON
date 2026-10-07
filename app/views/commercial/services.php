@@ -16,13 +16,13 @@
                 <table class="table table-hover mb-0 align-middle">
                     <thead class="table-light">
                         <tr>
-                            <th>#</th><th>Serviço</th><th>Horas</th><th>Valor/hora</th>
+                            <th>#</th><th>Serviço</th><th>Horas</th><th>Valor/hora</th><th>Custo/hora</th>
                             <th>Hospedagem</th><th>Status</th><th class="text-end">Ações</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php if (empty($services)): ?>
-                        <tr><td colspan="7" class="text-center text-muted py-4">Nenhum serviço cadastrado.</td></tr>
+                        <tr><td colspan="8" class="text-center text-muted py-4">Nenhum serviço cadastrado.</td></tr>
                         <?php else: foreach ($services as $s): ?>
                         <tr>
                             <td><?= (int)$s['id'] ?></td>
@@ -32,6 +32,7 @@
                             </td>
                             <td><?= $s['est_hours'] !== null ? escape($s['est_hours']) : '—' ?></td>
                             <td><?= $s['hourly_rate'] !== null ? ('R$ ' . number_format((float)$s['hourly_rate'],2,',','.')) : '—' ?></td>
+                            <td><?= (isset($s['cost_price']) && $s['cost_price'] !== null) ? ('R$ ' . number_format((float)$s['cost_price'],2,',','.')) : '—' ?></td>
                             <td><?= ((int)$s['is_hosting'] === 1) ? '<span class="badge bg-info">Sim</span>' : 'Não' ?></td>
                             <td><?= ((int)$s['active'] === 1) ? '<span class="badge bg-success">Ativo</span>' : '<span class="badge bg-secondary">Inativo</span>' ?></td>
                             <td class="text-end">
@@ -65,13 +66,18 @@
                     <textarea id="svc-description" class="form-control form-control-sm" rows="3"></textarea>
                 </div>
                 <div class="row g-2">
-                    <div class="col-6">
+                    <div class="col-4">
                         <label class="form-label small fw-medium">Horas estimadas</label>
                         <input type="number" step="0.01" min="0" id="svc-hours" class="form-control form-control-sm">
                     </div>
-                    <div class="col-6">
+                    <div class="col-4">
                         <label class="form-label small fw-medium">Valor/hora (R$)</label>
                         <input type="number" step="0.01" min="0" id="svc-rate" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-4">
+                        <label class="form-label small fw-medium">Custo/hora (R$)</label>
+                        <input type="number" step="0.01" min="0" id="svc-cost" class="form-control form-control-sm">
+                        <small class="text-muted" style="font-size:0.68rem">Interno. Não aparece na proposta.</small>
                     </div>
                 </div>
                 <div class="form-check mt-2">
@@ -99,6 +105,7 @@ function openServiceModal() {
     document.getElementById('svc-description').value = '';
     document.getElementById('svc-hours').value = '';
     document.getElementById('svc-rate').value = '';
+    document.getElementById('svc-cost').value = '';
     document.getElementById('svc-hosting').checked = false;
     getSvcModal().show();
 }
@@ -109,6 +116,7 @@ function editService(s) {
     document.getElementById('svc-description').value = s.description || '';
     document.getElementById('svc-hours').value = s.est_hours || '';
     document.getElementById('svc-rate').value = s.hourly_rate || '';
+    document.getElementById('svc-cost').value = s.cost_price || '';
     document.getElementById('svc-hosting').checked = (parseInt(s.is_hosting, 10) === 1);
     getSvcModal().show();
 }
@@ -120,6 +128,7 @@ function saveService() {
     fd.append('description', document.getElementById('svc-description').value.trim());
     fd.append('est_hours', document.getElementById('svc-hours').value);
     fd.append('hourly_rate', document.getElementById('svc-rate').value);
+    fd.append('cost_price', document.getElementById('svc-cost').value);
     fd.append('is_hosting', document.getElementById('svc-hosting').checked ? '1' : '0');
     const url = id ? `${SVC_BASE}servicecatalog/update/${id}` : `${SVC_BASE}servicecatalog/store`;
     fetch(url, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })

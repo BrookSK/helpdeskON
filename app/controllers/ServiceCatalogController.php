@@ -66,6 +66,7 @@ class ServiceCatalogController extends Controller
             'description' => trim($_POST['description'] ?? '') ?: null,
             'est_hours'   => ($_POST['est_hours'] ?? '') !== '' ? (float)$_POST['est_hours'] : null,
             'hourly_rate' => ($_POST['hourly_rate'] ?? '') !== '' ? (float)$_POST['hourly_rate'] : null,
+            'cost_price'  => ($_POST['cost_price'] ?? '') !== '' ? max(0, (float)$_POST['cost_price']) : null,
             'is_hosting'  => !empty($_POST['is_hosting']) ? 1 : 0,
             'active'      => isset($_POST['active']) ? (!empty($_POST['active']) ? 1 : 0) : 1,
         ];
