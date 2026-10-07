@@ -130,6 +130,11 @@ $shareUrl = $base . '/videocall/share/' . $recToken;
 <script>
 const BASE = '<?= $base ?>';
 const REC_TOKEN = '<?= $recToken ?>';
+// Token CSRF da sessão: exigido pelas ações autenticadas (gerar/salvar/enviar
+// minuta). Sem ele, o backend barra o POST com 419 e o fetch recebe uma resposta
+// não-JSON, que caía no catch genérico ("Falha ao gerar a minuta"). No link
+// público não há sessão/edição, então fica vazio (os botões ficam ocultos).
+const CSRF = '<?= $canEditMinutes ? csrf_token() : '' ?>';
 const VIDEO_URL = '<?= $videoUrl ?>';
 const SHARE_URL = '<?= htmlspecialchars($shareUrl, ENT_QUOTES) ?>';
 let segments = <?= $segJson ?: '[]' ?>;
@@ -220,7 +225,9 @@ async function sendMinutes() {
     const btn = document.getElementById('mn-send-btn');
     if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Enviando…'; }
     try {
-        const r = await fetch(`${BASE}/videocall/sendMinutes/${REC_TOKEN}`, { method: 'POST' }).then(x => x.json());
+        const r = await fetch(`${BASE}/videocall/sendMinutes/${REC_TOKEN}`, {
+            method: 'POST', headers: { 'X-CSRF-Token': CSRF, 'X-Requested-With': 'XMLHttpRequest' }
+        }).then(x => x.json());
         if (r.error) { alert(r.error); return; }
         alert('Minuta enviada. WhatsApp: ' + (r.sent_whats || 0) + ' · E-mail: ' + (r.sent_email || 0) + ' (destinatários: ' + (r.recipients || 0) + ').');
     } catch (e) { alert('Falha ao enviar a minuta.'); }
@@ -270,7 +277,8 @@ async function saveMinutes() {
     if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Salvando…'; }
     try {
         const r = await fetch(`${BASE}/videocall/saveMinutes/${REC_TOKEN}`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF, 'X-Requested-With': 'XMLHttpRequest' },
             body: JSON.stringify({ minutes: val })
         }).then(x => x.json());
         if (r.error) { alert(r.error); return; }
@@ -285,7 +293,9 @@ async function generateMinutes() {
     if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Gerando…'; }
     minutesStatus = 'processing'; renderMinutes();
     try {
-        const r = await fetch(`${BASE}/videocall/generateMinutes/${REC_TOKEN}`, { method: 'POST' }).then(x => x.json());
+        const r = await fetch(`${BASE}/videocall/generateMinutes/${REC_TOKEN}`, {
+            method: 'POST', headers: { 'X-CSRF-Token': CSRF, 'X-Requested-With': 'XMLHttpRequest' }
+        }).then(x => x.json());
         if (r.error) { minutesStatus = 'error'; renderMinutes(); alert(r.error); return; }
         minutes = r.minutes || ''; minutesStatus = 'done'; renderMinutes();
     } catch (e) { minutesStatus = 'error'; renderMinutes(); alert('Falha ao gerar a minuta.'); }
