@@ -1,0 +1,7 @@
+﻿conectado ao servidor
+banco helpdesk_on_test recriado
+tabelas na origem: 116
+tabelas criadas: 116
+AUTO_INCREMENT aplicado: 1
+OK: banco de teste pronto
+
