@@ -47,6 +47,14 @@ class RdoRules
     /** Chave da configuração de horário limite na tabela settings. */
     public const DEADLINE_SETTING_KEY = 'rdo_deadline_time';
 
+    /**
+     * Data (Y-m-d) a partir da qual a cobrança de relatório passa a valer.
+     * Ausências (dias úteis sem relatório) ANTERIORES a esta data são
+     * ignoradas — evita acusar como pendência todo o histórico antes da
+     * adoção do RDO. Marco de início: 25/09/2026.
+     */
+    public const MISSING_START_DATE = '2026-09-25';
+
     /** Tipos válidos de revisão. */
     public const REVIEW_TYPES = ['late_fill', 'post_deadline', 'edit_request', 'unlock_request'];
 

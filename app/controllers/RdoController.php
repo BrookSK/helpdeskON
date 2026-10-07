@@ -695,6 +695,11 @@ class RdoController extends Controller
         $from  = date('Y-m-d', strtotime('-' . RdoRules::MISSING_SCAN_DAYS . ' days'));
         $to    = $today;
 
+        // Nunca cobra ausências antes do marco de adoção do RDO.
+        if ($from < RdoRules::MISSING_START_DATE) {
+            $from = RdoRules::MISSING_START_DATE;
+        }
+
         $businessDays = RdoRules::businessDaysInRange($from, $to);
         if (empty($businessDays)) {
             return [];
