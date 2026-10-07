@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS service_catalog (
     description   TEXT NULL COMMENT 'Escopo padrão do serviço',
     est_hours     DECIMAL(10,2) NULL COMMENT 'Horas estimadas padrão',
     hourly_rate   DECIMAL(10,2) NULL COMMENT 'Valor/hora padrão',
+    cost_price    DECIMAL(10,2) NULL COMMENT 'Custo/hora de referência (interno)',
     is_hosting    TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'Serviço de hospedagem',
     active        TINYINT(1) NOT NULL DEFAULT 1,
     created_by    INT NULL,
@@ -18,6 +19,15 @@ CREATE TABLE IF NOT EXISTS service_catalog (
     KEY idx_service_active (active),
     FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Garante cost_price em bancos onde service_catalog já existia (o CREATE acima
+-- não roda de novo). Idempotente: só adiciona a coluna se ainda não existir.
+SET @c := (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'service_catalog' AND COLUMN_NAME = 'cost_price');
+SET @s := IF(@c = 0,
+    'ALTER TABLE service_catalog ADD COLUMN cost_price DECIMAL(10,2) NULL COMMENT ''Custo/hora de referência (interno)'' AFTER hourly_rate',
+    'SELECT 1');
+PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
 
 -- Propostas/orçamentos. Vinculam-se ao lead (whatsapp_contacts) e, opcionalmente,
 -- ao card do CRM e à empresa (quando o lead já virou cliente). O token público
