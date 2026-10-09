@@ -58,14 +58,16 @@ class WhatsappWebhookRequest
     }
 
     /**
-     * Lotes pendentes de processamento (status received/queued) para o cron de
-     * envio. Mais antigas primeiro, com limite de tentativas.
+     * Lotes pendentes de ENVIO para o cron. Só status 'queued' (requisições de
+     * webhooks ATIVOS que devem ser enviadas). As 'received' são do modo teste
+     * (webhook inativo): ficam registradas para mapeamento, mas nunca são
+     * enviadas pelo cron. Mais antigas primeiro, com limite de tentativas.
      */
     public function pendingForProcessing($limit = 20, $maxAttempts = 3)
     {
         return $this->db->fetchAll(
             "SELECT * FROM whatsapp_webhook_requests
-              WHERE status IN ('received','queued') AND attempts < ?
+              WHERE status = 'queued' AND attempts < ?
               ORDER BY id ASC
               LIMIT " . (int) $limit,
             [$maxAttempts]

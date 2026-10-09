@@ -33,6 +33,23 @@ class WhatsappWebhook
     }
 
     /**
+     * Resolve um webhook pelo token, ATIVO OU NÃO. O endpoint de recebimento usa
+     * este método: webhook inativo funciona como "modo teste" (registra a
+     * requisição recebida para o usuário mapear os campos, sem enviar).
+     */
+    public function findByToken($token)
+    {
+        try {
+            return $this->db->fetch(
+                "SELECT * FROM whatsapp_webhooks WHERE token = ? LIMIT 1",
+                [$token]
+            );
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    /**
      * Lista webhooks de uma empresa (ou todos, se $companyId null), já com o
      * nome da empresa e da instância para exibição.
      */

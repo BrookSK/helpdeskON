@@ -101,13 +101,28 @@ final class WhatsappWebhookTest extends TestCase
         $this->assertNotSame($t1, $t2);
     }
 
-    public function testWebhookInativoNaoResolvePorToken(): void
+    public function testWebhookInativoNaoResolvePorTokenAtivo(): void
     {
         $id = $this->novoWebhook(['active' => 0]);
         $w = $this->webhooks->findById($id);
         // findActiveByToken não resolve inativo: retorna "vazio" (PDO fetch() dá
         // false quando não há linha; o importante é não trazer o webhook).
         $this->assertEmpty($this->webhooks->findActiveByToken($w['token']));
+    }
+
+    public function testFindByTokenResolveAtivoEInativo(): void
+    {
+        // findByToken resolve independentemente de active (modo teste do incoming).
+        $ativo = $this->webhooks->findById($this->novoWebhook(['active' => 1]));
+        $inativo = $this->webhooks->findById($this->novoWebhook(['active' => 0]));
+
+        $rAtivo = $this->webhooks->findByToken($ativo['token']);
+        $rInativo = $this->webhooks->findByToken($inativo['token']);
+        $this->assertNotEmpty($rAtivo);
+        $this->assertSame((int)$ativo['id'], (int)$rAtivo['id']);
+        $this->assertNotEmpty($rInativo);
+        $this->assertSame((int)$inativo['id'], (int)$rInativo['id']);
+        $this->assertSame(0, (int)$rInativo['active']);
     }
 
     public function testToggleActive(): void

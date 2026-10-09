@@ -3172,16 +3172,38 @@ class WhatsappController extends Controller
      * API: lista os webhooks (com empresas e instâncias disponíveis para os
      * selects do formulário). Usado para montar a tela de gestão.
      */
+
+    /**
+     * TELA dedicada de gestão de webhooks de entrada (não é mais modal).
+     * Renderiza a view; os dados são carregados via webhooksData() (AJAX).
+     */
     public function webhooks()
     {
         $this->requireRole(self::WEBHOOK_ADMIN_ROLES);
+        $user = $this->currentUser();
         $db = Database::getInstance();
+
+        $companies = $db->fetchAll("SELECT id, name FROM companies ORDER BY name");
+        $instances = $db->fetchAll(
+            "SELECT id, display_name, instance_name FROM whatsapp_instances ORDER BY is_default DESC, display_name"
+        );
+
+        $this->view('whatsapp/webhooks', [
+            'user'      => $user,
+            'companies' => $companies,
+            'instances' => $instances,
+        ]);
+    }
+
+    /** API (JSON): lista os webhooks (opcionalmente por empresa) para a tela. */
+    public function webhooksData()
+    {
+        $this->requireRole(self::WEBHOOK_ADMIN_ROLES);
         $model = new WhatsappWebhook();
 
         $companyId = isset($_GET['company_id']) && $_GET['company_id'] !== '' ? (int)$_GET['company_id'] : null;
         $webhooks = $model->getByCompany($companyId);
 
-        // Monta a URL pública de cada webhook e normaliza tipos para o front.
         foreach ($webhooks as &$w) {
             $w['public_url'] = baseUrl('whatsapp/incoming/' . $w['token']);
             $w['active'] = (int)$w['active'];
@@ -3190,16 +3212,107 @@ class WhatsappController extends Controller
         }
         unset($w);
 
-        $companies = $db->fetchAll("SELECT id, name FROM companies ORDER BY name");
-        $instances = $db->fetchAll(
-            "SELECT id, display_name, instance_name FROM whatsapp_instances ORDER BY is_default DESC, display_name"
-        );
+        $this->json(['webhooks' => $webhooks]);
+    }
 
-        $this->json([
-            'webhooks'   => $webhooks,
-            'companies'  => $companies,
-            'instances'  => $instances,
+    /**
+     * API: cria um webhook JÁ com link gerado, com o mínimo (empresa). Nome
+     * automático "Webhook N", inativo (modo teste), mapeamento padrão. Devolve o
+     * registro completo para a tela abrir o detalhe e mostrar a URL na hora.
+     */
+    public function quickCreateWebhook()
+    {
+        $this->requireRole(self::WEBHOOK_ADMIN_ROLES);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            $this->json(['error' => 'Método inválido'], 405);
+        }
+        $user = $this->currentUser();
+        $model = new WhatsappWebhook();
+        $db = Database::getInstance();
+
+        $companyId = (int)($_POST['company_id'] ?? 0);
+        if ($companyId <= 0) $this->json(['error' => 'Selecione a empresa.'], 400);
+
+        // Nome automático sequencial por empresa (editável depois).
+        $count = $db->fetch("SELECT COUNT(*) AS c FROM whatsapp_webhooks WHERE company_id = ?", [$companyId]);
+        $n = (int)($count['c'] ?? 0) + 1;
+
+        $id = (int) $model->create([
+            'company_id'       => $companyId,
+            'instance_id'      => null,
+            'name'             => 'Webhook ' . $n,
+            'token'            => $model->generateUniqueToken(),
+            'phone_field'      => 'phone',
+            'name_field'       => 'name',
+            'email_field'      => 'email',
+            'message_field'    => 'message',
+            'message_template' => null,
+            'active'           => 0, // nasce em modo teste
+            'created_by'       => $user['id'],
         ]);
+
+        $w = $model->findById($id);
+        $w['public_url'] = baseUrl('whatsapp/incoming/' . $w['token']);
+        $w['active'] = (int)$w['active'];
+        $w['company_id'] = (int)$w['company_id'];
+        $w['instance_id'] = $w['instance_id'] !== null ? (int)$w['instance_id'] : null;
+
+        $this->json(['success' => true, 'webhook' => $w]);
+    }
+
+    /**
+     * API: dispara um POST de TESTE no próprio endpoint de recebimento do
+     * webhook (simula o sistema externo), para o usuário ver a requisição
+     * chegar na tela e mapear os campos. Usa um payload de exemplo (ou o enviado
+     * no corpo em 'payload'). Server-side, então não depende de o navegador
+     * alcançar a URL pública.
+     */
+    public function sendTestPayload($id = null)
+    {
+        $this->requireRole(self::WEBHOOK_ADMIN_ROLES);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+        $model = new WhatsappWebhook();
+        $webhook = $model->findById($id);
+        if (!$webhook) $this->json(['error' => 'Webhook não encontrado.'], 404);
+
+        // Payload de teste: usa o enviado pelo usuário (campo 'payload' com JSON)
+        // ou um exemplo padrão com os campos mais comuns.
+        $custom = trim($_POST['payload'] ?? '');
+        if ($custom !== '') {
+            $payload = json_decode($custom, true);
+            if (!is_array($payload)) $this->json(['error' => 'JSON de teste inválido.'], 400);
+        } else {
+            $payload = [
+                'phone'   => '11999998888',
+                'name'    => 'Cliente Teste',
+                'email'   => 'teste@exemplo.com',
+                'message' => 'Mensagem de teste do webhook',
+            ];
+        }
+
+        $url = baseUrl('whatsapp/incoming/' . $webhook['token']);
+        $body = json_encode($payload, JSON_UNESCAPED_UNICODE);
+
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => $body,
+            CURLOPT_HTTPHEADER     => ['Content-Type: application/json', 'User-Agent: helpdeskON-webhook-test/1'],
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 15,
+            CURLOPT_SSL_VERIFYPEER => false,
+        ]);
+        $resp = curl_exec($ch);
+        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err = curl_error($ch);
+        curl_close($ch);
+
+        if ($err !== '') {
+            $this->json(['error' => 'Falha ao enviar teste: ' . $err], 502);
+        }
+        $this->json(['success' => true, 'http_code' => $httpCode, 'response' => json_decode((string)$resp, true)]);
     }
 
     /** API: cria ou atualiza um webhook (POST, JSON de resposta). */
@@ -3315,14 +3428,17 @@ class WhatsappController extends Controller
             exit;
         }
 
+        // Resolve por token (ATIVO ou INATIVO). Webhook inativo funciona como
+        // MODO TESTE: registra a requisição para o usuário mapear os campos a
+        // partir do payload real, mas NÃO envia nada no WhatsApp.
         $webhookModel = new WhatsappWebhook();
-        $webhook = $webhookModel->findActiveByToken($token);
+        $webhook = $webhookModel->findByToken($token);
         if (!$webhook) {
-            // 404 genérico: não revela se o token existe mas está inativo.
             http_response_code(404);
             echo json_encode(['error' => 'webhook não encontrado']);
             exit;
         }
+        $isActive = ((int)($webhook['active'] ?? 0) === 1);
 
         // Lê o corpo: tenta JSON; cai para form-urlencoded ($_POST) se necessário.
         $raw = file_get_contents('php://input');
@@ -3340,7 +3456,22 @@ class WhatsappController extends Controller
         $interpreted = WebhookRules::interpret(is_array($payload) ? $payload : [], $webhook);
         $sendable = WebhookRules::isSendable($interpreted);
 
-        $requestId = $reqModel->create([
+        // Status inicial:
+        //  - inativo  -> 'received' (modo teste: só registra, não envia)
+        //  - ativo + enviável -> 'queued' (vai enviar)
+        //  - ativo + não enviável -> 'skipped'
+        if (!$isActive) {
+            $status = 'received';
+            $errMsg = null;
+        } elseif ($sendable) {
+            $status = 'queued';
+            $errMsg = null;
+        } else {
+            $status = 'skipped';
+            $errMsg = 'Sem telefone e/ou mensagem válidos no payload.';
+        }
+
+        $requestId = (int) $reqModel->create([
             'webhook_id'     => (int)$webhook['id'],
             'source_ip'      => $this->clientIp(),
             'raw_payload'    => mb_substr((string)$raw, 0, 65000),
@@ -3348,22 +3479,35 @@ class WhatsappController extends Controller
             'parsed_name'    => mb_substr($interpreted['name'], 0, 255) ?: null,
             'parsed_email'   => mb_substr($interpreted['email'], 0, 255) ?: null,
             'parsed_message' => $interpreted['message'] ?: null,
-            'status'         => $sendable ? 'queued' : 'skipped',
-            'error_message'  => $sendable ? null : 'Sem telefone e/ou mensagem válidos no payload.',
+            'status'         => $status,
+            'error_message'  => $errMsg,
         ]);
 
-        // Se não há o que enviar, encerra como aceito (registrado) mas skipped.
-        if (!$sendable) {
-            http_response_code(202);
-            echo json_encode(['status' => 'received', 'processed' => false, 'reason' => 'skipped', 'request_id' => (int)$requestId]);
+        // Modo teste (inativo): aceita e registra, sem enviar.
+        if (!$isActive) {
+            http_response_code(200);
+            echo json_encode([
+                'status'     => 'received',
+                'mode'       => 'test',
+                'processed'  => false,
+                'request_id' => $requestId,
+                'note'       => 'Webhook inativo (modo teste): requisição registrada, nada enviado. Ative para enviar no WhatsApp.',
+            ]);
             exit;
         }
 
-        // Processa inline (best-effort). Não deixa uma falha de envio virar erro
-        // para o chamador — a request fica registrada e o cron reprocessa.
+        // Ativo mas sem o que enviar: registrado como skipped.
+        if (!$sendable) {
+            http_response_code(202);
+            echo json_encode(['status' => 'received', 'processed' => false, 'reason' => 'skipped', 'request_id' => $requestId]);
+            exit;
+        }
+
+        // Ativo e enviável: processa inline (best-effort). Falha de envio não
+        // vira erro para o chamador — fica registrada e o cron reprocessa.
         $result = ['sent' => 0, 'total' => count($interpreted['phones'])];
         try {
-            $result = $this->processWebhookRequest((int)$requestId);
+            $result = $this->processWebhookRequest($requestId);
         } catch (\Throwable $e) {
             if (class_exists('Logger')) {
                 Logger::error('[Webhook incoming] falha ao processar', ['request_id' => $requestId, 'error' => $e->getMessage()]);
@@ -3374,7 +3518,7 @@ class WhatsappController extends Controller
         echo json_encode([
             'status'     => 'received',
             'processed'  => true,
-            'request_id' => (int)$requestId,
+            'request_id' => $requestId,
             'sent'       => $result['sent'] ?? 0,
             'total'      => $result['total'] ?? count($interpreted['phones']),
         ]);
