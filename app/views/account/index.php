@@ -126,17 +126,38 @@
                         <span class="badge bg-secondary">Nenhum PIN definido</span>
                         <?php endif; ?>
                     </div>
-                    <form action="<?= baseUrl('account/updateClientPin') ?>" method="POST">
+                    <?php // Com PIN já definido, o formulário fica recolhido atrás de um
+                          // botão "Alterar PIN" — a barra de escrita só aparece ao clicar,
+                          // deixando a aba mais limpa. Sem PIN, o campo já vem aberto para
+                          // facilitar a definição inicial. ?>
+                    <?php if ($accHasPin): ?>
+                    <button type="button" id="account-pin-change-btn"
+                            class="btn btn-outline-primary w-100"
+                            onclick="showAccountPinForm()">
+                        <i class="bi bi-key"></i> Alterar PIN
+                    </button>
+                    <?php endif; ?>
+                    <form action="<?= baseUrl('account/updateClientPin') ?>" method="POST"
+                          id="account-pin-form" <?= $accHasPin ? 'style="display:none"' : '' ?>>
                         <div class="mb-3">
                             <label class="form-label fw-medium">Novo PIN (4 dígitos)</label>
-                            <input type="text" name="client_pin" class="form-control" maxlength="4" inputmode="numeric"
+                            <input type="text" name="client_pin" id="account-pin-input" class="form-control" maxlength="4" inputmode="numeric"
                                    autocomplete="off" placeholder="Ex: 1234" required
                                    oninput="this.value=this.value.replace(/\D/g,'').slice(0,4)">
                             <small class="text-muted">Somente números.</small>
                         </div>
-                        <button type="submit" class="btn btn-outline-primary w-100">
-                            <i class="bi bi-key"></i> <?= $accHasPin ? 'Alterar PIN' : 'Definir PIN' ?>
-                        </button>
+                        <div class="d-flex gap-2">
+                            <button type="submit" class="btn btn-outline-primary flex-grow-1">
+                                <i class="bi bi-key"></i> <?= $accHasPin ? 'Salvar novo PIN' : 'Definir PIN' ?>
+                            </button>
+                            <?php if ($accHasPin): ?>
+                            <button type="button" id="account-pin-cancel-btn"
+                                    class="btn btn-outline-secondary"
+                                    onclick="hideAccountPinForm()">
+                                Cancelar
+                            </button>
+                            <?php endif; ?>
+                        </div>
                     </form>
                 </div>
             </div>
@@ -164,6 +185,28 @@ function toggleAccountPin() {
         btn.setAttribute('aria-pressed', 'true');
         btn.title = 'Ocultar PIN';
     }
+}
+
+// Alterar PIN (quando já existe um): o campo começa recolhido e só aparece
+// ao clicar em "Alterar PIN". "Cancelar" recolhe de novo e limpa o que foi digitado.
+function showAccountPinForm() {
+    var btn = document.getElementById('account-pin-change-btn');
+    var form = document.getElementById('account-pin-form');
+    var input = document.getElementById('account-pin-input');
+    if (!form) return;
+    if (btn) btn.style.display = 'none';
+    form.style.display = '';
+    if (input) input.focus();
+}
+
+function hideAccountPinForm() {
+    var btn = document.getElementById('account-pin-change-btn');
+    var form = document.getElementById('account-pin-form');
+    var input = document.getElementById('account-pin-input');
+    if (!form) return;
+    form.style.display = 'none';
+    if (input) input.value = '';
+    if (btn) btn.style.display = '';
 }
 </script>
 
