@@ -241,19 +241,10 @@
                         </div>
                     </div>
 
-                    <!-- ===== Gravação automática (operacional / interno) ===== -->
-                    <!-- Mostrado apenas nos tipos de reunião que se beneficiam de ata automática.
-                         Exige que a sala de vídeo do sistema esteja selecionada para fazer sentido;
-                         mas aceita qualquer opção — o host pode gravar manualmente na sala. -->
-                    <div class="col-12 mt-autorecord-block" style="display:none;">
-                        <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" role="switch" id="mt-auto-record" value="1">
-                            <label class="form-check-label small fw-medium" for="mt-auto-record">
-                                <i class="bi bi-record-circle text-danger"></i> Gravar automaticamente ao iniciar
-                            </label>
-                        </div>
-                        <small class="text-muted">A gravação começa assim que o responsável entrar na sala de vídeo. A ata é gerada após a transcrição.</small>
-                    </div>
+                    <!-- Observação: a opção de "gravar automaticamente ao iniciar" por TIPO de
+                         reunião (operacional/interno) foi removida por aparecer em duplicidade.
+                         A gravação automática agora é controlada apenas pelo checkbox da
+                         "Sala de vídeo do sistema" (#mt-room-auto-record), em #mt-room-options. -->
 
                     <!-- ===== Convite externo (demanda #210) ===== -->
                     <!-- Convidados que NÃO fazem parte do sistema: nome + e-mail e/ou telefone. -->
@@ -525,9 +516,6 @@ function resetMeetingForm() {
     if (extWrap) extWrap.innerHTML = '';
     const regChk = document.getElementById('mt-register-google');
     if (regChk) regChk.checked = false;
-    // Gravação automática
-    const arChk = document.getElementById('mt-auto-record');
-    if (arChk) arChk.checked = false;
     // Origem do cliente padrão: CRM
     const srcSel = document.getElementById('mt-client-source');
     if (srcSel) srcSel.value = 'crm';
@@ -569,16 +557,8 @@ function onMeetingTypeChange() {
         el.style.display = isExternal ? '' : 'none';
     });
 
-    // Toggle de gravação automática: visível apenas para operacional/interno.
-    // Ao mudar de tipo, reseta o toggle para não gravar por padrão.
-    const arBlock = document.querySelector('.mt-autorecord-block');
-    if (arBlock) {
-        arBlock.style.display = isOperational ? '' : 'none';
-        if (!isOperational) {
-            const arChkOp = document.getElementById('mt-auto-record');
-            if (arChkOp) arChkOp.checked = false;
-        }
-    }
+    // A gravação automática por TIPO de reunião foi removida (ver #mt-room-auto-record
+    // na "Sala de vídeo do sistema"). Nada a alternar aqui por tipo.
 
     if (isExternal) {
         // Garante ao menos uma linha de convidado ao entrar no modo externo.
@@ -784,9 +764,6 @@ function fillMeeting(m) {
     // Urgência e temperatura são campos únicos (briefing). Usa os do briefing; se vazios, cai nos da reunião.
     syncInherited(m.urgency || 'media', m.temperature || '');
     if (m.meet_link) showMeetLink(m.meet_link);
-    // Gravação automática
-    const arChkFill = document.getElementById('mt-auto-record');
-    if (arChkFill) arChkFill.checked = String(m.auto_record) === '1' || m.auto_record === 1 || m.auto_record === true;
     document.getElementById('mt-delete-btn').style.display = '';
     document.getElementById('mt-resend-btn').style.display = '';
     // Botão "Ver Ata": visível se a reunião tem gravação com ata gerada.
@@ -1096,9 +1073,10 @@ function collectPayload() {
     }
     // Briefing
     BF_FIELDS.forEach(k => fd.append('bf_' + k, document.getElementById('bf-' + k).value));
-    // Gravação automática (operacional/interno)
-    const arChk = document.getElementById('mt-auto-record');
-    fd.append('auto_record', (arChk && arChk.checked) ? '1' : '0');
+    // A gravação automática por tipo de reunião foi removida (ver sala de vídeo
+    // do sistema). Mantém o campo no payload, sempre '0', para não alterar o
+    // contrato que o backend já espera.
+    fd.append('auto_record', '0');
     return fd;
 }
 
