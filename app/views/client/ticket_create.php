@@ -31,6 +31,32 @@
     padding-top: 6px;
 }
 
+/* ===== Título de seção (opção A: rótulo sutil + divisória) =====
+   Agrupa os campos relacionados sob um cabeçalho leve, mantendo os tons
+   claros da tela. */
+.form-section-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 2px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #e9ecef;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--primary-dark);
+}
+.form-section-title i {
+    font-size: 0.85rem;
+    color: var(--primary);
+}
+/* A primeira seção não precisa de respiro extra no topo; as demais ganham
+   um espaço maior para separar visualmente os grupos. */
+.form-section-title.mt-group {
+    margin-top: 10px;
+}
+
 /* ===== Seleção de atendentes (dropdown + chips) ===== */
 #att-dropdown-menu .att-option {
     display: flex;
@@ -132,6 +158,9 @@
             <form action="<?= baseUrl('tickets/store') ?>" method="POST" enctype="multipart/form-data">
                 <div class="row g-4">
                     <?php if (in_array(($user['role'] ?? ''), ['super_admin', 'developer'], true) && !empty($clients)): ?>
+                    <div class="col-12">
+                        <div class="form-section-title"><i class="bi bi-people"></i> Destinatário e atribuição</div>
+                    </div>
                     <div class="col-sm-6">
                         <div class="form-field">
                             <label class="form-label fw-medium">Empresa *</label>
@@ -221,6 +250,12 @@
                         </div>
                     </div>
                     <?php endif; ?>
+                    <?php // Mostra respiro extra acima do título só quando houve a seção
+                          // anterior (grupo de atribuição, visível apenas para admin). ?>
+                    <?php $hasAssignmentSection = in_array(($user['role'] ?? ''), ['super_admin', 'developer'], true) && !empty($clients); ?>
+                    <div class="col-12">
+                        <div class="form-section-title <?= $hasAssignmentSection ? 'mt-group' : '' ?>"><i class="bi bi-card-text"></i> Dados da demanda</div>
+                    </div>
                     <div class="col-12">
                         <div class="form-field">
                             <label class="form-label fw-medium">Título *</label>
@@ -259,8 +294,11 @@
                     </div>
                     <input type="hidden" name="transcription" id="field-transcription" value="">
                     <div class="col-12">
+                        <div class="form-section-title mt-group"><i class="bi bi-paperclip"></i> Anexos</div>
+                    </div>
+                    <div class="col-12">
                         <div class="form-field">
-                            <label class="form-label fw-medium">Anexos</label>
+                            <label class="form-label fw-medium">Arquivos</label>
                             <input type="file" name="attachments[]" class="form-control" multiple accept="image/*,video/*,.pdf,.doc,.docx">
                             <small class="field-help">Máx. 10MB/arquivo (50MB para vídeos). JPG, PNG, GIF, PDF, DOC, MP4, WebM</small>
                         </div>
