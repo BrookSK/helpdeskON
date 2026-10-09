@@ -1690,6 +1690,9 @@ function ensurePeer(remoteId, name, initiator) {
         // Detector de "quem está falando": pluga no áudio da CÂMERA (não da tela).
         if (track.kind === 'audio' && !isScreen) {
             attachSpeaking(remoteId, stream);
+            // Se já estou gravando, adiciona o áudio deste participante ao mix
+            // (quem entra DEPOIS do início da gravação também é ouvido).
+            addAudioToRecording(stream, remoteId);
         }
         updateCount();
     };
@@ -1841,6 +1844,8 @@ function dropPeer(id) {
     if (!peers.has(id)) return; // já removido
     peers.delete(id);
     peerNames.delete(id);
+    // Tira o áudio deste participante do mix da gravação (se estiver gravando).
+    if (typeof removeAudioFromRecording === 'function') removeAudioFromRecording(id);
     sfx('leave'); // som de alguém saindo
     animateTileOut(id);
     animateTileOut(id + '-screen');
@@ -1884,28 +1889,15 @@ function reconcilePeers(activeList) {
         else refreshPeerName(p.peer_id, peerNames.get(p.peer_id) || p.name);
     });
     updateCount();
-    maybeAutoStopRecording();
 }
 
-// Se estou gravando e fiquei sozinho na sala (todos saíram), finaliza e envia.
-let autoStopTimer = null;
-function maybeAutoStopRecording() {
-    const recording = mediaRecorder && mediaRecorder.state !== 'inactive';
-    if (recording && peers.size === 0) {
-        if (!autoStopTimer) {
-            // aguarda 5s para evitar parar por uma reconexão momentânea
-            autoStopTimer = setTimeout(() => {
-                autoStopTimer = null;
-                if (mediaRecorder && mediaRecorder.state !== 'inactive' && peers.size === 0) {
-                    toast('Todos saíram: finalizando a gravação…');
-                    stopRecording();
-                }
-            }, 5000);
-        }
-    } else if (autoStopTimer) {
-        clearTimeout(autoStopTimer); autoStopTimer = null;
-    }
-}
+// A gravação automática NÃO é mais encerrada por "sala vazia". Ela permanece
+// ativa mesmo com a entrada/saída de participantes (ex.: o criador grava e
+// aguarda os convidados chegarem) e só é finalizada quando:
+//   - o próprio gravador sai da chamada (hangup / teardown / beforeunload); ou
+//   - a gravação é interrompida manualmente (botão → stopRecording).
+// Como a gravação roda no navegador de quem grava, sair da chamada já finaliza
+// o arquivo no servidor — não há encerramento automático por ausência de peers.
 
 // ---- Controles de mídia ----
 // Sincroniza o VISUAL dos botões da toolbar (mic/câmera) e do tile próprio com
@@ -2579,6 +2571,49 @@ let mediaRecorder = null, recordedChunks = [], recStartTs = 0, recTimer = null;
 // + áudios de todos) desenhando um mosaico num canvas e mixando o áudio. ----
 let compCanvas = null, compCtx = null, compRaf = null, compStream = null;
 let recAudioCtx = null, audioDest = null, audioSources = [];
+// Fontes de áudio por participante remoto (chave = remoteId), para conseguir
+// ADICIONAR o áudio de quem entra DEPOIS do início da gravação e REMOVER quando
+// o participante sai. A gravação segue ativa e sempre reflete quem está na sala.
+let recRemoteAudio = new Map();
+
+// Indica se há gravação em andamento com o mix de áudio montado.
+function recordingAudioActive() { return !!(recAudioCtx && audioDest); }
+
+// Conecta um stream de áudio ao mix da gravação (se houver gravação ativa).
+// 'key' identifica a fonte para permitir desconectar depois (ex.: ao sair).
+function addAudioToRecording(stream, key) {
+    if (!recordingAudioActive() || !stream) return;
+    const at = stream.getAudioTracks();
+    if (!at.length) return;
+    try {
+        const src = recAudioCtx.createMediaStreamSource(stream);
+        src.connect(audioDest);
+        audioSources.push(src);
+        if (key) {
+            // Se já havia uma fonte para esta chave, troca (evita áudio duplicado).
+            removeAudioFromRecording(key);
+            recRemoteAudio.set(key, src);
+        }
+    } catch (e) { /* navegador recusou a fonte: não quebra a gravação */ }
+}
+
+// Desconecta a fonte de áudio de um participante do mix da gravação.
+function removeAudioFromRecording(key) {
+    const src = recRemoteAudio.get(key);
+    if (!src) return;
+    try { src.disconnect(); } catch (e) {}
+    const i = audioSources.indexOf(src);
+    if (i >= 0) audioSources.splice(i, 1);
+    recRemoteAudio.delete(key);
+}
+
+// Pluga no mix o áudio de todos os participantes remotos já presentes.
+function addAllRemoteAudioToRecording() {
+    peers.forEach((entry, id) => {
+        const remote = entry.tile?.querySelector('video')?.srcObject;
+        if (remote) addAudioToRecording(remote, id);
+    });
+}
 
 function collectRecordingVideos() {
     // Coleta os elementos <video> visíveis (tiles) + a própria câmera.
@@ -2766,14 +2801,11 @@ function buildRecordingStream() {
     recAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
     audioDest = recAudioCtx.createMediaStreamDestination();
     audioSources = [];
-    const addAudio = (stream) => {
-        if (!stream) return;
-        const at = stream.getAudioTracks();
-        if (!at.length) return;
-        try { const src = recAudioCtx.createMediaStreamSource(stream); src.connect(audioDest); audioSources.push(src); } catch (e) {}
-    };
-    if (rawStream) addAudio(rawStream);
-    peers.forEach(entry => { const remote = entry.tile?.querySelector('video')?.srcObject; if (remote) addAudio(remote); });
+    recRemoteAudio = new Map();
+    // Meu microfone (sem chave: não é removido durante a gravação).
+    if (rawStream) addAudioToRecording(rawStream, null);
+    // Áudio de quem já está na sala. Quem entrar DEPOIS é plugado no ontrack.
+    addAllRemoteAudioToRecording();
 
     const out = new MediaStream();
     compStream.getVideoTracks().forEach(t => out.addTrack(t));
@@ -2787,6 +2819,7 @@ function stopComposite() {
     if (compStream) { compStream.getTracks().forEach(t => t.stop()); compStream = null; }
     audioSources.forEach(s => { try { s.disconnect(); } catch (e) {} });
     audioSources = [];
+    recRemoteAudio = new Map();
     if (recAudioCtx) { try { recAudioCtx.close(); } catch (e) {} recAudioCtx = null; }
     compCanvas = null; compCtx = null;
 }
