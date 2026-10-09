@@ -130,9 +130,22 @@
                                     <button class="btn btn-sm btn-outline-primary py-0 px-2" onclick="sendTest()" title="Dispara um POST de teste neste webhook"><i class="bi bi-send"></i> Testar</button>
                                 </div>
                             </div>
+                            <!-- Contadores do dia (volume real) -->
+                            <div class="px-3 pt-2 pb-1 border-bottom bg-light">
+                                <div class="d-flex justify-content-around text-center small">
+                                    <div><div class="fw-bold" id="wh-stat-received">0</div><div class="text-muted">recebidas hoje</div></div>
+                                    <div><div class="fw-bold text-success" id="wh-stat-sent">0</div><div class="text-muted">enviadas</div></div>
+                                    <div><div class="fw-bold text-danger" id="wh-stat-failed">0</div><div class="text-muted">falhas</div></div>
+                                </div>
+                            </div>
                             <div class="card-body p-0">
-                                <div id="wh-requests" style="max-height:460px;overflow-y:auto;">
+                                <div id="wh-requests" style="max-height:420px;overflow-y:auto;">
                                     <div class="text-muted small text-center py-4">Dispare um teste ou envie do seu sistema. As requisições aparecem aqui.</div>
+                                </div>
+                            </div>
+                            <div class="card-footer bg-white py-1">
+                                <div class="text-muted" style="font-size:11px;line-height:1.3;">
+                                    <i class="bi bi-info-circle"></i> Em produção (webhook ativo), por volume, só as <strong>falhas</strong> ficam listadas aqui — os envios com sucesso contam apenas no resumo acima. Com o webhook <strong>inativo</strong> (modo teste), toda requisição é registrada para você mapear os campos.
                                 </div>
                             </div>
                         </div>
@@ -225,6 +238,7 @@ function openWebhookObj(w) {
     updateStatusUI(Number(w.active) === 1);
     renderList();
     document.getElementById('wh-requests').innerHTML = '<div class="text-muted small text-center py-4">Carregando requisições...</div>';
+    applyStats({ received: 0, sent: 0, failed: 0 });
     loadRequests(true);
     startPolling();
 }
@@ -340,6 +354,7 @@ function loadRequests(initial) {
         .then(r => r.json())
         .then(d => {
             const rows = d.requests || [];
+            applyStats(d.stats);
             if (initial) {
                 renderRequests(rows, true);
                 if (rows.length) whLastReqId = Math.max(...rows.map(r => Number(r.id)));
@@ -359,10 +374,20 @@ function refreshRequests() {
         .then(r => r.json())
         .then(d => {
             const rows = d.requests || [];
+            applyStats(d.stats);
             renderRequests(rows, true);
             if (rows.length) whLastReqId = Math.max(...rows.map(r => Number(r.id)));
         })
         .catch(() => {});
+}
+
+// Atualiza os contadores do dia (recebidas/enviadas/falhas).
+function applyStats(stats) {
+    if (!stats) return;
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = Number(v || 0).toLocaleString('pt-BR'); };
+    set('wh-stat-received', stats.received);
+    set('wh-stat-sent', stats.sent);
+    set('wh-stat-failed', stats.failed);
 }
 
 function renderRequests(rows, isDesc) {

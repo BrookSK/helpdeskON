@@ -4,6 +4,7 @@ namespace Tests\Integration;
 use PHPUnit\Framework\TestCase;
 use WhatsappWebhook;
 use WhatsappWebhookRequest;
+use WhatsappWebhookStat;
 use Database;
 
 /**
@@ -38,6 +39,7 @@ final class WhatsappWebhookTest extends TestCase
         try {
             $this->db->query("SELECT 1 FROM whatsapp_webhooks LIMIT 1");
             $this->db->query("SELECT 1 FROM whatsapp_webhook_requests LIMIT 1");
+            $this->db->query("SELECT 1 FROM whatsapp_webhook_stats LIMIT 1");
         } catch (\Throwable $e) {
             $this->markTestSkipped('Tabelas de webhooks ausentes (rode a migration 161).');
         }
@@ -52,8 +54,9 @@ final class WhatsappWebhookTest extends TestCase
     protected function tearDown(): void
     {
         foreach ($this->webhookIds as $id) {
-            // requests caem por ON DELETE CASCADE, mas limpamos defensivamente.
+            // requests/stats caem por ON DELETE CASCADE, mas limpamos defensivamente.
             try { $this->db->delete('whatsapp_webhook_requests', 'webhook_id = ?', [$id]); } catch (\Throwable $e) {}
+            try { $this->db->delete('whatsapp_webhook_stats', 'webhook_id = ?', [$id]); } catch (\Throwable $e) {}
             try { $this->db->delete('whatsapp_webhooks', 'id = ?', [$id]); } catch (\Throwable $e) {}
         }
         if (!empty($this->companyId)) {
@@ -220,5 +223,60 @@ final class WhatsappWebhookTest extends TestCase
         $this->assertSame('sent', $row['status']);
         $this->assertSame(2, (int) $row['sent_count']);
         $this->assertNotEmpty($row['processed_at']);
+    }
+
+    // ───────────────────────────────────────────────────────────────────────
+    // Contador diário de volume (whatsapp_webhook_stats)
+    // ───────────────────────────────────────────────────────────────────────
+
+    public function testStatBumpAcumulaContadorDoDia(): void
+    {
+        $id = $this->novoWebhook();
+        $stats = new WhatsappWebhookStat();
+
+        // Sem nenhum bump: tudo zero.
+        $this->assertSame(['received' => 0, 'sent' => 0, 'failed' => 0], $stats->today($id));
+
+        // Incrementos atômicos: 3 recebidas, 2 enviadas, 1 falha (com step).
+        $stats->bump($id, 'received');
+        $stats->bump($id, 'received', 2);
+        $stats->bump($id, 'sent', 2);
+        $stats->bump($id, 'failed');
+
+        $today = $stats->today($id);
+        $this->assertSame(3, $today['received']);
+        $this->assertSame(2, $today['sent']);
+        $this->assertSame(1, $today['failed']);
+    }
+
+    public function testStatBumpIgnoraCampoInvalidoEValorNaoPositivo(): void
+    {
+        $id = $this->novoWebhook();
+        $stats = new WhatsappWebhookStat();
+
+        $stats->bump($id, 'inexistente');   // campo fora da lista -> ignora
+        $stats->bump($id, 'received', 0);    // step 0 -> ignora
+        $stats->bump($id, 'received', -5);   // step negativo -> ignora
+
+        $this->assertSame(['received' => 0, 'sent' => 0, 'failed' => 0], $stats->today($id));
+    }
+
+    public function testStatGetStatsTotalizaPeriodo(): void
+    {
+        $id = $this->novoWebhook();
+        $stats = new WhatsappWebhookStat();
+
+        $stats->bump($id, 'received', 10);
+        $stats->bump($id, 'sent', 7);
+        $stats->bump($id, 'failed', 3);
+
+        $out = $stats->getStats($id, 7);
+        $this->assertArrayHasKey('days', $out);
+        $this->assertArrayHasKey('totals', $out);
+        $this->assertSame(10, $out['totals']['received']);
+        $this->assertSame(7, $out['totals']['sent']);
+        $this->assertSame(3, $out['totals']['failed']);
+        // Pelo menos a linha de hoje.
+        $this->assertNotEmpty($out['days']);
     }
 }

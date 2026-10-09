@@ -3401,9 +3401,14 @@ class WhatsappController extends Controller
         $afterId = (int)($_GET['after_id'] ?? 0);
         $rows = (new WhatsappWebhookRequest())->getByWebhook($id, $afterId);
 
+        // Contadores do dia (volume real): em produção não gravamos cada
+        // sucesso, então estes números refletem o tráfego mesmo quando a lista
+        // de requisições mostra só as falhas.
+        $stats = (new WhatsappWebhookStat())->today((int)$id);
+
         // No modo incremental devolvemos em ordem crescente; na carga inicial o
         // model devolve DESC — o front sabe lidar com ambos pelo id.
-        $this->json(['requests' => $rows]);
+        $this->json(['requests' => $rows, 'stats' => $stats]);
     }
 
     /**
@@ -3450,41 +3455,40 @@ class WhatsappController extends Controller
             }
         }
 
-        $reqModel = new WhatsappWebhookRequest();
+        $reqModel  = new WhatsappWebhookRequest();
+        $statModel = new WhatsappWebhookStat();
+        $webhookId = (int)$webhook['id'];
 
-        // Interpreta já na entrada (para gravar o que foi extraído e exibir).
+        // Interpreta já na entrada (para extrair telefone/nome/mensagem).
         $interpreted = WebhookRules::interpret(is_array($payload) ? $payload : [], $webhook);
         $sendable = WebhookRules::isSendable($interpreted);
 
-        // Status inicial:
-        //  - inativo  -> 'received' (modo teste: só registra, não envia)
-        //  - ativo + enviável -> 'queued' (vai enviar)
-        //  - ativo + não enviável -> 'skipped'
-        if (!$isActive) {
-            $status = 'received';
-            $errMsg = null;
-        } elseif ($sendable) {
-            $status = 'queued';
-            $errMsg = null;
-        } else {
-            $status = 'skipped';
-            $errMsg = 'Sem telefone e/ou mensagem válidos no payload.';
-        }
+        // Toda requisição conta no resumo diário (barato, uma linha por dia).
+        $statModel->bump($webhookId, 'received');
 
-        $requestId = (int) $reqModel->create([
-            'webhook_id'     => (int)$webhook['id'],
-            'source_ip'      => $this->clientIp(),
-            'raw_payload'    => mb_substr((string)$raw, 0, 65000),
-            'parsed_phones'  => json_encode($interpreted['phones'], JSON_UNESCAPED_UNICODE),
-            'parsed_name'    => mb_substr($interpreted['name'], 0, 255) ?: null,
-            'parsed_email'   => mb_substr($interpreted['email'], 0, 255) ?: null,
-            'parsed_message' => $interpreted['message'] ?: null,
-            'status'         => $status,
-            'error_message'  => $errMsg,
-        ]);
+        // Helper: grava a requisição completa (payload + extraídos) com um status.
+        // Usado no MODO TESTE (tudo) e em PRODUÇÃO só quando FALHA.
+        $persist = function (string $status, ?string $errMsg, int $sentCount = 0) use ($reqModel, $webhookId, $raw, $interpreted) {
+            return (int) $reqModel->create([
+                'webhook_id'     => $webhookId,
+                'source_ip'      => $this->clientIp(),
+                'raw_payload'    => mb_substr((string)$raw, 0, 65000),
+                'parsed_phones'  => json_encode($interpreted['phones'], JSON_UNESCAPED_UNICODE),
+                'parsed_name'    => mb_substr($interpreted['name'], 0, 255) ?: null,
+                'parsed_email'   => mb_substr($interpreted['email'], 0, 255) ?: null,
+                'parsed_message' => $interpreted['message'] ?: null,
+                'status'         => $status,
+                'sent_count'     => $sentCount,
+                'error_message'  => $errMsg,
+                'processed_at'   => date('Y-m-d H:i:s'),
+            ]);
+        };
 
-        // Modo teste (inativo): aceita e registra, sem enviar.
+        // ───────── MODO TESTE (webhook inativo) ─────────
+        // Registra a requisição (para o usuário ver o payload e mapear) e NÃO
+        // envia nada. É o único modo em que gravamos requisições de sucesso.
         if (!$isActive) {
+            $requestId = $persist('received', null);
             http_response_code(200);
             echo json_encode([
                 'status'     => 'received',
@@ -3496,31 +3500,46 @@ class WhatsappController extends Controller
             exit;
         }
 
-        // Ativo mas sem o que enviar: registrado como skipped.
+        // ───────── PRODUÇÃO (webhook ativo) ─────────
+        // Alto volume: NÃO gravamos requisições de sucesso. Só registramos as
+        // que FALHAM (para investigação). Sempre atualizamos o contador diário.
+
+        // Sem telefone/mensagem válidos: é uma falha de payload -> registra.
         if (!$sendable) {
+            $statModel->bump($webhookId, 'failed');
+            $persist('failed', 'Sem telefone e/ou mensagem válidos no payload.');
             http_response_code(202);
-            echo json_encode(['status' => 'received', 'processed' => false, 'reason' => 'skipped', 'request_id' => $requestId]);
+            echo json_encode(['status' => 'received', 'processed' => false, 'reason' => 'skipped']);
             exit;
         }
 
-        // Ativo e enviável: processa inline (best-effort). Falha de envio não
-        // vira erro para o chamador — fica registrada e o cron reprocessa.
-        $result = ['sent' => 0, 'total' => count($interpreted['phones'])];
+        // Envia direto (sem gravar request antes).
+        $r = ['sent' => 0, 'total' => count($interpreted['phones']), 'errors' => $interpreted['phones']];
         try {
-            $result = $this->processWebhookRequest($requestId);
+            $r = $this->dispatchSend($webhook, $interpreted['phones'], $interpreted['message'], $interpreted['name']);
         } catch (\Throwable $e) {
             if (class_exists('Logger')) {
-                Logger::error('[Webhook incoming] falha ao processar', ['request_id' => $requestId, 'error' => $e->getMessage()]);
+                Logger::error('[Webhook incoming] falha ao enviar', ['webhook' => $webhookId, 'error' => $e->getMessage()]);
             }
+        }
+
+        if ($r['sent'] > 0) {
+            $statModel->bump($webhookId, 'sent', $r['sent']);
+        }
+        $failedCount = max(0, $r['total'] - $r['sent']);
+        if ($failedCount > 0) {
+            // Houve falha (parcial ou total): conta e GRAVA a requisição para análise.
+            $statModel->bump($webhookId, 'failed', $failedCount);
+            $errMsg = 'Falha ao enviar para: ' . implode(', ', array_slice($r['errors'], 0, 10));
+            $persist('failed', mb_substr($errMsg, 0, 500), $r['sent']);
         }
 
         http_response_code(200);
         echo json_encode([
-            'status'     => 'received',
-            'processed'  => true,
-            'request_id' => $requestId,
-            'sent'       => $result['sent'] ?? 0,
-            'total'      => $result['total'] ?? count($interpreted['phones']),
+            'status'    => 'received',
+            'processed' => true,
+            'sent'      => $r['sent'],
+            'total'     => $r['total'],
         ]);
         exit;
     }
@@ -3565,13 +3584,39 @@ class WhatsappController extends Controller
         // Marca em processamento (evita reprocessamento concorrente simples).
         $reqModel->updateStatus($requestId, ['status' => 'processing', 'attempts' => (int)$req['attempts'] + 1]);
 
+        $r = $this->dispatchSend($webhook, $phones, $message, $name);
+
+        $status = $r['sent'] === 0 ? 'failed' : 'sent';
+        $errMsg = $r['errors'] ? ('Falha ao enviar para: ' . implode(', ', array_slice($r['errors'], 0, 10))) : null;
+
+        $reqModel->updateStatus($requestId, [
+            'status'        => $status,
+            'sent_count'    => $r['sent'],
+            'error_message' => $errMsg ? mb_substr($errMsg, 0, 500) : null,
+            'processed_at'  => date('Y-m-d H:i:s'),
+        ]);
+
+        return ['sent' => $r['sent'], 'total' => $r['total']];
+    }
+
+    /**
+     * Envia a mensagem para a lista de telefones e devolve o resultado SEM tocar
+     * no banco (não grava request). Usado tanto no caminho de produção do
+     * incoming() (que só grava quando falha) quanto por processWebhookRequest().
+     *
+     * @return array{sent:int,total:int,errors:array}
+     */
+    private function dispatchSend(array $webhook, array $phones, string $message, ?string $name): array
+    {
         $sent = 0;
         $errors = [];
         foreach ($phones as $phone) {
             try {
-                $ok = $this->sendWebhookMessage($webhook, (string)$phone, $message, $name);
-                if ($ok) $sent++;
-                else $errors[] = $phone;
+                if ($this->sendWebhookMessage($webhook, (string)$phone, $message, $name)) {
+                    $sent++;
+                } else {
+                    $errors[] = $phone;
+                }
             } catch (\Throwable $e) {
                 $errors[] = $phone;
                 if (class_exists('Logger')) {
@@ -3579,19 +3624,7 @@ class WhatsappController extends Controller
                 }
             }
         }
-
-        $total = count($phones);
-        $status = $sent === 0 ? 'failed' : 'sent';
-        $errMsg = $errors ? ('Falha ao enviar para: ' . implode(', ', array_slice($errors, 0, 10))) : null;
-
-        $reqModel->updateStatus($requestId, [
-            'status'        => $status,
-            'sent_count'    => $sent,
-            'error_message' => $errMsg ? mb_substr($errMsg, 0, 500) : null,
-            'processed_at'  => date('Y-m-d H:i:s'),
-        ]);
-
-        return ['sent' => $sent, 'total' => $total];
+        return ['sent' => $sent, 'total' => count($phones), 'errors' => $errors];
     }
 
     /**

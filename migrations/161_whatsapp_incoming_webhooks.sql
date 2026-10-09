@@ -62,3 +62,20 @@ CREATE TABLE IF NOT EXISTS whatsapp_webhook_requests (
     KEY idx_whr_status (status, created_at),
     CONSTRAINT fk_whr_webhook FOREIGN KEY (webhook_id) REFERENCES whatsapp_webhooks(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Contador DIÁRIO por webhook (volume). Em produção (webhook ativo) NÃO
+-- gravamos cada requisição recebida (seriam milhares/dia); só as que FALHAM
+-- vão para whatsapp_webhook_requests. Para ainda ter noção de volume, aqui
+-- mantemos um resumo leve por dia: recebidas, enviadas e falhas. Uma linha por
+-- (webhook, data), incrementada de forma atômica (ON DUPLICATE KEY UPDATE).
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS whatsapp_webhook_stats (
+    webhook_id  INT NOT NULL,
+    stat_date   DATE NOT NULL,
+    received    INT NOT NULL DEFAULT 0 COMMENT 'Requisições recebidas no dia',
+    sent        INT NOT NULL DEFAULT 0 COMMENT 'Mensagens enviadas com sucesso no dia',
+    failed      INT NOT NULL DEFAULT 0 COMMENT 'Requisições que falharam/sem envio no dia',
+    PRIMARY KEY (webhook_id, stat_date),
+    CONSTRAINT fk_whs_webhook FOREIGN KEY (webhook_id) REFERENCES whatsapp_webhooks(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
