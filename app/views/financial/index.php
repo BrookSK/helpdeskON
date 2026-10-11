@@ -61,10 +61,10 @@ foreach ($cards as $c) $cardsById[(int)$c['id']] = $c;
             </div>
         </div>
         <div class="col-6 col-md-4 col-xl-2">
-            <div class="card h-100 border-0 <?= $summary['balance'] >= 0 ? 'bg-primary bg-opacity-10' : 'bg-warning bg-opacity-25' ?>">
+            <div class="card h-100 border-0 bg-secondary bg-opacity-10">
                 <div class="card-body py-2">
                     <div class="text-muted small"><i class="bi bi-wallet2"></i> Saldo (<?= escape($filters['month']) ?>)</div>
-                    <div class="fw-bold <?= $summary['balance'] >= 0 ? 'text-primary' : 'text-warning-emphasis' ?>"><?= finMoney($summary['balance']) ?></div>
+                    <div class="fw-bold <?= $summary['balance'] >= 0 ? 'text-success' : 'text-danger' ?>"><?= finMoney($summary['balance']) ?></div>
                 </div>
             </div>
         </div>
