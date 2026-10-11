@@ -56,6 +56,7 @@ class Permissions
         'proposals',            // Propostas/orçamentos (esteira comercial)
         'contracts',            // Contratos + assinatura (esteira comercial)
         'finance',              // Financeiro: parcelas, recorrência, Asaas (esteira comercial)
+        'financial_admin',     // Controle Financeiro da empresa (ganhos/gastos/cartões/Asaas) — SUPER_ADMIN apenas
         'onboarding',           // Onboarding por etapas pós-entrada paga (esteira comercial)
         'credentials',          // Cofre de credenciais do cliente (restrito a super_admin/developer)
         'provisioning',         // Provisionamento de infra no LRV Cloud (esteira comercial)
@@ -147,6 +148,16 @@ class Permissions
     public static function hasFullAccess(?string $role): bool
     {
         return $role !== null && in_array($role, self::FULL_ACCESS_ROLES, true);
+    }
+
+    /**
+     * Super admin de verdade. Diferente de hasFullAccess(): o developer NÃO
+     * passa aqui. Usado pelos módulos EXCLUSIVOS do dono (ex.: Controle
+     * Financeiro — dinheiro da empresa), que nem o developer deve ver.
+     */
+    public static function isSuperAdmin(?string $role): bool
+    {
+        return $role === 'super_admin';
     }
 
     /** O papel é um valor válido do enum users.role? */

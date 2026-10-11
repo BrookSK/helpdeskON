@@ -173,6 +173,21 @@ class Controller
         }
     }
 
+    /**
+     * Exige super_admin DE VERDADE (developer não passa). Para módulos
+     * exclusivos do dono — ex.: Controle Financeiro (dinheiro da empresa).
+     */
+    protected function requireSuperAdmin()
+    {
+        $this->requireLogin();
+        if (!Permissions::isSuperAdmin($_SESSION['user_role'] ?? null)) {
+            if ($this->isAjax()) {
+                $this->json(['error' => 'Área exclusiva do super administrador.'], 403);
+            }
+            $this->redirect('dashboard');
+        }
+    }
+
     protected function currentUser()
     {
         if (!$this->isLoggedIn()) return null;

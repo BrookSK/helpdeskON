@@ -39,6 +39,17 @@ class AsaasApi
         return $this->request('POST', '/subscriptions', AsaasRules::subscriptionPayload($customerId, $value, $cycle, $nextDueDate, $method, $description));
     }
 
+    /**
+     * Lista cobranças da conta (GET /payments) — usado pelo Controle
+     * Financeiro para importar o que foi criado fora do sistema.
+     * @param array $params ex.: ['limit'=>100, 'status'=>'RECEIVED']
+     */
+    public function listPayments(array $params = []): array
+    {
+        $qs = http_build_query($params);
+        return $this->request('GET', '/payments' . ($qs !== '' ? '?' . $qs : ''));
+    }
+
     private function request(string $method, string $path, ?array $data = null): array
     {
         if (!$this->isConfigured()) {

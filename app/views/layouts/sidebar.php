@@ -348,6 +348,14 @@
                 <?php endif; ?>
             </ul>
             <?php endif; ?>
+            <?php // ===== Controle Financeiro — SUPER_ADMIN apenas ===== ?>
+            <?php if (Permissions::isSuperAdmin($role)): ?>
+            <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'financial_admin' ? 'active' : '' ?>" href="<?= baseUrl('financial') ?>">
+                    <i class="bi bi-bank2"></i> Controle Financeiro
+                </a>
+            </li>
+            <?php endif; ?>
             <?php if (Permissions::canAccess($role, 'acessos')): ?>
             <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'acessos' ? 'active' : '' ?>" href="<?= baseUrl('acessos') ?>">
