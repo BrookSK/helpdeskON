@@ -41,14 +41,98 @@ final class FinancialRulesTest extends TestCase
         $this->assertSame(2, $ok['data']['card_id']);
     }
 
-    public function testParcelamentoSomenteEmGasto(): void
+    public function testParcelamentoSomenteEmGastoGanhoEmprestimo(): void
     {
+        // Salário e transferência não podem ser parcelados.
         $r = FinancialRules::validateTransaction([
             'kind' => 'salario', 'amount' => 5000, 'installments' => 2,
             'due_date' => '2026-10-20',
         ]);
         $this->assertFalse($r['ok']);
         $this->assertStringContainsString('Parcelamento', implode(' ', $r['errors']));
+
+        // Ganho parcelado (entrada em N vezes) OK, sem cartão.
+        $ganho = FinancialRules::validateTransaction([
+            'kind' => 'ganho', 'amount' => 12000, 'installments' => 6,
+            'due_date' => '2026-10-20',
+        ]);
+        $this->assertTrue($ganho['ok']);
+
+        // Empréstimo parcelado OK.
+        $emp = FinancialRules::validateTransaction([
+            'kind' => 'emprestimo', 'amount' => 12000, 'installments' => 12,
+            'due_date' => '2026-10-20', 'loan_date' => '2026-10-01', 'direction' => 'out',
+        ]);
+        $this->assertTrue($emp['ok']);
+        $this->assertSame('2026-10-01', $emp['data']['loan_date']);
+    }
+
+    public function testRecorrenciaValidaEClona(): void
+    {
+        $ok = FinancialRules::validateTransaction([
+            'kind' => 'gasto', 'amount' => 250, 'recurring_cycle' => 'monthly',
+            'recurring_until' => '2027-12-31', 'due_date' => '2026-10-10',
+        ]);
+        $this->assertTrue($ok['ok']);
+        $this->assertSame('monthly', $ok['data']['recurring_cycle']);
+        $this->assertSame('2027-12-31', $ok['data']['recurring_until']);
+
+        // Recorrente não pode ser parcelado nem em salário.
+        $this->assertFalse(FinancialRules::validateTransaction([
+            'kind' => 'gasto', 'amount' => 10, 'recurring_cycle' => 'monthly', 'installments' => 3,
+        ])['ok']);
+        $this->assertFalse(FinancialRules::validateTransaction([
+            'kind' => 'salario', 'amount' => 10, 'recurring_cycle' => 'monthly',
+        ])['ok']);
+
+        $this->assertSame('2026-11-10', FinancialRules::recurringNextDate('2026-10-10', 'monthly'));
+        $this->assertSame('2027-10-10', FinancialRules::recurringNextDate('2026-10-10', 'yearly'));
+        $this->assertTrue(FinancialRules::recurringContinues('2026-11-10', null));
+        $this->assertTrue(FinancialRules::recurringContinues('2027-12-10', '2027-12-31'));
+        $this->assertFalse(FinancialRules::recurringContinues('2028-01-10', '2027-12-31'));
+    }
+
+    public function testComissaoValorFixoOuPercentual(): void
+    {
+        $fixa = FinancialRules::validateCommission([
+            'transaction_id' => 5, 'user_id' => 2, 'amount' => 'R$ 1.000,00',
+            'installments' => 4, 'first_due_date' => '2026-10-30',
+        ], 10000.0);
+        $this->assertTrue($fixa['ok']);
+        $this->assertSame(1000.0, $fixa['data']['amount']);
+        $this->assertSame(4, $fixa['data']['installments']);
+        $this->assertSame('2026-10-30', $fixa['data']['next_due_date']);
+
+        // 10% de um ganho de 40k.
+        $pct = FinancialRules::validateCommission([
+            'transaction_id' => 5, 'recipient' => 'Parceiro X', 'percent' => '10',
+            'installments' => 2,
+        ], 40000.0);
+        $this->assertTrue($pct['ok']);
+        $this->assertSame(4000.0, $pct['data']['amount']);
+
+        // Sem ganho, sem recebedor ou sem valor: erro.
+        $this->assertFalse(FinancialRules::validateCommission(['transaction_id' => 0, 'amount' => 10], 100)['ok']);
+        $this->assertFalse(FinancialRules::validateCommission(['transaction_id' => 5, 'amount' => 10], 100)['ok']);
+        $this->assertFalse(FinancialRules::validateCommission(['transaction_id' => 5, 'user_id' => 1], 100)['ok']);
+    }
+
+    public function testComissaoProgressoEVencimentos(): void
+    {
+        $this->assertSame('2026-11-30', FinancialRules::commissionNextDue('2026-10-30', 1));
+        $this->assertSame('2027-01-30', FinancialRules::commissionNextDue('2026-10-30', 3));
+
+        // Total 1000 em 4: pagou 1 -> resta 750.
+        $this->assertSame(750.0, FinancialRules::commissionRemaining(1000.0, 4, 1));
+        $this->assertSame(0.0, FinancialRules::commissionRemaining(1000.0, 4, 4));
+
+        $s = FinancialRules::summaryCommissions([
+            ['amount' => 1000, 'installments' => 4, 'installments_paid' => 1, 'status' => 'pending'],
+            ['amount' => 500, 'installments' => 1, 'installments_paid' => 1, 'status' => 'pending'],
+            ['amount' => 999, 'installments' => 1, 'installments_paid' => 0, 'status' => 'cancelled'],
+        ]);
+        $this->assertSame(750.0, $s['to_pay']);
+        $this->assertSame(750.0, $s['paid']);
     }
 
     public function testValorZeroOuTipoInvalidoRejeita(): void

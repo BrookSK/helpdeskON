@@ -15,12 +15,14 @@ class FinancialController extends Controller
     private $transactions;
     private $cards;
     private $asaasAccounts;
+    private $commissions;
 
     public function __construct()
     {
         $this->transactions = new FinancialTransaction();
         $this->cards = new FinancialCard();
         $this->asaasAccounts = new FinanceAccount();
+        $this->commissions = new FinancialCommission();
     }
 
     /** Painel principal (resumo + lançamentos + cartões + contas Asaas). */
@@ -45,6 +47,26 @@ class FinancialController extends Controller
             $summary = FinancialRules::summary([]);
         }
 
+        try {
+            $commissions = $this->commissions->getAll();
+            $commissionsSummary = FinancialRules::summaryCommissions($commissions);
+        } catch (\Throwable $e) {
+            $commissions = [];
+            $commissionsSummary = ['to_pay' => 0.0, 'paid' => 0.0];
+        }
+
+        // Ganhos (origem possível de comissões) + usuários internos (recebedores).
+        try {
+            $gainOptions = array_values(array_filter($this->transactions->getAll(['kind' => 'ganho']), fn($t) => $t['source'] !== 'asaas'));
+        } catch (\Throwable $e) {
+            $gainOptions = [];
+        }
+        try {
+            $users = Database::getInstance()->fetchAll("SELECT id, name, role FROM users WHERE role <> 'client' ORDER BY name LIMIT 200");
+        } catch (\Throwable $e) {
+            $users = [];
+        }
+
         $this->view('financial/index', [
             'user'         => $user,
             'currentPage'  => 'financial_admin',
@@ -54,6 +76,10 @@ class FinancialController extends Controller
             'cardPending'  => $this->transactions->pendingInstallmentsByCard(),
             'accounts'     => $this->asaasAccounts->getAll(false),
             'filters'      => $filters,
+            'commissions'  => $commissions,
+            'commissionsSummary' => $commissionsSummary,
+            'gainOptions'  => $gainOptions,
+            'users'        => $users,
         ]);
     }
 
@@ -149,6 +175,54 @@ class FinancialController extends Controller
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
         $active = $this->cards->toggleActive((int)$id);
         $this->json(['success' => true, 'active' => $active]);
+    }
+
+    // ================= Comissões =================
+
+    /**
+     * Cria uma comissão vinculada a um ganho: pra quem (usuário ou nome),
+     * quanto (valor fixo ou % sobre o ganho) e em quantas parcelas.
+     */
+    public function commissionStore()
+    {
+        $this->requireSuperAdmin();
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $user = $this->currentUser();
+
+        $tx = $this->transactions->findById((int)($_POST['transaction_id'] ?? 0));
+        if (!$tx || $tx['kind'] !== 'ganho' || $tx['direction'] !== 'in') {
+            $this->json(['error' => 'A comissão deve estar vinculada a um ganho (entrada).'], 400);
+        }
+
+        $validation = FinancialRules::validateCommission($_POST, (float)$tx['amount']);
+        if (!$validation['ok']) $this->json(['error' => implode(' ', $validation['errors'])], 400);
+        $data = $validation['data'];
+        $data['status'] = 'pending';
+        $data['created_by'] = $user['id'];
+
+        try {
+            $id = $this->commissions->create($data);
+        } catch (\Throwable $e) {
+            $this->json(['error' => 'Não foi possível salvar a comissão. Rode a migration 156.'], 500);
+        }
+        $this->json(['success' => true, 'id' => $id]);
+    }
+
+    /** Paga a próxima parcela da comissão. */
+    public function commissionPay($id = null)
+    {
+        $this->requireSuperAdmin();
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+        $done = $this->commissions->markPaid((int)$id);
+        $this->json(['success' => true, 'fully_paid' => $done]);
+    }
+
+    public function commissionRemove($id = null)
+    {
+        $this->requireSuperAdmin();
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+        $this->commissions->remove((int)$id);
+        $this->json(['success' => true]);
     }
 
     // ================= Importação Asaas =================

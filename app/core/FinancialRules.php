@@ -25,8 +25,11 @@ class FinancialRules
         'transferencia' => 'out',
     ];
 
-    /** Tipos que permitem parcelamento (compra no cartão). */
-    public const INSTALLABLE_KINDS = ['gasto'];
+    /** Tipos que permitem parcelamento (compra no cartão, entrada parcelada, empréstimo). */
+    public const INSTALLABLE_KINDS = ['ganho', 'gasto', 'emprestimo'];
+
+    /** Tipos que permitem recorrência (mensal/anual que se repetem). */
+    public const RECURRING_KINDS = ['ganho', 'gasto'];
 
     /** Direção válida para o tipo informado. */
     public static function directionFor(string $kind, ?string $direction): string
@@ -56,10 +59,36 @@ class FinancialRules
         $installments = max(1, min(48, $installments));
         $cardId = !empty($in['card_id']) ? (int)$in['card_id'] : null;
         if ($installments > 1 && !in_array($kind, self::INSTALLABLE_KINDS, true)) {
-            $errors[] = 'Parcelamento só é permitido em gastos.';
+            $errors[] = 'Parcelamento não é permitido para este tipo.';
         }
-        if ($installments > 1 && $cardId === null) {
-            $errors[] = 'Informe o cartão para lançamentos parcelados.';
+        if ($installments > 1 && $kind === 'gasto' && $cardId === null) {
+            $errors[] = 'Informe o cartão para gastos parcelados.';
+        }
+
+        // Recorrência: só em ganho/gasto e apenas à vista (não parcelado).
+        $cycle = strtolower(trim((string)($in['recurring_cycle'] ?? '')));
+        $recurringCycle = in_array($cycle, ['monthly', 'yearly'], true) ? $cycle : null;
+        if ($recurringCycle !== null && !in_array($kind, self::RECURRING_KINDS, true)) {
+            $errors[] = 'Recorrência só é permitida em ganhos e gastos.';
+        }
+        if ($recurringCycle !== null && $installments > 1) {
+            $errors[] = 'Lançamento recorrente não pode ser parcelado.';
+        }
+        $recurringUntil = null;
+        $ru = trim((string)($in['recurring_until'] ?? ''));
+        if ($ru !== '') {
+            $t2 = strtotime($ru);
+            if ($t2 === false) $errors[] = 'Data final da recorrência inválida.';
+            else $recurringUntil = date('Y-m-d', $t2);
+        }
+
+        // Data do empréstimo (quando pegou/concedeu) — opcional.
+        $loanDate = null;
+        $ld = trim((string)($in['loan_date'] ?? ''));
+        if ($ld !== '') {
+            $t3 = strtotime($ld);
+            if ($t3 === false) $errors[] = 'Data do empréstimo inválida.';
+            else $loanDate = date('Y-m-d', $t3);
         }
 
         $due = trim((string)($in['due_date'] ?? ''));
@@ -81,15 +110,18 @@ class FinancialRules
             'ok' => true,
             'errors' => [],
             'data' => [
-                'kind'         => $kind,
-                'direction'    => self::directionFor($kind, $in['direction'] ?? null),
-                'category'     => mb_substr(trim((string)($in['category'] ?? '')), 0, 80) ?: null,
-                'description'  => mb_substr(trim((string)($in['description'] ?? '')), 0, 255) ?: null,
-                'amount'       => $amount,
-                'installments' => $installments,
-                'card_id'      => $cardId,
-                'due_date'     => $dueDate ?: date('Y-m-d'),
-                'status'       => $status,
+                'kind'            => $kind,
+                'direction'       => self::directionFor($kind, $in['direction'] ?? null),
+                'category'        => mb_substr(trim((string)($in['category'] ?? '')), 0, 80) ?: null,
+                'description'     => mb_substr(trim((string)($in['description'] ?? '')), 0, 255) ?: null,
+                'amount'          => $amount,
+                'installments'    => $installments,
+                'card_id'         => $cardId,
+                'due_date'        => $dueDate ?: date('Y-m-d'),
+                'recurring_cycle' => $recurringCycle,
+                'recurring_until' => $recurringUntil,
+                'loan_date'       => $loanDate,
+                'status'          => $status,
             ],
         ];
     }
@@ -201,5 +233,105 @@ class FinancialRules
     public static function validMonth(?string $m): bool
     {
         return is_string($m) && preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $m) === 1;
+    }
+
+    /** Próxima ocorrência de um recorrente a partir da data base. */
+    public static function recurringNextDate(string $dueDate, string $cycle): string
+    {
+        return date('Y-m-d', strtotime($dueDate . ' +' . ($cycle === 'yearly' ? 12 : 1) . ' month'));
+    }
+
+    /** A recorrência continua após a data-base? (sem fim = sempre) */
+    public static function recurringContinues(?string $nextDue, ?string $until): bool
+    {
+        if ($nextDue === null) return false;
+        if ($until === null) return true;
+        return $nextDue <= $until;
+    }
+
+    /**
+     * Valida uma comissão vinculada a um ganho.
+     * Entrada: transaction_id, user_id?, recipient?, amount? , percent?,
+     * installments, first_due_date, note?
+     * Valor fixo OU percentual sobre o ganho (amount do ganho passado em
+     * ganhoAmount). Retorna ['ok','errors','data'].
+     */
+    public static function validateCommission(array $in, float $ganhoAmount): array
+    {
+        $errors = [];
+        $txId = (int)($in['transaction_id'] ?? 0);
+        if ($txId <= 0) $errors[] = 'Selecione o ganho de origem.';
+
+        $userId = !empty($in['user_id']) ? (int)$in['user_id'] : null;
+        $recipient = mb_substr(trim((string)($in['recipient'] ?? '')), 0, 120) ?: null;
+        if ($userId === null && $recipient === null) $errors[] = 'Informe para quem é a comissão.';
+
+        $amount = 0.0;
+        $percent = trim((string)($in['percent'] ?? ''));
+        if ($percent !== '') {
+            $pct = FinanceRules::money($percent);
+            if ($pct <= 0 || $pct > 100) $errors[] = 'Percentual deve estar entre 0 e 100.';
+            else $amount = round($ganhoAmount * ($pct / 100), 2);
+        } else {
+            $amount = FinanceRules::money($in['amount'] ?? 0);
+        }
+        if ($amount <= 0) $errors[] = 'Informe o valor da comissão (fixo ou % sobre o ganho).';
+
+        $installments = max(1, min(48, (int)($in['installments'] ?? 1)));
+
+        $due = trim((string)($in['first_due_date'] ?? ''));
+        $firstDue = null;
+        if ($due !== '') {
+            $t = strtotime($due);
+            if ($t === false) $errors[] = 'Data da 1ª parcela inválida.';
+            else $firstDue = date('Y-m-d', $t);
+        }
+        if ($firstDue === null) $firstDue = date('Y-m-d');
+
+        if (!empty($errors)) return ['ok' => false, 'errors' => $errors, 'data' => null];
+
+        return [
+            'ok' => true,
+            'errors' => [],
+            'data' => [
+                'transaction_id'  => $txId,
+                'user_id'        => $userId,
+                'recipient'      => $recipient,
+                'amount'         => $amount,
+                'installments'    => $installments,
+                'first_due_date' => $firstDue,
+                'next_due_date'  => $firstDue,
+                'note'           => mb_substr(trim((string)($in['note'] ?? '')), 0, 255) ?: null,
+            ],
+        ];
+    }
+
+    /** Próximo vencimento de uma comissão após quitar a parcela nº paidCount. */
+    public static function commissionNextDue(string $firstDue, int $paidCount): string
+    {
+        return date('Y-m-d', strtotime($firstDue . ' +' . $paidCount . ' month'));
+    }
+
+    /** Total ainda pendente de uma comissão (centavos ajustados). */
+    public static function commissionRemaining(float $amount, int $installments, int $paid): float
+    {
+        $installments = max(1, $installments);
+        $paid = min($paid, $installments);
+        return round($amount - ($amount * $paid / $installments), 2);
+    }
+
+    /** Resumo das comissões: total a pagar (pendente) e já pago. */
+    public static function summaryCommissions(array $rows): array
+    {
+        $s = ['to_pay' => 0.0, 'paid' => 0.0];
+        foreach ($rows as $r) {
+            if (($r['status'] ?? '') === 'cancelled') continue;
+            $amt = (float)($r['amount'] ?? 0);
+            $n = max(1, (int)($r['installments'] ?? 1));
+            $p = (int)($r['installments_paid'] ?? 0);
+            $s['to_pay'] += self::commissionRemaining($amt, $n, $p);
+            $s['paid'] += round($amt - self::commissionRemaining($amt, $n, $p), 2);
+        }
+        return $s;
     }
 }

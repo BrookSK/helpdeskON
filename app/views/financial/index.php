@@ -74,7 +74,8 @@ foreach ($cards as $c) $cardsById[(int)$c['id']] = $c;
                     <div class="text-muted small"><i class="bi bi-calendar-check"></i> Projetado</div>
                     <div class="fw-bold"><?= finMoney($summary['projected']) ?></div>
                     <div class="small text-muted" style="font-size:0.65rem;">
-                        Empréstimos: tomado <?= finMoney($summary['loans_out']) ?> · a receber <?= finMoney($summary['loans_in']) ?>
+                        Empréstimos: tomado <?= finMoney($summary['loans_out']) ?> · a receber <?= finMoney($summary['loans_in']) ?><br>
+                        Comissões: a pagar <?= finMoney($commissionsSummary['to_pay']) ?> · já pago <?= finMoney($commissionsSummary['paid']) ?>
                     </div>
                 </div>
             </div>
@@ -85,6 +86,7 @@ foreach ($cards as $c) $cardsById[(int)$c['id']] = $c;
     <ul class="nav nav-tabs mb-3" role="tablist">
         <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-lancamentos" type="button"><i class="bi bi-list-ul"></i> Lançamentos</button></li>
         <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-cartoes" type="button"><i class="bi bi-credit-card"></i> Cartões (<?= count($cards) ?>)</button></li>
+        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-comissoes" type="button"><i class="bi bi-hand-coins"></i> Comissões (<?= count($commissions) ?>)</button></li>
         <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-asaas" type="button"><i class="bi bi-cloud-arrow-down"></i> Asaas (<?= count($accounts) ?>)</button></li>
     </ul>
 
@@ -141,6 +143,25 @@ foreach ($cards as $c) $cardsById[(int)$c['id']] = $c;
                                 <?php endforeach; ?>
                             </select>
                         </div>
+                        <div class="col-md-2" id="f-loandate-wrap" style="display:none;">
+                            <label class="form-label small">Data do empréstimo</label>
+                            <input id="f-loandate" type="date" class="form-control form-control-sm" title="Quando pegou/concedeu o empréstimo">
+                        </div>
+                        <div class="col-md-3" id="f-recurring-wrap" style="display:none;">
+                            <label class="form-label small mb-0">Recorrência</label>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="f-recurring-chk">
+                                <label class="form-check-label small" for="f-recurring-chk">Repetir automaticamente</label>
+                            </div>
+                            <div class="d-flex gap-2 align-items-center" id="f-recurring-fields" style="display:none;">
+                                <select id="f-cycle" class="form-select form-select-sm w-auto">
+                                    <option value="monthly">Mensal</option>
+                                    <option value="yearly">Anual</option>
+                                </select>
+                                <input id="f-recurring-until" type="month" class="form-control form-control-sm" title="Até quando (vazio = para sempre)">
+                            </div>
+                            <div class="small text-muted" style="font-size:0.65rem;">Ao pagar, a próxima ocorrência nasce automaticamente.</div>
+                        </div>
                         <div class="col-md-2">
                             <label class="form-label small">Data *</label>
                             <input id="f-due" type="date" class="form-control form-control-sm" value="<?= date('Y-m-d') ?>">
@@ -188,7 +209,11 @@ foreach ($cards as $c) $cardsById[(int)$c['id']] = $c;
                                         <i class="bi bi-pencil"></i> Manual
                                     <?php endif; ?>
                                 </td>
-                                <td class="text-nowrap"><?= (int)$t['installments'] > 1 ? ((int)$t['installments'] . 'x') : '—' ?></td>
+                                <td class="text-nowrap">
+                                    <?php if ((int)$t['installments'] > 1): ?><?= (int)$t['installments'] ?>x
+                                    <?php elseif (!empty($t['recurring_cycle'])): ?><span class="badge bg-info" title="Recorrente (<?= $t['recurring_cycle'] === 'yearly' ? 'anual' : 'mensal' ?><?= $t['recurring_until'] ? ' até ' . escape($t['recurring_until']) : '' ?>)"><i class="bi bi-arrow-repeat"></i> rec.</span>
+                                    <?php else: ?>—<?php endif; ?>
+                                </td>
                                 <td class="text-end fw-bold text-nowrap <?= $t['direction'] === 'in' ? 'text-success' : 'text-danger' ?>">
                                     <?= $t['direction'] === 'in' ? '+' : '−' ?> <?= finMoney($t['amount']) ?>
                                 </td>
@@ -253,6 +278,102 @@ foreach ($cards as $c) $cardsById[(int)$c['id']] = $c;
             </div>
         </div>
 
+        <?php // ================= COMISSÕES ================= ?>
+        <div class="tab-pane fade" id="tab-comissoes">
+            <div class="card mb-3">
+                <div class="card-header py-2"><strong>Nova comissão</strong> <span class="small text-muted">— vinculada a um ganho (projeto/venda): pra quem, quanto e em quantas vezes</span></div>
+                <div class="card-body">
+                    <div class="row g-2">
+                        <div class="col-md-3">
+                            <label class="form-label small">Ganho de origem *</label>
+                            <select id="com-ganho" class="form-select form-select-sm">
+                                <option value="">Selecione...</option>
+                                <?php foreach ($gainOptions as $g): ?>
+                                <option value="<?= (int)$g['id'] ?>" data-amount="<?= (float)$g['amount'] ?>">
+                                    #<?= (int)$g['id'] ?> · <?= escape($g['description'] ?? $g['category'] ?? 'Ganho') ?> (<?= finMoney($g['amount']) ?>)
+                                </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small">Para quem *</label>
+                            <select id="com-user" class="form-select form-select-sm">
+                                <option value="">Outro (nome abaixo)</option>
+                                <?php foreach ($users as $u): ?>
+                                <option value="<?= (int)$u['id'] ?>"><?= escape($u['name']) ?> (<?= escape($u['role']) ?>)</option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small">Nome (se fora do sistema)</label>
+                            <input id="com-recipient" class="form-control form-control-sm" placeholder="Ex.: Parceiro">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small">Valor</label>
+                            <div class="d-flex gap-2">
+                                <div class="input-group input-group-sm">
+                                    <div class="input-group-text p-0"><button class="btn btn-sm" type="button" id="com-mode-fixo" onclick="setComMode('fixo')">R$</button><button class="btn btn-sm" type="button" id="com-mode-pct" onclick="setComMode('pct')">%</button></div>
+                                    <input id="com-amount" class="form-control" placeholder="0,00" inputmode="decimal">
+                                </div>
+                            </div>
+                            <div class="small text-muted" style="font-size:0.65rem;" id="com-hint">Percentual é calculado sobre o valor do ganho selecionado.</div>
+                        </div>
+                        <div class="col-md-1">
+                            <label class="form-label small">Parcelas</label>
+                            <input id="com-installments" type="number" class="form-control form-control-sm" value="1" min="1" max="48">
+                        </div>
+                        <div class="col-md-1">
+                            <label class="form-label small">1ª data</label>
+                            <input id="com-due" type="date" class="form-control form-control-sm" value="<?= date('Y-m-d') ?>">
+                        </div>
+                        <div class="col-12">
+                            <button class="btn btn-sm btn-primary" onclick="saveCommission()"><i class="bi bi-plus-lg"></i> Lançar comissão</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-body p-0">
+                    <table class="table table-hover mb-0 align-middle">
+                        <thead class="table-light">
+                            <tr><th>Ganho de origem</th><th>Para quem</th><th>Nota</th><th class="text-end">Valor total</th><th>Parcelas</th><th>Próximo venc.</th><th class="text-end">Resta</th><th>Status</th><th></th></tr>
+                        </thead>
+                        <tbody>
+                            <?php if (empty($commissions)): ?>
+                            <tr><td colspan="9" class="text-center text-muted py-4">Nenhuma comissão lançada.</td></tr>
+                            <?php else: foreach ($commissions as $c):
+                                $who = $c['user_name'] ?? ($c['recipient'] ?? '—');
+                                $remaining = FinancialRules::commissionRemaining((float)$c['amount'], (int)$c['installments'], (int)$c['installments_paid']);
+                                $done = ($c['status'] === 'paid');
+                            ?>
+                            <tr>
+                                <td class="small">
+                                    <?php if (!empty($c['ganho_desc'])): ?>#<?= (int)$c['transaction_id'] ?> · <?= escape($c['ganho_desc']) ?>
+                                    <div class="text-muted" style="font-size:0.65rem;">(<?= finMoney($c['ganho_amount'] ?? 0) ?>)</div>
+                                    <?php else: ?>#<?= (int)$c['transaction_id'] ?><?php endif; ?>
+                                </td>
+                                <td class="fw-medium"><i class="bi bi-person"></i> <?= escape($who) ?></td>
+                                <td class="small text-muted"><?= escape($c['note'] ?? '—') ?></td>
+                                <td class="text-end"><?= finMoney($c['amount']) ?></td>
+                                <td class="text-nowrap"><?= (int)$c['installments_paid'] ?>/<?= (int)$c['installments'] ?><?= (int)$c['installments'] > 1 ? ' pago' : '' ?></td>
+                                <td><?= $done ? '—' : escape($c['next_due_date'] ?? '—') ?></td>
+                                <td class="text-end fw-bold <?= $remaining > 0 ? 'text-danger' : 'text-success' ?>"><?= finMoney($remaining) ?></td>
+                                <td><span class="badge bg-<?= $done ? 'success' : 'warning' ?>"><?= $done ? 'Quitada' : 'Pendente' ?></span></td>
+                                <td class="text-nowrap">
+                                    <?php if (!$done): ?>
+                                    <button class="btn btn-sm btn-outline-success py-0 px-1" title="Pagar próxima parcela" onclick="payCommission(<?= (int)$c['id'] ?>)"><i class="bi bi-check-lg"></i></button>
+                                    <?php endif; ?>
+                                    <button class="btn btn-sm btn-outline-danger py-0 px-1" title="Excluir" onclick="removeCommission(<?= (int)$c['id'] ?>)"><i class="bi bi-trash"></i></button>
+                                </td>
+                            </tr>
+                            <?php endforeach; endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
         <?php // ================= ASAAS ================= ?>
         <div class="tab-pane fade" id="tab-asaas">
             <div class="card mb-3">
@@ -296,14 +417,18 @@ const BASE = '<?= baseUrl("") ?>';
 const CSRF = '<?= csrf_token() ?>';
 
 // Mostra/esconde campos conforme o tipo escolhido.
+// canParcel: tipos que aceitam parcelamento; canRecur: aceitam recorrência.
 const KIND_DIRECTIONS = { ganho: null, gasto: null, salario: null, emprestimo: 'both', transferencia: 'both' };
+const KIND_PARCEL = { ganho: true, gasto: true, salario: false, emprestimo: true, transferencia: false };
 function refreshKindFields() {
     const kind = document.getElementById('f-kind').value;
     const dirWrap = document.getElementById('f-direction-wrap');
     const dirOut = document.getElementById('f-dir-out-opt');
     const dirIn = document.getElementById('f-dir-in-opt');
-    const canParcel = kind === 'gasto';
-    document.getElementById('f-card-wrap').style.display = canParcel ? '' : 'none';
+    const canParcel = KIND_PARCEL[kind] === true;
+    document.getElementById('f-card-wrap').style.display = kind === 'gasto' ? '' : 'none';
+    document.getElementById('f-loandate-wrap').style.display = kind === 'emprestimo' ? '' : 'none';
+    document.getElementById('f-recurring-wrap').style.display = (kind === 'ganho' || kind === 'gasto') ? '' : 'none';
     const d = KIND_DIRECTIONS[kind];
     dirWrap.style.display = d === 'both' ? '' : 'none';
     if (d === 'both') {
@@ -313,6 +438,38 @@ function refreshKindFields() {
 }
 document.getElementById('f-kind').addEventListener('change', refreshKindFields);
 refreshKindFields();
+document.getElementById('f-recurring-chk').addEventListener('change', function() {
+    document.getElementById('f-recurring-fields').style.display = this.checked ? '' : 'none';
+});
+
+// ===== Comissões =====
+let comMode = 'fixo';
+function setComMode(mode) {
+    comMode = mode;
+    document.getElementById('com-mode-fixo').classList.toggle('btn-primary', mode === 'fixo');
+    document.getElementById('com-mode-pct').classList.toggle('btn-primary', mode === 'pct');
+    document.getElementById('com-amount').placeholder = mode === 'pct' ? '0-100 (%)' : '0,00';
+}
+setComMode('fixo');
+
+async function saveCommission() {
+    const fd = new FormData();
+    fd.append('transaction_id', document.getElementById('com-ganho').value);
+    if (document.getElementById('com-user').value) fd.append('user_id', document.getElementById('com-user').value);
+    fd.append('recipient', document.getElementById('com-recipient').value.trim());
+    if (comMode === 'pct') fd.append('percent', document.getElementById('com-amount').value);
+    else fd.append('amount', document.getElementById('com-amount').value);
+    fd.append('installments', document.getElementById('com-installments').value || '1');
+    fd.append('first_due_date', document.getElementById('com-due').value);
+    const r = await post('financial/commissionStore', fd);
+    if (r) location.reload();
+}
+async function payCommission(id) { const r = await post('financial/commissionPay/' + id, new FormData()); if (r) location.reload(); }
+async function removeCommission(id) {
+    if (!confirm('Excluir esta comissão?')) return;
+    const r = await post('financial/commissionRemove/' + id, new FormData());
+    if (r) location.reload();
+}
 
 async function post(url, fd) {
     fd.append('csrf_token', CSRF);
@@ -324,14 +481,22 @@ async function post(url, fd) {
 
 async function saveTransaction() {
     const fd = new FormData();
-    fd.append('kind', document.getElementById('f-kind').value);
-    if (KIND_DIRECTIONS[fd.get('kind')] === 'both') fd.append('direction', document.getElementById('f-direction').value);
+    const kind = document.getElementById('f-kind').value;
+    fd.append('kind', kind);
+    if (KIND_DIRECTIONS[kind] === 'both') fd.append('direction', document.getElementById('f-direction').value);
     fd.append('category', document.getElementById('f-category').value);
     fd.append('description', document.getElementById('f-description').value);
     fd.append('amount', document.getElementById('f-amount').value);
     fd.append('installments', document.getElementById('f-installments').value || '1');
-    fd.append('card_id', document.getElementById('f-card').value);
+    if (kind === 'gasto') fd.append('card_id', document.getElementById('f-card').value);
     fd.append('due_date', document.getElementById('f-due').value);
+    if (kind === 'emprestimo') fd.append('loan_date', document.getElementById('f-loandate').value);
+    if (kind === 'ganho' || kind === 'gasto') {
+        if (document.getElementById('f-recurring-chk') && document.getElementById('f-recurring-chk').checked) {
+            fd.append('recurring_cycle', document.getElementById('f-cycle').value);
+            fd.append('recurring_until', document.getElementById('f-recurring-until').value);
+        }
+    }
     fd.append('status', document.getElementById('f-paid').checked ? 'paid' : 'pending');
     const r = await post('financial/store', fd);
     if (r) location.reload();

@@ -149,6 +149,32 @@ class FinancialTransaction
         if ($t['status'] !== 'paid') {
             $this->db->update('fin_transactions', ['status' => 'paid', 'paid_at' => $now], 'id = ?', [$id]);
         }
+
+        // Recorrente: ao pagar, nasce a PRÓXIMA ocorrência (mesma configuração,
+        // nova data), respeitando o fim (recurring_until). O histórico continua
+        // visível; a próxima aparece como pendente no mês seguinte.
+        if (!empty($t['recurring_cycle'])) {
+            $nextDue = FinancialRules::recurringNextDate((string)$t['due_date'], (string)$t['recurring_cycle']);
+            if (FinancialRules::recurringContinues($nextDue, $t['recurring_until'] ?? null)) {
+                $this->db->insert('fin_transactions', [
+                    'kind'            => $t['kind'],
+                    'direction'       => $t['direction'],
+                    'category'        => $t['category'],
+                    'description'     => $t['description'],
+                    'amount'          => $t['amount'],
+                    'installments'    => 1,
+                    'recurring_cycle' => $t['recurring_cycle'],
+                    'recurring_until' => $t['recurring_until'],
+                    'due_date'        => $nextDue,
+                    'status'          => 'pending',
+                    'card_id'         => $t['card_id'],
+                    'asaas_account_id' => $t['asaas_account_id'],
+                    'asaas_payment_id' => null,
+                    'source'          => $t['source'],
+                    'created_by'      => $t['created_by'],
+                ]);
+            }
+        }
         return true;
     }
 
