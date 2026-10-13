@@ -46,7 +46,6 @@ class PresentationController extends Controller
             'user' => $this->currentUser(),
             'presentation' => $presentation,
             'sections' => $this->model->sections($presentation),
-            'defaultSections' => PresentationRules::defaultSections(),
             'sectionTypes' => PresentationRules::SECTION_TYPES,
             'publicLink' => $this->publicLink($presentation),
         ]);

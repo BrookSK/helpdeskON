@@ -15,8 +15,6 @@
             <button id="btn-send" class="btn btn-sm btn-primary" onclick="sendPresentation()"><i class="bi bi-send"></i> Enviar ao cliente</button>
             <?php if (!empty($presentation['proposal_id'])): ?>
             <a href="<?= baseUrl('proposal/edit/' . (int)$presentation['proposal_id']) ?>" class="btn btn-sm btn-dark"><i class="bi bi-file-earmark-text"></i> Ver proposta</a>
-            <?php elseif (Permissions::canAccess($user['role'] ?? null, 'proposals')): ?>
-            <button class="btn btn-sm btn-dark" onclick="toProposal()"><i class="bi bi-arrow-right-circle"></i> Avançar para proposta</button>
             <?php endif; ?>
         </div>
     </div>
@@ -84,7 +82,6 @@
                     <p class="small text-muted">Novas apresentações nascem a partir do modelo padrão.</p>
                     <div class="d-grid gap-2">
                         <button class="btn btn-sm btn-outline-secondary" onclick="saveAsTemplate()"><i class="bi bi-bookmark-check"></i> Salvar estas seções como modelo padrão</button>
-                        <button class="btn btn-sm btn-outline-warning" onclick="restoreDefault()"><i class="bi bi-arrow-counterclockwise"></i> Restaurar conteúdo original (Gamma)</button>
                     </div>
                 </div>
             </div>
@@ -97,7 +94,6 @@ const PRES_BASE = '<?= baseUrl("") ?>';
 const CSRF = '<?= csrf_token() ?>';
 const PRESENTATION_ID = <?= (int)$presentation['id'] ?>;
 const SECTION_TYPES = <?= json_encode($sectionTypes, JSON_UNESCAPED_UNICODE) ?>;
-const DEFAULT_SECTIONS = <?= json_encode($defaultSections, JSON_UNESCAPED_UNICODE) ?>;
 let SECTIONS = <?= json_encode($sections, JSON_UNESCAPED_UNICODE) ?>;
 
 // Rótulos dos dois campos de cada item, conforme o layout da seção.
@@ -171,12 +167,6 @@ function addSection() {
     SECTIONS.push({ type, title: SECTION_TYPES[type] || '', subtitle: '', body: '', visible: true, items: [] });
     renderSections();
 }
-function restoreDefault() {
-    if (!confirm('Substituir as seções atuais pelo conteúdo original (Gamma)? As alterações só valem depois de salvar.')) return;
-    SECTIONS = JSON.parse(JSON.stringify(DEFAULT_SECTIONS));
-    renderSections();
-}
-
 function payload(extra) {
     return Object.assign({
         title: document.getElementById('a-title').value.trim(),
@@ -279,14 +269,6 @@ async function sendPresentation() {
     if (canais.length) alert('Apresentação enviada ao cliente por: ' + canais.join(' e ') + '.');
     else if (r.no_contact) alert('O cliente não tem telefone/e-mail cadastrado. Copie o link e envie manualmente:\n' + r.link);
     else alert('Não foi possível enviar automaticamente (verifique WhatsApp/SMTP). Envie o link manualmente:\n' + r.link);
-}
-
-async function toProposal() {
-    if (!await savePresentation()) return;
-    if (!confirm('Criar a proposta para este cliente e seguir na esteira?')) return;
-    const r = await postAction('toProposal');
-    if (r.error) { alert(r.error); return; }
-    location.href = `${PRES_BASE}proposal/edit/${r.id}`;
 }
 
 renderSections();
