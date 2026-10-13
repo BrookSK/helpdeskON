@@ -103,6 +103,8 @@ const ITEM_LABELS = {
     cards:   ['Título', 'Descrição'],
     compare: ['Mercado (low-code / freelancer)', 'ON Solutions'],
     list:    ['Item', 'Detalhe (opcional)'],
+    dont:    ['Item', 'Detalhe (opcional)'],
+    table:   ['1ª coluna (a 1ª linha é o cabeçalho)', 'Demais colunas (separe com |)'],
     cta:     ['Rótulo (ex.: E-mail)', 'Valor'],
 };
 
@@ -141,6 +143,7 @@ function renderSections() {
                     <div class="col-12"><label class="form-label small mb-1">Texto</label><textarea class="form-control form-control-sm" rows="3" oninput="setField(${i},'body',this.value)">${esc(s.body)}</textarea></div>
                 </div>
                 ${items}
+                ${s.type !== 'hero' ? `<label class="form-label small mt-2 mb-1">Destaque (caixa no fim da seção, opcional)</label><textarea class="form-control form-control-sm" rows="2" oninput="setField(${i},'note',this.value)">${esc(s.note)}</textarea>` : ''}
             </div>
         </div>`;
     }).join('');
@@ -164,7 +167,7 @@ function removeSection(i) {
 }
 function addSection() {
     const type = document.getElementById('new-section-type').value;
-    SECTIONS.push({ type, title: SECTION_TYPES[type] || '', subtitle: '', body: '', visible: true, items: [] });
+    SECTIONS.push({ type, title: SECTION_TYPES[type] || '', subtitle: '', body: '', note: '', visible: true, items: [] });
     renderSections();
 }
 function payload(extra) {

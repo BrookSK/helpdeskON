@@ -56,6 +56,16 @@ $p = fn($text) => nl2br($t($text));
         ul.list li { padding-left:26px; position:relative; }
         ul.list li::before { content:'✓'; position:absolute; left:0; color:#00a892; font-weight:700; }
         ul.list li small { display:block; color:#6b7088; }
+        ul.list.dont li::before { content:'✗'; color:#d64545; }
+        table.grid { width:100%; border-collapse:collapse; margin-top:12px; }
+        table.grid th { text-align:left; padding:12px; font-size:.9rem; background:#34407a; color:#fff; }
+        table.grid td { padding:12px; border-bottom:1px solid #e6e8f0; vertical-align:top; font-size:.93rem; }
+        table.grid td:first-child { font-weight:600; color:#34407a; }
+        table.grid tr:nth-child(even) td { background:#f8f9fc; }
+        .note { margin-top:18px; background:#e9f8f5; border-left:4px solid #00BFA6; border-radius:8px; padding:14px 16px; font-size:.93rem; color:#245a52; }
+        .divider { background:linear-gradient(160deg, #0b1a24 0%, #0e4740 70%, #11665a 100%); text-align:center; padding:36px 56px; }
+        .divider h2 { color:#fff; font-size:1.25rem; letter-spacing:.06em; text-transform:uppercase; margin:0; }
+        .divider .sub { color:#5eead4; margin:.4em 0 0; }
         .cta { background:#34407a; color:#fff; text-align:center; }
         .cta h2 { color:#fff; } .cta .body, .cta .sub { color:#d7dbf0; }
         .contacts { display:flex; justify-content:center; gap:28px; flex-wrap:wrap; margin-top:22px; }
@@ -78,7 +88,7 @@ $p = fn($text) => nl2br($t($text));
                 <?php if ($s['body'] !== ''): ?><hr><div class="body"><?= $p($s['body']) ?></div><?php endif; ?>
             </section>
             <?php else: ?>
-            <section class="slide <?= $s['type'] === 'cta' ? 'cta' : '' ?>">
+            <section class="slide <?= in_array($s['type'], ['cta', 'divider'], true) ? $s['type'] : '' ?>">
                 <?php if ($s['title'] !== ''): ?><h2><?= $t($s['title']) ?></h2><?php endif; ?>
                 <?php if ($s['subtitle'] !== ''): ?><p class="sub"><?= $t($s['subtitle']) ?></p><?php endif; ?>
                 <?php if ($s['body'] !== ''): ?><div class="body"><?= $p($s['body']) ?></div><?php endif; ?>
@@ -87,9 +97,17 @@ $p = fn($text) => nl2br($t($text));
                     <?php if ($s['type'] === 'stats'): ?>
                     <div class="stats"><?php foreach ($s['items'] as $it): ?><div class="stat"><strong><?= $t($it['title']) ?></strong><span><?= $t($it['text']) ?></span></div><?php endforeach; ?></div>
                     <?php elseif ($s['type'] === 'steps'): ?>
-                    <div class="steps"><?php foreach ($s['items'] as $it): ?><div class="step"><strong><?= $t($it['title']) ?></strong><p><?= $p($it['text']) ?></p></div><?php endforeach; ?></div>
+                    <div class="steps"><?php foreach ($s['items'] as $it): ?><div class="step"><?php if ($it['title'] !== ''): ?><strong><?= $t($it['title']) ?></strong><?php endif; ?><p><?= $p($it['text']) ?></p></div><?php endforeach; ?></div>
                     <?php elseif ($s['type'] === 'cards'): ?>
-                    <div class="cards"><?php foreach ($s['items'] as $it): ?><div class="card"><strong><?= $t($it['title']) ?></strong><p><?= $p($it['text']) ?></p></div><?php endforeach; ?></div>
+                    <div class="cards"><?php foreach ($s['items'] as $it): ?><div class="card"><?php if ($it['title'] !== ''): ?><strong><?= $t($it['title']) ?></strong><?php endif; ?><p><?= $p($it['text']) ?></p></div><?php endforeach; ?></div>
+                    <?php elseif ($s['type'] === 'table'): ?>
+                    <?php $rows = array_map(fn($it) => array_merge([$it['title']], $it['text'] !== '' ? array_map('trim', explode('|', $it['text'])) : []), $s['items']); $head = array_shift($rows); ?>
+                    <table class="grid">
+                        <thead><tr><?php foreach ($head as $c): ?><th><?= $t($c) ?></th><?php endforeach; ?></tr></thead>
+                        <tbody><?php foreach ($rows as $row): ?><tr><?php foreach ($row as $c): ?><td><?= $t($c) ?></td><?php endforeach; ?></tr><?php endforeach; ?></tbody>
+                    </table>
+                    <?php elseif ($s['type'] === 'dont'): ?>
+                    <ul class="list dont"><?php foreach ($s['items'] as $it): ?><li><?= $t($it['title']) ?><?php if ($it['text'] !== ''): ?><small><?= $t($it['text']) ?></small><?php endif; ?></li><?php endforeach; ?></ul>
                     <?php elseif ($s['type'] === 'compare'): ?>
                     <table class="cmp">
                         <thead><tr><th>O que o mercado oferece</th><th>O que nós entregamos</th></tr></thead>
@@ -101,6 +119,7 @@ $p = fn($text) => nl2br($t($text));
                     <div class="contacts"><?php foreach ($s['items'] as $it): ?><div><span><?= $t($it['title']) ?></span><?= $t($it['text']) ?></div><?php endforeach; ?></div>
                     <?php endif; ?>
                 <?php endif; ?>
+                <?php if (($s['note'] ?? '') !== ''): ?><div class="note"><?= $p($s['note']) ?></div><?php endif; ?>
             </section>
             <?php endif; ?>
         <?php endforeach; ?>

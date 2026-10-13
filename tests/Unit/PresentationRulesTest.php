@@ -43,9 +43,24 @@ final class PresentationRulesTest extends TestCase
         $this->assertFalse($out[0]['visible']);
         $this->assertSame(200, mb_strlen($out[0]['title']));
 
-        $many = array_fill(0, 100, ['type' => 'text', 'title' => 't']);
+        $many = array_fill(0, PresentationRules::MAX_SECTIONS + 10, ['type' => 'text', 'title' => 't']);
         $this->assertCount(PresentationRules::MAX_SECTIONS, PresentationRules::sanitizeSections($many));
         $this->assertSame([], PresentationRules::sanitizeSections('nao-e-array'));
+    }
+
+    public function testModeloPadraoCobreODocumentoDoGamma(): void
+    {
+        $titles = array_column(PresentationRules::defaultSections(), 'title');
+        foreach (['1. Quem somos', '4. Perfil de cliente ideal', '5. Sinais de oportunidade', '20. Objeções e respostas',
+                  '42. Checklist do Closer após a reunião', 'Planos de Hospedagem Cloud & VPS', 'Contato e Handoff'] as $t) {
+            $this->assertContains($t, $titles);
+        }
+    }
+
+    public function testSanitizeMantemDestaque(): void
+    {
+        $out = PresentationRules::sanitizeSections([['type' => 'table', 'title' => 'T', 'note' => '  Atenção  ']]);
+        $this->assertSame('Atenção', $out[0]['note']);
     }
 
     public function testDecodeCaiNoModeloQuandoInvalido(): void
