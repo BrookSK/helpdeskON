@@ -22,12 +22,17 @@ $p = fn($text) => nl2br($t($text));
         h2 { font-size:1.7rem; }
         .sub { color:#5f6890; font-size:1.05rem; margin:0 0 1.2em; }
         .body { font-size:1rem; color:#3c4262; }
-        .hero { text-align:center; background:linear-gradient(180deg,#e4e6ee,#d9dce8); padding:72px 56px; }
+        .hero {
+            text-align:center; padding:88px 56px; color:#fff;
+            background:
+                radial-gradient(ellipse at 85% 110%, rgba(20,130,110,.55) 0%, rgba(20,130,110,0) 60%),
+                linear-gradient(160deg, #0b1a24 0%, #0d2a2f 35%, #0e4740 70%, #11665a 100%);
+        }
         .hero img { max-height:56px; margin-bottom:18px; }
-        .hero h1 { font-size:3rem; }
-        .hero .sub { font-size:1.3rem; font-weight:600; color:#34407a; }
-        .hero hr { border:none; border-top:2px solid #8f97bd; width:70%; margin:22px auto; }
-        .hero .body { max-width:620px; margin:0 auto; color:#4a5280; font-size:1.05rem; }
+        .hero h1 { font-size:3rem; color:#fff; }
+        .hero .sub { font-size:1.3rem; font-weight:600; color:#5eead4; }
+        .hero hr { border:none; border-top:1px solid rgba(255,255,255,.15); width:70%; margin:22px auto; }
+        .hero .body { max-width:620px; margin:0 auto; color:#c7d6d9; font-size:1.05rem; }
         .stats { display:flex; gap:16px; flex-wrap:wrap; margin-top:12px; }
         .stat { flex:1 1 180px; background:#f4f6fb; border-radius:12px; padding:22px; text-align:center; }
         .stat strong { display:block; font-size:2.2rem; color:#00a892; line-height:1.1; }
@@ -67,7 +72,7 @@ $p = fn($text) => nl2br($t($text));
         <?php foreach ($sections as $s): ?>
             <?php if ($s['type'] === 'hero'): ?>
             <section class="slide hero">
-                <?php if ($logo): ?><img src="<?= baseUrl($logo) ?>" alt="<?= $appName ?>"><?php endif; ?>
+                <?php if ($logo): ?><img src="<?= baseUrl($logo) ?>" alt="" onerror="this.remove()"><?php endif; ?>
                 <h1><?= $t($s['title']) ?></h1>
                 <?php if ($s['subtitle'] !== ''): ?><p class="sub"><?= $t($s['subtitle']) ?></p><?php endif; ?>
                 <?php if ($s['body'] !== ''): ?><hr><div class="body"><?= $p($s['body']) ?></div><?php endif; ?>
