@@ -18,7 +18,12 @@ $statusBadge = [
             <h5 class="mb-0">Propostas / Orçamentos</h5>
             <small class="text-muted">Processo comercial — da elaboração ao aceite</small>
         </div>
-        <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#newProposalModal"><i class="bi bi-plus-lg"></i> Nova proposta</button>
+        <div class="d-flex gap-2">
+            <?php if (Permissions::canAccess($user['role'] ?? null, 'presentations')): ?>
+            <a href="<?= baseUrl('presentation') ?>" class="btn btn-outline-primary btn-sm"><i class="bi bi-easel"></i> Apresentação</a>
+            <?php endif; ?>
+            <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#newProposalModal"><i class="bi bi-plus-lg"></i> Nova proposta</button>
+        </div>
     </div>
 
     <div class="card mb-3">

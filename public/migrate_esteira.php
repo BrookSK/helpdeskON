@@ -50,6 +50,7 @@ $migrations = [
     '152_ticket_scope_homologacao.sql',
     '153_ticket_support_fields.sql',
     '154_ticket_relations.sql',
+    '161_commercial_presentations.sql',
 ];
 
 $db = Database::getInstance();
