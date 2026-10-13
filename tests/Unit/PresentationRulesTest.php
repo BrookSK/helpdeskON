@@ -68,6 +68,10 @@ final class PresentationRulesTest extends TestCase
         $this->assertSame(PresentationRules::defaultSections(), PresentationRules::decode(null));
         $this->assertSame(PresentationRules::defaultSections(), PresentationRules::decode('{quebrado'));
 
+        // Conteúdo salvo antes do versionamento (modelo resumido antigo) volta ao padrão do Gamma.
+        $legacy = json_encode(['sections' => [['type' => 'text', 'title' => 'Antigo']]]);
+        $this->assertSame(PresentationRules::defaultSections(), PresentationRules::decode($legacy));
+
         $json = PresentationRules::encode([['type' => 'text', 'title' => 'Olá']]);
         $this->assertSame('Olá', PresentationRules::decode($json)[0]['title']);
     }

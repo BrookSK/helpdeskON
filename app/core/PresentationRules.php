@@ -91,17 +91,23 @@ class PresentationRules
         return $out;
     }
 
-    /** Decodifica o JSON salvo; conteúdo inválido/vazio cai no modelo padrão. */
+    /**
+     * Versão do formato salvo. Conteúdo sem versão é do modelo resumido antigo
+     * (antes da recriação integral do Gamma) e é substituído pelo modelo padrão.
+     */
+    public const CONTENT_VERSION = 2;
+
+    /** Decodifica o JSON salvo; conteúdo inválido, vazio ou antigo cai no modelo padrão. */
     public static function decode(?string $json): array
     {
         $data = json_decode((string)$json, true);
-        $sections = self::sanitizeSections(is_array($data) ? ($data['sections'] ?? $data) : null);
-        return $sections ?: self::defaultSections();
+        if (!is_array($data) || !isset($data['version'])) return self::defaultSections();
+        return self::sanitizeSections($data['sections'] ?? null) ?: self::defaultSections();
     }
 
     public static function encode(array $sections): string
     {
-        return json_encode(['sections' => self::sanitizeSections($sections)], JSON_UNESCAPED_UNICODE);
+        return json_encode(['version' => self::CONTENT_VERSION, 'sections' => self::sanitizeSections($sections)], JSON_UNESCAPED_UNICODE);
     }
 
     /** Só as seções marcadas como visíveis (o que o cliente vê). */

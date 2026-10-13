@@ -70,6 +70,9 @@ $p = fn($text) => nl2br($t($text));
         .cta h2 { color:#fff; } .cta .body, .cta .sub { color:#d7dbf0; }
         .contacts { display:flex; justify-content:center; gap:28px; flex-wrap:wrap; margin-top:22px; }
         .contacts div { font-size:.95rem; } .contacts span { display:block; font-size:.78rem; color:#aeb5da; text-transform:uppercase; letter-spacing:.05em; }
+        .slide[data-hidden] { opacity:.35; position:relative; }
+        .slide[data-hidden]::after { content:'Oculta para o cliente'; position:absolute; top:12px; right:16px; background:#6b7088; color:#fff; font-size:.72rem; padding:3px 8px; border-radius:6px; }
+        .slide.editing { outline:3px solid #f5b400; outline-offset:4px; }
         .ft { text-align:center; font-size:.78rem; color:#7b819c; }
         @media (max-width:640px) { .slide { padding:32px 22px; } .hero { padding:48px 22px; } .hero h1 { font-size:2.2rem; } h2 { font-size:1.4rem; } }
     </style>
@@ -79,16 +82,17 @@ $p = fn($text) => nl2br($t($text));
     <div class="preview-bar">Pré-visualização interna — <?= PresentationRules::isPublished($presentation) ? 'o link público está ativo.' : 'o link público ainda está desativado.' ?></div>
     <?php endif; ?>
     <div class="deck">
-        <?php foreach ($sections as $s): ?>
+        <?php foreach ($sections as $idx => $s): ?>
+            <?php $secAttr = 'id="sec-' . (int)$idx . '"' . (empty($s['visible']) ? ' data-hidden="1"' : ''); ?>
             <?php if ($s['type'] === 'hero'): ?>
-            <section class="slide hero">
+            <section class="slide hero" <?= $secAttr ?>>
                 <?php if ($logo): ?><img src="<?= baseUrl($logo) ?>" alt="" onerror="this.remove()"><?php endif; ?>
                 <h1><?= $t($s['title']) ?></h1>
                 <?php if ($s['subtitle'] !== ''): ?><p class="sub"><?= $t($s['subtitle']) ?></p><?php endif; ?>
                 <?php if ($s['body'] !== ''): ?><hr><div class="body"><?= $p($s['body']) ?></div><?php endif; ?>
             </section>
             <?php else: ?>
-            <section class="slide <?= in_array($s['type'], ['cta', 'divider'], true) ? $s['type'] : '' ?>">
+            <section class="slide <?= in_array($s['type'], ['cta', 'divider'], true) ? $s['type'] : '' ?>" <?= $secAttr ?>>
                 <?php if ($s['title'] !== ''): ?><h2><?= $t($s['title']) ?></h2><?php endif; ?>
                 <?php if ($s['subtitle'] !== ''): ?><p class="sub"><?= $t($s['subtitle']) ?></p><?php endif; ?>
                 <?php if ($s['body'] !== ''): ?><div class="body"><?= $p($s['body']) ?></div><?php endif; ?>
