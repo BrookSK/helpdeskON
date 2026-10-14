@@ -156,9 +156,10 @@ foreach ($sections as $idx => $s) {
         ul.list.dont li:hover { border-color:rgba(248,113,113,.3); background:rgba(248,113,113,.05); }
 
         /* Observação */
-        .note { margin-top:40px; display:flex; gap:18px; max-width:1100px; padding:26px 30px; border:1px solid var(--line-t); border-radius:16px;
+        .note { margin-top:40px; display:flex; align-items:flex-start; gap:14px; max-width:1100px; padding:22px 24px; border:1px solid var(--line-t); border-radius:16px;
             background:linear-gradient(120deg, rgba(0,191,166,.12) 0%, rgba(0,191,166,.03) 100%); color:var(--note); font-size:1rem; line-height:1.7; }
-        .note::before { content:'i'; flex:0 0 30px; display:flex; align-items:center; justify-content:center; height:30px; border-radius:50%; background:#0a8f7d; color:#fff; font:700 .9rem/1 var(--mono); }
+        .note::before { content:'i'; flex:0 0 28px; width:28px; height:28px; display:flex; align-items:center; justify-content:center; margin-top:2px; border-radius:50%; background:#0a8f7d; color:#fff; font:700 .85rem/1 var(--mono); }
+        .note > div { min-width:0; }
 
         /* Fechamento */
         .sec.cta { text-align:center; background:radial-gradient(ellipse 70% 80% at 50% 120%, rgba(17,140,118,.55) 0%, rgba(17,140,118,0) 70%), linear-gradient(170deg, #0b1f27 0%, #0d3a37 100%); }
@@ -198,7 +199,7 @@ foreach ($sections as $idx => $s) {
             .stat, .step, .card { padding:26px 22px; }
             ul.list li { padding:18px 18px 18px 58px; } ul.list li::before { left:16px; }
             th, td { padding:14px 16px; }
-            .note { flex-direction:column; padding:22px; }
+            .note { padding:18px; }
         }
         @media print { .preview-bar, .scroll-hint { display:none; } .js .reveal { opacity:1; transform:none; } .hero { min-height:auto; } }
     </style>
