@@ -1,5 +1,5 @@
 <?php
-$brandName = 'ON Solutions Brasil';
+$brandName = 'ON Solutions';
 $appName = htmlspecialchars($brandName, ENT_QUOTES);
 $t = fn($text) => PresentationRules::linkify(htmlspecialchars(PresentationRules::applyVars((string)$text, $vars), ENT_QUOTES));
 $p = fn($text) => nl2br($t($text));
@@ -107,26 +107,27 @@ foreach ($sections as $idx => $s) {
         .block { margin-top:52px; }
         .sec-head + .block { margin-top:40px; }
 
-        /* Indicadores */
-        .stats { display:grid; grid-template-columns:repeat(3, 1fr); gap:18px; text-align:center; }
-        .stat { padding:34px 22px; border:1px solid var(--line); border-radius:18px; background:var(--panel); transition:transform .2s, border-color .2s, box-shadow .2s; }
-        .sec.light .stat:hover { transform:translateY(-3px); border-color:var(--line-t); box-shadow:0 12px 28px rgba(10,143,125,.08); }
-        .stat strong { display:block; font-size:clamp(2.6rem, 4.6vw, 4rem); line-height:1.05; font-weight:800; letter-spacing:-.03em; margin-bottom:10px; color:var(--white); }
-        .stat span { color:var(--text); font-size:1rem; }
+        /* Indicadores: faixa única, sem card */
+        .stats { display:grid; grid-template-columns:repeat(3, 1fr); gap:0; text-align:center; padding:56px 20px 50px; border-radius:28px;
+            background:linear-gradient(160deg, #0a8f7d 0%, #0d6e62 55%, #0b5a51 100%); }
+        .stat { padding:12px 22px; }
+        .stat + .stat { border-left:1px solid rgba(255,255,255,.18); }
+        .stat strong { display:block; font-size:clamp(3.2rem, 6vw, 5rem); line-height:.95; font-weight:800; letter-spacing:-.04em; margin-bottom:12px; color:#fff; }
+        .stat span { color:rgba(255,255,255,.86); font-size:1.05rem; font-weight:500; }
 
-        /* Etapas */
-        .steps { display:grid; grid-template-columns:repeat(4, 1fr); gap:18px; counter-reset:step; }
-        .step { position:relative; padding:28px 22px 26px; text-align:left; border:1px solid var(--line); border-radius:18px; background:var(--panel); transition:transform .2s, border-color .2s, box-shadow .2s; }
-        .sec.light .step:hover { transform:translateY(-3px); border-color:var(--line-t); box-shadow:0 12px 28px rgba(10,143,125,.08); }
-        .step::before { counter-increment:step; content:counter(step, decimal-leading-zero); display:flex; align-items:center; justify-content:center; width:42px; height:42px; margin:0 0 18px;
-            border-radius:12px; background:#0a8f7d; color:#fff; font-family:var(--mono); font-weight:700; font-size:.9rem; }
-        .step strong { display:block; color:var(--white); font-size:1.15rem; font-weight:700; margin-bottom:8px; letter-spacing:-.01em; }
-        .step p { margin:0; color:var(--text); font-size:.98rem; }
+        /* Etapas: linha do tempo, sem cartão */
+        .steps { display:grid; grid-template-columns:repeat(4, 1fr); gap:8px 36px; counter-reset:step; position:relative; }
+        .steps::before { content:''; position:absolute; left:8px; right:8px; top:17px; height:2px; background:linear-gradient(90deg, #0a8f7d, rgba(10,143,125,.2)); pointer-events:none; }
+        .step { position:relative; padding:0; text-align:left; background:none; border:none; }
+        .step::before { counter-increment:step; content:counter(step, decimal-leading-zero); display:flex; align-items:center; justify-content:center; width:36px; height:36px; margin:0 0 22px;
+            border-radius:50%; background:#0a8f7d; color:#fff; font-family:var(--mono); font-weight:700; font-size:.8rem; position:relative; z-index:1; box-shadow:0 0 0 6px var(--sec-bg, #f4faf8); }
+        .step strong { display:block; color:var(--white); font-size:1.18rem; font-weight:700; margin-bottom:8px; letter-spacing:-.01em; }
+        .step p { margin:0; color:var(--text); font-size:.98rem; line-height:1.65; }
 
         /* Clientes */
         .cards { display:grid; grid-template-columns:repeat(4, 1fr); gap:18px; }
         .card { padding:26px 22px 24px; border:1px solid var(--line); border-radius:18px; background:var(--panel); transition:transform .2s, border-color .2s, box-shadow .2s; }
-        .card .logo { width:88px; height:88px; object-fit:contain; object-position:center; border-radius:50%; background:#fff; border:1px solid #e6eeee; margin-bottom:16px; display:block; padding:4px; }
+        .card .logo { width:96px; height:96px; object-fit:contain; object-position:center; background:transparent; border:none; border-radius:0; margin-bottom:16px; display:block; padding:0; }
         .card strong { display:block; color:var(--white); font-size:1.12rem; font-weight:700; margin-bottom:10px; letter-spacing:-.015em; }
         .card p { margin:0; color:var(--text); font-size:.95rem; line-height:1.65; }
         .sec.light .card:hover { transform:translateY(-3px); border-color:var(--line-t); box-shadow:0 12px 28px rgba(10,143,125,.08); }
@@ -168,8 +169,6 @@ foreach ($sections as $idx => $s) {
         .note > div { min-width:0; }
 
         /* Fechamento */
-        .sec:not(.light) { box-shadow:inset 0 1px 0 rgba(94,234,212,.12); }
-        .sec:not(.light) .step { background:rgba(255,255,255,.04); }
         .sec.cta { text-align:center; background:radial-gradient(ellipse 70% 80% at 50% 120%, rgba(17,140,118,.55) 0%, rgba(17,140,118,0) 70%), linear-gradient(170deg, #0b1f27 0%, #0d3a37 100%); }
         .sec.cta .sec-head { justify-content:center; }
         .sec.cta .sub, .sec.cta .body { margin-left:auto; margin-right:auto; }
@@ -195,12 +194,15 @@ foreach ($sections as $idx => $s) {
         @media (max-width:1100px) {
             .cards { grid-template-columns:repeat(2, minmax(0, 1fr)); }
             .steps { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+            .steps::before { display:none; }
         }
         @media (max-width:900px) {
             .wrap { padding:0 28px; }
             .sec { padding:90px 0; }
             .sec-head { flex-direction:column; align-items:flex-start; gap:10px; }
             .cards, .steps, ul.list, .stats, .toc ol { grid-template-columns:minmax(0,1fr); }
+            .stat + .stat { border-left:none; border-top:1px solid rgba(255,255,255,.18); }
+            .steps::before { display:none; }
             .hero-brand { flex-direction:column; gap:20px; }
         }
         @media (max-width:560px) {
@@ -208,7 +210,10 @@ foreach ($sections as $idx => $s) {
             .wrap { padding:0 20px; }
             .hero { padding:90px 0 80px; }
             .sec { padding:70px 0; }
-            .stat, .step, .card { padding:26px 22px; }
+            .stat { padding:18px 12px; }
+            .stat + .stat { border-left:none; border-top:1px solid rgba(255,255,255,.18); }
+            .card { padding:26px 22px; }
+            .steps::before { display:none; }
             ul.list li { padding:20px 18px; }
             th, td { padding:14px 16px; }
             .note { padding:18px; }
@@ -223,15 +228,11 @@ foreach ($sections as $idx => $s) {
 
     <main>
             <?php
-            // Fundo claro com variação de tom. Escuro na capa, no último bloco e no rodapé.
+            // Fundo claro com variação de tom. Escuro só na capa, CTA e rodapé.
             $lightTones = ['#f7fbfb', '#eef8f5', '#ffffff', '#e7f4f0', '#f4faf8'];
             $lightN = 0;
             $prevBottom = '#d9f1ec';
             $prevDark = true;
-            $lastIdx = null;
-            foreach ($sections as $i => $sec) {
-                if (($sec['type'] ?? '') !== 'divider' && ($sec['type'] ?? '') !== 'hero') $lastIdx = $i;
-            }
             ?>
         <?php foreach ($sections as $idx => $s): ?>
             <?php if ($s['type'] === 'divider') continue; ?>
@@ -262,7 +263,7 @@ foreach ($sections as $idx => $s) {
             $title = $s['title'];
             if (preg_match('/^(\d+)\.\s+(.+)$/u', $title, $m)) { $num = str_pad($m[1], 2, '0', STR_PAD_LEFT); $title = $m[2]; }
             $isCta = $s['type'] === 'cta';
-            $dark = $isCta || $idx === $lastIdx;
+            $dark = $isCta;
             if ($dark) {
                 $body = '#0a1b23';
                 $bottom = '#0f4f48';
@@ -276,7 +277,7 @@ foreach ($sections as $idx => $s) {
             $prevDark = $dark;
             $classes = 'sec' . ($isCta ? ' cta' : '') . ($dark ? '' : ' light') . (isset($partOf[$idx]) ? ' part-start' : '');
             ?>
-            <section class="<?= $classes ?>" id="sec-<?= (int)$idx ?>" style="<?= $bg ?>"<?= $hiddenAttr ?>>
+            <section class="<?= $classes ?>" id="sec-<?= (int)$idx ?>" style="<?= $bg ?><?= $dark ? '' : '--sec-bg:' . $body . ';' ?>"<?= $hiddenAttr ?>>
                 <div class="wrap reveal">
                     <?php if ($s['type'] !== 'stats' && ($num !== '' || $title !== '')): ?>
                     <div class="sec-head">
@@ -297,7 +298,7 @@ foreach ($sections as $idx => $s) {
                         <div class="cards"><?php foreach ($s['items'] as $it):
                             $img = PresentationRules::safeImage($it['image'] ?? '');
                             $more = $it['title'] === '50+';
-                            $imgSrc = $img !== '' ? preg_replace('#(?<!:)/{2,}#', '/', str_replace('\\', '/', baseUrl($img))) . '?v=4' : '';
+                            $imgSrc = $img !== '' ? preg_replace('#(?<!:)/{2,}#', '/', str_replace('\\', '/', baseUrl($img))) . '?v=5' : '';
                         ?><div class="card<?= $more ? ' more' : '' ?>"><?php if ($imgSrc !== ''): ?><img class="logo" src="<?= htmlspecialchars($imgSrc, ENT_QUOTES) ?>" alt=""><?php endif; ?><?php if ($it['title'] !== ''): ?><strong><?= $t($it['title']) ?></strong><?php endif; ?><p><?= $p($it['text']) ?></p></div><?php endforeach; ?></div>
                         <?php elseif ($s['type'] === 'table'): ?>
                         <?php $rows = array_map(fn($it) => array_merge([$it['title']], $it['text'] !== '' ? array_map('trim', explode('|', $it['text'])) : []), $s['items']); $head = array_shift($rows); ?>

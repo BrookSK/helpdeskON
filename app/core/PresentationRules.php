@@ -95,7 +95,7 @@ class PresentationRules
      * Versão do formato salvo. Conteúdo sem versão ou com versão menor
      * (playbook interno do Gamma) é substituído pelo modelo curto ao cliente.
      */
-    public const CONTENT_VERSION = 4;
+    public const CONTENT_VERSION = 5;
 
     /** Decodifica o JSON salvo; conteúdo inválido, vazio ou antigo cai no modelo padrão. */
     public static function decode(?string $json): array
@@ -218,8 +218,8 @@ class PresentationRules
             ], 'Atendemos clientes nacionais e internacionais.'),
 
             $s('stats', 'Indicadores', '', '', [
-                ['100+', 'projetos entregues'],
-                ['50+', 'clientes ativos'],
+                ['+100', 'projetos entregues'],
+                ['+50', 'clientes ativos'],
                 ['99%', 'de satisfação'],
             ]),
 
