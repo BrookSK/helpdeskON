@@ -1,6 +1,5 @@
 <?php
 $appName = htmlspecialchars((string) Config::get('app_name') ?: 'ON Solutions', ENT_QUOTES);
-$logo = Config::get('app_logo');
 $t = fn($text) => htmlspecialchars(PresentationRules::applyVars((string)$text, $vars), ENT_QUOTES);
 $p = fn($text) => nl2br($t($text));
 ?>
@@ -28,7 +27,9 @@ $p = fn($text) => nl2br($t($text));
                 radial-gradient(ellipse at 85% 110%, rgba(20,130,110,.55) 0%, rgba(20,130,110,0) 60%),
                 linear-gradient(160deg, #0b1a24 0%, #0d2a2f 35%, #0e4740 70%, #11665a 100%);
         }
-        .hero img { max-height:56px; margin-bottom:18px; }
+        .hero-brand { display:flex; align-items:center; justify-content:center; gap:16px; margin-bottom:.15em; }
+        .hero-brand .emblem { width:78px; height:78px; margin:0; flex:0 0 78px; }
+        .hero-brand h1 { margin:0; }
         .hero h1 { font-size:3rem; color:#fff; }
         .hero .sub { font-size:1.3rem; font-weight:600; color:#5eead4; }
         .hero hr { border:none; border-top:1px solid rgba(255,255,255,.15); width:70%; margin:22px auto; }
@@ -63,16 +64,14 @@ $p = fn($text) => nl2br($t($text));
         table.grid td:first-child { font-weight:600; color:#34407a; }
         table.grid tr:nth-child(even) td { background:#f8f9fc; }
         .note { margin-top:18px; background:#e9f8f5; border-left:4px solid #00BFA6; border-radius:8px; padding:14px 16px; font-size:.93rem; color:#245a52; }
-        .divider { background:linear-gradient(160deg, #0b1a24 0%, #0e4740 70%, #11665a 100%); text-align:center; padding:36px 56px; }
-        .divider h2 { color:#fff; font-size:1.25rem; letter-spacing:.06em; text-transform:uppercase; margin:0; }
-        .divider .sub { color:#5eead4; margin:.4em 0 0; }
         .cta { background:#34407a; color:#fff; text-align:center; }
         .cta h2 { color:#fff; } .cta .body, .cta .sub { color:#d7dbf0; }
         .contacts { display:flex; justify-content:center; gap:28px; flex-wrap:wrap; margin-top:22px; }
         .contacts div { font-size:.95rem; } .contacts span { display:block; font-size:.78rem; color:#aeb5da; text-transform:uppercase; letter-spacing:.05em; }
         .slide[data-hidden] { opacity:.35; position:relative; }
-        .slide[data-hidden]::after { content:'Oculta para o cliente'; position:absolute; top:12px; right:16px; background:#6b7088; color:#fff; font-size:.72rem; padding:3px 8px; border-radius:6px; }        .ft { text-align:center; font-size:.78rem; color:#7b819c; }
-        @media (max-width:640px) { .slide { padding:32px 22px; } .hero { padding:48px 22px; } .hero h1 { font-size:2.2rem; } h2 { font-size:1.4rem; } }
+        .slide[data-hidden]::after { content:'Oculta para o cliente'; position:absolute; top:12px; right:16px; background:#6b7088; color:#fff; font-size:.72rem; padding:3px 8px; border-radius:6px; }
+        .ft { text-align:center; font-size:.78rem; color:#7b819c; }
+        @media (max-width:640px) { .slide { padding:32px 22px; } .hero { padding:48px 22px; } .hero h1 { font-size:2rem; } .hero-brand .emblem { width:56px; height:56px; flex-basis:56px; } h2 { font-size:1.4rem; } }
     </style>
 </head>
 <body>
@@ -81,16 +80,19 @@ $p = fn($text) => nl2br($t($text));
     <?php endif; ?>
     <div class="deck">
         <?php foreach ($sections as $idx => $s): ?>
+            <?php if ($s['type'] === 'divider') continue; ?>
             <?php $secAttr = 'id="sec-' . (int)$idx . '"' . (empty($s['visible']) ? ' data-hidden="1"' : ''); ?>
             <?php if ($s['type'] === 'hero'): ?>
             <section class="slide hero" <?= $secAttr ?>>
-                <?php if ($logo): ?><img src="<?= baseUrl($logo) ?>" alt="" onerror="this.remove()"><?php endif; ?>
-                <h1><?= $t($s['title']) ?></h1>
+                <div class="hero-brand">
+                    <img class="emblem" src="<?= asset('on-emblem.png') ?>" alt="">
+                    <h1><?= $t($s['title']) ?></h1>
+                </div>
                 <?php if ($s['subtitle'] !== ''): ?><p class="sub"><?= $t($s['subtitle']) ?></p><?php endif; ?>
                 <?php if ($s['body'] !== ''): ?><hr><div class="body"><?= $p($s['body']) ?></div><?php endif; ?>
             </section>
             <?php else: ?>
-            <section class="slide <?= in_array($s['type'], ['cta', 'divider'], true) ? $s['type'] : '' ?>" <?= $secAttr ?>>
+            <section class="slide <?= $s['type'] === 'cta' ? 'cta' : '' ?>" <?= $secAttr ?>>
                 <?php if ($s['title'] !== ''): ?><h2><?= $t($s['title']) ?></h2><?php endif; ?>
                 <?php if ($s['subtitle'] !== ''): ?><p class="sub"><?= $t($s['subtitle']) ?></p><?php endif; ?>
                 <?php if ($s['body'] !== ''): ?><div class="body"><?= $p($s['body']) ?></div><?php endif; ?>
