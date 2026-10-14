@@ -315,10 +315,32 @@ class ProposalController extends Controller
             $this->json(['error' => 'Esta proposta já foi finalizada.'], 409);
         }
 
-        $this->model->changeStatus($proposal['id'], ProposalRules::STATUS_ACCEPTED, null, ['responded_at' => date('Y-m-d H:i:s')]);
+        $respondedAt = date('Y-m-d H:i:s');
+        $this->markSentForResponse($proposal);
+        if (!$this->model->changeStatus($proposal['id'], ProposalRules::STATUS_ACCEPTED, null, ['responded_at' => $respondedAt])) {
+            $this->json(['error' => 'Não foi possível registrar o aceite. Tente novamente.'], 409);
+        }
         $this->model->addEvent($proposal['id'], null, 'accepted', 'Cliente aceitou a proposta');
         $this->notifyTeamResponse($proposal, 'accepted');
-        $this->json(['success' => true]);
+        $this->json(['success' => true, 'status' => ProposalRules::STATUS_ACCEPTED, 'responded_at' => date('d/m/Y \à\s H:i', strtotime($respondedAt))]);
+    }
+
+    /**
+     * O cliente pode responder pelo link mesmo antes do envio formal (link copiado
+     * do painel). A proposta passa por "enviada" para que aceite/recusa sejam
+     * transições válidas.
+     */
+    private function markSentForResponse(array $proposal): void
+    {
+        $id = (int)$proposal['id'];
+        if ($proposal['status'] === ProposalRules::STATUS_DRAFT) {
+            $this->model->changeStatus($id, ProposalRules::STATUS_READY, null);
+            $proposal['status'] = ProposalRules::STATUS_READY;
+        }
+        if ($proposal['status'] === ProposalRules::STATUS_READY) {
+            $extra = empty($proposal['sent_at']) ? ['sent_at' => date('Y-m-d H:i:s')] : [];
+            $this->model->changeStatus($id, ProposalRules::STATUS_SENT, null, $extra);
+        }
     }
 
     /** Cliente recusa a proposta (POST público) — motivo obrigatório. */
@@ -335,10 +357,13 @@ class ProposalController extends Controller
         $reason = ProposalRules::sanitizeRejectReason($_POST['reason'] ?? '');
         if ($reason === null) $this->json(['error' => 'Informe o motivo da recusa.'], 400);
 
-        $this->model->changeStatus($proposal['id'], ProposalRules::STATUS_REJECTED, null, [
+        $this->markSentForResponse($proposal);
+        if (!$this->model->changeStatus($proposal['id'], ProposalRules::STATUS_REJECTED, null, [
             'responded_at' => date('Y-m-d H:i:s'),
             'reject_reason' => $reason,
-        ]);
+        ])) {
+            $this->json(['error' => 'Não foi possível registrar a recusa. Tente novamente.'], 409);
+        }
         $this->model->addEvent($proposal['id'], null, 'rejected', 'Cliente recusou. Motivo: ' . $reason);
         $this->notifyTeamResponse($proposal, 'rejected', $reason);
 

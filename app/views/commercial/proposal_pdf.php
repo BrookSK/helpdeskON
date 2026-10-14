@@ -395,6 +395,15 @@ foreach ($scopePages as [$title, $tag, $list, $foot]):
 <?php
 $maxCum = 0.0;
 foreach ($projection['months'] as $m) $maxCum = max($maxCum, $m['cum_invest'], $m['cum_return']);
+$costSeries = [['label' => 'Investido acumulado', 'color' => ProposalChart::BLACK, 'values' => array_column($projection['months'], 'cum_invest')]];
+if ($expectedReturn > 0) {
+    $costSeries[] = ['label' => 'Retorno acumulado', 'color' => ProposalChart::TEAL, 'values' => array_column($projection['months'], 'cum_return')];
+}
+$costChart = ProposalChart::line($costSeries, [
+    'fontDir' => $fontDir, 'width' => 1500, 'height' => 1130,
+    'xTitle' => 'Mês', 'yTitle' => 'Valor acumulado (R$)',
+    'format' => [ProposalChart::class, 'money'], 'endLabels' => true,
+]);
 ?>
 <div class="page">
     <table class="head"><tr>
@@ -404,6 +413,9 @@ foreach ($projection['months'] as $m) $maxCum = max($maxCum, $m['cum_invest'], $
     <table width="100%" cellspacing="0" cellpadding="0"><tr>
         <td width="47%" style="vertical-align:top;">
             <p class="sub">Investimento acumulado ao longo do tempo</p>
+            <?php if ($costChart): ?>
+            <img src="<?= $costChart ?>" style="width:100%;" alt="">
+            <?php else: ?>
             <div class="legend"><span style="background:#1fb89f;margin-left:0;"></span>Investido acumulado<?php if ($expectedReturn > 0): ?><span style="background:#0b0c0d;"></span>Retorno acumulado<?php endif; ?></div>
             <?php $span = $expectedReturn > 0 ? 3 : 2; ?>
             <table class="chart">
@@ -420,6 +432,7 @@ foreach ($projection['months'] as $m) $maxCum = max($maxCum, $m['cum_invest'], $
                 <tr class="axis"><?php foreach ($projection['months'] as $i => $m): ?><td class="lbl" colspan="<?= $span ?>"><?= $i + 1 ?></td><?php endforeach; ?></tr>
             </table>
             <p class="note" style="text-align:center;">Mês</p>
+            <?php endif; ?>
         </td>
         <td width="3%"></td>
         <td width="50%" style="vertical-align:top;">
@@ -453,6 +466,31 @@ foreach ($projection['months'] as $m) $maxCum = max($maxCum, $m['cum_invest'], $
     foreach ($net as $v) $maxAbs = max($maxAbs, abs($v));
     $hasPos = max($net ?: [0]) > 0;
     $hasNeg = min($net ?: [0]) < 0;
+
+    $scenarios = [
+        ['label' => 'Retorno 30% menor', 'factor' => 0.7, 'color' => ProposalChart::BLACK, 'text' => ProposalChart::BLACK],
+        ['label' => 'Retorno estimado', 'factor' => 1.0, 'color' => ProposalChart::TEAL, 'text' => ProposalChart::TEAL],
+        ['label' => 'Retorno 30% maior', 'factor' => 1.3, 'color' => ProposalChart::MINT, 'text' => [31, 184, 159]],
+    ];
+    $netSeries = [];
+    $netPoints = [];
+    foreach ($scenarios as $k => $sc) {
+        $values = [];
+        foreach ($projection['months'] as $m) $values[] = $m['cum_return'] * $sc['factor'] - $m['cum_invest'];
+        $even = null;
+        foreach ($values as $i => $v) {
+            if ($v >= 0 && ($i === 0 || $values[$i - 1] < 0)) { $even = $i; break; }
+        }
+        $scenarios[$k]['values'] = $values;
+        $scenarios[$k]['even'] = $even;
+        $netSeries[] = ['label' => $sc['label'], 'color' => $sc['color'], 'text' => $sc['text'], 'values' => $values];
+        if ($even !== null) $netPoints[] = ['series' => $k, 'index' => $even, 'label' => 'Mês ' . ($even + 1)];
+    }
+    $netChart = $expectedReturn > 0 ? ProposalChart::line($netSeries, [
+        'fontDir' => $fontDir, 'width' => 1500, 'height' => 1180,
+        'xTitle' => 'Mês do contrato', 'yTitle' => 'Resultado acumulado (R$)',
+        'format' => [ProposalChart::class, 'money'], 'endLabels' => true, 'points' => $netPoints,
+    ]) : null;
 ?>
 <div class="page">
     <table class="head"><tr>
@@ -470,6 +508,20 @@ foreach ($projection['months'] as $m) $maxCum = max($maxCum, $m['cum_invest'], $
                 <tr><td>Mês em que o retorno cobre o investimento</td><td class="r"><?= $projection['payback'] ? 'Mês ' . (int)$projection['payback'] : 'Após 12 meses' ?></td></tr>
                 <tr class="hi"><td>Resultado em 12 meses</td><td class="r"><?= $brl($projection['return'] - $projection['invest']) ?><?= $projection['roi'] !== null ? ' (' . number_format($projection['roi'], 1, ',', '.') . '%)' : '' ?></td></tr>
             </table>
+            <?php if ($netChart): ?>
+            <p class="sub" style="margin-top:5mm;">Cenários de retorno</p>
+            <table class="grid">
+                <tr><th>Cenário</th><th class="r">Retorno por mês</th><th class="r">Ponto de equilíbrio</th><th class="r">Resultado em 12 meses</th></tr>
+                <?php foreach ($scenarios as $k => $sc): $end = end($sc['values']); ?>
+                <tr<?= $sc['factor'] == 1.0 ? ' class="hi"' : $alt($k) ?>>
+                    <td><?= $e($sc['label']) ?></td>
+                    <td class="r"><?= $brl($expectedReturn * $sc['factor']) ?></td>
+                    <td class="r"><?= $sc['even'] !== null ? 'Mês ' . ($sc['even'] + 1) : 'Após 12 meses' ?></td>
+                    <td class="r"><?= $brl($end) ?></td>
+                </tr>
+                <?php endforeach; ?>
+            </table>
+            <?php endif; ?>
             <p style="margin-top:4mm;font-size:8pt;"><span class="bold">Como ler:</span> o retorno começa no mês seguinte à entrega. O ponto de equilíbrio é o mês em que o retorno acumulado passa a cobrir tudo o que foi investido; a partir dele, o que entra é resultado.</p>
             <?php endif; ?>
             <?php foreach ($paras($c('return_text')) as $p): ?><p style="margin-top:3mm;font-size:8pt;"><?= nl2br($e($p)) ?></p><?php endforeach; ?>
@@ -477,7 +529,10 @@ foreach ($projection['months'] as $m) $maxCum = max($maxCum, $m['cum_invest'], $
         </td>
         <td width="4%"></td>
         <td width="46%" style="vertical-align:top;">
-            <?php if ($expectedReturn > 0 && $maxAbs > 0): ?>
+            <?php if ($netChart): ?>
+            <p class="sub">Resultado acumulado em 12 meses, por cenário de retorno</p>
+            <img src="<?= $netChart ?>" style="width:100%;" alt="">
+            <?php elseif ($expectedReturn > 0 && $maxAbs > 0): ?>
             <p class="sub">Resultado acumulado (retorno − investimento)</p>
             <div class="legend"><span style="background:#1fb89f;margin-left:0;"></span>Positivo<span style="background:#0b0c0d;"></span>Negativo</div>
             <table class="chart">
