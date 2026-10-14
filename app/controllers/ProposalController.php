@@ -482,7 +482,10 @@ class ProposalController extends Controller
             include APP_PATH . '/views/commercial/proposal_pdf.php';
             return (string)ob_get_clean();
         })();
-        return PdfGenerator::fromDocument($html, $public, ['right_mm' => 16, 'top_mm' => 284.2, 'size' => 7, 'skip_first' => true]);
+        return PdfGenerator::fromDocument($html, $public, [
+            'right_mm' => 12, 'top_mm' => 287.2, 'size' => 8, 'skip_first' => true, 'format' => 'index',
+            'color' => [0.62, 0.66, 0.68],
+        ]);
     }
 
     // ================= Helpers =================

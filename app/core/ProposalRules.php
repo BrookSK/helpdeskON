@@ -210,12 +210,14 @@ class ProposalRules
                 if ($min === null || $d < $min) $min = $d;
                 if ($max === null || $d > $max) $max = $d;
             }
+            $billing = self::normalizeBilling($it['billing'] ?? null);
             $rows[] = [
                 'description' => (string)($it['description'] ?? ''),
                 'start' => $s,
                 'end' => $e,
+                'billing' => $billing,
                 // Mensal sem fim segue até o fim da janela do cronograma.
-                'ongoing' => self::normalizeBilling($it['billing'] ?? null) === self::BILLING_MONTHLY && $e === null,
+                'ongoing' => $billing === self::BILLING_MONTHLY && $e === null,
             ];
         }
         $days = 0;
@@ -436,42 +438,42 @@ class ProposalRules
                 'title' => 'Quem somos',
                 'kind' => 'text',
                 'position' => 1,
-                'body' => "A ON Solutions Brasil desenvolve soluções tecnológicas sob medida para empresas. O trabalho começa pelo entendimento do negócio, dos processos e dos objetivos do cliente e pode envolver planejamento, desenvolvimento, integração, automação, inteligência artificial, implantação e evolução da solução.\n\nNão vendemos código. Entregamos melhoria operacional por meio de tecnologia.",
+                'body' => "A ON Solutions Brasil atua como parceira de consultoria estratégica comercial e inteligência de mercado e desenvolve soluções tecnológicas sob medida.\n\nComeçamos pelo entendimento do negócio, dos processos e dos objetivos de cada cliente. Não vendemos código: vendemos melhoria operacional e crescimento, por meio de estratégia e tecnologia.\n\n01 Consultoria estratégica comercial: Diagnóstico, posicionamento, CRM, funil de vendas e acompanhamento para organizar e acelerar a operação comercial.\n02 Inteligência de mercado: Leitura de dados, indicadores e mercado para decidir com clareza onde investir e como crescer.\n03 Tecnologia sob medida: Sistemas, ERP, CRM, integrações, automações e IA desenhados a partir do processo real de cada operação.",
             ],
             [
                 'block_key' => 'what_we_do',
                 'title' => 'O que fazemos',
                 'kind' => 'list',
                 'position' => 2,
-                'body' => "Sistemas web e personalizados: plataformas desenhadas a partir do processo real da operação.\nERP e CRM: financeiro, contratos, estoque, funil comercial e indicadores em um só lugar.\nIntegrações e APIs: sistemas conversando entre si, sem redigitação.\nAutomações: tarefas repetitivas acontecendo sozinhas.\nInteligência artificial: IA aplicada a atendimento, documentos e apoio à decisão.\nDashboards e BI: os números da operação visíveis em tempo real.",
+                'body' => "# Estratégia comercial e inteligência de mercado\n# Guiados por dados e tecnologia.\nDiagnóstico e plano estratégico: Leitura do negócio, do mercado e do funil.\nPosicionamento e rebranding: Marca, identidade visual e tom de voz.\nCRM e funil de vendas: Processo comercial organizado e mensurável.\nPresença digital: Site, tráfego pago e social media.\nAcompanhamento estratégico: Reuniões, métricas e ajustes de rota.\n---\n# Tecnologia sob medida\n# Soluções construídas a partir do processo real de cada operação.\nSistemas web e personalizados: Plataformas desenhadas para a operação.\nERP personalizado: Financeiro, estoque, contratos e projetos em um só ambiente.\nCRM: Leads, funil, propostas e follow-ups organizados.\nIntegrações e APIs: Sistemas conectados, sem redigitação.\nAutomações: Tarefas repetitivas acontecendo sozinhas.\nInteligência artificial: IA aplicada a atendimento, dados e decisões.\nDashboards e BI: Indicadores claros para decidir mais rápido.\nSaaS e plataformas: Da ideia ao produto digital.\nAplicativos: Soluções mobile integradas à operação.\nConsultoria tecnológica: Diagnóstico de processos, sistemas e gargalos.",
             ],
             [
                 'block_key' => 'clients',
                 'title' => 'Clientes ON Solutions',
                 'kind' => 'clients',
                 'position' => 3,
-                'body' => "Brasiliana\nQuadre\nBro\nCross HR\nMultilife\nMafido",
+                'body' => "Braziliana\nQuatri Automação\nBrooks Construtora\nCrossHR\nMultiLife Care\nMafedo Engenharia\nInpasa",
             ],
             [
                 'block_key' => 'how_we_work',
                 'title' => 'Como fazemos',
                 'kind' => 'steps',
                 'position' => 4,
-                'body' => "Discovery: entendimento do negócio, dos processos e dos objetivos.\nPlanejamento: arquitetura da solução e definição do roteiro de entregas.\nDesenvolvimento: construção em ciclos curtos, com entregas contínuas.\nEntrega e suporte: implantação, treinamento e acompanhamento.",
+                'body' => "# Estratégia comercial e inteligência de mercado\nDiagnóstico: Auditoria da jornada, da oferta e do funil, com plano estratégico entre 15 e 30 dias após o onboarding.\nImplantação: Posicionamento, identidade visual, CRM e site.\nExecução: Campanhas de tráfego pago e conteúdo nas redes sociais.\nAcompanhamento: Reuniões, relatórios e ajustes de rota.\n---\n# Tecnologia sob medida\nDiscovery: Entendimento do negócio, dos processos e dos objetivos.\nPlanejamento: Arquitetura da solução e definição do roadmap.\nDesenvolvimento: Construção em sprints, com entregas contínuas e qualidade.\nEntrega e suporte: Deploy, treinamento e suporte contínuo.",
             ],
             [
                 'block_key' => 'payment',
                 'title' => 'Condições de pagamento e rescisão',
                 'kind' => 'text',
                 'position' => 5,
-                'body' => "Investimento de {total_pontual} em serviços pontuais e {total_mensal} por mês em serviços recorrentes, totalizando {total_12_meses} no primeiro ano.\n\nCondição de pagamento: {condicao_pagamento}. Serviços mensais são cobrados a partir do início do desenvolvimento, todo mês, no mesmo dia de vencimento.\n\nRescisão: qualquer parte pode encerrar os serviços mensais com aviso prévio de 30 dias. Serviços pontuais já iniciados são cobrados proporcionalmente ao que foi entregue até a data do aviso.",
+                'body' => "A Vigência, reajuste e renovação\nOs valores dos serviços contratados serão reajustados a cada doze meses de vigência, com base no IGP-M.\nEsta proposta será renovada automaticamente por períodos iguais ao contratado, caso não seja contestada com antecedência mínima de sessenta dias do término.\nNa renovação, não há novo pagamento de implantação.\nEsta proposta tem validade jurídica a partir da assinatura pelas partes e segue os termos do contrato de prestação de serviços.\n\nB Rescisão antecipada\nO cancelamento deve ser comunicado por escrito com trinta dias de antecedência da data de suspensão dos serviços.\nServiços de implantação já iniciados são cobrados proporcionalmente ao que foi entregue até a data do aviso.\nOs valores de implantação já pagos não são reembolsáveis, pois correspondem a serviços entregues ou em execução.\n\nC Outras disposições\nAs informações desta proposta são confidenciais e não poderão ser divulgadas sem autorização prévia da ON Solutions Brasil.\nÉ vedado utilizar a hospedagem e as ferramentas do projeto para fins ilícitos ou que violem as políticas das plataformas utilizadas.",
             ],
             [
                 'block_key' => 'notes',
                 'title' => 'Notas e condições',
                 'kind' => 'list',
                 'position' => 6,
-                'body' => "Proposta válida até {validade}.\nValores referem-se somente ao escopo descrito. Mudanças de escopo são orçadas à parte.\nDesenvolvimento do zero inclui 90 dias de garantia para correção de defeitos, contados da homologação.\nO cronograma começa após a assinatura do contrato e o envio das informações necessárias pelo cliente.\nCustos de terceiros (domínio, licenças, APIs pagas) não estão inclusos, salvo quando listados.",
+                'body' => "A Responsabilidades do cliente\nFornecer os materiais solicitados dentro dos cronogramas combinados.\nDisponibilizar os acessos necessários, de preferência em até 48 horas.\nAprovar ou solicitar ajustes nos materiais em até 3 dias úteis.\nParticipar das reuniões combinadas.\nFornecer as informações necessárias para a execução do escopo.\n\nB Condições gerais\nProposta válida até {validade}.\nValores referem-se somente ao escopo descrito. Mudanças de escopo são orçadas à parte.\nO cronograma começa após a assinatura do contrato e o envio das informações necessárias pelo cliente.\nAtrasos no envio de materiais, aprovações ou acessos podem impactar o cronograma.\nCustos de terceiros (domínio, licenças, anúncios e APIs pagas) não estão inclusos, salvo quando listados.\nOs valores desta proposta estão em reais.",
             ],
         ];
     }

@@ -42,8 +42,10 @@ class PdfGenerator
      * Converte um documento HTML completo (com o próprio CSS e @page) em PDF.
      * Imagens só podem vir de arquivos dentro de $chroot.
      *
-     * $pageNumber desenha "página / total" (o CSS do dompdf não conhece o total):
-     * ['right_mm' => float, 'top_mm' => float, 'size' => float, 'color' => [r,g,b] 0–1, 'skip_first' => bool]
+     * $pageNumber desenha o número da página (o CSS do dompdf não conhece o total):
+     * ['right_mm' => float, 'top_mm' => float, 'size' => float, 'color' => [r,g,b] 0–1,
+     *  'skip_first' => bool, 'format' => 'pair'|'index']
+     * format "pair" imprime "página / total"; "index" imprime só o número, com dois dígitos.
      */
     public static function fromDocument(string $html, string $chroot, ?array $pageNumber = null, string $paper = 'A4', string $orientation = 'portrait'): string
     {
@@ -66,12 +68,13 @@ class PdfGenerator
             $size = (float)($pageNumber['size'] ?? 7);
             $color = $pageNumber['color'] ?? [0.54, 0.6, 0.63];
             $skipFirst = !empty($pageNumber['skip_first']);
+            $format = ($pageNumber['format'] ?? 'pair') === 'index' ? 'index' : 'pair';
             $right = (float)($pageNumber['right_mm'] ?? 16) * $mm;
             $top = (float)($pageNumber['top_mm'] ?? 284) * $mm;
-            $dompdf->getCanvas()->page_script(function ($page, $count, $canvas, $metrics) use ($size, $color, $skipFirst, $right, $top) {
+            $dompdf->getCanvas()->page_script(function ($page, $count, $canvas, $metrics) use ($size, $color, $skipFirst, $right, $top, $format) {
                 if ($skipFirst && $page === 1) return;
                 $font = $metrics->getFont('DejaVu Sans');
-                $text = $page . ' / ' . $count;
+                $text = $format === 'index' ? sprintf('%02d', $page) : ($page . ' / ' . $count);
                 $w = $metrics->getTextWidth($text, $font, $size);
                 $canvas->text($canvas->get_width() - $right - $w, $top, $text, $font, $size, $color);
             });

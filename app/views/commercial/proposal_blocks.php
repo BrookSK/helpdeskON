@@ -3,9 +3,9 @@
 <?php require APP_PATH . '/views/layouts/sidebar.php'; ?>
 <?php
 $kindHint = [
-    'text' => 'Parágrafos. Deixe uma linha em branco entre um parágrafo e outro.',
-    'list' => 'Um item por linha. Use "Título: descrição" para destacar o título.',
-    'steps' => 'Uma etapa por linha, no formato "Etapa: descrição".',
+    'text' => 'Parágrafos separados por uma linha em branco. Em Quem somos, linhas "01 Título: texto" viram os cartões numerados.',
+    'list' => 'Um item por linha, no formato "Título: descrição". Uma linha só com --- separa as duas colunas.',
+    'steps' => 'Uma etapa por linha, "Etapa: descrição". Uma linha # Título nomeia o trilho. Uma linha --- separa o segundo trilho.',
     'clients' => 'Um cliente por linha. Opcional: "Cliente: segmento".',
 ];
 ?>
