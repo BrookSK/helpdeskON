@@ -67,9 +67,11 @@ foreach ($sections as $idx => $s) {
 
         .toc { margin:76px auto 0; max-width:1180px; text-align:left; }
         .toc h3 { margin:0 0 18px; text-align:center; font-family:var(--mono); font-size:.75rem; letter-spacing:.2em; text-transform:uppercase; color:var(--muted); font-weight:500; }
-        .toc ol { list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:14px; counter-reset:toc; }
-        .toc a { display:flex; gap:16px; align-items:flex-start; height:100%; padding:20px 22px; border:1px solid var(--line); border-radius:14px; background:rgba(7,20,27,.45); backdrop-filter:blur(6px);
-            color:var(--white); font-weight:600; font-size:.92rem; line-height:1.4; text-decoration:none; transition:border-color .2s, transform .2s, background .2s; }
+        .toc ol { list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(3, 1fr); gap:14px; counter-reset:toc; }
+        .toc li { min-width:0; }
+        .toc a { display:flex; gap:16px; align-items:center; height:100%; min-height:78px; min-width:0; padding:18px 20px; border:1px solid var(--line); border-radius:14px; background:rgba(7,20,27,.45); backdrop-filter:blur(6px);
+            color:var(--white); font-weight:600; font-size:.86rem; line-height:1.35; text-decoration:none; transition:border-color .2s, transform .2s, background .2s; }
+        .toc a span { min-width:0; }
         .toc a::before { counter-increment:toc; content:counter(toc, decimal-leading-zero); flex:0 0 auto; font-family:var(--mono); font-size:.8rem; font-weight:700; color:var(--teal); padding-top:1px; }
         .toc a:hover { border-color:var(--line-t); background:rgba(0,191,166,.08); transform:translateY(-2px); color:#fff; }
         .scroll-hint { position:absolute; left:50%; bottom:28px; transform:translateX(-50%); z-index:1; width:26px; height:42px; border:1.5px solid rgba(255,255,255,.25); border-radius:14px; }
@@ -88,7 +90,9 @@ foreach ($sections as $idx => $s) {
         .sec.part-start { padding-top:150px; }
         .part { display:inline-flex; align-items:center; gap:12px; margin-bottom:42px; font-family:var(--mono); font-size:.78rem; font-weight:700; letter-spacing:.16em; text-transform:uppercase; color:var(--mint); }
         .part::before { content:''; width:40px; height:2px; background:linear-gradient(90deg, var(--teal), var(--mint)); }
-        .sec-head { display:flex; align-items:flex-end; gap:28px; margin-bottom:28px; }
+        .sec-head { display:flex; align-items:center; gap:22px; margin-bottom:28px; }
+        .sec-head:not(:has(.num)) { margin-bottom:18px; }
+        .sec-head:not(:has(.num)) h2 { font-size:clamp(1.25rem, 2vw, 1.7rem); font-weight:700; letter-spacing:-.02em; }
         .num { flex:0 0 auto; font-family:var(--sans); font-weight:900; font-size:clamp(2.8rem, 5vw, 4.4rem); line-height:.85; letter-spacing:-.04em;
             background:linear-gradient(180deg, var(--mint) 0%, rgba(0,191,166,.15) 100%); -webkit-background-clip:text; background-clip:text; color:transparent; }
         .sec h2 { margin:0; color:var(--white); font-size:clamp(2rem, 4vw, 3.3rem); line-height:1.08; font-weight:800; letter-spacing:-.035em; max-width:1000px; }
@@ -110,7 +114,7 @@ foreach ($sections as $idx => $s) {
         .step { position:relative; padding:34px 30px 30px; border:1px solid var(--line); border-radius:18px; background:var(--panel); transition:border-color .2s, background .2s, transform .2s; }
         .step:hover { border-color:var(--line-t); background:var(--panel-h); transform:translateY(-3px); }
         .step::before { counter-increment:step; content:counter(step, decimal-leading-zero); display:inline-flex; align-items:center; justify-content:center; width:46px; height:46px; margin-bottom:22px;
-            border-radius:12px; background:linear-gradient(135deg, var(--teal), #0e7c6d); color:#04201c; font-family:var(--mono); font-weight:700; font-size:.95rem; box-shadow:0 8px 24px rgba(0,191,166,.25); }
+            border-radius:12px; background:#0a8f7d; color:#fff; font-family:var(--mono); font-weight:700; font-size:.95rem; box-shadow:0 8px 24px rgba(0,191,166,.25); }
         .step strong { display:block; color:var(--white); font-size:1.2rem; font-weight:700; margin-bottom:8px; letter-spacing:-.01em; }
         .step p { margin:0; color:var(--text); font-size:1rem; }
 
@@ -154,7 +158,7 @@ foreach ($sections as $idx => $s) {
         /* Observação */
         .note { margin-top:40px; display:flex; gap:18px; max-width:1100px; padding:26px 30px; border:1px solid var(--line-t); border-radius:16px;
             background:linear-gradient(120deg, rgba(0,191,166,.12) 0%, rgba(0,191,166,.03) 100%); color:var(--note); font-size:1rem; line-height:1.7; }
-        .note::before { content:'i'; flex:0 0 30px; display:flex; align-items:center; justify-content:center; height:30px; border-radius:50%; background:var(--teal); color:#04201c; font:700 .9rem/1 var(--mono); }
+        .note::before { content:'i'; flex:0 0 30px; display:flex; align-items:center; justify-content:center; height:30px; border-radius:50%; background:#0a8f7d; color:#fff; font:700 .9rem/1 var(--mono); }
 
         /* Fechamento */
         .sec.cta { text-align:center; background:radial-gradient(ellipse 70% 80% at 50% 120%, rgba(17,140,118,.55) 0%, rgba(17,140,118,0) 70%), linear-gradient(170deg, #0b1f27 0%, #0d3a37 100%); }
@@ -183,7 +187,7 @@ foreach ($sections as $idx => $s) {
             .wrap { padding:0 28px; }
             .sec { padding:90px 0; }
             .sec-head { flex-direction:column; align-items:flex-start; gap:10px; }
-            .cards, ul.list { grid-template-columns:minmax(0,1fr); }
+            .cards, ul.list, .toc ol { grid-template-columns:minmax(0,1fr); }
             .hero-brand { flex-direction:column; gap:20px; }
         }
         @media (max-width:560px) {
@@ -211,6 +215,7 @@ foreach ($sections as $idx => $s) {
             $lightN = 0;
             $prevBottom = '#10594f';
             $prevDark = true;
+            $partCount = 0;
             ?>
         <?php foreach ($sections as $idx => $s): ?>
             <?php if ($s['type'] === 'divider') continue; ?>
@@ -228,7 +233,7 @@ foreach ($sections as $idx => $s) {
                     <?php if ($parts): ?>
                     <nav class="toc">
                         <h3>Conteúdo</h3>
-                        <ol><?php foreach ($parts as $part): ?><li><a href="#sec-<?= (int)$part['idx'] ?>"><?= $t($part['title']) ?></a></li><?php endforeach; ?></ol>
+                        <ol><?php foreach ($parts as $part): ?><li><a href="#sec-<?= (int)$part['idx'] ?>"><span><?= $t($part['title']) ?></span></a></li><?php endforeach; ?></ol>
                     </nav>
                     <?php endif; ?>
                 </div>
@@ -241,7 +246,10 @@ foreach ($sections as $idx => $s) {
             $title = $s['title'];
             if (preg_match('/^(\d+)\.\s+(.+)$/u', $title, $m)) { $num = str_pad($m[1], 2, '0', STR_PAD_LEFT); $title = $m[2]; }
             $isCta = $s['type'] === 'cta';
-            $dark = $isCta || isset($partOf[$idx]) || $s['type'] === 'stats';
+            $isPart = isset($partOf[$idx]);
+            // A primeira parte fica clara para não colar na capa; as seguintes abrem em bloco escuro.
+            $dark = $isCta || ($isPart && $partCount > 0);
+            if ($isPart) $partCount++;
             if ($dark) {
                 $body = '#0a1b23';
                 $bottom = '#0f4f48';
