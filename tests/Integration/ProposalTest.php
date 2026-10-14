@@ -95,6 +95,28 @@ final class ProposalTest extends TestCase
         $this->assertSame(1850.0, (float)$this->model->findById($id)['total']);
     }
 
+    public function testReplaceItemsComQuantidadeECronograma(): void
+    {
+        $id = $this->novaProposta();
+        $total = $this->model->replaceItems($id, [
+            [
+                'description' => 'Site',
+                'scope' => 'Institucional',
+                'quantity' => 2,
+                'hours' => 3,
+                'hourly_rate' => 50,
+                'schedule_start' => '2026-11-02',
+                'schedule_end' => '2026-11-16',
+                'service_id' => null,
+            ],
+        ]);
+        $this->assertSame(300.0, $total);
+        $items = $this->model->getItems($id);
+        $this->assertSame(2.0, (float)$items[0]['quantity']);
+        $this->assertSame('2026-11-02', $items[0]['schedule_start']);
+        $this->assertSame('2026-11-16', $items[0]['schedule_end']);
+    }
+
     public function testReplaceItemsSubstituiAnteriores(): void
     {
         $id = $this->novaProposta();

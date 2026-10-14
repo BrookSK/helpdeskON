@@ -51,6 +51,7 @@ $migrations = [
     '153_ticket_support_fields.sql',
     '154_ticket_relations.sql',
     '161_commercial_presentations.sql',
+    '162_proposal_document.sql',
 ];
 
 $db = Database::getInstance();

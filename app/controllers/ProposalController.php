@@ -28,12 +28,15 @@ class ProposalController extends Controller
         }
         $proposals = $this->model->getAll($filters);
         $leads = [];
+        $companies = [];
         try { $leads = (new WhatsappContact())->getLeadsForSelect(); } catch (\Throwable $e) { $leads = []; }
+        try { $companies = (new Company())->getAll(); } catch (\Throwable $e) { $companies = []; }
         $this->view('commercial/proposals', [
             'user' => $user,
             'proposals' => $proposals,
             'statuses' => ProposalRules::STATUSES,
             'leads' => $leads,
+            'companies' => $companies,
         ]);
     }
 
@@ -46,6 +49,10 @@ class ProposalController extends Controller
         if (!$proposal) { $this->redirect('proposals'); }
 
         $user = $this->currentUser();
+        $leads = [];
+        $companies = [];
+        try { $leads = (new WhatsappContact())->getLeadsForSelect(); } catch (\Throwable $e) { $leads = []; }
+        try { $companies = (new Company())->getAll(); } catch (\Throwable $e) { $companies = []; }
         $this->view('commercial/proposal_form', [
             'user' => $user,
             'proposal' => $proposal,
@@ -54,6 +61,9 @@ class ProposalController extends Controller
             'services' => (new ServiceCatalog())->getAll(true),
             'contractTypes' => ProposalRules::CONTRACT_TYPES,
             'contractTemplates' => (new ContractTemplate())->getAll(true),
+            'leads' => $leads,
+            'companies' => $companies,
+            'publicLink' => $this->publicBase() . '/proposal/show/' . $proposal['public_token'],
         ]);
     }
 
@@ -110,13 +120,41 @@ class ProposalController extends Controller
             'client_phone'  => isset($body['client_phone']) ? (trim($body['client_phone']) ?: null) : $proposal['client_phone'],
             'contract_type' => ProposalRules::normalizeContractType($body['contract_type'] ?? $proposal['contract_type']),
             'observations'  => isset($body['observations']) ? (trim($body['observations']) ?: null) : $proposal['observations'],
-            'validity_date' => isset($body['validity_date']) ? (trim($body['validity_date']) ?: null) : $proposal['validity_date'],
+            'validity_date' => array_key_exists('validity_date', $body) ? ProposalRules::normalizeDate($body['validity_date']) : ($proposal['validity_date'] ?? null),
+            'dev_start'     => array_key_exists('dev_start', $body) ? ProposalRules::normalizeDate($body['dev_start']) : ($proposal['dev_start'] ?? null),
+            'dev_end'       => array_key_exists('dev_end', $body) ? ProposalRules::normalizeDate($body['dev_end']) : ($proposal['dev_end'] ?? null),
         ];
+        if (array_key_exists('company_id', $body)) {
+            $fields['company_id'] = !empty($body['company_id']) ? (int)$body['company_id'] : null;
+        }
+        if (array_key_exists('contact_id', $body)) {
+            $fields['contact_id'] = !empty($body['contact_id']) ? (int)$body['contact_id'] : null;
+        }
         if ($fields['title'] === '') $this->json(['error' => 'Informe o título.'], 400);
-        $this->model->update($id, $fields);
+        if (!ProposalRules::scheduleOrderOk($fields['dev_start'], $fields['dev_end'])) {
+            $this->json(['error' => 'O fim do período de desenvolvimento não pode ser anterior ao início.'], 400);
+        }
 
         $items = is_array($body['items'] ?? null) ? $body['items'] : [];
-        $total = $this->model->replaceItems($id, $items);
+        foreach ($items as $it) {
+            if (!is_array($it)) continue;
+            if (!ProposalRules::scheduleOrderOk($it['schedule_start'] ?? null, $it['schedule_end'] ?? null)) {
+                $name = trim((string)($it['description'] ?? 'serviço'));
+                $this->json(['error' => 'No cronograma de "' . $name . '", a data final não pode ser anterior à inicial.'], 400);
+            }
+        }
+
+        $fields['fixed_snapshot'] = json_encode($this->fixedSnapshot(), JSON_UNESCAPED_UNICODE);
+        try {
+            $this->model->update($id, $fields);
+            $total = $this->model->replaceItems($id, $items);
+        } catch (\Throwable $e) {
+            $msg = $e->getMessage();
+            if (stripos($msg, 'Unknown column') !== false || stripos($msg, "doesn't exist") !== false) {
+                $this->json(['error' => 'Falta aplicar a migration 162_proposal_document.sql neste banco.'], 500);
+            }
+            $this->json(['error' => 'Não foi possível salvar a proposta.'], 500);
+        }
         $this->model->addEvent($id, $user['id'], 'edited', 'Proposta editada');
 
         $this->json(['success' => true, 'total' => $total]);
@@ -213,9 +251,14 @@ class ProposalController extends Controller
         if ($proposal['status'] === ProposalRules::STATUS_SENT) {
             $this->model->changeStatus($proposal['id'], ProposalRules::STATUS_AWAITING, null);
         }
+        $items = $this->model->getItems($proposal['id']);
+        $blocks = ProposalRules::decodeBlocks($proposal['fixed_snapshot'] ?? null);
+        if (!$blocks) $blocks = $this->fixedSnapshot();
         $this->view('commercial/proposal_public', [
             'proposal' => $proposal,
-            'items' => $this->model->getItems($proposal['id']),
+            'items' => $items,
+            'blocks' => $blocks,
+            'timeline' => ProposalRules::timeline($items, $proposal['dev_start'] ?? null, $proposal['dev_end'] ?? null),
             'isTerminal' => ProposalRules::isTerminal($proposal['status']),
         ]);
     }
@@ -266,6 +309,64 @@ class ProposalController extends Controller
             } catch (\Throwable $e) { /* não interrompe */ }
         }
         $this->json(['success' => true]);
+    }
+
+    /** Texto fixo da proposta (editável, igual para todas). */
+    public function blocks()
+    {
+        $this->requireModule('proposals');
+        $user = $this->currentUser();
+        $blocks = [];
+        $missing = false;
+        try {
+            $blocks = (new ProposalBlock())->getAll();
+        } catch (\Throwable $e) {
+            $missing = true;
+            $blocks = ProposalRules::defaultBlocks();
+        }
+        $this->view('commercial/proposal_blocks', [
+            'user' => $user,
+            'blocks' => $blocks,
+            'missing' => $missing,
+        ]);
+    }
+
+    /** Salva o texto fixo (POST JSON). */
+    public function saveBlocks()
+    {
+        $this->requireModule('proposals');
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $raw = file_get_contents('php://input');
+        $body = json_decode($raw, true);
+        if (!is_array($body)) $this->json(['error' => 'Requisição inválida'], 400);
+        try {
+            (new ProposalBlock())->saveAll(is_array($body['blocks'] ?? null) ? $body['blocks'] : []);
+        } catch (\Throwable $e) {
+            $this->json(['error' => 'Não foi possível salvar. Aplique a migration 162_proposal_document.'], 500);
+        }
+        $this->json(['success' => true]);
+    }
+
+    /**
+     * Cópia do texto fixo para gravar na proposta. Se a tabela ainda não
+     * existir, usa o texto padrão para o link não sair vazio.
+     */
+    private function fixedSnapshot(): array
+    {
+        try {
+            return (new ProposalBlock())->snapshot();
+        } catch (\Throwable $e) {
+            $out = [];
+            foreach (ProposalRules::defaultBlocks() as $b) {
+                $out[] = [
+                    'block_key' => $b['block_key'],
+                    'title' => $b['title'],
+                    'body' => $b['body'],
+                    'placement' => $b['placement'],
+                ];
+            }
+            return $out;
+        }
     }
 
     // ================= Helpers =================

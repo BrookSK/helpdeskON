@@ -76,6 +76,34 @@ final class ProposalRulesTest extends TestCase
         $this->assertSame(150.0, ProposalRules::itemAmount(3, 'R$ 50,00', null));
     }
 
+    public function testItemAmountComQuantidade(): void
+    {
+        // 2 × 3h × R$50 = R$300. Quantidade vazia continua valendo 1.
+        $this->assertSame(300.0, ProposalRules::itemAmount(3, 50, null, 2));
+        $this->assertSame(150.0, ProposalRules::itemAmount(3, 50, null, null));
+        // Sem horas, quantidade multiplica o valor fixo.
+        $this->assertSame(2400.0, ProposalRules::itemAmount(null, null, 1200, 2));
+        $this->assertSame(0.0, ProposalRules::itemAmount(3, 50, null, 0));
+    }
+
+    public function testForecastECronogramaPorServico(): void
+    {
+        $this->assertSame(150.0, ProposalRules::forecast(3, 50));
+        $this->assertSame(80.0, ProposalRules::forecast(null, 80));
+        $this->assertNull(ProposalRules::forecast(null, null));
+
+        $tl = ProposalRules::timeline([
+            ['description' => 'Site', 'schedule_start' => '2026-11-02', 'schedule_end' => '2026-11-16'],
+            ['description' => 'API', 'schedule_start' => '2026-11-09', 'schedule_end' => '2026-11-30'],
+        ], '2026-11-01', '2026-11-30');
+        $this->assertSame('2026-11-01', $tl['start']);
+        $this->assertSame('2026-11-30', $tl['end']);
+        $this->assertNotNull($tl['rows'][0]['bar']);
+        $this->assertGreaterThan($tl['rows'][0]['bar']['left'], $tl['rows'][1]['bar']['left']);
+        $this->assertTrue(ProposalRules::scheduleOrderOk('2026-11-01', '2026-11-30'));
+        $this->assertFalse(ProposalRules::scheduleOrderOk('2026-11-30', '2026-11-01'));
+    }
+
     public function testItemAmountValorFixoQuandoSemHoras(): void
     {
         // Sem horas, usa o valor fixo.

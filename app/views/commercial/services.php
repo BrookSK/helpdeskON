@@ -5,7 +5,7 @@
     <div class="top-bar">
         <div>
             <h5 class="mb-0">Catálogo de serviços</h5>
-            <small class="text-muted">Serviços pré-cadastrados usados ao montar propostas</small>
+            <small class="text-muted">Nome, descrição, horas e valor entram na proposta. O valor pode ser ajustado em cada proposta.</small>
         </div>
         <button class="btn btn-primary btn-sm" onclick="openServiceModal()"><i class="bi bi-plus-lg"></i> Novo serviço</button>
     </div>
@@ -16,13 +16,13 @@
                 <table class="table table-hover mb-0 align-middle">
                     <thead class="table-light">
                         <tr>
-                            <th>#</th><th>Serviço</th><th>Horas</th><th>Valor/hora</th><th>Custo/hora</th>
+                            <th>#</th><th>Serviço</th><th>Horas</th><th>Valor/hora</th><th>Previsão</th><th>Custo/hora</th>
                             <th>Hospedagem</th><th>Status</th><th class="text-end">Ações</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php if (empty($services)): ?>
-                        <tr><td colspan="8" class="text-center text-muted py-4">Nenhum serviço cadastrado.</td></tr>
+                        <tr><td colspan="9" class="text-center text-muted py-4">Nenhum serviço cadastrado.</td></tr>
                         <?php else: foreach ($services as $s): ?>
                         <tr>
                             <td><?= (int)$s['id'] ?></td>
@@ -32,6 +32,7 @@
                             </td>
                             <td><?= $s['est_hours'] !== null ? escape($s['est_hours']) : '—' ?></td>
                             <td><?= $s['hourly_rate'] !== null ? ('R$ ' . number_format((float)$s['hourly_rate'],2,',','.')) : '—' ?></td>
+                            <td><?php $prev = ProposalRules::forecast($s['est_hours'] ?? null, $s['hourly_rate'] ?? null); echo $prev !== null ? ('R$ ' . number_format($prev, 2, ',', '.')) : '—'; ?></td>
                             <td><?= (isset($s['cost_price']) && $s['cost_price'] !== null) ? ('R$ ' . number_format((float)$s['cost_price'],2,',','.')) : '—' ?></td>
                             <td><?= ((int)$s['is_hosting'] === 1) ? '<span class="badge bg-info">Sim</span>' : 'Não' ?></td>
                             <td><?= ((int)$s['active'] === 1) ? '<span class="badge bg-success">Ativo</span>' : '<span class="badge bg-secondary">Inativo</span>' ?></td>
@@ -62,7 +63,7 @@
                     <input type="text" id="svc-name" class="form-control form-control-sm" maxlength="200">
                 </div>
                 <div class="mb-2">
-                    <label class="form-label small fw-medium">Descrição / escopo padrão</label>
+                    <label class="form-label small fw-medium">Descrição (entra na proposta)</label>
                     <textarea id="svc-description" class="form-control form-control-sm" rows="3"></textarea>
                 </div>
                 <div class="row g-2">

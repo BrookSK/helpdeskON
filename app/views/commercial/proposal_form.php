@@ -1,3 +1,4 @@
+<?php $pageTitle = 'Proposta - ON Solutions Helpdesk'; $currentPage = 'proposals'; ?>
 <?php require APP_PATH . '/views/layouts/header.php'; ?>
 <?php require APP_PATH . '/views/layouts/sidebar.php'; ?>
 <?php
@@ -6,15 +7,20 @@ $ctLabels = [
     'suporte' => 'Suporte', 'dev_suporte' => 'Desenvolvimento + suporte', 'outro' => 'Outro',
 ];
 $isTerminal = in_array($proposal['status'], ['accepted','rejected','cancelled'], true);
+$statusLabels = [
+    'draft' => 'Em elaboração', 'ready' => 'Montada', 'sent' => 'Enviada',
+    'awaiting' => 'Aguardando', 'accepted' => 'Aceita', 'rejected' => 'Recusada', 'cancelled' => 'Cancelada',
+];
 ?>
 <div class="main-content">
     <div class="top-bar">
         <div>
             <h5 class="mb-0">Proposta #<?= (int)$proposal['id'] ?></h5>
-            <small class="text-muted"><?= escape($proposal['title']) ?> · <span id="p-status-label"><?= escape($proposal['status']) ?></span></small>
+            <small class="text-muted"><?= escape($proposal['title']) ?> · <span id="p-status-label"><?= escape($statusLabels[$proposal['status']] ?? $proposal['status']) ?></span></small>
         </div>
-        <div class="d-flex gap-2">
+        <div class="d-flex gap-2 flex-wrap justify-content-end">
             <a href="<?= baseUrl('proposal') ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> Voltar</a>
+            <button type="button" class="btn btn-sm btn-outline-primary" onclick="openClientLink()"><i class="bi bi-box-arrow-up-right"></i> Ver link</button>
             <?php if (!$isTerminal): ?>
             <button id="btn-save" class="btn btn-sm btn-success" onclick="saveProposal()"><i class="bi bi-check-lg"></i> Salvar</button>
             <button id="btn-send" class="btn btn-sm btn-primary" onclick="sendProposal()"><i class="bi bi-send"></i> Enviar ao cliente</button>
@@ -36,18 +42,20 @@ $isTerminal = in_array($proposal['status'], ['accepted','rejected','cancelled'],
     <div class="alert alert-danger py-2">
         <i class="bi bi-x-circle"></i> <strong>Proposta recusada pelo cliente.</strong>
         <?php if (!empty($proposal['reject_reason'])): ?><br><span class="small">Motivo: <?= escape($proposal['reject_reason']) ?></span><?php endif; ?>
-        <br><span class="small text-muted">Clique em <strong>Reabrir para editar</strong> para ajustar e reenviar.</span>
     </div>
     <?php endif; ?>
 
     <div class="row g-3">
         <div class="col-lg-8">
             <div class="card mb-3">
-                <div class="card-header py-2"><strong>Dados</strong></div>
+                <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                    <strong>Dados da proposta</strong>
+                    <a href="<?= baseUrl('proposal/blocks') ?>" class="small">Editar conteúdo fixo</a>
+                </div>
                 <div class="card-body">
                     <div class="row g-2">
-                        <div class="col-md-6"><label class="form-label small">Título</label><input id="p-title" class="form-control form-control-sm" value="<?= escape($proposal['title']) ?>"></div>
-                        <div class="col-md-6"><label class="form-label small">Tipo de contratação</label>
+                        <div class="col-md-8"><label class="form-label small">Título</label><input id="p-title" class="form-control form-control-sm" value="<?= escape($proposal['title']) ?>"></div>
+                        <div class="col-md-4"><label class="form-label small">Tipo de contratação</label>
                             <select id="p-contract" class="form-select form-select-sm">
                                 <option value="">—</option>
                                 <?php foreach ($contractTypes as $ct): ?>
@@ -55,44 +63,96 @@ $isTerminal = in_array($proposal['status'], ['accepted','rejected','cancelled'],
                                 <?php endforeach; ?>
                             </select>
                         </div>
-                        <div class="col-md-5"><label class="form-label small">Cliente</label><input id="p-client-name" class="form-control form-control-sm" value="<?= escape($proposal['client_name'] ?? '') ?>"></div>
+                        <div class="col-md-6"><label class="form-label small">Lead</label>
+                            <select id="p-lead" class="form-select form-select-sm">
+                                <option value="">— Sem vínculo —</option>
+                                <?php foreach (($leads ?? []) as $l): ?>
+                                <option value="<?= (int)$l['id'] ?>"
+                                    data-name="<?= escape($l['contact_name'] ?? '') ?>"
+                                    data-email="<?= escape($l['lead_email'] ?? '') ?>"
+                                    data-phone="<?= escape($l['phone'] ?? '') ?>"
+                                    <?= ((int)($proposal['contact_id'] ?? 0) === (int)$l['id']) ? 'selected' : '' ?>>
+                                    <?= escape($l['contact_name'] ?: ('Contato #' . (int)$l['id'])) ?>
+                                </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-6"><label class="form-label small">Cliente relacionado</label>
+                            <select id="p-company" class="form-select form-select-sm">
+                                <option value="">— Sem cliente —</option>
+                                <?php foreach (($companies ?? []) as $co): ?>
+                                <option value="<?= (int)$co['id'] ?>"
+                                    data-name="<?= escape($co['name'] ?? '') ?>"
+                                    data-email="<?= escape($co['email'] ?? '') ?>"
+                                    data-phone="<?= escape($co['phone'] ?? '') ?>"
+                                    <?= ((int)($proposal['company_id'] ?? 0) === (int)$co['id']) ? 'selected' : '' ?>>
+                                    <?= escape($co['name']) ?>
+                                </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-5"><label class="form-label small">Nome</label><input id="p-client-name" class="form-control form-control-sm" value="<?= escape($proposal['client_name'] ?? '') ?>"></div>
                         <div class="col-md-4"><label class="form-label small">E-mail</label><input id="p-client-email" class="form-control form-control-sm" value="<?= escape($proposal['client_email'] ?? '') ?>"></div>
                         <div class="col-md-3"><label class="form-label small">Telefone</label><input id="p-client-phone" class="form-control form-control-sm" value="<?= escape($proposal['client_phone'] ?? '') ?>"></div>
                         <div class="col-md-4"><label class="form-label small">Validade</label><input type="date" id="p-validity" class="form-control form-control-sm" value="<?= escape($proposal['validity_date'] ?? '') ?>"></div>
-                        <div class="col-12"><label class="form-label small">Observações</label><textarea id="p-obs" class="form-control form-control-sm" rows="2"><?= escape($proposal['observations'] ?? '') ?></textarea></div>
+                        <div class="col-md-4"><label class="form-label small">Início do desenvolvimento</label><input type="date" id="p-dev-start" class="form-control form-control-sm" value="<?= escape($proposal['dev_start'] ?? '') ?>"></div>
+                        <div class="col-md-4"><label class="form-label small">Fim do desenvolvimento</label><input type="date" id="p-dev-end" class="form-control form-control-sm" value="<?= escape($proposal['dev_end'] ?? '') ?>"></div>
+                        <div class="col-12"><label class="form-label small">Observações <span class="text-muted">(só desta proposta)</span></label><textarea id="p-obs" class="form-control form-control-sm" rows="2"><?= escape($proposal['observations'] ?? '') ?></textarea></div>
                     </div>
                 </div>
             </div>
 
             <div class="card">
-                <div class="card-header py-2 d-flex justify-content-between align-items-center">
-                    <strong>Itens</strong>
+                <div class="card-header py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <strong>Serviços da contratação</strong>
                     <div class="d-flex gap-2">
-                        <select id="svc-pick" class="form-select form-select-sm" style="width:auto;">
+                        <select id="svc-pick" class="form-select form-select-sm" style="width:auto;max-width:260px;">
                             <option value="">+ Do catálogo…</option>
-                            <?php foreach ($services as $s): ?>
-                            <option value='<?= json_encode($s, JSON_HEX_APOS | JSON_HEX_QUOT) ?>'><?= escape($s['name']) ?></option>
+                            <?php foreach ($services as $s):
+                                $forecast = ProposalRules::forecast($s['est_hours'] ?? null, $s['hourly_rate'] ?? null);
+                            ?>
+                            <option value="<?= (int)$s['id'] ?>"><?= escape($s['name']) ?><?= $forecast !== null ? ' · R$ ' . number_format($forecast, 2, ',', '.') : '' ?></option>
                             <?php endforeach; ?>
                         </select>
-                        <button class="btn btn-sm btn-outline-primary" onclick="addRow()"><i class="bi bi-plus"></i> Item</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="applyPeriod()">Aplicar período</button>
                     </div>
                 </div>
                 <div class="card-body p-0">
+                    <div class="table-responsive">
                     <table class="table table-sm mb-0 align-middle">
                         <thead class="table-light">
-                            <tr><th>Descrição / escopo</th><th style="width:90px;">Horas</th><th style="width:120px;">R$/hora</th><th style="width:130px;">Total</th><th style="width:40px;"></th></tr>
+                            <tr>
+                                <th>Serviço, descrição e cronograma</th>
+                                <th style="width:80px;">Qtd</th>
+                                <th style="width:80px;">Horas</th>
+                                <th style="width:110px;">Valor</th>
+                                <th style="width:120px;">Total</th>
+                                <th style="width:40px;"></th>
+                            </tr>
                         </thead>
                         <tbody id="items-body"></tbody>
-                        <tfoot><tr class="table-light"><td colspan="3" class="text-end fw-bold">Total</td><td class="fw-bold" id="grand-total">R$ 0,00</td><td></td></tr></tfoot>
+                        <tfoot><tr class="table-light"><td colspan="4" class="text-end fw-bold">Total</td><td class="fw-bold" id="grand-total">R$ 0,00</td><td></td></tr></tfoot>
                     </table>
+                    </div>
                 </div>
+                <div class="card-footer small text-muted">O valor vem do catálogo como previsão e pode ser alterado nesta proposta. Com horas, o valor é por hora. Sem horas, o valor é o do item. Total = quantidade × horas × valor, ou quantidade × valor.</div>
             </div>
         </div>
 
         <div class="col-lg-4">
+            <div class="card mb-3">
+                <div class="card-header py-2"><strong>Link do cliente</strong></div>
+                <div class="card-body">
+                    <p class="small text-muted mb-2">A proposta chega por este link, já montada com os serviços e o texto fixo.</p>
+                    <div class="input-group input-group-sm">
+                        <input class="form-control" id="p-link" readonly value="<?= escape($publicLink) ?>">
+                        <button class="btn btn-outline-secondary" type="button" onclick="copyLink()">Copiar</button>
+                    </div>
+                </div>
+            </div>
             <div class="card">
                 <div class="card-header py-2"><strong>Histórico</strong></div>
-                <div class="card-body" style="max-height:60vh;overflow:auto;">
+                <div class="card-body" style="max-height:50vh;overflow:auto;">
                     <?php if (empty($events)): ?><p class="text-muted small mb-0">Sem eventos.</p>
                     <?php else: foreach ($events as $e): ?>
                     <div class="mb-2 pb-2 border-bottom">
@@ -110,7 +170,9 @@ $isTerminal = in_array($proposal['status'], ['accepted','rejected','cancelled'],
 const PROP_BASE = '<?= baseUrl("") ?>';
 const CSRF = '<?= csrf_token() ?>';
 const PROPOSAL_ID = <?= (int)$proposal['id'] ?>;
-const EXISTING_ITEMS = <?= json_encode($items, JSON_UNESCAPED_UNICODE) ?: '[]' ?>;
+const CAN_EDIT = <?= $isTerminal ? 'false' : 'true' ?>;
+const EXISTING_ITEMS = <?= json_encode($items, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT) ?: '[]' ?>;
+const SERVICES = <?= json_encode($services, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT) ?: '[]' ?>;
 
 function money(v) { return 'R$ ' + (Number(v)||0).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2}); }
 
@@ -120,22 +182,61 @@ function addRow(data) {
     const tr = document.createElement('tr');
     tr.innerHTML = `
         <td>
-            <input class="form-control form-control-sm it-desc" placeholder="Descrição" value="${(data.description||'').replace(/"/g,'&quot;')}">
-            <textarea class="form-control form-control-sm mt-1 it-scope" rows="1" placeholder="Escopo (opcional)">${data.scope||''}</textarea>
+            <input class="form-control form-control-sm it-desc" placeholder="Nome do serviço">
+            <textarea class="form-control form-control-sm mt-1 it-scope" rows="2" placeholder="Descrição"></textarea>
+            <div class="d-flex gap-2 mt-1">
+                <div style="flex:1"><label class="form-label small mb-0 text-muted">Início</label><input type="date" class="form-control form-control-sm it-start"></div>
+                <div style="flex:1"><label class="form-label small mb-0 text-muted">Fim</label><input type="date" class="form-control form-control-sm it-end"></div>
+            </div>
+            <div class="it-hint small text-muted mt-1"></div>
+            <input type="hidden" class="it-service">
+            <input type="hidden" class="it-hosting">
         </td>
-        <td><input type="number" step="0.01" min="0" class="form-control form-control-sm it-hours" value="${data.hours||''}" oninput="recalc()"></td>
-        <td><input type="number" step="0.01" min="0" class="form-control form-control-sm it-rate" value="${data.hourly_rate||''}" oninput="recalc()"></td>
-        <td class="it-total">${money(data.amount||0)}</td>
-        <td><button class="btn btn-sm btn-outline-danger" onclick="this.closest('tr').remove(); recalc();"><i class="bi bi-x"></i></button></td>`;
+        <td><input type="number" step="0.01" min="0" class="form-control form-control-sm it-qty"></td>
+        <td><input type="number" step="0.01" min="0" class="form-control form-control-sm it-hours"></td>
+        <td><input type="number" step="0.01" min="0" class="form-control form-control-sm it-rate" title="Com horas, valor por hora. Sem horas, valor do item."></td>
+        <td class="it-total text-nowrap"></td>
+        <td><button type="button" class="btn btn-sm btn-outline-danger it-remove"><i class="bi bi-x"></i></button></td>`;
+    const hours = (data.hours === null || data.hours === undefined) ? '' : data.hours;
+    const rate = (data.hourly_rate === null || data.hourly_rate === undefined) ? '' : data.hourly_rate;
+    const qty = (data.quantity === null || data.quantity === undefined || data.quantity === '') ? 1 : data.quantity;
+    const hNum = parseFloat(hours) || 0;
+    const rNum = parseFloat(rate) || 0;
+    let unit = rate;
+    if (!(hNum > 0 && rNum > 0) && data.amount) {
+        const qn = parseFloat(qty) || 1;
+        unit = (parseFloat(data.amount) / qn);
+        if (!isFinite(unit)) unit = '';
+    }
+    tr.querySelector('.it-desc').value = data.description || '';
+    tr.querySelector('.it-scope').value = data.scope || '';
+    tr.querySelector('.it-qty').value = qty;
+    tr.querySelector('.it-hours').value = hours === null ? '' : hours;
+    tr.querySelector('.it-rate').value = unit === null ? '' : unit;
+    tr.querySelector('.it-start').value = data.schedule_start || '';
+    tr.querySelector('.it-end').value = data.schedule_end || '';
+    tr.querySelector('.it-service').value = data.service_id || '';
+    tr.querySelector('.it-hosting').value = data.is_hosting ? '1' : '0';
+    if (data.hint) tr.querySelector('.it-hint').textContent = data.hint;
+    tr.querySelector('.it-remove').addEventListener('click', () => { tr.remove(); recalc(); });
+    tr.querySelectorAll('input').forEach(inp => inp.addEventListener('input', recalc));
     tb.appendChild(tr);
     recalc();
+    return tr;
+}
+function lineAmount(tr) {
+    const qRaw = parseFloat(tr.querySelector('.it-qty').value);
+    const q = isNaN(qRaw) ? 1 : qRaw;
+    const h = parseFloat(tr.querySelector('.it-hours').value) || 0;
+    const r = parseFloat(tr.querySelector('.it-rate').value) || 0;
+    if (h > 0 && r > 0) return q * h * r;
+    if (r > 0) return q * r;
+    return 0;
 }
 function recalc() {
     let total = 0;
     document.querySelectorAll('#items-body tr').forEach(tr => {
-        const h = parseFloat(tr.querySelector('.it-hours').value) || 0;
-        const r = parseFloat(tr.querySelector('.it-rate').value) || 0;
-        const amt = (h > 0 && r > 0) ? (h * r) : 0;
+        const amt = lineAmount(tr);
         tr.querySelector('.it-total').textContent = money(amt);
         tr.dataset.amount = amt;
         total += amt;
@@ -147,32 +248,124 @@ function collectItems() {
     document.querySelectorAll('#items-body tr').forEach(tr => {
         const desc = tr.querySelector('.it-desc').value.trim();
         if (!desc) return;
+        const h = tr.querySelector('.it-hours').value;
+        const r = tr.querySelector('.it-rate').value;
+        const hNum = parseFloat(h) || 0;
+        const rNum = parseFloat(r) || 0;
         items.push({
             description: desc,
             scope: tr.querySelector('.it-scope').value.trim(),
-            hours: tr.querySelector('.it-hours').value,
-            hourly_rate: tr.querySelector('.it-rate').value,
-            amount: tr.dataset.amount || 0,
+            service_id: tr.querySelector('.it-service').value,
+            quantity: tr.querySelector('.it-qty').value,
+            hours: h,
+            hourly_rate: hNum > 0 ? r : '',
+            amount: hNum > 0 ? 0 : rNum,
+            is_hosting: tr.querySelector('.it-hosting').value === '1' ? 1 : 0,
+            schedule_start: tr.querySelector('.it-start').value,
+            schedule_end: tr.querySelector('.it-end').value,
         });
     });
     return items;
+}
+function datesOk() {
+    const a = document.getElementById('p-dev-start').value;
+    const b = document.getElementById('p-dev-end').value;
+    if (a && b && b < a) { alert('O fim do desenvolvimento não pode ser anterior ao início.'); return false; }
+    let ok = true;
+    document.querySelectorAll('#items-body tr').forEach(tr => {
+        const s = tr.querySelector('.it-start').value;
+        const e = tr.querySelector('.it-end').value;
+        if (s && e && e < s) {
+            const name = tr.querySelector('.it-desc').value.trim() || 'serviço';
+            alert('No cronograma de "' + name + '", a data final não pode ser anterior à inicial.');
+            ok = false;
+        }
+    });
+    return ok;
 }
 function body() {
     return {
         title: document.getElementById('p-title').value.trim(),
         contract_type: document.getElementById('p-contract').value,
+        contact_id: document.getElementById('p-lead').value,
+        company_id: document.getElementById('p-company').value,
         client_name: document.getElementById('p-client-name').value.trim(),
         client_email: document.getElementById('p-client-email').value.trim(),
         client_phone: document.getElementById('p-client-phone').value.trim(),
         validity_date: document.getElementById('p-validity').value,
+        dev_start: document.getElementById('p-dev-start').value,
+        dev_end: document.getElementById('p-dev-end').value,
         observations: document.getElementById('p-obs').value.trim(),
         items: collectItems(),
     };
 }
-// Trava para evitar salvamentos duplicados (clique repetido enquanto salva).
+function applyPeriod() {
+    const a = document.getElementById('p-dev-start').value;
+    const b = document.getElementById('p-dev-end').value;
+    document.querySelectorAll('#items-body tr').forEach(tr => {
+        const s = tr.querySelector('.it-start');
+        const e = tr.querySelector('.it-end');
+        if (!s.value && a) s.value = a;
+        if (!e.value && b) e.value = b;
+    });
+}
+function fillIfEmpty(id, value) {
+    const el = document.getElementById(id);
+    if (value && !el.value) el.value = value;
+}
+document.getElementById('p-lead').addEventListener('change', function () {
+    const opt = this.options[this.selectedIndex];
+    if (!this.value) return;
+    fillIfEmpty('p-client-name', opt.getAttribute('data-name') || '');
+    fillIfEmpty('p-client-email', opt.getAttribute('data-email') || '');
+    fillIfEmpty('p-client-phone', opt.getAttribute('data-phone') || '');
+});
+document.getElementById('p-company').addEventListener('change', function () {
+    const opt = this.options[this.selectedIndex];
+    if (!this.value) return;
+    document.getElementById('p-client-name').value = opt.getAttribute('data-name') || '';
+    document.getElementById('p-client-email').value = opt.getAttribute('data-email') || '';
+    document.getElementById('p-client-phone').value = opt.getAttribute('data-phone') || '';
+});
+document.getElementById('svc-pick').addEventListener('change', function () {
+    if (!this.value) return;
+    const s = SERVICES.find(x => String(x.id) === String(this.value));
+    this.value = '';
+    if (!s) return;
+    const hours = (s.est_hours === null || s.est_hours === undefined) ? '' : s.est_hours;
+    const rate = (s.hourly_rate === null || s.hourly_rate === undefined) ? '' : s.hourly_rate;
+    const h = parseFloat(hours) || 0;
+    const r = parseFloat(rate) || 0;
+    const forecast = (h > 0 && r > 0) ? (h * r) : (r > 0 ? r : 0);
+    const tr = addRow({
+        service_id: s.id,
+        description: s.name || '',
+        scope: s.description || '',
+        hours: hours,
+        hourly_rate: rate,
+        quantity: 1,
+        is_hosting: parseInt(s.is_hosting, 10) === 1,
+        hint: forecast ? ('Previsão do catálogo: ' + money(forecast) + '. Altere o valor se esta proposta for diferente.') : ''
+    });
+    const a = document.getElementById('p-dev-start').value;
+    const b = document.getElementById('p-dev-end').value;
+    if (a) tr.querySelector('.it-start').value = a;
+    if (b) tr.querySelector('.it-end').value = b;
+});
+async function openClientLink() {
+    if (CAN_EDIT && !await saveProposal()) return;
+    window.open(document.getElementById('p-link').value, '_blank', 'noopener');
+}
+function copyLink() {
+    const input = document.getElementById('p-link');
+    input.select();
+    navigator.clipboard.writeText(input.value).then(() => alert('Link copiado.')).catch(() => alert(input.value));
+}
+
 let SAVING = false;
 async function saveProposal() {
-    if (SAVING) return false;            // já há um save em andamento
+    if (SAVING) return false;
+    if (!datesOk()) return false;
     SAVING = true;
     const btn = document.getElementById('btn-save');
     const original = btn ? btn.innerHTML : '';
@@ -210,32 +403,18 @@ async function sendProposal() {
         .then(x => x.json()).catch(() => ({error:'Falha de rede'}));
     if (btn) { btn.disabled = false; btn.innerHTML = orig; }
     if (r.error) { alert(r.error); return; }
-
-    // Feedback do que foi enviado ao cliente.
     let msg = 'Proposta marcada como enviada.\n';
     const canais = [];
     if (r.sent_whats) canais.push('WhatsApp');
     if (r.sent_email) canais.push('e-mail');
-    if (canais.length) {
-        msg += 'Enviada ao cliente por: ' + canais.join(' e ') + '.';
-    } else if (r.no_contact) {
-        msg += 'Atenção: o cliente não tem telefone/e-mail cadastrado — nada foi enviado automaticamente. Copie o link e envie manualmente:\n' + r.link;
-    } else {
-        msg += 'Não foi possível enviar automaticamente (verifique WhatsApp/SMTP). Envie o link manualmente:\n' + r.link;
-    }
+    if (canais.length) msg += 'Enviada ao cliente por: ' + canais.join(' e ') + '.';
+    else if (r.no_contact) msg += 'O cliente não tem telefone nem e-mail. Copie o link e envie manualmente:\n' + r.link;
+    else msg += 'Não foi possível enviar automaticamente. Envie o link manualmente:\n' + r.link;
     alert(msg);
     location.reload();
 }
-// Adicionar item a partir do catálogo.
-document.getElementById('svc-pick').addEventListener('change', function() {
-    if (!this.value) return;
-    try { const s = JSON.parse(this.value); addRow({ description: s.name, scope: s.description, hours: s.est_hours, hourly_rate: s.hourly_rate }); } catch(e){}
-    this.value = '';
-});
-// Carrega os itens existentes.
-if (EXISTING_ITEMS.length) EXISTING_ITEMS.forEach(it => addRow(it)); else addRow();
+if (EXISTING_ITEMS.length) EXISTING_ITEMS.forEach(it => addRow(it));
 
-// Reabre uma proposta recusada para edição (volta para "em elaboração").
 async function reopenProposal() {
     if (!confirm('Reabrir esta proposta recusada para editar? Ela volta para "em elaboração".')) return;
     const fd = new FormData(); fd.append('csrf_token', CSRF); fd.append('status', 'draft');
@@ -244,13 +423,10 @@ async function reopenProposal() {
     if (r.error) { alert(r.error); return; }
     location.reload();
 }
-
-// Abre o modal de escolha do modelo de contrato.
 function genContract() {
     const modal = new bootstrap.Modal(document.getElementById('genContractModal'));
     modal.show();
 }
-// Confirma a geração com o modelo escolhido no dropdown.
 async function confirmGenContract() {
     const templateId = document.getElementById('gc-template').value;
     const btn = document.getElementById('gc-confirm');
@@ -265,7 +441,6 @@ async function confirmGenContract() {
 }
 </script>
 
-<!-- Modal: gerar contrato (escolher modelo) -->
 <div class="modal fade" id="genContractModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
     <div class="modal-content">

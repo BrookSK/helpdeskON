@@ -1,3 +1,4 @@
+<?php $pageTitle = 'Propostas - ON Solutions Helpdesk'; $currentPage = 'proposals'; ?>
 <?php require APP_PATH . '/views/layouts/header.php'; ?>
 <?php require APP_PATH . '/views/layouts/sidebar.php'; ?>
 <?php
@@ -22,6 +23,7 @@ $statusBadge = [
             <?php if (Permissions::canAccess($user['role'] ?? null, 'presentations')): ?>
             <a href="<?= baseUrl('presentation') ?>" class="btn btn-outline-primary btn-sm"><i class="bi bi-easel"></i> Apresentação</a>
             <?php endif; ?>
+            <a href="<?= baseUrl('proposal/blocks') ?>" class="btn btn-outline-secondary btn-sm"><i class="bi bi-layout-text-window"></i> Conteúdo fixo</a>
             <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#newProposalModal"><i class="bi bi-plus-lg"></i> Nova proposta</button>
         </div>
     </div>
@@ -43,7 +45,7 @@ $statusBadge = [
             <div class="table-responsive">
                 <table class="table table-hover mb-0 align-middle">
                     <thead class="table-light">
-                        <tr><th>#</th><th>Título</th><th>Cliente</th><th>Status</th><th>Total</th><th>Criada</th><th></th></tr>
+                        <tr><th>#</th><th>Título</th><th>Cliente</th><th>Status</th><th>Total</th><th>Criada</th><th class="text-end">Link</th></tr>
                     </thead>
                     <tbody>
                         <?php if (empty($proposals)): ?>
@@ -56,7 +58,9 @@ $statusBadge = [
                             <td><span class="badge bg-<?= $statusBadge[$p['status']] ?? 'secondary' ?>"><?= $statusLabels[$p['status']] ?? $p['status'] ?></span></td>
                             <td>R$ <?= number_format((float)$p['total'], 2, ',', '.') ?></td>
                             <td><small class="text-muted"><?= date('d/m/Y', strtotime($p['created_at'])) ?></small></td>
-                            <td class="text-end"><i class="bi bi-chevron-right text-muted"></i></td>
+                            <td class="text-end" onclick="event.stopPropagation();">
+                                <a class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener" href="<?= baseUrl('proposal/show/' . $p['public_token']) ?>" title="Abrir o link do cliente"><i class="bi bi-box-arrow-up-right"></i></a>
+                            </td>
                         </tr>
                         <?php endforeach; endif; ?>
                     </tbody>
@@ -86,6 +90,7 @@ $statusBadge = [
             <?php foreach (($leads ?? []) as $l): ?>
             <option value="<?= (int)$l['id'] ?>"
                     data-name="<?= escape($l['contact_name'] ?? '') ?>"
+                    data-email="<?= escape($l['lead_email'] ?? '') ?>"
                     data-phone="<?= escape($l['phone'] ?? '') ?>">
               <?= escape($l['contact_name'] ?: ('Contato #' . (int)$l['id'])) ?><?= !empty($l['phone']) ? ' · ' . escape($l['phone']) : '' ?>
             </option>
@@ -93,10 +98,25 @@ $statusBadge = [
           </select>
           <small class="text-muted">Vincula a proposta ao lead do CRM (rastreabilidade da esteira).</small>
         </div>
+        <div class="mb-3">
+          <label class="form-label small fw-medium">Cliente relacionado</label>
+          <select id="np-company" class="form-select form-select-sm">
+            <option value="">— Sem cliente —</option>
+            <?php foreach (($companies ?? []) as $co): ?>
+            <option value="<?= (int)$co['id'] ?>"
+                    data-name="<?= escape($co['name'] ?? '') ?>"
+                    data-email="<?= escape($co['email'] ?? '') ?>"
+                    data-phone="<?= escape($co['phone'] ?? '') ?>">
+              <?= escape($co['name']) ?>
+            </option>
+            <?php endforeach; ?>
+          </select>
+          <small class="text-muted">Ao escolher o cliente, nome, e-mail e telefone são preenchidos. Dá para ajustar antes de criar.</small>
+        </div>
         <div class="row g-2">
           <div class="col-12">
             <label class="form-label small">Nome do cliente</label>
-            <input type="text" id="np-client-name" class="form-control form-control-sm" placeholder="Preenche ao escolher o lead">
+            <input type="text" id="np-client-name" class="form-control form-control-sm" placeholder="Preenche ao escolher o cliente">
           </div>
           <div class="col-7">
             <label class="form-label small">E-mail</label>
@@ -121,14 +141,23 @@ const PROP_BASE = '<?= baseUrl("") ?>';
 const CSRF = '<?= csrf_token() ?>';
 
 // Ao escolher um lead, preenche nome/telefone do cliente (snapshot).
+function fillIfEmpty(id, value) {
+    const el = document.getElementById(id);
+    if (value && !el.value) el.value = value;
+}
 document.getElementById('np-lead').addEventListener('change', function () {
     const opt = this.options[this.selectedIndex];
-    const name = opt.getAttribute('data-name') || '';
-    const phone = opt.getAttribute('data-phone') || '';
-    if (this.value) {
-        if (!document.getElementById('np-client-name').value) document.getElementById('np-client-name').value = name;
-        if (!document.getElementById('np-client-phone').value) document.getElementById('np-client-phone').value = phone;
-    }
+    if (!this.value) return;
+    fillIfEmpty('np-client-name', opt.getAttribute('data-name') || '');
+    fillIfEmpty('np-client-email', opt.getAttribute('data-email') || '');
+    fillIfEmpty('np-client-phone', opt.getAttribute('data-phone') || '');
+});
+document.getElementById('np-company').addEventListener('change', function () {
+    const opt = this.options[this.selectedIndex];
+    if (!this.value) return;
+    document.getElementById('np-client-name').value = opt.getAttribute('data-name') || '';
+    document.getElementById('np-client-email').value = opt.getAttribute('data-email') || '';
+    document.getElementById('np-client-phone').value = opt.getAttribute('data-phone') || '';
 });
 
 document.getElementById('np-save').addEventListener('click', async function () {
@@ -139,6 +168,7 @@ document.getElementById('np-save').addEventListener('click', async function () {
     fd.append('csrf_token', CSRF);
     fd.append('title', title);
     fd.append('contact_id', document.getElementById('np-lead').value);
+    fd.append('company_id', document.getElementById('np-company').value);
     fd.append('client_name', document.getElementById('np-client-name').value.trim());
     fd.append('client_email', document.getElementById('np-client-email').value.trim());
     fd.append('client_phone', document.getElementById('np-client-phone').value.trim());
