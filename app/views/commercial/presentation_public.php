@@ -1,6 +1,6 @@
 <?php
 $appName = htmlspecialchars((string) Config::get('app_name') ?: 'ON Solutions', ENT_QUOTES);
-$t = fn($text) => htmlspecialchars(PresentationRules::applyVars((string)$text, $vars), ENT_QUOTES);
+$t = fn($text) => PresentationRules::linkify(htmlspecialchars(PresentationRules::applyVars((string)$text, $vars), ENT_QUOTES));
 $p = fn($text) => nl2br($t($text));
 ?>
 <!DOCTYPE html>
@@ -70,6 +70,9 @@ $p = fn($text) => nl2br($t($text));
         .contacts div { font-size:.95rem; } .contacts span { display:block; font-size:.78rem; color:#aeb5da; text-transform:uppercase; letter-spacing:.05em; }
         .slide[data-hidden] { opacity:.35; position:relative; }
         .slide[data-hidden]::after { content:'Oculta para o cliente'; position:absolute; top:12px; right:16px; background:#6b7088; color:#fff; font-size:.72rem; padding:3px 8px; border-radius:6px; }
+        .deck a { color:#0c8f7c; font-weight:600; text-decoration:underline; text-underline-offset:2px; }
+        .hero a { color:#b8fff3; }
+        .note a { color:#0b6b5e; }
         .ft { text-align:center; font-size:.78rem; color:#7b819c; }
         @media (max-width:640px) { .slide { padding:32px 22px; } .hero { padding:48px 22px; } .hero h1 { font-size:2rem; } .hero-brand .emblem { width:64px; height:64px; flex-basis:64px; } h2 { font-size:1.4rem; } }
     </style>

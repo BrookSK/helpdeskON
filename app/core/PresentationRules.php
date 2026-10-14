@@ -124,6 +124,30 @@ class PresentationRules
         return strtr($text, $map);
     }
 
+    /**
+     * Transforma endereços já escapados em HTML (lrvweb.com.br, com ou sem
+     * https) em links que abrem o site. Não mexe em e-mail.
+     */
+    public static function linkify(string $escaped): string
+    {
+        $linked = preg_replace_callback(
+            '/(?<![\w@\/.])((?:https?:\/\/)?(?:www\.)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[a-z0-9._~:\/?#\[\]@!$&\'()*+,;=%-]*)?)/i',
+            static function (array $m): string {
+                $label = $m[1];
+                $trail = '';
+                if (preg_match('/^(.+?)([.,;:!?)\\]]+)$/u', $label, $end) && str_contains($end[1], '.')) {
+                    $label = $end[1];
+                    $trail = $end[2];
+                }
+                $href = preg_match('#^https?://#i', $label) ? $label : 'https://' . $label;
+                return '<a href="' . htmlspecialchars($href, ENT_QUOTES) . '" target="_blank" rel="noopener">'
+                    . $label . '</a>' . $trail;
+            },
+            $escaped
+        );
+        return is_string($linked) ? $linked : $escaped;
+    }
+
     /** Mensagem de WhatsApp enviada ao CLIENTE com o link da apresentação. */
     public static function clientWhatsapp(string $name, string $link, ?string $company): string
     {

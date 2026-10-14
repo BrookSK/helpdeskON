@@ -102,6 +102,25 @@ final class PresentationRulesTest extends TestCase
         );
     }
 
+    public function testLinkifyEnderecosDeSiteOrcamentoEHospedagem(): void
+    {
+        $site = PresentationRules::linkify('Site: lrvweb.com.br');
+        $this->assertStringContainsString('href="https://lrvweb.com.br"', $site);
+        $this->assertStringContainsString('>lrvweb.com.br</a>', $site);
+
+        $orcamento = PresentationRules::linkify('Orçamento: lrvweb.com.br/pt/contato');
+        $this->assertStringContainsString('href="https://lrvweb.com.br/pt/contato"', $orcamento);
+
+        $hospedagem = PresentationRules::linkify('Portal de planos de hospedagem: cloud.lrvweb.com.br');
+        $this->assertStringContainsString('href="https://cloud.lrvweb.com.br"', $hospedagem);
+        $this->assertStringContainsString('target="_blank"', $hospedagem);
+
+        $nota = PresentationRules::linkify('A LRV Web (lrvweb.com.br) — hospedagem.');
+        $this->assertStringContainsString('href="https://lrvweb.com.br"', $nota);
+        $this->assertStringContainsString('>lrvweb.com.br</a>)', $nota);
+        $this->assertStringNotContainsString('href=', PresentationRules::linkify('contato@lrvweb.com.br'));
+    }
+
     public function testMensagensAoClienteContemLink(): void
     {
         $link = 'https://exemplo.test/presentation/show/abc';
