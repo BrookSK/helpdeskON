@@ -28,7 +28,7 @@ $p = fn($text) => nl2br($t($text));
                 linear-gradient(160deg, #0b1a24 0%, #0d2a2f 35%, #0e4740 70%, #11665a 100%);
         }
         .hero-brand { display:flex; align-items:center; justify-content:center; gap:16px; margin-bottom:.15em; }
-        .hero-brand .emblem { width:78px; height:78px; margin:0; flex:0 0 78px; }
+        .hero-brand .emblem { width:92px; height:92px; margin:0; flex:0 0 92px; object-fit:contain; }
         .hero-brand h1 { margin:0; }
         .hero h1 { font-size:3rem; color:#fff; }
         .hero .sub { font-size:1.3rem; font-weight:600; color:#5eead4; }
@@ -71,7 +71,7 @@ $p = fn($text) => nl2br($t($text));
         .slide[data-hidden] { opacity:.35; position:relative; }
         .slide[data-hidden]::after { content:'Oculta para o cliente'; position:absolute; top:12px; right:16px; background:#6b7088; color:#fff; font-size:.72rem; padding:3px 8px; border-radius:6px; }
         .ft { text-align:center; font-size:.78rem; color:#7b819c; }
-        @media (max-width:640px) { .slide { padding:32px 22px; } .hero { padding:48px 22px; } .hero h1 { font-size:2rem; } .hero-brand .emblem { width:56px; height:56px; flex-basis:56px; } h2 { font-size:1.4rem; } }
+        @media (max-width:640px) { .slide { padding:32px 22px; } .hero { padding:48px 22px; } .hero h1 { font-size:2rem; } .hero-brand .emblem { width:64px; height:64px; flex-basis:64px; } h2 { font-size:1.4rem; } }
     </style>
 </head>
 <body>
@@ -85,7 +85,7 @@ $p = fn($text) => nl2br($t($text));
             <?php if ($s['type'] === 'hero'): ?>
             <section class="slide hero" <?= $secAttr ?>>
                 <div class="hero-brand">
-                    <img class="emblem" src="<?= asset('on-emblem.png') ?>" alt="">
+                    <img class="emblem" src="<?= asset('on-emblem.png') ?>?v=2" alt="">
                     <h1><?= $t($s['title']) ?></h1>
                 </div>
                 <?php if ($s['subtitle'] !== ''): ?><p class="sub"><?= $t($s['subtitle']) ?></p><?php endif; ?>
