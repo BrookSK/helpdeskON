@@ -93,7 +93,7 @@ class Proposal
     /**
      * Substitui todos os itens da proposta pelos informados e recalcula o total.
      * Cada item: description (obrigatório), scope, quantity, hours, hourly_rate,
-     * amount, is_hosting, service_id, schedule_start, schedule_end.
+     * amount, billing, is_hosting, service_id, schedule_start, schedule_end.
      * amount é recalculado por ProposalRules.
      *
      * @return float total recalculado
@@ -120,6 +120,7 @@ class Proposal
                 'hours'          => ($it['hours'] ?? '') !== '' ? (float)$it['hours'] : null,
                 'hourly_rate'    => ($it['hourly_rate'] ?? '') !== '' ? (float)$it['hourly_rate'] : null,
                 'amount'         => $amount,
+                'billing'        => ProposalRules::normalizeBilling($it['billing'] ?? null),
                 'is_hosting'     => !empty($it['is_hosting']) ? 1 : 0,
                 'schedule_start' => ProposalRules::normalizeDate($it['schedule_start'] ?? null),
                 'schedule_end'   => ProposalRules::normalizeDate($it['schedule_end'] ?? null),

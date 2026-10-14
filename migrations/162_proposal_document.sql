@@ -1,6 +1,7 @@
--- Migration 162: documento da proposta comercial.
--- Separa o texto fixo (blocos reutilizáveis) do que varia por proposta
--- (cliente, serviços, valores, cronograma por serviço).
+-- Migration 162: documento da proposta comercial (PDF).
+-- Separa o texto fixo (quem somos, o que fazemos, clientes, como fazemos,
+-- condições, notas) do que varia por proposta (entendimento do negócio,
+-- serviços, valores, cronograma, projeção e retorno).
 -- Idempotente. Sem "USE": rode com o banco alvo já selecionado.
 
 CREATE TABLE IF NOT EXISTS proposal_blocks (
@@ -8,8 +9,7 @@ CREATE TABLE IF NOT EXISTS proposal_blocks (
     block_key   VARCHAR(40) NOT NULL,
     title       VARCHAR(200) NOT NULL,
     body        MEDIUMTEXT NULL,
-    placement   VARCHAR(10) NOT NULL DEFAULT 'before' COMMENT 'before = antes dos serviços; after = depois do cronograma',
-    position    INT NOT NULL DEFAULT 0,
+    position    INT NOT NULL DEFAULT 0 COMMENT 'Ordem no PDF (fixa por block_key)',
     active      TINYINT(1) NOT NULL DEFAULT 1,
     updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uk_proposal_block_key (block_key)
@@ -35,6 +35,30 @@ SET @c := (SELECT COUNT(*) FROM information_schema.COLUMNS
     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'proposals' AND COLUMN_NAME = 'fixed_snapshot');
 SET @s := IF(@c = 0,
     'ALTER TABLE proposals ADD COLUMN fixed_snapshot LONGTEXT NULL COMMENT ''JSON dos blocos fixos no último save'' AFTER observations',
+    'SELECT 1');
+PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+
+-- Seções que mudam por cliente (entendimento do negócio, retorno, renovação,
+-- resumo, condição de pagamento). JSON, ver ProposalRules::CONTENT_FIELDS.
+SET @c := (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'proposals' AND COLUMN_NAME = 'content');
+SET @s := IF(@c = 0,
+    'ALTER TABLE proposals ADD COLUMN content LONGTEXT NULL COMMENT ''JSON das seções variáveis'' AFTER observations',
+    'SELECT 1');
+PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+
+-- Cobrança pontual ou mensal (base da projeção de 12 meses).
+SET @c := (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'proposal_items' AND COLUMN_NAME = 'billing');
+SET @s := IF(@c = 0,
+    'ALTER TABLE proposal_items ADD COLUMN billing VARCHAR(10) NOT NULL DEFAULT ''once'' COMMENT ''once = pontual; monthly = mensal'' AFTER amount',
+    'SELECT 1');
+PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+
+SET @c := (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'service_catalog' AND COLUMN_NAME = 'billing');
+SET @s := IF(@c = 0,
+    'ALTER TABLE service_catalog ADD COLUMN billing VARCHAR(10) NOT NULL DEFAULT ''once'' COMMENT ''once = pontual; monthly = mensal'' AFTER hourly_rate',
     'SELECT 1');
 PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
 

@@ -38,6 +38,47 @@ class PdfGenerator
         return $dompdf->output();
     }
 
+    /**
+     * Converte um documento HTML completo (com o próprio CSS e @page) em PDF.
+     * Imagens só podem vir de arquivos dentro de $chroot.
+     *
+     * $pageNumber desenha "página / total" (o CSS do dompdf não conhece o total):
+     * ['right_mm' => float, 'top_mm' => float, 'size' => float, 'color' => [r,g,b] 0–1, 'skip_first' => bool]
+     */
+    public static function fromDocument(string $html, string $chroot, ?array $pageNumber = null, string $paper = 'A4', string $orientation = 'portrait'): string
+    {
+        if (!self::isAvailable()) {
+            throw new \RuntimeException('Gerador de PDF (dompdf) não instalado. Rode: composer require dompdf/dompdf');
+        }
+        $options = new Options();
+        $options->set('isRemoteEnabled', false);
+        $options->set('defaultFont', 'DejaVu Sans');
+        $options->set('isHtml5ParserEnabled', true);
+        $options->set('chroot', $chroot);
+
+        $dompdf = new Dompdf($options);
+        $dompdf->loadHtml($html, 'UTF-8');
+        $dompdf->setPaper($paper, $orientation);
+        $dompdf->render();
+
+        if ($pageNumber !== null) {
+            $mm = 72 / 25.4;
+            $size = (float)($pageNumber['size'] ?? 7);
+            $color = $pageNumber['color'] ?? [0.54, 0.6, 0.63];
+            $skipFirst = !empty($pageNumber['skip_first']);
+            $right = (float)($pageNumber['right_mm'] ?? 16) * $mm;
+            $top = (float)($pageNumber['top_mm'] ?? 284) * $mm;
+            $dompdf->getCanvas()->page_script(function ($page, $count, $canvas, $metrics) use ($size, $color, $skipFirst, $right, $top) {
+                if ($skipFirst && $page === 1) return;
+                $font = $metrics->getFont('DejaVu Sans');
+                $text = $page . ' / ' . $count;
+                $w = $metrics->getTextWidth($text, $font, $size);
+                $canvas->text($canvas->get_width() - $right - $w, $top, $text, $font, $size, $color);
+            });
+        }
+        return $dompdf->output();
+    }
+
     /** Envolve o corpo num HTML completo com margens e tipografia legível. */
     private static function wrap(string $bodyHtml): string
     {

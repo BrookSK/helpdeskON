@@ -41,7 +41,7 @@ class ProposalDelivery
         $assunto = $title ? " \"{$title}\"" : '';
         $msg = "{$saud}\n\n"
             . ($company ? "*{$company}*\n" : '')
-            . "Preparamos sua proposta{$assunto}. Você pode visualizar, aceitar ou pedir ajustes pelo link abaixo:\n"
+            . "Preparamos sua proposta{$assunto}. Segue o PDF; na última página está o link para aceitar ou pedir ajustes:\n"
             . $link;
         return $msg;
     }
@@ -57,9 +57,9 @@ class ProposalDelivery
         $saud = $name !== '' ? htmlspecialchars($name) : 'Olá';
         $t = $title ? htmlspecialchars($title) : 'sua proposta';
         return "<p>Olá, <strong>{$saud}</strong>!</p>"
-            . "<p>Preparamos <strong>{$t}</strong>. Clique no botão abaixo para visualizar, aceitar ou pedir ajustes:</p>"
+            . "<p>Preparamos <strong>{$t}</strong>. Clique no botão abaixo para abrir o PDF. Na última página está o link para aceitar ou pedir ajustes.</p>"
             . "<p style='text-align:center;margin:25px 0;'>"
-            . "<a href='{$link}' style='background:#00BFA6;color:#fff;padding:12px 30px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;'>Ver proposta</a>"
+            . "<a href='{$link}' style='background:#00BFA6;color:#fff;padding:12px 30px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;'>Abrir proposta (PDF)</a>"
             . "</p>"
             . "<p style='font-size:0.8rem;color:#888;word-break:break-all;'>Link direto: {$link}</p>";
     }

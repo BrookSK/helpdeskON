@@ -63,7 +63,8 @@ class ProposalController extends Controller
             'contractTemplates' => (new ContractTemplate())->getAll(true),
             'leads' => $leads,
             'companies' => $companies,
-            'publicLink' => $this->publicBase() . '/proposal/show/' . $proposal['public_token'],
+            'content' => ProposalRules::decodeContent($proposal['content'] ?? null),
+            'publicLink' => $this->pdfLink($proposal),
         ]);
     }
 
@@ -77,7 +78,7 @@ class ProposalController extends Controller
         $title = trim($_POST['title'] ?? '');
         if ($title === '') $this->json(['error' => 'Informe o título da proposta.'], 400);
 
-        $id = $this->model->create([
+        $data = [
             'public_token'  => $this->model->generateToken(),
             'title'         => $title,
             'contact_id'    => !empty($_POST['contact_id']) ? (int)$_POST['contact_id'] : null,
@@ -92,7 +93,12 @@ class ProposalController extends Controller
             'status'        => ProposalRules::STATUS_DRAFT,
             'total'         => 0,
             'created_by'    => $user['id'],
-        ]);
+        ];
+        try {
+            $id = $this->model->create($data + ['content' => json_encode(ProposalRules::defaultContent(), JSON_UNESCAPED_UNICODE)]);
+        } catch (\Throwable $e) {
+            $id = $this->model->create($data);
+        }
         $this->model->addEvent($id, $user['id'], 'created', 'Proposta criada');
         $this->json(['success' => true, 'id' => $id]);
     }
@@ -144,6 +150,13 @@ class ProposalController extends Controller
             }
         }
 
+        if (array_key_exists('content', $body)) {
+            $content = array_merge(
+                ProposalRules::decodeContent($proposal['content'] ?? null),
+                ProposalRules::normalizeContent($body['content'])
+            );
+            $fields['content'] = json_encode($content, JSON_UNESCAPED_UNICODE);
+        }
         $fields['fixed_snapshot'] = json_encode($this->fixedSnapshot(), JSON_UNESCAPED_UNICODE);
         try {
             $this->model->update($id, $fields);
@@ -188,12 +201,19 @@ class ProposalController extends Controller
         if (!$proposal) $this->json(['error' => 'Proposta não encontrada'], 404);
         $user = $this->currentUser();
 
+        // O cliente recebe o PDF: sem gerador no servidor, não envia nada.
+        try {
+            $this->buildPdf($proposal);
+        } catch (\Throwable $e) {
+            $this->json(['error' => 'Não foi possível gerar o PDF da proposta: ' . $e->getMessage()], 500);
+        }
+
         // Se ainda está em elaboração, promove para "montada" antes de enviar.
         if ($proposal['status'] === ProposalRules::STATUS_DRAFT) {
             $this->model->changeStatus($id, ProposalRules::STATUS_READY, $user['id']);
         }
         $this->model->changeStatus($id, ProposalRules::STATUS_SENT, $user['id'], ['sent_at' => date('Y-m-d H:i:s')]);
-        $link = $this->publicBase() . '/proposal/show/' . $proposal['public_token'];
+        $link = $this->pdfLink($proposal);
 
         // Envia o link ao CLIENTE por WhatsApp + e-mail (quando houver contato).
         $delivery = $this->deliverToClient($proposal, $link);
@@ -237,9 +257,33 @@ class ProposalController extends Controller
     // ================= Área pública (sem login, por token) =================
 
     /**
-     * Página pública da proposta (link enviado ao cliente).
-     * Nome 'show' (não 'view') para não colidir com Controller::view(), que
-     * renderiza templates e é usado internamente aqui.
+     * PDF da proposta (link enviado ao cliente). Abre no visualizador do
+     * navegador; a última página traz o link de aceite.
+     */
+    public function file($token = null)
+    {
+        $token = preg_replace('/\.pdf$/i', '', (string)$this->tokenFromUrl($token));
+        $proposal = $token ? $this->model->findByToken($token) : null;
+        if (!$proposal) { $this->renderSimple('Proposta indisponível', 'Este link de proposta não é válido.'); return; }
+
+        if ($proposal['status'] === ProposalRules::STATUS_SENT) {
+            $this->model->changeStatus($proposal['id'], ProposalRules::STATUS_AWAITING, null);
+        }
+        $this->outputPdf($proposal);
+    }
+
+    /** Prévia interna do PDF, exatamente como o cliente vai receber. */
+    public function pdf($id = null)
+    {
+        $this->requireModule('proposals');
+        $proposal = $id ? $this->model->findById($id) : null;
+        if (!$proposal) $this->redirect('proposal');
+        $this->outputPdf($proposal);
+    }
+
+    /**
+     * Página de aceite/recusa (link que está dentro do PDF).
+     * Nome 'show' (não 'view') para não colidir com Controller::view().
      */
     public function show($token = null)
     {
@@ -247,18 +291,15 @@ class ProposalController extends Controller
         $proposal = $token ? $this->model->findByToken($token) : null;
         if (!$proposal) { $this->renderSimple('Proposta indisponível', 'Este link de proposta não é válido.'); return; }
 
-        // Primeira abertura após envio: marca como "aguardando retorno".
         if ($proposal['status'] === ProposalRules::STATUS_SENT) {
             $this->model->changeStatus($proposal['id'], ProposalRules::STATUS_AWAITING, null);
+            $proposal['status'] = ProposalRules::STATUS_AWAITING;
         }
         $items = $this->model->getItems($proposal['id']);
-        $blocks = ProposalRules::decodeBlocks($proposal['fixed_snapshot'] ?? null);
-        if (!$blocks) $blocks = $this->fixedSnapshot();
         $this->view('commercial/proposal_public', [
             'proposal' => $proposal,
-            'items' => $items,
-            'blocks' => $blocks,
-            'timeline' => ProposalRules::timeline($items, $proposal['dev_start'] ?? null, $proposal['dev_end'] ?? null),
+            'totals' => ProposalRules::totals($items),
+            'pdfLink' => $this->pdfLink($proposal),
             'isTerminal' => ProposalRules::isTerminal($proposal['status']),
         ]);
     }
@@ -349,7 +390,7 @@ class ProposalController extends Controller
 
     /**
      * Cópia do texto fixo para gravar na proposta. Se a tabela ainda não
-     * existir, usa o texto padrão para o link não sair vazio.
+     * existir, usa o texto padrão para o PDF não sair vazio.
      */
     private function fixedSnapshot(): array
     {
@@ -358,15 +399,90 @@ class ProposalController extends Controller
         } catch (\Throwable $e) {
             $out = [];
             foreach (ProposalRules::defaultBlocks() as $b) {
-                $out[] = [
-                    'block_key' => $b['block_key'],
-                    'title' => $b['title'],
-                    'body' => $b['body'],
-                    'placement' => $b['placement'],
-                ];
+                $out[] = ['block_key' => $b['block_key'], 'title' => $b['title'], 'body' => $b['body']];
             }
             return $out;
         }
+    }
+
+    private function pdfLink(array $proposal): string
+    {
+        return $this->publicBase() . '/proposal/file/' . $proposal['public_token'];
+    }
+
+    private function outputPdf(array $proposal): void
+    {
+        try {
+            $pdf = $this->buildPdf($proposal);
+        } catch (\Throwable $e) {
+            $this->renderSimple('PDF indisponível', 'Não foi possível gerar o PDF da proposta: ' . $e->getMessage());
+            return;
+        }
+        $slug = trim(preg_replace('/[^a-z0-9]+/', '-', strtolower(iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', (string)$proposal['title']) ?: '')), '-');
+        $name = 'proposta-' . (int)$proposal['id'] . ($slug !== '' ? '-' . substr($slug, 0, 60) : '') . '.pdf';
+        header('Content-Type: application/pdf');
+        header('Content-Disposition: inline; filename="' . $name . '"');
+        header('Content-Length: ' . strlen($pdf));
+        header('Cache-Control: private, no-store');
+        echo $pdf;
+        exit;
+    }
+
+    /** Monta o HTML da proposta (texto fixo + dados variáveis) e converte em PDF. */
+    private function buildPdf(array $proposal): string
+    {
+        $items = $this->model->getItems($proposal['id']);
+        $blocks = ProposalRules::decodeBlocks($proposal['fixed_snapshot'] ?? null);
+        if (!$blocks) $blocks = ProposalRules::decodeBlocks(json_encode($this->fixedSnapshot()));
+        $content = ProposalRules::decodeContent($proposal['content'] ?? null);
+        $timeline = ProposalRules::timeline($items, $proposal['dev_start'] ?? null, $proposal['dev_end'] ?? null);
+        $totals = ProposalRules::totals($items);
+        $projection = ProposalRules::projection($items, $timeline['start'], $timeline['end'], $content['expected_return'] ?? null);
+
+        $brl = fn($v) => 'R$ ' . number_format((float)$v, 2, ',', '.');
+        $br = fn($d) => $d ? date('d/m/Y', strtotime($d)) : 'a definir';
+        $vars = [
+            'cliente' => (string)($proposal['client_name'] ?? ''),
+            'total' => $brl($totals['year']),
+            'total_pontual' => $brl($totals['once']),
+            'total_mensal' => $brl($totals['monthly']),
+            'total_12_meses' => $brl($totals['year']),
+            'condicao_pagamento' => ($content['payment_method'] ?? '') !== '' ? $content['payment_method'] : 'a combinar',
+            'validade' => $br($proposal['validity_date'] ?? null),
+            'inicio' => $br($timeline['start']),
+            'fim' => $br($timeline['end']),
+        ];
+
+        $public = defined('PUBLIC_PATH') ? PUBLIC_PATH : BASE_PATH . '/public';
+        $emblem = $public . '/assets/on-emblem.png';
+        $logo = null;
+        $logoRel = (string)Config::get('app_logo');
+        if ($logoRel !== '') {
+            $candidate = $public . '/' . ltrim($logoRel, '/');
+            if (is_file($candidate)) $logo = $candidate;
+        }
+
+        $data = [
+            'proposal' => $proposal,
+            'items' => $items,
+            'blocks' => $blocks,
+            'content' => $content,
+            'timeline' => $timeline,
+            'totals' => $totals,
+            'projection' => $projection,
+            'vars' => $vars,
+            'appName' => trim((string)Config::get('app_name')) ?: 'ON Solutions',
+            'emblemPath' => is_file($emblem) ? $emblem : null,
+            'logoPath' => $logo,
+            'acceptLink' => $this->publicBase() . '/proposal/show/' . $proposal['public_token'],
+        ];
+        $html = (function () use ($data) {
+            extract($data);
+            ob_start();
+            include APP_PATH . '/views/commercial/proposal_pdf.php';
+            return (string)ob_get_clean();
+        })();
+        return PdfGenerator::fromDocument($html, $public, ['right_mm' => 16, 'top_mm' => 284.2, 'size' => 7, 'skip_first' => true]);
     }
 
     // ================= Helpers =================

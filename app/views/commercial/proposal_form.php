@@ -20,7 +20,7 @@ $statusLabels = [
         </div>
         <div class="d-flex gap-2 flex-wrap justify-content-end">
             <a href="<?= baseUrl('proposal') ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> Voltar</a>
-            <button type="button" class="btn btn-sm btn-outline-primary" onclick="openClientLink()"><i class="bi bi-box-arrow-up-right"></i> Ver link</button>
+            <button type="button" class="btn btn-sm btn-outline-primary" onclick="openPdf()"><i class="bi bi-file-earmark-pdf"></i> Ver PDF</button>
             <?php if (!$isTerminal): ?>
             <button id="btn-save" class="btn btn-sm btn-success" onclick="saveProposal()"><i class="bi bi-check-lg"></i> Salvar</button>
             <button id="btn-send" class="btn btn-sm btn-primary" onclick="sendProposal()"><i class="bi bi-send"></i> Enviar ao cliente</button>
@@ -97,7 +97,19 @@ $statusLabels = [
                         <div class="col-md-4"><label class="form-label small">Validade</label><input type="date" id="p-validity" class="form-control form-control-sm" value="<?= escape($proposal['validity_date'] ?? '') ?>"></div>
                         <div class="col-md-4"><label class="form-label small">Início do desenvolvimento</label><input type="date" id="p-dev-start" class="form-control form-control-sm" value="<?= escape($proposal['dev_start'] ?? '') ?>"></div>
                         <div class="col-md-4"><label class="form-label small">Fim do desenvolvimento</label><input type="date" id="p-dev-end" class="form-control form-control-sm" value="<?= escape($proposal['dev_end'] ?? '') ?>"></div>
-                        <div class="col-12"><label class="form-label small">Observações <span class="text-muted">(só desta proposta)</span></label><textarea id="p-obs" class="form-control form-control-sm" rows="2"><?= escape($proposal['observations'] ?? '') ?></textarea></div>
+                        <div class="col-12"><label class="form-label small">Observações do investimento <span class="text-muted">(aparece abaixo da tabela de valores)</span></label><textarea id="p-obs" class="form-control form-control-sm" rows="2"><?= escape($proposal['observations'] ?? '') ?></textarea></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header py-2"><strong>Entendimento do negócio</strong> <small class="text-muted">· muda por cliente. Campos vazios não aparecem no PDF.</small></div>
+                <div class="card-body">
+                    <div class="row g-2">
+                        <div class="col-md-6"><label class="form-label small">Perfil da empresa</label><textarea class="form-control form-control-sm p-content" data-key="business_profile" rows="4"><?= escape($content['business_profile'] ?? '') ?></textarea></div>
+                        <div class="col-md-6"><label class="form-label small">Presença dos canais atuais</label><textarea class="form-control form-control-sm p-content" data-key="business_channels" rows="4"><?= escape($content['business_channels'] ?? '') ?></textarea></div>
+                        <div class="col-md-6"><label class="form-label small">Oportunidade</label><textarea class="form-control form-control-sm p-content" data-key="business_opportunity" rows="4"><?= escape($content['business_opportunity'] ?? '') ?></textarea></div>
+                        <div class="col-md-6"><label class="form-label small">Validar diagnóstico</label><textarea class="form-control form-control-sm p-content" data-key="business_diagnosis" rows="4"><?= escape($content['business_diagnosis'] ?? '') ?></textarea></div>
                     </div>
                 </div>
             </div>
@@ -135,15 +147,28 @@ $statusLabels = [
                     </table>
                     </div>
                 </div>
-                <div class="card-footer small text-muted">O valor vem do catálogo como previsão e pode ser alterado nesta proposta. Com horas, o valor é por hora. Sem horas, o valor é o do item. Total = quantidade × horas × valor, ou quantidade × valor.</div>
+                <div class="card-footer small text-muted">O valor vem do catálogo como previsão e pode ser alterado nesta proposta. Com horas, o valor é por hora. Sem horas, o valor é o do item. Total = quantidade × horas × valor, ou quantidade × valor. Serviços mensais entram todo mês na projeção de 12 meses.</div>
+            </div>
+
+            <div class="card mt-3">
+                <div class="card-header py-2"><strong>Projeção, retorno e fechamento</strong> <small class="text-muted">· muda por cliente</small></div>
+                <div class="card-body">
+                    <div class="row g-2">
+                        <div class="col-md-4"><label class="form-label small">Retorno mensal estimado (R$)</label><input type="number" step="0.01" min="0" class="form-control form-control-sm p-content" data-key="expected_return" value="<?= escape($content['expected_return'] ?? '') ?>"><small class="text-muted">Entra na projeção de 12 meses a partir do mês seguinte à entrega.</small></div>
+                        <div class="col-md-8"><label class="form-label small">Condição de pagamento</label><input class="form-control form-control-sm p-content" data-key="payment_method" value="<?= escape($content['payment_method'] ?? '') ?>" placeholder="Ex.: 50% na assinatura e 50% na entrega"><small class="text-muted">Entra no texto fixo de condições de pagamento.</small></div>
+                        <div class="col-12"><label class="form-label small">Previsibilidade do retorno</label><textarea class="form-control form-control-sm p-content" data-key="return_text" rows="3"><?= escape($content['return_text'] ?? '') ?></textarea></div>
+                        <div class="col-12"><label class="form-label small">Renovação de serviços pontuais</label><textarea class="form-control form-control-sm p-content" data-key="renewal_text" rows="3"><?= escape($content['renewal_text'] ?? '') ?></textarea></div>
+                        <div class="col-12"><label class="form-label small">Resumo final</label><textarea class="form-control form-control-sm p-content" data-key="summary_text" rows="3"><?= escape($content['summary_text'] ?? '') ?></textarea></div>
+                    </div>
+                </div>
             </div>
         </div>
 
         <div class="col-lg-4">
             <div class="card mb-3">
-                <div class="card-header py-2"><strong>Link do cliente</strong></div>
+                <div class="card-header py-2"><strong>PDF do cliente</strong></div>
                 <div class="card-body">
-                    <p class="small text-muted mb-2">A proposta chega por este link, já montada com os serviços e o texto fixo.</p>
+                    <p class="small text-muted mb-2">O cliente recebe este link do PDF. A última página tem o link para aceitar ou recusar.</p>
                     <div class="input-group input-group-sm">
                         <input class="form-control" id="p-link" readonly value="<?= escape($publicLink) ?>">
                         <button class="btn btn-outline-secondary" type="button" onclick="copyLink()">Copiar</button>
@@ -185,6 +210,7 @@ function addRow(data) {
             <input class="form-control form-control-sm it-desc" placeholder="Nome do serviço">
             <textarea class="form-control form-control-sm mt-1 it-scope" rows="2" placeholder="Descrição"></textarea>
             <div class="d-flex gap-2 mt-1">
+                <div style="flex:1"><label class="form-label small mb-0 text-muted">Cobrança</label><select class="form-select form-select-sm it-billing"><option value="once">Pontual</option><option value="monthly">Mensal</option></select></div>
                 <div style="flex:1"><label class="form-label small mb-0 text-muted">Início</label><input type="date" class="form-control form-control-sm it-start"></div>
                 <div style="flex:1"><label class="form-label small mb-0 text-muted">Fim</label><input type="date" class="form-control form-control-sm it-end"></div>
             </div>
@@ -213,6 +239,7 @@ function addRow(data) {
     tr.querySelector('.it-qty').value = qty;
     tr.querySelector('.it-hours').value = hours === null ? '' : hours;
     tr.querySelector('.it-rate').value = unit === null ? '' : unit;
+    tr.querySelector('.it-billing').value = data.billing === 'monthly' ? 'monthly' : 'once';
     tr.querySelector('.it-start').value = data.schedule_start || '';
     tr.querySelector('.it-end').value = data.schedule_end || '';
     tr.querySelector('.it-service').value = data.service_id || '';
@@ -261,11 +288,17 @@ function collectItems() {
             hourly_rate: hNum > 0 ? r : '',
             amount: hNum > 0 ? 0 : rNum,
             is_hosting: tr.querySelector('.it-hosting').value === '1' ? 1 : 0,
+            billing: tr.querySelector('.it-billing').value,
             schedule_start: tr.querySelector('.it-start').value,
             schedule_end: tr.querySelector('.it-end').value,
         });
     });
     return items;
+}
+function collectContent() {
+    const out = {};
+    document.querySelectorAll('.p-content').forEach(el => { out[el.getAttribute('data-key')] = el.value; });
+    return out;
 }
 function datesOk() {
     const a = document.getElementById('p-dev-start').value;
@@ -296,6 +329,7 @@ function body() {
         dev_start: document.getElementById('p-dev-start').value,
         dev_end: document.getElementById('p-dev-end').value,
         observations: document.getElementById('p-obs').value.trim(),
+        content: collectContent(),
         items: collectItems(),
     };
 }
@@ -345,6 +379,7 @@ document.getElementById('svc-pick').addEventListener('change', function () {
         hourly_rate: rate,
         quantity: 1,
         is_hosting: parseInt(s.is_hosting, 10) === 1,
+        billing: s.billing === 'monthly' ? 'monthly' : 'once',
         hint: forecast ? ('Previsão do catálogo: ' + money(forecast) + '. Altere o valor se esta proposta for diferente.') : ''
     });
     const a = document.getElementById('p-dev-start').value;
@@ -352,9 +387,11 @@ document.getElementById('svc-pick').addEventListener('change', function () {
     if (a) tr.querySelector('.it-start').value = a;
     if (b) tr.querySelector('.it-end').value = b;
 });
-async function openClientLink() {
-    if (CAN_EDIT && !await saveProposal()) return;
-    window.open(document.getElementById('p-link').value, '_blank', 'noopener');
+async function openPdf() {
+    const win = window.open('', '_blank');
+    if (CAN_EDIT && !await saveProposal()) { if (win) win.close(); return; }
+    const url = `${PROP_BASE}proposal/pdf/${PROPOSAL_ID}?t=${Date.now()}`;
+    if (win) win.location = url; else location.href = url;
 }
 function copyLink() {
     const input = document.getElementById('p-link');

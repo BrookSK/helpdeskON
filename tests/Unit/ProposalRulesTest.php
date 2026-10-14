@@ -104,6 +104,59 @@ final class ProposalRulesTest extends TestCase
         $this->assertFalse(ProposalRules::scheduleOrderOk('2026-11-30', '2026-11-01'));
     }
 
+    public function testTotaisSeparadosPorCobranca(): void
+    {
+        $t = ProposalRules::totals([
+            ['amount' => 6000, 'billing' => 'once'],
+            ['amount' => 500, 'billing' => 'monthly'],
+            ['amount' => 1000],
+        ]);
+        $this->assertSame(7000.0, $t['once']);
+        $this->assertSame(500.0, $t['monthly']);
+        $this->assertSame(13000.0, $t['year']);
+    }
+
+    public function testProjecao12Meses(): void
+    {
+        $p = ProposalRules::projection([
+            ['amount' => 6000, 'billing' => 'once', 'schedule_start' => '2026-11-02', 'schedule_end' => '2026-12-20'],
+            ['amount' => 500, 'billing' => 'monthly', 'schedule_start' => '2026-12-01'],
+        ], '2026-11-01', '2026-12-20', 2000);
+
+        $this->assertCount(12, $p['months']);
+        $this->assertSame('nov/26', $p['months'][0]['label']);
+        // Pontual no mês em que começa; mensal a partir de dezembro.
+        $this->assertSame(6000.0, $p['months'][0]['invest']);
+        $this->assertSame(500.0, $p['months'][1]['invest']);
+        // Retorno começa no mês seguinte ao fim do desenvolvimento (janeiro).
+        $this->assertSame(0.0, $p['months'][1]['return']);
+        $this->assertSame(2000.0, $p['months'][2]['return']);
+        $this->assertSame(11500.0, $p['invest']);
+        $this->assertSame(20000.0, $p['return']);
+        $this->assertNotNull($p['payback']);
+        $this->assertNotNull($p['roi']);
+
+        $sem = ProposalRules::projection([['amount' => 100, 'billing' => 'once']], '2026-11-01');
+        $this->assertNull($sem['payback']);
+        $this->assertNull($sem['roi']);
+    }
+
+    public function testVariaveisELinhasDoTextoFixo(): void
+    {
+        $this->assertSame(
+            'Total R$ 10,00 para ACME. {desconhecida}',
+            ProposalRules::applyVars('Total {total} para {cliente}. {desconhecida}', ['total' => 'R$ 10,00', 'cliente' => 'ACME'])
+        );
+        $lines = ProposalRules::blockLines("Discovery: entender o negócio\n\n- Brasiliana\n");
+        $this->assertSame(['title' => 'Discovery', 'text' => 'Entender o negócio'], $lines[0]);
+        $this->assertSame(['title' => 'Brasiliana', 'text' => ''], $lines[1]);
+
+        $keys = array_column(ProposalRules::defaultBlocks(), 'block_key');
+        $this->assertSame(['about', 'what_we_do', 'clients', 'how_we_work', 'payment', 'notes'], $keys);
+        $this->assertSame('monthly', ProposalRules::normalizeBilling('monthly'));
+        $this->assertSame('once', ProposalRules::normalizeBilling('x'));
+    }
+
     public function testItemAmountValorFixoQuandoSemHoras(): void
     {
         // Sem horas, usa o valor fixo.

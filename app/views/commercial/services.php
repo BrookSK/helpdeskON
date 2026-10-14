@@ -34,7 +34,7 @@
                             <td><?= $s['hourly_rate'] !== null ? ('R$ ' . number_format((float)$s['hourly_rate'],2,',','.')) : '—' ?></td>
                             <td><?php $prev = ProposalRules::forecast($s['est_hours'] ?? null, $s['hourly_rate'] ?? null); echo $prev !== null ? ('R$ ' . number_format($prev, 2, ',', '.')) : '—'; ?></td>
                             <td><?= (isset($s['cost_price']) && $s['cost_price'] !== null) ? ('R$ ' . number_format((float)$s['cost_price'],2,',','.')) : '—' ?></td>
-                            <td><?= ((int)$s['is_hosting'] === 1) ? '<span class="badge bg-info">Sim</span>' : 'Não' ?></td>
+                            <td><?= ((int)$s['is_hosting'] === 1) ? '<span class="badge bg-info">Sim</span>' : 'Não' ?><?= (($s['billing'] ?? '') === 'monthly') ? ' <span class="badge bg-light text-dark border">Mensal</span>' : '' ?></td>
                             <td><?= ((int)$s['active'] === 1) ? '<span class="badge bg-success">Ativo</span>' : '<span class="badge bg-secondary">Inativo</span>' ?></td>
                             <td class="text-end">
                                 <button class="btn btn-sm btn-outline-secondary" onclick='editService(<?= json_encode($s, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'><i class="bi bi-pencil"></i></button>
@@ -81,6 +81,13 @@
                         <small class="text-muted" style="font-size:0.68rem">Interno. Não aparece na proposta.</small>
                     </div>
                 </div>
+                <div class="mt-2">
+                    <label class="form-label small fw-medium">Cobrança</label>
+                    <select id="svc-billing" class="form-select form-select-sm">
+                        <option value="once">Pontual (uma vez)</option>
+                        <option value="monthly">Mensal (recorrente)</option>
+                    </select>
+                </div>
                 <div class="form-check mt-2">
                     <input class="form-check-input" type="checkbox" id="svc-hosting">
                     <label class="form-check-label small" for="svc-hosting">É serviço de hospedagem</label>
@@ -108,6 +115,7 @@ function openServiceModal() {
     document.getElementById('svc-rate').value = '';
     document.getElementById('svc-cost').value = '';
     document.getElementById('svc-hosting').checked = false;
+    document.getElementById('svc-billing').value = 'once';
     getSvcModal().show();
 }
 function editService(s) {
@@ -119,6 +127,7 @@ function editService(s) {
     document.getElementById('svc-rate').value = s.hourly_rate || '';
     document.getElementById('svc-cost').value = s.cost_price || '';
     document.getElementById('svc-hosting').checked = (parseInt(s.is_hosting, 10) === 1);
+    document.getElementById('svc-billing').value = s.billing === 'monthly' ? 'monthly' : 'once';
     getSvcModal().show();
 }
 function saveService() {
@@ -131,6 +140,7 @@ function saveService() {
     fd.append('hourly_rate', document.getElementById('svc-rate').value);
     fd.append('cost_price', document.getElementById('svc-cost').value);
     fd.append('is_hosting', document.getElementById('svc-hosting').checked ? '1' : '0');
+    fd.append('billing', document.getElementById('svc-billing').value);
     const url = id ? `${SVC_BASE}servicecatalog/update/${id}` : `${SVC_BASE}servicecatalog/store`;
     fetch(url, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json()).then(d => { if (d.error) { alert(d.error); return; } location.reload(); })

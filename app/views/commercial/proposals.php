@@ -45,7 +45,7 @@ $statusBadge = [
             <div class="table-responsive">
                 <table class="table table-hover mb-0 align-middle">
                     <thead class="table-light">
-                        <tr><th>#</th><th>Título</th><th>Cliente</th><th>Status</th><th>Total</th><th>Criada</th><th class="text-end">Link</th></tr>
+                        <tr><th>#</th><th>Título</th><th>Cliente</th><th>Status</th><th>Total</th><th>Criada</th><th class="text-end">PDF</th></tr>
                     </thead>
                     <tbody>
                         <?php if (empty($proposals)): ?>
@@ -59,7 +59,7 @@ $statusBadge = [
                             <td>R$ <?= number_format((float)$p['total'], 2, ',', '.') ?></td>
                             <td><small class="text-muted"><?= date('d/m/Y', strtotime($p['created_at'])) ?></small></td>
                             <td class="text-end" onclick="event.stopPropagation();">
-                                <a class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener" href="<?= baseUrl('proposal/show/' . $p['public_token']) ?>" title="Abrir o link do cliente"><i class="bi bi-box-arrow-up-right"></i></a>
+                                <a class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener" href="<?= baseUrl('proposal/pdf/' . (int)$p['id']) ?>" title="Ver PDF"><i class="bi bi-file-earmark-pdf"></i></a>
                             </td>
                         </tr>
                         <?php endforeach; endif; ?>
