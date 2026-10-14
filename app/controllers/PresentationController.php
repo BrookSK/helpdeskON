@@ -191,23 +191,6 @@ class PresentationController extends Controller
         $this->renderPublic($presentation, true);
     }
 
-    /**
-     * Pré-visualização ao vivo do editor: renderiza as seções ainda não salvas
-     * (POST JSON) e devolve o HTML da página do cliente.
-     */
-    public function previewDraft($id = null)
-    {
-        $this->requireModule('presentations');
-        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
-        $presentation = $this->model->findById($id);
-        if (!$presentation) $this->json(['error' => 'Apresentação não encontrada'], 404);
-
-        $body = json_decode(file_get_contents('php://input'), true);
-        if (!is_array($body)) $this->json(['error' => 'Conteúdo inválido'], 400);
-        $presentation['client_name'] = trim($body['client_name'] ?? '') ?: $presentation['client_name'];
-        $this->renderPublic($presentation, true, PresentationRules::sanitizeSections($body['sections'] ?? []));
-    }
-
     // ================= Área pública (sem login, por token) =================
 
     /**
@@ -233,15 +216,14 @@ class PresentationController extends Controller
     /**
      * Na pré-visualização interna, as seções ocultas aparecem esmaecidas (para
      * quem edita entender o que o cliente não verá); no link público, somem.
-     * As chaves do array são preservadas: viram a âncora #sec-N do editor.
      */
-    private function renderPublic(array $presentation, bool $isPreview, ?array $sections = null): void
+    private function renderPublic(array $presentation, bool $isPreview): void
     {
         $vars = [
             'cliente' => trim((string)($presentation['client_name'] ?? '')) ?: 'sua empresa',
             'empresa' => trim((string) Config::get('app_name')) ?: 'ON Solutions',
         ];
-        $sections = $sections ?? $this->model->sections($presentation);
+        $sections = $this->model->sections($presentation);
         if (!$isPreview) {
             $sections = array_filter($sections, fn($s) => !empty($s['visible']));
         }

@@ -71,9 +71,7 @@ $p = fn($text) => nl2br($t($text));
         .contacts { display:flex; justify-content:center; gap:28px; flex-wrap:wrap; margin-top:22px; }
         .contacts div { font-size:.95rem; } .contacts span { display:block; font-size:.78rem; color:#aeb5da; text-transform:uppercase; letter-spacing:.05em; }
         .slide[data-hidden] { opacity:.35; position:relative; }
-        .slide[data-hidden]::after { content:'Oculta para o cliente'; position:absolute; top:12px; right:16px; background:#6b7088; color:#fff; font-size:.72rem; padding:3px 8px; border-radius:6px; }
-        .slide.editing { outline:3px solid #f5b400; outline-offset:4px; }
-        .ft { text-align:center; font-size:.78rem; color:#7b819c; }
+        .slide[data-hidden]::after { content:'Oculta para o cliente'; position:absolute; top:12px; right:16px; background:#6b7088; color:#fff; font-size:.72rem; padding:3px 8px; border-radius:6px; }        .ft { text-align:center; font-size:.78rem; color:#7b819c; }
         @media (max-width:640px) { .slide { padding:32px 22px; } .hero { padding:48px 22px; } .hero h1 { font-size:2.2rem; } h2 { font-size:1.4rem; } }
     </style>
 </head>
