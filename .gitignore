@@ -20,6 +20,7 @@ storage/video-recordings/*
 # OS
 .DS_Store
 Thumbs.db
+*.lnk
 logs/app-error.log
 
 # Dependências / testes (PHPUnit)
@@ -33,7 +34,18 @@ pu_ver.txt
 phpunit_out.txt
 phpunit_result.txt
 setup_result.txt
+setup_out.txt
 tests/setup_test_db.log
+# Saídas de debug/lint/testes geradas na raiz (não versionar)
+*.out.txt
+*_result.txt
+perm_result.txt
+rdo_result.txt
+lintall.txt
+chk*.txt
+ping.txt
+tasks.txt
+wtest.txt
 
 # E2E (Playwright / Node)
 /node_modules/

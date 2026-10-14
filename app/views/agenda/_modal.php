@@ -102,7 +102,7 @@
                 <h6 class="modal-title"><i class="bi bi-calendar2-week"></i> <span id="meeting-modal-title">Nova reunião</span></h6>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <div class="modal-body">
+            <div class="modal-body" style="min-height:420px;">
                 <input type="hidden" id="mt-id">
                 <input type="hidden" id="mt-contact-id">
                 <input type="hidden" id="mt-google-event-id">
@@ -220,6 +220,13 @@
                                 <label class="form-check-label small" for="mt-rv-private"><i class="bi bi-shield-lock"></i> Privada (entrada aprovada)</label>
                             </div>
                         </div>
+                        <div class="form-check mt-2 mb-0">
+                            <input class="form-check-input" type="checkbox" id="mt-room-auto-record" checked>
+                            <label class="form-check-label small" for="mt-room-auto-record">
+                                <i class="bi bi-record-circle text-danger"></i> Gravar automaticamente
+                                <span class="text-muted" style="font-size:.72rem;">— começa ao entrar; gera transcrição, resumo e minuta.</span>
+                            </label>
+                        </div>
                         <div id="mt-room-admins-block" class="mt-2" style="display:none;">
                             <label class="form-label small fw-medium mb-1">Administradores da sala (aprovam a entrada)</label>
                             <select id="mt-room-admins" class="form-select form-select-sm" multiple size="4">
@@ -233,6 +240,11 @@
                             </button>
                         </div>
                     </div>
+
+                    <!-- Observação: a opção de "gravar automaticamente ao iniciar" por TIPO de
+                         reunião (operacional/interno) foi removida por aparecer em duplicidade.
+                         A gravação automática agora é controlada apenas pelo checkbox da
+                         "Sala de vídeo do sistema" (#mt-room-auto-record), em #mt-room-options. -->
 
                     <!-- ===== Convite externo (demanda #210) ===== -->
                     <!-- Convidados que NÃO fazem parte do sistema: nome + e-mail e/ou telefone. -->
@@ -441,6 +453,7 @@
             <div class="modal-footer justify-content-between">
                 <button class="btn btn-sm btn-outline-danger" id="mt-delete-btn" onclick="deleteMeeting()" style="display:none;"><i class="bi bi-trash"></i> Excluir</button>
                 <div class="d-flex gap-2">
+                    <a href="#" class="btn btn-sm btn-outline-success" id="mt-minutes-btn" target="_blank" style="display:none;"><i class="bi bi-file-text"></i> Ver Ata</a>
                     <button type="button" class="btn btn-sm btn-outline-info" id="mt-resend-btn" onclick="resendNotifications()" style="display:none;"><i class="bi bi-send"></i> Reenviar notificações</button>
                     <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Fechar</button>
                     <button class="btn btn-sm btn-primary" onclick="saveMeeting()"><i class="bi bi-check-lg"></i> Salvar</button>
@@ -472,6 +485,8 @@ function resetMeetingForm() {
     if (roomOpts) roomOpts.style.display = 'none';
     const rvPublic = document.getElementById('mt-rv-public');
     if (rvPublic) rvPublic.checked = true;
+    const rvAutoRec = document.getElementById('mt-room-auto-record');
+    if (rvAutoRec) rvAutoRec.checked = true;
     const roomAdminsBlk = document.getElementById('mt-room-admins-block');
     if (roomAdminsBlk) roomAdminsBlk.style.display = 'none';
     ['mt-title','mt-meeting-at','mt-new-name','mt-new-phone','mt-notes','mt-client-email','mt-client-name','mt-client-phone'].forEach(f => document.getElementById(f).value = '');
@@ -513,6 +528,8 @@ function resetMeetingForm() {
     document.querySelectorAll('.mt-new-client').forEach(el => el.style.display = 'none');
     document.getElementById('mt-delete-btn').style.display = 'none';
     document.getElementById('mt-resend-btn').style.display = 'none';
+    const minutesBtn = document.getElementById('mt-minutes-btn');
+    if (minutesBtn) { minutesBtn.style.display = 'none'; minutesBtn.href = '#'; }
     clearBriefing();
     onMeetingTypeChange();
 }
@@ -539,6 +556,9 @@ function onMeetingTypeChange() {
     document.querySelectorAll('.mt-external-only').forEach(el => {
         el.style.display = isExternal ? '' : 'none';
     });
+
+    // A gravação automática por TIPO de reunião foi removida (ver #mt-room-auto-record
+    // na "Sala de vídeo do sistema"). Nada a alternar aqui por tipo.
 
     if (isExternal) {
         // Garante ao menos uma linha de convidado ao entrar no modo externo.
@@ -746,6 +766,17 @@ function fillMeeting(m) {
     if (m.meet_link) showMeetLink(m.meet_link);
     document.getElementById('mt-delete-btn').style.display = '';
     document.getElementById('mt-resend-btn').style.display = '';
+    // Botão "Ver Ata": visível se a reunião tem gravação com ata gerada.
+    const minutesBtnFill = document.getElementById('mt-minutes-btn');
+    if (minutesBtnFill) {
+        if (m.minutes_url) {
+            minutesBtnFill.href = m.minutes_url;
+            minutesBtnFill.style.display = '';
+        } else {
+            minutesBtnFill.style.display = 'none';
+            minutesBtnFill.href = '#';
+        }
+    }
 }
 
 // Mostra/oculta campo "Quem fechou" conforme o status
@@ -1042,6 +1073,10 @@ function collectPayload() {
     }
     // Briefing
     BF_FIELDS.forEach(k => fd.append('bf_' + k, document.getElementById('bf-' + k).value));
+    // A gravação automática por tipo de reunião foi removida (ver sala de vídeo
+    // do sistema). Mantém o campo no payload, sempre '0', para não alterar o
+    // contrato que o backend já espera.
+    fd.append('auto_record', '0');
     return fd;
 }
 
@@ -1150,6 +1185,7 @@ function generateVideoRoom(btn) {
     if (mid) fd.append('meeting_id', mid);
     const visibility = document.querySelector('input[name="mt-room-visibility"]:checked')?.value || 'public';
     fd.append('visibility', visibility);
+    fd.append('auto_record', document.getElementById('mt-room-auto-record')?.checked ? '1' : '0');
     if (visibility === 'private') {
         Array.from(document.getElementById('mt-room-admins').selectedOptions).forEach(o => fd.append('admins[]', o.value));
     }

@@ -3,6 +3,36 @@
 <?php require APP_PATH . '/views/layouts/sidebar.php'; ?>
 
 <?php
+// Helpers da tag/selo de categoria (mesmas cores da tela da demanda).
+if (!function_exists('categoryBadgeClass')) {
+    function categoryBadgeClass(?string $category): string
+    {
+        switch (strtolower(trim((string)$category))) {
+            case 'suporte':         return 'bg-danger';
+            case 'desenvolvimento': return 'bg-primary';
+            case 'design':          return 'text-white';
+            case 'marketing':       return 'bg-warning text-dark';
+            default:                return 'bg-secondary';
+        }
+    }
+}
+if (!function_exists('categoryBadgeStyle')) {
+    function categoryBadgeStyle(?string $category): string
+    {
+        return strtolower(trim((string)$category)) === 'design' ? 'background-color:#6f42c1;' : '';
+    }
+}
+if (!function_exists('categoryLabel')) {
+    function categoryLabel(?string $category): string
+    {
+        $c = strtolower(trim((string)$category));
+        $map = ['suporte' => 'Suporte', 'desenvolvimento' => 'Desenvolvimento', 'design' => 'Design', 'marketing' => 'Marketing', 'outro' => 'Outro'];
+        return $map[$c] ?? ucfirst($c);
+    }
+}
+?>
+
+<?php
 $statusLabels = [
     'open' => ['Aberto', '#1565c0'],
     'in_progress' => ['Em andamento', '#e65100'],
@@ -218,6 +248,30 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                                     <span class="priority-<?= $card['priority'] ?>" style="font-size:0.7rem"><?= $priorityLabels[$card['priority']] ?? '' ?></span>
                                 </div>
                                 <div class="fw-medium" style="font-size:0.82rem;word-break:break-word;"><?= escape($card['title']) ?></div>
+                                <?php
+                                // Tag de MARCO de aprovação (uma só, da mais avançada para a menos):
+                                //  1) Aprovado p/ Produção (status aprovado_producao)
+                                //  2) Recusado (escopo recusado pelo cliente, não reaprovado)
+                                //  3) Aprovado (escopo aprovado pelo cliente)
+                                $milestoneTag = null;
+                                if (($card['status'] ?? '') === 'aprovado_producao') {
+                                    $milestoneTag = ['label' => 'Aprov. Produção', 'class' => 'bg-success', 'title' => 'Aprovado para produção'];
+                                } elseif (!empty($card['scope_rejected_reason'])) {
+                                    $milestoneTag = ['label' => 'Recusado', 'class' => 'bg-danger', 'title' => 'Escopo recusado pelo cliente'];
+                                } elseif (!empty($card['scope_approved_at'])) {
+                                    $milestoneTag = ['label' => 'Aprovado', 'class' => 'bg-success', 'title' => 'Escopo aprovado pelo cliente'];
+                                }
+                                ?>
+                                <?php if (!empty($card['category']) || $milestoneTag !== null): ?>
+                                <div class="mt-1 d-flex flex-wrap gap-1">
+                                    <?php if (!empty($card['category'])): ?>
+                                    <span class="badge <?= categoryBadgeClass($card['category']) ?>" style="font-size:0.62rem;<?= categoryBadgeStyle($card['category']) ?>"><?= escape(categoryLabel($card['category'])) ?></span>
+                                    <?php endif; ?>
+                                    <?php if ($milestoneTag !== null): ?>
+                                    <span class="badge <?= $milestoneTag['class'] ?>" style="font-size:0.62rem;" title="<?= escape($milestoneTag['title']) ?>"><?= escape($milestoneTag['label']) ?></span>
+                                    <?php endif; ?>
+                                </div>
+                                <?php endif; ?>
                                 <div class="text-muted mt-2" style="font-size:0.7rem">
                                     <?php if ($card['company_name']): ?>
                                     <span><i class="bi bi-building"></i> <?= escape($card['company_name']) ?></span><br>
@@ -405,6 +459,7 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                         <h6 class="modal-title mb-0 fw-bold" id="detail-title" style="word-break:break-word;white-space:normal;">Card</h6>
                     </div>
                     <div class="d-flex align-items-center gap-2">
+                        <span class="badge" id="detail-category-badge" style="display:none;"></span>
                         <span class="badge rounded-pill" id="detail-priority-badge"></span>
                         <span class="badge rounded-pill" id="detail-status-badge"></span>
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -439,6 +494,13 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                                 <li class="nav-item" role="presentation">
                                     <button class="nav-link small py-2" id="tab-comentarios" data-bs-toggle="tab" data-bs-target="#pane-comentarios" type="button" role="tab">
                                         <i class="bi bi-chat-dots"></i> Comentários <span class="badge bg-secondary ms-1" id="tab-comentarios-badge" style="font-size:0.6rem;">0</span>
+                                    </button>
+                                </li>
+                                <!-- Aba Escopo: escopo técnico, previsão e suporte da demanda vinculada.
+                                     Fica desabilitada quando o card não está ligado a uma demanda. -->
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link small py-2" id="tab-escopo" data-bs-toggle="tab" data-bs-target="#pane-escopo" type="button" role="tab">
+                                        <i class="bi bi-file-earmark-text"></i> Escopo
                                     </button>
                                 </li>
                             </ul>
@@ -541,6 +603,62 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                                     <div class="d-flex gap-2 mt-2 align-items-end">
                                         <textarea id="comment-input" class="form-control form-control-sm" placeholder="Escreva um comentário..." rows="2" style="resize:vertical;" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();addComment();}"></textarea>
                                         <button class="btn btn-sm btn-primary" onclick="addComment()" style="height:fit-content;"><i class="bi bi-send"></i></button>
+                                    </div>
+                                </div>
+
+                                <!-- ABA ESCOPO (escopo técnico / previsão / suporte da demanda) -->
+                                <div class="tab-pane fade" id="pane-escopo" role="tabpanel">
+                                    <!-- Mensagem quando o card não tem demanda vinculada -->
+                                    <div class="alert alert-light border text-center py-4" id="scope-no-ticket-msg" style="display:none;">
+                                        <i class="bi bi-file-earmark-text fs-3 text-muted"></i>
+                                        <p class="mb-0 text-muted small mt-2">Este card não está vinculado a nenhuma demanda. O escopo técnico, a previsão e o suporte só se aplicam a cards com demanda.</p>
+                                    </div>
+
+                                    <div id="scope-fields-section">
+                                        <div class="alert alert-light border small mb-3">
+                                            Demanda <strong id="scope-ticket-ref">#</strong>
+                                        </div>
+
+                                        <!-- Escopo técnico -->
+                                        <div class="card mb-3">
+                                            <div class="card-header bg-white py-2"><h6 class="mb-0" style="font-size:0.85rem"><i class="bi bi-file-earmark-text"></i> Escopo técnico</h6></div>
+                                            <div class="card-body">
+                                                <div class="mb-2">
+                                                    <label class="form-label fw-medium small">O que será desenvolvido</label>
+                                                    <textarea id="scope-incluido" class="form-control form-control-sm" rows="3"></textarea>
+                                                </div>
+                                                <div class="mb-2">
+                                                    <label class="form-label fw-medium small">O que NÃO será desenvolvido</label>
+                                                    <textarea id="scope-excluido" class="form-control form-control-sm" rows="3"></textarea>
+                                                </div>
+                                                <div class="mb-2">
+                                                    <label class="form-label fw-medium small">Como será executado</label>
+                                                    <textarea id="scope-execucao" class="form-control form-control-sm" rows="3"></textarea>
+                                                </div>
+                                                <div class="mb-2">
+                                                    <label class="form-label fw-medium small">Estimativa (dias)</label>
+                                                    <input type="number" id="scope-estimativa" class="form-control form-control-sm" min="0">
+                                                </div>
+                                                <div class="d-flex gap-2 flex-wrap">
+                                                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="saveScopeAjax(false)">Salvar escopo</button>
+                                                    <button type="button" class="btn btn-primary btn-sm" onclick="saveScopeAjax(true)">Enviar ao cliente para aprovação</button>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Previsão de publicação -->
+                                        <div class="card mb-3">
+                                            <div class="card-header bg-white py-2"><h6 class="mb-0" style="font-size:0.85rem"><i class="bi bi-calendar-event"></i> Previsão de publicação</h6></div>
+                                            <div class="card-body">
+                                                <div class="d-flex gap-2 align-items-end flex-wrap">
+                                                    <div class="flex-grow-1">
+                                                        <label class="form-label fw-medium small">Data</label>
+                                                        <input type="date" id="scope-previsao" class="form-control form-control-sm">
+                                                    </div>
+                                                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="savePrevisaoAjax()">Salvar</button>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -823,6 +941,8 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
 <script>
 const BASE = '<?= baseUrl("") ?>';
 let currentCardId = null;
+// Demanda (ticket) vinculada ao card aberto. Alimenta o pop-up de Escopo/Previsão/Suporte.
+let currentTicket = null;
 let quill = null;
 let calendarEvents = [];
 let calDate = new Date();
@@ -1030,6 +1150,7 @@ function addCardToBoard(card) {
             '<span class="priority-' + esc(card.priority) + '" style="font-size:0.7rem">' + (priorityLabelsMap[card.priority] || '') + '</span>' +
         '</div>' +
         '<div class="fw-medium" style="font-size:0.82rem;word-break:break-word;">' + esc(card.title) + '</div>' +
+        (card.category ? '<div class="mt-1">' + categoryBadgeHtml(card.category) + '</div>' : '') +
         '<div class="text-muted mt-2" style="font-size:0.7rem">' +
             (card.company_name ? '<span><i class="bi bi-building"></i> ' + esc(card.company_name) + '</span><br>' : '') +
             (card.created_by_name ? '<span><i class="bi bi-person-badge"></i> ' + esc(card.created_by_name) + '</span><br>' : '') +
@@ -1086,6 +1207,29 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 });
 
+// Helpers JS da tag de categoria (espelham os helpers PHP / cores da tela da demanda).
+function categoryLabelJs(cat) {
+    const map = { suporte: 'Suporte', desenvolvimento: 'Desenvolvimento', design: 'Design', marketing: 'Marketing', outro: 'Outro' };
+    const c = String(cat || '').toLowerCase().trim();
+    return map[c] || (c ? c.charAt(0).toUpperCase() + c.slice(1) : '');
+}
+function categoryBadgeClassJs(cat) {
+    switch (String(cat || '').toLowerCase().trim()) {
+        case 'suporte': return 'bg-danger';
+        case 'desenvolvimento': return 'bg-primary';
+        case 'design': return 'text-white';
+        case 'marketing': return 'bg-warning text-dark';
+        default: return 'bg-secondary';
+    }
+}
+function categoryBadgeStyleJs(cat) {
+    return String(cat || '').toLowerCase().trim() === 'design' ? 'background-color:#6f42c1;' : '';
+}
+function categoryBadgeHtml(cat) {
+    if (!cat) return '';
+    return '<span class="badge ' + categoryBadgeClassJs(cat) + '" style="font-size:0.62rem;' + categoryBadgeStyleJs(cat) + '">' + esc(categoryLabelJs(cat)) + '</span>';
+}
+
 function openCardModal(id) {
     currentCardId = id;
     fetch(BASE + 'planning/get/' + id).then(r => r.json()).then(data => {
@@ -1105,6 +1249,21 @@ function openCardModal(id) {
         stBadge.textContent = statusLabelsMap[c.status] || c.status;
         stBadge.style.background = statusColorsMap[c.status] || '#666';
         stBadge.style.color = '#fff';
+
+        // Tag de categoria (vem do ticket vinculado, via JOIN em findById).
+        const catBadge = document.getElementById('detail-category-badge');
+        if (catBadge) {
+            const cat = c.category || (data.ticket && data.ticket.category) || '';
+            if (cat) {
+                catBadge.textContent = categoryLabelJs(cat);
+                catBadge.className = 'badge ' + categoryBadgeClassJs(cat);
+                catBadge.style.cssText = categoryBadgeStyleJs(cat);
+                catBadge.style.display = '';
+            } else {
+                catBadge.style.display = 'none';
+                catBadge.textContent = '';
+            }
+        }
 
         // Propriedades (painel direito)
         document.getElementById('detail-title-input').value = c.title;
@@ -1176,6 +1335,11 @@ function renderTicketData(data) {
     const noTicketMsg = document.getElementById('no-ticket-msg');
     const ticketSection = document.getElementById('ticket-data-section');
     const demandaBadge = document.getElementById('tab-demanda-badge');
+
+    // Guarda a demanda vinculada (ou null) para a aba Escopo/Previsão/Suporte.
+    currentTicket = data.ticket || null;
+    // Preenche (ou limpa) a aba Escopo com os dados da demanda.
+    fillScopeTab();
 
     if (!data.ticket) {
         noTicketMsg.style.display = '';
@@ -1589,6 +1753,77 @@ function renderComments(comments) {
         </div>
     `).join('');
     container.scrollTop = container.scrollHeight;
+}
+
+// ====== ABA ESCOPO: escopo técnico / previsão / suporte (equipe) ======
+// Preenche a aba Escopo a partir da demanda vinculada ao card. Chamada ao abrir
+// o card (dentro de renderTicketData). Sem demanda vinculada, mostra o aviso.
+function fillScopeTab() {
+    const noMsg = document.getElementById('scope-no-ticket-msg');
+    const fields = document.getElementById('scope-fields-section');
+    if (!noMsg || !fields) return;
+
+    if (!currentTicket || !currentTicket.id) {
+        noMsg.style.display = '';
+        fields.style.display = 'none';
+        return;
+    }
+    noMsg.style.display = 'none';
+    fields.style.display = '';
+
+    const t = currentTicket;
+    document.getElementById('scope-ticket-ref').textContent = '#' + t.id + (t.title ? ' — ' + t.title : '');
+
+    // Escopo
+    document.getElementById('scope-incluido').value = t.escopo_incluido || '';
+    document.getElementById('scope-excluido').value = t.escopo_excluido || '';
+    document.getElementById('scope-execucao').value = t.escopo_execucao || '';
+    document.getElementById('scope-estimativa').value = (t.estimativa_dias != null ? t.estimativa_dias : '');
+
+    // Previsão (campo date espera YYYY-MM-DD)
+    document.getElementById('scope-previsao').value = t.previsao_publicacao ? String(t.previsao_publicacao).slice(0, 10) : '';
+}
+
+// Helper: POST via fetch para as rotas tickets/* que agora respondem JSON em AJAX.
+function scopePost(url, formData) {
+    return fetch(BASE + url, {
+        method: 'POST',
+        body: formData,
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    }).then(r => r.json().catch(() => ({ error: 'Resposta inválida do servidor.' })).then(data => ({ ok: r.ok, data })));
+}
+
+function saveScopeAjax(sendToClient) {
+    if (!currentTicket || !currentTicket.id) return;
+    const fd = new FormData();
+    fd.append('escopo_incluido', document.getElementById('scope-incluido').value);
+    fd.append('escopo_excluido', document.getElementById('scope-excluido').value);
+    fd.append('escopo_execucao', document.getElementById('scope-execucao').value);
+    fd.append('estimativa_dias', document.getElementById('scope-estimativa').value);
+    if (sendToClient) fd.append('send_to_client', '1');
+
+    scopePost('tickets/saveScope/' + currentTicket.id, fd).then(res => {
+        if (res.ok && res.data.success) {
+            alert(sendToClient ? 'Escopo enviado ao cliente para aprovação.' : 'Escopo salvo.');
+            location.reload();
+        } else {
+            alert('Erro: ' + (res.data.error || 'Não foi possível salvar o escopo.'));
+        }
+    }).catch(() => alert('Erro na requisição.'));
+}
+
+function savePrevisaoAjax() {
+    if (!currentTicket || !currentTicket.id) return;
+    const fd = new FormData();
+    fd.append('previsao_publicacao', document.getElementById('scope-previsao').value);
+    scopePost('tickets/savePrevisao/' + currentTicket.id, fd).then(res => {
+        if (res.ok && res.data.success) {
+            alert('Previsão de publicação atualizada.');
+            location.reload();
+        } else {
+            alert('Erro: ' + (res.data.error || 'Não foi possível salvar a previsão.'));
+        }
+    }).catch(() => alert('Erro na requisição.'));
 }
 
 function addComment() {

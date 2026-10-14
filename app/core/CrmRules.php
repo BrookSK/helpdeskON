@@ -98,6 +98,24 @@ class CrmRules
     }
 
     /**
+     * Nome CANÔNICO da coluna de análise interna (pós-reunião / refazer proposta).
+     * É para onde o card volta quando: (a) a reunião é encerrada e precisamos
+     * analisar os pré-requisitos antes de montar a proposta; (b) o cliente recusa
+     * a proposta e precisamos refazê-la. Não é perda — é retrabalho interno.
+     */
+    public const COLUMN_INTERNAL_ANALYSIS = 'Análise interna';
+
+    /** A coluna (pelo nome) representa "análise interna"/refazer? */
+    public static function isInternalAnalysisColumn(?string $columnName): bool
+    {
+        $n = mb_strtolower(trim((string) $columnName));
+        return in_array($n, [
+            'análise interna', 'analise interna',
+            'refazer proposta', 'refazer', 'reanalise', 'reanálise', 'em análise', 'em analise',
+        ], true);
+    }
+
+    /**
      * Dois contatos são "irmãos" (a mesma pessoa em fichas diferentes) quando
      * compartilham uma chave FORTE de identidade: e-mail ou URL do LinkedIn.
      *

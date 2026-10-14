@@ -91,6 +91,17 @@ final class VideoRoomTest extends TestCase
         $this->assertSame($room['token'], $porId['token']);
     }
 
+    public function testGravacaoAutomaticaPersistePadraoEDesligavel(): void
+    {
+        // Por padrão a sala grava sozinha (auto_record = 1).
+        $padrao = $this->novaSala(['auto_record' => 1]);
+        $this->assertSame(1, (int) $padrao['auto_record']);
+
+        // E pode ser criada com a gravação automática desligada.
+        $semAuto = $this->novaSala(['auto_record' => 0]);
+        $this->assertSame(0, (int) $semAuto['auto_record']);
+    }
+
     public function testEncerrarSala(): void
     {
         $room = $this->novaSala();
@@ -248,6 +259,44 @@ final class VideoRoomTest extends TestCase
         $this->model->updateRecording($recToken, ['duration_sec' => 300]);
         $rec = $this->model->findRecordingByToken($recToken);
         $this->assertSame(300, (int) $rec['duration_sec']);
+    }
+
+    public function testMinutaPersisteTranscricaoResumoEAta(): void
+    {
+        $room = $this->novaSala();
+        $recToken = $this->model->addRecording([
+            'room_id' => $room['id'],
+            'file_path' => 'recordings/rec_mn.webm',
+            'mime_type' => 'video/webm',
+        ]);
+        // Estado inicial: sem minuta.
+        $rec = $this->model->findRecordingByToken($recToken);
+        $this->assertSame('none', $rec['minutes_status']);
+        $this->assertNull($rec['minutes']);
+
+        // Fluxo pós-reunião: transcrição+resumo e, depois, a ata gerada.
+        $ata = "## Contexto\nReunião comercial.\n## Decisões\n- Fechar proposta.";
+        $this->model->updateRecording($recToken, [
+            'transcript' => '[00:00] Olá.',
+            'summary' => 'Resumo da reunião.',
+            'transcribe_status' => 'done',
+            'minutes' => $ata,
+            'minutes_status' => 'done',
+            'minutes_generated_at' => date('Y-m-d H:i:s'),
+        ]);
+
+        $rec = $this->model->findRecordingByToken($recToken);
+        $this->assertSame('done', $rec['minutes_status']);
+        $this->assertSame($ata, $rec['minutes']);
+        $this->assertNotEmpty($rec['minutes_generated_at']);
+        // A ata não substitui o resumo nem a transcrição.
+        $this->assertSame('Resumo da reunião.', $rec['summary']);
+        $this->assertStringContainsString('Olá', $rec['transcript']);
+
+        // Edição manual da ata.
+        $this->model->updateRecording($recToken, ['minutes' => $ata . "\n## Ajuste\nRevisado."]);
+        $rec = $this->model->findRecordingByToken($recToken);
+        $this->assertStringContainsString('Revisado', $rec['minutes']);
     }
 
     // ================= Administradores =================

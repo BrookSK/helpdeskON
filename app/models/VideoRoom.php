@@ -241,6 +241,53 @@ class VideoRoom
         return $this->db->delete('video_recordings', 'token = ?', [$token]);
     }
 
+    /**
+     * Registra o RECONHECIMENTO/assinatura da minuta pelo cliente. Só grava se a
+     * minuta está pronta (minutes_status='done') e ainda não foi reconhecida
+     * (MinutesAckRules::canAcknowledge). Idempotente: reconhecer de novo não
+     * sobrescreve o aceite original.
+     *
+     * @return bool true se gravou; false se a gravação não existe ou não pode.
+     */
+    public function acknowledgeMinutes($token, int $clientUserId, ?string $ip = null): bool
+    {
+        $rec = $this->findRecordingByToken($token);
+        if (!$rec) return false;
+        if (!MinutesAckRules::canAcknowledge($rec['minutes_status'] ?? null, $rec['minutes_ack_status'] ?? null)) {
+            return false;
+        }
+        $this->updateRecording($token, [
+            'minutes_ack_status'     => MinutesAckRules::STATUS_ACK,
+            'minutes_ack_by'         => $clientUserId,
+            'minutes_ack_at'         => date('Y-m-d H:i:s'),
+            'minutes_ack_ip'         => $ip !== null ? mb_substr($ip, 0, 45) : null,
+            'minutes_contest_reason' => null, // reconhecer limpa contestação anterior
+        ]);
+        return true;
+    }
+
+    /**
+     * Registra a CONTESTAÇÃO (discordância) da minuta pelo cliente, com motivo
+     * obrigatório. Só grava se a minuta está pronta e ainda não foi reconhecida.
+     *
+     * @return bool true se gravou; false se não existe, não pode ou motivo vazio.
+     */
+    public function contestMinutes($token, string $reason): bool
+    {
+        $rec = $this->findRecordingByToken($token);
+        if (!$rec) return false;
+        if (!MinutesAckRules::canContest($rec['minutes_status'] ?? null, $rec['minutes_ack_status'] ?? null)) {
+            return false;
+        }
+        $clean = MinutesAckRules::sanitizeContestReason($reason);
+        if ($clean === null) return false;
+        $this->updateRecording($token, [
+            'minutes_ack_status'     => MinutesAckRules::STATUS_CONTEST,
+            'minutes_contest_reason' => $clean,
+        ]);
+        return true;
+    }
+
     public function listRecordings($roomId)
     {
         return $this->db->fetchAll(

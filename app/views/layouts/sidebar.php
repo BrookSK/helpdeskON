@@ -38,6 +38,15 @@
                 </a>
             </li>
 
+            <?php // ===== WhatsApp (Chat) — equipe interna (todos menos cliente) ===== ?>
+            <?php if ($role !== 'client' && Permissions::canAccess($role, 'whatsapp')): ?>
+            <li class="nav-item">
+                <a class="nav-link <?= in_array(($currentPage ?? ''), ['whatsapp', 'whatsapp_chat'], true) ? 'active' : '' ?>" href="<?= baseUrl('whatsapp/chat') ?>">
+                    <i class="bi bi-whatsapp"></i> WhatsApp
+                </a>
+            </li>
+            <?php endif; ?>
+
             <?php // ===== Área do cliente ===== ?>
             <?php if ($role === 'client'): ?>
             <li class="nav-item">
@@ -123,6 +132,43 @@
                 </a>
             </li>
             <?php endif; ?>
+            <?php
+            // ===== Esteira comercial (menu agrupado/colapsável) =====
+            // Cada link usa a rota real do controller (singular onde o controller
+            // é singular: proposal/contract/provider/project).
+            $esteiraItems = [
+                ['mod' => 'presentations',   'page' => 'presentations',   'route' => 'presentation',    'icon' => 'bi-easel',              'label' => 'Apresentação'],
+                ['mod' => 'proposals',       'page' => 'proposals',       'route' => 'proposal',        'icon' => 'bi-file-earmark-text',  'label' => 'Propostas'],
+                ['mod' => 'contracts',       'page' => 'contracts',       'route' => 'contract',        'icon' => 'bi-file-earmark-check', 'label' => 'Contratos'],
+                ['mod' => 'finance',         'page' => 'finance',         'route' => 'finance',         'icon' => 'bi-cash-coin',          'label' => 'Financeiro'],
+                ['mod' => 'onboarding',      'page' => 'onboarding',      'route' => 'onboarding',      'icon' => 'bi-rocket-takeoff',     'label' => 'Onboarding'],
+                ['mod' => 'credentials',     'page' => 'credentials',     'route' => 'credential',      'icon' => 'bi-shield-lock',        'label' => 'Credenciais'],
+                ['mod' => 'provisioning',    'page' => 'provisioning',    'route' => 'provisioning',    'icon' => 'bi-hdd-network',        'label' => 'Provisionamento'],
+                ['mod' => 'providers',       'page' => 'providers',       'route' => 'provider',        'icon' => 'bi-person-badge',       'label' => 'Prestadores'],
+                ['mod' => 'projects',        'page' => 'projects',        'route' => 'project',         'icon' => 'bi-kanban',             'label' => 'Projetos'],
+                ['mod' => 'service_catalog', 'page' => 'service_catalog', 'route' => 'servicecatalog',  'icon' => 'bi-card-checklist',     'label' => 'Catálogo de serviços'],
+            ];
+            $esteiraAllowed = array_values(array_filter($esteiraItems, fn($it) => Permissions::canAccess($role, $it['mod'])));
+            $esteiraPages = array_column($esteiraAllowed, 'page');
+            $esteiraActive = in_array($currentPage ?? '', $esteiraPages, true);
+            ?>
+            <?php if (!empty($esteiraAllowed)): ?>
+            <li class="nav-item">
+                <a class="nav-link d-flex align-items-center justify-content-between <?= $esteiraActive ? 'active' : '' ?>" href="<?= baseUrl($esteiraAllowed[0]['route']) ?>">
+                    <span class="nav-link-body"><i class="bi bi-diagram-3"></i> <span class="nav-text">Esteira comercial</span></span>
+                    <i class="bi bi-chevron-down esteira-caret <?= $esteiraActive ? '' : 'collapsed-caret' ?>" onclick="event.preventDefault();event.stopPropagation();toggleSubnav(this, 'esteira-subnav');" style="font-size:0.7rem;padding:4px;cursor:pointer;transition:transform 0.2s;"></i>
+                </a>
+            </li>
+            <ul class="nav flex-column" id="esteira-subnav" style="<?= $esteiraActive ? '' : 'display:none;' ?>list-style:none;padding-left:0;">
+                <?php foreach ($esteiraAllowed as $it): ?>
+                <li class="nav-item">
+                    <a class="nav-link <?= ($currentPage ?? '') === $it['page'] ? 'active' : '' ?>" href="<?= baseUrl($it['route']) ?>" style="padding-left:2.6rem;font-size:0.85rem;">
+                        <i class="bi <?= $it['icon'] ?>"></i> <?= $it['label'] ?>
+                    </a>
+                </li>
+                <?php endforeach; ?>
+            </ul>
+            <?php endif; ?>
             <?php $canPerfCom = Permissions::canAccess($role, 'performance_comercial'); ?>
             <?php $canPerfOp = Permissions::canAccess($role, 'performance_operacional'); ?>
             <?php if ($canPerfCom || $canPerfOp): ?>
@@ -177,21 +223,14 @@
             </li>
             <?php endif; ?>
 
-            <?php // ===== WhatsApp & CRM ===== ?>
-            <?php $canWhatsapp = Permissions::canAccess($role, 'whatsapp'); ?>
+            <?php // ===== CRM ===== ?>
             <?php $canCrm = Permissions::canAccess($role, 'crm'); ?>
-            <?php if (($canWhatsapp || $canCrm) && $role !== 'client'): ?>
+            <?php if ($canCrm && $role !== 'client'): ?>
             <li class="nav-item mt-3">
-                <small class="text-uppercase px-3" style="font-size:0.65rem;color:rgba(255,255,255,0.35);letter-spacing:0.5px;">WhatsApp & CRM</small>
+                <small class="text-uppercase px-3" style="font-size:0.65rem;color:rgba(255,255,255,0.35);letter-spacing:0.5px;">CRM</small>
             </li>
             <?php endif; ?>
-            <?php if ($canWhatsapp): ?>
-            <li class="nav-item">
-                <a class="nav-link <?= in_array($currentPage ?? '', ['whatsapp', 'whatsapp_chat']) ? 'active' : '' ?>" href="<?= baseUrl('whatsapp/chat') ?>">
-                    <i class="bi bi-whatsapp"></i> WhatsApp Chat
-                </a>
-            </li>
-            <?php endif; ?>
+
             <?php if ($canCrm): ?>
             <?php $canApollo = Permissions::canAccess($role, 'crm_apollo'); ?>
             <?php $canProspecting = Permissions::canAccess($role, 'crm_prospecting'); ?>
@@ -309,6 +348,13 @@
                 </li>
                 <?php endif; ?>
             </ul>
+            <?php endif; ?>
+            <?php if (Permissions::canAccess($role, 'acessos')): ?>
+            <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'acessos' ? 'active' : '' ?>" href="<?= baseUrl('acessos') ?>">
+                    <i class="bi bi-shield-lock"></i> Acessos
+                </a>
+            </li>
             <?php endif; ?>
             <?php if (Permissions::canAccess($role, 'settings')): ?>
             <li class="nav-item">

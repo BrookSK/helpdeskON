@@ -19,6 +19,32 @@ class User
         return $this->db->fetch("SELECT * FROM users WHERE email = ?", [$email]);
     }
 
+    /**
+     * Cria (ou reaproveita por e-mail) um usuário de acesso para um PRESTADOR,
+     * com o papel derivado da função (developer/marketing/attendant/analyst).
+     * Senha aleatória — o acesso real se dá por convite de 1º acesso / PIN.
+     * Retorna o id do usuário (novo ou existente), ou null se faltar e-mail.
+     */
+    public function createForProvider(string $name, ?string $email, ?string $phone, string $role)
+    {
+        $email = trim((string)$email);
+        if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) return null;
+        $existing = $this->findByEmail($email);
+        if ($existing) return (int)$existing['id'];
+
+        $allowed = ['developer', 'marketing', 'attendant', 'analyst'];
+        $role = in_array($role, $allowed, true) ? $role : 'developer';
+
+        return (int) $this->db->insert('users', [
+            'name' => trim($name) !== '' ? trim($name) : 'Prestador',
+            'email' => $email,
+            'password' => password_hash(bin2hex(random_bytes(8)), PASSWORD_DEFAULT),
+            'phone' => trim((string)$phone) ?: null,
+            'role' => $role,
+            'is_active' => 1,
+        ]);
+    }
+
     public function getAll($role = null)
     {
         // Subquery: nº de empresas ADICIONAIS (Multi-Empresas), sem contar a principal.
@@ -117,47 +143,71 @@ class User
         return false;
     }
 
-    /**
-     * Verifica se um PIN de acesso externo já está em uso por outro usuário.
-     * $exceptId permite ignorar o próprio usuário ao editar.
-     */
-    public function pinExists($pin, $exceptId = null)
-    {
-        $pin = trim((string)$pin);
-        if ($pin === '') return false;
-        if ($exceptId) {
-            $row = $this->db->fetch(
-                "SELECT id FROM users WHERE external_pin = ? AND id <> ? LIMIT 1",
-                [$pin, $exceptId]
-            );
-        } else {
-            $row = $this->db->fetch(
-                "SELECT id FROM users WHERE external_pin = ? LIMIT 1",
-                [$pin]
-            );
-        }
-        return (bool)$row;
-    }
-
-    /**
-     * Retorna o usuário da equipe (ativo) dono do PIN de acesso externo informado.
-     * Usado no login da página /solicitacaoexterna.
-     */
-    public function findByPin($pin)
-    {
-        $pin = trim((string)$pin);
-        if ($pin === '') return null;
-        return $this->db->fetch(
-            "SELECT * FROM users WHERE external_pin = ? AND is_active = 1 LIMIT 1",
-            [$pin]
-        ) ?: null;
-    }
-
     public function toggleActive($id)
     {
         $user = $this->findById($id);
         $newStatus = $user['is_active'] ? 0 : 1;
         return $this->db->update('users', ['is_active' => $newStatus], 'id = ?', [$id]);
+    }
+
+    /**
+     * Verifica se um PIN de login (4 dígitos, coluna client_pin) já está em uso
+     * por outro usuário. $exceptId ignora o próprio usuário ao editar.
+     */
+    public function clientPinExists($pin, $exceptId = null)
+    {
+        $pin = trim((string)$pin);
+        if ($pin === '') return false;
+        if ($exceptId) {
+            return (bool) $this->db->fetch(
+                "SELECT id FROM users WHERE client_pin = ? AND id <> ? LIMIT 1",
+                [$pin, $exceptId]
+            );
+        }
+        return (bool) $this->db->fetch("SELECT id FROM users WHERE client_pin = ? LIMIT 1", [$pin]);
+    }
+
+    /**
+     * Define (ou gera) o PIN de cliente de um usuário, garantindo unicidade.
+     * Só faz sentido para usuários com role 'client' (validado no controller).
+     * Retorna o PIN definido, ou null em falha.
+     */
+    public function setClientPin($userId, ?string $pin = null): ?string
+    {
+        if ($pin === null) {
+            // Gera um PIN único (algumas tentativas para evitar colisão).
+            for ($i = 0; $i < 10; $i++) {
+                $candidate = ClientPinRules::generate();
+                if (!$this->clientPinExists($candidate, $userId)) { $pin = $candidate; break; }
+            }
+            if ($pin === null) return null;
+        } else {
+            $pin = ClientPinRules::normalize($pin);
+            if ($pin === '' || $this->clientPinExists($pin, $userId)) return null;
+        }
+        $this->db->update('users', ['client_pin' => $pin], 'id = ?', [$userId]);
+        return $pin;
+    }
+
+    /** Remove o PIN de cliente de um usuário. */
+    public function clearClientPin($userId)
+    {
+        return $this->db->update('users', ['client_pin' => null], 'id = ?', [$userId]);
+    }
+
+    /**
+     * Retorna o usuário ATIVO dono do PIN informado (login por PIN, /clientpin).
+     * O PIN é por usuário: vale para qualquer papel.
+     */
+    public function findByClientPin($pin)
+    {
+        $pin = ClientPinRules::normalize($pin);
+        if ($pin === '') return null;
+        $user = $this->db->fetch(
+            "SELECT * FROM users WHERE client_pin = ? AND is_active = 1 LIMIT 1",
+            [$pin]
+        );
+        return $user ?: null;
     }
 
     /** Quantos super_admins ATIVOS existem no sistema. */
@@ -302,5 +352,56 @@ class User
         );
 
         return Mailer::send($user['email'], 'Defina sua senha - ON Solutions Helpdesk', $htmlBody);
+    }
+
+    /**
+     * Gera um token de redefinição de PIN de acesso (client_pin) e envia email
+     * com o link. Usa a mesma tabela password_resets com kind = 'pin', de modo
+     * que o próprio usuário define o novo PIN pela tela segura — sem que o admin
+     * veja ou escolha o valor. O link expira em 24 horas.
+     *
+     * @return bool true se o email foi enviado.
+     */
+    public function sendPinResetInvite($userId)
+    {
+        $user = $this->findById($userId);
+        if (!$user || empty($user['email'])) {
+            return false;
+        }
+
+        $token = bin2hex(random_bytes(32));
+        $expiresAt = date('Y-m-d H:i:s', strtotime('+24 hours'));
+
+        // Invalida tokens de PIN anteriores (não mexe nos de senha).
+        $this->db->query(
+            "UPDATE password_resets SET used_at = NOW()
+             WHERE user_id = ? AND kind = 'pin' AND used_at IS NULL",
+            [$userId]
+        );
+
+        $this->db->insert('password_resets', [
+            'user_id' => $user['id'],
+            'token' => $token,
+            'is_first_access' => 0,
+            'kind' => 'pin',
+            'expires_at' => $expiresAt,
+        ]);
+
+        $link = baseUrl('clientpin/resetPin/' . $token);
+        $htmlBody = Mailer::template(
+            'Redefinição de PIN de acesso',
+            "<p>Olá, <strong>" . htmlspecialchars($user['name']) . "</strong>!</p>
+            <p>Recebemos uma solicitação para redefinir o seu <strong>PIN de acesso</strong> (login por PIN).</p>
+            <p style='text-align:center;margin:25px 0;'>
+                <a href='{$link}' style='background:#00BFA6;color:#fff;padding:12px 30px;border-radius:8px;text-decoration:none;font-weight:600;font-size:0.9rem;display:inline-block;'>
+                    Definir Novo PIN
+                </a>
+            </p>
+            <p>Este link expira em <strong>24 horas</strong>. Por segurança, apenas você verá e definirá o novo PIN.</p>
+            <p style='font-size:0.82rem;color:#999;'>Se você não solicitou, ignore este email: seu PIN atual continua válido.</p>
+            <p style='font-size:0.78rem;color:#bbb;word-break:break-all;'>Link direto: {$link}</p>"
+        );
+
+        return Mailer::send($user['email'], 'Redefinição de PIN de acesso - ON Solutions Helpdesk', $htmlBody);
     }
 }

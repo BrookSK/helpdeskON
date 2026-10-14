@@ -105,12 +105,16 @@ class SettingsController extends Controller
             'openai_api_key',
             'buffer_api_key',
             'apollo_api_key', 'apollo_base_url', 'apollo_webhook_token',
+            // (As chaves secretas da esteira — clicksign/asaas/lrv — são tratadas
+            //  separadamente abaixo: campo em branco PRESERVA o valor já salvo.)
             'app_public_url',
             'google_client_id', 'google_client_secret', 'google_refresh_token', 'google_calendar_id',
             // Agendamento público (bloco "Agendamento" das sequências)
             'booking_min_advance_days', 'booking_work_start', 'booking_work_end',
             'booking_slot_minutes', 'booking_days_of_week', 'booking_duration_min',
             'booking_notify_hours_before', 'booking_link_expiry_days',
+            // Relatório Diário (RDO)
+            'rdo_deadline_time',
             'webhook_url', 'webhook_phones', 'webhook_names', 'webhook_enabled',
             'webhook_message_template',
             'whatsapp_number', 'whatsapp_message', 'whatsapp_enabled',
@@ -134,6 +138,20 @@ class SettingsController extends Controller
         // Deixar o campo em branco preserva a credencial já salva (nunca é reexibida no frontend).
         if (isset($_POST['nvoip_oauth_client_credential']) && trim($_POST['nvoip_oauth_client_credential']) !== '') {
             Config::set('nvoip_oauth_client_credential', trim($_POST['nvoip_oauth_client_credential']));
+        }
+
+        // Chaves SECRETAS da esteira comercial (ClickSign/Asaas/LRV): só atualiza
+        // quando o campo vem PREENCHIDO. Em branco, mantém o valor salvo — evita
+        // apagar a chave sem querer quando o campo password volta vazio no POST.
+        $secretFields = [
+            'clicksign_access_token', 'clicksign_webhook_secret',
+            'asaas_webhook_token',
+            'lrv_cloud_api_key', 'lrv_cloud_webhook_secret',
+        ];
+        foreach ($secretFields as $sf) {
+            if (isset($_POST[$sf]) && trim($_POST[$sf]) !== '') {
+                Config::set($sf, trim($_POST[$sf]));
+            }
         }
 
 
@@ -182,6 +200,8 @@ class SettingsController extends Controller
         }
         // Buffer: modo teste/simulação (não chama a API real ao agendar)
         Config::set('buffer_test_mode', isset($_POST['buffer_test_mode']) ? '1' : '0');
+        // ClickSign: ambiente de testes (sandbox) — checkbox
+        Config::set('clicksign_sandbox', isset($_POST['clicksign_sandbox']) ? '1' : '0');
 
         // Upload de Logo
         if (!empty($_FILES['app_logo']['name']) && $_FILES['app_logo']['error'] === UPLOAD_ERR_OK) {

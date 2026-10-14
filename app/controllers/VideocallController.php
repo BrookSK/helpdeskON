@@ -59,6 +59,8 @@ class VideocallController extends Controller
 
         // Permitir apresentar (compartilhar tela): padrão sim. O admin pode mudar depois.
         $allowPresentation = VideoRoomRules::normalizeAllowPresentation($_POST['allow_presentation'] ?? '1');
+        // Gravação automática: por padrão a sala já grava sozinha ao entrar.
+        $autoRecord = VideoRoomRules::normalizeAutoRecord($_POST['auto_record'] ?? '1');
 
         $token = $this->model->create([
             'title' => $title,
@@ -67,6 +69,7 @@ class VideocallController extends Controller
             'meeting_id' => $meetingId,
             'max_participants' => $max,
             'allow_recording' => 1,
+            'auto_record' => $autoRecord,
             'allow_presentation' => $allowPresentation,
             'status' => 'active',
             'visibility' => $visibility,
@@ -131,6 +134,7 @@ class VideocallController extends Controller
             'loggedUserId' => $loggedUserId,
             'isAdmin' => $isAdmin,
             'allowPresentation' => (int)($room['allow_presentation'] ?? 1) === 1,
+            'autoRecord' => (int)($room['allow_recording'] ?? 1) === 1 && (int)($room['auto_record'] ?? 1) === 1,
             'backgrounds' => $this->backgroundList(),
             'iceServers' => $this->iceServers(),
         ]);
@@ -166,6 +170,7 @@ class VideocallController extends Controller
             'peers' => $peers,
             'title' => $room['title'],
             'allow_presentation' => (int)($room['allow_presentation'] ?? 1) === 1,
+            'auto_record' => (int)($room['allow_recording'] ?? 1) === 1 && (int)($room['auto_record'] ?? 1) === 1,
         ]);
     }
 
@@ -253,6 +258,7 @@ class VideocallController extends Controller
             'self' => ['peer_id' => $peerId, 'name' => $name, 'is_host' => $isHost, 'is_admin' => $isAdmin],
             'peers' => $this->formatPeers($existing),
             'allow_recording' => (int)$room['allow_recording'] === 1,
+            'auto_record' => (int)($room['auto_record'] ?? 0) === 1,
             'visibility' => $visibility,
             'is_admin' => $isAdmin,
         ]);
@@ -843,10 +849,19 @@ class VideocallController extends Controller
         $recordedName = trim(substr((string)($_POST['recorded_by_name'] ?? ($userName ?? '')), 0, 120)) ?: null;
         $duration = (int)($_POST['duration_sec'] ?? 0) ?: null;
 
-        // Injeta a duração no WebM para o player permitir seek em qualquer ponto.
-        // Se o cliente não informou a duração, usa a calculada pelos timecodes.
-        $calcDur = $this->injectWebmDuration($dest);
-        if ($calcDur !== null && !$duration) $duration = (int)round($calcDur);
+        // A gravação veio em PEDAÇOS concatenados (recChunk). Remuxa para um WebM
+        // íntegro com a timeline completa — sem isso o player/transcrição só veem o
+        // trecho descrito pelo header do 1º pedaço (bug dos ~1min). A duração real
+        // do remux tem prioridade sobre a informada pelo cliente (que pode estar
+        // certa, mas o arquivo precisava ser corrigido de qualquer forma).
+        $remuxDur = $this->remuxWebm($dest);
+        if ($remuxDur !== null) {
+            $duration = (int) round($remuxDur);
+        } else {
+            // Sem ffmpeg: mantém o fallback atual (injeta Duration via timecodes).
+            $calcDur = $this->injectWebmDuration($dest);
+            if ($calcDur !== null && !$duration) $duration = (int)round($calcDur);
+        }
 
         $this->model->addRecording([
             'room_id' => $room['id'],
@@ -884,13 +899,17 @@ class VideocallController extends Controller
             return;
         }
 
-        // Migração preguiçosa: gravações antigas foram salvas sem o campo Duration
-        // no WebM (seek não funcionava). Injeta uma única vez, quando ainda não há
-        // duração registrada. Só corre para requisições SEM Range (a 1ª carga),
-        // para não reescrever o arquivo durante um seek em andamento.
+        // Migração preguiçosa: gravações antigas foram salvas como pedaços concatenados
+        // (timeline truncada ~1min) ou sem o campo Duration (seek não funcionava).
+        // Corrige UMA vez, quando ainda não há duração registrada. Só corre para
+        // requisições SEM Range (a 1ª carga), para não reescrever o arquivo durante
+        // um seek em andamento. Tenta o remux (conserta a timeline inteira) e cai no
+        // injectWebmDuration quando não há ffmpeg.
         if (empty($_SERVER['HTTP_RANGE']) && (int)($rec['duration_sec'] ?? 0) <= 0) {
-            $calcDur = $this->injectWebmDuration($real);
+            $calcDur = $this->remuxWebm($real);
+            if ($calcDur === null) $calcDur = $this->injectWebmDuration($real);
             if ($calcDur !== null) {
+                clearstatcache(true, $real);
                 $this->model->updateRecording($rec['token'], ['duration_sec' => (int)round($calcDur)]);
             }
         }
@@ -932,11 +951,25 @@ class VideocallController extends Controller
         if (!$rec) $this->json(['error' => 'Gravação não encontrada'], 404);
 
         $st = $rec['transcribe_status'] ?? 'none';
+        // O campo summary agora armazena JSON estruturado da ata.
+        // Tenta decodificar; se não for JSON válido, trata como texto legado (retrocompat.).
+        $rawSummary = ($st === 'error') ? null : ($rec['summary'] ?? null);
+        $minutesObj = null;
+        if ($rawSummary !== null) {
+            $decoded = json_decode($rawSummary, true);
+            $minutesObj = (is_array($decoded) && isset($decoded['resumo'])) ? $decoded : null;
+        }
         $this->json([
             'status' => $st,
             'transcript' => $rec['transcript'] ?? null,
             'transcript_json' => $rec['transcript_json'] ? json_decode($rec['transcript_json'], true) : null,
-            'summary' => ($st === 'error') ? null : ($rec['summary'] ?? null),
+            'summary' => $rawSummary,
+            // Ata/minuta: expõe o campo próprio (texto, nossa implementação) e o
+            // objeto estruturado quando o summary vier em JSON (implementação da
+            // Julia: ata com resumo + tópicos não resolvidos). O front usa o que precisar.
+            'minutes' => $rec['minutes'] ?? null,
+            'minutes_structured' => $minutesObj,
+            'minutes_status' => $rec['minutes_status'] ?? 'none',
             'error_message' => ($st === 'error') ? ($rec['summary'] ?? 'Falha ao transcrever.') : null,
             'url' => rtrim(baseUrl(''), '/') . '/videocall/recording/' . $rec['token'],
         ]);
@@ -1022,15 +1055,12 @@ class VideocallController extends Controller
         $this->releaseSession();
         @set_time_limit(0);
 
-        // Resumo por IA.
+        // Ata estruturada por IA (contexto da reunião + JSON com seções).
         $summary = '';
         $ai = new OpenAiClient();
         if ($ai->isConfigured()) {
-            $res = $ai->chat([
-                ['role' => 'system', 'content' => 'Você resume reuniões em português do Brasil. Produza: (1) um parágrafo geral, (2) tópicos principais em bullets, (3) decisões tomadas e (4) próximos passos / tarefas. Seja objetivo.'],
-                ['role' => 'user', 'content' => "Resuma a reunião a seguir (formato [mm:ss] texto):\n\n" . mb_substr($transcript, 0, 48000)],
-            ], ['model' => 'gpt-4o-mini', 'temperature' => 0.4, 'max_tokens' => 900]);
-            if (!empty($res['success'])) $summary = $res['content'];
+            $ctx = $this->buildMeetingContext($rec);
+            $summary = $this->generateMinutesJson($transcript, $ctx, $ai);
         }
 
         $this->model->updateRecording($recToken, [
@@ -1040,7 +1070,367 @@ class VideocallController extends Controller
             'transcribe_status' => 'done',
             'transcribed_at' => date('Y-m-d H:i:s'),
         ]);
-        $this->json(['success' => true, 'summary' => $summary]);
+
+        // Minuta/ata automática: logo após a transcrição+resumo, gera a ata
+        // estruturada (editável depois). Não interrompe o fluxo se a IA falhar.
+        $minutes = $this->generateMinutesContent($recToken, $transcript, $ai);
+
+        $this->json(['success' => true, 'summary' => $summary, 'minutes' => $minutes]);
+    }
+
+    /**
+     * Gera a MINUTA/ATA a partir da transcrição e salva em video_recordings.
+     * Usada tanto no fluxo automático (após saveTranscript) quanto no botão de
+     * "regerar". Devolve o conteúdo gerado (ou '' se não foi possível). Nunca
+     * lança: em falha, marca minutes_status='error' e segue.
+     *
+     * @param OpenAiClient|null $ai  Cliente já instanciado (reaproveita), ou null.
+     */
+    private function generateMinutesContent($recToken, string $transcript, $ai = null): string
+    {
+        if (!MeetingMinutesRules::canGenerate($transcript)) {
+            return '';
+        }
+        if (!($ai instanceof OpenAiClient)) $ai = new OpenAiClient();
+        if (!$ai->isConfigured()) {
+            // Sem IA configurada: não é erro de execução, apenas não há como gerar.
+            return '';
+        }
+
+        $this->model->updateRecording($recToken, ['minutes_status' => MeetingMinutesRules::STATUS_PROCESSING]);
+
+        // Contexto da reunião (título/data) a partir da sala, quando disponível.
+        $rec = null; $title = null; $dateLabel = null;
+        try {
+            $rec = $this->model->findRecordingByToken($recToken);
+            $room = $rec ? $this->model->findById($rec['room_id']) : null;
+            if ($room) {
+                $title = $room['title'] ?? null;
+                if (!empty($rec['created_at'])) $dateLabel = date('d/m/Y', strtotime($rec['created_at']));
+            }
+        } catch (\Throwable $e) { /* contexto é opcional */ }
+
+        try {
+            // UNIFICAÇÃO: a ata estruturada (JSON) já foi gerada por IA e salva em
+            // 'summary' no fluxo de transcrição. Derivamos o TEXTO da minuta desse
+            // JSON — SEM uma segunda chamada ao modelo. Só caímos na geração por IA
+            // (fallback) quando não há JSON estruturado disponível.
+            $minutes = '';
+            $structured = $rec['summary'] ?? null;
+            if (is_string($structured) && $structured !== '') {
+                $minutes = MeetingMinutesRules::textFromStructured($structured);
+            }
+
+            if ($minutes === '') {
+                // Fallback: gera a minuta em texto por IA (quando não há ata estruturada).
+                $res = $ai->chat(
+                    MeetingMinutesRules::buildMessages($transcript, $title, $dateLabel),
+                    ['model' => 'gpt-4o-mini', 'temperature' => 0.3, 'max_tokens' => 1500]
+                );
+                if (empty($res['success']) || trim((string)($res['content'] ?? '')) === '') {
+                    $this->model->updateRecording($recToken, ['minutes_status' => MeetingMinutesRules::STATUS_ERROR]);
+                    return '';
+                }
+                $minutes = MeetingMinutesRules::sanitizeContent($res['content']);
+            }
+
+            $this->model->updateRecording($recToken, [
+                'minutes' => $minutes,
+                'minutes_status' => MeetingMinutesRules::STATUS_DONE,
+                'minutes_generated_at' => date('Y-m-d H:i:s'),
+            ]);
+            // Envio automático do link da minuta (WhatsApp + e-mail) à equipe e ao
+            // cliente — só uma vez (idempotente por minutes_sent_at). Não interrompe.
+            try { $this->deliverMinutes($recToken); } catch (\Throwable $e) {
+                if (class_exists('Logger')) Logger::error('deliverMinutes falhou', ['rec' => $recToken, 'error' => $e->getMessage()]);
+            }
+            return $minutes;
+        } catch (\Throwable $e) {
+            $this->model->updateRecording($recToken, ['minutes_status' => MeetingMinutesRules::STATUS_ERROR]);
+            if (class_exists('Logger')) {
+                Logger::error('generateMinutesContent falhou', ['rec' => $recToken, 'error' => $e->getMessage()]);
+            }
+            return '';
+        }
+    }
+
+    /**
+     * (Re)gera a minuta de uma gravação já transcrita. Logado, com permissão.
+     * Útil quando a geração automática falhou ou a transcrição foi refeita.
+     */
+    public function generateMinutes($recToken = null)
+    {
+        $this->requireLogin();
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $recToken = $this->tokenFromUrl($recToken, 2);
+        $rec = $recToken ? $this->model->findRecordingByToken($recToken) : null;
+        if (!$rec) $this->json(['error' => 'Gravação não encontrada'], 404);
+
+        $user = $this->currentUser();
+        if (!$this->model->canUserSeeRecording($rec, $user['id'], $user['role'])) {
+            $this->json(['error' => 'Sem permissão para esta gravação.'], 403);
+        }
+
+        $transcript = (string)($rec['transcript'] ?? '');
+        if (!MeetingMinutesRules::canGenerate($transcript)) {
+            $this->json(['error' => 'A gravação ainda não tem transcrição para gerar a minuta.'], 400);
+        }
+
+        $this->releaseSession();
+        @set_time_limit(0);
+        $minutes = $this->generateMinutesContent($recToken, $transcript);
+        if ($minutes === '') $this->json(['error' => 'Não foi possível gerar a minuta (verifique a IA).'], 502);
+        $this->json(['success' => true, 'minutes' => $minutes]);
+    }
+
+    /**
+     * Salva a minuta editada manualmente. Logado, com permissão.
+     * A ata é um documento editável: a equipe ajusta antes de enviar ao cliente.
+     */
+    public function saveMinutes($recToken = null)
+    {
+        $this->requireLogin();
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $recToken = $this->tokenFromUrl($recToken, 2);
+        $rec = $recToken ? $this->model->findRecordingByToken($recToken) : null;
+        if (!$rec) $this->json(['error' => 'Gravação não encontrada'], 404);
+
+        $user = $this->currentUser();
+        if (!$this->model->canUserSeeRecording($rec, $user['id'], $user['role'])) {
+            $this->json(['error' => 'Sem permissão para esta gravação.'], 403);
+        }
+
+        $raw = file_get_contents('php://input');
+        $body = json_decode($raw, true);
+        if (!is_array($body)) $body = $_POST;
+        $minutes = MeetingMinutesRules::sanitizeContent($body['minutes'] ?? '');
+
+        $this->model->updateRecording($recToken, [
+            'minutes' => $minutes,
+            'minutes_status' => MeetingMinutesRules::STATUS_DONE,
+        ]);
+        $this->json(['success' => true]);
+    }
+
+    /**
+     * Envia o LINK PÚBLICO da minuta por WhatsApp + e-mail para os participantes
+     * internos da reunião e para o cliente. Idempotente: só envia uma vez por
+     * gravação (controla por minutes_sent_at). Reaproveita WhatsappNotifier/Mailer.
+     *
+     * O destinatário recebe um link para a página imprimível (minutesView), onde
+     * lê e imprime/salva em PDF — não enviamos arquivo anexado.
+     *
+     * @param bool $force Reenvia mesmo que já tenha sido enviado (uso manual).
+     * @return array{sent_whats:int,sent_email:int,recipients:int}
+     */
+    private function deliverMinutes($recToken, bool $force = false): array
+    {
+        $result = ['sent_whats' => 0, 'sent_email' => 0, 'recipients' => 0];
+        $rec = $this->model->findRecordingByToken($recToken);
+        if (!$rec) return $result;
+
+        // Só envia se há minuta pronta.
+        if (empty($rec['minutes']) || !MeetingMinutesRules::canGenerate((string)$rec['minutes'])) return $result;
+        // Idempotência: já enviado e sem forçar -> não reenvia.
+        if (!$force && !empty($rec['minutes_sent_at'])) return $result;
+
+        // Reúne destinatários a partir da reunião vinculada (equipe + cliente).
+        $participants = [];
+        $client = [];
+        $meetingTitle = null;
+        $room = $this->model->findById($rec['room_id']);
+        if ($room && !empty($room['meeting_id'])) {
+            try {
+                $agenda = new AgendaMeeting();
+                $meeting = $agenda->findById((int)$room['meeting_id']);
+                if ($meeting) {
+                    $meetingTitle = $meeting['title'] ?? null;
+                    $participants = $agenda->getParticipantContacts((int)$room['meeting_id']) ?: [];
+                    // Cliente: snapshot da reunião (client_*) ou dados do contato do CRM.
+                    $client = [
+                        'name' => $meeting['client_name'] ?? ($meeting['crm_contact_name'] ?? ''),
+                        'email' => $meeting['client_email'] ?? ($meeting['lead_email'] ?? null),
+                        'phone' => $meeting['client_phone'] ?? ($meeting['crm_contact_phone'] ?? null),
+                    ];
+                    // Pós-reunião: o lead volta ao CRM em "Análise interna" para
+                    // analisarmos os pré-requisitos antes de montar a proposta.
+                    if (!empty($meeting['contact_id']) && class_exists('CrmBoard')) {
+                        try {
+                            (new CrmBoard())->moveContactToColumn((int)$meeting['contact_id'], CrmRules::COLUMN_INTERNAL_ANALYSIS);
+                        } catch (\Throwable $e) { /* não interrompe o envio da minuta */ }
+                    }
+                }
+            } catch (\Throwable $e) { /* sem reunião vinculada: segue sem destinatários */ }
+        }
+        if ($meetingTitle === null) $meetingTitle = $room['title'] ?? null;
+
+        $recipients = MeetingMinutesDelivery::buildRecipients($participants, $client);
+        $result['recipients'] = count($recipients);
+        if (empty($recipients)) return $result;
+
+        $link = $this->publicBase() . '/videocall/minutesView/' . $rec['token'];
+        $companyName = trim((string) Config::get('app_name')) ?: null;
+
+        foreach ($recipients as $r) {
+            if (!empty($r['phone'])) {
+                $msg = MeetingMinutesDelivery::whatsappMessage($r['name'], $link, $meetingTitle, $companyName);
+                try { if (WhatsappNotifier::sendToPhone($r['phone'], $msg, $r['name'])) $result['sent_whats']++; }
+                catch (\Throwable $e) { /* não interrompe os demais envios */ }
+            }
+            if (!empty($r['email'])) {
+                $subject = MeetingMinutesDelivery::emailSubject($meetingTitle);
+                $bodyHtml = MeetingMinutesDelivery::emailBody($r['name'], $link, $meetingTitle);
+                try { if (Mailer::send($r['email'], $subject, $bodyHtml)) $result['sent_email']++; }
+                catch (\Throwable $e) { /* não interrompe os demais envios */ }
+            }
+        }
+
+        $this->model->updateRecording($recToken, ['minutes_sent_at' => date('Y-m-d H:i:s')]);
+        return $result;
+    }
+
+    /**
+     * Reenvia manualmente o link da minuta (botão na tela). Logado, com permissão.
+     */
+    public function sendMinutes($recToken = null)
+    {
+        $this->requireLogin();
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $recToken = $this->tokenFromUrl($recToken, 2);
+        $rec = $recToken ? $this->model->findRecordingByToken($recToken) : null;
+        if (!$rec) $this->json(['error' => 'Gravação não encontrada'], 404);
+
+        $user = $this->currentUser();
+        if (!$this->model->canUserSeeRecording($rec, $user['id'], $user['role'])) {
+            $this->json(['error' => 'Sem permissão para esta gravação.'], 403);
+        }
+        if (empty($rec['minutes'])) $this->json(['error' => 'Não há minuta para enviar.'], 400);
+
+        $this->releaseSession();
+        @set_time_limit(0);
+        $r = $this->deliverMinutes($recToken, true);
+        $this->json(['success' => true] + $r);
+    }
+
+    /**
+     * Página PÚBLICA e imprimível da minuta (sem login) — é o link enviado ao
+     * cliente/equipe. Mostra a ata com header/footer da empresa e botão imprimir.
+     */
+    public function minutesView($recToken = null)
+    {
+        $recToken = $this->tokenFromUrl($recToken, 2);
+        $rec = $recToken ? $this->model->findRecordingByToken($recToken) : null;
+        if (!$rec || empty($rec['minutes'])) {
+            $this->renderMessage('Minuta indisponível', 'Este link de minuta não é válido ou a ata ainda não foi gerada.');
+            return;
+        }
+        $room = $this->model->findById($rec['room_id']);
+        $this->view('videocall/minutes', [
+            'rec' => $rec,
+            'room' => $room,
+            'minutes' => (string) $rec['minutes'],
+        ]);
+    }
+
+    /**
+     * [público] POST /videocall/acknowledgeMinutes/{recToken}
+     * Reconhecimento/assinatura da minuta pelo CLIENTE, autenticado por PIN
+     * (client_pin, 4 dígitos) — espelha ProjectController::confirmAccept.
+     * O PIN precisa pertencer a um usuário da MESMA empresa da sala (quando a
+     * sala tem company_id). Só funciona com a minuta pronta (regra em VideoRoom).
+     */
+    public function acknowledgeMinutes($recToken = null)
+    {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $recToken = $this->tokenFromUrl($recToken, 2);
+        $rec = $recToken ? $this->model->findRecordingByToken($recToken) : null;
+        if (!$rec) $this->json(['error' => 'Minuta não encontrada'], 404);
+
+        if (MinutesAckRules::isAcknowledged($rec['minutes_ack_status'] ?? null)) {
+            $this->json(['error' => 'Esta minuta já foi reconhecida.'], 409);
+        }
+        if (!MinutesAckRules::canAcknowledge($rec['minutes_status'] ?? null, $rec['minutes_ack_status'] ?? null)) {
+            $this->json(['error' => 'A minuta ainda não está pronta para reconhecimento.'], 409);
+        }
+
+        $pin = $_POST['pin'] ?? '';
+        if (!ClientPinRules::isValidFormat($pin)) {
+            $this->json(['error' => 'PIN inválido. Informe os 4 dígitos.'], 400);
+        }
+        $client = (new User())->findByClientPin($pin);
+        if (!$client) $this->json(['error' => 'PIN não reconhecido.'], 403);
+
+        // O PIN precisa ser de um usuário da MESMA empresa da sala (quando houver).
+        $room = $this->model->findById($rec['room_id']);
+        if ($room && !empty($room['company_id'])
+            && (int)($client['company_id'] ?? 0) !== (int)$room['company_id']) {
+            $this->json(['error' => 'Este PIN não corresponde ao cliente desta reunião.'], 403);
+        }
+
+        $ip = $_SERVER['REMOTE_ADDR'] ?? null;
+        if (!$this->model->acknowledgeMinutes($recToken, (int)$client['id'], $ip)) {
+            $this->json(['error' => 'Não foi possível registrar o reconhecimento.'], 409);
+        }
+
+        // Avisa a equipe (sino do criador da sala + grupo). Nunca interrompe.
+        try {
+            $who = $client['name'] ?? 'Cliente';
+            if ($room && !empty($room['created_by'])) {
+                Database::getInstance()->insert('notifications', [
+                    'user_id' => (int)$room['created_by'],
+                    'title'   => 'Minuta reconhecida',
+                    'message' => "{$who} reconheceu/assinou a minuta da reunião \"" . ($room['title'] ?? '') . "\".",
+                    'type'    => 'system',
+                ]);
+            }
+            WhatsappNotifier::sendToDefaultGroup("Minuta reconhecida por {$who} — reunião \"" . ($room['title'] ?? '') . "\".");
+        } catch (\Throwable $e) { /* não interrompe */ }
+
+        $this->json(['success' => true]);
+    }
+
+    /**
+     * [público] POST /videocall/contestMinutes/{recToken}
+     * Contestação (discordância) da minuta pelo cliente, com motivo obrigatório.
+     * Reabre para a equipe refazer/reenviar e notifica a equipe.
+     */
+    public function contestMinutes($recToken = null)
+    {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $recToken = $this->tokenFromUrl($recToken, 2);
+        $rec = $recToken ? $this->model->findRecordingByToken($recToken) : null;
+        if (!$rec) $this->json(['error' => 'Minuta não encontrada'], 404);
+
+        if (MinutesAckRules::isAcknowledged($rec['minutes_ack_status'] ?? null)) {
+            $this->json(['error' => 'Esta minuta já foi reconhecida e não pode ser contestada.'], 409);
+        }
+        if (!MinutesAckRules::canContest($rec['minutes_status'] ?? null, $rec['minutes_ack_status'] ?? null)) {
+            $this->json(['error' => 'A minuta ainda não está pronta.'], 409);
+        }
+
+        $reason = MinutesAckRules::sanitizeContestReason($_POST['reason'] ?? '');
+        if ($reason === null) {
+            $this->json(['error' => 'Descreva o motivo da discordância.'], 400);
+        }
+        if (!$this->model->contestMinutes($recToken, $reason)) {
+            $this->json(['error' => 'Não foi possível registrar a contestação.'], 409);
+        }
+
+        // Avisa a equipe para refazer a minuta. Nunca interrompe.
+        try {
+            $room = $this->model->findById($rec['room_id']);
+            if ($room && !empty($room['created_by'])) {
+                Database::getInstance()->insert('notifications', [
+                    'user_id' => (int)$room['created_by'],
+                    'title'   => 'Minuta contestada',
+                    'message' => "O cliente discordou da minuta da reunião \"" . ($room['title'] ?? '') . "\". Motivo: {$reason}",
+                    'type'    => 'system',
+                ]);
+            }
+            WhatsappNotifier::sendToDefaultGroup("Minuta contestada — reunião \"" . ($room['title'] ?? '') . "\". Motivo: {$reason}");
+        } catch (\Throwable $e) { /* não interrompe */ }
+
+        $this->json(['success' => true]);
     }
 
     // ============================================================
@@ -1063,11 +1453,12 @@ class VideocallController extends Controller
      * recebe pedaços há alguns minutos, o gravador provavelmente caiu — então
      * salvamos o que já foi enviado como uma gravação normal (nada se perde).
      */
-    private function recoverOrphanRecordings()
+    public function recoverOrphanRecordings($idleSecs = 120)
     {
+        $recovered = 0;
         $dir = PUBLIC_PATH . '/uploads/recordings';
-        if (!is_dir($dir)) return;
-        $idleSecs = 120; // 2 min sem novos pedaços = considerado interrompido
+        if (!is_dir($dir)) return $recovered;
+        $idleSecs = max(30, (int) $idleSecs); // nunca menos de 30s para não cortar quem ainda grava
         foreach (glob($dir . '/part_*.webm') as $part) {
             if (!is_file($part)) continue;
             if (time() - filemtime($part) < $idleSecs) continue; // ainda gravando
@@ -1085,7 +1476,10 @@ class VideocallController extends Controller
             if (!@rename($part, $dest)) { @copy($part, $dest); @unlink($part); }
             @unlink($metaFile);
 
-            $calcDur = $this->injectWebmDuration($dest); // habilita o seek
+            // Remuxa o .part concatenado para um WebM válido (timeline completa).
+            // Fallback: injeta Duration via timecodes quando não há ffmpeg.
+            $remuxDur = $this->remuxWebm($dest);
+            $calcDur = $remuxDur !== null ? $remuxDur : $this->injectWebmDuration($dest);
 
             try {
                 $this->model->addRecording([
@@ -1098,8 +1492,10 @@ class VideocallController extends Controller
                     'recorded_by' => $meta['recorded_by'] ?? null,
                     'recorded_by_name' => ($meta['recorded_by_name'] ?? null) ? ($meta['recorded_by_name'] . ' (recuperada)') : 'Gravação recuperada',
                 ]);
+                $recovered++;
             } catch (\Throwable $e) { /* ignora entradas problemáticas */ }
         }
+        return $recovered;
     }
 
     /** Exclui uma gravação (arquivo + registro). Só quem tem acesso pode. */
@@ -1292,14 +1688,12 @@ class VideocallController extends Controller
         }
         $transcript = trim($transcript);
 
-        // Resumo a partir da transcrição.
+        // Ata estruturada por IA (contexto da reunião + JSON com seções).
+        $rec = $this->model->findRecordingByToken($recToken);
         $summary = '';
-        if ($transcript !== '') {
-            $res = $ai->chat([
-                ['role' => 'system', 'content' => 'Você resume reuniões em português do Brasil. Produza: (1) um parágrafo geral, (2) tópicos principais em bullets, (3) decisões tomadas e (4) próximos passos / tarefas. Seja objetivo.'],
-                ['role' => 'user', 'content' => "Resuma a reunião a seguir (formato [mm:ss] texto):\n\n" . mb_substr($transcript, 0, 48000)],
-            ], ['model' => 'gpt-4o-mini', 'temperature' => 0.4, 'max_tokens' => 900]);
-            if (!empty($res['success'])) $summary = $res['content'];
+        if ($transcript !== '' && $rec) {
+            $ctx = $this->buildMeetingContext($rec);
+            $summary = $this->generateMinutesJson($transcript, $ctx, $ai);
         }
 
         $this->model->updateRecording($recToken, [
@@ -1309,6 +1703,15 @@ class VideocallController extends Controller
             'transcribe_status' => 'done',
             'transcribed_at' => date('Y-m-d H:i:s'),
         ]);
+
+        // Minuta/ata em texto + envio automático do link (WhatsApp/e-mail). Deriva
+        // do 'summary' estruturado já salvo acima — SEM nova chamada de IA. Antes
+        // este fluxo (transcrição no servidor) não gerava a minuta de texto nem
+        // disparava o envio; a unificação cobre isso de brinde. Não interrompe.
+        if ($transcript !== '') {
+            try { $this->generateMinutesContent($recToken, $transcript, $ai); }
+            catch (\Throwable $e) { if (class_exists('Logger')) Logger::error('minuta pos-transcricao falhou', ['rec' => $recToken, 'error' => $e->getMessage()]); }
+        }
         // Resposta já foi enviada ao cliente; nada a retornar aqui.
     }
 
@@ -1357,6 +1760,59 @@ class VideocallController extends Controller
             return ((int)$m[1]) * 3600 + ((int)$m[2]) * 60 + (float)$m[3];
         }
         return 0;
+    }
+
+    /**
+     * Remuxa um WebM gravado por streaming de pedaços (MediaRecorder.start(timeslice))
+     * para um WebM VÁLIDO e com timeline completa.
+     *
+     * Por que é necessário: quando a gravação é enviada em pedaços e os bytes são
+     * simplesmente CONCATENADOS no servidor (recChunk/recoverOrphanRecordings), só o
+     * PRIMEIRO pedaço traz o cabeçalho EBML + Segment/Info/Tracks. Os pedaços
+     * seguintes são apenas clusters de mídia "soltos". O arquivo contém todos os
+     * bytes (o tamanho bate com a reunião inteira), mas players e decoders só
+     * enxergam a duração que o header do 1º pedaço descreve — daí a reunião de 12min
+     * aparecer com ~1min e a transcrição/resumo (que usam audio.duration) cobrirem só
+     * esse trecho.
+     *
+     * O ffmpeg lê os clusters tolerantemente e reescreve um container íntegro com
+     * "-c copy" (SEM recomprimir: rápido e sem perda). Depois disso o seek, a duração,
+     * a transcrição e o resumo passam a cobrir a gravação toda.
+     *
+     * @return float|null Duração em segundos do arquivo remuxado, ou null se não foi
+     *                    possível remuxar (ffmpeg ausente/falha) — nesse caso o chamador
+     *                    mantém o arquivo original e segue com o fallback atual.
+     */
+    private function remuxWebm($path)
+    {
+        $ffmpeg = $this->ffmpegBin();
+        if (!$ffmpeg || !is_file($path)) return null;
+
+        $tmp = $path . '.remux.webm';
+        @unlink($tmp);
+        // -fflags +genpts: regenera timestamps a partir dos clusters (os pedaços não
+        // trazem PTS global). -c copy: só re-encapsula, não recomprime.
+        $cmd = escapeshellarg($ffmpeg) . ' -y -fflags +genpts -i ' . escapeshellarg($path)
+            . ' -c copy -f webm ' . escapeshellarg($tmp) . ' 2>&1';
+        $this->runShell($cmd);
+
+        // Só adota o remux se gerou um arquivo plausível (não vazio e sem truncar).
+        if (!is_file($tmp) || filesize($tmp) < 1024) {
+            @unlink($tmp);
+            return null;
+        }
+        $dur = $this->mediaDuration($ffmpeg, $tmp);
+        if ($dur <= 0) {
+            // ffmpeg não reconheceu a duração: não confiamos no resultado.
+            @unlink($tmp);
+            return null;
+        }
+        // Substitui o original pelo remuxado.
+        if (!@rename($tmp, $path)) {
+            if (@copy($tmp, $path)) { @unlink($tmp); }
+            else { @unlink($tmp); return null; }
+        }
+        return $dur;
     }
 
     /** Formata segundos como mm:ss (ou hh:mm:ss). */
@@ -1640,9 +2096,150 @@ class VideocallController extends Controller
         exit;
     }
 
-    /** Página simples de mensagem (link inválido/expirado/encerrado). */
-    private function renderMessage($title, $message)
+    // ============================================================
+    // Ata estruturada (geração de minuta com IA)
+    // ============================================================
+
+    /**
+     * Resolve o contexto da reunião vinculada a uma gravação.
+     * Retorna array com: title, meeting_type, meeting_at, participants[].
+     * Todos os campos são strings seguras para inserir no prompt.
+     *
+     * @param  array $rec  Linha de video_recordings
+     * @return array{title:string, meeting_type:string, meeting_at:string, participants:string}
+     */
+    private function buildMeetingContext(array $rec): array
     {
+        $ctx = [
+            'title'        => '',
+            'meeting_type' => '',
+            'meeting_at'   => '',
+            'participants' => '',
+        ];
+
+        // 1) Sala de vídeo → título e meeting_id
+        $room = $this->model->findById($rec['room_id']);
+        if (!$room) return $ctx;
+
+        $ctx['title'] = trim((string)($room['title'] ?? ''));
+
+        // 2) Se há reunião vinculada, busca detalhes na agenda
+        $meetingId = (int)($room['meeting_id'] ?? 0);
+        if ($meetingId > 0) {
+            try {
+                $meeting = Database::getInstance()->fetch(
+                    "SELECT title, meeting_type, meeting_at FROM agenda_meetings WHERE id = ? LIMIT 1",
+                    [$meetingId]
+                );
+                if ($meeting) {
+                    if (!empty($meeting['title']))    $ctx['title']        = trim((string)$meeting['title']);
+                    if (!empty($meeting['meeting_type'])) {
+                        $typeLabels = ['comercial' => 'Comercial', 'operacional' => 'Operacional',
+                                       'interno' => 'Interno', 'externo' => 'Externo'];
+                        $ctx['meeting_type'] = $typeLabels[$meeting['meeting_type']] ?? ucfirst((string)$meeting['meeting_type']);
+                    }
+                    if (!empty($meeting['meeting_at'])) {
+                        $ctx['meeting_at'] = date('d/m/Y \à\s H:i', strtotime($meeting['meeting_at']));
+                    }
+
+                    // Participantes internos da reunião
+                    $parts = Database::getInstance()->fetchAll(
+                        "SELECT u.name FROM agenda_meeting_participants amp
+                         JOIN users u ON u.id = amp.user_id
+                         WHERE amp.meeting_id = ? ORDER BY u.name",
+                        [$meetingId]
+                    );
+                    if (!empty($parts)) {
+                        $ctx['participants'] = implode(', ', array_column($parts, 'name'));
+                    }
+                }
+            } catch (\Throwable $e) { /* ignora — usa o que já tem */ }
+        }
+
+        return $ctx;
+    }
+
+    /**
+     * Gera a ata estruturada a partir da transcrição usando a OpenAI.
+     *
+     * Retorna um array JSON com as seções da ata. Em caso de falha retorna
+     * string vazia para não bloquear o salvamento.
+     *
+     * Estrutura retornada (JSON serializado):
+     * {
+     *   "resumo":          "...",          // parágrafo geral
+     *   "topicos":         ["...", "..."], // bullets
+     *   "decisoes":        ["...", "..."], // decisões tomadas
+     *   "proximos_passos": ["...", "..."]  // próximos passos / tarefas
+     * }
+     *
+     * @param  string       $transcript  Transcrição completa com marcas de tempo
+     * @param  array        $ctx         Contexto da reunião (buildMeetingContext)
+     * @param  OpenAiClient $ai
+     * @return string  JSON serializado (ou '' em caso de falha)
+     */
+    private function generateMinutesJson(string $transcript, array $ctx, OpenAiClient $ai): string
+    {
+        if (!$ai->isConfigured() || $transcript === '') return '';
+
+        // Monta o cabeçalho de contexto para enriquecer o prompt.
+        $header = '';
+        if ($ctx['title'])        $header .= "Reunião: {$ctx['title']}\n";
+        if ($ctx['meeting_type']) $header .= "Tipo: {$ctx['meeting_type']}\n";
+        if ($ctx['meeting_at'])   $header .= "Data/hora: {$ctx['meeting_at']}\n";
+        if ($ctx['participants']) $header .= "Participantes: {$ctx['participants']}\n";
+        if ($header !== '')       $header .= "\n";
+
+        $systemPrompt =
+            'Você é um assistente especializado em gerar minutas de reunião em português do Brasil. ' .
+            'Analise a transcrição fornecida e produza uma minuta estruturada. ' .
+            'Responda SOMENTE com um objeto JSON válido com estas 5 chaves (sem nenhum texto fora do JSON): ' .
+            '"resumo" (string: parágrafo geral descrevendo o contexto e objetivo da reunião), ' .
+            '"topicos" (array de strings: principais tópicos discutidos e concluídos, em bullets), ' .
+            '"topicos_nao_resolvidos" (array de strings: tópicos citados mas sem conclusão, sem encaminhamento claro ou deixados em aberto), ' .
+            '"decisoes" (array de strings: decisões formalmente tomadas durante a reunião), ' .
+            '"proximos_passos" (array de strings: tarefas, ações e próximos passos identificados, ' .
+            'idealmente com responsável e prazo quando mencionados na transcrição). ' .
+            'Se uma seção não tiver conteúdo claro na transcrição, retorne array vazio []. ' .
+            'Seja direto e objetivo; evite repetir informações entre seções.';
+
+        $userPrompt = $header .
+            "Transcrição da reunião (formato [mm:ss] texto):\n\n" .
+            mb_substr($transcript, 0, 48000);
+
+        $res = $ai->chat(
+            [
+                ['role' => 'system', 'content' => $systemPrompt],
+                ['role' => 'user',   'content' => $userPrompt],
+            ],
+            [
+                'model'           => 'gpt-4o-mini',
+                'temperature'     => 0.3,
+                'max_tokens'      => 1200,
+                'response_format' => ['type' => 'json_object'],
+                'timeout'         => 60,
+            ]
+        );
+
+        if (empty($res['success'])) return '';
+
+        // Valida que veio um JSON com as chaves esperadas; normaliza se necessário.
+        $data = json_decode($res['content'], true);
+        if (!is_array($data)) return '';
+
+        $minutes = [
+            'resumo'                => trim((string)($data['resumo']          ?? '')),
+            'topicos'               => array_values(array_filter((array)($data['topicos']               ?? []), 'is_string')),
+            'topicos_nao_resolvidos'=> array_values(array_filter((array)($data['topicos_nao_resolvidos'] ?? []), 'is_string')),
+            'decisoes'              => array_values(array_filter((array)($data['decisoes']              ?? []), 'is_string')),
+            'proximos_passos'       => array_values(array_filter((array)($data['proximos_passos']       ?? []), 'is_string')),
+        ];
+
+        return json_encode($minutes, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    }
+
+    /** Página simples de mensagem (link inválido/expirado/encerrado). */
+    private function renderMessage($title, $message)    {
         $t = htmlspecialchars($title, ENT_QUOTES);
         $m = htmlspecialchars($message, ENT_QUOTES);
         $fav = Config::get('app_favicon');

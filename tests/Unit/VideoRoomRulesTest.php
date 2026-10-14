@@ -46,6 +46,21 @@ final class VideoRoomRulesTest extends TestCase
         $this->assertSame(1, VideoRoomRules::normalizeAllowPresentation(null));
     }
 
+    // ---- gravação automática (Fase 1) ----
+
+    public function testAutoRecordVemLigadoPorPadraoESoDesligaComZero(): void
+    {
+        // Checkbox marcado / ausente / padrão => grava automaticamente.
+        $this->assertSame(1, VideoRoomRules::normalizeAutoRecord('1'));
+        $this->assertSame(1, VideoRoomRules::normalizeAutoRecord(1));
+        $this->assertSame(1, VideoRoomRules::normalizeAutoRecord('on'));
+        $this->assertSame(1, VideoRoomRules::normalizeAutoRecord(null));
+        // Só desliga com o valor explícito de "desmarcado".
+        $this->assertSame(0, VideoRoomRules::normalizeAutoRecord('0'));
+        $this->assertSame(0, VideoRoomRules::normalizeAutoRecord(0));
+        $this->assertSame(0, VideoRoomRules::normalizeAutoRecord(false));
+    }
+
     // ---- sinais ----
 
     public function testSinaisValidosEInvalidos(): void

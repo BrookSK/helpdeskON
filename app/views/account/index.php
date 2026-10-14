@@ -93,7 +93,121 @@
                 </div>
             </div>
         </div>
+
+        <?php // ===== PIN de acesso — para qualquer usuário ===== ?>
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header bg-white">
+                    <h6 class="mb-0"><i class="bi bi-key"></i> PIN de Acesso</h6>
+                </div>
+                <div class="card-body">
+                    <p class="small text-muted mb-3">
+                        Use este PIN de 4 dígitos para entrar rapidamente pela opção
+                        <strong>Entrar com PIN</strong> na tela de login, sem digitar email e senha.
+                    </p>
+                    <?php $accHasPin = !empty($userData['client_pin']); ?>
+                    <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+                        <span class="text-muted small">PIN atual:</span>
+                        <?php if ($accHasPin): ?>
+                        <?php // Começa oculto; o olhinho revela/oculta o próprio PIN do usuário. ?>
+                        <span id="account-pin-value"
+                              class="badge bg-light text-dark border"
+                              data-pin="<?= escape($userData['client_pin']) ?>"
+                              style="font-size:1rem;letter-spacing:3px;padding:6px 12px;">
+                            ••••
+                        </span>
+                        <button type="button" id="account-pin-toggle"
+                                class="btn btn-sm btn-outline-secondary"
+                                onclick="toggleAccountPin()"
+                                aria-label="Mostrar ou ocultar PIN" aria-pressed="false" title="Mostrar PIN">
+                            <i class="bi bi-eye-slash" id="account-pin-icon"></i>
+                        </button>
+                        <?php else: ?>
+                        <span class="badge bg-secondary">Nenhum PIN definido</span>
+                        <?php endif; ?>
+                    </div>
+                    <?php // Com PIN já definido, o formulário fica recolhido atrás de um
+                          // botão "Alterar PIN" — a barra de escrita só aparece ao clicar,
+                          // deixando a aba mais limpa. Sem PIN, o campo já vem aberto para
+                          // facilitar a definição inicial. ?>
+                    <?php if ($accHasPin): ?>
+                    <button type="button" id="account-pin-change-btn"
+                            class="btn btn-outline-primary w-100"
+                            onclick="showAccountPinForm()">
+                        <i class="bi bi-key"></i> Alterar PIN
+                    </button>
+                    <?php endif; ?>
+                    <form action="<?= baseUrl('account/updateClientPin') ?>" method="POST"
+                          id="account-pin-form" <?= $accHasPin ? 'style="display:none"' : '' ?>>
+                        <div class="mb-3">
+                            <label class="form-label fw-medium">Novo PIN (4 dígitos)</label>
+                            <input type="text" name="client_pin" id="account-pin-input" class="form-control" maxlength="4" inputmode="numeric"
+                                   autocomplete="off" placeholder="Ex: 1234" required
+                                   oninput="this.value=this.value.replace(/\D/g,'').slice(0,4)">
+                            <small class="text-muted">Somente números.</small>
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button type="submit" class="btn btn-outline-primary flex-grow-1">
+                                <i class="bi bi-key"></i> <?= $accHasPin ? 'Salvar novo PIN' : 'Definir PIN' ?>
+                            </button>
+                            <?php if ($accHasPin): ?>
+                            <button type="button" id="account-pin-cancel-btn"
+                                    class="btn btn-outline-secondary"
+                                    onclick="hideAccountPinForm()">
+                                Cancelar
+                            </button>
+                            <?php endif; ?>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
+
+<script>
+// Olhinho do PIN em "Minha Conta": alterna entre PIN oculto (••••) e visível.
+// O valor real fica em data-pin e só é escrito na tela ao revelar.
+function toggleAccountPin() {
+    var span = document.getElementById('account-pin-value');
+    var icon = document.getElementById('account-pin-icon');
+    var btn = document.getElementById('account-pin-toggle');
+    if (!span || !icon || !btn) return;
+    var revealed = btn.getAttribute('aria-pressed') === 'true';
+    if (revealed) {
+        span.textContent = '••••';
+        icon.className = 'bi bi-eye-slash';
+        btn.setAttribute('aria-pressed', 'false');
+        btn.title = 'Mostrar PIN';
+    } else {
+        span.textContent = span.getAttribute('data-pin') || '••••';
+        icon.className = 'bi bi-eye';
+        btn.setAttribute('aria-pressed', 'true');
+        btn.title = 'Ocultar PIN';
+    }
+}
+
+// Alterar PIN (quando já existe um): o campo começa recolhido e só aparece
+// ao clicar em "Alterar PIN". "Cancelar" recolhe de novo e limpa o que foi digitado.
+function showAccountPinForm() {
+    var btn = document.getElementById('account-pin-change-btn');
+    var form = document.getElementById('account-pin-form');
+    var input = document.getElementById('account-pin-input');
+    if (!form) return;
+    if (btn) btn.style.display = 'none';
+    form.style.display = '';
+    if (input) input.focus();
+}
+
+function hideAccountPinForm() {
+    var btn = document.getElementById('account-pin-change-btn');
+    var form = document.getElementById('account-pin-form');
+    var input = document.getElementById('account-pin-input');
+    if (!form) return;
+    form.style.display = 'none';
+    if (input) input.value = '';
+    if (btn) btn.style.display = '';
+}
+</script>
 
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>

@@ -119,6 +119,18 @@ final class CrmRulesTest extends TestCase
         $this->assertFalse(CrmRules::isClosedColumn('Sem Resposta'));
     }
 
+    public function testIsInternalAnalysisColumn(): void
+    {
+        $this->assertTrue(CrmRules::isInternalAnalysisColumn('Análise interna'));
+        $this->assertTrue(CrmRules::isInternalAnalysisColumn('analise interna'));
+        $this->assertTrue(CrmRules::isInternalAnalysisColumn('Refazer proposta'));
+        $this->assertFalse(CrmRules::isInternalAnalysisColumn('Fechado'));
+        $this->assertFalse(CrmRules::isInternalAnalysisColumn(null));
+        // Não é coluna de perda nem de fechamento (retrabalho interno).
+        $this->assertFalse(CrmRules::isLostColumn('Análise interna'));
+        $this->assertFalse(CrmRules::isClosedColumn('Análise interna'));
+    }
+
     // ---- normalizeDialNumber ----
 
     public function testNormalizeDialNumberAdiciona55(): void

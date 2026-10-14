@@ -33,6 +33,13 @@ spl_autoload_register(function ($class) {
     }
 });
 
+// Autoload do Composer (dependências de terceiros, ex.: dompdf para gerar PDF).
+// Carregado após o autoload próprio e só se existir (ambiente sem vendor segue
+// funcionando — os recursos que dependem dele é que ficam indisponíveis).
+if (file_exists(BASE_PATH . '/vendor/autoload.php')) {
+    require_once BASE_PATH . '/vendor/autoload.php';
+}
+
 // Logger centralizado + handlers globais de erro (log aparece no painel do servidor)
 require_once APP_PATH . '/core/Logger.php';
 Logger::register();
