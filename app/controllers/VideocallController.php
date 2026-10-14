@@ -438,7 +438,252 @@ class VideocallController extends Controller
     }
 
     // ============================================================
-    // Gravação
+    // Gravação — PROTOCOLO v2 (chunks verificados + journal/manifesto)
+    //
+    // Reescrita conforme o diagnóstico de 14/10/2026. Os pedaços chegam com
+    // sequência + SHA-256, são persistidos de forma verificada por
+    // RecordingSessionStore (journal, lock, montagem com conferência de
+    // manifesto) e, ao finalizar, o arquivo é remuxado/validado por
+    // RecordingMedia antes de virar um registro via addRecording.
+    //
+    // IMPORTANTE: a publicação final usa o MESMO addRecording do fluxo legado,
+    // então toda a esteira que pende de uma gravação pronta (transcrição →
+    // ata → envio → CRM → assinatura) continua idêntica — só muda COMO o
+    // arquivo chega íntegro até aqui. Os endpoints legados (upload/recChunk/
+    // recFinalize) foram mantidos abaixo para não derrubar clientes que já
+    // estão numa sala aberta durante a transição.
+    // ============================================================
+
+    /** Diretório (fora de public/) onde ficam journals e chunks das sessões v2. */
+    private function recordingSessionsDir()
+    {
+        return BASE_PATH . '/storage/video-recordings';
+    }
+
+    /** Teto acumulado por sessão (env VIDEO_RECORDING_MAX_BYTES ou padrão 2 GiB). */
+    private function recordingMaxBytes()
+    {
+        $env = getenv('VIDEO_RECORDING_MAX_BYTES');
+        return RecordingSessionStore::resolveMaxSessionBytes($env === false ? null : (string)$env);
+    }
+
+    /**
+     * Autoriza a gravação na sala (allow_recording + regra de sala privada).
+     * Encerra com JSON de erro quando não permitido. Devolve o userId logado.
+     */
+    private function authorizeRecording($room)
+    {
+        $userId = $_SESSION['user_id'] ?? null;
+        if ((int)$room['allow_recording'] !== 1) {
+            $this->json(['error' => 'Gravação não permitida nesta sala.'], 403);
+        }
+        if (($room['visibility'] ?? 'public') === 'private' && !$this->model->isAdminUser($room, $userId)) {
+            $this->json(['error' => 'Apenas administradores podem gravar nesta sala.'], 403);
+        }
+        return $userId;
+    }
+
+    /**
+     * Publica um arquivo WebM já íntegro como gravação: move para
+     * public/uploads/recordings, aplica remux/validação (com fallback de
+     * Duration quando não há FFmpeg) e cria o registro via addRecording.
+     * Devolve [recToken, shareUrl, duration].
+     */
+    private function publishRecordingFile($roomId, $assembledPath, $recToken, $recordedBy, $recordedByName, $clientDuration = null)
+    {
+        $dir = PUBLIC_PATH . '/uploads/recordings';
+        if (!is_dir($dir)) @mkdir($dir, 0775, true);
+        $fileName = 'rec_' . $roomId . '_' . $recToken . '.webm';
+        $dest = $dir . '/' . $fileName;
+
+        // Move o arquivo montado para uploads (rename atômico; copy como fallback).
+        if (!@rename($assembledPath, $dest)) {
+            if (!@copy($assembledPath, $dest)) {
+                throw new RuntimeException('publish_move_failed');
+            }
+            @unlink($assembledPath);
+        }
+
+        // Remuxa para normalizar a timeline (seek/transcrição veem a reunião toda).
+        // Sem FFmpeg, mantém o arquivo e injeta Duration via parser EBML (fallback).
+        $duration = $clientDuration ? (int)$clientDuration : null;
+        $remuxDur = RecordingMedia::remux($dest, $dest . '.remux.webm');
+        if ($remuxDur !== null && is_file($dest . '.remux.webm')) {
+            if (@rename($dest . '.remux.webm', $dest)) {
+                $duration = (int) round($remuxDur);
+            } else {
+                @unlink($dest . '.remux.webm');
+            }
+        } else {
+            @unlink($dest . '.remux.webm');
+            $calcDur = $this->injectWebmDuration($dest);
+            if ($calcDur !== null && !$duration) $duration = (int) round($calcDur);
+        }
+
+        $this->model->addRecording([
+            'room_id' => $roomId,
+            'token' => $recToken,
+            'file_path' => 'recordings/' . $fileName,
+            'file_size' => filesize($dest) ?: null,
+            'mime_type' => 'video/webm',
+            'duration_sec' => $duration,
+            'recorded_by' => $recordedBy,
+            'recorded_by_name' => $recordedByName,
+        ]);
+
+        return [$recToken, $this->publicBase() . '/videocall/share/' . $recToken, $duration];
+    }
+
+    /** [v2] Abre uma sessão de gravação e devolve o token final estável. */
+    public function recStart($token = null)
+    {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $room = $this->requireActiveRoom($token, 2, true);
+        $userId = $this->authorizeRecording($room);
+        $userName = $_SESSION['user_name'] ?? null;
+        $this->releaseSession();
+
+        $sess = (string)($_POST['sess'] ?? '');
+        if (!RecordingSessionStore::isValidSess($sess)) {
+            $this->json(['error' => 'Sessão de gravação inválida.'], 422);
+        }
+        $recordedName = trim(substr((string)($_POST['recorded_by_name'] ?? ($userName ?? '')), 0, 120)) ?: null;
+
+        try {
+            $store = new RecordingSessionStore($this->recordingSessionsDir(), (int)$room['id'], $sess, $this->recordingMaxBytes());
+            // Token estável criado já no início: sobrevive a falha no insert/resposta.
+            $existing = $store->publishedToken();
+            $recToken = $existing ?: $this->model->generateToken();
+            $store->start($userId, $recordedName, $recToken);
+        } catch (\Throwable $e) {
+            $this->json(['error' => 'Não foi possível iniciar a gravação.'], 503);
+        }
+
+        $this->json(['success' => true, 'sess' => $sess, 'next_seq' => $store->nextSeq()]);
+    }
+
+    /** [v2] Recebe um pedaço verificado (seq + sha256) e confirma após persistir. */
+    public function recChunkV2($token = null)
+    {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $room = $this->requireActiveRoom($token, 2, true);
+        $this->authorizeRecording($room);
+        $this->releaseSession();
+
+        $sess = (string)($_POST['sess'] ?? '');
+        if (!RecordingSessionStore::isValidSess($sess)) $this->json(['error' => 'Sessão inválida.'], 422);
+        $seq = (int)($_POST['seq'] ?? 0);
+        if ($seq < 1) $this->json(['error' => 'Sequência inválida.'], 422);
+        $sha = (string)($_POST['sha256'] ?? '');
+        if (empty($_FILES['chunk']) || $_FILES['chunk']['error'] !== UPLOAD_ERR_OK) {
+            $this->json(['error' => 'Pedaço ausente.'], 400);
+        }
+        $bytes = @file_get_contents($_FILES['chunk']['tmp_name']);
+        if ($bytes === false) $this->json(['error' => 'Falha ao ler o pedaço.'], 400);
+
+        try {
+            $store = new RecordingSessionStore($this->recordingSessionsDir(), (int)$room['id'], $sess, $this->recordingMaxBytes());
+            $r = $store->appendChunk($seq, $bytes, $sha);
+            $this->json(['success' => true, 'seq' => $r['seq'], 'size' => $r['size'], 'sha256' => $r['sha256'], 'bytes' => $r['bytes'], 'status' => $r['status']]);
+        } catch (\RangeException $e) {
+            // too_large (chunk) ou session_limit (teto acumulado atingido).
+            $msg = $e->getMessage() === 'session_limit' ? 'Limite da sessão atingido.' : 'Pedaço grande demais.';
+            $this->json(['error' => $msg, 'reason' => $e->getMessage()], 413);
+        } catch (\UnexpectedValueException $e) {
+            $this->json(['error' => 'Checksum do pedaço não confere.', 'reason' => 'checksum'], 422);
+        } catch (\DomainException $e) {
+            // seq_conflict | out_of_order:N — devolve a próxima esperada se houver.
+            $next = null;
+            if (strpos($e->getMessage(), 'out_of_order:') === 0) $next = (int)substr($e->getMessage(), strlen('out_of_order:'));
+            $this->json(['error' => 'Conflito de sequência.', 'reason' => $e->getMessage(), 'next_seq' => $next], 409);
+        } catch (\Throwable $e) {
+            $this->json(['error' => 'Falha ao persistir o pedaço.'], 507);
+        }
+    }
+
+    /** [v2] Estado da sessão: próxima sequência e bytes confirmados. */
+    public function recStatus($token = null)
+    {
+        $room = $this->requireActiveRoom($token, 2, true);
+        $this->authorizeRecording($room);
+        $this->releaseSession();
+        $sess = (string)($_GET['sess'] ?? $_POST['sess'] ?? '');
+        if (!RecordingSessionStore::isValidSess($sess)) $this->json(['error' => 'Sessão inválida.'], 422);
+        try {
+            $store = new RecordingSessionStore($this->recordingSessionsDir(), (int)$room['id'], $sess, $this->recordingMaxBytes());
+            $this->json([
+                'success' => true,
+                'next_seq' => $store->nextSeq(),
+                'bytes' => $store->confirmedBytes(),
+                'finalized' => $store->isFinalized(),
+                'rec_token' => $store->publishedToken(),
+            ]);
+        } catch (\Throwable $e) {
+            $this->json(['error' => 'Sessão indisponível.'], 503);
+        }
+    }
+
+    /** [v2] Heartbeat/pausa — presença, sem finalizar por inatividade. */
+    public function recHeartbeat($token = null)
+    {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $room = $this->requireActiveRoom($token, 2, true);
+        $this->authorizeRecording($room);
+        $this->releaseSession();
+        // Presença/pausa não altera o conteúdo; apenas confirma que a sessão vive.
+        // A inatividade NÃO finaliza nem move a sessão (correção do bug de mtime).
+        $this->json(['success' => true]);
+    }
+
+    /** [v2] Finaliza: confere manifesto/mídia, monta, remuxa e publica. */
+    public function recFinalizeV2($token = null)
+    {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $room = $this->requireActiveRoom($token, 2, true);
+        $this->authorizeRecording($room);
+        $this->releaseSession();
+
+        $sess = (string)($_POST['sess'] ?? '');
+        if (!RecordingSessionStore::isValidSess($sess)) $this->json(['error' => 'Sessão inválida.'], 422);
+        if ((string)($_POST['ended'] ?? '') !== '1') $this->json(['error' => 'Finalização exige ended=1.'], 422);
+        $count = (int)($_POST['count'] ?? 0);
+        $bytes = (int)($_POST['bytes'] ?? 0);
+        $manifest = (string)($_POST['manifest'] ?? '');
+
+        try {
+            $store = new RecordingSessionStore($this->recordingSessionsDir(), (int)$room['id'], $sess, $this->recordingMaxBytes());
+
+            // Idempotência: já publicado -> devolve o mesmo token sem republicar.
+            if ($store->isFinalized() && $store->publishedToken()) {
+                $tok = $store->publishedToken();
+                $this->json(['success' => true, 'token' => $tok, 'url' => $this->publicBase() . '/videocall/share/' . $tok, 'already' => true]);
+            }
+
+            $assembled = $store->assemble($manifest, $count, $bytes);
+            $meta = $store->meta();
+            $recToken = $store->publishedToken() ?: $this->model->generateToken();
+
+            [$recToken, $shareUrl, $duration] = $this->publishRecordingFile(
+                (int)$room['id'], $assembled, $recToken,
+                $meta['recorded_by'] ?? null, $meta['recorded_by_name'] ?? null,
+                (int)($_POST['duration_sec'] ?? 0) ?: null
+            );
+
+            // Só depois de arquivo + banco confirmados: marca finalizado e limpa chunks.
+            $store->markFinalized($recToken);
+            $store->cleanupChunks();
+
+            $this->json(['success' => true, 'token' => $recToken, 'url' => $shareUrl, 'duration_sec' => $duration]);
+        } catch (\DomainException $e) {
+            // manifest_mismatch | count_mismatch | bytes_mismatch | non_contiguous
+            $this->json(['error' => 'Verificação de integridade falhou.', 'reason' => $e->getMessage()], 422);
+        } catch (\Throwable $e) {
+            $this->json(['error' => 'Falha ao finalizar a gravação.', 'reason' => $e->getMessage()], 507);
+        }
+    }
+
+    // ============================================================
+    // Gravação — LEGADO (mantido durante a transição do protocolo v2)
     // ============================================================
 
     /**
