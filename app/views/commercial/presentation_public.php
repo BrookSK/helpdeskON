@@ -41,7 +41,7 @@ foreach ($sections as $idx => $s) {
         html { scroll-behavior:smooth; }
         body { margin:0; background:var(--bg); color:var(--text); font-family:var(--sans); font-size:17px; line-height:1.7; -webkit-font-smoothing:antialiased; }
         a { color:var(--mint); font-weight:600; text-decoration:underline; text-decoration-color:rgba(94,234,212,.4); text-underline-offset:3px; transition:color .15s; }
-        a:hover { color:#fff; text-decoration-color:var(--mint); }
+        a:hover { color:var(--white); text-decoration-color:currentColor; text-decoration-thickness:2px; }
         .wrap { max-width:1320px; margin:0 auto; padding:0 64px; }
         .preview-bar { background:#fff3cd; color:#7a5b00; text-align:center; padding:8px; font-size:.85rem; position:relative; z-index:2; }
 
@@ -77,15 +77,13 @@ foreach ($sections as $idx => $s) {
         @keyframes hint { 0% { opacity:0; transform:translateY(0); } 40% { opacity:1; } 100% { opacity:0; transform:translateY(14px); } }
 
         /* ================= SEÇÕES ================= */
-        .sec { position:relative; padding:130px 0; background:var(--bg-1); border-top:1px solid var(--line); overflow:hidden; }
+        .sec { position:relative; padding:130px 0; background:var(--bg-1); overflow:hidden; }
         .sec.light {
             --white:#0b1a24; --text:#41545b; --muted:#6b7b83; --mint:#0a8f7d; --note:#24534c;
-            --panel:#f4f8f9; --panel-h:#ecfaf6; --line:#e1e9eb; --line-t:rgba(0,191,166,.45);
-            background:#fff; border-top-color:#e1e9eb;
+            --panel:rgba(255,255,255,.75); --panel-h:#ecfaf6; --line:#dfe9ea; --line-t:rgba(0,191,166,.45);
         }
-        .sec.light::before { background:radial-gradient(circle, rgba(0,191,166,.08) 0%, rgba(0,191,166,0) 70%); }
-        .sec::before { content:''; position:absolute; top:-200px; right:-200px; width:600px; height:600px; border-radius:50%; pointer-events:none; background:radial-gradient(circle, rgba(0,191,166,.07) 0%, rgba(0,191,166,0) 70%); }
-        .sec.light::before { right:auto; left:-200px; }
+        .sec:not(.light)::before { content:''; position:absolute; top:10%; right:-240px; width:680px; height:680px; border-radius:50%; pointer-events:none; background:radial-gradient(circle, rgba(0,191,166,.12) 0%, rgba(0,191,166,0) 70%); }
+        .sec:not(.light):nth-of-type(even)::before { right:auto; left:-240px; }
         .sec .wrap { position:relative; }
         .sec.part-start { padding-top:150px; }
         .part { display:inline-flex; align-items:center; gap:12px; margin-bottom:42px; font-family:var(--mono); font-size:.78rem; font-weight:700; letter-spacing:.16em; text-transform:uppercase; color:var(--mint); }
@@ -207,7 +205,13 @@ foreach ($sections as $idx => $s) {
     <?php endif; ?>
 
     <main>
-            <?php $light = true; ?>
+            <?php
+            // Ritmo de fundos: tons claros que se fundem entre si e blocos escuros só na abertura de cada parte e nos indicadores.
+            $lightTones = ['#ffffff', '#f3faf8', '#ffffff', '#e9f6f3', '#f7fbfb'];
+            $lightN = 0;
+            $prevBottom = '#10594f';
+            $prevDark = true;
+            ?>
         <?php foreach ($sections as $idx => $s): ?>
             <?php if ($s['type'] === 'divider') continue; ?>
             <?php $hiddenAttr = empty($s['visible']) ? ' data-hidden="1"' : ''; ?>
@@ -237,10 +241,21 @@ foreach ($sections as $idx => $s) {
             $title = $s['title'];
             if (preg_match('/^(\d+)\.\s+(.+)$/u', $title, $m)) { $num = str_pad($m[1], 2, '0', STR_PAD_LEFT); $title = $m[2]; }
             $isCta = $s['type'] === 'cta';
-            $classes = 'sec' . ($isCta ? ' cta' : ($light ? ' light' : '')) . (isset($partOf[$idx]) ? ' part-start' : '');
-            if (!$isCta) $light = !$light;
+            $dark = $isCta || isset($partOf[$idx]) || $s['type'] === 'stats';
+            if ($dark) {
+                $body = '#0a1b23';
+                $bottom = '#0f4f48';
+                $top = $prevDark ? $prevBottom : '#0f4f48';
+            } else {
+                $body = $bottom = $lightTones[$lightN++ % count($lightTones)];
+                $top = $prevDark ? '#d9f1ec' : $prevBottom;
+            }
+            $bg = "background:linear-gradient(180deg, {$top} 0, {$body} 260px, {$body} calc(100% - 260px), {$bottom} 100%);";
+            $prevBottom = $bottom;
+            $prevDark = $dark;
+            $classes = 'sec' . ($isCta ? ' cta' : '') . ($dark ? '' : ' light') . (isset($partOf[$idx]) ? ' part-start' : '');
             ?>
-            <section class="<?= $classes ?>" id="sec-<?= (int)$idx ?>"<?= $hiddenAttr ?>>
+            <section class="<?= $classes ?>" id="sec-<?= (int)$idx ?>" style="<?= $bg ?>"<?= $hiddenAttr ?>>
                 <div class="wrap reveal">
                     <?php if (isset($partOf[$idx])): ?><div class="part"><?= $t($partOf[$idx]) ?></div><?php endif; ?>
                     <?php if ($num !== '' || $title !== ''): ?>
