@@ -1,5 +1,6 @@
 <?php
-$appName = htmlspecialchars((string) Config::get('app_name') ?: 'ON Solutions', ENT_QUOTES);
+$brandName = 'ON Solutions Brasil';
+$appName = htmlspecialchars($brandName, ENT_QUOTES);
 $t = fn($text) => PresentationRules::linkify(htmlspecialchars(PresentationRules::applyVars((string)$text, $vars), ENT_QUOTES));
 $p = fn($text) => nl2br($t($text));
 $emblem = asset('on-emblem.png') . '?v=2';
@@ -83,14 +84,17 @@ foreach ($sections as $idx => $s) {
         .sec { position:relative; padding:130px 0; background:var(--bg-1); overflow:hidden; }
         .sec.light {
             --white:#0b1a24; --text:#41545b; --muted:#6b7b83; --mint:#0a8f7d; --note:#24534c;
-            --panel:rgba(255,255,255,.75); --panel-h:#ecfaf6; --line:#dfe9ea; --line-t:rgba(0,191,166,.45);
+            --panel:#ffffff; --panel-h:#ecfaf6; --line:#d7e6e4; --line-t:rgba(0,191,166,.45);
         }
-        .sec:not(.light)::before { content:''; position:absolute; top:10%; right:-240px; width:680px; height:680px; border-radius:50%; pointer-events:none; background:radial-gradient(circle, rgba(0,191,166,.12) 0%, rgba(0,191,166,0) 70%); }
-        .sec:not(.light):nth-of-type(even)::before { right:auto; left:-240px; }
-        .sec .wrap { position:relative; }
+        .sec::before { content:''; position:absolute; top:8%; right:-220px; width:640px; height:640px; border-radius:50%; pointer-events:none;
+            background:radial-gradient(circle, rgba(0,191,166,.13) 0%, rgba(0,191,166,0) 70%); }
+        .sec:nth-of-type(even)::before { right:auto; left:-220px; }
+        .sec.light::after { content:''; position:absolute; inset:0; pointer-events:none; opacity:.35;
+            background-image:linear-gradient(rgba(0,191,166,.06) 1px, transparent 1px), linear-gradient(90deg, rgba(0,191,166,.06) 1px, transparent 1px);
+            background-size:56px 56px; mask-image:radial-gradient(ellipse 70% 60% at 50% 30%, #000 0%, transparent 80%); -webkit-mask-image:radial-gradient(ellipse 70% 60% at 50% 30%, #000 0%, transparent 80%); }
+        .sec .wrap { position:relative; z-index:1; }
         .sec.part-start { padding-top:150px; }
         .part { display:inline-flex; align-items:center; gap:12px; margin-bottom:42px; font-family:var(--mono); font-size:.78rem; font-weight:700; letter-spacing:.16em; text-transform:uppercase; color:var(--mint); }
-        .part::before { content:''; width:40px; height:2px; background:linear-gradient(90deg, var(--teal), var(--mint)); }
         .sec-head { display:flex; align-items:center; gap:22px; margin-bottom:28px; }
         .sec-head:not(:has(.num)) { margin-bottom:18px; }
         .sec-head:not(:has(.num)) h2 { font-size:clamp(1.25rem, 2vw, 1.7rem); font-weight:700; letter-spacing:-.02em; }
@@ -103,29 +107,33 @@ foreach ($sections as $idx => $s) {
         .block { margin-top:52px; }
         .sec-head + .block { margin-top:40px; }
 
-        /* Indicadores: números soltos, sem caixa */
-        .stats { display:grid; grid-template-columns:repeat(3, 1fr); gap:24px; text-align:center; }
-        .stat { padding:8px 10px; }
+        /* Indicadores */
+        .stats { display:grid; grid-template-columns:repeat(3, 1fr); gap:18px; text-align:center; }
+        .stat { padding:34px 22px; border:1px solid var(--line); border-radius:18px; background:var(--panel); transition:transform .2s, border-color .2s, box-shadow .2s; }
+        .sec.light .stat:hover { transform:translateY(-3px); border-color:var(--line-t); box-shadow:0 12px 28px rgba(10,143,125,.08); }
         .stat strong { display:block; font-size:clamp(2.6rem, 4.6vw, 4rem); line-height:1.05; font-weight:800; letter-spacing:-.03em; margin-bottom:10px; color:var(--white); }
         .stat span { color:var(--text); font-size:1rem; }
 
-        /* Etapas: linha do tempo, sem cartão */
-        .steps { display:grid; grid-template-columns:repeat(4, 1fr); gap:28px 20px; counter-reset:step; }
-        .step { position:relative; padding:0; text-align:center; }
-        .step::before { counter-increment:step; content:counter(step); display:flex; align-items:center; justify-content:center; width:42px; height:42px; margin:0 auto 18px;
-            border-radius:50%; background:#0a8f7d; color:#fff; font-family:var(--mono); font-weight:700; font-size:.95rem; }
+        /* Etapas */
+        .steps { display:grid; grid-template-columns:repeat(4, 1fr); gap:18px; counter-reset:step; }
+        .step { position:relative; padding:28px 22px 26px; text-align:left; border:1px solid var(--line); border-radius:18px; background:var(--panel); transition:transform .2s, border-color .2s, box-shadow .2s; }
+        .sec.light .step:hover { transform:translateY(-3px); border-color:var(--line-t); box-shadow:0 12px 28px rgba(10,143,125,.08); }
+        .step::before { counter-increment:step; content:counter(step, decimal-leading-zero); display:flex; align-items:center; justify-content:center; width:42px; height:42px; margin:0 0 18px;
+            border-radius:12px; background:#0a8f7d; color:#fff; font-family:var(--mono); font-weight:700; font-size:.9rem; }
         .step strong { display:block; color:var(--white); font-size:1.15rem; font-weight:700; margin-bottom:8px; letter-spacing:-.01em; }
         .step p { margin:0; color:var(--text); font-size:.98rem; }
 
-        /* Clientes (única seção em cartões) */
-        .cards { display:grid; grid-template-columns:repeat(4, 1fr); gap:22px 20px; }
-        .card { padding:8px 4px 4px; }
-        .card .logo { width:72px; height:72px; object-fit:cover; border-radius:50%; background:#fff; border:1px solid #e6eeee; margin-bottom:14px; display:block; }
+        /* Clientes */
+        .cards { display:grid; grid-template-columns:repeat(4, 1fr); gap:18px; }
+        .card { padding:26px 22px 24px; border:1px solid var(--line); border-radius:18px; background:var(--panel); transition:transform .2s, border-color .2s, box-shadow .2s; }
+        .card .logo { width:88px; height:88px; object-fit:contain; object-position:center; border-radius:50%; background:#fff; border:1px solid #e6eeee; margin-bottom:16px; display:block; padding:4px; }
         .card strong { display:block; color:var(--white); font-size:1.12rem; font-weight:700; margin-bottom:10px; letter-spacing:-.015em; }
         .card p { margin:0; color:var(--text); font-size:.95rem; line-height:1.65; }
-        .card.more { display:flex; flex-direction:column; justify-content:center; min-height:220px; padding:28px 20px; border-radius:18px; background:#e8f6f2; text-align:center; }
-        .card.more strong { font-size:clamp(2.6rem, 4vw, 3.6rem); margin-bottom:8px; color:#0b1a24; }
-        .card.more p { color:#3d5a58; font-size:1.05rem; }
+        .sec.light .card:hover { transform:translateY(-3px); border-color:var(--line-t); box-shadow:0 12px 28px rgba(10,143,125,.08); }
+        .card.more { display:flex; flex-direction:column; justify-content:center; min-height:100%; padding:28px 20px; background:linear-gradient(160deg, #0a8f7d 0%, #0d6e62 100%); text-align:center; border-color:transparent; }
+        .card.more strong, .card.more p { color:#fff; }
+        .card.more strong { font-size:clamp(2.6rem, 4vw, 3.6rem); margin-bottom:8px; }
+        .card.more p { font-size:1.05rem; opacity:.92; }
 
         /* Tabelas */
         .table-wrap { overflow-x:auto; border:1px solid var(--line); border-radius:18px; background:var(--panel); }
@@ -141,13 +149,16 @@ foreach ($sections as $idx => $s) {
         table.cmp td:first-child { font-weight:400; color:var(--muted); }
         table.cmp td:last-child { color:var(--white); font-weight:600; }
 
-        /* Listas em texto, sem caixa */
-        ul.list { margin:0; padding:0; list-style:none; display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:22px 48px; }
-        ul.list.tight { grid-template-columns:minmax(0, 1fr); max-width:640px; }
-        ul.list li { position:relative; padding:0 0 0 22px; color:var(--white); font-weight:600; font-size:1.05rem; line-height:1.45; }
-        ul.list li::before { content:''; position:absolute; left:0; top:.55em; width:8px; height:8px; border-radius:50%; background:var(--teal); }
-        ul.list li small { display:block; color:var(--text); font-weight:400; font-size:.95rem; margin-top:4px; line-height:1.55; }
-        ul.list.dont li::before { background:#f87171; }
+        /* Listas em blocos leves */
+        ul.list { margin:0; padding:0; list-style:none; display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:14px 16px; counter-reset:item; }
+        ul.list.tight { grid-template-columns:repeat(3, minmax(0, 1fr)); max-width:none; }
+        ul.list li { position:relative; padding:22px 22px 20px 22px; border:1px solid var(--line); border-radius:16px; background:var(--panel); color:var(--white); font-weight:600; font-size:1.05rem; line-height:1.45; transition:transform .2s, border-color .2s, box-shadow .2s; }
+        .sec.light ul.list li:hover { transform:translateY(-2px); border-color:var(--line-t); box-shadow:0 10px 24px rgba(10,143,125,.07); }
+        ul.list.tight li { padding-top:20px; }
+        ul.list.tight li::before { counter-increment:item; content:counter(item, decimal-leading-zero); display:block; width:fit-content; margin:0 0 12px; padding:4px 10px; border-radius:999px; background:rgba(0,191,166,.12); color:#0a8f7d; font:700 .75rem/1 var(--mono); }
+        ul.list:not(.tight):not(.dont) li::before { content:''; position:absolute; left:0; top:18px; bottom:18px; width:3px; border-radius:3px; background:var(--teal); }
+        ul.list li small { display:block; color:var(--text); font-weight:400; font-size:.95rem; margin-top:6px; line-height:1.55; }
+        ul.list.dont li::before { content:''; position:absolute; left:18px; top:22px; width:10px; height:10px; border-radius:50%; background:#f87171; }
         .sec.light table.cmp th:first-child { background:#f4f8f9; }
 
         /* Observação */
@@ -157,6 +168,8 @@ foreach ($sections as $idx => $s) {
         .note > div { min-width:0; }
 
         /* Fechamento */
+        .sec:not(.light) { box-shadow:inset 0 1px 0 rgba(94,234,212,.12); }
+        .sec:not(.light) .step { background:rgba(255,255,255,.04); }
         .sec.cta { text-align:center; background:radial-gradient(ellipse 70% 80% at 50% 120%, rgba(17,140,118,.55) 0%, rgba(17,140,118,0) 70%), linear-gradient(170deg, #0b1f27 0%, #0d3a37 100%); }
         .sec.cta .sec-head { justify-content:center; }
         .sec.cta .sub, .sec.cta .body { margin-left:auto; margin-right:auto; }
@@ -165,10 +178,11 @@ foreach ($sections as $idx => $s) {
         .contacts span { display:block; font-family:var(--mono); font-size:.72rem; color:var(--mint); text-transform:uppercase; letter-spacing:.12em; margin-bottom:8px; }
 
         /* Rodapé */
-        .footer { padding:70px 0 48px; text-align:center; border-top:1px solid #e4eeef; background:#f7fbfb; }
-        .footer img { width:56px; height:auto; }
-        .footer strong { display:block; margin:14px 0 6px; color:#0b1a24; font-size:1.35rem; font-weight:800; letter-spacing:-.03em; }
-        .footer span { color:#6b7b83; font-size:.85rem; }
+        .footer { padding:80px 0 56px; text-align:center; border-top:1px solid rgba(255,255,255,.08);
+            background:radial-gradient(ellipse 50% 80% at 50% 0%, rgba(0,191,166,.12) 0%, rgba(0,191,166,0) 70%), #07141b; }
+        .footer img { width:56px; height:auto; filter:drop-shadow(0 0 18px var(--glow)); }
+        .footer strong { display:block; margin:14px 0 6px; color:#f2f8f9; font-size:1.35rem; font-weight:800; letter-spacing:-.03em; }
+        .footer span { color:#7f979d; font-size:.85rem; }
 
         /* Entrada suave das seções */
         .js .reveal { opacity:0; transform:translateY(28px); transition:opacity .7s ease, transform .7s ease; }
@@ -195,7 +209,7 @@ foreach ($sections as $idx => $s) {
             .hero { padding:90px 0 80px; }
             .sec { padding:70px 0; }
             .stat, .step, .card { padding:26px 22px; }
-            ul.list li { padding:18px 18px 18px 58px; } ul.list li::before { left:16px; }
+            ul.list li { padding:20px 18px; }
             th, td { padding:14px 16px; }
             .note { padding:18px; }
         }
@@ -209,11 +223,15 @@ foreach ($sections as $idx => $s) {
 
     <main>
             <?php
-            // Fundo claro como padrão. Escuro só na capa e, se houver, na chamada final.
-            $lightTones = ['#ffffff', '#f7fbfb', '#ffffff', '#f3faf8'];
+            // Fundo claro com variação de tom. Escuro na capa, no último bloco e no rodapé.
+            $lightTones = ['#f7fbfb', '#eef8f5', '#ffffff', '#e7f4f0', '#f4faf8'];
             $lightN = 0;
             $prevBottom = '#d9f1ec';
             $prevDark = true;
+            $lastIdx = null;
+            foreach ($sections as $i => $sec) {
+                if (($sec['type'] ?? '') !== 'divider' && ($sec['type'] ?? '') !== 'hero') $lastIdx = $i;
+            }
             ?>
         <?php foreach ($sections as $idx => $s): ?>
             <?php if ($s['type'] === 'divider') continue; ?>
@@ -244,7 +262,7 @@ foreach ($sections as $idx => $s) {
             $title = $s['title'];
             if (preg_match('/^(\d+)\.\s+(.+)$/u', $title, $m)) { $num = str_pad($m[1], 2, '0', STR_PAD_LEFT); $title = $m[2]; }
             $isCta = $s['type'] === 'cta';
-            $dark = $isCta;
+            $dark = $isCta || $idx === $lastIdx;
             if ($dark) {
                 $body = '#0a1b23';
                 $bottom = '#0f4f48';
@@ -279,7 +297,7 @@ foreach ($sections as $idx => $s) {
                         <div class="cards"><?php foreach ($s['items'] as $it):
                             $img = PresentationRules::safeImage($it['image'] ?? '');
                             $more = $it['title'] === '50+';
-                            $imgSrc = $img !== '' ? preg_replace('#(?<!:)/{2,}#', '/', str_replace('\\', '/', baseUrl($img))) : '';
+                            $imgSrc = $img !== '' ? preg_replace('#(?<!:)/{2,}#', '/', str_replace('\\', '/', baseUrl($img))) . '?v=4' : '';
                         ?><div class="card<?= $more ? ' more' : '' ?>"><?php if ($imgSrc !== ''): ?><img class="logo" src="<?= htmlspecialchars($imgSrc, ENT_QUOTES) ?>" alt=""><?php endif; ?><?php if ($it['title'] !== ''): ?><strong><?= $t($it['title']) ?></strong><?php endif; ?><p><?= $p($it['text']) ?></p></div><?php endforeach; ?></div>
                         <?php elseif ($s['type'] === 'table'): ?>
                         <?php $rows = array_map(fn($it) => array_merge([$it['title']], $it['text'] !== '' ? array_map('trim', explode('|', $it['text'])) : []), $s['items']); $head = array_shift($rows); ?>
@@ -307,7 +325,7 @@ foreach ($sections as $idx => $s) {
     </main>
 
     <footer class="footer">
-        <img src="<?= asset('proposal/emblem-dark.png') ?>" alt="">
+        <img src="<?= $emblem ?>" alt="">
         <strong><?= $appName ?></strong>
         <span>© <?= date('Y') ?> <?= $appName ?></span>
     </footer>
