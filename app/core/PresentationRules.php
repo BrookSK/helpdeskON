@@ -72,8 +72,9 @@ class PresentationRules
                 if (!is_array($it)) continue;
                 $t = self::cut($it['title'] ?? '', self::LIMITS['item_title']);
                 $x = self::cut($it['text'] ?? '', self::LIMITS['item_text']);
-                if ($t === '' && $x === '') continue;
-                $items[] = ['title' => $t, 'text' => $x];
+                $img = self::safeImage($it['image'] ?? '');
+                if ($t === '' && $x === '' && $img === '') continue;
+                $items[] = ['title' => $t, 'text' => $x, 'image' => $img];
                 if (count($items) >= self::MAX_ITEMS) break;
             }
             $out[] = [
@@ -94,7 +95,7 @@ class PresentationRules
      * Versão do formato salvo. Conteúdo sem versão ou com versão menor
      * (playbook interno do Gamma) é substituído pelo modelo curto ao cliente.
      */
-    public const CONTENT_VERSION = 3;
+    public const CONTENT_VERSION = 4;
 
     /** Decodifica o JSON salvo; conteúdo inválido, vazio ou antigo cai no modelo padrão. */
     public static function decode(?string $json): array
@@ -183,6 +184,13 @@ class PresentationRules
         return mb_strlen($v) > $max ? mb_substr($v, 0, $max) : $v;
     }
 
+    /** Caminho relativo de imagem de item (logo do cliente, etc.). Recusa URL externa. */
+    public static function safeImage($value): string
+    {
+        $v = str_replace('\\', '/', trim((string)$value));
+        return preg_match('#^assets/[a-zA-Z0-9._/-]+\.(?:png|jpe?g|webp|svg)$#', $v) ? $v : '';
+    }
+
     /**
      * Modelo padrão: apresentação curta ao cliente (capa, quem somos, o que
      * fazemos, clientes e como fazemos), no recorte dos slides 1–5 do modelo
@@ -193,15 +201,17 @@ class PresentationRules
         $s = fn($type, $title, $subtitle, $body, array $items = [], string $note = '') => [
             'type' => $type, 'title' => $title, 'subtitle' => $subtitle, 'body' => $body,
             'note' => $note, 'visible' => true,
-            'items' => array_map(fn($p) => ['title' => $p[0], 'text' => $p[1] ?? ''], $items),
+            'items' => array_map(fn($p) => [
+                'title' => $p[0], 'text' => $p[1] ?? '', 'image' => $p[2] ?? '',
+            ], $items),
         ];
 
         return [
             $s('hero', 'ON Solutions', 'Apresentação comercial',
                 "Estratégia e tecnologia aplicadas a resultados.\n\nConsultoria estratégica comercial, inteligência de mercado e soluções sob medida para empresas que querem crescer com clareza."),
 
-            $s('cards', 'Quem somos', 'Estratégia e tecnologia aplicadas a resultados.',
-                "A ON Solutions é uma consultoria que une estratégia comercial e tecnologia.\n\nEntendemos o negócio, os processos e o objetivo de cada cliente. Depois organizamos a venda e, quando faz sentido, construímos o sistema que a operação precisa.", [
+            $s('list', 'Quem somos', 'Estratégia e tecnologia aplicadas a resultados.',
+                "A ON Solutions Brasil atua como parceira de consultoria estratégica comercial e inteligência de mercado, e desenvolve soluções tecnológicas sob medida.\n\nComeçamos pelo entendimento do negócio, dos processos e dos objetivos de cada cliente. Não vendemos código: vendemos melhoria operacional e crescimento, por meio de estratégia e tecnologia.", [
                 ['Consultoria estratégica comercial', 'Diagnóstico, posicionamento, CRM, funil de vendas e acompanhamento para organizar e acelerar a operação comercial.'],
                 ['Inteligência de mercado', 'Leitura de dados e indicadores de mercado para decidir com clareza onde investir e como crescer.'],
                 ['Tecnologia sob medida', 'Sistemas, ERP, CRM, integrações, automações e IA desenhados a partir do processo real de cada operação.'],
@@ -213,17 +223,13 @@ class PresentationRules
                 ['99%', 'de satisfação'],
             ]),
 
-            $s('cards', 'O que fazemos — Estratégia comercial', 'Como a empresa vende e cresce.',
-                'Organizamos a operação comercial para o cliente saber o que vender, para quem e como acompanhar o resultado.', [
+            $s('list', 'O que fazemos', 'Estratégia e tecnologia, lado a lado.',
+                "Unimos consultoria comercial e desenvolvimento sob medida. Primeiro entendemos o problema; depois construímos o caminho certo para a operação.\n\nDe um lado, organizamos como a empresa vende e cresce. Do outro, desenvolvemos o sistema que a operação realmente precisa, sem pacote genérico.", [
                 ['Diagnóstico e plano estratégico', 'Leitura do negócio, do mercado e do funil.'],
                 ['Posicionamento e branding', 'Marca, identidade visual e tom de voz.'],
                 ['CRM e funil de vendas', 'Processo comercial organizado e mensurável.'],
                 ['Presença digital', 'Site, tráfego pago e redes sociais.'],
                 ['Acompanhamento estratégico', 'Reuniões, métricas e ajustes de rota.'],
-            ]),
-
-            $s('cards', 'O que fazemos — Tecnologia', 'Sistemas feitos para a operação real.',
-                'Desenvolvemos a ferramenta certa para o processo do cliente — sem pacote genérico.', [
                 ['Sistemas web e personalizados', 'Plataformas desenhadas para a sua operação.'],
                 ['ERP personalizado', 'Financeiro, estoque, contratos e projetos em um só ambiente.'],
                 ['CRM', 'Leads, funil, propostas e follow-ups organizados.'],
@@ -238,24 +244,25 @@ class PresentationRules
 
             $s('cards', 'Clientes', 'Quem confia na ON Solutions.',
                 'Mais de 50 clientes ativos e mais de 100 projetos entregues.', [
-                ['Brazilianna', "Software de vendas e processos comerciais para envios e pagamentos internacionais.\n+62% público · +54% faturamento · 6 meses"],
-                ['Quatri Automação', "Software, performance e inteligência de mercado após dois anos de falhas contínuas.\n+38% público · +41% faturamento · 4 meses"],
-                ['Brooks Construtora', "Processos internos, operacionais e comerciais com foco em performance.\n+71% público · +230% faturamento · 12 meses"],
-                ['CrossHR', "Software para performance, controle de informações e fluxo de pagamentos.\n+55% público · +47% faturamento · 9 meses"],
-                ['Multilife Care', "Automação de processos manuais e software para aumentar performance e reduzir custo.\n+43% público · +58% faturamento · 6 meses"],
-                ['Mafedo Engenharia', "Branding e site institucional, com aumento da presença digital.\n+66% público · +73% faturamento · 2 meses"],
-                ['Inpasa', "Dados e IA para performance comercial e aumento de vendas.\n+78% público · +76% faturamento · 8 meses"],
+                ['Brazilianna', "Desenvolvimento de software e criação de processos comerciais para envios e pagamentos internacionais.\n+62% público   +54% faturamento   6 meses", 'assets/proposal/clients/brazilianna.jpg'],
+                ['Quatri Automação', "Após dois anos de falhas contínuas, assumimos software, performance e inteligência de mercado.\n+38% público   +41% faturamento   4 meses", 'assets/proposal/clients/quatri.jpg'],
+                ['Brooks Construtora', "Desenvolvimento de processos internos, operacionais e comerciais com foco em performance.\n+71% público   +230% faturamento   12 meses", 'assets/proposal/clients/brooks.jpg'],
+                ['CrossHR', "Software para performance, controle de informações e fluxo de pagamentos.\n+55% público   +47% faturamento   9 meses", 'assets/proposal/clients/crosshr.jpg'],
+                ['Multilife Care', "Automação de processos manuais e software para aumentar performance e reduzir custo.\n+43% público   +58% faturamento   6 meses", 'assets/proposal/clients/multilife.jpg'],
+                ['Mafedo Engenharia', "Branding e site institucional, com aumento da presença digital.\n+66% público   +73% faturamento   2 meses", 'assets/proposal/clients/mafedo.jpg'],
+                ['Inpasa', "Dados e IA para performance comercial e aumento de vendas.\n+78% público   +76% faturamento   8 meses", 'assets/proposal/clients/inpasa.jpg'],
+                ['50+', "clientes ativos\nnacionais e internacionais"],
             ]),
 
-            $s('steps', 'Como fazemos — Estratégia comercial', 'Do entendimento ao resultado.',
-                'Estratégia comercial e inteligência de mercado.', [
+            $s('steps', 'Como fazemos', 'Estratégia comercial e inteligência de mercado.',
+                'Do entendimento ao resultado: diagnóstico, implantação, execução e acompanhamento.', [
                 ['Diagnóstico', 'Auditoria da jornada, da oferta e do funil, com plano estratégico em 15 a 30 dias após o onboarding.'],
                 ['Implantação', 'Posicionamento, identidade visual, CRM e site.'],
                 ['Execução', 'Campanhas de tráfego pago e conteúdo nas redes sociais.'],
                 ['Acompanhamento', 'Reuniões quinzenais, relatórios e ajustes de rota.'],
             ]),
 
-            $s('steps', 'Como fazemos — Tecnologia sob medida', '',
+            $s('steps', 'Como fazemos', 'Tecnologia sob medida.',
                 'Escopo, prazo e responsabilidade claros, do primeiro diagnóstico à evolução contínua.', [
                 ['Discovery', 'Entendimento do negócio, dos processos e dos objetivos.'],
                 ['Planejamento', 'Arquitetura da solução e definição do roadmap.'],

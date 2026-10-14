@@ -103,29 +103,29 @@ foreach ($sections as $idx => $s) {
         .block { margin-top:52px; }
         .sec-head + .block { margin-top:40px; }
 
-        /* Indicadores */
-        .stats { display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:18px; }
-        .stat { position:relative; padding:38px 34px; border:1px solid var(--line); border-radius:18px; background:linear-gradient(160deg, rgba(0,191,166,.10) 0%, rgba(255,255,255,.02) 60%); overflow:hidden; }
-        .stat::after { content:''; position:absolute; left:34px; right:34px; top:0; height:2px; background:linear-gradient(90deg, var(--teal), transparent); }
-        .stat strong { display:block; font-size:clamp(2.6rem, 4.6vw, 4rem); line-height:1.05; font-weight:800; letter-spacing:-.03em; margin-bottom:12px; color:var(--white); }
+        /* Indicadores: números soltos, sem caixa */
+        .stats { display:grid; grid-template-columns:repeat(3, 1fr); gap:24px; text-align:center; }
+        .stat { padding:8px 10px; }
+        .stat strong { display:block; font-size:clamp(2.6rem, 4.6vw, 4rem); line-height:1.05; font-weight:800; letter-spacing:-.03em; margin-bottom:10px; color:var(--white); }
         .stat span { color:var(--text); font-size:1rem; }
 
-        /* Etapas */
-        .steps { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:18px; counter-reset:step; }
-        .step { position:relative; padding:34px 30px 30px; border:1px solid var(--line); border-radius:18px; background:var(--panel); transition:border-color .2s, background .2s, transform .2s; }
-        .step:hover { border-color:var(--line-t); background:var(--panel-h); transform:translateY(-3px); }
-        .step::before { counter-increment:step; content:counter(step, decimal-leading-zero); display:inline-flex; align-items:center; justify-content:center; width:46px; height:46px; margin-bottom:22px;
-            border-radius:12px; background:#0a8f7d; color:#fff; font-family:var(--mono); font-weight:700; font-size:.95rem; box-shadow:0 8px 24px rgba(0,191,166,.25); }
-        .step strong { display:block; color:var(--white); font-size:1.2rem; font-weight:700; margin-bottom:8px; letter-spacing:-.01em; }
-        .step p { margin:0; color:var(--text); font-size:1rem; }
+        /* Etapas: linha do tempo, sem cartão */
+        .steps { display:grid; grid-template-columns:repeat(4, 1fr); gap:28px 20px; counter-reset:step; }
+        .step { position:relative; padding:0; text-align:center; }
+        .step::before { counter-increment:step; content:counter(step); display:flex; align-items:center; justify-content:center; width:42px; height:42px; margin:0 auto 18px;
+            border-radius:50%; background:#0a8f7d; color:#fff; font-family:var(--mono); font-weight:700; font-size:.95rem; }
+        .step strong { display:block; color:var(--white); font-size:1.15rem; font-weight:700; margin-bottom:8px; letter-spacing:-.01em; }
+        .step p { margin:0; color:var(--text); font-size:.98rem; }
 
-        /* Cards */
-        .cards { display:grid; grid-template-columns:repeat(auto-fit, minmax(340px, 1fr)); gap:18px; }
-        .card { position:relative; padding:34px 32px; border:1px solid var(--line); border-radius:18px; background:var(--panel); transition:border-color .2s, background .2s, transform .2s; overflow:hidden; }
-        .card::before { content:''; position:absolute; left:0; top:0; bottom:0; width:3px; background:linear-gradient(180deg, var(--teal), transparent); opacity:.7; }
-        .card:hover { border-color:var(--line-t); background:var(--panel-h); transform:translateY(-3px); }
-        .card strong { display:block; color:var(--white); font-size:1.22rem; font-weight:700; margin-bottom:12px; letter-spacing:-.015em; }
-        .card p { margin:0; color:var(--text); font-size:1rem; line-height:1.7; }
+        /* Clientes (única seção em cartões) */
+        .cards { display:grid; grid-template-columns:repeat(4, 1fr); gap:22px 20px; }
+        .card { padding:8px 4px 4px; }
+        .card .logo { width:72px; height:72px; object-fit:cover; border-radius:50%; background:#fff; border:1px solid #e6eeee; margin-bottom:14px; display:block; }
+        .card strong { display:block; color:var(--white); font-size:1.12rem; font-weight:700; margin-bottom:10px; letter-spacing:-.015em; }
+        .card p { margin:0; color:var(--text); font-size:.95rem; line-height:1.65; }
+        .card.more { display:flex; flex-direction:column; justify-content:center; min-height:220px; padding:28px 20px; border-radius:18px; background:#e8f6f2; text-align:center; }
+        .card.more strong { font-size:clamp(2.6rem, 4vw, 3.6rem); margin-bottom:8px; color:#0b1a24; }
+        .card.more p { color:#3d5a58; font-size:1.05rem; }
 
         /* Tabelas */
         .table-wrap { overflow-x:auto; border:1px solid var(--line); border-radius:18px; background:var(--panel); }
@@ -141,20 +141,14 @@ foreach ($sections as $idx => $s) {
         table.cmp td:first-child { font-weight:400; color:var(--muted); }
         table.cmp td:last-child { color:var(--white); font-weight:600; }
 
-        /* Listas */
-        ul.list { margin:0; padding:0; list-style:none; display:grid; grid-template-columns:repeat(auto-fit, minmax(380px, 1fr)); gap:14px; }
-        ul.list li { position:relative; padding:20px 24px 20px 66px; border:1px solid var(--line); border-radius:14px; background:var(--panel); color:var(--white); font-weight:500; font-size:1.02rem; line-height:1.5; transition:border-color .2s, background .2s; }
-        ul.list li:hover { border-color:var(--line-t); background:var(--panel-h); }
-        ul.list li::before { content:''; position:absolute; left:22px; top:19px; width:28px; height:28px; border-radius:8px; background:rgba(0,191,166,.14)
-            url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%235eead4' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round' d='M4 8.5l2.5 2.5L12 5.5'/%3E%3C/svg%3E") center/15px no-repeat; }
-        ul.list li small { display:block; color:var(--text); font-weight:400; font-size:.92rem; margin-top:4px; }
-        ul.list.dont li::before { background:rgba(248,113,113,.14)
-            url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%23f87171' stroke-width='2.2' stroke-linecap='round' d='M5 5l6 6M11 5l-6 6'/%3E%3C/svg%3E") center/13px no-repeat; }
-        .sec.light ul.list:not(.dont) li::before { background-color:rgba(0,191,166,.12);
-            background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%230a8f7d' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round' d='M4 8.5l2.5 2.5L12 5.5'/%3E%3C/svg%3E"); }
-        .sec.light .stat { background:linear-gradient(160deg, rgba(0,191,166,.10) 0%, #fff 70%); }
+        /* Listas em texto, sem caixa */
+        ul.list { margin:0; padding:0; list-style:none; display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:22px 48px; }
+        ul.list.tight { grid-template-columns:minmax(0, 1fr); max-width:640px; }
+        ul.list li { position:relative; padding:0 0 0 22px; color:var(--white); font-weight:600; font-size:1.05rem; line-height:1.45; }
+        ul.list li::before { content:''; position:absolute; left:0; top:.55em; width:8px; height:8px; border-radius:50%; background:var(--teal); }
+        ul.list li small { display:block; color:var(--text); font-weight:400; font-size:.95rem; margin-top:4px; line-height:1.55; }
+        ul.list.dont li::before { background:#f87171; }
         .sec.light table.cmp th:first-child { background:#f4f8f9; }
-        ul.list.dont li:hover { border-color:rgba(248,113,113,.3); background:rgba(248,113,113,.05); }
 
         /* Observação */
         .note { margin-top:40px; display:flex; align-items:flex-start; gap:14px; max-width:1100px; padding:22px 24px; border:1px solid var(--line-t); border-radius:16px;
@@ -171,11 +165,10 @@ foreach ($sections as $idx => $s) {
         .contacts span { display:block; font-family:var(--mono); font-size:.72rem; color:var(--mint); text-transform:uppercase; letter-spacing:.12em; margin-bottom:8px; }
 
         /* Rodapé */
-        .footer { padding:90px 0 60px; text-align:center; border-top:1px solid var(--line);
-            background:radial-gradient(ellipse 50% 80% at 50% 0%, rgba(0,191,166,.12) 0%, rgba(0,191,166,0) 70%), var(--bg); }
-        .footer img { width:64px; height:auto; filter:drop-shadow(0 0 22px var(--glow)); }
-        .footer strong { display:block; margin:14px 0 6px; color:var(--white); font-size:1.5rem; font-weight:800; letter-spacing:-.03em; }
-        .footer span { color:var(--muted); font-size:.85rem; }
+        .footer { padding:70px 0 48px; text-align:center; border-top:1px solid #e4eeef; background:#f7fbfb; }
+        .footer img { width:56px; height:auto; }
+        .footer strong { display:block; margin:14px 0 6px; color:#0b1a24; font-size:1.35rem; font-weight:800; letter-spacing:-.03em; }
+        .footer span { color:#6b7b83; font-size:.85rem; }
 
         /* Entrada suave das seções */
         .js .reveal { opacity:0; transform:translateY(28px); transition:opacity .7s ease, transform .7s ease; }
@@ -185,11 +178,15 @@ foreach ($sections as $idx => $s) {
         .sec[data-hidden] .wrap { opacity:.3; }
         .sec[data-hidden]::after { content:'Oculta para o cliente'; position:absolute; top:24px; right:28px; background:#6b7088; color:#fff; font-size:.75rem; padding:5px 12px; border-radius:6px; }
 
+        @media (max-width:1100px) {
+            .cards { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+            .steps { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+        }
         @media (max-width:900px) {
             .wrap { padding:0 28px; }
             .sec { padding:90px 0; }
             .sec-head { flex-direction:column; align-items:flex-start; gap:10px; }
-            .cards, ul.list, .toc ol { grid-template-columns:minmax(0,1fr); }
+            .cards, .steps, ul.list, .stats, .toc ol { grid-template-columns:minmax(0,1fr); }
             .hero-brand { flex-direction:column; gap:20px; }
         }
         @media (max-width:560px) {
@@ -212,12 +209,11 @@ foreach ($sections as $idx => $s) {
 
     <main>
             <?php
-            // Ritmo de fundos: tons claros que se fundem entre si e blocos escuros só na abertura de cada parte e nos indicadores.
-            $lightTones = ['#ffffff', '#f3faf8', '#ffffff', '#e9f6f3', '#f7fbfb'];
+            // Fundo claro como padrão. Escuro só na capa e, se houver, na chamada final.
+            $lightTones = ['#ffffff', '#f7fbfb', '#ffffff', '#f3faf8'];
             $lightN = 0;
-            $prevBottom = '#10594f';
+            $prevBottom = '#d9f1ec';
             $prevDark = true;
-            $partCount = 0;
             ?>
         <?php foreach ($sections as $idx => $s): ?>
             <?php if ($s['type'] === 'divider') continue; ?>
@@ -248,10 +244,7 @@ foreach ($sections as $idx => $s) {
             $title = $s['title'];
             if (preg_match('/^(\d+)\.\s+(.+)$/u', $title, $m)) { $num = str_pad($m[1], 2, '0', STR_PAD_LEFT); $title = $m[2]; }
             $isCta = $s['type'] === 'cta';
-            $isPart = isset($partOf[$idx]);
-            // A primeira parte fica clara para não colar na capa; as seguintes abrem em bloco escuro.
-            $dark = $isCta || ($isPart && $partCount > 0);
-            if ($isPart) $partCount++;
+            $dark = $isCta;
             if ($dark) {
                 $body = '#0a1b23';
                 $bottom = '#0f4f48';
@@ -260,14 +253,14 @@ foreach ($sections as $idx => $s) {
                 $body = $bottom = $lightTones[$lightN++ % count($lightTones)];
                 $top = $prevDark ? '#d9f1ec' : $prevBottom;
             }
-            $bg = "background:linear-gradient(180deg, {$top} 0, {$body} 260px, {$body} calc(100% - 260px), {$bottom} 100%);";
+            $bg = "background:linear-gradient(180deg, {$top} 0, {$body} 160px, {$body} calc(100% - 160px), {$bottom} 100%);";
             $prevBottom = $bottom;
             $prevDark = $dark;
             $classes = 'sec' . ($isCta ? ' cta' : '') . ($dark ? '' : ' light') . (isset($partOf[$idx]) ? ' part-start' : '');
             ?>
             <section class="<?= $classes ?>" id="sec-<?= (int)$idx ?>" style="<?= $bg ?>"<?= $hiddenAttr ?>>
                 <div class="wrap reveal">
-                    <?php if ($num !== '' || $title !== ''): ?>
+                    <?php if ($s['type'] !== 'stats' && ($num !== '' || $title !== '')): ?>
                     <div class="sec-head">
                         <?php if ($num !== ''): ?><span class="num"><?= $num ?></span><?php endif; ?>
                         <?php if ($title !== ''): ?><h2><?= $t($title) ?></h2><?php endif; ?>
@@ -283,7 +276,11 @@ foreach ($sections as $idx => $s) {
                         <?php elseif ($s['type'] === 'steps'): ?>
                         <div class="steps"><?php foreach ($s['items'] as $it): ?><div class="step"><?php if ($it['title'] !== ''): ?><strong><?= $t($it['title']) ?></strong><?php endif; ?><p><?= $p($it['text']) ?></p></div><?php endforeach; ?></div>
                         <?php elseif ($s['type'] === 'cards'): ?>
-                        <div class="cards"><?php foreach ($s['items'] as $it): ?><div class="card"><?php if ($it['title'] !== ''): ?><strong><?= $t($it['title']) ?></strong><?php endif; ?><p><?= $p($it['text']) ?></p></div><?php endforeach; ?></div>
+                        <div class="cards"><?php foreach ($s['items'] as $it):
+                            $img = PresentationRules::safeImage($it['image'] ?? '');
+                            $more = $it['title'] === '50+';
+                            $imgSrc = $img !== '' ? preg_replace('#(?<!:)/{2,}#', '/', str_replace('\\', '/', baseUrl($img))) : '';
+                        ?><div class="card<?= $more ? ' more' : '' ?>"><?php if ($imgSrc !== ''): ?><img class="logo" src="<?= htmlspecialchars($imgSrc, ENT_QUOTES) ?>" alt=""><?php endif; ?><?php if ($it['title'] !== ''): ?><strong><?= $t($it['title']) ?></strong><?php endif; ?><p><?= $p($it['text']) ?></p></div><?php endforeach; ?></div>
                         <?php elseif ($s['type'] === 'table'): ?>
                         <?php $rows = array_map(fn($it) => array_merge([$it['title']], $it['text'] !== '' ? array_map('trim', explode('|', $it['text'])) : []), $s['items']); $head = array_shift($rows); ?>
                         <div class="table-wrap"><table>
@@ -296,7 +293,7 @@ foreach ($sections as $idx => $s) {
                             <tbody><?php foreach ($s['items'] as $it): ?><tr><td><?= $t($it['title']) ?></td><td><?= $t($it['text']) ?></td></tr><?php endforeach; ?></tbody>
                         </table></div>
                         <?php elseif ($s['type'] === 'list' || $s['type'] === 'dont'): ?>
-                        <ul class="list<?= $s['type'] === 'dont' ? ' dont' : '' ?>"><?php foreach ($s['items'] as $it): ?><li><?= $t($it['title']) ?><?php if ($it['text'] !== ''): ?><small><?= $t($it['text']) ?></small><?php endif; ?></li><?php endforeach; ?></ul>
+                        <ul class="list<?= $s['type'] === 'dont' ? ' dont' : '' ?><?= count($s['items']) <= 3 ? ' tight' : '' ?>"><?php foreach ($s['items'] as $it): ?><li><?= $t($it['title']) ?><?php if ($it['text'] !== ''): ?><small><?= $t($it['text']) ?></small><?php endif; ?></li><?php endforeach; ?></ul>
                         <?php elseif ($isCta): ?>
                         <div class="contacts"><?php foreach ($s['items'] as $it): ?><div><span><?= $t($it['title']) ?></span><?= $t($it['text']) ?></div><?php endforeach; ?></div>
                         <?php endif; ?>
@@ -310,7 +307,7 @@ foreach ($sections as $idx => $s) {
     </main>
 
     <footer class="footer">
-        <img src="<?= $emblem ?>" alt="">
+        <img src="<?= asset('proposal/emblem-dark.png') ?>" alt="">
         <strong><?= $appName ?></strong>
         <span>© <?= date('Y') ?> <?= $appName ?></span>
     </footer>

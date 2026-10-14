@@ -31,7 +31,7 @@ final class PresentationRulesTest extends TestCase
         ]);
         $this->assertCount(1, $out);
         $this->assertSame('Lista', $out[0]['title']);
-        $this->assertSame([['title' => 'A', 'text' => '']], $out[0]['items']);
+        $this->assertSame([['title' => 'A', 'text' => '', 'image' => '']], $out[0]['items']);
         $this->assertTrue($out[0]['visible']);
     }
 
@@ -60,9 +60,27 @@ final class PresentationRulesTest extends TestCase
         $this->assertMatchesRegularExpression('/O que fazemos/u', $joined);
         $this->assertMatchesRegularExpression('/Como fazemos/u', $joined);
         $this->assertFalse(in_array('divider', array_column($sections, 'type'), true));
+        foreach ($titles as $title) {
+            $this->assertStringNotContainsString('—', $title);
+            $this->assertStringNotContainsString(' - ', $title);
+        }
+        $clients = null;
+        foreach ($sections as $s) {
+            if ($s['title'] === 'Clientes') { $clients = $s; break; }
+        }
+        $this->assertNotNull($clients);
+        $this->assertSame('50+', $clients['items'][7]['title']);
+        $this->assertNotSame('', $clients['items'][0]['image']);
         foreach (['PARTE I — BASE COMERCIAL', 'Compliance', 'Planos de Hospedagem Cloud & VPS', 'Contato e Handoff'] as $t) {
             $this->assertNotContains($t, $titles);
         }
+    }
+
+    public function testSafeImageSoAceitaCaminhoLocalDeAsset(): void
+    {
+        $this->assertSame('assets/proposal/clients/inpasa.jpg', PresentationRules::safeImage('assets/proposal/clients/inpasa.jpg'));
+        $this->assertSame('', PresentationRules::safeImage('https://evil.test/x.png'));
+        $this->assertSame('', PresentationRules::safeImage('../secret.png'));
     }
 
     public function testSanitizeMantemDestaque(): void
@@ -76,8 +94,8 @@ final class PresentationRulesTest extends TestCase
         $this->assertSame(PresentationRules::defaultSections(), PresentationRules::decode(null));
         $this->assertSame(PresentationRules::defaultSections(), PresentationRules::decode('{quebrado'));
 
-        // Conteúdo do playbook interno (versão 2) volta ao modelo curto ao cliente.
-        $legacy = json_encode(['version' => 2, 'sections' => [['type' => 'text', 'title' => 'Antigo']]]);
+        // Conteúdo antigo (playbook ou modelo v3) volta ao padrão atual.
+        $legacy = json_encode(['version' => 3, 'sections' => [['type' => 'text', 'title' => 'Antigo']]]);
         $this->assertSame(PresentationRules::defaultSections(), PresentationRules::decode($legacy));
 
         $json = PresentationRules::encode([['type' => 'text', 'title' => 'Olá']]);

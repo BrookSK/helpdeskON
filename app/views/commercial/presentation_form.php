@@ -149,7 +149,7 @@ const TYPE_HELP = {
     text:    'Texto corrido. Deixe uma linha em branco para separar parágrafos.',
     stats:   'Números em destaque. Em cada item: o número (ex.: 100+) e a legenda.',
     steps:   'Etapas numeradas automaticamente (01, 02, 03…), na ordem dos itens.',
-    cards:   'Blocos lado a lado: cada item vira um card com título e texto.',
+    cards:   'Blocos lado a lado. Em clientes, o 3º campo é o caminho do logo (ex.: assets/proposal/clients/inpasa.jpg).',
     table:   'Tabela. O 1º item é o cabeçalho. Para 3 ou mais colunas, separe as colunas do 2º campo com |',
     compare: 'Comparativo em duas colunas: mercado × nós.',
     list:    'Lista com ✓ verde. Cada item é uma linha.',
@@ -159,7 +159,7 @@ const TYPE_HELP = {
 const ITEM_LABELS = {
     stats:   ['Número (ex.: 100+)', 'Legenda'],
     steps:   ['Nome da etapa', 'Descrição (opcional)'],
-    cards:   ['Título do card', 'Texto do card'],
+    cards:   ['Título do card', 'Texto do card', 'Logo (assets/...)'],
     table:   ['1ª coluna', 'Demais colunas (separe com |)'],
     compare: ['Mercado (low-code / freelancer)', 'Nós entregamos'],
     list:    ['Item', 'Detalhe (opcional)'],
@@ -212,6 +212,7 @@ function fieldsHtml(i, s) {
                 <span class="item-n">${j + 1}</span>
                 <input class="form-control form-control-sm" style="max-width:36%;" placeholder="${esc(labels[0])}" value="${esc(it.title)}" oninput="setItem(${i},${j},'title',this.value)">
                 <textarea class="form-control form-control-sm" rows="${Math.min(5, Math.max(1, Math.ceil((it.text || '').length / 60)))}" placeholder="${esc(labels[1])}" oninput="setItem(${i},${j},'text',this.value)">${esc(it.text)}</textarea>
+                ${s.type === 'cards' ? `<input class="form-control form-control-sm" style="max-width:28%;" placeholder="${esc(labels[2] || 'Logo (opcional)')}" value="${esc(it.image)}" oninput="setItem(${i},${j},'image',this.value)">` : ''}
                 <div class="btn-group-vertical btn-group-sm">
                     <button class="btn btn-outline-secondary py-0" onclick="moveItem(${i},${j},-1)" ${j === 0 ? 'disabled' : ''} title="Subir"><i class="bi bi-chevron-up"></i></button>
                     <button class="btn btn-outline-secondary py-0" onclick="moveItem(${i},${j},1)" ${j === s.items.length - 1 ? 'disabled' : ''} title="Descer"><i class="bi bi-chevron-down"></i></button>
@@ -248,7 +249,7 @@ function renderSections() {
 
 function setField(i, key, value) { SECTIONS[i][key] = value; }
 function setItem(i, j, key, value) { SECTIONS[i].items[j][key] = value; }
-function addItem(i) { (SECTIONS[i].items = SECTIONS[i].items || []).push({ title: '', text: '' }); renderSections(); }
+function addItem(i) { (SECTIONS[i].items = SECTIONS[i].items || []).push({ title: '', text: '', image: '' }); renderSections(); }
 function removeItem(i, j) { SECTIONS[i].items.splice(j, 1); renderSections(); }
 function moveItem(i, j, dir) {
     const items = SECTIONS[i].items, k = j + dir;
