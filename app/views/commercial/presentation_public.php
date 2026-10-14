@@ -115,14 +115,24 @@ foreach ($sections as $idx => $s) {
         .stat strong { display:block; font-size:clamp(3.2rem, 6vw, 5rem); line-height:.95; font-weight:800; letter-spacing:-.04em; margin-bottom:12px; color:#fff; }
         .stat span { color:rgba(255,255,255,.86); font-size:1.05rem; font-weight:500; }
 
-        /* Etapas: linha do tempo, sem cartão */
-        .steps { display:grid; grid-template-columns:repeat(4, 1fr); gap:8px 36px; counter-reset:step; position:relative; }
-        .steps::before { content:''; position:absolute; left:8px; right:8px; top:17px; height:2px; background:linear-gradient(90deg, #0a8f7d, rgba(10,143,125,.2)); pointer-events:none; }
+        /* Etapas — layout A: linha do tempo (estratégia) */
+        .steps { display:grid; gap:8px 36px; counter-reset:step; position:relative; }
+        .steps-line { grid-template-columns:repeat(4, 1fr); }
+        .steps-line::before { content:''; position:absolute; left:8px; right:8px; top:17px; height:2px; background:linear-gradient(90deg, #0a8f7d, rgba(10,143,125,.2)); pointer-events:none; }
         .step { position:relative; padding:0; text-align:left; background:none; border:none; }
-        .step::before { counter-increment:step; content:counter(step, decimal-leading-zero); display:flex; align-items:center; justify-content:center; width:36px; height:36px; margin:0 0 22px;
+        .steps-line .step::before { counter-increment:step; content:counter(step, decimal-leading-zero); display:flex; align-items:center; justify-content:center; width:36px; height:36px; margin:0 0 22px;
             border-radius:50%; background:#0a8f7d; color:#fff; font-family:var(--mono); font-weight:700; font-size:.8rem; position:relative; z-index:1; box-shadow:0 0 0 6px var(--sec-bg, #f4faf8); }
         .step strong { display:block; color:var(--white); font-size:1.18rem; font-weight:700; margin-bottom:8px; letter-spacing:-.01em; }
         .step p { margin:0; color:var(--text); font-size:.98rem; line-height:1.65; }
+
+        /* Etapas — layout B: índice editorial (tecnologia) */
+        .steps-rail { grid-template-columns:repeat(2, minmax(0, 1fr)); gap:42px 72px; }
+        .steps-rail .step { display:grid; grid-template-columns:4.6rem minmax(0, 1fr); column-gap:8px; row-gap:6px; padding-top:8px; border-top:1px solid var(--line); }
+        .steps-rail .step::before { counter-increment:step; content:counter(step, decimal-leading-zero); grid-column:1; grid-row:1 / span 2; align-self:start;
+            display:block; width:auto; height:auto; margin:0; padding:0; border-radius:0; background:none; box-shadow:none;
+            color:#0a8f7d; font-family:var(--sans); font-weight:800; font-size:clamp(1.9rem, 2.6vw, 2.6rem); line-height:1; letter-spacing:-.04em; }
+        .steps-rail .step strong { grid-column:2; margin:4px 0 0; font-size:1.28rem; }
+        .steps-rail .step p { grid-column:2; }
 
         /* Clientes */
         .cards { display:grid; grid-template-columns:repeat(4, 1fr); gap:18px; }
@@ -193,16 +203,16 @@ foreach ($sections as $idx => $s) {
 
         @media (max-width:1100px) {
             .cards { grid-template-columns:repeat(2, minmax(0, 1fr)); }
-            .steps { grid-template-columns:repeat(2, minmax(0, 1fr)); }
-            .steps::before { display:none; }
+            .steps-line { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+            .steps-line::before { display:none; }
         }
         @media (max-width:900px) {
             .wrap { padding:0 28px; }
             .sec { padding:90px 0; }
             .sec-head { flex-direction:column; align-items:flex-start; gap:10px; }
-            .cards, .steps, ul.list, .stats, .toc ol { grid-template-columns:minmax(0,1fr); }
+            .cards, .steps-line, .steps-rail, ul.list, .stats, .toc ol { grid-template-columns:minmax(0,1fr); }
             .stat + .stat { border-left:none; border-top:1px solid rgba(255,255,255,.18); }
-            .steps::before { display:none; }
+            .steps-line::before { display:none; }
             .hero-brand { flex-direction:column; gap:20px; }
         }
         @media (max-width:560px) {
@@ -213,7 +223,7 @@ foreach ($sections as $idx => $s) {
             .stat { padding:18px 12px; }
             .stat + .stat { border-left:none; border-top:1px solid rgba(255,255,255,.18); }
             .card { padding:26px 22px; }
-            .steps::before { display:none; }
+            .steps-line::before { display:none; }
             ul.list li { padding:20px 18px; }
             th, td { padding:14px 16px; }
             .note { padding:18px; }
@@ -233,6 +243,7 @@ foreach ($sections as $idx => $s) {
             $lightN = 0;
             $prevBottom = '#d9f1ec';
             $prevDark = true;
+            $stepsN = 0;
             ?>
         <?php foreach ($sections as $idx => $s): ?>
             <?php if ($s['type'] === 'divider') continue; ?>
@@ -292,8 +303,8 @@ foreach ($sections as $idx => $s) {
                     <div class="block">
                         <?php if ($s['type'] === 'stats'): ?>
                         <div class="stats"><?php foreach ($s['items'] as $it): ?><div class="stat"><strong><?= $t($it['title']) ?></strong><span><?= $t($it['text']) ?></span></div><?php endforeach; ?></div>
-                        <?php elseif ($s['type'] === 'steps'): ?>
-                        <div class="steps"><?php foreach ($s['items'] as $it): ?><div class="step"><?php if ($it['title'] !== ''): ?><strong><?= $t($it['title']) ?></strong><?php endif; ?><p><?= $p($it['text']) ?></p></div><?php endforeach; ?></div>
+                        <?php elseif ($s['type'] === 'steps'): $stepsN++; $stepsMod = ($stepsN % 2) === 1 ? 'steps-line' : 'steps-rail'; ?>
+                        <div class="steps <?= $stepsMod ?>"><?php foreach ($s['items'] as $it): ?><div class="step"><?php if ($it['title'] !== ''): ?><strong><?= $t($it['title']) ?></strong><?php endif; ?><p><?= $p($it['text']) ?></p></div><?php endforeach; ?></div>
                         <?php elseif ($s['type'] === 'cards'): ?>
                         <div class="cards"><?php foreach ($s['items'] as $it):
                             $img = PresentationRules::safeImage($it['image'] ?? '');
