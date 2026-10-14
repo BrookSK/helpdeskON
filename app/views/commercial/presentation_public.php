@@ -34,7 +34,7 @@ foreach ($sections as $idx => $s) {
             --bg:#07141b; --bg-1:#0a1b23; --bg-2:#0c222b; --panel:rgba(255,255,255,.035); --panel-h:rgba(94,234,212,.06);
             --line:rgba(255,255,255,.08); --line-t:rgba(94,234,212,.22);
             --white:#f2f8f9; --text:#b4c6cb; --muted:#7f979d;
-            --teal:#00bfa6; --teal-2:#14b8a6; --mint:#5eead4; --glow:rgba(0,191,166,.35);
+            --teal:#00bfa6; --teal-2:#14b8a6; --mint:#5eead4; --glow:rgba(0,191,166,.35); --note:#d4ebe7;
             --sans:'Inter','Segoe UI',system-ui,Arial,sans-serif; --mono:'JetBrains Mono',ui-monospace,Consolas,monospace;
         }
         * { box-sizing:border-box; }
@@ -59,9 +59,8 @@ foreach ($sections as $idx => $s) {
             background:radial-gradient(circle, rgba(0,191,166,.16) 0%, rgba(0,191,166,0) 65%); }
         .hero .wrap { position:relative; z-index:1; }
         .hero-brand { display:inline-flex; align-items:center; justify-content:center; gap:30px; margin-bottom:34px; }
-        .hero-brand img { width:clamp(84px, 9vw, 140px); height:auto; filter:drop-shadow(0 0 34px var(--glow)); }
-        .hero h1 { margin:0; font-size:clamp(3.2rem, 8.5vw, 7.2rem); line-height:.95; font-weight:900; letter-spacing:-.045em;
-            background:linear-gradient(180deg, #ffffff 0%, #ffffff 45%, #a7f3e6 100%); -webkit-background-clip:text; background-clip:text; color:transparent; }
+        .hero-brand img { width:clamp(72px, 7.5vw, 112px); height:auto; filter:drop-shadow(0 0 34px var(--glow)); }
+        .hero h1 { margin:0; font-size:clamp(2.8rem, 6.6vw, 5.6rem); line-height:1.05; font-weight:800; letter-spacing:-.035em; color:#fff; }
         .kicker { display:inline-block; margin:0 0 30px; padding:9px 22px; border:1px solid var(--line-t); border-radius:999px; background:rgba(0,191,166,.08);
             font-family:var(--mono); font-size:clamp(.82rem, 1.3vw, 1rem); font-weight:500; color:var(--mint); letter-spacing:.02em; }
         .lead { max-width:820px; margin:0 auto; font-size:clamp(1.05rem, 1.6vw, 1.3rem); line-height:1.7; color:#c5d6da; }
@@ -79,15 +78,20 @@ foreach ($sections as $idx => $s) {
 
         /* ================= SEÇÕES ================= */
         .sec { position:relative; padding:130px 0; background:var(--bg-1); border-top:1px solid var(--line); overflow:hidden; }
-        .sec.alt { background:var(--bg-2); }
+        .sec.light {
+            --white:#0b1a24; --text:#41545b; --muted:#6b7b83; --mint:#0a8f7d; --note:#24534c;
+            --panel:#f4f8f9; --panel-h:#ecfaf6; --line:#e1e9eb; --line-t:rgba(0,191,166,.45);
+            background:#fff; border-top-color:#e1e9eb;
+        }
+        .sec.light::before { background:radial-gradient(circle, rgba(0,191,166,.08) 0%, rgba(0,191,166,0) 70%); }
         .sec::before { content:''; position:absolute; top:-200px; right:-200px; width:600px; height:600px; border-radius:50%; pointer-events:none; background:radial-gradient(circle, rgba(0,191,166,.07) 0%, rgba(0,191,166,0) 70%); }
-        .sec.alt::before { right:auto; left:-200px; }
+        .sec.light::before { right:auto; left:-200px; }
         .sec .wrap { position:relative; }
         .sec.part-start { padding-top:150px; }
         .part { display:inline-flex; align-items:center; gap:12px; margin-bottom:42px; font-family:var(--mono); font-size:.78rem; font-weight:700; letter-spacing:.16em; text-transform:uppercase; color:var(--mint); }
         .part::before { content:''; width:40px; height:2px; background:linear-gradient(90deg, var(--teal), var(--mint)); }
         .sec-head { display:flex; align-items:flex-end; gap:28px; margin-bottom:28px; }
-        .num { flex:0 0 auto; font-family:var(--sans); font-weight:900; font-size:clamp(4rem, 8vw, 7rem); line-height:.8; letter-spacing:-.05em;
+        .num { flex:0 0 auto; font-family:var(--sans); font-weight:900; font-size:clamp(2.8rem, 5vw, 4.4rem); line-height:.85; letter-spacing:-.04em;
             background:linear-gradient(180deg, var(--mint) 0%, rgba(0,191,166,.15) 100%); -webkit-background-clip:text; background-clip:text; color:transparent; }
         .sec h2 { margin:0; color:var(--white); font-size:clamp(2rem, 4vw, 3.3rem); line-height:1.08; font-weight:800; letter-spacing:-.035em; max-width:1000px; }
         .sec-head + .sub, .sec-head + .body { margin-top:0; }
@@ -100,8 +104,7 @@ foreach ($sections as $idx => $s) {
         .stats { display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:18px; }
         .stat { position:relative; padding:38px 34px; border:1px solid var(--line); border-radius:18px; background:linear-gradient(160deg, rgba(0,191,166,.10) 0%, rgba(255,255,255,.02) 60%); overflow:hidden; }
         .stat::after { content:''; position:absolute; left:34px; right:34px; top:0; height:2px; background:linear-gradient(90deg, var(--teal), transparent); }
-        .stat strong { display:block; font-size:clamp(2.8rem, 5vw, 4.4rem); line-height:1; font-weight:900; letter-spacing:-.05em; margin-bottom:12px;
-            background:linear-gradient(180deg, #fff 20%, var(--mint) 100%); -webkit-background-clip:text; background-clip:text; color:transparent; }
+        .stat strong { display:block; font-size:clamp(2.6rem, 4.6vw, 4rem); line-height:1.05; font-weight:800; letter-spacing:-.03em; margin-bottom:12px; color:var(--white); }
         .stat span { color:var(--text); font-size:1rem; }
 
         /* Etapas */
@@ -144,11 +147,15 @@ foreach ($sections as $idx => $s) {
         ul.list li small { display:block; color:var(--text); font-weight:400; font-size:.92rem; margin-top:4px; }
         ul.list.dont li::before { background:rgba(248,113,113,.14)
             url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%23f87171' stroke-width='2.2' stroke-linecap='round' d='M5 5l6 6M11 5l-6 6'/%3E%3C/svg%3E") center/13px no-repeat; }
+        .sec.light ul.list:not(.dont) li::before { background-color:rgba(0,191,166,.12);
+            background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%230a8f7d' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round' d='M4 8.5l2.5 2.5L12 5.5'/%3E%3C/svg%3E"); }
+        .sec.light .stat { background:linear-gradient(160deg, rgba(0,191,166,.10) 0%, #fff 70%); }
+        .sec.light table.cmp th:first-child { background:#f4f8f9; }
         ul.list.dont li:hover { border-color:rgba(248,113,113,.3); background:rgba(248,113,113,.05); }
 
         /* Observação */
         .note { margin-top:40px; display:flex; gap:18px; max-width:1100px; padding:26px 30px; border:1px solid var(--line-t); border-radius:16px;
-            background:linear-gradient(120deg, rgba(0,191,166,.12) 0%, rgba(0,191,166,.03) 100%); color:#d4ebe7; font-size:1rem; line-height:1.7; }
+            background:linear-gradient(120deg, rgba(0,191,166,.12) 0%, rgba(0,191,166,.03) 100%); color:var(--note); font-size:1rem; line-height:1.7; }
         .note::before { content:'i'; flex:0 0 30px; display:flex; align-items:center; justify-content:center; height:30px; border-radius:50%; background:var(--teal); color:#04201c; font:700 .9rem/1 var(--mono); }
 
         /* Fechamento */
@@ -200,7 +207,7 @@ foreach ($sections as $idx => $s) {
     <?php endif; ?>
 
     <main>
-        <?php $alt = false; ?>
+            <?php $light = true; ?>
         <?php foreach ($sections as $idx => $s): ?>
             <?php if ($s['type'] === 'divider') continue; ?>
             <?php $hiddenAttr = empty($s['visible']) ? ' data-hidden="1"' : ''; ?>
@@ -230,8 +237,8 @@ foreach ($sections as $idx => $s) {
             $title = $s['title'];
             if (preg_match('/^(\d+)\.\s+(.+)$/u', $title, $m)) { $num = str_pad($m[1], 2, '0', STR_PAD_LEFT); $title = $m[2]; }
             $isCta = $s['type'] === 'cta';
-            $classes = 'sec' . ($isCta ? ' cta' : ($alt ? ' alt' : '')) . (isset($partOf[$idx]) ? ' part-start' : '');
-            if (!$isCta) $alt = !$alt;
+            $classes = 'sec' . ($isCta ? ' cta' : ($light ? ' light' : '')) . (isset($partOf[$idx]) ? ' part-start' : '');
+            if (!$isCta) $light = !$light;
             ?>
             <section class="<?= $classes ?>" id="sec-<?= (int)$idx ?>"<?= $hiddenAttr ?>>
                 <div class="wrap reveal">
