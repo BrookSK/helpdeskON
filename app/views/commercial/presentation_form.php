@@ -3,17 +3,6 @@
 <?php require APP_PATH . '/views/layouts/sidebar.php'; ?>
 <?php $isPublished = $presentation['status'] === 'published'; ?>
 <style>
-    /* Cabeçalho de grupo (seções do tipo "Divisória de parte") */
-    .grp { display:flex; align-items:center; gap:10px; margin:22px 0 10px; padding:10px 14px; border-radius:10px;
-           background:linear-gradient(160deg,#0b1a24 0%,#0e4740 70%,#11665a 100%); color:#fff; cursor:pointer; }
-    .grp:first-child { margin-top:0; }
-    .grp .grp-title { flex:1; font-weight:700; font-size:.85rem; letter-spacing:.04em; text-transform:uppercase; }
-    .grp .grp-sub { font-weight:400; font-size:.78rem; color:#5eead4; text-transform:none; letter-spacing:0; margin-left:6px; }
-    .grp .btn { color:#fff; border-color:rgba(255,255,255,.35); padding:.1rem .4rem; }
-    .grp .btn:hover { background:rgba(255,255,255,.15); }
-    .grp-body { background:#0f2f33; border-radius:0 0 10px 10px; margin:-10px 0 10px; padding:14px; }
-    .grp-body .form-label { color:#cfe; }
-
     /* Cartão de seção */
     .sec { border:1px solid #e6e8f0; border-radius:10px; background:#fff; margin-bottom:8px; transition:box-shadow .15s; }
     .sec:hover { box-shadow:0 2px 10px rgba(30,40,90,.07); }
@@ -130,7 +119,6 @@
                 <div class="card-header py-2"><strong><i class="bi bi-question-circle"></i> Como editar</strong></div>
                 <div class="card-body small">
                     <ul class="ps-3 mb-0">
-                        <li class="mb-1">As faixas escuras são as <strong>partes</strong> do documento; as seções abaixo de cada faixa pertencem a ela.</li>
                         <li class="mb-1">Clique numa seção para abrir e editar os textos.</li>
                         <li class="mb-1"><i class="bi bi-arrow-up"></i> <i class="bi bi-arrow-down"></i> mudam a ordem.</li>
                         <li class="mb-1"><i class="bi bi-eye"></i> esconde a seção do cliente sem apagar.</li>
@@ -152,13 +140,12 @@ let SECTIONS = <?= json_encode($sections, JSON_UNESCAPED_UNICODE) ?>;
 let OPEN = null;
 
 const TYPE_ICONS = {
-    hero: 'bi-image', divider: 'bi-bookmark', text: 'bi-text-paragraph', stats: 'bi-123',
+    hero: 'bi-image', text: 'bi-text-paragraph', stats: 'bi-123',
     steps: 'bi-list-ol', cards: 'bi-grid', table: 'bi-table', compare: 'bi-layout-split',
     list: 'bi-check2-square', dont: 'bi-x-octagon', cta: 'bi-telephone',
 };
 const TYPE_HELP = {
     hero:    'Capa: primeira tela da apresentação, com o fundo em degradê.',
-    divider: 'Faixa que separa as partes do documento (ex.: “PARTE I — BASE COMERCIAL”).',
     text:    'Texto corrido. Deixe uma linha em branco para separar parágrafos.',
     stats:   'Números em destaque. Em cada item: o número (ex.: 100+) e a legenda.',
     steps:   'Etapas numeradas automaticamente (01, 02, 03…), na ordem dos itens.',
@@ -179,7 +166,7 @@ const ITEM_LABELS = {
     dont:    ['Item', 'Detalhe (opcional)'],
     cta:     ['Rótulo', 'Valor'],
 };
-const TYPE_FIELDS = { hero: ['subtitle', 'body'], divider: ['subtitle'] };
+const TYPE_FIELDS = { hero: ['subtitle', 'body'] };
 const usesField = (type, f) => (TYPE_FIELDS[type] || ['subtitle', 'body', 'items', 'note']).includes(f);
 
 function esc(v) {
@@ -243,16 +230,6 @@ function renderSections() {
     if (!SECTIONS.length) { box.innerHTML = '<p class="text-muted small mb-0">Nenhuma seção. Adicione uma acima.</p>'; return; }
     box.innerHTML = SECTIONS.map((s, i) => {
         const open = OPEN === i;
-        if (s.type === 'divider') {
-            return `
-                <div class="grp" id="row-${i}" onclick="toggleSection(${i})" style="${s.visible ? '' : 'opacity:.5'}">
-                    <i class="bi bi-bookmark-fill"></i>
-                    <span class="grp-title">${esc(s.title || '(parte sem título)')}${s.subtitle ? `<span class="grp-sub">${esc(s.subtitle)}</span>` : ''}</span>
-                    ${actionsHtml(i, s)}
-                    <i class="bi ${open ? 'bi-chevron-up' : 'bi-chevron-down'}"></i>
-                </div>
-                ${open ? `<div class="grp-body"><div class="bg-white rounded p-3">${fieldsHtml(i, s)}</div></div>` : ''}`;
-        }
         return `
             <div class="sec ${open ? 'open' : ''} ${s.visible ? '' : 'is-hidden'}" id="row-${i}">
                 <div class="sec-head" onclick="toggleSection(${i})">

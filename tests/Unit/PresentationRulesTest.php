@@ -48,12 +48,20 @@ final class PresentationRulesTest extends TestCase
         $this->assertSame([], PresentationRules::sanitizeSections('nao-e-array'));
     }
 
-    public function testModeloPadraoCobreODocumentoDoGamma(): void
+    public function testModeloPadraoEApresentacaoCurtaAoCliente(): void
     {
-        $titles = array_column(PresentationRules::defaultSections(), 'title');
-        foreach (['1. Quem somos', '4. Perfil de cliente ideal', '5. Sinais de oportunidade', '20. Objeções e respostas',
-                  '42. Checklist do Closer após a reunião', 'Planos de Hospedagem Cloud & VPS', 'Contato e Handoff'] as $t) {
+        $sections = PresentationRules::defaultSections();
+        $titles = array_column($sections, 'title');
+        $this->assertLessThanOrEqual(10, count($sections));
+        foreach (['ON Solutions', 'Quem somos', 'Clientes'] as $t) {
             $this->assertContains($t, $titles);
+        }
+        $joined = implode("\n", $titles);
+        $this->assertMatchesRegularExpression('/O que fazemos/u', $joined);
+        $this->assertMatchesRegularExpression('/Como fazemos/u', $joined);
+        $this->assertFalse(in_array('divider', array_column($sections, 'type'), true));
+        foreach (['PARTE I — BASE COMERCIAL', 'Compliance', 'Planos de Hospedagem Cloud & VPS', 'Contato e Handoff'] as $t) {
+            $this->assertNotContains($t, $titles);
         }
     }
 
@@ -68,8 +76,8 @@ final class PresentationRulesTest extends TestCase
         $this->assertSame(PresentationRules::defaultSections(), PresentationRules::decode(null));
         $this->assertSame(PresentationRules::defaultSections(), PresentationRules::decode('{quebrado'));
 
-        // Conteúdo salvo antes do versionamento (modelo resumido antigo) volta ao padrão do Gamma.
-        $legacy = json_encode(['sections' => [['type' => 'text', 'title' => 'Antigo']]]);
+        // Conteúdo do playbook interno (versão 2) volta ao modelo curto ao cliente.
+        $legacy = json_encode(['version' => 2, 'sections' => [['type' => 'text', 'title' => 'Antigo']]]);
         $this->assertSame(PresentationRules::defaultSections(), PresentationRules::decode($legacy));
 
         $json = PresentationRules::encode([['type' => 'text', 'title' => 'Olá']]);

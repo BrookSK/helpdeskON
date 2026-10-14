@@ -82,7 +82,7 @@ class Presentation
 
     /**
      * Modelo usado ao criar uma apresentação: o salvo em Configurações
-     * ('presentation_template') ou, se não houver, o padrão do Gamma.
+     * ('presentation_template') ou, se não houver, o modelo curto ao cliente.
      */
     public function templateSections(): array
     {

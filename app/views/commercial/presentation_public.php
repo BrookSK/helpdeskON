@@ -4,17 +4,18 @@ $t = fn($text) => PresentationRules::linkify(htmlspecialchars(PresentationRules:
 $p = fn($text) => nl2br($t($text));
 $emblem = asset('on-emblem.png') . '?v=2';
 
-// As divisórias não aparecem como bloco: viram o rótulo de "parte" da seção seguinte e o índice da capa.
+// Índice da capa: uma entrada por capítulo (Quem somos, O que fazemos, Clientes, Como fazemos).
 $partOf = [];
 $parts = [];
-$pending = null;
+$seen = [];
 foreach ($sections as $idx => $s) {
-    if ($s['type'] === 'divider') { $pending = $s; continue; }
-    if ($pending !== null && $s['type'] !== 'hero') {
-        $partOf[$idx] = $pending['title'];
-        $parts[] = ['idx' => $idx, 'title' => $pending['title'], 'subtitle' => $pending['subtitle'] ?? ''];
-        $pending = null;
-    }
+    if (in_array($s['type'], ['hero', 'divider', 'stats'], true)) continue;
+    if (!preg_match('/^(Quem somos|O que fazemos|Clientes|Como fazemos)/iu', (string)$s['title'], $m)) continue;
+    $key = mb_strtolower($m[1]);
+    if (isset($seen[$key])) continue;
+    $seen[$key] = true;
+    $partOf[$idx] = $m[1];
+    $parts[] = ['idx' => $idx, 'title' => $m[1], 'subtitle' => ''];
 }
 ?>
 <!DOCTYPE html>
@@ -67,7 +68,7 @@ foreach ($sections as $idx => $s) {
 
         .toc { margin:76px auto 0; max-width:1180px; text-align:left; }
         .toc h3 { margin:0 0 18px; text-align:center; font-family:var(--mono); font-size:.75rem; letter-spacing:.2em; text-transform:uppercase; color:var(--muted); font-weight:500; }
-        .toc ol { list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(3, 1fr); gap:14px; counter-reset:toc; }
+        .toc ol { list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(2, 1fr); gap:14px; counter-reset:toc; }
         .toc li { min-width:0; }
         .toc a { display:flex; gap:16px; align-items:center; height:100%; min-height:78px; min-width:0; padding:18px 20px; border:1px solid var(--line); border-radius:14px; background:rgba(7,20,27,.45); backdrop-filter:blur(6px);
             color:var(--white); font-weight:600; font-size:.86rem; line-height:1.35; text-decoration:none; transition:border-color .2s, transform .2s, background .2s; }
@@ -266,7 +267,6 @@ foreach ($sections as $idx => $s) {
             ?>
             <section class="<?= $classes ?>" id="sec-<?= (int)$idx ?>" style="<?= $bg ?>"<?= $hiddenAttr ?>>
                 <div class="wrap reveal">
-                    <?php if (isset($partOf[$idx])): ?><div class="part"><?= $t($partOf[$idx]) ?></div><?php endif; ?>
                     <?php if ($num !== '' || $title !== ''): ?>
                     <div class="sec-head">
                         <?php if ($num !== ''): ?><span class="num"><?= $num ?></span><?php endif; ?>
