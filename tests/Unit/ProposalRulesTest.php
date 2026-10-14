@@ -152,7 +152,10 @@ final class ProposalRulesTest extends TestCase
         $this->assertSame(['title' => 'Brasiliana', 'text' => ''], $lines[1]);
 
         $keys = array_column(ProposalRules::defaultBlocks(), 'block_key');
-        $this->assertSame(['about', 'what_we_do', 'clients', 'how_we_work', 'payment', 'notes'], $keys);
+        $this->assertSame(['payment', 'notes'], $keys);
+        $this->assertTrue(ProposalRules::isLegacyBlock('notes', "Proposta válida até {validade}.\r\nValores referem-se somente ao escopo descrito. Mudanças de escopo são orçadas à parte.\r\nDesenvolvimento do zero inclui 90 dias"));
+        $this->assertFalse(ProposalRules::isLegacyBlock('notes', ProposalRules::defaultBlocks()[1]['body']));
+        $this->assertFalse(ProposalRules::isLegacyBlock('payment', 'Texto editado pelo comercial.'));
         $this->assertSame('monthly', ProposalRules::normalizeBilling('monthly'));
         $this->assertSame('once', ProposalRules::normalizeBilling('x'));
     }

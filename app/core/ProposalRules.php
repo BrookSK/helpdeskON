@@ -424,9 +424,10 @@ class ProposalRules
     }
 
     /**
-     * Blocos fixos da proposta, na ordem em que aparecem no PDF. O comercial
-     * edita o texto em Propostas → Conteúdo fixo; toda proposta traz todos.
-     * kind: text (parágrafos), list/steps/clients (uma linha por item).
+     * Texto fixo das páginas finais da proposta, editável em Propostas → Conteúdo fixo.
+     * As páginas de apresentação (quem somos, o que fazemos, clientes, como fazemos)
+     * são as do modelo em docs/proposta-modelo.pdf e não passam por aqui.
+     * kind sections: uma linha "A Título" abre a seção; depois, um item por linha.
      *
      * @return array<int,array{block_key:string,title:string,kind:string,body:string,position:int}>
      */
@@ -434,48 +435,36 @@ class ProposalRules
     {
         return [
             [
-                'block_key' => 'about',
-                'title' => 'Quem somos',
-                'kind' => 'text',
-                'position' => 1,
-                'body' => "A ON Solutions Brasil atua como parceira de consultoria estratégica comercial e inteligência de mercado e desenvolve soluções tecnológicas sob medida.\n\nComeçamos pelo entendimento do negócio, dos processos e dos objetivos de cada cliente. Não vendemos código: vendemos melhoria operacional e crescimento, por meio de estratégia e tecnologia.\n\n01 Consultoria estratégica comercial: Diagnóstico, posicionamento, CRM, funil de vendas e acompanhamento para organizar e acelerar a operação comercial.\n02 Inteligência de mercado: Leitura de dados, indicadores e mercado para decidir com clareza onde investir e como crescer.\n03 Tecnologia sob medida: Sistemas, ERP, CRM, integrações, automações e IA desenhados a partir do processo real de cada operação.",
-            ],
-            [
-                'block_key' => 'what_we_do',
-                'title' => 'O que fazemos',
-                'kind' => 'list',
-                'position' => 2,
-                'body' => "# Estratégia comercial e inteligência de mercado\n# Guiados por dados e tecnologia.\nDiagnóstico e plano estratégico: Leitura do negócio, do mercado e do funil.\nPosicionamento e rebranding: Marca, identidade visual e tom de voz.\nCRM e funil de vendas: Processo comercial organizado e mensurável.\nPresença digital: Site, tráfego pago e social media.\nAcompanhamento estratégico: Reuniões, métricas e ajustes de rota.\n---\n# Tecnologia sob medida\n# Soluções construídas a partir do processo real de cada operação.\nSistemas web e personalizados: Plataformas desenhadas para a operação.\nERP personalizado: Financeiro, estoque, contratos e projetos em um só ambiente.\nCRM: Leads, funil, propostas e follow-ups organizados.\nIntegrações e APIs: Sistemas conectados, sem redigitação.\nAutomações: Tarefas repetitivas acontecendo sozinhas.\nInteligência artificial: IA aplicada a atendimento, dados e decisões.\nDashboards e BI: Indicadores claros para decidir mais rápido.\nSaaS e plataformas: Da ideia ao produto digital.\nAplicativos: Soluções mobile integradas à operação.\nConsultoria tecnológica: Diagnóstico de processos, sistemas e gargalos.",
-            ],
-            [
-                'block_key' => 'clients',
-                'title' => 'Clientes ON Solutions',
-                'kind' => 'clients',
-                'position' => 3,
-                'body' => "Braziliana\nQuatri Automação\nBrooks Construtora\nCrossHR\nMultiLife Care\nMafedo Engenharia\nInpasa",
-            ],
-            [
-                'block_key' => 'how_we_work',
-                'title' => 'Como fazemos',
-                'kind' => 'steps',
-                'position' => 4,
-                'body' => "# Estratégia comercial e inteligência de mercado\nDiagnóstico: Auditoria da jornada, da oferta e do funil, com plano estratégico entre 15 e 30 dias após o onboarding.\nImplantação: Posicionamento, identidade visual, CRM e site.\nExecução: Campanhas de tráfego pago e conteúdo nas redes sociais.\nAcompanhamento: Reuniões, relatórios e ajustes de rota.\n---\n# Tecnologia sob medida\nDiscovery: Entendimento do negócio, dos processos e dos objetivos.\nPlanejamento: Arquitetura da solução e definição do roadmap.\nDesenvolvimento: Construção em sprints, com entregas contínuas e qualidade.\nEntrega e suporte: Deploy, treinamento e suporte contínuo.",
-            ],
-            [
                 'block_key' => 'payment',
                 'title' => 'Condições de pagamento e rescisão',
-                'kind' => 'text',
-                'position' => 5,
+                'kind' => 'sections',
+                'position' => 1,
                 'body' => "A Vigência, reajuste e renovação\nOs valores dos serviços contratados serão reajustados a cada doze meses de vigência, com base no IGP-M.\nEsta proposta será renovada automaticamente por períodos iguais ao contratado, caso não seja contestada com antecedência mínima de sessenta dias do término.\nNa renovação, não há novo pagamento de implantação.\nEsta proposta tem validade jurídica a partir da assinatura pelas partes e segue os termos do contrato de prestação de serviços.\n\nB Rescisão antecipada\nO cancelamento deve ser comunicado por escrito com trinta dias de antecedência da data de suspensão dos serviços.\nServiços de implantação já iniciados são cobrados proporcionalmente ao que foi entregue até a data do aviso.\nOs valores de implantação já pagos não são reembolsáveis, pois correspondem a serviços entregues ou em execução.\n\nC Outras disposições\nAs informações desta proposta são confidenciais e não poderão ser divulgadas sem autorização prévia da ON Solutions Brasil.\nÉ vedado utilizar a hospedagem e as ferramentas do projeto para fins ilícitos ou que violem as políticas das plataformas utilizadas.",
             ],
             [
                 'block_key' => 'notes',
                 'title' => 'Notas e condições',
-                'kind' => 'list',
-                'position' => 6,
+                'kind' => 'sections',
+                'position' => 2,
                 'body' => "A Responsabilidades do cliente\nFornecer os materiais solicitados dentro dos cronogramas combinados.\nDisponibilizar os acessos necessários, de preferência em até 48 horas.\nAprovar ou solicitar ajustes nos materiais em até 3 dias úteis.\nParticipar das reuniões combinadas.\nFornecer as informações necessárias para a execução do escopo.\n\nB Condições gerais\nProposta válida até {validade}.\nValores referem-se somente ao escopo descrito. Mudanças de escopo são orçadas à parte.\nO cronograma começa após a assinatura do contrato e o envio das informações necessárias pelo cliente.\nAtrasos no envio de materiais, aprovações ou acessos podem impactar o cronograma.\nCustos de terceiros (domínio, licenças, anúncios e APIs pagas) não estão inclusos, salvo quando listados.\nOs valores desta proposta estão em reais.",
             ],
         ];
+    }
+
+    /**
+     * Começo dos textos padrão de versões anteriores. Bloco que ainda começa assim
+     * nunca foi editado e pode receber o texto padrão atual.
+     */
+    public const LEGACY_BLOCK_STARTS = [
+        'payment' => "Investimento de {total_pontual} em serviços pontuais e {total_mensal} por mês",
+        'notes' => "Proposta válida até {validade}.\nValores referem-se somente ao escopo descrito. Mudanças de escopo são orçadas à parte.\nDesenvolvimento do zero",
+    ];
+
+    public static function isLegacyBlock(string $key, ?string $body): bool
+    {
+        $start = self::LEGACY_BLOCK_STARTS[$key] ?? null;
+        if ($start === null) return false;
+        return str_starts_with(str_replace("\r\n", "\n", trim((string)$body)), $start);
     }
 
     /** kind de um bloco fixo pela chave. */
@@ -484,7 +473,7 @@ class ProposalRules
         foreach (self::defaultBlocks() as $b) {
             if ($b['block_key'] === $key) return $b['kind'];
         }
-        return 'text';
+        return 'sections';
     }
 
     /**

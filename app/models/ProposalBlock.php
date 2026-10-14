@@ -1,9 +1,9 @@
 <?php
 
 /**
- * Texto fixo da proposta comercial (quem somos, o que fazemos, clientes,
- * como fazemos, condições de pagamento, notas). Toda proposta traz todos os
- * blocos, na ordem de ProposalRules::defaultBlocks().
+ * Texto fixo das páginas finais da proposta comercial (condições de pagamento
+ * e notas). Toda proposta traz todos os blocos, na ordem de
+ * ProposalRules::defaultBlocks().
  */
 class ProposalBlock
 {
@@ -33,6 +33,9 @@ class ProposalBlock
                     'active' => 1,
                 ]);
                 $rows[$key] = ['id' => $id, 'block_key' => $key, 'title' => $def['title'], 'body' => $def['body']];
+            } elseif (ProposalRules::isLegacyBlock($key, $rows[$key]['body'] ?? null)) {
+                $this->db->update('proposal_blocks', ['body' => $def['body']], 'id = ?', [(int)$rows[$key]['id']]);
+                $rows[$key]['body'] = $def['body'];
             }
             $out[] = $rows[$key] + ['kind' => $def['kind']];
         }

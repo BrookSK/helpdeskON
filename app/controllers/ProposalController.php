@@ -432,8 +432,11 @@ class ProposalController extends Controller
     private function buildPdf(array $proposal): string
     {
         $items = $this->model->getItems($proposal['id']);
-        $blocks = ProposalRules::decodeBlocks($proposal['fixed_snapshot'] ?? null);
-        if (!$blocks) $blocks = ProposalRules::decodeBlocks(json_encode($this->fixedSnapshot()));
+        $current = ProposalRules::decodeBlocks(json_encode($this->fixedSnapshot()));
+        $blocks = ProposalRules::decodeBlocks($proposal['fixed_snapshot'] ?? null) ?: $current;
+        foreach ($current as $key => $block) {
+            if (!isset($blocks[$key]) || ProposalRules::isLegacyBlock($key, $blocks[$key]['body'])) $blocks[$key] = $block;
+        }
         $content = ProposalRules::decodeContent($proposal['content'] ?? null);
         $timeline = ProposalRules::timeline($items, $proposal['dev_start'] ?? null, $proposal['dev_end'] ?? null);
         $totals = ProposalRules::totals($items);
@@ -454,15 +457,7 @@ class ProposalController extends Controller
         ];
 
         $public = defined('PUBLIC_PATH') ? PUBLIC_PATH : BASE_PATH . '/public';
-        $emblem = $public . '/assets/on-emblem.png';
-        $logo = null;
-        $logoRel = (string)Config::get('app_logo');
-        if ($logoRel !== '') {
-            $candidate = $public . '/' . ltrim($logoRel, '/');
-            if (is_file($candidate)) $logo = $candidate;
-        }
-
-        $data = [
+        return ProposalPdf::render([
             'proposal' => $proposal,
             'items' => $items,
             'blocks' => $blocks,
@@ -471,21 +466,8 @@ class ProposalController extends Controller
             'totals' => $totals,
             'projection' => $projection,
             'vars' => $vars,
-            'appName' => trim((string)Config::get('app_name')) ?: 'ON Solutions',
-            'emblemPath' => is_file($emblem) ? $emblem : null,
-            'logoPath' => $logo,
             'acceptLink' => $this->publicBase() . '/proposal/show/' . $proposal['public_token'],
-        ];
-        $html = (function () use ($data) {
-            extract($data);
-            ob_start();
-            include APP_PATH . '/views/commercial/proposal_pdf.php';
-            return (string)ob_get_clean();
-        })();
-        return PdfGenerator::fromDocument($html, $public, [
-            'right_mm' => 12, 'top_mm' => 287.2, 'size' => 8, 'skip_first' => true, 'format' => 'index',
-            'color' => [0.62, 0.66, 0.68],
-        ]);
+        ], $public);
     }
 
     // ================= Helpers =================

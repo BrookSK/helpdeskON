@@ -1,10 +1,18 @@
 <?php
-// Documento HTML convertido em PDF pelo dompdf: CSS 2.1, tabelas no lugar de
-// flex/grid e imagens por caminho local (dentro do chroot).
-// O visual segue docs/proposta-modelo.pdf: capa clara, páginas institucionais
-// e, a partir das informações da proposta, tabelas com cabeçalho preto e destaque verde.
+// Documento HTML convertido em PDF pelo dompdf (A4 horizontal): CSS 2.1, tabelas
+// no lugar de flex/grid e imagens/fontes por caminho local (dentro do chroot).
+// Segue docs/proposta-modelo.pdf. As páginas 1–5 são as imagens do próprio modelo;
+// cabeçalho, rodapé e "Pág. N" são desenhados pelo ProposalPdf.
 $e = fn($v) => htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
-$brl = fn($v) => 'R$ ' . number_format((float)$v, 2, ',', '.');
+$brl = function ($v) {
+    $v = (float)$v;
+    $dec = abs($v - round($v)) > 0.004 ? 2 : 0;
+    return 'R$ ' . number_format($v, $dec, ',', '.');
+};
+$num = function ($v) {
+    if ($v === null || $v === '') return '-';
+    return rtrim(rtrim(number_format((float)$v, 2, ',', '.'), '0'), ',');
+};
 $brDate = function ($d) {
     if (!$d) return '';
     $t = strtotime((string)$d);
@@ -16,7 +24,7 @@ $monthYear = function ($d) {
     $meses = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
     return ucfirst($meses[(int)date('n', $t) - 1]) . ' de ' . date('Y', $t);
 };
-$bullets = function ($text) {
+$lines = function ($text) {
     $out = [];
     foreach (preg_split('/\r?\n/', trim((string)$text)) as $line) {
         $line = trim((string)preg_replace('/^[-•*]\s*/u', '', trim($line)));
@@ -27,48 +35,21 @@ $bullets = function ($text) {
 $paras = function ($text) {
     $out = [];
     foreach (preg_split('/\r?\n\s*\r?\n/', trim((string)$text)) as $p) {
-        $p = trim($p);
-        if ($p !== '') $out[] = $p;
+        if (trim($p) !== '') $out[] = trim($p);
     }
     return $out;
 };
-/** Separa um bloco em grupos. "---" divide; linhas "# Título" nomeiam o grupo. */
-$groups = function (string $body) {
-    $parts = preg_split('/\r?\n\s*---\s*\r?\n/', trim($body)) ?: [];
-    $out = [];
-    foreach ($parts as $part) {
-        $lines = ProposalRules::blockLines($part);
-        $title = '';
-        $subtitle = '';
-        $items = [];
-        foreach ($lines as $l) {
-            if (isset($l['title'][0]) && $l['title'][0] === '#' && $l['text'] === '') {
-                $label = trim(substr($l['title'], 1));
-                if ($title === '') $title = $label;
-                else $subtitle = $label;
-                continue;
-            }
-            $items[] = $l;
-        }
-        if ($title !== '' || $items) $out[] = ['title' => $title, 'subtitle' => $subtitle, 'lines' => $items];
-    }
-    return $out;
-};
-/** Parágrafos e seções "A Título" / "B Título" de um texto fixo. */
-$lettered = function (string $body) {
+/** Parágrafos soltos e seções "A Título" seguidas de uma linha por item. */
+$lettered = function (string $body) use ($lines) {
     $out = [];
     foreach (preg_split('/\r?\n\s*\r?\n/', trim($body)) as $chunk) {
-        $lines = [];
-        foreach (preg_split('/\r?\n/', trim($chunk)) as $line) {
-            $line = trim((string)preg_replace('/^[-•*]\s*/u', '', trim($line)));
-            if ($line !== '') $lines[] = $line;
-        }
-        if (!$lines) continue;
-        if (preg_match('/^([A-C])\s+(.{2,80})$/u', $lines[0], $m)) {
-            array_shift($lines);
-            $out[] = ['letter' => $m[1], 'title' => $m[2], 'lines' => $lines];
+        $ls = $lines($chunk);
+        if (!$ls) continue;
+        if (preg_match('/^([A-Z])\s+(.{2,80})$/u', $ls[0], $m)) {
+            array_shift($ls);
+            $out[] = ['letter' => $m[1], 'title' => $m[2], 'lines' => $ls];
         } else {
-            $out[] = ['letter' => '', 'title' => '', 'lines' => $lines];
+            $out[] = ['letter' => '', 'title' => '', 'lines' => $ls];
         }
     }
     return $out;
@@ -76,55 +57,28 @@ $lettered = function (string $body) {
 $fixed = function (string $key) use ($blocks, $vars) {
     $b = $blocks[$key] ?? null;
     if (!$b) return null;
-    return [
-        'title' => $b['title'] !== '' ? $b['title'] : '',
-        'body' => ProposalRules::applyVars((string)$b['body'], $vars),
-    ];
+    return ['title' => (string)$b['title'], 'body' => ProposalRules::applyVars((string)$b['body'], $vars)];
 };
 $c = fn($k) => trim((string)($content[$k] ?? ''));
 
-$about = $fixed('about');
-$aboutParas = [];
-$aboutCards = [];
-if ($about) {
-    foreach ($paras($about['body']) as $p) {
-        $lines = ProposalRules::blockLines($p);
-        $cards = [];
-        $prose = [];
-        foreach ($lines as $l) {
-            if (preg_match('/^(\d{2})\s+(.+)$/u', $l['title'], $m)) {
-                $cards[] = ['n' => $m[1], 'title' => $m[2], 'text' => $l['text']];
-            } else {
-                $prose[] = $l['text'] !== '' ? ($l['title'] . ': ' . $l['text']) : $l['title'];
-            }
-        }
-        if ($cards && !$prose) {
-            $aboutCards = array_merge($aboutCards, $cards);
-        } else {
-            $aboutParas[] = $p;
-        }
-    }
-}
+$client = trim((string)($proposal['client_name'] ?? ''));
+$clientLabel = $client !== '' ? $client : 'Cliente';
+$onceItems = array_values(array_filter($items, fn($it) => ($it['billing'] ?? 'once') !== 'monthly'));
+$monthItems = array_values(array_filter($items, fn($it) => ($it['billing'] ?? 'once') === 'monthly'));
+$expectedReturn = (float)($content['expected_return'] ?? 0);
+$hasReturn = $expectedReturn > 0 || $c('return_text') !== '';
+$period = (!empty($timeline['start']) && !empty($timeline['end'])) ? $brDate($timeline['start']) . ' a ' . $brDate($timeline['end']) : 'A definir';
 
 $business = array_filter([
     'Perfil da empresa' => $c('business_profile'),
     'Presença e canais atuais' => $c('business_channels'),
     'Oportunidades a validar no diagnóstico' => $c('business_opportunity'),
-    'Validar no diagnóstico' => $c('business_diagnosis'),
+    'Pontos a validar no diagnóstico' => $c('business_diagnosis'),
 ], fn($v) => $v !== '');
 
-$onceItems = array_values(array_filter($items, fn($it) => ($it['billing'] ?? 'once') !== 'monthly'));
-$monthItems = array_values(array_filter($items, fn($it) => ($it['billing'] ?? 'once') === 'monthly'));
-$expectedReturn = (float)($content['expected_return'] ?? 0);
-$hasReturn = $expectedReturn > 0 || $c('return_text') !== '';
-
-$origin = $timeline['start'] ?? null;
-if (!$origin) {
-    foreach ($items as $it) {
-        if (!empty($it['schedule_start'])) { $origin = $it['schedule_start']; break; }
-    }
-}
-$originMonth = $origin ? strtotime(date('Y-m-01', strtotime($origin))) : null;
+// Mês 1 do cronograma = mês de início da proposta (o mesmo da projeção).
+$originMonth = null;
+if (!empty($timeline['start'])) $originMonth = strtotime(date('Y-m-01', strtotime($timeline['start'])));
 $slot = function ($date) use ($originMonth) {
     if (!$date || !$originMonth) return null;
     $t = strtotime((string)$date);
@@ -133,637 +87,523 @@ $slot = function ($date) use ($originMonth) {
     return max(0, min(11, $m));
 };
 
-$maxMonth = 0.0;
-foreach ($projection['months'] as $m) $maxMonth = max($maxMonth, $m['invest'], $m['return']);
-
-$client = trim((string)($proposal['client_name'] ?? ''));
-$clientShort = $client !== '' ? $client : 'cliente';
+$fontUrl = fn($file) => $e(str_replace('\\', '/', $fontDir . '/' . $file));
+$alt = fn($i) => $i % 2 ? ' class="alt"' : '';
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
 <style>
-    @page { margin: 18mm 12mm 14mm 12mm; }
-    @page :first { margin: 0; }
-    * { box-sizing: border-box; }
-    body { font-family: 'DejaVu Sans', sans-serif; font-size: 9pt; color: #24312e; line-height: 1.45; margin: 0; background: #f4f7f6; }
+    @font-face { font-family: 'Poppins'; font-style: normal; font-weight: normal; src: url("<?= $fontUrl('Poppins-Regular.ttf') ?>") format("truetype"); }
+    @font-face { font-family: 'Poppins'; font-style: normal; font-weight: bold; src: url("<?= $fontUrl('Poppins-Bold.ttf') ?>") format("truetype"); }
+    @font-face { font-family: 'Poppins'; font-style: italic; font-weight: normal; src: url("<?= $fontUrl('Poppins-Italic.ttf') ?>") format("truetype"); }
+    @font-face { font-family: 'PoppinsSemi'; font-style: normal; font-weight: normal; src: url("<?= $fontUrl('Poppins-SemiBold.ttf') ?>") format("truetype"); }
+    @page { size: A4 landscape; margin: 19mm 14.7mm 15mm 14.7mm; }
+    body { font-family: 'Poppins', 'DejaVu Sans', sans-serif; font-size: 7.6pt; color: #1d2124; line-height: 1.25; margin: 0; }
     h1, h2, h3, p { margin: 0; }
-    .section { page-break-before: always; }
+    .page { page-break-before: always; }
+    .semi { font-family: 'PoppinsSemi', 'DejaVu Sans', sans-serif; }
+    .bold { font-weight: bold; }
+    .muted { color: #6f7a78; }
+    .note { color: #6f7a78; font-size: 6.6pt; margin-top: 2.2mm; }
 
-    .hdr { position: fixed; top: -18mm; left: -12mm; right: -12mm; height: 12mm; background: #0c1014; }
-    .hdr table { width: 100%; border-collapse: collapse; }
-    .hdr td { color: #d5e4e2; font-size: 8pt; vertical-align: middle; padding: 0 12mm; height: 11.2mm; }
-    .hdr img { height: 5.5mm; vertical-align: middle; }
-    .hdr .brand { color: #ffffff; font-weight: bold; font-size: 9pt; }
-    .hdr .bar { position: absolute; left: 0; right: 0; bottom: 0; height: 0.8mm; background: #1ad4bc; }
-    .ftr { position: fixed; bottom: -9mm; left: 0; right: 0; height: 6mm; font-size: 7pt; color: #8b9694; }
+    /* Páginas do modelo e abertura ocupam a folha toda */
+    .sheet { position: relative; height: 1mm; }
+    .bleed { position: absolute; top: -19mm; left: -14.7mm; width: 297mm; height: 210mm; }
+    .bleed img.full { width: 297mm; height: 210mm; display: block; }
 
-    .kicker { font-size: 8pt; font-weight: bold; letter-spacing: 1.4pt; text-transform: uppercase; color: #12b5a0; }
-    h2 { font-size: 20pt; line-height: 1.15; color: #16191c; font-weight: bold; }
-    .rule { width: 22mm; height: 1mm; background: #1ad4bc; margin: 3.5mm 0 6mm; }
-    .fullrule { height: 0.7mm; background: #1ad4bc; margin: 2mm 0 5mm; }
-    .aside { text-align: right; color: #12b5a0; font-size: 8pt; }
-    .muted { color: #7d8b88; }
-    .lead { font-size: 10pt; color: #3a4a46; line-height: 1.5; }
+    /* Título das páginas da proposta */
+    table.head { width: 100%; border-collapse: collapse; border-bottom: 0.3mm solid #8fd9c9; margin-bottom: 4mm; }
+    table.head td { padding: 0 0 2.2mm; vertical-align: bottom; }
+    table.head h2 { font-family: 'Poppins'; font-weight: bold; font-size: 13.5pt; color: #111417; }
+    table.head .aside { text-align: right; font-family: 'PoppinsSemi'; color: #15a88f; font-size: 7.4pt; }
 
-    /* Capa */
-    .cover { width: 210mm; height: 296mm; background: #ffffff; color: #1a1d20; position: relative; }
-    .cover .brand { position: absolute; left: 22mm; top: 78mm; }
-    .cover .brand img { height: 8mm; vertical-align: middle; }
-    .cover .brand span { font-size: 11pt; font-weight: bold; color: #1a1d20; vertical-align: middle; }
-    .cover .mid { position: absolute; left: 22mm; right: 22mm; top: 98mm; }
-    .cover h1 { font-size: 26pt; font-weight: normal; line-height: 1.15; color: #1a1d20; margin-top: 5mm; }
-    .cover h1 strong { font-weight: bold; }
-    .cover .sub { margin-top: 6mm; color: #8b9694; font-size: 10.5pt; line-height: 1.45; width: 130mm; }
-    .cover .date { position: absolute; right: 16mm; bottom: 14mm; color: #9aa6a3; font-size: 9pt; }
+    /* Seção numerada com linhas (perfil, escopo, condições) */
+    table.sec { width: 100%; border-collapse: collapse; margin-top: 2.6mm; }
+    table.sec td { padding: 0 0 1.3mm; vertical-align: bottom; }
+    table.sec .n { color: #15a88f; font-family: 'PoppinsSemi'; font-size: 9pt; }
+    table.sec .t { font-family: 'Poppins'; font-weight: bold; font-size: 9pt; color: #111417; }
+    table.sec .tag { text-align: right; font-style: italic; color: #6f7a78; font-size: 6.8pt; }
+    table.rows { width: 100%; border-collapse: collapse; border-top: 0.6mm solid #3a3f42; }
+    table.rows td { background: #ffffff; border: 0.2mm solid #dfe6e4; border-top: none; padding: 0.7mm 3mm; font-size: 7.3pt; line-height: 1.15; color: #1d2124; }
+    table.rows tr.alt td { background: #f6f9f8; }
+    table.rows .b { color: #3a3f42; padding-right: 1.6mm; }
 
-    .mint { background: #e7f7f3; }
-    .card { background: #e7f7f3; padding: 4mm 4.5mm; vertical-align: top; }
-    .card .n { color: #12b5a0; font-weight: bold; font-size: 11pt; }
-    .card h3 { font-size: 10.5pt; color: #16191c; margin: 1mm 0; }
-    .card p { color: #4a5c58; font-size: 8.5pt; }
-    .stat { text-align: center; vertical-align: top; }
-    .stat b { display: block; font-size: 22pt; color: #16191c; line-height: 1; }
-    .stat span { color: #7d8b88; font-size: 8pt; }
-    .stat .tick { width: 10mm; height: 0.8mm; background: #1ad4bc; margin: 0 auto 2mm; }
-    .pill { background: #e7f7f3; color: #16191c; text-align: center; padding: 2.5mm 4mm; border-radius: 8mm; }
+    /* Tabelas de valores */
+    table.grid { width: 100%; border-collapse: collapse; }
+    table.grid th { background: #0b0c0d; color: #ffffff; font-family: 'PoppinsSemi'; font-weight: normal; font-size: 7.3pt; line-height: 1.15; text-align: left; padding: 1.3mm 2.4mm; border: 0.2mm solid #2c3033; }
+    table.grid td { background: #ffffff; border: 0.2mm solid #dfe6e4; padding: 1.1mm 2.4mm; font-size: 7.3pt; line-height: 1.15; }
+    table.grid tr.alt td { background: #f6f9f8; }
+    table.grid .r { text-align: right; white-space: nowrap; }
+    table.grid tr.total td { background: #0b0c0d; color: #4ff0d1; font-family: 'PoppinsSemi'; border-color: #2c3033; }
+    table.grid tr.total td.lbl { color: #4ff0d1; }
+    table.grid tr.hi td { background: #e3f9f3; font-family: 'PoppinsSemi'; }
+    table.grid td.mint { background: #e3f9f3; }
+    .sub { font-family: 'Poppins'; font-weight: bold; font-size: 9pt; color: #111417; margin: 0 0 2mm; }
 
-    .panel { background: #e7f7f3; padding: 5mm; vertical-align: top; }
-    .panel h3 { font-size: 13pt; color: #16191c; margin-bottom: 1mm; }
-    .panel .sub { color: #5c6e6a; font-size: 8pt; margin-bottom: 3mm; }
-    .dot { color: #1ad4bc; font-weight: bold; }
-    table.items { width: 100%; border-collapse: collapse; }
-    table.items td { border-top: 0.25mm solid #cfe4df; padding: 1.8mm 1mm; vertical-align: top; font-size: 8pt; }
-    table.items td.t { font-weight: bold; color: #16191c; }
-    table.items td.d { color: #5c6e6a; }
+    /* Abertura da proposta (Pág. 1); a faixa escura é pintada pelo ProposalPdf */
+    .dark { position: absolute; left: 0; top: 0; width: 60mm; padding: 0 12mm; color: #ffffff; }
+    .light { position: absolute; left: 84mm; top: 15mm; width: 188.5mm; padding-left: 9.5mm; }
+    .dark .emb { text-align: center; padding-top: 14mm; }
+    .dark .emb img { width: 15mm; height: 15mm; }
+    .dark .brand { font-family: 'PoppinsSemi'; font-size: 13pt; margin-top: 6mm; }
+    .dark .line { height: 0.5mm; background: #4ff0d1; width: 54mm; margin: 10mm 0 5mm; }
+    .dark .lbl { font-family: 'PoppinsSemi'; color: #4ff0d1; font-size: 6.9pt; text-transform: uppercase; margin-top: 7mm; }
+    .dark .title { font-family: 'Poppins'; font-weight: bold; font-size: 13.5pt; line-height: 1.3; margin-top: 2mm; }
+    .dark .who { font-family: 'PoppinsSemi'; font-size: 11pt; margin-top: 2mm; }
+    .dark .small { color: #9aa5a3; font-size: 6.6pt; margin-top: 1mm; }
+    .dark .date { font-size: 8.8pt; margin-top: 2mm; }
+    .conf { position: absolute; left: 12mm; top: 196mm; color: #b9c2c0; font-size: 6.2pt; }
+    .cap { font-family: 'PoppinsSemi'; color: #4a5250; font-size: 6.6pt; text-transform: uppercase; margin: 0 0 2.4mm; }
+    table.info { width: 100%; border-collapse: collapse; margin-bottom: 6mm; }
+    table.info td { border: 0.25mm solid #d4dcda; background: #ffffff; padding: 2.4mm 2.4mm; font-size: 7.3pt; vertical-align: middle; }
+    table.info td.k { font-family: 'PoppinsSemi'; width: 18%; }
+    table.bar { width: 100%; border-collapse: collapse; }
+    table.bar td { font-size: 7pt; padding: 0; }
+    table.bar td.p { text-align: right; color: #6f7a78; font-size: 6.6pt; }
+    .track { height: 2.6mm; background: #e2ebe9; border-radius: 1.3mm; margin: 1mm 0 3.6mm; }
+    .fill { height: 2.6mm; border-radius: 1.3mm; }
 
-    .client { background: #f7fbfa; border: 0.3mm solid #e1eeeb; text-align: center; vertical-align: middle; height: 28mm; padding: 3mm; }
-    .client b { font-size: 10pt; color: #16191c; }
-    .client span { display: block; color: #7d8b88; font-size: 7.5pt; margin-top: 1mm; }
-    .more { background: #d9f6ef; text-align: center; vertical-align: middle; height: 28mm; }
-    .more b { display: block; font-size: 18pt; color: #16191c; }
-    .more span { color: #12b5a0; font-size: 8.5pt; }
+    /* Cronograma */
+    table.gantt { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    table.gantt td { height: 12.5mm; vertical-align: middle; border-left: 0.2mm solid #dfe6e4; padding: 0 0.6mm; }
+    table.gantt td.name { border-left: none; text-align: right; padding-right: 3mm; font-family: 'Poppins'; font-weight: bold; font-size: 7.3pt; color: #111417; }
+    table.gantt tr.months td { height: 7mm; text-align: center; color: #8a9593; font-size: 6.6pt; }
+    table.gantt tr.months td.name { border-left: none; }
+    .gbar { padding: 2.2mm 0 1.8mm; line-height: 1.2; border-radius: 2mm; text-align: center; font-family: 'PoppinsSemi'; font-size: 6.2pt; }
+    .gbar.once { background: #4ff0d1; color: #0b0c0d; }
+    .gbar.month { background: #0b0c0d; color: #ffffff; }
 
-    .flow td { text-align: center; vertical-align: top; padding: 0 2mm; }
-    .circ { width: 8mm; height: 8mm; border: 0.45mm solid #1ad4bc; border-radius: 4mm; text-align: center; color: #16191c; font-weight: bold; line-height: 7mm; margin: 0 auto 2mm; background: #ffffff; }
-    .band { background: #d9f6ef; padding: 5mm 3mm 4mm; }
-    .band .circ { background: #16191c; color: #ffffff; border-color: #16191c; }
-    .band-title { font-size: 7.5pt; font-weight: bold; letter-spacing: 1pt; text-transform: uppercase; color: #12b5a0; margin-bottom: 4mm; }
-    .note { text-align: center; color: #8b9694; font-size: 8pt; margin-top: 5mm; }
-
-    /* Abertura da proposta */
-    table.opener { width: 100%; border-collapse: collapse; }
-    table.opener td.dark { background: #0c1014; color: #ffffff; vertical-align: top; padding: 8mm 7mm; width: 36%; height: 242mm; }
-    table.opener td.sheet { background: #f4f7f6; vertical-align: top; padding: 6mm 6mm 4mm 6mm; }
-    .dark .tag { color: #1ad4bc; font-size: 8pt; font-weight: bold; letter-spacing: 1.2pt; text-transform: uppercase; margin-top: 6mm; }
-    .dark h2 { color: #ffffff; font-size: 16pt; margin-top: 2mm; }
-    .dark .who { color: #ffffff; font-size: 13pt; font-weight: bold; margin-top: 1mm; }
-    .dark .sub { color: #9ec9c2; font-size: 8pt; margin-top: 1mm; }
-    .dark .bar { width: 18mm; height: 0.9mm; background: #1ad4bc; margin: 4mm 0; }
-    table.info { width: 100%; border-collapse: collapse; margin-bottom: 5mm; }
-    table.info td { border: 0.25mm solid #d5e0dc; padding: 2mm 2.5mm; font-size: 8pt; background: #ffffff; vertical-align: top; }
-    table.info td.k { color: #7d8b88; width: 22%; }
-    .comp { font-size: 7.5pt; font-weight: bold; letter-spacing: 0.8pt; text-transform: uppercase; color: #5c6e6a; margin: 2mm 0; }
-    .barline { height: 2.2mm; background: #d7f3ee; margin: 1mm 0 2.5mm; }
-    .barline div { height: 2.2mm; background: #1ad4bc; }
-    .barline.dark div { background: #16191c; }
-
-    /* Tabelas da proposta */
-    table.sheet { width: 100%; border-collapse: collapse; margin-bottom: 4mm; }
-    table.sheet th { background: #16191c; color: #ffffff; font-size: 8pt; font-weight: bold; text-align: left; padding: 2.2mm 2.5mm; }
-    table.sheet td { background: #ffffff; border-bottom: 0.2mm solid #e3eeeb; padding: 2mm 2.5mm; font-size: 8.5pt; vertical-align: middle; }
-    table.sheet td.r, table.sheet th.r { text-align: right; white-space: nowrap; }
-    table.sheet tr.total td { background: #16191c; color: #1ad4bc; font-weight: bold; border-bottom: none; }
-    table.sheet tr.total td.blk { color: #ffffff; }
-    table.sheet tr.hi td { background: #e7f7f3; }
-    .scope-h { border-bottom: 0.35mm solid #16191c; padding-bottom: 1.5mm; margin-top: 4mm; }
-    .scope-h .n { color: #12b5a0; font-weight: bold; }
-    .scope-h h3 { display: inline; font-size: 11pt; color: #16191c; }
-    table.scope { width: 100%; border-collapse: collapse; margin: 0 0 1mm; }
-    table.scope td { border-bottom: 0.2mm solid #e3eeeb; padding: 1.7mm 2mm; font-size: 8.5pt; background: #ffffff; }
-    .foot { color: #8b9694; font-size: 7.5pt; margin-top: 3mm; }
-
-    table.ticks, table.gantt { width: 100%; border-collapse: collapse; table-layout: fixed; }
-    table.gantt td { font-size: 8pt; vertical-align: middle; padding: 1.6mm 0; }
-    table.gantt td.name, table.ticks td.gap { width: 32%; padding-right: 2mm; color: #16191c; }
-    .track { height: 4.2mm; background: #e7eeec; }
-    .fill { height: 4.2mm; background: #1ad4bc; }
-    .fill.m { background: #16191c; }
-    .ticks td { text-align: center; font-size: 7pt; color: #8b9694; padding-bottom: 1mm; }
-
+    /* Gráficos de colunas */
     table.chart { width: 100%; border-collapse: collapse; table-layout: fixed; }
-    table.chart td.col { height: 36mm; vertical-align: bottom; text-align: center; padding: 0 0.6mm; border-bottom: 0.35mm solid #16191c; }
-    table.chart td.lbl { text-align: center; font-size: 6.5pt; color: #7d8b88; padding-top: 1mm; }
-    .b-inv { background: #1ad4bc; width: 42%; display: inline-block; }
-    .b-ret { background: #16191c; width: 42%; display: inline-block; }
+    table.chart td.col { vertical-align: bottom; text-align: center; padding: 0 0.8mm; font-size: 0; line-height: 0; }
+    table.chart td.neg { vertical-align: top; text-align: center; padding: 0 0.8mm; font-size: 0; line-height: 0; }
+    table.chart tr.axis td { border-top: 0.3mm solid #9aa5a3; }
+    table.chart td.lbl { text-align: center; font-size: 6pt; color: #6f7a78; padding-top: 1mm; }
+    .legend { font-size: 6.4pt; color: #4a5250; margin-bottom: 2mm; }
+    .legend span { display: inline-block; width: 4mm; height: 1.4mm; margin: 0 1mm 0 3mm; vertical-align: middle; }
 
-    .sign { margin-top: 8mm; }
-    .sign .line { border-bottom: 0.3mm solid #16191c; height: 8mm; }
-    .cta { display: inline-block; background: #1ad4bc; color: #0c1014; padding: 2.5mm 5mm; text-decoration: none; font-weight: bold; margin-top: 3mm; }
+    /* Aceite */
+    .sigline { color: #3a3f42; letter-spacing: 0.4pt; }
+    a.cta { display: inline-block; background: #4ff0d1; color: #0b0c0d; font-family: 'PoppinsSemi'; padding: 2mm 5mm; text-decoration: none; border-radius: 1.5mm; }
 </style>
 </head>
 <body>
 
-<div class="hdr">
-    <table><tr>
-        <td>
-            <?php if ($emblemPath): ?><img src="<?= $e($emblemPath) ?>" alt=""><?php endif; ?>
-            <span class="brand">&nbsp;<?= $e($appName) ?></span>
-        </td>
-        <td style="text-align:right;">Proposta comercial<?php if ($client !== ''): ?> &middot; <?= $e(mb_strimwidth($clientShort, 0, 42, '…')) ?><?php endif; ?></td>
-    </tr></table>
-    <div class="bar"></div>
-</div>
-<div class="ftr"><?= $e($appName) ?> &middot; Proposta comercial<?php if ($client !== ''): ?> &middot; <?= $e($clientShort) ?><?php endif; ?> &middot; Documento confidencial</div>
+<?php foreach ($modelPages as $i => $img): ?>
+<div class="sheet<?= $i > 0 ? ' page' : '' ?>"><div class="bleed"><img class="full" src="<?= $e($img) ?>" alt=""></div></div>
+<?php endforeach; ?>
 
-<!-- CAPA -->
-<div class="cover">
-    <div class="brand">
-        <?php if ($emblemPath): ?><img src="<?= $e($emblemPath) ?>" alt=""><?php endif; ?>
-        <span>&nbsp;<?= $e($appName) ?></span>
+<!-- Pág. 1: informações da proposta -->
+<div class="sheet<?= $modelPages ? ' page' : '' ?>"><div class="bleed">
+    <div class="dark">
+        <div class="emb"><?php if ($emblemPath): ?><img src="<?= $e($emblemPath) ?>" alt=""><?php endif; ?></div>
+        <div class="brand"><?= $e($brand) ?></div>
+        <div class="line"></div>
+        <div class="lbl" style="margin-top:0;">Proposta comercial</div>
+        <div class="title"><?= $e($proposal['title']) ?></div>
+        <div class="lbl" style="margin-top:13mm;">Preparada para</div>
+        <div class="who"><?= $e($clientLabel) ?></div>
+        <?php $contact = array_filter([trim((string)($proposal['client_email'] ?? '')), trim((string)($proposal['client_phone'] ?? ''))]); ?>
+        <?php if ($contact): ?><div class="small"><?= $e(implode(' · ', $contact)) ?></div><?php endif; ?>
+        <div class="lbl">Data</div>
+        <div class="date"><?= $e($monthYear($proposal['created_at'] ?? null)) ?></div>
     </div>
-    <div class="mid">
-        <div class="kicker">Apresentação comercial</div>
-        <h1>Estratégia e tecnologia<br><strong>aplicadas a resultados.</strong></h1>
-        <div class="rule"></div>
-        <p class="sub">Consultoria estratégica comercial, inteligência de mercado e soluções sob medida para empresas que querem crescer com clareza.</p>
-    </div>
-    <div class="date"><?= $e($monthYear($proposal['created_at'] ?? null)) ?></div>
-</div>
+    <div class="conf">Documento confidencial</div>
+    <div class="light">
+        <div class="cap">Informações da proposta</div>
+        <table class="info">
+            <tr>
+                <td class="k">Cliente</td><td><?= $e($clientLabel) ?></td>
+                <td class="k">Proponente</td><td><?= $e($brand) ?></td>
+            </tr>
+            <tr>
+                <td class="k">Projeto</td><td><?= $e($proposal['title']) ?></td>
+                <td class="k">Validade</td><td><?= !empty($proposal['validity_date']) ? $e($brDate($proposal['validity_date'])) : 'A combinar' ?></td>
+            </tr>
+            <tr>
+                <td class="k">Implantação</td><td><?= $onceItems ? $e(implode(', ', array_column($onceItems, 'description'))) : 'Não se aplica' ?></td>
+                <td class="k">Prazo</td><td><?= $e($period) ?></td>
+            </tr>
+            <tr>
+                <td class="k">Mensalidade</td><td><?= $monthItems ? $e(implode(', ', array_column($monthItems, 'description'))) : 'Não se aplica' ?></td>
+                <td class="k">Pagamento</td><td><?= $e($vars['condicao_pagamento']) ?></td>
+            </tr>
+        </table>
 
-<?php if ($about): ?>
-<div class="section">
-    <div class="kicker"><?= $e($about['title'] ?: 'Quem somos') ?></div>
-    <h2>Estratégia e tecnologia<br>aplicadas a resultados.</h2>
-    <div class="rule"></div>
-    <table width="100%" cellspacing="0" cellpadding="0"><tr>
-        <td width="48%" style="vertical-align:top;padding-right:5mm;">
-            <?php foreach ($aboutParas as $p): ?><p class="lead" style="margin-bottom:4mm;"><?= nl2br($e($p)) ?></p><?php endforeach; ?>
-        </td>
-        <td width="52%" style="vertical-align:top;">
-            <?php if ($aboutCards): ?>
-            <table width="100%" cellspacing="0" cellpadding="0">
-                <?php foreach ($aboutCards as $card): ?>
-                <tr><td class="card" style="padding-bottom:4mm;">
-                    <div><span class="n"><?= $e($card['n']) ?></span> <strong style="color:#16191c;font-size:10.5pt;"> <?= $e($card['title']) ?></strong></div>
-                    <?php if ($card['text'] !== ''): ?><p style="margin-top:1mm;"><?= $e($card['text']) ?></p><?php endif; ?>
-                </td></tr>
-                <tr><td style="height:2.5mm;"></td></tr>
-                <?php endforeach; ?>
-            </table>
-            <?php endif; ?>
-        </td>
-    </tr></table>
-    <table width="100%" cellspacing="0" cellpadding="0" style="margin-top:8mm;"><tr>
-        <td class="stat" width="33%"><div class="tick"></div><b>100+</b><span>projetos entregues</span></td>
-        <td class="stat" width="33%"><div class="tick"></div><b>50+</b><span>clientes ativos</span></td>
-        <td class="stat" width="33%"><div class="tick"></div><b>99%</b><span>de satisfação</span></td>
-    </tr></table>
-    <p class="pill" style="margin-top:6mm;">Atendemos clientes nacionais e internacionais</p>
-</div>
-<?php endif; ?>
-
-<?php if ($b = $fixed('what_we_do')): $cols = $groups($b['body']); ?>
-<div class="section">
-    <div class="kicker"><?= $e($b['title'] ?: 'O que fazemos') ?></div>
-    <h2>Estratégia e tecnologia, lado a lado.</h2>
-    <div class="rule"></div>
-    <table width="100%" cellspacing="0" cellpadding="0"><tr>
-        <?php foreach ($cols as $i => $col): ?>
-        <td class="panel" width="<?= count($cols) > 1 ? '50%' : '100%' ?>" <?= $i === 0 && count($cols) > 1 ? 'style="padding-right:3mm;"' : '' ?>>
-            <?php if ($col['title'] !== ''): ?><div class="n" style="color:#12b5a0;font-weight:bold;"><?= sprintf('%02d', $i + 1) ?></div><h3><?= $e($col['title']) ?></h3><?php endif; ?>
-            <?php if ($col['subtitle'] !== ''): ?><p class="sub"><?= $e($col['subtitle']) ?></p><?php endif; ?>
-            <table class="items">
-                <?php foreach ($col['lines'] as $l): ?>
-                <tr>
-                    <td class="t"><span class="dot">●</span> <?= $e($l['title']) ?></td>
-                </tr>
-                <?php if ($l['text'] !== ''): ?><tr><td class="d" style="border-top:none;padding-top:0;"><?= $e($l['text']) ?></td></tr><?php endif; ?>
-                <?php endforeach; ?>
-            </table>
-        </td>
-        <?php if ($i === 0 && count($cols) > 1): ?><td style="width:3mm;"></td><?php endif; ?>
-        <?php endforeach; ?>
-    </tr></table>
-</div>
-<?php endif; ?>
-
-<?php if ($b = $fixed('clients')): $names = ProposalRules::blockLines($b['body']); ?>
-<div class="section">
-    <div class="kicker"><?= $e($b['title'] ?: 'Clientes') ?></div>
-    <table width="100%" cellspacing="0" cellpadding="0"><tr>
-        <td><h2>Quem confia na ON Solutions.</h2></td>
-        <td style="text-align:right;vertical-align:bottom;" class="muted">Mais de 50 clientes ativos e mais de 100 projetos entregues.</td>
-    </tr></table>
-    <div class="rule"></div>
-    <?php
-        $cells = $names;
-        $cells[] = ['title' => '__more__', 'text' => ''];
-    ?>
-    <table width="100%" cellspacing="0" cellpadding="0">
-        <?php foreach (array_chunk($cells, 4) as $row): ?>
-        <tr>
-            <?php foreach ($row as $l): ?>
-            <?php if ($l['title'] === '__more__'): ?>
-            <td class="more" width="25%"><b>50+</b><span>clientes ativos<br>nacionais e internacionais</span></td>
-            <?php else: ?>
-            <td class="client" width="25%"><b><?= $e($l['title']) ?></b><?php if ($l['text'] !== ''): ?><span><?= $e($l['text']) ?></span><?php endif; ?></td>
-            <?php endif; ?>
-            <?php endforeach; ?>
-            <?php for ($i = count($row); $i < 4; $i++): ?><td width="25%"></td><?php endfor; ?>
-        </tr>
-        <tr><td colspan="4" style="height:3mm;"></td></tr>
-        <?php endforeach; ?>
-    </table>
-</div>
-<?php endif; ?>
-
-<?php if ($b = $fixed('how_we_work')): $tracks = $groups($b['body']); ?>
-<div class="section">
-    <div class="kicker"><?= $e($b['title'] ?: 'Como fazemos') ?></div>
-    <h2>Do entendimento ao resultado.</h2>
-    <div class="rule"></div>
-    <?php foreach ($tracks as $ti => $track): ?>
-    <div class="<?= $ti > 0 ? 'band' : '' ?>" style="margin-bottom:5mm;">
-        <?php if ($track['title'] !== ''): ?><div class="band-title"><?= $e($track['title']) ?></div><?php endif; ?>
-        <table class="flow" width="100%" cellspacing="0" cellpadding="0"><tr>
-            <?php foreach ($track['lines'] as $si => $l): ?>
-            <td width="<?= max(1, (int)floor(100 / max(1, count($track['lines'])))) ?>%">
-                <div class="circ"><?= $si + 1 ?></div>
-                <strong><?= $e($l['title']) ?></strong>
-                <?php if ($l['text'] !== ''): ?><p class="muted" style="margin-top:1mm;font-size:8pt;"><?= $e($l['text']) ?></p><?php endif; ?>
-            </td>
-            <?php endforeach; ?>
+        <?php
+        $colors = ['#0b0c0d', '#1fb89f', '#4ff0d1'];
+        $composition = [
+            'Composição da implantação' => [$onceItems, $totals['once']],
+            'Composição da mensalidade' => [$monthItems, $totals['monthly']],
+        ];
+        foreach ($composition as $caption => [$list, $sum]):
+            if (!$list || $sum <= 0) continue;
+        ?>
+        <div class="cap"><?= $e($caption) ?></div>
+        <?php foreach ($list as $k => $it): $pct = (float)$it['amount'] / $sum * 100; ?>
+        <table class="bar"><tr>
+            <td class="semi"><?= $e($it['description']) ?></td>
+            <td class="p"><?= number_format($pct, 1, ',', '.') ?>%</td>
         </tr></table>
+        <div class="track"><div class="fill" style="width:<?= max(1.5, round($pct, 2)) ?>%;background:<?= $colors[$k % 3] ?>;"></div></div>
+        <?php endforeach; ?>
+        <?php endforeach; ?>
+
+        <p class="note" style="font-style:italic;">Valores em reais nas páginas de investimento.<?= !empty($proposal['observations']) ? ' ' . $e($proposal['observations']) : '' ?></p>
     </div>
-    <?php endforeach; ?>
-    <p class="note">Escopo, prazo e responsabilidade claros, do primeiro diagnóstico à evolução contínua.</p>
-</div>
-<?php endif; ?>
-
-<!-- INFORMAÇÕES DA PROPOSTA -->
-<div class="section">
-    <table class="opener"><tr>
-        <td class="dark">
-            <?php if ($emblemPath): ?><img src="<?= $e($emblemPath) ?>" alt="" style="height:16mm;"><?php endif; ?>
-            <div style="font-size:13pt;font-weight:bold;margin-top:3mm;"><?= $e($appName) ?></div>
-            <div class="bar"></div>
-            <div class="tag">Proposta comercial</div>
-            <h2><?= $e($proposal['title']) ?></h2>
-            <?php if ($client !== ''): ?>
-            <div class="tag">Preparada para</div>
-            <div class="who"><?= $e($client) ?></div>
-            <div class="sub">
-                <?= $e($proposal['client_email'] ?? '') ?>
-                <?php if (!empty($proposal['client_phone'])): ?><br><?= $e($proposal['client_phone']) ?><?php endif; ?>
-            </div>
-            <?php endif; ?>
-            <div class="tag">Data</div>
-            <div class="who" style="font-size:11pt;"><?= $e($monthYear($proposal['created_at'] ?? null)) ?></div>
-            <p style="margin-top:18mm;color:#6d7c78;font-size:8pt;">Documento confidencial</p>
-        </td>
-        <td class="sheet">
-            <div class="comp">Informações da proposta</div>
-            <table class="info">
-                <tr>
-                    <td class="k">Cliente</td><td><?= $e($client !== '' ? $client : 'A definir') ?></td>
-                    <td class="k">Proponente</td><td><?= $e($appName) ?></td>
-                </tr>
-                <tr>
-                    <td class="k">Projeto</td><td><?= $e($proposal['title']) ?></td>
-                    <td class="k">Validade</td><td><?= !empty($proposal['validity_date']) ? $e($brDate($proposal['validity_date'])) : 'A combinar' ?></td>
-                </tr>
-                <tr>
-                    <td class="k">Implantação</td>
-                    <td><?= (!empty($timeline['start']) && !empty($timeline['end'])) ? $e($brDate($timeline['start']) . ' a ' . $brDate($timeline['end'])) : 'A definir' ?></td>
-                    <td class="k">Mensalidade</td>
-                    <td><?= $monthItems ? $e(implode(', ', array_map(fn($it) => $it['description'], $monthItems))) : 'Não inclusa' ?></td>
-                </tr>
-            </table>
-
-            <?php if ($onceItems && $totals['once'] > 0): ?>
-            <div class="comp">Composição da implantação</div>
-            <?php foreach ($onceItems as $it):
-                $pct = $totals['once'] > 0 ? round((float)$it['amount'] / $totals['once'] * 100) : 0;
-            ?>
-            <table width="100%" cellspacing="0" cellpadding="0"><tr>
-                <td style="font-size:8.5pt;"><?= $e($it['description']) ?></td>
-                <td style="text-align:right;font-size:8.5pt;width:16mm;"><?= (int)$pct ?>%</td>
-            </tr></table>
-            <div class="barline <?= $pct >= 40 ? 'dark' : '' ?>"><div style="width:<?= max(2, (int)$pct) ?>%;"></div></div>
-            <?php endforeach; ?>
-            <?php endif; ?>
-
-            <p class="foot">Valores em reais nas páginas de investimento.<?= !empty($proposal['observations']) ? ' ' . $e($proposal['observations']) : '' ?></p>
-        </td>
-    </tr></table>
-</div>
+</div></div>
 
 <?php if ($business): $n = 0; ?>
-<div class="section">
-    <table width="100%"><tr>
+<div class="page">
+    <table class="head"><tr>
         <td><h2>Entendimento do negócio</h2></td>
-        <td class="aside"><?= $e($client !== '' ? $client : 'Informações da proposta') ?></td>
+        <td class="aside"><?= $e($clientLabel) ?> · informações públicas</td>
     </tr></table>
-    <div class="fullrule"></div>
     <?php foreach ($business as $label => $text): $n++; ?>
-    <div class="scope-h"><span class="n"><?= sprintf('%02d', $n) ?></span> <h3><?= $e($label) ?></h3></div>
-    <table class="scope">
-        <?php foreach ($bullets($text) as $line): ?>
-        <tr><td>&bull; <?= $e($line) ?></td></tr>
-        <?php endforeach; ?>
+    <table class="sec"><tr><td><span class="n"><?= sprintf('%02d', $n) ?></span>&nbsp; <span class="t"><?= $e($label) ?></span></td></tr></table>
+    <table class="rows">
+        <?php foreach ($lines($text) as $i => $line): ?><tr<?= $alt($i) ?>><td><span class="b">&bull;</span> <?= $e($line) ?></td></tr><?php endforeach; ?>
     </table>
     <?php endforeach; ?>
+    <p class="note">Informações coletadas em fontes públicas e na conversa com o cliente. Os pontos de oportunidade são hipóteses e serão confirmados no diagnóstico.</p>
 </div>
 <?php endif; ?>
 
 <?php
-$scopeBlocks = [];
-if ($onceItems) $scopeBlocks[] = ['title' => 'Escopo dos serviços — Implantação', 'tag' => 'Pagamento único', 'items' => $onceItems];
-if ($monthItems) $scopeBlocks[] = ['title' => 'Escopo dos serviços — Acompanhamento mensal', 'tag' => 'Recorrente', 'items' => $monthItems];
+$scopePages = [];
+if ($onceItems) $scopePages[] = ['Escopo dos serviços — Implantação', 'Pagamento único', $onceItems, 'Os valores de cada item de implantação estão na página de Investimento.'];
+if ($monthItems) $scopePages[] = ['Escopo dos serviços — Acompanhamento mensal', 'Recorrente', $monthItems, 'Os valores mensais de cada serviço estão na página de Investimento.'];
 $scopeN = 0;
-foreach ($scopeBlocks as $block):
+foreach ($scopePages as [$title, $tag, $list, $foot]):
 ?>
-<div class="section">
-    <table width="100%"><tr>
-        <td><h2><?= $e($block['title']) ?></h2></td>
-        <td class="aside"><?= $e($block['tag']) ?></td>
+<div class="page">
+    <table class="head"><tr>
+        <td><h2><?= $e($title) ?></h2></td>
+        <td class="aside"><?= $e($tag) ?></td>
     </tr></table>
-    <div class="fullrule"></div>
-    <?php foreach ($block['items'] as $it): $scopeN++; $lines = $bullets($it['scope'] ?? ''); ?>
-    <table width="100%" class="scope-h" cellspacing="0" cellpadding="0"><tr>
-        <td><span class="n"><?= sprintf('%02d', $scopeN) ?></span> <h3><?= $e($it['description']) ?></h3></td>
+    <?php foreach ($list as $it): $scopeN++;
+        $meta = [];
+        if ($it['hours'] !== null && $it['hours'] !== '' && (float)$it['hours'] > 0) $meta[] = $num($it['hours']) . ' horas';
+        if ((float)($it['quantity'] ?? 1) != 1) $meta[] = 'Quantidade ' . $num($it['quantity']);
+        if (!empty($it['schedule_start'])) {
+            $meta[] = empty($it['schedule_end']) ? 'A partir de ' . $brDate($it['schedule_start']) : $brDate($it['schedule_start']) . ' a ' . $brDate($it['schedule_end']);
+        }
+        $scopeLines = $lines($it['scope'] ?? '');
+    ?>
+    <table class="sec"><tr>
+        <td><span class="n"><?= sprintf('%02d', $scopeN) ?></span>&nbsp; <span class="t"><?= $e($it['description']) ?></span></td>
+        <td class="tag"><?= $e(implode(' · ', $meta)) ?></td>
     </tr></table>
-    <?php if ($lines): ?>
-    <table class="scope">
-        <?php foreach ($lines as $line): ?><tr><td>&bull; <?= $e($line) ?></td></tr><?php endforeach; ?>
+    <table class="rows">
+        <?php if (!$scopeLines): ?><tr><td><span class="b">&bull;</span> <?= $e($it['description']) ?>.</td></tr><?php endif; ?>
+        <?php foreach ($scopeLines as $i => $line): ?><tr<?= $alt($i) ?>><td><span class="b">&bull;</span> <?= $e($line) ?></td></tr><?php endforeach; ?>
     </table>
-    <?php endif; ?>
     <?php endforeach; ?>
-    <p class="foot">Os valores de cada item estão na página de Investimento.</p>
+    <p class="note"><?= $e($foot) ?></p>
 </div>
 <?php endforeach; ?>
 
-<?php if (!$items): ?>
-<div class="section">
-    <h2>Escopo dos serviços</h2>
-    <div class="fullrule"></div>
-    <p class="muted">Nenhum serviço selecionado nesta proposta.</p>
-</div>
-<?php endif; ?>
-
-<div class="section">
-    <table width="100%"><tr>
+<div class="page">
+    <table class="head"><tr>
         <td><h2>Cronograma de etapas</h2></td>
         <td class="aside">Projeção de 12 meses</td>
     </tr></table>
-    <div class="fullrule"></div>
-    <?php if (!$timeline['rows']): ?>
+    <?php if (!$timeline['rows'] || !$originMonth): ?>
         <p class="muted">O cronograma é definido pelas datas de cada serviço.</p>
     <?php else: ?>
-    <table class="ticks" width="100%" cellspacing="0" cellpadding="0"><tr>
-        <td class="gap"></td>
-        <?php for ($i = 1; $i <= 12; $i++): ?><td><?= $i ?></td><?php endfor; ?>
-    </tr></table>
     <table class="gantt">
+        <tr class="months">
+            <td class="name" style="width:24%;"></td>
+            <?php for ($m = 1; $m <= 12; $m++): ?><td><?= $m ?></td><?php endfor; ?>
+        </tr>
         <?php foreach ($timeline['rows'] as $row):
             $a = $slot($row['start']);
             $b = !empty($row['ongoing']) ? 11 : $slot($row['end'] ?: $row['start']);
-            if ($a === null && $b !== null) $a = $b;
-            if ($b === null && $a !== null) $b = $a;
-            $left = $a !== null ? $a / 12 * 100 : 0;
-            $width = ($a !== null && $b !== null) ? max(6, ($b - $a + 1) / 12 * 100) : 0;
-            $monthly = !empty($row['ongoing']) || (isset($row['billing']) && $row['billing'] === 'monthly');
+            if ($a === null) $a = $b;
+            if ($b === null) $b = $a;
+            $monthly = ($row['billing'] ?? 'once') === 'monthly';
         ?>
         <tr>
             <td class="name"><?= $e($row['description']) ?></td>
-            <td>
-                <?php if ($width > 0): ?>
-                <div class="track"><div class="fill<?= $monthly ? ' m' : '' ?>" style="margin-left:<?= round($left, 2) ?>%;width:<?= round(min($width, 100 - $left), 2) ?>%;"></div></div>
-                <?php else: ?><span class="muted">A definir</span><?php endif; ?>
-            </td>
+            <?php if ($a === null): ?>
+                <td colspan="12" class="muted">&nbsp;A definir</td>
+            <?php else:
+                if ($b < $a) [$a, $b] = [$b, $a];
+                for ($m = 0; $m < $a; $m++): ?><td></td><?php endfor; ?>
+                <td colspan="<?= $b - $a + 1 ?>"><div class="gbar <?= $monthly ? 'month' : 'once' ?>">M<?= $a + 1 ?><?= $b > $a ? ' a M' . ($b + 1) : '' ?></div></td>
+                <?php for ($m = $b + 1; $m < 12; $m++): ?><td></td><?php endfor; ?>
+            <?php endif; ?>
         </tr>
         <?php endforeach; ?>
     </table>
-    <?php if (!empty($timeline['start']) && !empty($timeline['end'])): ?>
-    <p class="foot">Período: <?= $e($brDate($timeline['start'])) ?> a <?= $e($brDate($timeline['end'])) ?><?php if ($timeline['days'] > 0): ?> (<?= (int)$timeline['days'] ?> dias)<?php endif; ?>. Serviços mensais seguem até o 12º mês.</p>
-    <?php endif; ?>
+    <p class="note">Mês 1 = <?= $e($monthYear($timeline['start'])) ?>. Período de implantação: <?= $e($period) ?><?= $timeline['days'] > 0 ? ' (' . (int)$timeline['days'] . ' dias)' : '' ?>. Serviços mensais seguem até o 12º mês.</p>
     <?php endif; ?>
 </div>
 
-<div class="section">
-    <table width="100%"><tr>
+<div class="page">
+    <table class="head"><tr>
         <td><h2>Investimento</h2></td>
         <td class="aside">Valores em reais</td>
     </tr></table>
-    <div class="fullrule"></div>
-
-    <?php if ($onceItems): ?>
-    <table class="sheet">
-        <thead><tr><th>Implantação (pagamento único)</th><th class="r">Valor</th></tr></thead>
-        <tbody>
-        <?php foreach ($onceItems as $it): ?>
-            <tr><td><?= $e($it['description']) ?></td><td class="r"><?= $brl($it['amount']) ?></td></tr>
-        <?php endforeach; ?>
-            <tr class="total"><td class="blk">Total da implantação</td><td class="r"><?= $brl($totals['once']) ?></td></tr>
-        </tbody>
-    </table>
-    <?php endif; ?>
-
-    <?php if ($monthItems): ?>
-    <table class="sheet">
-        <thead><tr><th>Mensalidade</th><th class="r">Valor mensal</th></tr></thead>
-        <tbody>
-        <?php foreach ($monthItems as $it): ?>
-            <tr><td><?= $e($it['description']) ?></td><td class="r"><?= $brl($it['amount']) ?></td></tr>
-        <?php endforeach; ?>
-            <tr class="total"><td class="blk">Total da mensalidade</td><td class="r"><?= $brl($totals['monthly']) ?></td></tr>
-        </tbody>
-    </table>
-    <?php endif; ?>
-
-    <?php if (!$items): ?><p class="muted">Nenhum item de investimento nesta proposta.</p><?php endif; ?>
-    <p class="foot">Condição de pagamento: <?= $e($vars['condicao_pagamento']) ?>. O detalhamento está na página de Condições de pagamento e rescisão.</p>
-</div>
-
-<div class="section">
-    <table width="100%"><tr>
-        <td><h2>Projeção de 12 meses</h2></td>
-        <td class="aside">Investimento mês a mês</td>
+    <table width="100%" cellspacing="0" cellpadding="0"><tr>
+        <td width="49%" style="vertical-align:top;">
+            <table class="grid">
+                <tr><th>Implantação (pagamento único)</th><th class="r">Valor</th></tr>
+                <?php foreach ($onceItems as $i => $it): ?><tr<?= $alt($i) ?>><td><?= $e($it['description']) ?></td><td class="r"><?= $brl($it['amount']) ?></td></tr><?php endforeach; ?>
+                <?php if (!$onceItems): ?><tr><td colspan="2" class="muted">Sem itens de implantação.</td></tr><?php endif; ?>
+                <tr class="total"><td class="lbl">Total da implantação</td><td class="r"><?= $brl($totals['once']) ?></td></tr>
+            </table>
+        </td>
+        <td width="2%"></td>
+        <td width="49%" style="vertical-align:top;">
+            <table class="grid">
+                <tr><th>Serviço mensal</th><th class="r">Valor mensal</th></tr>
+                <?php foreach ($monthItems as $i => $it): ?><tr<?= $alt($i) ?>><td><?= $e($it['description']) ?></td><td class="r"><?= $brl($it['amount']) ?></td></tr><?php endforeach; ?>
+                <?php if (!$monthItems): ?><tr><td colspan="2" class="muted">Sem mensalidade.</td></tr><?php endif; ?>
+                <tr class="total"><td class="lbl">Total da mensalidade</td><td class="r"><?= $brl($totals['monthly']) ?></td></tr>
+            </table>
+        </td>
     </tr></table>
-    <div class="fullrule"></div>
-    <p class="lead" style="margin-bottom:3mm;">Distribuição do investimento<?= $expectedReturn > 0 ? ', comparada ao retorno estimado' : '' ?>.</p>
-    <table class="chart">
-        <tr>
-            <?php foreach ($projection['months'] as $m):
-                $hi = $maxMonth > 0 ? max(0.6, $m['invest'] / $maxMonth * 32) : 0;
-                $hr = $maxMonth > 0 && $m['return'] > 0 ? max(0.6, $m['return'] / $maxMonth * 32) : 0;
-            ?>
-            <td class="col">
-                <?php if ($m['invest'] > 0): ?><div class="b-inv" style="height:<?= round($hi, 2) ?>mm;"></div><?php endif; ?>
-                <?php if ($hr > 0): ?><div class="b-ret" style="height:<?= round($hr, 2) ?>mm;"></div><?php endif; ?>
-            </td>
-            <?php endforeach; ?>
+
+    <?php if ($items): ?>
+    <p class="sub" style="margin-top:6mm;">Detalhamento por serviço</p>
+    <table class="grid">
+        <tr><th>Serviço</th><th>Cobrança</th><th class="r">Quantidade</th><th class="r">Horas</th><th class="r">Valor unitário</th><th class="r">Total</th></tr>
+        <?php foreach ($items as $i => $it):
+            $q = (float)($it['quantity'] ?? 1) ?: 1;
+            $perHour = (float)($it['hours'] ?? 0) > 0 && (float)($it['hourly_rate'] ?? 0) > 0;
+            $unit = $perHour ? (float)$it['hourly_rate'] : (float)$it['amount'] / $q;
+            $isMonthly = ($it['billing'] ?? 'once') === 'monthly';
+        ?>
+        <tr<?= $alt($i) ?>>
+            <td><?= $e($it['description']) ?></td>
+            <td><?= $isMonthly ? 'Mensal' : 'Pagamento único' ?></td>
+            <td class="r"><?= $num($it['quantity'] ?? 1) ?></td>
+            <td class="r"><?= $num($it['hours']) ?></td>
+            <td class="r"><?= $brl($unit) ?><?= $perHour ? '/h' : '' ?></td>
+            <td class="r"><?= $brl($it['amount']) ?><?= $isMonthly ? '/mês' : '' ?></td>
         </tr>
-        <tr><?php foreach ($projection['months'] as $m): ?><td class="lbl"><?= $e($m['label']) ?></td><?php endforeach; ?></tr>
-    </table>
-    <p class="foot" style="margin-bottom:3mm;"><span style="color:#1ad4bc;">■</span> Investimento<?php if ($expectedReturn > 0): ?> &nbsp; <span style="color:#16191c;">■</span> Retorno estimado<?php endif; ?></p>
-    <table class="sheet">
-        <thead><tr>
-            <th>Mês</th><th class="r">Investimento</th>
-            <?php if ($expectedReturn > 0): ?><th class="r">Retorno</th><?php endif; ?>
-            <th class="r">Investido acumulado</th>
-            <?php if ($expectedReturn > 0): ?><th class="r">Retorno acumulado</th><?php endif; ?>
-        </tr></thead>
-        <tbody>
-        <?php foreach ($projection['months'] as $m): ?>
-            <tr>
-                <td><?= $e($m['label']) ?></td>
-                <td class="r"><?= $brl($m['invest']) ?></td>
-                <?php if ($expectedReturn > 0): ?><td class="r"><?= $brl($m['return']) ?></td><?php endif; ?>
-                <td class="r"><?= $brl($m['cum_invest']) ?></td>
-                <?php if ($expectedReturn > 0): ?><td class="r"><?= $brl($m['cum_return']) ?></td><?php endif; ?>
-            </tr>
         <?php endforeach; ?>
-            <tr class="total">
-                <td class="blk">12 meses</td>
-                <td class="r"><?= $brl($projection['invest']) ?></td>
-                <?php if ($expectedReturn > 0): ?><td class="r"><?= $brl($projection['return']) ?></td><?php endif; ?>
-                <td class="r"><?= $brl($projection['invest']) ?></td>
-                <?php if ($expectedReturn > 0): ?><td class="r"><?= $brl($projection['return']) ?></td><?php endif; ?>
-            </tr>
-        </tbody>
-    </table>
-</div>
-
-<?php if ($hasReturn): ?>
-<div class="section">
-    <table width="100%"><tr>
-        <td><h2>Previsibilidade do retorno</h2></td>
-        <td class="aside">Ponto de equilíbrio</td>
-    </tr></table>
-    <div class="fullrule"></div>
-    <?php if ($expectedReturn > 0): ?>
-    <table class="sheet">
-        <thead><tr><th></th><th class="r">Valor</th></tr></thead>
-        <tbody>
-            <tr><td>Retorno mensal estimado, a partir do mês seguinte à entrega</td><td class="r"><?= $brl($expectedReturn) ?></td></tr>
-            <tr><td>Mês em que o retorno acumulado cobre o investido</td><td class="r"><?= $projection['payback'] ? 'Mês ' . (int)$projection['payback'] : 'Após 12 meses' ?></td></tr>
-            <tr class="hi"><td>Resultado em 12 meses</td><td class="r"><?= $projection['roi'] !== null ? number_format($projection['roi'], 1, ',', '.') . '%' : '—' ?> (<?= $brl($projection['return'] - $projection['invest']) ?>)</td></tr>
-        </tbody>
+        <tr class="total"><td class="lbl" colspan="5">Investimento no primeiro ano (implantação + 12 mensalidades)</td><td class="r"><?= $brl($totals['year']) ?></td></tr>
     </table>
     <?php endif; ?>
-    <?php if ($c('return_text') !== ''): ?><div class="lead" style="margin-top:4mm;"><?php foreach ($paras($c('return_text')) as $p): ?><p style="margin-bottom:2mm;"><?= nl2br($e($p)) ?></p><?php endforeach; ?></div><?php endif; ?>
-    <p class="foot">O cálculo considera o investimento desta proposta. Premissas de retorno são estimativas e serão ajustadas com os números reais da empresa. Não representam promessa de resultado.</p>
+    <p class="note">As condições de pagamento estão na página de Condições de pagamento e rescisão.</p>
+</div>
+
+<?php
+$maxCum = 0.0;
+foreach ($projection['months'] as $m) $maxCum = max($maxCum, $m['cum_invest'], $m['cum_return']);
+?>
+<div class="page">
+    <table class="head"><tr>
+        <td><h2>Projeção de 12 meses</h2></td>
+        <td class="aside"><?= $expectedReturn > 0 ? 'Investimento e retorno estimado' : 'Investimento mês a mês' ?></td>
+    </tr></table>
+    <table width="100%" cellspacing="0" cellpadding="0"><tr>
+        <td width="47%" style="vertical-align:top;">
+            <p class="sub">Investimento acumulado ao longo do tempo</p>
+            <div class="legend"><span style="background:#1fb89f;margin-left:0;"></span>Investido acumulado<?php if ($expectedReturn > 0): ?><span style="background:#0b0c0d;"></span>Retorno acumulado<?php endif; ?></div>
+            <?php $span = $expectedReturn > 0 ? 3 : 2; ?>
+            <table class="chart">
+                <tr>
+                    <?php foreach ($projection['months'] as $m):
+                        $hi = $maxCum > 0 ? max(0.5, $m['cum_invest'] / $maxCum * 62) : 0;
+                        $hr = ($maxCum > 0 && $m['cum_return'] > 0) ? max(0.5, $m['cum_return'] / $maxCum * 62) : 0;
+                    ?>
+                    <td class="col" style="height:64mm;padding:0;"><div style="height:<?= round($hi, 2) ?>mm;background:#1fb89f;"></div></td>
+                    <?php if ($expectedReturn > 0): ?><td class="col" style="height:64mm;padding:0;"><?php if ($hr > 0): ?><div style="height:<?= round($hr, 2) ?>mm;background:#0b0c0d;"></div><?php endif; ?></td><?php endif; ?>
+                    <td class="col" style="padding:0;"></td>
+                    <?php endforeach; ?>
+                </tr>
+                <tr class="axis"><?php foreach ($projection['months'] as $i => $m): ?><td class="lbl" colspan="<?= $span ?>"><?= $i + 1 ?></td><?php endforeach; ?></tr>
+            </table>
+            <p class="note" style="text-align:center;">Mês</p>
+        </td>
+        <td width="3%"></td>
+        <td width="50%" style="vertical-align:top;">
+            <p class="sub">Mês a mês</p>
+            <table class="grid">
+                <tr>
+                    <th>Mês</th><th class="r">Investimento</th><th class="r">Investido acumulado</th>
+                    <?php if ($expectedReturn > 0): ?><th class="r">Retorno acumulado</th><?php endif; ?>
+                </tr>
+                <?php foreach ($projection['months'] as $i => $m): ?>
+                <tr<?= $alt($i) ?>>
+                    <td><?= $i + 1 ?> · <?= $e($m['label']) ?></td>
+                    <td class="r"><?= $brl($m['invest']) ?></td>
+                    <td class="r"><?= $brl($m['cum_invest']) ?></td>
+                    <?php if ($expectedReturn > 0): ?><td class="r mint"><?= $brl($m['cum_return']) ?></td><?php endif; ?>
+                </tr>
+                <?php endforeach; ?>
+                <tr class="total">
+                    <td class="lbl">12 meses</td><td class="r"><?= $brl($projection['invest']) ?></td><td class="r"><?= $brl($projection['invest']) ?></td>
+                    <?php if ($expectedReturn > 0): ?><td class="r"><?= $brl($projection['return']) ?></td><?php endif; ?>
+                </tr>
+            </table>
+        </td>
+    </tr></table>
+</div>
+
+<?php if ($hasReturn):
+    $net = [];
+    foreach ($projection['months'] as $m) $net[] = $m['cum_return'] - $m['cum_invest'];
+    $maxAbs = 0.0;
+    foreach ($net as $v) $maxAbs = max($maxAbs, abs($v));
+    $hasPos = max($net ?: [0]) > 0;
+    $hasNeg = min($net ?: [0]) < 0;
+?>
+<div class="page">
+    <table class="head"><tr>
+        <td><h2>Previsibilidade de retorno</h2></td>
+        <td class="aside">Ponto de equilíbrio e resultado</td>
+    </tr></table>
+    <table width="100%" cellspacing="0" cellpadding="0"><tr>
+        <td width="50%" style="vertical-align:top;">
+            <?php if ($expectedReturn > 0): ?>
+            <p class="sub">Premissa: retorno de <?= $brl($expectedReturn) ?> por mês</p>
+            <table class="grid">
+                <tr><th>Indicador</th><th class="r">Valor</th></tr>
+                <tr><td>Investimento em 12 meses</td><td class="r"><?= $brl($projection['invest']) ?></td></tr>
+                <tr class="alt"><td>Retorno estimado em 12 meses</td><td class="r"><?= $brl($projection['return']) ?></td></tr>
+                <tr><td>Mês em que o retorno cobre o investimento</td><td class="r"><?= $projection['payback'] ? 'Mês ' . (int)$projection['payback'] : 'Após 12 meses' ?></td></tr>
+                <tr class="hi"><td>Resultado em 12 meses</td><td class="r"><?= $brl($projection['return'] - $projection['invest']) ?><?= $projection['roi'] !== null ? ' (' . number_format($projection['roi'], 1, ',', '.') . '%)' : '' ?></td></tr>
+            </table>
+            <p style="margin-top:4mm;font-size:8pt;"><span class="bold">Como ler:</span> o retorno começa no mês seguinte à entrega. O ponto de equilíbrio é o mês em que o retorno acumulado passa a cobrir tudo o que foi investido; a partir dele, o que entra é resultado.</p>
+            <?php endif; ?>
+            <?php foreach ($paras($c('return_text')) as $p): ?><p style="margin-top:3mm;font-size:8pt;"><?= nl2br($e($p)) ?></p><?php endforeach; ?>
+            <p class="note">O cálculo considera apenas o investimento desta proposta. Premissas de retorno são ilustrativas e serão ajustadas com os números reais da empresa. Não representam promessa de resultado.</p>
+        </td>
+        <td width="4%"></td>
+        <td width="46%" style="vertical-align:top;">
+            <?php if ($expectedReturn > 0 && $maxAbs > 0): ?>
+            <p class="sub">Resultado acumulado (retorno − investimento)</p>
+            <div class="legend"><span style="background:#1fb89f;margin-left:0;"></span>Positivo<span style="background:#0b0c0d;"></span>Negativo</div>
+            <table class="chart">
+                <?php if ($hasPos): ?>
+                <tr>
+                    <?php foreach ($net as $v): ?><td class="col" style="height:<?= $hasNeg ? 34 : 64 ?>mm;padding:0 1.6mm;"><?php if ($v > 0): ?><div style="height:<?= round(max(0.5, $v / $maxAbs * ($hasNeg ? 32 : 62)), 2) ?>mm;background:#1fb89f;"></div><?php endif; ?></td><?php endforeach; ?>
+                </tr>
+                <?php endif; ?>
+                <?php if ($hasNeg): ?>
+                <tr class="axis">
+                    <?php foreach ($net as $v): ?><td class="neg" style="height:<?= $hasPos ? 34 : 64 ?>mm;padding:0 1.6mm;"><?php if ($v < 0): ?><div style="height:<?= round(max(0.5, abs($v) / $maxAbs * ($hasPos ? 32 : 62)), 2) ?>mm;background:#0b0c0d;"></div><?php endif; ?></td><?php endforeach; ?>
+                </tr>
+                <?php endif; ?>
+                <tr<?= $hasNeg ? '' : ' class="axis"' ?>><?php foreach ($net as $i => $v): ?><td class="lbl"><?= $i + 1 ?></td><?php endforeach; ?></tr>
+            </table>
+            <p class="note" style="text-align:center;">Mês</p>
+            <?php endif; ?>
+        </td>
+    </tr></table>
 </div>
 <?php endif; ?>
 
-<?php if ($c('renewal_text') !== '' || $onceItems): ?>
-<div class="section">
-    <table width="100%"><tr>
+<div class="page">
+    <table class="head"><tr>
         <td><h2>Renovações e serviços pontuais</h2></td>
         <td class="aside">Valores em reais</td>
     </tr></table>
-    <div class="fullrule"></div>
-    <?php if ($c('renewal_text') !== ''): ?>
-        <?php foreach ($paras($c('renewal_text')) as $p): ?><p class="lead" style="margin-bottom:3mm;"><?= nl2br($e($p)) ?></p><?php endforeach; ?>
-    <?php endif; ?>
-    <?php if ($onceItems): ?>
-    <table class="sheet">
-        <thead><tr><th>Serviço pontual</th><th class="r">Valor nesta proposta</th></tr></thead>
-        <tbody>
-        <?php foreach ($onceItems as $it): ?>
-            <tr><td><?= $e($it['description']) ?></td><td class="r"><?= $brl($it['amount']) ?></td></tr>
+    <p class="sub">Renovações</p>
+    <table class="grid">
+        <tr><th>Renovação</th><th class="r">Mensalidade</th><th class="r">Nova implantação</th><th class="r">Prazo</th></tr>
+        <?php foreach ($monthItems as $i => $it): ?>
+        <tr<?= $alt($i) ?>><td><?= $e($it['description']) ?></td><td class="r"><?= $brl($it['amount']) ?></td><td class="r">Não</td><td class="r">12 meses</td></tr>
         <?php endforeach; ?>
-        </tbody>
+        <?php if (!$monthItems): ?><tr><td colspan="4" class="muted">Esta proposta não tem serviços mensais.</td></tr><?php endif; ?>
     </table>
-    <?php endif; ?>
-</div>
-<?php endif; ?>
+    <?php foreach ($paras($c('renewal_text')) as $p): ?><p style="margin-top:2.5mm;font-size:8pt;"><?= nl2br($e($p)) ?></p><?php endforeach; ?>
 
-<div class="section">
-    <table width="100%"><tr>
+    <p class="sub" style="margin-top:6mm;">Serviços pontuais</p>
+    <table class="grid">
+        <tr><th>Serviço pontual</th><th class="r">Valor</th></tr>
+        <?php foreach ($onceItems as $i => $it): ?>
+        <tr<?= $alt($i) ?>><td><?= $e($it['description']) ?></td><td class="r"><?= $brl($it['amount']) ?></td></tr>
+        <?php endforeach; ?>
+        <tr<?= $alt(count($onceItems)) ?>><td>Novas demandas além do escopo contratado</td><td class="r">Sob orçamento</td></tr>
+    </table>
+</div>
+
+<div class="page">
+    <table class="head"><tr>
         <td><h2>Resumo final</h2></td>
         <td class="aside">Valores em reais</td>
     </tr></table>
-    <div class="fullrule"></div>
-    <table class="sheet">
-        <thead><tr>
-            <th></th><th class="r">Implantação</th><th class="r">Mensalidade</th><th class="r">Primeiro ano</th><th class="r">Prazo</th>
-        </tr></thead>
-        <tbody>
-            <tr class="hi">
-                <td>Esta proposta</td>
-                <td class="r"><?= $brl($totals['once']) ?></td>
-                <td class="r"><?= $brl($totals['monthly']) ?></td>
-                <td class="r"><?= $brl($totals['year']) ?></td>
-                <td class="r"><?= $timeline['days'] > 0 ? (int)$timeline['days'] . ' dias' : 'A definir' ?></td>
-            </tr>
-        </tbody>
+    <table class="grid">
+        <tr><th>Proposta</th><th class="r">Implantação</th><th class="r">Mensalidade</th><th class="r">Prazo de implantação</th><th class="r">Total do primeiro ano</th><th class="r">Média mensal (12 meses)</th></tr>
+        <tr class="hi">
+            <td><?= $e($proposal['title']) ?></td>
+            <td class="r"><?= $brl($totals['once']) ?></td>
+            <td class="r"><?= $brl($totals['monthly']) ?></td>
+            <td class="r"><?= $timeline['days'] > 0 ? (int)$timeline['days'] . ' dias' : 'A definir' ?></td>
+            <td class="r"><?= $brl($totals['year']) ?></td>
+            <td class="r"><?= $brl($totals['year'] / 12) ?></td>
+        </tr>
     </table>
-    <?php if ($c('summary_text') !== ''): ?><p class="lead" style="margin-top:4mm;"><?= nl2br($e($c('summary_text'))) ?></p><?php endif; ?>
+
+    <?php if ($items): ?>
+    <table class="grid" style="margin-top:5mm;">
+        <tr><th>Serviço</th><th>Cobrança</th><th class="r">Valor</th></tr>
+        <?php foreach ($items as $i => $it): $isMonthly = ($it['billing'] ?? 'once') === 'monthly'; ?>
+        <tr<?= $alt($i) ?>><td><?= $e($it['description']) ?></td><td><?= $isMonthly ? 'Mensal' : 'Pagamento único' ?></td><td class="r"><?= $brl($it['amount']) ?><?= $isMonthly ? '/mês' : '' ?></td></tr>
+        <?php endforeach; ?>
+    </table>
+    <?php endif; ?>
+    <?php foreach ($paras($c('summary_text')) as $p): ?><p style="margin-top:3mm;font-size:8pt;"><?= nl2br($e($p)) ?></p><?php endforeach; ?>
+    <p class="note">A média mensal considera a implantação e as 12 primeiras mensalidades.</p>
 </div>
 
 <?php if ($b = $fixed('payment')): ?>
-<div class="section">
-    <table width="100%"><tr>
-        <td><h2><?= $e($b['title'] ?: 'Condições de pagamento e rescisão') ?></h2></td>
+<div class="page">
+    <table class="head"><tr>
+        <td><h2><?= $e($b['title'] !== '' ? $b['title'] : 'Condições de pagamento e rescisão') ?></h2></td>
         <td class="aside">Valores em reais</td>
     </tr></table>
-    <div class="fullrule"></div>
-    <table class="sheet" style="margin-bottom:5mm;">
-        <thead><tr><th>Condição</th><th class="r">Valor</th></tr></thead>
-        <tbody>
-            <tr><td>Implantação (pagamento único)</td><td class="r"><?= $brl($totals['once']) ?></td></tr>
-            <tr><td>Mensalidade</td><td class="r"><?= $brl($totals['monthly']) ?></td></tr>
-            <tr><td>Condição de pagamento</td><td class="r"><?= $e($vars['condicao_pagamento']) ?></td></tr>
-            <tr class="total"><td class="blk">Total do primeiro ano</td><td class="r"><?= $brl($totals['year']) ?></td></tr>
-        </tbody>
+    <table class="grid">
+        <tr><th>Condição de pagamento</th><th>Quando</th><th class="r">Valor</th></tr>
+        <tr><td>Implantação</td><td><?= $e(ucfirst($vars['condicao_pagamento'])) ?></td><td class="r"><?= $brl($totals['once']) ?></td></tr>
+        <tr class="alt"><td>Mensalidade</td><td>Todo mês, a partir do início dos serviços</td><td class="r"><?= $brl($totals['monthly']) ?></td></tr>
+        <tr class="total"><td class="lbl">Total do primeiro ano (implantação + 12 mensalidades)</td><td class="lbl">12 meses</td><td class="r"><?= $brl($totals['year']) ?></td></tr>
     </table>
     <?php foreach ($lettered($b['body']) as $sec): ?>
         <?php if ($sec['letter'] === ''): ?>
-            <?php foreach ($sec['lines'] as $line): ?><p class="lead" style="margin-bottom:2mm;"><?= $e($line) ?></p><?php endforeach; ?>
+            <?php foreach ($sec['lines'] as $line): ?><p class="note" style="font-size:7pt;"><?= $e($line) ?></p><?php endforeach; ?>
         <?php else: ?>
-            <div class="scope-h" style="margin-top:4mm;"><h3><?= $e($sec['letter']) ?> <?= $e($sec['title']) ?></h3></div>
-            <?php if ($sec['lines']): ?>
-            <table class="scope">
-                <?php foreach ($sec['lines'] as $line): ?><tr><td>&bull; <?= $e($line) ?></td></tr><?php endforeach; ?>
+            <table class="sec"><tr><td><span class="n"><?= $e($sec['letter']) ?></span>&nbsp; <span class="t"><?= $e($sec['title']) ?></span></td></tr></table>
+            <table class="rows">
+                <?php foreach ($sec['lines'] as $i => $line): ?><tr<?= $alt($i) ?>><td><span class="b">&bull;</span> <?= $e($line) ?></td></tr><?php endforeach; ?>
             </table>
-            <?php endif; ?>
         <?php endif; ?>
     <?php endforeach; ?>
 </div>
 <?php endif; ?>
 
-<?php if ($b = $fixed('notes')): ?>
-<div class="section">
-    <h2><?= $e($b['title'] ?: 'Notas e condições') ?></h2>
-    <div class="fullrule"></div>
-    <?php foreach ($lettered($b['body']) as $sec): ?>
-        <?php if ($sec['letter'] === ''): ?>
-            <table class="scope">
-                <?php foreach ($sec['lines'] as $line): ?><tr><td>&bull; <?= $e($line) ?></td></tr><?php endforeach; ?>
-            </table>
-        <?php else: ?>
-            <div class="scope-h"><h3><?= $e($sec['letter']) ?> <?= $e($sec['title']) ?></h3></div>
-            <table class="scope">
-                <?php foreach ($sec['lines'] as $line): ?><tr><td>&bull; <?= $e($line) ?></td></tr><?php endforeach; ?>
-            </table>
-        <?php endif; ?>
-    <?php endforeach; ?>
-
-    <h3 style="margin-top:7mm;font-size:12pt;">Aceite</h3>
-    <p class="lead" style="margin:2mm 0 4mm;">O aceite confirma o escopo, o investimento e o cronograma descritos neste documento.</p>
-    <table class="sign" width="100%" cellspacing="0" cellpadding="0"><tr>
-        <td width="42%"><div class="line"></div><p class="foot"><?= $e($client !== '' ? $client : 'Contratante') ?> (contratante)</p></td>
-        <td width="6%"></td>
-        <td width="42%"><div class="line"></div><p class="foot"><?= $e($appName) ?> (contratada)</p></td>
+<div class="page">
+    <table class="head"><tr>
+        <td><h2><?= $e(($b = $fixed('notes')) && $b['title'] !== '' ? $b['title'] : 'Notas e condições') ?></h2></td>
+        <td class="aside"></td>
     </tr></table>
-    <p style="margin-top:5mm;"><a class="cta" href="<?= $e($acceptLink) ?>">Aceitar ou responder esta proposta</a></p>
-    <p class="foot"><?= $e($acceptLink) ?></p>
+    <?php if ($b = $fixed('notes')): foreach ($lettered($b['body']) as $sec): ?>
+        <?php if ($sec['letter'] !== ''): ?>
+        <table class="sec"><tr><td><span class="n"><?= $e($sec['letter']) ?></span>&nbsp; <span class="t"><?= $e($sec['title']) ?></span></td></tr></table>
+        <?php endif; ?>
+        <table class="rows"<?= $sec['letter'] === '' ? ' style="margin-top:2.6mm;"' : '' ?>>
+            <?php foreach ($sec['lines'] as $i => $line): ?><tr<?= $alt($i) ?>><td><span class="b">&bull;</span> <?= $e($line) ?></td></tr><?php endforeach; ?>
+        </table>
+    <?php endforeach; endif; ?>
+
+    <p class="t" style="font-family:'Poppins';font-weight:bold;font-size:9pt;margin-top:4mm;">Aceite</p>
+    <table width="100%" cellspacing="0" cellpadding="0" style="margin-top:7mm;page-break-inside:avoid;"><tr>
+        <td width="34%" style="vertical-align:bottom;"><div class="sigline">______________________________</div><p class="muted" style="margin-top:1mm;"><?= $e($clientLabel) ?> (contratante)</p></td>
+        <td width="34%" style="vertical-align:bottom;"><div class="sigline">______________________________</div><p class="muted" style="margin-top:1mm;"><?= $e($brand) ?> (contratada)</p></td>
+        <td width="32%" style="vertical-align:bottom;"><p>Data: ____ / ____ / ________</p><p class="muted" style="margin-top:1mm;">&nbsp;</p></td>
+    </tr></table>
+    <table width="100%" cellspacing="0" cellpadding="0" style="margin-top:4mm;"><tr>
+        <td style="vertical-align:middle;width:72mm;"><a class="cta" href="<?= $e($acceptLink) ?>">Aceitar ou responder esta proposta online</a></td>
+        <td style="vertical-align:middle;" class="note"><?= $e($acceptLink) ?></td>
+    </tr></table>
 </div>
-<?php endif; ?>
 
 </body>
 </html>

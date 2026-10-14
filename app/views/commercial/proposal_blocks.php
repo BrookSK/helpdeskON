@@ -3,17 +3,14 @@
 <?php require APP_PATH . '/views/layouts/sidebar.php'; ?>
 <?php
 $kindHint = [
-    'text' => 'Parágrafos separados por uma linha em branco. Em Quem somos, linhas "01 Título: texto" viram os cartões numerados.',
-    'list' => 'Um item por linha, no formato "Título: descrição". Uma linha só com --- separa as duas colunas.',
-    'steps' => 'Uma etapa por linha, "Etapa: descrição". Uma linha # Título nomeia o trilho. Uma linha --- separa o segundo trilho.',
-    'clients' => 'Um cliente por linha. Opcional: "Cliente: segmento".',
+    'sections' => 'Cada seção começa com uma letra e o título (ex.: "A Vigência, reajuste e renovação") e segue com um item por linha. Deixe uma linha em branco entre as seções.',
 ];
 ?>
 <div class="main-content">
     <div class="top-bar">
         <div>
             <h5 class="mb-0">Conteúdo fixo da proposta</h5>
-            <small class="text-muted">Aparece em toda proposta, nesta ordem. Entendimento do negócio, serviços, valores, cronograma e projeção continuam em cada proposta.</small>
+            <small class="text-muted">Páginas finais de toda proposta. As páginas de apresentação (Quem somos, O que fazemos, Clientes, Como fazemos) são as do modelo em PDF; o restante vem de cada proposta.</small>
         </div>
         <div class="d-flex gap-2">
             <a href="<?= baseUrl('proposal') ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> Propostas</a>
@@ -44,7 +41,7 @@ $kindHint = [
                         <span class="badge bg-dark"><?= $i + 1 ?></span>
                         <input class="form-control form-control-sm b-title fw-medium" value="<?= escape($b['title'] ?? '') ?>" <?= !empty($missing) ? 'disabled' : '' ?>>
                     </div>
-                    <textarea class="form-control form-control-sm b-body" rows="<?= $kind === 'text' ? 6 : 7 ?>" <?= !empty($missing) ? 'disabled' : '' ?>><?= escape($b['body'] ?? '') ?></textarea>
+                    <textarea class="form-control form-control-sm b-body" rows="14" <?= !empty($missing) ? 'disabled' : '' ?>><?= escape($b['body'] ?? '') ?></textarea>
                     <small class="text-muted"><?= escape($kindHint[$kind] ?? '') ?></small>
                 </div>
             </div>
