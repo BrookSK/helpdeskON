@@ -66,8 +66,18 @@ $clientLabel = $client !== '' ? $client : 'Cliente';
 $onceItems = array_values(array_filter($items, fn($it) => ($it['billing'] ?? 'once') !== 'monthly'));
 $monthItems = array_values(array_filter($items, fn($it) => ($it['billing'] ?? 'once') === 'monthly'));
 $expectedReturn = (float)($content['expected_return'] ?? 0);
-$hasReturn = $expectedReturn > 0 || $c('return_text') !== '';
+$productPrice = (float)($content['product_price'] ?? 0);
+$hasMonthly = $monthItems && (float)$totals['monthly'] > 0;
+$hasOnce = $onceItems && (float)$totals['once'] > 0;
+$plans = $hasMonthly ? ProposalRules::plans($items, $content['discount_6'] ?? 20, $content['discount_12'] ?? 30) : null;
+$plan12 = $plans['items'][2] ?? null;
+$extras = ($hasMonthly && $productPrice > 0 && $plan12) ? ProposalRules::extraProducts($plan12['year'], $productPrice) : [];
+$hasReturn = $expectedReturn > 0 || $c('return_text') !== '' || $extras;
 $period = (!empty($timeline['start']) && !empty($timeline['end'])) ? $brDate($timeline['start']) . ' a ' . $brDate($timeline['end']) : 'A definir';
+$saveCell = function ($money, $pct) use ($brl) {
+    if ((float)$money <= 0) return '-';
+    return $brl($money) . ' (' . number_format((float)$pct, 0, ',', '.') . '%)';
+};
 
 $business = array_filter([
     'Perfil da empresa' => $c('business_profile'),
@@ -227,7 +237,11 @@ $alt = fn($i) => $i % 2 ? ' class="alt"' : '';
                 <td class="k">Prazo</td><td><?= $e($period) ?></td>
             </tr>
             <tr>
-                <td class="k">Mensalidade</td><td><?= $monthItems ? $e(implode(', ', array_column($monthItems, 'description'))) : 'Não se aplica' ?></td>
+                <?php if ($hasMonthly): ?>
+                <td class="k">Mensalidade</td><td><?= $e(implode(', ', array_column($monthItems, 'description'))) ?></td>
+                <?php else: ?>
+                <td class="k">Cobrança</td><td>Pagamento único</td>
+                <?php endif; ?>
                 <td class="k">Pagamento</td><td><?= $e($vars['condicao_pagamento']) ?></td>
             </tr>
         </table>
@@ -338,7 +352,7 @@ foreach ($scopePages as [$title, $tag, $list, $foot]):
         </tr>
         <?php endforeach; ?>
     </table>
-    <p class="note">Mês 1 = <?= $e($monthYear($timeline['start'])) ?>. Período de implantação: <?= $e($period) ?><?= $timeline['days'] > 0 ? ' (' . (int)$timeline['days'] . ' dias)' : '' ?>. Serviços mensais seguem até o 12º mês.</p>
+    <p class="note">Mês 1 = <?= $e($monthYear($timeline['start'])) ?>. Período de implantação: <?= $e($period) ?><?= $timeline['days'] > 0 ? ' (' . (int)$timeline['days'] . ' dias)' : '' ?>.<?= $hasMonthly ? ' Serviços mensais seguem até o 12º mês.' : '' ?></p>
     <?php endif; ?>
 </div>
 
@@ -348,23 +362,25 @@ foreach ($scopePages as [$title, $tag, $list, $foot]):
         <td class="aside">Valores em reais</td>
     </tr></table>
     <table width="100%" cellspacing="0" cellpadding="0"><tr>
-        <td width="49%" style="vertical-align:top;">
+        <?php if ($hasOnce): ?>
+        <td width="<?= $hasMonthly ? '49%' : '100%' ?>" style="vertical-align:top;">
             <table class="grid">
                 <tr><th>Implantação (pagamento único)</th><th class="r">Valor</th></tr>
                 <?php foreach ($onceItems as $i => $it): ?><tr<?= $alt($i) ?>><td><?= $e($it['description']) ?></td><td class="r"><?= $brl($it['amount']) ?></td></tr><?php endforeach; ?>
-                <?php if (!$onceItems): ?><tr><td colspan="2" class="muted">Sem itens de implantação.</td></tr><?php endif; ?>
                 <tr class="total"><td class="lbl">Total da implantação</td><td class="r"><?= $brl($totals['once']) ?></td></tr>
             </table>
         </td>
-        <td width="2%"></td>
-        <td width="49%" style="vertical-align:top;">
+        <?php endif; ?>
+        <?php if ($hasMonthly): ?>
+        <?php if ($hasOnce): ?><td width="2%"></td><?php endif; ?>
+        <td width="<?= $hasOnce ? '49%' : '100%' ?>" style="vertical-align:top;">
             <table class="grid">
                 <tr><th>Serviço mensal</th><th class="r">Valor mensal</th></tr>
                 <?php foreach ($monthItems as $i => $it): ?><tr<?= $alt($i) ?>><td><?= $e($it['description']) ?></td><td class="r"><?= $brl($it['amount']) ?></td></tr><?php endforeach; ?>
-                <?php if (!$monthItems): ?><tr><td colspan="2" class="muted">Sem mensalidade.</td></tr><?php endif; ?>
                 <tr class="total"><td class="lbl">Total da mensalidade</td><td class="r"><?= $brl($totals['monthly']) ?></td></tr>
             </table>
         </td>
+        <?php endif; ?>
     </tr></table>
 
     <?php if ($items): ?>
@@ -386,24 +402,74 @@ foreach ($scopePages as [$title, $tag, $list, $foot]):
             <td class="r"><?= $brl($it['amount']) ?><?= $isMonthly ? '/mês' : '' ?></td>
         </tr>
         <?php endforeach; ?>
-        <tr class="total"><td class="lbl" colspan="5">Investimento no primeiro ano (implantação + 12 mensalidades)</td><td class="r"><?= $brl($totals['year']) ?></td></tr>
+        <tr class="total"><td class="lbl" colspan="5"><?= $hasMonthly ? 'Investimento no primeiro ano (implantação + 12 mensalidades)' : 'Total da implantação' ?></td><td class="r"><?= $brl($hasMonthly ? $totals['year'] : $totals['once']) ?></td></tr>
     </table>
     <?php endif; ?>
     <p class="note">As condições de pagamento estão na página de Condições de pagamento e rescisão.</p>
 </div>
 
 <?php
-$maxCum = 0.0;
-foreach ($projection['months'] as $m) $maxCum = max($maxCum, $m['cum_invest'], $m['cum_return']);
-$costSeries = [['label' => 'Investido acumulado', 'color' => ProposalChart::BLACK, 'values' => array_column($projection['months'], 'cum_invest')]];
-if ($expectedReturn > 0) {
-    $costSeries[] = ['label' => 'Retorno acumulado', 'color' => ProposalChart::TEAL, 'values' => array_column($projection['months'], 'cum_return')];
-}
-$costChart = ProposalChart::line($costSeries, [
-    'fontDir' => $fontDir, 'width' => 1500, 'height' => 1130,
-    'xTitle' => 'Mês', 'yTitle' => 'Valor acumulado (R$)',
-    'format' => [ProposalChart::class, 'money'], 'endLabels' => true,
-]);
+$planColors = [ProposalChart::BLACK, ProposalChart::TEAL, ProposalChart::MINT];
+if ($hasMonthly && $plans):
+    $planSeries = [];
+    foreach ($plans['items'] as $k => $p) {
+        $planSeries[] = ['label' => $p['label'], 'color' => $planColors[$k], 'text' => $planColors[$k], 'values' => $p['index']];
+    }
+    $planChart = ProposalChart::line($planSeries, [
+        'fontDir' => $fontDir, 'width' => 1500, 'height' => 1130,
+        'xTitle' => 'Mês', 'yTitle' => 'Custo acumulado (índice plano 3 meses no mês 12 = 100)',
+        'format' => [ProposalChart::class, 'index'], 'endLabels' => true,
+    ]);
+?>
+<div class="page">
+    <table class="head"><tr>
+        <td><h2>Projeção de 12 meses</h2></td>
+        <td class="aside">Comparativo entre os planos</td>
+    </tr></table>
+    <table width="100%" cellspacing="0" cellpadding="0"><tr>
+        <td width="47%" style="vertical-align:top;">
+            <p class="sub">Custo acumulado ao longo do tempo</p>
+            <?php if ($planChart): ?><img src="<?= $planChart ?>" style="width:100%;" alt=""><?php endif; ?>
+        </td>
+        <td width="3%"></td>
+        <td width="50%" style="vertical-align:top;">
+            <p class="sub">Quanto cada plano economiza</p>
+            <table class="grid">
+                <tr>
+                    <th></th>
+                    <?php foreach ($plans['items'] as $p): ?><th class="r"><?= $e(str_replace('Plano ', 'Plano ', $p['label'])) ?></th><?php endforeach; ?>
+                </tr>
+                <tr>
+                    <td>Mensalidade</td>
+                    <?php foreach ($plans['items'] as $p): ?><td class="r"><?= $brl($p['monthly']) ?></td><?php endforeach; ?>
+                </tr>
+                <tr class="alt">
+                    <td>Economia por mês</td>
+                    <?php foreach ($plans['items'] as $p): ?><td class="r<?= $p['save_month'] > 0 ? ' mint' : '' ?>"><?= $saveCell($p['save_month'], $p['discount']) ?></td><?php endforeach; ?>
+                </tr>
+                <tr>
+                    <td>Custo médio por mês, com a implantação diluída</td>
+                    <?php foreach ($plans['items'] as $p): ?><td class="r"><?= $brl($p['avg']) ?></td><?php endforeach; ?>
+                </tr>
+                <tr class="alt">
+                    <td>Economia no ano</td>
+                    <?php foreach ($plans['items'] as $k => $p): ?><td class="r<?= $p['save_year'] > 0 ? ' mint' : '' ?>"><?= $p['save_year'] > 0 ? $brl($p['save_year']) . ' (' . number_format($p['discount'], 0, ',', '.') . '%)' : '-' ?></td><?php endforeach; ?>
+                </tr>
+            </table>
+            <p style="margin-top:4mm;font-size:8pt;">O pagamento único de implantação é cobrado uma só vez, no primeiro mês, e é igual em todos os planos. A diferença está na mensalidade: quanto maior o compromisso, menor o custo ao longo do ano.</p>
+        </td>
+    </tr></table>
+</div>
+<?php else:
+    $maxCum = 0.0;
+    foreach ($projection['months'] as $m) $maxCum = max($maxCum, $m['cum_invest'], $m['cum_return']);
+    $costSeries = [['label' => 'Investido acumulado', 'color' => ProposalChart::BLACK, 'values' => array_column($projection['months'], 'cum_invest')]];
+    if ($expectedReturn > 0) $costSeries[] = ['label' => 'Retorno acumulado', 'color' => ProposalChart::TEAL, 'values' => array_column($projection['months'], 'cum_return')];
+    $costChart = ProposalChart::line($costSeries, [
+        'fontDir' => $fontDir, 'width' => 1500, 'height' => 1130,
+        'xTitle' => 'Mês', 'yTitle' => 'Valor acumulado (R$)',
+        'format' => [ProposalChart::class, 'money'], 'endLabels' => true,
+    ]);
 ?>
 <div class="page">
     <table class="head"><tr>
@@ -413,26 +479,7 @@ $costChart = ProposalChart::line($costSeries, [
     <table width="100%" cellspacing="0" cellpadding="0"><tr>
         <td width="47%" style="vertical-align:top;">
             <p class="sub">Investimento acumulado ao longo do tempo</p>
-            <?php if ($costChart): ?>
-            <img src="<?= $costChart ?>" style="width:100%;" alt="">
-            <?php else: ?>
-            <div class="legend"><span style="background:#1fb89f;margin-left:0;"></span>Investido acumulado<?php if ($expectedReturn > 0): ?><span style="background:#0b0c0d;"></span>Retorno acumulado<?php endif; ?></div>
-            <?php $span = $expectedReturn > 0 ? 3 : 2; ?>
-            <table class="chart">
-                <tr>
-                    <?php foreach ($projection['months'] as $m):
-                        $hi = $maxCum > 0 ? max(0.5, $m['cum_invest'] / $maxCum * 62) : 0;
-                        $hr = ($maxCum > 0 && $m['cum_return'] > 0) ? max(0.5, $m['cum_return'] / $maxCum * 62) : 0;
-                    ?>
-                    <td class="col" style="height:64mm;padding:0;"><div style="height:<?= round($hi, 2) ?>mm;background:#1fb89f;"></div></td>
-                    <?php if ($expectedReturn > 0): ?><td class="col" style="height:64mm;padding:0;"><?php if ($hr > 0): ?><div style="height:<?= round($hr, 2) ?>mm;background:#0b0c0d;"></div><?php endif; ?></td><?php endif; ?>
-                    <td class="col" style="padding:0;"></td>
-                    <?php endforeach; ?>
-                </tr>
-                <tr class="axis"><?php foreach ($projection['months'] as $i => $m): ?><td class="lbl" colspan="<?= $span ?>"><?= $i + 1 ?></td><?php endforeach; ?></tr>
-            </table>
-            <p class="note" style="text-align:center;">Mês</p>
-            <?php endif; ?>
+            <?php if ($costChart): ?><img src="<?= $costChart ?>" style="width:100%;" alt=""><?php endif; ?>
         </td>
         <td width="3%"></td>
         <td width="50%" style="vertical-align:top;">
@@ -458,119 +505,116 @@ $costChart = ProposalChart::line($costSeries, [
         </td>
     </tr></table>
 </div>
+<?php endif; ?>
 
-<?php if ($hasReturn):
+<?php if ($extras):
+    $extraColors = [ProposalChart::BLACK, ProposalChart::TEAL, ProposalChart::MINT];
+    $extraSeries = [];
+    $extraPoints = [];
+    foreach ($extras as $k => $row) {
+        $extraSeries[] = ['label' => 'Margem de ' . number_format($row['margin'], 0, ',', '.') . '%', 'color' => $extraColors[$k], 'text' => $extraColors[$k], 'values' => $row['pace']];
+        if ($row['per_month'] > 0 && $row['per_month'] < count($row['pace'])) {
+            $extraPoints[] = ['series' => $k, 'index' => $row['per_month'], 'label' => $row['per_month'] . ' por mês'];
+        }
+    }
+    $extraChart = ProposalChart::line($extraSeries, [
+        'fontDir' => $fontDir, 'width' => 1500, 'height' => 1180,
+        'xTitle' => 'Produtos a mais vendidos por mês, durante os 12 meses',
+        'yTitle' => 'Lucro líquido adicional no período (R$)',
+        'format' => [ProposalChart::class, 'money'], 'endLabels' => true, 'points' => $extraPoints,
+        'xLabels' => range(0, count($extras[0]['pace']) - 1),
+    ]);
+?>
+<div class="page">
+    <table class="head"><tr>
+        <td><h2>Previsibilidade de retorno</h2></td>
+        <td class="aside">Ponto de equilíbrio e lucro adicional</td>
+    </tr></table>
+    <table width="100%" cellspacing="0" cellpadding="0"><tr>
+        <td width="50%" style="vertical-align:top;">
+            <p class="sub">Premissa: produto de <?= $brl($productPrice) ?></p>
+            <table class="grid">
+                <tr><th>Cenário de margem</th><th class="r">Custo de produção</th><th class="r">Lucro por produto</th></tr>
+                <?php foreach ($extras as $k => $row): ?>
+                <tr<?= $alt($k) ?>>
+                    <td>Margem de <?= number_format($row['margin'], 0, ',', '.') ?>%</td>
+                    <td class="r"><?= number_format($row['cost_share'], 0, ',', '.') ?>% do preço</td>
+                    <td class="r"><?= $brl($row['profit']) ?></td>
+                </tr>
+                <?php endforeach; ?>
+            </table>
+            <p class="sub" style="margin-top:5mm;">Produtos a mais por mês para haver aumento de lucro</p>
+            <table class="grid">
+                <tr>
+                    <th>Plano</th><th class="r">Investimento no contrato mínimo</th>
+                    <?php foreach ($extras as $row): ?><th class="r">Margem de <?= number_format($row['margin'], 0, ',', '.') ?>%</th><?php endforeach; ?>
+                </tr>
+                <?php foreach ($plans['items'] as $k => $p):
+                    $byPlan = ProposalRules::extraProducts($p['term'], $productPrice);
+                ?>
+                <tr<?= $k === 2 ? ' class="hi"' : $alt($k) ?>>
+                    <td style="white-space:nowrap;"><?= $e($p['label']) ?></td>
+                    <td class="r"><?= $brl($p['term']) ?></td>
+                    <?php foreach ($byPlan as $row): ?><td class="r<?= $k === 2 ? ' mint' : '' ?>"><?= (int)$row['per_month'] ?> por mês</td><?php endforeach; ?>
+                </tr>
+                <?php endforeach; ?>
+            </table>
+            <p style="margin-top:4mm;font-size:8pt;"><span class="bold">Como ler:</span> o número é a quantidade de produtos a mais que <?= $e($clientLabel) ?> precisa vender por mês, mantendo esse ritmo durante todo o contrato, para cobrir o investimento. A partir desse ritmo, o investimento está pago e o que for vendido além dele é lucro líquido adicional.</p>
+            <?php foreach ($paras($c('return_text')) as $p): ?><p style="margin-top:2.5mm;font-size:8pt;"><?= nl2br($e($p)) ?></p><?php endforeach; ?>
+            <p class="note">O cálculo considera apenas o investimento desta proposta. Preço, custo e margem são premissas ilustrativas, antes de impostos e despesas comerciais, e serão ajustados com os números reais da empresa. Não representam promessa de resultado.</p>
+        </td>
+        <td width="4%"></td>
+        <td width="46%" style="vertical-align:top;">
+            <p class="sub">Lucro adicional líquido no Plano 12 meses, por ritmo de vendas</p>
+            <?php if ($extraChart): ?><img src="<?= $extraChart ?>" style="width:100%;" alt=""><?php endif; ?>
+        </td>
+    </tr></table>
+</div>
+<?php elseif ($expectedReturn > 0):
     $net = [];
     foreach ($projection['months'] as $m) $net[] = $m['cum_return'] - $m['cum_invest'];
-    $maxAbs = 0.0;
-    foreach ($net as $v) $maxAbs = max($maxAbs, abs($v));
-    $hasPos = max($net ?: [0]) > 0;
-    $hasNeg = min($net ?: [0]) < 0;
-
-    $scenarios = [
-        ['label' => 'Retorno 30% menor', 'factor' => 0.7, 'color' => ProposalChart::BLACK, 'text' => ProposalChart::BLACK],
-        ['label' => 'Retorno estimado', 'factor' => 1.0, 'color' => ProposalChart::TEAL, 'text' => ProposalChart::TEAL],
-        ['label' => 'Retorno 30% maior', 'factor' => 1.3, 'color' => ProposalChart::MINT, 'text' => [31, 184, 159]],
-    ];
-    $netSeries = [];
-    $netPoints = [];
-    foreach ($scenarios as $k => $sc) {
-        $values = [];
-        foreach ($projection['months'] as $m) $values[] = $m['cum_return'] * $sc['factor'] - $m['cum_invest'];
-        $even = null;
-        foreach ($values as $i => $v) {
-            if ($v >= 0 && ($i === 0 || $values[$i - 1] < 0)) { $even = $i; break; }
-        }
-        $scenarios[$k]['values'] = $values;
-        $scenarios[$k]['even'] = $even;
-        $netSeries[] = ['label' => $sc['label'], 'color' => $sc['color'], 'text' => $sc['text'], 'values' => $values];
-        if ($even !== null) $netPoints[] = ['series' => $k, 'index' => $even, 'label' => 'Mês ' . ($even + 1)];
-    }
-    $netChart = $expectedReturn > 0 ? ProposalChart::line($netSeries, [
-        'fontDir' => $fontDir, 'width' => 1500, 'height' => 1180,
-        'xTitle' => 'Mês do contrato', 'yTitle' => 'Resultado acumulado (R$)',
-        'format' => [ProposalChart::class, 'money'], 'endLabels' => true, 'points' => $netPoints,
-    ]) : null;
 ?>
 <div class="page">
     <table class="head"><tr>
         <td><h2>Previsibilidade de retorno</h2></td>
         <td class="aside">Ponto de equilíbrio e resultado</td>
     </tr></table>
-    <table width="100%" cellspacing="0" cellpadding="0"><tr>
-        <td width="50%" style="vertical-align:top;">
-            <?php if ($expectedReturn > 0): ?>
-            <p class="sub">Premissa: retorno de <?= $brl($expectedReturn) ?> por mês</p>
-            <table class="grid">
-                <tr><th>Indicador</th><th class="r">Valor</th></tr>
-                <tr><td>Investimento em 12 meses</td><td class="r"><?= $brl($projection['invest']) ?></td></tr>
-                <tr class="alt"><td>Retorno estimado em 12 meses</td><td class="r"><?= $brl($projection['return']) ?></td></tr>
-                <tr><td>Mês em que o retorno cobre o investimento</td><td class="r"><?= $projection['payback'] ? 'Mês ' . (int)$projection['payback'] : 'Após 12 meses' ?></td></tr>
-                <tr class="hi"><td>Resultado em 12 meses</td><td class="r"><?= $brl($projection['return'] - $projection['invest']) ?><?= $projection['roi'] !== null ? ' (' . number_format($projection['roi'], 1, ',', '.') . '%)' : '' ?></td></tr>
-            </table>
-            <?php if ($netChart): ?>
-            <p class="sub" style="margin-top:5mm;">Cenários de retorno</p>
-            <table class="grid">
-                <tr><th>Cenário</th><th class="r">Retorno por mês</th><th class="r">Ponto de equilíbrio</th><th class="r">Resultado em 12 meses</th></tr>
-                <?php foreach ($scenarios as $k => $sc): $end = end($sc['values']); ?>
-                <tr<?= $sc['factor'] == 1.0 ? ' class="hi"' : $alt($k) ?>>
-                    <td><?= $e($sc['label']) ?></td>
-                    <td class="r"><?= $brl($expectedReturn * $sc['factor']) ?></td>
-                    <td class="r"><?= $sc['even'] !== null ? 'Mês ' . ($sc['even'] + 1) : 'Após 12 meses' ?></td>
-                    <td class="r"><?= $brl($end) ?></td>
-                </tr>
-                <?php endforeach; ?>
-            </table>
-            <?php endif; ?>
-            <p style="margin-top:4mm;font-size:8pt;"><span class="bold">Como ler:</span> o retorno começa no mês seguinte à entrega. O ponto de equilíbrio é o mês em que o retorno acumulado passa a cobrir tudo o que foi investido; a partir dele, o que entra é resultado.</p>
-            <?php endif; ?>
-            <?php foreach ($paras($c('return_text')) as $p): ?><p style="margin-top:3mm;font-size:8pt;"><?= nl2br($e($p)) ?></p><?php endforeach; ?>
-            <p class="note">O cálculo considera apenas o investimento desta proposta. Premissas de retorno são ilustrativas e serão ajustadas com os números reais da empresa. Não representam promessa de resultado.</p>
-        </td>
-        <td width="4%"></td>
-        <td width="46%" style="vertical-align:top;">
-            <?php if ($netChart): ?>
-            <p class="sub">Resultado acumulado em 12 meses, por cenário de retorno</p>
-            <img src="<?= $netChart ?>" style="width:100%;" alt="">
-            <?php elseif ($expectedReturn > 0 && $maxAbs > 0): ?>
-            <p class="sub">Resultado acumulado (retorno − investimento)</p>
-            <div class="legend"><span style="background:#1fb89f;margin-left:0;"></span>Positivo<span style="background:#0b0c0d;"></span>Negativo</div>
-            <table class="chart">
-                <?php if ($hasPos): ?>
-                <tr>
-                    <?php foreach ($net as $v): ?><td class="col" style="height:<?= $hasNeg ? 34 : 64 ?>mm;padding:0 1.6mm;"><?php if ($v > 0): ?><div style="height:<?= round(max(0.5, $v / $maxAbs * ($hasNeg ? 32 : 62)), 2) ?>mm;background:#1fb89f;"></div><?php endif; ?></td><?php endforeach; ?>
-                </tr>
-                <?php endif; ?>
-                <?php if ($hasNeg): ?>
-                <tr class="axis">
-                    <?php foreach ($net as $v): ?><td class="neg" style="height:<?= $hasPos ? 34 : 64 ?>mm;padding:0 1.6mm;"><?php if ($v < 0): ?><div style="height:<?= round(max(0.5, abs($v) / $maxAbs * ($hasPos ? 32 : 62)), 2) ?>mm;background:#0b0c0d;"></div><?php endif; ?></td><?php endforeach; ?>
-                </tr>
-                <?php endif; ?>
-                <tr<?= $hasNeg ? '' : ' class="axis"' ?>><?php foreach ($net as $i => $v): ?><td class="lbl"><?= $i + 1 ?></td><?php endforeach; ?></tr>
-            </table>
-            <p class="note" style="text-align:center;">Mês</p>
-            <?php endif; ?>
-        </td>
-    </tr></table>
+    <p class="sub">Premissa: retorno de <?= $brl($expectedReturn) ?> por mês</p>
+    <table class="grid">
+        <tr><th>Indicador</th><th class="r">Valor</th></tr>
+        <tr><td>Investimento em 12 meses</td><td class="r"><?= $brl($projection['invest']) ?></td></tr>
+        <tr class="alt"><td>Retorno estimado em 12 meses</td><td class="r"><?= $brl($projection['return']) ?></td></tr>
+        <tr><td>Mês em que o retorno cobre o investimento</td><td class="r"><?= $projection['payback'] ? 'Mês ' . (int)$projection['payback'] : 'Após 12 meses' ?></td></tr>
+        <tr class="hi"><td>Resultado em 12 meses</td><td class="r"><?= $brl($projection['return'] - $projection['invest']) ?><?= $projection['roi'] !== null ? ' (' . number_format($projection['roi'], 1, ',', '.') . '%)' : '' ?></td></tr>
+    </table>
+    <?php foreach ($paras($c('return_text')) as $p): ?><p style="margin-top:3mm;font-size:8pt;"><?= nl2br($e($p)) ?></p><?php endforeach; ?>
+    <p class="note">O cálculo considera apenas o investimento desta proposta. Premissas de retorno são ilustrativas e serão ajustadas com os números reais da empresa. Não representam promessa de resultado.</p>
 </div>
 <?php endif; ?>
 
+<?php if ($hasMonthly || $hasOnce): ?>
 <div class="page">
     <table class="head"><tr>
-        <td><h2>Renovações e serviços pontuais</h2></td>
+        <td><h2><?= $hasMonthly ? 'Renovações e serviços pontuais' : 'Serviços pontuais' ?></h2></td>
         <td class="aside">Valores em reais</td>
     </tr></table>
+    <?php if ($hasMonthly && $plans): ?>
     <p class="sub">Renovações</p>
     <table class="grid">
-        <tr><th>Renovação</th><th class="r">Mensalidade</th><th class="r">Nova implantação</th><th class="r">Prazo</th></tr>
-        <?php foreach ($monthItems as $i => $it): ?>
-        <tr<?= $alt($i) ?>><td><?= $e($it['description']) ?></td><td class="r"><?= $brl($it['amount']) ?></td><td class="r">Não</td><td class="r">12 meses</td></tr>
+        <tr><th>Renovação</th><th class="r">Mensalidade</th><th class="r">Desconto vs. 3 meses</th><th class="r">Prazo mínimo</th></tr>
+        <?php foreach ($plans['items'] as $k => $p): ?>
+        <tr<?= $alt($k) ?>>
+            <td><?= $e($p['label']) ?></td>
+            <td class="r"><?= $brl($p['monthly']) ?></td>
+            <td class="r"><?= $saveCell($p['save_month'], $p['discount']) ?></td>
+            <td class="r"><?= (int)$p['months'] ?> meses</td>
+        </tr>
         <?php endforeach; ?>
-        <?php if (!$monthItems): ?><tr><td colspan="4" class="muted">Esta proposta não tem serviços mensais.</td></tr><?php endif; ?>
     </table>
     <?php foreach ($paras($c('renewal_text')) as $p): ?><p style="margin-top:2.5mm;font-size:8pt;"><?= nl2br($e($p)) ?></p><?php endforeach; ?>
+    <?php endif; ?>
 
-    <p class="sub" style="margin-top:6mm;">Serviços pontuais</p>
+    <p class="sub"<?= $hasMonthly ? ' style="margin-top:6mm;"' : '' ?>>Serviços pontuais</p>
     <table class="grid">
         <tr><th>Serviço pontual</th><th class="r">Valor</th></tr>
         <?php foreach ($onceItems as $i => $it): ?>
@@ -579,34 +623,46 @@ $costChart = ProposalChart::line($costSeries, [
         <tr<?= $alt(count($onceItems)) ?>><td>Novas demandas além do escopo contratado</td><td class="r">Sob orçamento</td></tr>
     </table>
 </div>
+<?php endif; ?>
 
 <div class="page">
     <table class="head"><tr>
         <td><h2>Resumo final</h2></td>
         <td class="aside">Valores em reais</td>
     </tr></table>
+    <?php if ($hasMonthly && $plans): ?>
     <table class="grid">
-        <tr><th>Proposta</th><th class="r">Implantação</th><th class="r">Mensalidade</th><th class="r">Prazo de implantação</th><th class="r">Total do primeiro ano</th><th class="r">Média mensal (12 meses)</th></tr>
+        <tr><th>Plano</th><th class="r">Implantação</th><th class="r">Mensalidade</th><th class="r">Prazo mínimo</th><th class="r">Total do contrato mínimo</th><th class="r">Média mensal (12 meses)</th></tr>
+        <?php foreach ($plans['items'] as $k => $p): ?>
+        <tr<?= $k === 2 ? ' class="hi"' : $alt($k) ?>>
+            <td><?= $e($p['label']) ?></td>
+            <td class="r"><?= $brl($plans['once']) ?></td>
+            <td class="r"><?= $brl($p['monthly']) ?></td>
+            <td class="r"><?= (int)$p['months'] ?> meses</td>
+            <td class="r"><?= $brl($p['term']) ?></td>
+            <td class="r"><?= $brl($p['avg']) ?></td>
+        </tr>
+        <?php endforeach; ?>
+    </table>
+    <?php else: ?>
+    <table class="grid">
+        <tr>
+            <th>Proposta</th><th class="r">Implantação</th>
+            <?php if ($hasMonthly): ?><th class="r">Mensalidade</th><?php endif; ?>
+            <th class="r">Prazo de implantação</th>
+            <th class="r">Total<?= $hasMonthly ? ' do primeiro ano' : '' ?></th>
+        </tr>
         <tr class="hi">
             <td><?= $e($proposal['title']) ?></td>
             <td class="r"><?= $brl($totals['once']) ?></td>
-            <td class="r"><?= $brl($totals['monthly']) ?></td>
+            <?php if ($hasMonthly): ?><td class="r"><?= $brl($totals['monthly']) ?></td><?php endif; ?>
             <td class="r"><?= $timeline['days'] > 0 ? (int)$timeline['days'] . ' dias' : 'A definir' ?></td>
-            <td class="r"><?= $brl($totals['year']) ?></td>
-            <td class="r"><?= $brl($totals['year'] / 12) ?></td>
+            <td class="r"><?= $brl($hasMonthly ? $totals['year'] : $totals['once']) ?></td>
         </tr>
-    </table>
-
-    <?php if ($items): ?>
-    <table class="grid" style="margin-top:5mm;">
-        <tr><th>Serviço</th><th>Cobrança</th><th class="r">Valor</th></tr>
-        <?php foreach ($items as $i => $it): $isMonthly = ($it['billing'] ?? 'once') === 'monthly'; ?>
-        <tr<?= $alt($i) ?>><td><?= $e($it['description']) ?></td><td><?= $isMonthly ? 'Mensal' : 'Pagamento único' ?></td><td class="r"><?= $brl($it['amount']) ?><?= $isMonthly ? '/mês' : '' ?></td></tr>
-        <?php endforeach; ?>
     </table>
     <?php endif; ?>
     <?php foreach ($paras($c('summary_text')) as $p): ?><p style="margin-top:3mm;font-size:8pt;"><?= nl2br($e($p)) ?></p><?php endforeach; ?>
-    <p class="note">A média mensal considera a implantação e as 12 primeiras mensalidades.</p>
+    <?php if ($hasMonthly): ?><p class="note">A média mensal considera a implantação e as 12 primeiras mensalidades.</p><?php endif; ?>
 </div>
 
 <?php if ($b = $fixed('payment')): ?>
@@ -615,12 +671,31 @@ $costChart = ProposalChart::line($costSeries, [
         <td><h2><?= $e($b['title'] !== '' ? $b['title'] : 'Condições de pagamento e rescisão') ?></h2></td>
         <td class="aside">Valores em reais</td>
     </tr></table>
+    <?php if ($hasMonthly && $plans): ?>
+    <table class="grid">
+        <tr><th>Condição de pagamento</th><th>Quando</th><?php foreach ($plans['items'] as $p): ?><th class="r"><?= $e($p['label']) ?></th><?php endforeach; ?></tr>
+        <tr>
+            <td>Implantação</td><td><?= $e(ucfirst($vars['condicao_pagamento'])) ?></td>
+            <?php foreach ($plans['items'] as $p): ?><td class="r"><?= $brl($plans['once']) ?></td><?php endforeach; ?>
+        </tr>
+        <tr class="alt">
+            <td>Mensalidade</td><td>Todo mês, a partir do primeiro</td>
+            <?php foreach ($plans['items'] as $p): ?><td class="r"><?= $brl($p['monthly']) ?></td><?php endforeach; ?>
+        </tr>
+        <tr class="total">
+            <td class="lbl">Total do primeiro mês (implantação + mensalidade)</td><td class="lbl">Primeiro mês</td>
+            <?php foreach ($plans['items'] as $p): ?><td class="r"><?= $brl($plans['once'] + $p['monthly']) ?></td><?php endforeach; ?>
+        </tr>
+    </table>
+    <p class="note">A implantação é cobrada uma só vez. A diferença entre os planos está na mensalidade.</p>
+    <?php else: ?>
     <table class="grid">
         <tr><th>Condição de pagamento</th><th>Quando</th><th class="r">Valor</th></tr>
-        <tr><td>Implantação</td><td><?= $e(ucfirst($vars['condicao_pagamento'])) ?></td><td class="r"><?= $brl($totals['once']) ?></td></tr>
-        <tr class="alt"><td>Mensalidade</td><td>Todo mês, a partir do início dos serviços</td><td class="r"><?= $brl($totals['monthly']) ?></td></tr>
-        <tr class="total"><td class="lbl">Total do primeiro ano (implantação + 12 mensalidades)</td><td class="lbl">12 meses</td><td class="r"><?= $brl($totals['year']) ?></td></tr>
+        <?php if ($hasOnce): ?><tr><td>Implantação</td><td><?= $e(ucfirst($vars['condicao_pagamento'])) ?></td><td class="r"><?= $brl($totals['once']) ?></td></tr><?php endif; ?>
+        <?php if ($hasMonthly): ?><tr class="alt"><td>Mensalidade</td><td>Todo mês, a partir do início dos serviços</td><td class="r"><?= $brl($totals['monthly']) ?></td></tr><?php endif; ?>
+        <tr class="total"><td class="lbl"><?= $hasMonthly ? 'Total do primeiro ano (implantação + 12 mensalidades)' : 'Total' ?></td><td class="lbl"><?= $hasMonthly ? '12 meses' : '' ?></td><td class="r"><?= $brl($hasMonthly ? $totals['year'] : $totals['once']) ?></td></tr>
     </table>
+    <?php endif; ?>
     <?php foreach ($lettered($b['body']) as $sec): ?>
         <?php if ($sec['letter'] === ''): ?>
             <?php foreach ($sec['lines'] as $line): ?><p class="note" style="font-size:7pt;"><?= $e($line) ?></p><?php endforeach; ?>
@@ -649,6 +724,9 @@ $costChart = ProposalChart::line($costSeries, [
     <?php endforeach; endif; ?>
 
     <p class="t" style="font-family:'Poppins';font-weight:bold;font-size:9pt;margin-top:4mm;">Aceite</p>
+    <?php if ($hasMonthly): ?>
+    <p style="font-size:8pt;margin:2mm 0 0;">Plano escolhido: ( ) 3 meses &nbsp; ( ) 6 meses &nbsp; ( ) 12 meses</p>
+    <?php endif; ?>
     <table width="100%" cellspacing="0" cellpadding="0" style="margin-top:7mm;page-break-inside:avoid;"><tr>
         <td width="34%" style="vertical-align:bottom;"><div class="sigline">______________________________</div><p class="muted" style="margin-top:1mm;"><?= $e($clientLabel) ?> (contratante)</p></td>
         <td width="34%" style="vertical-align:bottom;"><div class="sigline">______________________________</div><p class="muted" style="margin-top:1mm;"><?= $e($brand) ?> (contratada)</p></td>

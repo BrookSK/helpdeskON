@@ -163,6 +163,12 @@ class ProposalChart
         return [floor($min / $step) * $step, ceil($max / $step) * $step, $step];
     }
 
+    /** Índice do gráfico de custo (plano 3 meses no mês 12 = 100). */
+    public static function index(float $v): string
+    {
+        return (string)(int)round($v);
+    }
+
     /** Valores em reais abreviados para eixos e rótulos: "R$ 12 mil", "R$ 1,2 mi". */
     public static function money(float $v): string
     {

@@ -160,6 +160,44 @@ final class ProposalRulesTest extends TestCase
         $this->assertSame('once', ProposalRules::normalizeBilling('x'));
     }
 
+    public function testPlanosComDescontoSobreAMensalidade(): void
+    {
+        $plans = ProposalRules::plans([
+            ['amount' => 15000, 'billing' => 'once'],
+            ['amount' => 13600, 'billing' => 'monthly'],
+        ], 20, 30);
+        $p3 = $plans['items'][0];
+        $p6 = $plans['items'][1];
+        $p12 = $plans['items'][2];
+
+        $this->assertSame(13600.0, $p3['monthly']);
+        $this->assertSame(10880.0, $p6['monthly']);
+        $this->assertSame(9520.0, $p12['monthly']);
+        $this->assertSame(0.0, $p3['save_month']);
+        $this->assertSame(2720.0, $p6['save_month']);
+        $this->assertSame(4080.0, $p12['save_month']);
+        $this->assertSame(15000.0, $plans['once']);
+        // Implantação igual; índice do plano 3 meses no mês 12 = 100.
+        $this->assertSame(100, $p3['index12']);
+        $this->assertLessThan(100, $p12['index12']);
+        $this->assertSame(12, count($p3['cum']));
+        $this->assertSame(15000.0 + 13600.0, $p3['cum'][0]);
+        $this->assertSame(15000.0 + 13600.0 * 12, $p3['year']);
+    }
+
+    public function testProdutosAMaisPorMesUsaCeilDoInvestimento(): void
+    {
+        // Mesma conta do modelo: 128.760 / (1.500 × 12) = 7,15 → 8 por mês.
+        $rows = ProposalRules::extraProducts(128760, 5000, [30, 50, 70]);
+        $this->assertSame(1500.0, $rows[0]['profit']);
+        $this->assertSame(2500.0, $rows[1]['profit']);
+        $this->assertSame(3500.0, $rows[2]['profit']);
+        $this->assertSame(8, $rows[0]['per_month']);
+        $this->assertSame(5, $rows[1]['per_month']);
+        $this->assertSame(4, $rows[2]['per_month']);
+        $this->assertSame(0.0 - 128760.0, $rows[0]['pace'][0]);
+    }
+
     public function testItemAmountValorFixoQuandoSemHoras(): void
     {
         // Sem horas, usa o valor fixo.

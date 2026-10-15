@@ -263,6 +263,86 @@ class ProposalRules
     }
 
     /**
+     * Três planos de compromisso (3, 6 e 12 meses) a partir da mensalidade cheia.
+     * O desconto incide só na mensalidade; a implantação é igual nos três.
+     * Índice do gráfico: custo em 12 meses do plano 3 meses = 100.
+     *
+     * @param array<int,array> $items
+     * @return array{once:float,list:float,items:array<int,array>}
+     */
+    public static function plans(array $items, $discount6 = 20, $discount12 = 30): array
+    {
+        $t = self::totals($items);
+        $list = $t['monthly'];
+        $once = $t['once'];
+        $out = [];
+        foreach ([
+            ['label' => 'Plano 3 meses', 'months' => 3, 'discount' => 0.0],
+            ['label' => 'Plano 6 meses', 'months' => 6, 'discount' => self::pct($discount6, 20)],
+            ['label' => 'Plano 12 meses', 'months' => 12, 'discount' => self::pct($discount12, 30)],
+        ] as $def) {
+            $monthly = round($list * (1 - $def['discount'] / 100), 2);
+            $year = round($once + $monthly * 12, 2);
+            $cum = [];
+            for ($m = 1; $m <= 12; $m++) $cum[] = round($once + $monthly * $m, 2);
+            $out[] = [
+                'label' => $def['label'],
+                'months' => $def['months'],
+                'discount' => $def['discount'],
+                'monthly' => $monthly,
+                'term' => round($once + $monthly * $def['months'], 2),
+                'year' => $year,
+                'avg' => round($year / 12, 2),
+                'save_month' => round($list - $monthly, 2),
+                'save_year' => round(($list - $monthly) * 12, 2),
+                'cum' => $cum,
+            ];
+        }
+        $base = $out[0]['year'] > 0 ? $out[0]['year'] : 1.0;
+        foreach ($out as &$p) {
+            $p['index'] = array_map(fn($v) => round($v / $base * 100, 1), $p['cum']);
+            $p['index12'] = (int)round($p['year'] / $base * 100);
+        }
+        unset($p);
+        return ['once' => $once, 'list' => $list, 'items' => $out];
+    }
+
+    /**
+     * Produtos a mais por mês para cobrir o investimento, em cada margem.
+     * Mesma conta do modelo: ceil(investimento / (lucro por produto × 12)).
+     *
+     * @param float[] $margins
+     * @return array<int,array{margin:float,cost_share:float,profit:float,per_month:int,pace:array<int,float>}>
+     */
+    public static function extraProducts(float $investment, float $productPrice, array $margins = [30.0, 50.0, 70.0]): array
+    {
+        $out = [];
+        $maxX = 12;
+        foreach ($margins as $margin) {
+            $margin = max(0.0, min(100.0, (float)$margin));
+            $profit = round($productPrice * $margin / 100, 2);
+            $per = ($investment > 0 && $profit > 0) ? (int)ceil($investment / ($profit * 12) - 1e-9) : 0;
+            if ($per < 0) $per = 0;
+            $maxX = max($maxX, $per);
+            $out[] = [
+                'margin' => $margin,
+                'cost_share' => 100 - $margin,
+                'profit' => $profit,
+                'per_month' => $per,
+            ];
+        }
+        foreach ($out as &$row) {
+            $pace = [];
+            for ($x = 0; $x <= $maxX; $x++) {
+                $pace[] = round($x * $row['profit'] * 12 - $investment, 2);
+            }
+            $row['pace'] = $pace;
+        }
+        unset($row);
+        return $out;
+    }
+
+    /**
      * Projeção de 12 meses a partir do início do desenvolvimento.
      * Item pontual entra no mês em que começa no cronograma; item mensal entra
      * todo mês a partir do seu início. O retorno estimado começa no mês
@@ -333,7 +413,10 @@ class ProposalRules
         'business_channels'     => 4000, // Presença dos canais atuais
         'business_opportunity'  => 4000, // Oportunidade
         'business_diagnosis'    => 4000, // Validar diagnóstico
-        'expected_return'       => 20,   // Retorno mensal estimado (R$)
+        'expected_return'       => 20,   // Retorno mensal estimado (R$) — propostas só de implantação
+        'product_price'         => 20,   // Preço do produto (R$) — previsibilidade no estilo do modelo
+        'discount_6'            => 10,   // Desconto % no plano 6 meses (vs. mensalidade cheia)
+        'discount_12'           => 10,   // Desconto % no plano 12 meses
         'return_text'           => 4000, // Previsibilidade do retorno
         'renewal_text'          => 4000, // Renovação de serviços pontuais
         'summary_text'          => 4000, // Resumo final
@@ -344,7 +427,10 @@ class ProposalRules
     public static function defaultContent(): array
     {
         return [
-            'renewal_text' => "Os serviços pontuais desta proposta encerram com a entrega. Ao fim do período, podem ser renovados com novo escopo e valor atualizado, aproveitando o que já foi construído.",
+            'discount_6' => '20',
+            'discount_12' => '30',
+            'renewal_text' => "Toda renovação tem prazo mínimo de 3 meses e não tem novo pagamento único, pois a implantação já foi realizada. A mensalidade segue a tabela do plano escolhido na renovação: o desconto se mantém para quem renova por 6 ou 12 meses.\n\nOs serviços pontuais desta proposta encerram com a entrega. Ao fim do período, podem ser renovados com novo escopo e valor atualizado, aproveitando o que já foi construído.",
+            'summary_text' => "O Plano 12 meses tem a menor mensalidade e o menor custo médio por mês. A implantação é cobrada uma só vez. Valores não incluem custos de terceiros (domínio, anúncios, licenças), salvo quando listados nesta proposta.",
             'payment_method' => '50% na assinatura e 50% na entrega',
         ];
     }
@@ -357,9 +443,14 @@ class ProposalRules
         foreach (self::CONTENT_FIELDS as $key => $max) {
             if (!array_key_exists($key, $data)) continue;
             $v = trim((string)$data[$key]);
-            if ($key === 'expected_return') {
+            if (in_array($key, ['expected_return', 'product_price'], true)) {
                 $n = self::num($v);
                 $out[$key] = $n > 0 ? (string)round($n, 2) : '';
+                continue;
+            }
+            if ($key === 'discount_6' || $key === 'discount_12') {
+                if ($v === '') { $out[$key] = ''; continue; }
+                $out[$key] = (string)self::pct($v, 0);
                 continue;
             }
             $out[$key] = mb_strlen($v) > $max ? mb_substr($v, 0, $max) : $v;
@@ -439,7 +530,7 @@ class ProposalRules
                 'title' => 'Condições de pagamento e rescisão',
                 'kind' => 'sections',
                 'position' => 1,
-                'body' => "A Vigência, reajuste e renovação\nOs valores dos serviços contratados serão reajustados a cada doze meses de vigência, com base no IGP-M.\nEsta proposta será renovada automaticamente por períodos iguais ao contratado, caso não seja contestada com antecedência mínima de sessenta dias do término.\nNa renovação, não há novo pagamento de implantação.\nEsta proposta tem validade jurídica a partir da assinatura pelas partes e segue os termos do contrato de prestação de serviços.\n\nB Rescisão antecipada\nO cancelamento deve ser comunicado por escrito com trinta dias de antecedência da data de suspensão dos serviços.\nServiços de implantação já iniciados são cobrados proporcionalmente ao que foi entregue até a data do aviso.\nOs valores de implantação já pagos não são reembolsáveis, pois correspondem a serviços entregues ou em execução.\n\nC Outras disposições\nAs informações desta proposta são confidenciais e não poderão ser divulgadas sem autorização prévia da ON Solutions Brasil.\nÉ vedado utilizar a hospedagem e as ferramentas do projeto para fins ilícitos ou que violem as políticas das plataformas utilizadas.",
+                'body' => "A Vigência, reajuste e renovação\nOs valores dos serviços contratados serão reajustados a cada doze meses de vigência, com base no IGP-M.\nEsta proposta será renovada automaticamente por períodos iguais ao do plano contratado, caso não seja contestada com antecedência mínima de sessenta dias do término do prazo contratual.\nNa renovação, não há novo pagamento de implantação.\nEsta proposta tem validade jurídica a partir da assinatura pelas partes e segue os termos do contrato de prestação de serviços.\n\nB Rescisão antecipada e downgrade\nO prazo do plano escolhido é a premissa negocial do preço praticado nesta proposta. Em caso de downgrade ou rescisão antecipada por iniciativa do cliente, para compensar a frustração do prazo contratual e os investimentos da ON Solutions Brasil em equipe, planejamento e contratação de terceiros para atender o cliente, será cobrado cinquenta por cento do valor da mensalidade multiplicado pelo prazo remanescente.\nNo downgrade, a cobrança incide sobre a diferença entre a mensalidade contratada e a nova mensalidade.\nCancelamento ou downgrade devem ser comunicados por escrito com sessenta dias de antecedência da data de suspensão dos serviços.\nOs valores de implantação já pagos não são reembolsáveis, pois correspondem a serviços entregues ou em execução.\n\nC Outras disposições\nAs informações desta proposta são confidenciais e não poderão ser divulgadas sem autorização prévia da ON Solutions Brasil.\nÉ vedado utilizar a hospedagem e as ferramentas do projeto para fins ilícitos ou que violem as políticas das plataformas de anúncios e redes sociais.",
             ],
             [
                 'block_key' => 'notes',
@@ -460,11 +551,22 @@ class ProposalRules
         'notes' => "Proposta válida até {validade}.\nValores referem-se somente ao escopo descrito. Mudanças de escopo são orçadas à parte.\nDesenvolvimento do zero",
     ];
 
+    /** Textos padrão da versão anterior (antes dos planos 3/6/12 e do texto do modelo). */
+    public const LEGACY_PAYMENT_STARTS = [
+        "A Vigência, reajuste e renovação\nOs valores dos serviços contratados serão reajustados a cada doze meses de vigência, com base no IGP-M.\nEsta proposta será renovada automaticamente por períodos iguais ao contratado, caso não seja contestada com antecedência mínima de sessenta dias do término.\nNa renovação, não há novo pagamento de implantação.",
+    ];
+
     public static function isLegacyBlock(string $key, ?string $body): bool
     {
+        $body = str_replace("\r\n", "\n", trim((string)$body));
         $start = self::LEGACY_BLOCK_STARTS[$key] ?? null;
-        if ($start === null) return false;
-        return str_starts_with(str_replace("\r\n", "\n", trim((string)$body)), $start);
+        if ($start !== null && str_starts_with($body, $start)) return true;
+        if ($key === 'payment') {
+            foreach (self::LEGACY_PAYMENT_STARTS as $old) {
+                if (str_starts_with($body, $old)) return true;
+            }
+        }
+        return false;
     }
 
     /** kind de um bloco fixo pela chave. */
@@ -530,6 +632,16 @@ class ProposalRules
      * Converte um valor em float aceitando número ou string "R$ 1.234,56".
      * Reaproveita o parser monetário brasileiro do CRM quando a entrada é string.
      */
+    /** Percentual 0–90. Vazio usa o padrão (20 ou 30, como no modelo). */
+    private static function pct($v, float $default): float
+    {
+        if ($v === null || $v === '') return $default;
+        $n = self::num($v);
+        if ($n < 0) return 0.0;
+        if ($n > 90) return 90.0;
+        return round($n, 1);
+    }
+
     private static function num($v): float
     {
         if (is_int($v) || is_float($v)) return (float)$v;
