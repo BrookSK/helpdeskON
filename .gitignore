@@ -6,6 +6,10 @@ public/uploads/tickets/*
 public/uploads/recordings/*
 !public/uploads/recordings/.gitkeep
 
+# Sessões de gravação v2 (journals + chunks brutos). Não versionar.
+storage/video-recordings/*
+!storage/video-recordings/.gitkeep
+
 # Configuração local do banco
 # config/database.php
 
