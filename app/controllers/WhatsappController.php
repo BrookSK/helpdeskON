@@ -2195,6 +2195,59 @@ class WhatsappController extends Controller
      * Se a API falhar para uma instância, usa o histórico local (quem já
      * mandou mensagem no grupo) como alternativa.
      */
+    /**
+     * Lista os grupos disponíveis para exportação (para o modal de seleção).
+     * GET whatsapp/listGroups?instance_id=<id>|all
+     *
+     * Retorna [{jid, subject, participants, instance_id, instance_name}].
+     * Usa a Evolution API (com contagem de participantes) e cai para o
+     * histórico local quando a API não responde.
+     */
+    public function listGroups()
+    {
+        $this->requireRole(['super_admin', 'developer', 'attendant', 'analyst', 'comercial', 'marketing', 'whatsapp_agent']);
+        @set_time_limit(60);
+
+        $db = Database::getInstance();
+        $instanceId = $_GET['instance_id'] ?? 'all';
+        if ($instanceId !== 'all' && $instanceId !== '') {
+            $instances = $db->fetchAll("SELECT * FROM whatsapp_instances WHERE id = ?", [intval($instanceId)]);
+        } else {
+            $instances = $db->fetchAll("SELECT * FROM whatsapp_instances ORDER BY is_default DESC, id ASC");
+        }
+        if (empty($instances)) {
+            $this->json(['success' => false, 'message' => 'Nenhuma instância de WhatsApp encontrada.', 'groups' => []], 404);
+        }
+
+        $out = [];
+        $notices = [];
+        foreach ($instances as $inst) {
+            $instName = $inst['display_name'] ?: $inst['instance_name'];
+            $groups = WhatsappGroupExportRules::parseGroups($this->fetchGroupsWithParticipants($inst));
+            if (empty($groups)) {
+                $groups = WhatsappGroupExportRules::parseGroups($this->contactModel->getLocalGroupsWithSenders((int) $inst['id']));
+                if (!empty($groups)) {
+                    $notices[] = $instName . ': lista do histórico local (API indisponível).';
+                }
+            }
+            foreach ($groups as $g) {
+                $out[] = [
+                    'jid' => $g['jid'],
+                    'subject' => $g['subject'],
+                    'participants' => count($g['participants']),
+                    'instance_id' => (int) $inst['id'],
+                    'instance_name' => $instName,
+                ];
+            }
+        }
+
+        $this->json([
+            'success' => true,
+            'groups' => $out,
+            'notice' => $notices ? implode(' ', array_unique($notices)) : null,
+        ]);
+    }
+
     public function exportGroupContacts()
     {
         $this->requireRole(['super_admin', 'developer', 'attendant', 'analyst', 'comercial', 'marketing', 'whatsapp_agent']);
@@ -2213,6 +2266,17 @@ class WhatsappController extends Controller
             $this->json(['success' => false, 'message' => 'Nenhuma instância de WhatsApp encontrada.'], 404);
         }
 
+        // Grupos selecionados pelo usuário (JIDs). Vazio = exigir seleção.
+        // Aceita groups[]=jid (GET) ou groups=jid1,jid2.
+        $selectedJids = $_GET['groups'] ?? [];
+        if (is_string($selectedJids)) {
+            $selectedJids = array_filter(array_map('trim', explode(',', $selectedJids)));
+        }
+        $selectedJids = array_values(array_filter((array) $selectedJids, 'strlen'));
+        if (empty($selectedJids)) {
+            $this->json(['success' => false, 'message' => 'Selecione pelo menos um grupo para exportar.'], 400);
+        }
+
         $localByPhone = $this->contactModel->getExportContactsByPhoneKey();
         $senderNames = $this->contactModel->getGroupSenderNames();
 
@@ -2224,9 +2288,9 @@ class WhatsappController extends Controller
         foreach ($instances as $inst) {
             $instName = $inst['display_name'] ?: $inst['instance_name'];
 
-            $groups = WhatsappGroupExportRules::parseGroups($this->fetchGroupsWithParticipants($inst));
+            $groups = WhatsappGroupExportRules::parseGroups($this->fetchGroupsWithParticipants($inst), $selectedJids);
             if (empty($groups)) {
-                $groups = WhatsappGroupExportRules::parseGroups($this->contactModel->getLocalGroupsWithSenders((int) $inst['id']));
+                $groups = WhatsappGroupExportRules::parseGroups($this->contactModel->getLocalGroupsWithSenders((int) $inst['id']), $selectedJids);
                 if (!empty($groups)) {
                     $notices[] = $instName . ': API indisponível, usado o histórico local (só quem já enviou mensagem).';
                 }

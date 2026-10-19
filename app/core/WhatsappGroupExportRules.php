@@ -45,8 +45,12 @@ class WhatsappGroupExportRules
      * [['jid' => ..., 'subject' => ..., 'participants' => [['jid','phone','admin','name'], ...]], ...]
      * Grupos sem JID são ignorados. Participantes duplicados no mesmo grupo
      * (mesmo telefone/JID) entram uma vez só.
+     *
+     * @param mixed      $apiResponse resposta de /group/fetchAllGroups ou formato local
+     * @param array|null $onlyJids    se informado (lista de JIDs de grupo), apenas
+     *                                esses grupos entram no resultado. [] ou null = todos.
      */
-    public static function parseGroups($apiResponse): array
+    public static function parseGroups($apiResponse, ?array $onlyJids = null): array
     {
         if (!is_array($apiResponse) || !empty($apiResponse['error'])) {
             return [];
@@ -56,11 +60,23 @@ class WhatsappGroupExportRules
             $list = $apiResponse['groups'];
         }
 
+        // Conjunto de JIDs permitidos (normalizados) para busca O(1).
+        $allow = null;
+        if (is_array($onlyJids) && $onlyJids !== []) {
+            $allow = [];
+            foreach ($onlyJids as $j) {
+                $j = self::normalizeGroupJid((string) $j);
+                if ($j !== '') $allow[$j] = true;
+            }
+            if ($allow === []) $allow = null; // só valores inválidos: trata como "todos"
+        }
+
         $groups = [];
         foreach ($list as $grp) {
             if (!is_array($grp)) continue;
             $jid = (string) ($grp['id'] ?? $grp['jid'] ?? $grp['remoteJid'] ?? '');
             if ($jid === '') continue;
+            if ($allow !== null && !isset($allow[self::normalizeGroupJid($jid)])) continue;
             $subject = trim((string) ($grp['subject'] ?? $grp['name'] ?? ''));
 
             $participants = [];
@@ -153,6 +169,18 @@ class WhatsappGroupExportRules
     public static function stripJid(string $jid): string
     {
         return preg_replace('/@.*$/', '', $jid);
+    }
+
+    /**
+     * Normaliza um JID de grupo para comparação: só os dígitos antes do "@".
+     * Assim "120363...@g.us" e "120363..." casam. Vazio se não houver dígitos.
+     */
+    public static function normalizeGroupJid(string $jid): string
+    {
+        $jid = trim($jid);
+        if ($jid === '') return '';
+        $user = explode('@', $jid)[0];
+        return preg_replace('/\D/', '', $user);
     }
 
     /**

@@ -23,8 +23,8 @@
                             <button type="button" id="btn-export-groups" class="btn btn-sm btn-outline-success py-0 px-1" data-bs-toggle="dropdown" aria-expanded="false" title="Exportar contatos dos grupos (Excel)" aria-label="Exportar contatos dos grupos para Excel"><i class="bi bi-file-earmark-excel" style="font-size:0.75rem;"></i></button>
                             <ul class="dropdown-menu dropdown-menu-end" style="font-size:0.8rem;">
                                 <li><h6 class="dropdown-header">Exportar contatos dos grupos</h6></li>
-                                <li><button type="button" class="dropdown-item" data-export-mode="fast" onclick="exportGroupContacts(false)"><i class="bi bi-lightning"></i> Rápido (grupo, nome, telefone)</button></li>
-                                <li><button type="button" class="dropdown-item" data-export-mode="profiles" onclick="exportGroupContacts(true)"><i class="bi bi-person-vcard"></i> Completo (+ sites, Instagram, e-mail)<br><small class="text-muted ms-3">consulta o perfil de cada pessoa, mais lento</small></button></li>
+                                <li><button type="button" class="dropdown-item" data-export-mode="fast" onclick="openExportGroups(false)"><i class="bi bi-lightning"></i> Rápido (grupo, nome, telefone)</button></li>
+                                <li><button type="button" class="dropdown-item" data-export-mode="profiles" onclick="openExportGroups(true)"><i class="bi bi-person-vcard"></i> Completo (+ sites, Instagram, e-mail)<br><small class="text-muted ms-3">consulta o perfil de cada pessoa, mais lento</small></button></li>
                             </ul>
                         </div>
                         <button type="button" class="btn btn-sm btn-outline-warning py-0 px-1" title="Respostas rápidas" onclick="openQuickRepliesModal()"><i class="bi bi-lightning-charge-fill" style="font-size:0.75rem;"></i></button>
@@ -1072,6 +1072,38 @@ body { overflow: hidden !important; margin: 0; padding: 0; }
 }
 </style>
 
+<!-- Modal: seleção de grupos para exportação -->
+<div class="modal fade" id="exportGroupsModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title mb-0"><i class="bi bi-file-earmark-excel text-success"></i> Exportar contatos dos grupos</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body">
+                <div id="export-mode-label" class="small text-muted mb-2"></div>
+                <input type="text" class="form-control form-control-sm mb-2" id="export-group-search" placeholder="Buscar grupo...">
+                <div class="d-flex align-items-center justify-content-between mb-2">
+                    <div class="form-check mb-0">
+                        <input class="form-check-input" type="checkbox" id="export-select-all">
+                        <label class="form-check-label small" for="export-select-all">Selecionar todos</label>
+                    </div>
+                    <span class="small text-muted" id="export-selected-count">0 selecionado(s)</span>
+                </div>
+                <div id="export-groups-list" style="max-height:48vh;overflow:auto;">
+                    <div class="text-center py-4 text-muted small">Carregando grupos...</div>
+                </div>
+            </div>
+            <div class="modal-footer py-2">
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-sm btn-success" id="export-confirm-btn" onclick="confirmExportGroups()" disabled>
+                    <i class="bi bi-download"></i> Exportar selecionados
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
 const BASE = '<?= baseUrl("") ?>';
 const CURRENT_USER_ID = <?= intval($user['id'] ?? 0) ?>;
@@ -1193,20 +1225,108 @@ function syncGroups(btn) {
         });
 }
 
-// Exporta os participantes de todos os grupos para planilha (.xlsx).
-// Usa fetch + blob para poder mostrar erro/aviso (toast) sem sair da tela.
-function exportGroupContacts(withProfiles) {
-    const btn = document.getElementById('btn-export-groups');
-    const instanceEl = document.getElementById('filter-instance');
-    const instance = instanceEl ? instanceEl.value : 'all';
-    let url = BASE + 'whatsapp/exportGroupContacts?instance_id=' + encodeURIComponent(instance || 'all');
-    if (withProfiles) url += '&profiles=1';
+// ===== Exportação de contatos dos grupos (com seleção de grupos) =====
+let exportWithProfiles = false;   // modo escolhido no dropdown (false = rápido)
+let exportGroupsCache = [];       // grupos carregados da API [{jid, subject, participants, instance_name}]
+let exportModalInstance = null;
 
-    const original = btn ? btn.innerHTML : '';
-    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:0.75rem;height:0.75rem;"></span>'; }
-    if (typeof showToast === 'function') showToast(withProfiles ? 'Gerando planilha com perfis... isso pode levar alguns minutos.' : 'Gerando planilha...');
+function currentInstanceFilter() {
+    const el = document.getElementById('filter-instance');
+    return el ? (el.value || 'all') : 'all';
+}
 
-    fetch(url, { headers: {'X-Requested-With': 'XMLHttpRequest'} })
+// Abre o modal e carrega a lista de grupos para o usuário escolher quais exportar.
+function openExportGroups(withProfiles) {
+    exportWithProfiles = !!withProfiles;
+    const modalEl = document.getElementById('exportGroupsModal');
+    exportModalInstance = bootstrap.Modal.getOrCreateInstance(modalEl);
+
+    document.getElementById('export-mode-label').innerHTML = withProfiles
+        ? '<i class="bi bi-person-vcard"></i> Modo <strong>completo</strong> (sites, Instagram, e-mail). Consulta o perfil de cada pessoa, mais lento.'
+        : '<i class="bi bi-lightning"></i> Modo <strong>rápido</strong> (grupo, nome, telefone).';
+
+    const search = document.getElementById('export-group-search');
+    search.value = '';
+    document.getElementById('export-select-all').checked = false;
+    document.getElementById('export-confirm-btn').disabled = true;
+    document.getElementById('export-selected-count').textContent = '0 selecionado(s)';
+    document.getElementById('export-groups-list').innerHTML = '<div class="text-center py-4 text-muted small"><span class="spinner-border spinner-border-sm"></span> Carregando grupos...</div>';
+    exportModalInstance.show();
+
+    fetch(BASE + 'whatsapp/listGroups?instance_id=' + encodeURIComponent(currentInstanceFilter()), { headers: {'X-Requested-With': 'XMLHttpRequest'} })
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) throw new Error(data.message || 'Falha ao listar grupos.');
+            exportGroupsCache = (data.groups || []).slice().sort((a, b) => (a.subject || '').localeCompare(b.subject || '', 'pt-BR'));
+            renderExportGroups(data.notice);
+        })
+        .catch(err => {
+            document.getElementById('export-groups-list').innerHTML =
+                '<div class="text-center py-4 text-danger small">' + escapeHtml(err.message) + '</div>';
+        });
+}
+
+function renderExportGroups(notice) {
+    const list = document.getElementById('export-groups-list');
+    const multiInstance = new Set(exportGroupsCache.map(g => g.instance_name)).size > 1;
+
+    if (!exportGroupsCache.length) {
+        list.innerHTML = '<div class="text-center py-4 text-muted small">Nenhum grupo encontrado para esta instância.</div>';
+        return;
+    }
+
+    let html = '';
+    if (notice) html += '<div class="alert alert-warning py-1 px-2 small mb-2">' + escapeHtml(notice) + '</div>';
+    html += exportGroupsCache.map((g, i) => {
+        const sub = escapeHtml(g.subject || g.jid);
+        const inst = multiInstance ? ' <span class="badge bg-light text-muted border">' + escapeHtml(g.instance_name) + '</span>' : '';
+        const parts = g.participants ? '<span class="text-muted small ms-1">(' + g.participants + ')</span>' : '';
+        return '<div class="form-check export-group-row" data-name="' + sub.toLowerCase() + '">' +
+            '<input class="form-check-input export-group-cb" type="checkbox" value="' + escapeHtml(g.jid) +
+            '" id="exg-' + i + '" data-instance="' + escapeHtml(String(g.instance_id)) + '" onchange="updateExportSelection()">' +
+            '<label class="form-check-label small" for="exg-' + i + '">' + sub + parts + inst + '</label>' +
+            '</div>';
+    }).join('');
+    list.innerHTML = html;
+    updateExportSelection();
+}
+
+function selectedExportCheckboxes() {
+    return Array.from(document.querySelectorAll('.export-group-cb:checked'));
+}
+
+function updateExportSelection() {
+    const n = selectedExportCheckboxes().length;
+    document.getElementById('export-selected-count').textContent = n + ' selecionado(s)';
+    document.getElementById('export-confirm-btn').disabled = n === 0;
+    // "Selecionar todos" reflete apenas os visíveis (não filtrados pela busca)
+    const visible = Array.from(document.querySelectorAll('.export-group-row'))
+        .filter(r => r.style.display !== 'none')
+        .map(r => r.querySelector('.export-group-cb'));
+    const allChecked = visible.length > 0 && visible.every(cb => cb.checked);
+    document.getElementById('export-select-all').checked = allChecked;
+}
+
+// Dispara o download apenas dos grupos marcados.
+function confirmExportGroups() {
+    const jids = selectedExportCheckboxes().map(cb => cb.value);
+    if (!jids.length) return;
+
+    const btn = document.getElementById('export-confirm-btn');
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Gerando...';
+
+    const params = new URLSearchParams();
+    params.set('instance_id', currentInstanceFilter());
+    if (exportWithProfiles) params.set('profiles', '1');
+    jids.forEach(j => params.append('groups[]', j));
+
+    if (typeof showToast === 'function') {
+        showToast(exportWithProfiles ? 'Gerando planilha com perfis... isso pode levar alguns minutos.' : 'Gerando planilha...');
+    }
+
+    fetch(BASE + 'whatsapp/exportGroupContacts?' + params.toString(), { headers: {'X-Requested-With': 'XMLHttpRequest'} })
         .then(async r => {
             const type = r.headers.get('Content-Type') || '';
             if (!r.ok || type.includes('application/json')) {
@@ -1225,13 +1345,38 @@ function exportGroupContacts(withProfiles) {
             document.body.appendChild(a);
             a.click();
             setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+            if (exportModalInstance) exportModalInstance.hide();
             if (typeof showToast === 'function') {
                 showToast((count ? count + ' contato(s) exportado(s).' : 'Planilha gerada.') + (notice ? ' ' + decodeURIComponent(notice) : ''));
             }
         })
         .catch(err => { if (typeof showToast === 'function') showToast(err.message); else alert(err.message); })
-        .finally(() => { if (btn) { btn.disabled = false; btn.innerHTML = original; } });
+        .finally(() => { btn.disabled = false; btn.innerHTML = original; });
 }
+
+// Busca dentro do modal + "selecionar todos" (ligados uma vez quando o DOM existe).
+document.addEventListener('DOMContentLoaded', () => {
+    const search = document.getElementById('export-group-search');
+    if (search) {
+        search.addEventListener('input', () => {
+            const q = search.value.trim().toLowerCase();
+            document.querySelectorAll('.export-group-row').forEach(row => {
+                row.style.display = row.getAttribute('data-name').includes(q) ? '' : 'none';
+            });
+            updateExportSelection();
+        });
+    }
+    const selectAll = document.getElementById('export-select-all');
+    if (selectAll) {
+        selectAll.addEventListener('change', () => {
+            document.querySelectorAll('.export-group-row').forEach(row => {
+                if (row.style.display === 'none') return; // só os visíveis
+                row.querySelector('.export-group-cb').checked = selectAll.checked;
+            });
+            updateExportSelection();
+        });
+    }
+});
 
 function renderContactsList() {
     const list = document.getElementById('contacts-list');

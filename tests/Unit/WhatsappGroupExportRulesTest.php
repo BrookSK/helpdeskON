@@ -79,6 +79,37 @@ final class WhatsappGroupExportRulesTest extends TestCase
         $this->assertSame('5511987654321', $g[0]['participants'][0]['phone'], 'participante como string');
     }
 
+    public function testParseGroupsFiltraPorJidsSelecionados(): void
+    {
+        $api = [
+            ['id' => '111@g.us', 'subject' => 'A', 'participants' => []],
+            ['id' => '222@g.us', 'subject' => 'B', 'participants' => []],
+            ['id' => '333@g.us', 'subject' => 'C', 'participants' => []],
+        ];
+        // Seleção com e sem sufixo @g.us deve casar o mesmo grupo
+        $g = R::parseGroups($api, ['111@g.us', '333']);
+        $this->assertSame(['A', 'C'], array_column($g, 'subject'));
+
+        // Lista vazia ou nula = todos os grupos
+        $this->assertCount(3, R::parseGroups($api, []));
+        $this->assertCount(3, R::parseGroups($api, null));
+
+        // JID selecionado inexistente não traz nada
+        $this->assertSame([], R::parseGroups($api, ['999@g.us']));
+
+        // Só JIDs inválidos (sem dígitos) = trata como "todos"
+        $this->assertCount(3, R::parseGroups($api, ['', '@g.us']));
+    }
+
+    public function testNormalizeGroupJid(): void
+    {
+        $this->assertSame('120363', R::normalizeGroupJid('120363@g.us'));
+        $this->assertSame('120363', R::normalizeGroupJid('120363'));
+        $this->assertSame('5511987654321', R::normalizeGroupJid('5511987654321@s.whatsapp.net'));
+        $this->assertSame('', R::normalizeGroupJid(''));
+        $this->assertSame('', R::normalizeGroupJid('@g.us'));
+    }
+
     public function testParseGroupsRespostaDeErroOuInvalida(): void
     {
         $this->assertSame([], R::parseGroups(['error' => true, 'message' => 'x']));

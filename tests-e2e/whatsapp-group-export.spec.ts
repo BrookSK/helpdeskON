@@ -105,11 +105,35 @@ async function openChat(page: Page) {
   }
 }
 
-async function exportAndRead(page: Page, mode: 'fast' | 'profiles'): Promise<string[][]> {
+/** Abre o modal de exportação no modo pedido e espera a lista de grupos carregar. */
+async function openExportModal(page: Page, mode: 'fast' | 'profiles') {
   await page.locator('#btn-export-groups').click();
-  const item = page.locator(`[data-export-mode="${mode}"]`);
-  await expect(item).toBeVisible();
-  const [download] = await Promise.all([page.waitForEvent('download', { timeout: 60_000 }), item.click()]);
+  await page.locator(`[data-export-mode="${mode}"]`).click();
+  await expect(page.locator('#exportGroupsModal')).toBeVisible();
+  // Espera os checkboxes aparecerem (lista carregada via /listGroups)
+  await expect(page.locator('.export-group-cb').first()).toBeVisible({ timeout: 30_000 });
+}
+
+/**
+ * Fluxo completo: abre o modal, marca os grupos (todos por padrão, ou os
+ * subjects informados), confirma e lê a planilha baixada.
+ */
+async function exportAndRead(page: Page, mode: 'fast' | 'profiles', onlyGroups?: string[]): Promise<string[][]> {
+  await openExportModal(page, mode);
+
+  if (onlyGroups && onlyGroups.length) {
+    for (const name of onlyGroups) {
+      const row = page.locator('.export-group-row', { hasText: name });
+      await row.locator('.export-group-cb').check();
+    }
+  } else {
+    await page.locator('#export-select-all').check();
+  }
+
+  const [download] = await Promise.all([
+    page.waitForEvent('download', { timeout: 60_000 }),
+    page.locator('#export-confirm-btn').click(),
+  ]);
   expect(download.suggestedFilename()).toMatch(/^contatos_grupos_whatsapp_\d{4}-\d{2}-\d{2}_\d{6}\.xlsx$/);
   const file = path.join(ROOT, 'tests-e2e', '.artifacts', `export_${Date.now()}.xlsx`);
   await download.saveAs(file);
@@ -160,6 +184,34 @@ test.describe('WhatsApp — exportar contatos dos grupos', () => {
     expect(calls.some((c) => c.url.startsWith('/chat/fetchProfile/'))).toBe(false);
   });
 
+  test('seleção de grupos: exporta só o grupo marcado', async ({ page }) => {
+    await login(page);
+    await openChat(page);
+    // Marca apenas "Fornecedores E2E"
+    const rows = await exportAndRead(page, 'fast', ['Fornecedores E2E']);
+    const data = rows.slice(1);
+
+    expect(data.length).toBeGreaterThan(0);
+    // Todas as linhas são do grupo escolhido; nada de "Clientes E2E"
+    expect(data.every((r) => r[COL.grupo] === 'Fornecedores E2E')).toBe(true);
+    expect(data.some((r) => r[COL.grupo] === 'Clientes E2E')).toBe(false);
+  });
+
+  test('botão exportar fica desabilitado até marcar um grupo', async ({ page }) => {
+    await login(page);
+    await openChat(page);
+    await openExportModal(page, 'fast');
+
+    const confirm = page.locator('#export-confirm-btn');
+    await expect(confirm).toBeDisabled();
+
+    await page.locator('.export-group-cb').first().check();
+    await expect(confirm).toBeEnabled();
+
+    await page.locator('.export-group-cb').first().uncheck();
+    await expect(confirm).toBeDisabled();
+  });
+
   test('exportação completa traz site, Instagram, e-mail e recado do perfil', async ({ page }) => {
     calls.length = 0;
     await login(page);
@@ -185,15 +237,17 @@ test.describe('WhatsApp — exportar contatos dos grupos', () => {
   test('erro do servidor aparece como aviso na tela, sem download', async ({ page }) => {
     await login(page);
     await openChat(page);
+    await openExportModal(page, 'fast');
+    // Mocka só o download; a lista do modal (listGroups) permanece real.
     await page.route('**/whatsapp/exportGroupContacts**', (route) =>
       route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ success: false, message: 'Nenhum participante de grupo encontrado.' }) }));
 
     let downloaded = false;
     page.on('download', () => (downloaded = true));
-    await page.locator('#btn-export-groups').click();
-    await page.locator('[data-export-mode="fast"]').click();
+    await page.locator('#export-select-all').check();
+    await page.locator('#export-confirm-btn').click();
     await expect(page.getByText('Nenhum participante de grupo encontrado.')).toBeVisible();
-    await expect(page.locator('#btn-export-groups')).toBeEnabled();
+    await expect(page.locator('#export-confirm-btn')).toBeEnabled();
     expect(downloaded).toBe(false);
   });
 });
