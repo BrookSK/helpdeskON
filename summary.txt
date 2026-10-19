@@ -1,0 +1,12 @@
+﻿[4mSimple Xlsx Writer (Tests\Unit\SimpleXlsxWriter)[0m
+[4mWhatsapp Group Export (Tests\Integration\WhatsappGroupExport)[0m
+[4mWhatsapp Group Export Rules (Tests\Unit\WhatsappGroupExportRules)[0m
+46
+Undefined array key "minutes_ack_status"
+
+3) D:\GITHUB\helpdeskON\tests\Integration\MinutesAckTest.php:146
+Undefined array key "minutes_ack_status"
+
+[37;41mERRORS![0m
+[37;41mTests: 797[0m[37;41m, Assertions: 2558[0m[37;41m, Errors: 43[0m[37;41m, Failures: 3[0m[37;41m, Warnings: 3[0m[37;41m, Skipped: 17[0m[37;41m.[0m
+EXITCODE=2 

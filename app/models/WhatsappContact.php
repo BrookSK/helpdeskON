@@ -168,6 +168,94 @@ class WhatsappContact
     }
 
     /**
+     * Exportação de grupos: contatos individuais já salvos (todas as
+     * instâncias), indexados por WhatsappGroupExportRules::phoneKey, para
+     * enriquecer nome/e-mail/links dos participantes. Em duplicados, fica o
+     * registro mais completo.
+     */
+    public function getExportContactsByPhoneKey(): array
+    {
+        try {
+            $rows = $this->db->fetchAll(
+                "SELECT phone, contact_name, push_name, lead_email, linkedin_url, lead_source_url
+                 FROM whatsapp_contacts WHERE is_group = 0 AND phone IS NOT NULL AND phone <> ''"
+            );
+        } catch (Exception $e) {
+            // Colunas opcionais ausentes (migrations antigas): usa o básico
+            $rows = $this->db->fetchAll(
+                "SELECT phone, contact_name, push_name FROM whatsapp_contacts
+                 WHERE is_group = 0 AND phone IS NOT NULL AND phone <> ''"
+            );
+        }
+        $map = [];
+        foreach ($rows as $r) {
+            $key = WhatsappGroupExportRules::phoneKey((string) $r['phone']);
+            if ($key === '') continue;
+            if (!isset($map[$key]) || count(array_filter($r)) > count(array_filter($map[$key]))) {
+                $map[$key] = $r;
+            }
+        }
+        return $map;
+    }
+
+    /**
+     * Exportação de grupos: nomes de remetentes (pushName) vistos em mensagens
+     * de grupo, indexados pelo JID completo (inclusive @lid) e, quando o JID tem
+     * telefone, também pelo phoneKey.
+     */
+    public function getGroupSenderNames(): array
+    {
+        $rows = $this->db->fetchAll(
+            "SELECT participant_jid, MAX(sender_name) AS sender_name
+             FROM whatsapp_messages
+             WHERE participant_jid IS NOT NULL AND participant_jid <> ''
+               AND sender_name IS NOT NULL AND sender_name <> ''
+             GROUP BY participant_jid"
+        );
+        $map = [];
+        foreach ($rows as $r) {
+            $jid = (string) $r['participant_jid'];
+            $map[$jid] = $r['sender_name'];
+            $phone = WhatsappGroupExportRules::phoneFromJid($jid);
+            if ($phone !== '') $map[WhatsappGroupExportRules::phoneKey($phone)] = $r['sender_name'];
+        }
+        return $map;
+    }
+
+    /**
+     * Exportação de grupos (alternativa quando a API não responde): grupos da
+     * instância com os participantes que já enviaram mensagem, no mesmo
+     * formato do /group/fetchAllGroups (id, subject, participants[id, name]).
+     */
+    public function getLocalGroupsWithSenders(int $instanceId): array
+    {
+        $groups = $this->db->fetchAll(
+            "SELECT id, remote_jid, contact_name FROM whatsapp_contacts
+             WHERE instance_id = ? AND is_group = 1",
+            [$instanceId]
+        );
+        $out = [];
+        foreach ($groups as $g) {
+            $members = $this->db->fetchAll(
+                "SELECT participant_jid, MAX(sender_name) AS sender_name
+                 FROM whatsapp_messages
+                 WHERE contact_id = ? AND participant_jid IS NOT NULL AND participant_jid <> ''
+                 GROUP BY participant_jid",
+                [$g['id']]
+            );
+            $out[] = [
+                'id' => $g['remote_jid'],
+                'subject' => $g['contact_name'],
+                'participants' => array_map(
+                    fn($m) => ['id' => $m['participant_jid'], 'name' => (string) $m['sender_name']],
+                    $members
+                ),
+            ];
+        }
+        return $out;
+    }
+
+    /**
      * Busca um grupo pelo remote_jid (qualquer instância).
      */
     public function findGroupByJid($remoteJid)

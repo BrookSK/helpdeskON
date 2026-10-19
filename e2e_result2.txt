@@ -1,0 +1,181 @@
+[WebServer] Failed loading C:/wamp64/bin/php/php8.5.0/zend_ext/php_xdebug-3.4.7-8.4-ts-vs17-x86_64.dll
+[WebServer] [Sun Oct 18 20:52:40 2026] PHP 8.5.0 Development Server (http://127.0.0.1:8199) started
+[WebServer] [Sun Oct 18 20:52:40 2026] 127.0.0.1:58553 Accepted
+[WebServer] [Sun Oct 18 20:52:40 2026] 127.0.0.1:58553 Closing
+
+Running 8 tests using 1 worker
+
+[WebServer] [Sun Oct 18 20:52:41 2026] 127.0.0.1:58556 Accepted
+[WebServer] [Sun Oct 18 20:52:41 2026] 127.0.0.1:58556 Closing
+[WebServer] [Sun Oct 18 20:52:41 2026] 127.0.0.1:58558 Accepted
+[WebServer] [Sun Oct 18 20:52:41 2026] 127.0.0.1:58558 Closing
+  ok 1 [chromium] › tests-e2e\smoke.spec.ts:8:7 › smoke › a página de login carrega (787ms)
+[WebServer] [Sun Oct 18 20:52:42 2026] 127.0.0.1:58564 Accepted
+[WebServer] [Sun Oct 18 20:52:42 2026] 127.0.0.1:58564 Closing
+[WebServer] [Sun Oct 18 20:52:42 2026] 127.0.0.1:58566 Accepted
+[WebServer] [Sun Oct 18 20:52:42 2026] 127.0.0.1:58566 Closing
+  ok 2 [chromium] › tests-e2e\smoke.spec.ts:15:7 › smoke › rota desconhecida cai no front controller (sem erro 500) (622ms)
+Failed loading C:/wamp64/bin/php/php8.5.0/zend_ext/php_xdebug-3.4.7-8.4-ts-vs17-x86_64.dll
+[WebServer] [Sun Oct 18 20:52:43 2026] 127.0.0.1:58572 Accepted
+[WebServer] [Sun Oct 18 20:52:43 2026] 127.0.0.1:58572 Closing
+[WebServer] [Sun Oct 18 20:52:43 2026] 127.0.0.1:58577 Accepted
+[WebServer] [Sun Oct 18 20:52:43 2026] 127.0.0.1:58577 Closing
+[WebServer] [Sun Oct 18 20:52:43 2026] 127.0.0.1:58579 Accepted
+[WebServer] [Sun Oct 18 20:52:43 2026] 127.0.0.1:58580 Accepted
+[WebServer] [Sun Oct 18 20:52:43 2026] 127.0.0.1:58579 [200]: GET /assets/vc-backgrounds/biblioteca.jpg
+[WebServer] [Sun Oct 18 20:52:43 2026] 127.0.0.1:58579 Closing
+[WebServer] [Sun Oct 18 20:52:43 2026] 127.0.0.1:58581 Accepted
+[WebServer] [Sun Oct 18 20:52:43 2026] 127.0.0.1:58580 [200]: GET /assets/vc-backgrounds/escritorio-clean.jpg
+[WebServer] [Sun Oct 18 20:52:43 2026] 127.0.0.1:58580 Closing
+[WebServer] [Sun Oct 18 20:52:43 2026] 127.0.0.1:58582 Accepted
+[WebServer] [Sun Oct 18 20:52:43 2026] 127.0.0.1:58581 [200]: GET /assets/vc-backgrounds/escritorio-moderno.jpg
+[WebServer] [Sun Oct 18 20:52:43 2026] 127.0.0.1:58581 Closing
+[WebServer] [Sun Oct 18 20:52:43 2026] 127.0.0.1:58583 Accepted
+[WebServer] [Sun Oct 18 20:52:43 2026] 127.0.0.1:58582 [200]: GET /assets/vc-backgrounds/estante-clara.jpg
+[WebServer] [Sun Oct 18 20:52:43 2026] 127.0.0.1:58582 Closing
+[WebServer] [Sun Oct 18 20:52:43 2026] 127.0.0.1:58584 Accepted
+[WebServer] [Sun Oct 18 20:52:43 2026] 127.0.0.1:58583 [200]: GET /assets/vc-backgrounds/estante.jpg
+[WebServer] [Sun Oct 18 20:52:43 2026] 127.0.0.1:58583 Closing
+[WebServer] [Sun Oct 18 20:52:43 2026] 127.0.0.1:58586 Accepted
+[WebServer] [Sun Oct 18 20:52:43 2026] 127.0.0.1:58584 [200]: GET /assets/vc-backgrounds/home-office.jpg
+[WebServer] [Sun Oct 18 20:52:43 2026] 127.0.0.1:58584 Closing
+[WebServer] [Sun Oct 18 20:52:43 2026] 127.0.0.1:58588 Accepted
+[WebServer] [Sun Oct 18 20:52:43 2026] 127.0.0.1:58586 [200]: GET /assets/vc-backgrounds/prateleira-plantas.jpg
+[WebServer] [Sun Oct 18 20:52:43 2026] 127.0.0.1:58586 Closing
+[WebServer] [Sun Oct 18 20:52:43 2026] 127.0.0.1:58590 Accepted
+[WebServer] [Sun Oct 18 20:52:43 2026] 127.0.0.1:58588 [200]: GET /assets/vc-backgrounds/sala.png
+[WebServer] [Sun Oct 18 20:52:43 2026] 127.0.0.1:58588 Closing
+[WebServer] [Sun Oct 18 20:52:43 2026] 127.0.0.1:58590 [200]: GET /assets/vc-backgrounds/sala-aconchegante.jpg
+[WebServer] [Sun Oct 18 20:52:43 2026] 127.0.0.1:58590 Closing
+[WebServer] [Sun Oct 18 20:52:43 2026] 127.0.0.1:58597 Accepted
+[WebServer] [Sun Oct 18 20:52:43 2026] 127.0.0.1:58597 Closing
+[WebServer] [Sun Oct 18 20:52:43 2026] 127.0.0.1:58599 Accepted
+  ok 3 [chromium] › tests-e2e\videocall-camera-icon.spec.ts:25:7 › sala de vídeo — ícone de câmera › entrar com a câmera desligada no preview deixa o ícone da toolbar como off (669ms)
+Failed loading C:/wamp64/bin/php/php8.5.0/zend_ext/php_xdebug-3.4.7-8.4-ts-vs17-x86_64.dll
+[WebServer] [Sun Oct 18 20:52:49 2026] 127.0.0.1:58599 Closing
+[WebServer] [Sun Oct 18 20:52:49 2026] 127.0.0.1:58602 Accepted
+[WebServer] [Sun Oct 18 20:52:49 2026] 127.0.0.1:58602 Closing
+[WebServer] [Sun Oct 18 20:52:49 2026] 127.0.0.1:58613 Accepted
+[WebServer] [Sun Oct 18 20:52:49 2026] 127.0.0.1:58613 Closing
+[WebServer] [Sun Oct 18 20:52:49 2026] 127.0.0.1:58615 Accepted
+[WebServer] [Sun Oct 18 20:52:49 2026] 127.0.0.1:58616 Accepted
+[WebServer] [Sun Oct 18 20:52:49 2026] 127.0.0.1:58615 [200]: GET /assets/vc-backgrounds/biblioteca.jpg
+[WebServer] [Sun Oct 18 20:52:49 2026] 127.0.0.1:58615 Closing
+[WebServer] [Sun Oct 18 20:52:49 2026] 127.0.0.1:58617 Accepted
+[WebServer] [Sun Oct 18 20:52:49 2026] 127.0.0.1:58616 [200]: GET /assets/vc-backgrounds/escritorio-clean.jpg
+[WebServer] [Sun Oct 18 20:52:49 2026] 127.0.0.1:58616 Closing
+[WebServer] [Sun Oct 18 20:52:49 2026] 127.0.0.1:58618 Accepted
+[WebServer] [Sun Oct 18 20:52:49 2026] 127.0.0.1:58617 [200]: GET /assets/vc-backgrounds/escritorio-moderno.jpg
+[WebServer] [Sun Oct 18 20:52:49 2026] 127.0.0.1:58617 Closing
+[WebServer] [Sun Oct 18 20:52:49 2026] 127.0.0.1:58619 Accepted
+[WebServer] [Sun Oct 18 20:52:49 2026] 127.0.0.1:58618 [200]: GET /assets/vc-backgrounds/estante-clara.jpg
+[WebServer] [Sun Oct 18 20:52:49 2026] 127.0.0.1:58618 Closing
+[WebServer] [Sun Oct 18 20:52:49 2026] 127.0.0.1:58621 Accepted
+[WebServer] [Sun Oct 18 20:52:49 2026] 127.0.0.1:58619 [200]: GET /assets/vc-backgrounds/estante.jpg
+[WebServer] [Sun Oct 18 20:52:49 2026] 127.0.0.1:58619 Closing
+[WebServer] [Sun Oct 18 20:52:49 2026] 127.0.0.1:58622 Accepted
+[WebServer] [Sun Oct 18 20:52:49 2026] 127.0.0.1:58621 [200]: GET /assets/vc-backgrounds/home-office.jpg
+[WebServer] [Sun Oct 18 20:52:49 2026] 127.0.0.1:58621 Closing
+[WebServer] [Sun Oct 18 20:52:49 2026] 127.0.0.1:58624 Accepted
+[WebServer] [Sun Oct 18 20:52:49 2026] 127.0.0.1:58622 [200]: GET /assets/vc-backgrounds/prateleira-plantas.jpg
+[WebServer] [Sun Oct 18 20:52:49 2026] 127.0.0.1:58622 Closing
+[WebServer] [Sun Oct 18 20:52:49 2026] 127.0.0.1:58626 Accepted
+[WebServer] [Sun Oct 18 20:52:49 2026] 127.0.0.1:58624 [200]: GET /assets/vc-backgrounds/sala-aconchegante.jpg
+[WebServer] [Sun Oct 18 20:52:49 2026] 127.0.0.1:58624 Closing
+[WebServer] [Sun Oct 18 20:52:49 2026] 127.0.0.1:58626 [200]: GET /assets/vc-backgrounds/sala.png
+[WebServer] [Sun Oct 18 20:52:49 2026] 127.0.0.1:58626 Closing
+[WebServer] [Sun Oct 18 20:52:49 2026] 127.0.0.1:58633 Accepted
+[WebServer] [Sun Oct 18 20:52:49 2026] 127.0.0.1:58633 Closing
+[WebServer] [Sun Oct 18 20:52:49 2026] 127.0.0.1:58635 Accepted
+  ok 4 [chromium] › tests-e2e\videocall-camera-icon.spec.ts:57:7 › sala de vídeo — ícone de câmera › entrar com a câmera ligada mantém o ícone normal (sem off) (5.9s)
+[WebServer] [Sun Oct 18 20:52:55 2026] 127.0.0.1:58635 Closing
+[WebServer] [Sun Oct 18 20:52:55 2026] 127.0.0.1:58640 Accepted
+[WebServer] [Sun Oct 18 20:52:55 2026] 127.0.0.1:58640 Closing
+  ok 5 [chromium] › tests-e2e\whatsapp-group-export.spec.ts:126:7 › WhatsApp — exportar contatos dos grupos › sem login não baixa planilha (5.2s)
+[WebServer] [Sun Oct 18 20:52:55 2026] 127.0.0.1:58645 Accepted
+[WebServer] [Sun Oct 18 20:52:55 2026] 127.0.0.1:58645 Closing
+[WebServer] [Sun Oct 18 20:52:55 2026] 127.0.0.1:58647 Accepted
+[WebServer] [Sun Oct 18 20:52:55 2026] 127.0.0.1:58647 Closing
+[WebServer] [Sun Oct 18 20:52:55 2026] 127.0.0.1:58652 Accepted
+[WebServer] [Sun Oct 18 20:52:55 2026] 127.0.0.1:58652 Closing
+[WebServer] [Sun Oct 18 20:52:55 2026] 127.0.0.1:58654 Accepted
+[WebServer] [Sun Oct 18 20:52:55 2026] 127.0.0.1:58654 Closing
+[WebServer] [Sun Oct 18 20:52:55 2026] 127.0.0.1:58656 Accepted
+[WebServer] [Sun Oct 18 20:52:55 2026] 127.0.0.1:58656 Closing
+[WebServer] [Sun Oct 18 20:52:55 2026] 127.0.0.1:58657 Accepted
+[WebServer] [Sun Oct 18 20:52:55 2026] 127.0.0.1:58657 Closing
+[WebServer] [Sun Oct 18 20:52:56 2026] 127.0.0.1:58659 Accepted
+[WebServer] [Sun Oct 18 20:52:56 2026] 127.0.0.1:58659 Closing
+[WebServer] [Sun Oct 18 20:52:56 2026] 127.0.0.1:58661 Accepted
+[WebServer] [Sun Oct 18 20:52:56 2026] 127.0.0.1:58661 Closing
+[WebServer] [Sun Oct 18 20:52:56 2026] 127.0.0.1:58662 Accepted
+[WebServer] [Sun Oct 18 20:52:56 2026] 127.0.0.1:58662 Closing
+[WebServer] [Sun Oct 18 20:52:56 2026] 127.0.0.1:58663 Accepted
+[WebServer] [Sun Oct 18 20:52:56 2026] 127.0.0.1:58664 Accepted
+[WebServer] [Sun Oct 18 20:52:56 2026] 127.0.0.1:58663 Closing
+[WebServer] [Sun Oct 18 20:52:56 2026] 127.0.0.1:58665 Accepted
+[WebServer] [Sun Oct 18 20:52:56 2026] 127.0.0.1:58664 Closing
+[WebServer] [Sun Oct 18 20:52:56 2026] 127.0.0.1:58668 Accepted
+[WebServer] [Sun Oct 18 20:52:56 2026] 127.0.0.1:58665 Closing
+[WebServer] [Sun Oct 18 20:52:56 2026] 127.0.0.1:58668 Closing
+[WebServer] [Sun Oct 18 20:52:56 2026] 127.0.0.1:58671 Accepted
+[WebServer] [Sun Oct 18 20:52:56 2026] 127.0.0.1:58671 Closing
+  ok 6 [chromium] › tests-e2e\whatsapp-group-export.spec.ts:132:7 › WhatsApp — exportar contatos dos grupos › exportação rápida: grupo, nome, telefone (um por grupo) (1.5s)
+[WebServer] [Sun Oct 18 20:52:56 2026] 127.0.0.1:58674 Accepted
+[WebServer] [Sun Oct 18 20:52:56 2026] 127.0.0.1:58674 Closing
+[WebServer] [Sun Oct 18 20:52:56 2026] 127.0.0.1:58676 Accepted
+[WebServer] [Sun Oct 18 20:52:56 2026] 127.0.0.1:58676 Closing
+[WebServer] [Sun Oct 18 20:52:57 2026] 127.0.0.1:58681 Accepted
+[WebServer] [Sun Oct 18 20:52:57 2026] 127.0.0.1:58681 Closing
+[WebServer] [Sun Oct 18 20:52:57 2026] 127.0.0.1:58683 Accepted
+[WebServer] [Sun Oct 18 20:52:57 2026] 127.0.0.1:58683 Closing
+[WebServer] [Sun Oct 18 20:52:57 2026] 127.0.0.1:58685 Accepted
+[WebServer] [Sun Oct 18 20:52:57 2026] 127.0.0.1:58685 Closing
+[WebServer] [Sun Oct 18 20:52:57 2026] 127.0.0.1:58686 Accepted
+[WebServer] [Sun Oct 18 20:52:57 2026] 127.0.0.1:58686 Closing
+[WebServer] [Sun Oct 18 20:52:57 2026] 127.0.0.1:58688 Accepted
+[WebServer] [Sun Oct 18 20:52:57 2026] 127.0.0.1:58688 Closing
+[WebServer] [Sun Oct 18 20:52:57 2026] 127.0.0.1:58690 Accepted
+[WebServer] [Sun Oct 18 20:52:57 2026] 127.0.0.1:58690 Closing
+[WebServer] [Sun Oct 18 20:52:57 2026] 127.0.0.1:58691 Accepted
+[WebServer] [Sun Oct 18 20:52:57 2026] 127.0.0.1:58691 Closing
+[WebServer] [Sun Oct 18 20:52:57 2026] 127.0.0.1:58692 Accepted
+[WebServer] [Sun Oct 18 20:52:57 2026] 127.0.0.1:58692 Closing
+[WebServer] [Sun Oct 18 20:52:57 2026] 127.0.0.1:58693 Accepted
+[WebServer] [Sun Oct 18 20:52:57 2026] 127.0.0.1:58694 Accepted
+[WebServer] [Sun Oct 18 20:52:57 2026] 127.0.0.1:58693 Closing
+[WebServer] [Sun Oct 18 20:52:57 2026] 127.0.0.1:58694 Closing
+[WebServer] [Sun Oct 18 20:52:57 2026] 127.0.0.1:58698 Accepted
+[WebServer] [Sun Oct 18 20:52:57 2026] 127.0.0.1:58698 Closing
+[WebServer] [Sun Oct 18 20:52:57 2026] 127.0.0.1:58700 Accepted
+[WebServer] [Sun Oct 18 20:52:57 2026] 127.0.0.1:58700 Closing
+  ok 7 [chromium] › tests-e2e\whatsapp-group-export.spec.ts:163:7 › WhatsApp — exportar contatos dos grupos › exportação completa traz site, Instagram, e-mail e recado do perfil (1.4s)
+[WebServer] [Sun Oct 18 20:52:58 2026] 127.0.0.1:58705 Accepted
+[WebServer] [Sun Oct 18 20:52:58 2026] 127.0.0.1:58705 Closing
+[WebServer] [Sun Oct 18 20:52:58 2026] 127.0.0.1:58707 Accepted
+[WebServer] [Sun Oct 18 20:52:58 2026] 127.0.0.1:58707 Closing
+[WebServer] [Sun Oct 18 20:52:58 2026] 127.0.0.1:58714 Accepted
+[WebServer] [Sun Oct 18 20:52:58 2026] 127.0.0.1:58714 Closing
+[WebServer] [Sun Oct 18 20:52:58 2026] 127.0.0.1:58716 Accepted
+[WebServer] [Sun Oct 18 20:52:58 2026] 127.0.0.1:58716 Closing
+[WebServer] [Sun Oct 18 20:52:58 2026] 127.0.0.1:58718 Accepted
+[WebServer] [Sun Oct 18 20:52:58 2026] 127.0.0.1:58718 Closing
+[WebServer] [Sun Oct 18 20:52:58 2026] 127.0.0.1:58719 Accepted
+[WebServer] [Sun Oct 18 20:52:58 2026] 127.0.0.1:58719 Closing
+[WebServer] [Sun Oct 18 20:52:59 2026] 127.0.0.1:58721 Accepted
+[WebServer] [Sun Oct 18 20:52:59 2026] 127.0.0.1:58721 Closing
+[WebServer] [Sun Oct 18 20:52:59 2026] 127.0.0.1:58723 Accepted
+[WebServer] [Sun Oct 18 20:52:59 2026] 127.0.0.1:58723 Closing
+[WebServer] [Sun Oct 18 20:52:59 2026] 127.0.0.1:58724 Accepted
+[WebServer] [Sun Oct 18 20:52:59 2026] 127.0.0.1:58724 Closing
+[WebServer] [Sun Oct 18 20:52:59 2026] 127.0.0.1:58725 Accepted
+[WebServer] [Sun Oct 18 20:52:59 2026] 127.0.0.1:58725 Closing
+[WebServer] [Sun Oct 18 20:52:59 2026] 127.0.0.1:58726 Accepted
+[WebServer] [Sun Oct 18 20:52:59 2026] 127.0.0.1:58727 Accepted
+[WebServer] [Sun Oct 18 20:52:59 2026] 127.0.0.1:58726 Closing
+[WebServer] [Sun Oct 18 20:52:59 2026] 127.0.0.1:58730 Accepted
+[WebServer] [Sun Oct 18 20:52:59 2026] 127.0.0.1:58727 Closing
+[WebServer] [Sun Oct 18 20:52:59 2026] 127.0.0.1:58730 Closing
+  ok 8 [chromium] › tests-e2e\whatsapp-group-export.spec.ts:185:7 › WhatsApp — exportar contatos dos grupos › erro do servidor aparece como aviso na tela, sem download (1.2s)
+
+  8 passed (19.2s)

@@ -2182,6 +2182,198 @@ class WhatsappController extends Controller
     }
 
     /**
+     * Exporta para planilha Excel (.xlsx) todos os participantes dos grupos de
+     * WhatsApp: Grupo, Nome, Telefone e os demais dados disponíveis (e-mail,
+     * site, Instagram, Facebook, LinkedIn, recado, descrição do perfil Business).
+     *
+     * GET whatsapp/exportGroupContacts
+     *   ?instance_id=<id>|all  (padrão: todas as instâncias)
+     *   &profiles=1            consulta o perfil de cada participante na API
+     *                          (traz links/e-mail/descrição; é mais lento)
+     *
+     * Fonte dos participantes: Evolution /group/fetchAllGroups?getParticipants=true.
+     * Se a API falhar para uma instância, usa o histórico local (quem já
+     * mandou mensagem no grupo) como alternativa.
+     */
+    public function exportGroupContacts()
+    {
+        $this->requireRole(['super_admin', 'developer', 'attendant', 'analyst', 'comercial', 'marketing', 'whatsapp_agent']);
+        @set_time_limit(0);
+
+        $db = Database::getInstance();
+        $withProfiles = !empty($_GET['profiles']);
+
+        $instanceId = $_GET['instance_id'] ?? 'all';
+        if ($instanceId !== 'all' && $instanceId !== '') {
+            $instances = $db->fetchAll("SELECT * FROM whatsapp_instances WHERE id = ?", [intval($instanceId)]);
+        } else {
+            $instances = $db->fetchAll("SELECT * FROM whatsapp_instances ORDER BY is_default DESC, id ASC");
+        }
+        if (empty($instances)) {
+            $this->json(['success' => false, 'message' => 'Nenhuma instância de WhatsApp encontrada.'], 404);
+        }
+
+        $localByPhone = $this->contactModel->getExportContactsByPhoneKey();
+        $senderNames = $this->contactModel->getGroupSenderNames();
+
+        $rows = [];
+        $notices = [];
+        $profilesFetched = 0;
+        $maxProfiles = 600; // limite de consultas de perfil por exportação
+
+        foreach ($instances as $inst) {
+            $instName = $inst['display_name'] ?: $inst['instance_name'];
+
+            $groups = WhatsappGroupExportRules::parseGroups($this->fetchGroupsWithParticipants($inst));
+            if (empty($groups)) {
+                $groups = WhatsappGroupExportRules::parseGroups($this->contactModel->getLocalGroupsWithSenders((int) $inst['id']));
+                if (!empty($groups)) {
+                    $notices[] = $instName . ': API indisponível, usado o histórico local (só quem já enviou mensagem).';
+                }
+            }
+            if (empty($groups)) continue;
+
+            // Perfis (opcional): uma consulta por telefone único da instância
+            $profiles = [];
+            if ($withProfiles) {
+                $phones = [];
+                foreach ($groups as $g) {
+                    foreach ($g['participants'] as $p) {
+                        if ($p['phone'] !== '') $phones[$p['phone']] = true;
+                    }
+                }
+                // array_keys converte telefones numéricos em int; volta para string
+                $phones = array_map('strval', array_keys($phones));
+                $remaining = $maxProfiles - $profilesFetched;
+                if (count($phones) > $remaining) {
+                    $notices[] = 'Perfis consultados apenas para os primeiros ' . $maxProfiles . ' telefones.';
+                    $phones = array_slice($phones, 0, max(0, $remaining));
+                }
+                $profiles = $this->fetchProfilesBatch($inst, $phones);
+                $profilesFetched += count($phones);
+            }
+
+            foreach ($groups as $g) {
+                foreach ($g['participants'] as $p) {
+                    $key = $p['phone'] !== '' ? WhatsappGroupExportRules::phoneKey($p['phone']) : $p['jid'];
+                    $local = $localByPhone[$key] ?? [];
+                    $sender = $senderNames[$key] ?? ($senderNames[$p['jid']] ?? '');
+                    if ($sender !== '') $local['sender_name'] = $sender;
+                    $profile = $p['phone'] !== '' ? ($profiles[$p['phone']] ?? []) : [];
+                    $rows[] = WhatsappGroupExportRules::buildRow($g, $p, $local, $profile, $instName);
+                }
+            }
+        }
+
+        if (empty($rows)) {
+            $this->json(['success' => false, 'message' => 'Nenhum participante de grupo encontrado. Verifique a conexão das instâncias.'], 404);
+        }
+
+        // Ordena por grupo e depois por nome
+        usort($rows, fn($a, $b) => [mb_strtolower($a[0]), mb_strtolower($a[1])] <=> [mb_strtolower($b[0]), mb_strtolower($b[1])]);
+
+        $headers = WhatsappGroupExportRules::headers();
+        if ($notices) {
+            header('X-Export-Notice: ' . rawurlencode(implode(' ', array_unique($notices))));
+        }
+        header('X-Export-Count: ' . count($rows));
+        header('Cache-Control: no-store');
+
+        if (SimpleXlsxWriter::isSupported()) {
+            $bin = SimpleXlsxWriter::build($headers, $rows, 'Contatos dos grupos');
+            header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            header('Content-Disposition: attachment; filename="' . WhatsappGroupExportRules::fileName('xlsx') . '"');
+            header('Content-Length: ' . strlen($bin));
+            echo $bin;
+            exit;
+        }
+
+        // Fallback sem ext-zip: CSV com ";" (Excel pt-BR) e BOM UTF-8
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . WhatsappGroupExportRules::fileName('csv') . '"');
+        $out = fopen('php://output', 'w');
+        fwrite($out, "\xEF\xBB\xBF");
+        fputcsv($out, $headers, ';', '"', '');
+        foreach ($rows as $r) {
+            fputcsv($out, array_map([WhatsappGroupExportRules::class, 'csvSafe'], $r), ';', '"', '');
+        }
+        fclose($out);
+        exit;
+    }
+
+    /**
+     * Busca todos os grupos da instância COM participantes na Evolution API.
+     * Retorna o JSON decodificado (ou [] em falha).
+     */
+    private function fetchGroupsWithParticipants($instance)
+    {
+        if (empty($instance['api_url']) || empty($instance['instance_name'])) return [];
+        try {
+            $url = rtrim($instance['api_url'], '/') . '/group/fetchAllGroups/' . rawurlencode($instance['instance_name']) . '?getParticipants=true';
+            $ch = curl_init($url);
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_HTTPHEADER => ['apikey: ' . $instance['api_key'], 'Content-Type: application/json'],
+                CURLOPT_SSL_VERIFYPEER => false,
+                CURLOPT_CONNECTTIMEOUT => 10,
+                CURLOPT_TIMEOUT => 120,
+            ]);
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            if ($httpCode >= 400 || empty($response)) return [];
+            $data = json_decode($response, true);
+            return is_array($data) ? $data : [];
+        } catch (Exception $e) {
+            return [];
+        }
+    }
+
+    /**
+     * Consulta /chat/fetchProfile para vários telefones em paralelo (lotes de 8).
+     * Retorna [telefone => perfil normalizado].
+     */
+    private function fetchProfilesBatch($instance, array $phones)
+    {
+        $result = [];
+        if (empty($phones) || empty($instance['api_url'])) return $result;
+        $url = rtrim($instance['api_url'], '/') . '/chat/fetchProfile/' . rawurlencode($instance['instance_name']);
+
+        foreach (array_chunk($phones, 8) as $chunk) {
+            $mh = curl_multi_init();
+            $handles = [];
+            foreach ($chunk as $phone) {
+                $ch = curl_init($url);
+                curl_setopt_array($ch, [
+                    CURLOPT_POST => true,
+                    CURLOPT_POSTFIELDS => json_encode(['number' => $phone]),
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_HTTPHEADER => ['apikey: ' . $instance['api_key'], 'Content-Type: application/json'],
+                    CURLOPT_SSL_VERIFYPEER => false,
+                    CURLOPT_CONNECTTIMEOUT => 5,
+                    CURLOPT_TIMEOUT => 15,
+                ]);
+                curl_multi_add_handle($mh, $ch);
+                $handles[$phone] = $ch;
+            }
+            do {
+                $status = curl_multi_exec($mh, $running);
+                if ($running) curl_multi_select($mh, 1.0);
+            } while ($running && $status === CURLM_OK);
+
+            foreach ($handles as $phone => $ch) {
+                $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                $body = curl_multi_getcontent($ch);
+                if ($code > 0 && $code < 400 && $body) {
+                    $result[$phone] = WhatsappGroupExportRules::parseProfile(json_decode($body, true));
+                }
+                curl_multi_remove_handle($mh, $ch);
+            }
+            curl_multi_close($mh);
+        }
+        return $result;
+    }
+
+    /**
      * Descobre o nome (subject) real de um grupo pela Evolution API.
      * Retorna null se não encontrar.
      */

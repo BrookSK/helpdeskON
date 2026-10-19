@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
+import { existsSync } from 'node:fs';
 
 /**
  * E2E do bug corrigido: ao desligar a câmera no preview (lobby) e entrar, o
@@ -9,7 +10,9 @@ import path from 'node:path';
  * como "ligado".
  */
 
-const PHP = process.env.PHP_BIN || 'C:\\php\\php.exe';
+// Mesma resolução do playwright.config.ts: PHP_BIN > C:\php > WAMP
+const PHP = process.env.PHP_BIN
+  || (existsSync('C:\\php\\php.exe') ? 'C:\\php\\php.exe' : 'C:\\wamp64\\bin\\php\\php8.5.0\\php.exe');
 const ROOT = path.resolve(__dirname, '..');
 
 /** Cria uma sala pública de teste e devolve o token. */

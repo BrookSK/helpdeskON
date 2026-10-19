@@ -19,6 +19,14 @@
                     <span class="fw-medium" style="font-size:0.9rem;"><i class="bi bi-whatsapp text-success"></i> Chat</span>
                     <div class="d-flex gap-1">
                         <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1" title="Sincronizar nomes dos grupos" onclick="syncGroups(this)"><i class="bi bi-arrow-repeat" style="font-size:0.75rem;"></i></button>
+                        <div class="dropdown">
+                            <button type="button" id="btn-export-groups" class="btn btn-sm btn-outline-success py-0 px-1" data-bs-toggle="dropdown" aria-expanded="false" title="Exportar contatos dos grupos (Excel)" aria-label="Exportar contatos dos grupos para Excel"><i class="bi bi-file-earmark-excel" style="font-size:0.75rem;"></i></button>
+                            <ul class="dropdown-menu dropdown-menu-end" style="font-size:0.8rem;">
+                                <li><h6 class="dropdown-header">Exportar contatos dos grupos</h6></li>
+                                <li><button type="button" class="dropdown-item" data-export-mode="fast" onclick="exportGroupContacts(false)"><i class="bi bi-lightning"></i> Rápido (grupo, nome, telefone)</button></li>
+                                <li><button type="button" class="dropdown-item" data-export-mode="profiles" onclick="exportGroupContacts(true)"><i class="bi bi-person-vcard"></i> Completo (+ sites, Instagram, e-mail)<br><small class="text-muted ms-3">consulta o perfil de cada pessoa, mais lento</small></button></li>
+                            </ul>
+                        </div>
                         <button type="button" class="btn btn-sm btn-outline-warning py-0 px-1" title="Respostas rápidas" onclick="openQuickRepliesModal()"><i class="bi bi-lightning-charge-fill" style="font-size:0.75rem;"></i></button>
                         <a href="<?= baseUrl('whatsapp/webhooks') ?>" class="btn btn-sm btn-outline-success py-0 px-1" title="Webhooks de entrada"><i class="bi bi-hdd-network" style="font-size:0.75rem;"></i></a>
                         <a href="<?= baseUrl('whatsapp') ?>" class="btn btn-sm btn-outline-secondary py-0 px-1" title="Conexões"><i class="bi bi-gear" style="font-size:0.75rem;"></i></a>
@@ -1183,6 +1191,46 @@ function syncGroups(btn) {
         .finally(() => {
             if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-arrow-repeat" style="font-size:0.75rem;"></i>'; }
         });
+}
+
+// Exporta os participantes de todos os grupos para planilha (.xlsx).
+// Usa fetch + blob para poder mostrar erro/aviso (toast) sem sair da tela.
+function exportGroupContacts(withProfiles) {
+    const btn = document.getElementById('btn-export-groups');
+    const instanceEl = document.getElementById('filter-instance');
+    const instance = instanceEl ? instanceEl.value : 'all';
+    let url = BASE + 'whatsapp/exportGroupContacts?instance_id=' + encodeURIComponent(instance || 'all');
+    if (withProfiles) url += '&profiles=1';
+
+    const original = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:0.75rem;height:0.75rem;"></span>'; }
+    if (typeof showToast === 'function') showToast(withProfiles ? 'Gerando planilha com perfis... isso pode levar alguns minutos.' : 'Gerando planilha...');
+
+    fetch(url, { headers: {'X-Requested-With': 'XMLHttpRequest'} })
+        .then(async r => {
+            const type = r.headers.get('Content-Type') || '';
+            if (!r.ok || type.includes('application/json')) {
+                const data = await r.json().catch(() => ({}));
+                throw new Error(data.message || data.error || 'Falha ao exportar.');
+            }
+            const disp = r.headers.get('Content-Disposition') || '';
+            const match = disp.match(/filename="([^"]+)"/);
+            const filename = match ? match[1] : 'contatos_grupos_whatsapp.xlsx';
+            const notice = r.headers.get('X-Export-Notice');
+            const count = r.headers.get('X-Export-Count');
+            const blob = await r.blob();
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+            if (typeof showToast === 'function') {
+                showToast((count ? count + ' contato(s) exportado(s).' : 'Planilha gerada.') + (notice ? ' ' + decodeURIComponent(notice) : ''));
+            }
+        })
+        .catch(err => { if (typeof showToast === 'function') showToast(err.message); else alert(err.message); })
+        .finally(() => { if (btn) { btn.disabled = false; btn.innerHTML = original; } });
 }
 
 function renderContactsList() {

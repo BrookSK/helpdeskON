@@ -1,0 +1,30 @@
+﻿
+[4mWhatsapp Webhook (Tests\Integration\WhatsappWebhook)[0m
+[36m â†© [0mCria e resolve por token
+[36m â†© [0mToken unico tem 32 chars hex
+[36m â†© [0mWebhook inativo nao resolve por token ativo
+[36m â†© [0mFind by token resolve ativo e inativo
+[36m â†© [0mToggle active
+[36m â†© [0mGet by company traz nome da empresa
+[36m â†© [0mUpdate altera mapeamento
+[36m â†© [0mRegistra request e polling incremental
+[36m â†© [0mPending for processing respeita status e attempts
+[36m â†© [0mUpdate status persiste
+[36m â†© [0mStat bump acumula contador do dia
+[36m â†© [0mStat bump ignora campo invalido e valor nao positivo
+[36m â†© [0mStat get stats totaliza periodo
+
+3 tests triggered 3 PHP warnings:
+
+1) D:\GITHUB\helpdeskON\tests\Integration\MinutesAckTest.php:88
+Undefined array key "minutes_ack_status"
+
+2) D:\GITHUB\helpdeskON\tests\Integration\MinutesAckTest.php:114
+Undefined array key "minutes_ack_status"
+
+3) D:\GITHUB\helpdeskON\tests\Integration\MinutesAckTest.php:146
+Undefined array key "minutes_ack_status"
+
+[37;41mERRORS![0m
+[37;41mTests: 797[0m[37;41m, Assertions: 2558[0m[37;41m, Errors: 43[0m[37;41m, Failures: 3[0m[37;41m, Warnings: 3[0m[37;41m, Skipped: 17[0m[37;41m.[0m
+EXITCODE=2 
