@@ -1070,6 +1070,58 @@ body { overflow: hidden !important; margin: 0; padding: 0; }
     /* Input area compacta */
     .wpp-input-area { padding: 8px 10px; gap: 6px; }
 }
+
+/* ===== Modal de exportação de grupos ===== */
+#export-groups-list { border: 1px solid #e9ecef; border-radius: 8px; }
+.exg-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin: 0;
+    padding: 9px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid #f0f1f3;
+    transition: background-color .12s ease;
+}
+.exg-row:last-child { border-bottom: 0; }
+.exg-row:nth-child(even) { background: #fafbfc; }
+.exg-row:hover { background: #eef7f1; }
+.exg-row .form-check-input {
+    margin: 0;
+    flex: 0 0 auto;
+    width: 1.05rem;
+    height: 1.05rem;
+    margin-top: 1px;
+    cursor: pointer;
+}
+.exg-row:has(.export-group-cb:checked) { background: #e6f4ec; }
+.exg-body { min-width: 0; flex: 1 1 auto; }
+.exg-title { display: flex; align-items: baseline; gap: 6px; }
+.exg-name {
+    font-size: 0.84rem;
+    font-weight: 500;
+    color: #212529;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.exg-count {
+    flex: 0 0 auto;
+    font-size: 0.72rem;
+    color: #6c757d;
+    background: #eceef0;
+    border-radius: 10px;
+    padding: 0 7px;
+    line-height: 1.5;
+}
+.exg-inst {
+    margin-top: 3px;
+    font-size: 0.68rem;
+    color: #198754;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
 </style>
 
 <!-- Modal: seleção de grupos para exportação -->
@@ -1279,13 +1331,18 @@ function renderExportGroups(notice) {
     if (notice) html += '<div class="alert alert-warning py-1 px-2 small mb-2">' + escapeHtml(notice) + '</div>';
     html += exportGroupsCache.map((g, i) => {
         const sub = escapeHtml(g.subject || g.jid);
-        const inst = multiInstance ? ' <span class="badge bg-light text-muted border">' + escapeHtml(g.instance_name) + '</span>' : '';
-        const parts = g.participants ? '<span class="text-muted small ms-1">(' + g.participants + ')</span>' : '';
-        return '<div class="form-check export-group-row" data-name="' + sub.toLowerCase() + '">' +
+        const parts = g.participants ? '<span class="exg-count">' + g.participants + '</span>' : '';
+        const inst = multiInstance
+            ? '<div class="exg-inst"><i class="bi bi-whatsapp"></i> ' + escapeHtml(g.instance_name) + '</div>'
+            : '';
+        return '<label class="exg-row export-group-row" for="exg-' + i + '" data-name="' + sub.toLowerCase() + '">' +
             '<input class="form-check-input export-group-cb" type="checkbox" value="' + escapeHtml(g.jid) +
             '" id="exg-' + i + '" data-instance="' + escapeHtml(String(g.instance_id)) + '" onchange="updateExportSelection()">' +
-            '<label class="form-check-label small" for="exg-' + i + '">' + sub + parts + inst + '</label>' +
-            '</div>';
+            '<span class="exg-body">' +
+                '<span class="exg-title"><span class="exg-name" title="' + sub + '">' + sub + '</span>' + parts + '</span>' +
+                inst +
+            '</span>' +
+            '</label>';
     }).join('');
     list.innerHTML = html;
     updateExportSelection();
