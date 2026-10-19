@@ -207,9 +207,9 @@ class ProposalController extends Controller
         if (!$proposal) $this->json(['error' => 'Proposta não encontrada'], 404);
         $user = $this->currentUser();
 
-        // O cliente recebe o PDF: sem gerador no servidor, não envia nada.
+        // Gera o ARQUIVO PDF que será enviado ao cliente (anexo WhatsApp/e-mail).
         try {
-            $this->buildPdf($proposal);
+            $pdfBytes = $this->buildPdf($proposal);
         } catch (\Throwable $e) {
             $this->json(['error' => 'Não foi possível gerar o PDF da proposta: ' . $e->getMessage()], 500);
         }
@@ -219,17 +219,13 @@ class ProposalController extends Controller
             $this->model->changeStatus($id, ProposalRules::STATUS_READY, $user['id']);
         }
         $this->model->changeStatus($id, ProposalRules::STATUS_SENT, $user['id'], ['sent_at' => date('Y-m-d H:i:s')]);
-        $online = $this->onlineLink($proposal);
-        $pdf = $this->pdfLink($proposal);
 
-        // O cliente recebe o LINK PRINCIPAL (proposta online) + o PDF.
-        $delivery = $this->deliverToClient($proposal, $online, $pdf);
+        // O cliente recebe o PRÓPRIO PDF (não um link). Dentro do PDF há o botão
+        // que leva à proposta online para aceitar/recusar/solicitar alteração.
+        $delivery = $this->deliverToClient($proposal, $pdfBytes);
 
         $this->json([
             'success' => true,
-            'link' => $online,
-            'online_link' => $online,
-            'pdf_link' => $pdf,
             'sent_whats' => $delivery['sent_whats'],
             'sent_email' => $delivery['sent_email'],
             'no_contact' => $delivery['no_contact'],
@@ -240,27 +236,48 @@ class ProposalController extends Controller
      * Envia o link da proposta ao cliente (WhatsApp + e-mail). Nunca interrompe:
      * canais são complementares. Retorna o que foi enviado.
      */
-    private function deliverToClient(array $proposal, string $link, ?string $pdfLink = null): array
+    /**
+     * Entrega o ARQUIVO PDF ao cliente (WhatsApp como documento + e-mail como
+     * anexo). O PDF já contém o botão que leva à proposta online para responder.
+     * Nenhum link de PDF é enviado. Nunca interrompe: canais são complementares.
+     */
+    private function deliverToClient(array $proposal, string $pdfBytes): array
     {
         $out = ['sent_whats' => 0, 'sent_email' => 0, 'no_contact' => true];
         $c = ProposalDelivery::clientContact($proposal);
         $company = trim((string) Config::get('app_name')) ?: null;
         $title = $proposal['title'] ?? null;
+        $fileName = $this->pdfFileName($proposal);
+        $base64 = base64_encode($pdfBytes);
 
         if (!empty($c['phone'])) {
             $out['no_contact'] = false;
-            $msg = ProposalDelivery::clientWhatsapp($c['name'], $link, $title, $company, $pdfLink);
-            try { if (WhatsappNotifier::sendToPhone($c['phone'], $msg, $c['name'])) $out['sent_whats']++; }
-            catch (\Throwable $e) { /* não interrompe */ }
+            $caption = ProposalDelivery::clientWhatsapp($c['name'], $title, $company);
+            try {
+                if (WhatsappNotifier::sendDocumentToPhone($c['phone'], $base64, $fileName, 'application/pdf', $caption, $c['name'])) {
+                    $out['sent_whats']++;
+                }
+            } catch (\Throwable $e) { /* não interrompe */ }
         }
         if (!empty($c['email'])) {
             $out['no_contact'] = false;
             $subject = ProposalDelivery::clientEmailSubject($title);
-            $html = Mailer::template($subject, ProposalDelivery::clientEmailBody($c['name'], $link, $title, $pdfLink));
-            try { if (Mailer::send($c['email'], $subject, $html)) $out['sent_email']++; }
-            catch (\Throwable $e) { /* não interrompe */ }
+            $html = Mailer::template($subject, ProposalDelivery::clientEmailBody($c['name'], $title));
+            try {
+                $sent = Mailer::send($c['email'], $subject, $html, [
+                    ['name' => $fileName, 'content' => $pdfBytes, 'mime' => 'application/pdf'],
+                ]);
+                if ($sent) $out['sent_email']++;
+            } catch (\Throwable $e) { /* não interrompe */ }
         }
         return $out;
+    }
+
+    /** Nome do arquivo PDF da proposta (sem acentos). */
+    private function pdfFileName(array $proposal): string
+    {
+        $slug = trim(preg_replace('/[^a-z0-9]+/', '-', strtolower(iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', (string)$proposal['title']) ?: '')), '-');
+        return 'proposta-' . (int)$proposal['id'] . ($slug !== '' ? '-' . substr($slug, 0, 60) : '') . '.pdf';
     }
 
     // ================= Área pública (sem login, por token) =================

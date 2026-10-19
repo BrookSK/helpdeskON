@@ -20,10 +20,10 @@ A proposta é um **documento** gerado a partir de:
   catálogo, valores, descontos, cronograma, projeção, recorrência/renovação,
   resumo.
 
-O cliente recebe o **link principal da proposta online** (responsiva) **e o
-PDF**. Pela proposta online ele vê tudo, abre o PDF, e no final **aceita**
-(escolhendo o plano quando há mais de um), **recusa** (com motivo) ou
-**solicita alteração**.
+O cliente recebe o **arquivo PDF** (por WhatsApp e e-mail). Dentro do PDF, no
+final, há o botão que o leva à **proposta online** (responsiva), onde revisa
+tudo e **aceita** (escolhendo o plano quando há mais de um), **recusa** (com
+motivo) ou **solicita alteração**.
 
 Espaços: **área interna** (módulo `proposals`: montar, salvar, ver PDF, ver
 online, enviar) e **área pública** por token (proposta online, PDF, aceite,
@@ -167,10 +167,21 @@ Tudo auditável em `proposal_events` (data/hora, tipo, descrição).
 
 ## 10. Envio ao cliente
 
-`send()` promove a proposta para `sent`, gera o PDF e entrega ao cliente o
-**link da proposta online + o PDF**, por WhatsApp e e-mail
-(`ProposalDelivery::clientWhatsapp`/`clientEmailBody`). Notifica a equipe. Os
-disparos nunca interrompem a resposta.
+`send()` promove a proposta para `sent`, gera o **arquivo PDF** e o entrega ao
+cliente — o **próprio PDF**, não um link:
+
+- **WhatsApp**: PDF como documento, via `EvolutionApi::sendDocumentBase64` /
+  `WhatsappNotifier::sendDocumentToPhone`.
+- **E-mail**: PDF como anexo (`Mailer::send` com `multipart/mixed`).
+
+Nenhum link de PDF é enviado. **Dentro do PDF**, no final, há o botão que leva à
+**proposta online** (`proposal/show/{token}`) para o cliente revisar e responder
+(aceitar / recusar / solicitar alteração).
+
+No painel interno não existe mais link de PDF: o PDF é visto pelo botão **"Ver
+PDF"** (prévia interna, `proposal/pdf/{id}`) e enviado ao cliente apenas ao
+clicar em **"Enviar ao cliente"**. O card lateral mostra só o link da proposta
+online (destino do botão dentro do PDF). Os disparos nunca interrompem a resposta.
 
 ---
 

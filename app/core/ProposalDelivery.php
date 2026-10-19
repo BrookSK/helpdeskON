@@ -34,19 +34,17 @@ class ProposalDelivery
         ];
     }
 
-    /** Mensagem de WhatsApp enviada ao CLIENTE com o link da proposta online (+ PDF). */
-    public static function clientWhatsapp(string $name, string $link, ?string $title, ?string $company, ?string $pdfLink = null): string
+    /**
+     * Legenda do documento PDF enviado ao CLIENTE pelo WhatsApp. O PDF vai como
+     * anexo e já traz, dentro dele, o botão para aceitar/recusar/pedir ajustes.
+     */
+    public static function clientWhatsapp(string $name, ?string $title, ?string $company): string
     {
         $saud = $name !== '' ? "Olá, {$name}!" : 'Olá!';
         $assunto = $title ? " \"{$title}\"" : '';
-        $msg = "{$saud}\n\n"
+        return "{$saud}\n\n"
             . ($company ? "*{$company}*\n" : '')
-            . "Preparamos sua proposta{$assunto}. Abra a proposta online para ver tudo e, no final, aceitar ou pedir ajustes:\n"
-            . $link;
-        if ($pdfLink && $pdfLink !== $link) {
-            $msg .= "\n\nPrefere o PDF? " . $pdfLink;
-        }
-        return $msg;
+            . "Segue em anexo sua proposta{$assunto}. Dentro do PDF, no final, há o botão para você revisar e responder (aceitar, recusar ou pedir ajustes).";
     }
 
     public static function clientEmailSubject(?string $title): string
@@ -54,22 +52,17 @@ class ProposalDelivery
         return 'Sua proposta' . ($title ? " — {$title}" : '') . ' está pronta';
     }
 
-    /** Corpo HTML do e-mail ao cliente (usar com Mailer::template no controller). */
-    public static function clientEmailBody(string $name, string $link, ?string $title, ?string $pdfLink = null): string
+    /**
+     * Corpo HTML do e-mail ao cliente. O PDF vai como ANEXO; dentro dele há o
+     * botão para revisar e responder. Sem links de PDF no corpo.
+     */
+    public static function clientEmailBody(string $name, ?string $title): string
     {
         $saud = $name !== '' ? htmlspecialchars($name) : 'Olá';
         $t = $title ? htmlspecialchars($title) : 'sua proposta';
-        $html = "<p>Olá, <strong>{$saud}</strong>!</p>"
-            . "<p>Preparamos <strong>{$t}</strong>. Clique no botão abaixo para abrir a proposta online. No final da página você pode aceitar ou pedir ajustes.</p>"
-            . "<p style='text-align:center;margin:25px 0;'>"
-            . "<a href='{$link}' style='background:#00BFA6;color:#fff;padding:12px 30px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;'>Abrir proposta</a>"
-            . "</p>"
-            . "<p style='font-size:0.8rem;color:#888;word-break:break-all;'>Link direto: {$link}</p>";
-        if ($pdfLink && $pdfLink !== $link) {
-            $html .= "<p style='font-size:0.85rem;color:#555;'>Também disponível em PDF: "
-                . "<a href='{$pdfLink}'>{$pdfLink}</a></p>";
-        }
-        return $html;
+        return "<p>Olá, <strong>{$saud}</strong>!</p>"
+            . "<p>Segue em anexo <strong>{$t}</strong> em PDF.</p>"
+            . "<p>Dentro do PDF, no final, há um botão para você revisar a proposta e responder: aceitar, recusar ou pedir ajustes.</p>";
     }
 
     /** Aviso à EQUIPE (WhatsApp do grupo) quando o cliente responde. */

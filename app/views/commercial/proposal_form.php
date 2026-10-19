@@ -199,19 +199,15 @@ $statusLabels = [
 
         <div class="col-lg-4">
             <div class="card mb-3">
-                <div class="card-header py-2"><strong>Links do cliente</strong></div>
+                <div class="card-header py-2"><strong>Proposta online</strong></div>
                 <div class="card-body">
-                    <p class="small text-muted mb-1">Link principal (proposta online). É o que o cliente recebe; nela há o PDF e o aceite.</p>
-                    <div class="input-group input-group-sm mb-2">
+                    <p class="small text-muted mb-1">Link da proposta online. É para onde o botão dentro do PDF leva o cliente para revisar e responder.</p>
+                    <div class="input-group input-group-sm">
                         <input class="form-control" id="p-online-link" readonly value="<?= escape($onlineLink ?? '') ?>">
                         <button class="btn btn-outline-secondary" type="button" onclick="copyOnline()">Copiar</button>
                         <a class="btn btn-outline-primary" href="<?= escape($onlineLink ?? '#') ?>" target="_blank"><i class="bi bi-box-arrow-up-right"></i></a>
                     </div>
-                    <p class="small text-muted mb-1">PDF (também enviado ao cliente).</p>
-                    <div class="input-group input-group-sm">
-                        <input class="form-control" id="p-link" readonly value="<?= escape($publicLink) ?>">
-                        <button class="btn btn-outline-secondary" type="button" onclick="copyLink()">Copiar</button>
-                    </div>
+                    <p class="small text-muted mb-0 mt-2">Ao clicar em <strong>Enviar ao cliente</strong>, o PDF é enviado automaticamente (WhatsApp e e-mail). Use <strong>Ver PDF</strong> para conferir antes.</p>
                 </div>
             </div>
             <div class="card">
@@ -632,11 +628,7 @@ async function openPdf() {
     const url = `${PROP_BASE}proposal/pdf/${PROPOSAL_ID}?t=${Date.now()}`;
     if (win) win.location = url; else location.href = url;
 }
-function copyLink() {
-    const input = document.getElementById('p-link');
-    input.select();
-    navigator.clipboard.writeText(input.value).then(() => alert('Link copiado.')).catch(() => alert(input.value));
-}
+
 
 let SAVING = false;
 async function saveProposal() {
@@ -683,9 +675,9 @@ async function sendProposal() {
     const canais = [];
     if (r.sent_whats) canais.push('WhatsApp');
     if (r.sent_email) canais.push('e-mail');
-    if (canais.length) msg += 'Enviada ao cliente por: ' + canais.join(' e ') + ' (link da proposta online + PDF).';
-    else if (r.no_contact) msg += 'O cliente não tem telefone nem e-mail. Copie o link e envie manualmente:\n' + r.link;
-    else msg += 'Não foi possível enviar automaticamente. Envie o link manualmente:\n' + r.link;
+    if (canais.length) msg += 'PDF enviado ao cliente por: ' + canais.join(' e ') + '. Dentro do PDF há o botão para responder.';
+    else if (r.no_contact) msg += 'O cliente não tem telefone nem e-mail cadastrados. Cadastre um contato para enviar o PDF.';
+    else msg += 'Não foi possível enviar automaticamente. Verifique a conexão do WhatsApp e o e-mail do cliente.';
     alert(msg);
     location.reload();
 }
