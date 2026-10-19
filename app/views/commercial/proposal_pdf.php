@@ -304,6 +304,9 @@ foreach ($scopePages as [$title, $tag, $list, $foot]):
         if (!empty($it['schedule_start'])) {
             $meta[] = empty($it['schedule_end']) ? 'A partir de ' . $brDate($it['schedule_start']) : $brDate($it['schedule_start']) . ' a ' . $brDate($it['schedule_end']);
         }
+        if (($it['billing'] ?? 'once') === 'monthly' && !empty($it['renewal']) && $it['renewal'] !== 'none' && !empty($it['renewal_label'])) {
+            $meta[] = $it['renewal_label'];
+        }
         $scopeLines = $lines($it['scope'] ?? '');
     ?>
     <table class="sec"><tr>
@@ -402,8 +405,52 @@ foreach ($scopePages as [$title, $tag, $list, $foot]):
             <td class="r"><?= $brl($it['amount']) ?><?= $isMonthly ? '/mês' : '' ?></td>
         </tr>
         <?php endforeach; ?>
-        <tr class="total"><td class="lbl" colspan="5"><?= $hasMonthly ? 'Investimento no primeiro ano (implantação + 12 mensalidades)' : 'Total da implantação' ?></td><td class="r"><?= $brl($hasMonthly ? $totals['year'] : $totals['once']) ?></td></tr>
+        <?php
+        $comm = $commercial ?? null;
+        $yearGross = $hasMonthly ? $totals['year'] : $totals['once'];
+        $yearNet = $comm ? ($hasMonthly ? $comm['year']['net'] : $comm['once']['net']) : $yearGross;
+        $yearDisc = round($yearGross - $yearNet, 2);
+        ?>
+        <?php if ($yearDisc > 0.004): ?>
+        <tr><td class="lbl" colspan="5">Subtotal</td><td class="r"><?= $brl($yearGross) ?></td></tr>
+        <tr class="hi"><td colspan="5">Desconto comercial</td><td class="r">- <?= $brl($yearDisc) ?></td></tr>
+        <tr class="total"><td class="lbl" colspan="5"><?= $hasMonthly ? 'Investimento no primeiro ano com desconto (implantação + 12 mensalidades)' : 'Total da implantação com desconto' ?></td><td class="r"><?= $brl($yearNet) ?></td></tr>
+        <?php else: ?>
+        <tr class="total"><td class="lbl" colspan="5"><?= $hasMonthly ? 'Investimento no primeiro ano (implantação + 12 mensalidades)' : 'Total da implantação' ?></td><td class="r"><?= $brl($yearGross) ?></td></tr>
+        <?php endif; ?>
     </table>
+    <?php endif; ?>
+    <?php if (!empty($discounts)): ?>
+    <p class="sub" style="margin-top:5mm;">Descontos aplicados</p>
+    <table class="grid">
+        <tr><th>Desconto</th><th>Incide em</th><th class="r">Condição</th></tr>
+        <?php
+        $scopeLbl = ['once' => 'Pontual', 'monthly' => 'Mensalidade', 'total' => 'Total'];
+        foreach ($discounts as $di => $d):
+            if (($d['type'] ?? '') === 'schedule') {
+                $cond = [];
+                foreach ($d['months'] as $m) {
+                    $cond[] = 'M' . $m['month'] . ': ' . ($m['type'] === 'percent' ? rtrim(rtrim(number_format((float)$m['value'],2,',','.'),'0'),',') . '%' : $brl($m['value']));
+                }
+                $condTxt = implode(' · ', $cond);
+            } else {
+                $condTxt = ($d['type'] === 'percent') ? rtrim(rtrim(number_format((float)$d['value'],2,',','.'),'0'),',') . '%' : $brl($d['value']);
+            }
+        ?>
+        <tr<?= $alt($di) ?>>
+            <td><?= $e($d['label'] !== '' ? $d['label'] : 'Desconto comercial') ?></td>
+            <td><?= $e($scopeLbl[$d['scope']] ?? $d['scope']) ?></td>
+            <td class="r"><?= $e($condTxt) ?></td>
+        </tr>
+        <?php endforeach; ?>
+    </table>
+    <?php if (!empty($comm['has_schedule'])): ?>
+    <p class="note">Mensalidade por mês (com desconto por período):
+        <?php $mb = $comm['monthly_by_month']; $parts = [];
+        for ($mi = 0; $mi < 12; $mi++) $parts[] = 'M' . ($mi+1) . ' ' . $brl($mb[$mi]);
+        echo $e(implode(' · ', $parts)); ?>.
+    </p>
+    <?php endif; ?>
     <?php endif; ?>
     <p class="note">As condições de pagamento estão na página de Condições de pagamento e rescisão.</p>
 </div>

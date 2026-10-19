@@ -232,4 +232,242 @@ final class ProposalRulesTest extends TestCase
         $this->assertNull(ProposalRules::sanitizeRejectReason(''));
         $this->assertNull(ProposalRules::sanitizeRejectReason(null));
     }
+
+    // ---- recorrência / renovação (estruturadas) ----
+
+    public function testNormalizeRenewalERecurrence(): void
+    {
+        $this->assertSame('auto', ProposalRules::normalizeRenewal('auto'));
+        $this->assertSame('manual', ProposalRules::normalizeRenewal('manual'));
+        $this->assertSame('none', ProposalRules::normalizeRenewal('none'));
+        $this->assertSame('none', ProposalRules::normalizeRenewal('qualquer'));
+        $this->assertSame('none', ProposalRules::normalizeRenewal(null));
+
+        $this->assertSame('monthly', ProposalRules::normalizeRecurrence('monthly'));
+        $this->assertSame('yearly', ProposalRules::normalizeRecurrence('yearly'));
+        $this->assertNull(ProposalRules::normalizeRecurrence('x'));
+        $this->assertNull(ProposalRules::normalizeRecurrence(null));
+    }
+
+    public function testRenewalLabel(): void
+    {
+        $this->assertSame('Renovação automática mensal', ProposalRules::renewalLabel('auto', 'monthly'));
+        $this->assertSame('Renovação automática anual', ProposalRules::renewalLabel('auto', 'yearly'));
+        $this->assertStringContainsString('confirmação', ProposalRules::renewalLabel('manual', 'monthly'));
+        $this->assertSame('Sem renovação automática', ProposalRules::renewalLabel('none'));
+    }
+
+    // ---- descontos: normalização ----
+
+    public function testNormalizeDiscountsSaneiaEscoposETipos(): void
+    {
+        $d = ProposalRules::normalizeDiscounts([
+            ['scope' => 'once', 'type' => 'percent', 'value' => 10],
+            ['scope' => 'total', 'type' => 'fixed', 'value' => 'R$ 500,00'],
+            ['scope' => 'xxx', 'type' => 'yyy', 'value' => 5],   // vira total/percent
+            ['scope' => 'monthly', 'type' => 'percent', 'value' => 0], // zero: descartado
+        ]);
+        $this->assertCount(3, $d);
+        $this->assertSame('once', $d[0]['scope']);
+        $this->assertSame(10.0, $d[0]['value']);
+        $this->assertSame('total', $d[1]['scope']);
+        $this->assertSame('fixed', $d[1]['type']);
+        $this->assertSame(500.0, $d[1]['value']);
+        $this->assertSame('total', $d[2]['scope']);
+        $this->assertSame('percent', $d[2]['type']);
+    }
+
+    public function testNormalizeDiscountsAceitaJsonString(): void
+    {
+        $json = json_encode([['scope' => 'monthly', 'type' => 'percent', 'value' => 15]]);
+        $d = ProposalRules::normalizeDiscounts($json);
+        $this->assertCount(1, $d);
+        $this->assertSame(15.0, $d[0]['value']);
+    }
+
+    public function testScheduleForcaMensalEExigeMeses(): void
+    {
+        $d = ProposalRules::normalizeDiscounts([
+            ['scope' => 'once', 'type' => 'schedule', 'months' => [
+                ['month' => 1, 'type' => 'percent', 'value' => 20],
+                ['month' => 2, 'type' => 'percent', 'value' => 10],
+            ]],
+            ['scope' => 'monthly', 'type' => 'schedule', 'months' => []], // sem meses: descartado
+        ]);
+        $this->assertCount(1, $d);
+        $this->assertSame('monthly', $d[0]['scope']); // schedule sempre mensal
+        $this->assertSame('schedule', $d[0]['type']);
+        $this->assertSame(1, $d[0]['months'][0]['month']);
+    }
+
+    // ---- descontos: aplicação ----
+
+    public function testApplyDiscountsPercentualEFixoNoEscopo(): void
+    {
+        $disc = ProposalRules::normalizeDiscounts([['scope' => 'once', 'type' => 'percent', 'value' => 10]]);
+        $r = ProposalRules::applyDiscounts(1000.0, 'once', $disc, 1000.0, 0.0);
+        $this->assertSame(1000.0, $r['gross']);
+        $this->assertSame(100.0, $r['discount']);
+        $this->assertSame(900.0, $r['net']);
+
+        // Desconto fixo não ultrapassa a base (não fica negativo).
+        $disc2 = ProposalRules::normalizeDiscounts([['scope' => 'monthly', 'type' => 'fixed', 'value' => 5000]]);
+        $r2 = ProposalRules::applyDiscounts(1000.0, 'monthly', $disc2, 0.0, 1000.0);
+        $this->assertSame(1000.0, $r2['discount']);
+        $this->assertSame(0.0, $r2['net']);
+    }
+
+    public function testApplyDiscountsTotalEhRateadoPorEscopo(): void
+    {
+        // Desconto de R$ 300 no total (once 2000 + monthly 1000 = 3000):
+        // rateio once = 300 * 2000/3000 = 200; monthly = 300 * 1000/3000 = 100.
+        $disc = ProposalRules::normalizeDiscounts([['scope' => 'total', 'type' => 'fixed', 'value' => 300]]);
+        $once = ProposalRules::applyDiscounts(2000.0, 'once', $disc, 2000.0, 1000.0);
+        $monthly = ProposalRules::applyDiscounts(1000.0, 'monthly', $disc, 2000.0, 1000.0);
+        $this->assertSame(200.0, $once['discount']);
+        $this->assertSame(100.0, $monthly['discount']);
+    }
+
+    public function testMonthlyNetByMonthComDescontoTemporal(): void
+    {
+        // Mensalidade cheia 1000; mês 1 = 20%, mês 2 = 10%, demais cheios.
+        $disc = ProposalRules::normalizeDiscounts([
+            ['scope' => 'monthly', 'type' => 'schedule', 'months' => [
+                ['month' => 1, 'type' => 'percent', 'value' => 20],
+                ['month' => 2, 'type' => 'percent', 'value' => 10],
+            ]],
+        ]);
+        $net = ProposalRules::monthlyNetByMonth(1000.0, $disc);
+        $this->assertSame(800.0, $net[0]);  // mês 1
+        $this->assertSame(900.0, $net[1]);  // mês 2
+        $this->assertSame(1000.0, $net[2]); // mês 3 em diante
+        $this->assertSame(1000.0, $net[11]);
+    }
+
+    public function testMonthlyNetByMonthFixoNoMes(): void
+    {
+        // Primeiro mês com valor fixo (R$ 300 de abatimento), resto cheio.
+        $disc = ProposalRules::normalizeDiscounts([
+            ['scope' => 'monthly', 'type' => 'schedule', 'months' => [
+                ['month' => 1, 'type' => 'fixed', 'value' => 300],
+            ]],
+        ]);
+        $net = ProposalRules::monthlyNetByMonth(1000.0, $disc);
+        $this->assertSame(700.0, $net[0]);
+        $this->assertSame(1000.0, $net[1]);
+    }
+
+    // ---- totais comerciais ----
+
+    public function testCommercialTotalsComDescontoSimples(): void
+    {
+        $items = [
+            ['amount' => 2000, 'billing' => 'once'],
+            ['amount' => 1000, 'billing' => 'monthly'],
+        ];
+        $disc = [['scope' => 'monthly', 'type' => 'percent', 'value' => 10]];
+        $t = ProposalRules::commercialTotals($items, $disc);
+        $this->assertSame(2000.0, $t['once']['net']);        // pontual sem desconto
+        $this->assertSame(1000.0, $t['monthly']['gross']);
+        $this->assertSame(900.0, $t['monthly']['net']);      // mensal -10%
+        // Ano = 2000 + 900*12 = 12800.
+        $this->assertSame(12800.0, $t['year']['net']);
+        $this->assertFalse($t['has_schedule']);
+    }
+
+    public function testCommercialTotalsComDescontoTemporal(): void
+    {
+        $items = [['amount' => 1000, 'billing' => 'monthly']];
+        $disc = [['scope' => 'monthly', 'type' => 'schedule', 'months' => [
+            ['month' => 1, 'type' => 'percent', 'value' => 20],
+            ['month' => 2, 'type' => 'percent', 'value' => 10],
+        ]]];
+        $t = ProposalRules::commercialTotals($items, $disc);
+        $this->assertTrue($t['has_schedule']);
+        // Ano = 800 + 900 + 1000*10 = 11700.
+        $this->assertSame(11700.0, $t['year']['net']);
+        // Mensalidade "estabilizada" (mês 12) = 1000 cheio.
+        $this->assertSame(1000.0, $t['monthly']['net']);
+    }
+
+    public function testCommercialTotalsSemDescontoBateComTotals(): void
+    {
+        $items = [
+            ['amount' => 6000, 'billing' => 'once'],
+            ['amount' => 500, 'billing' => 'monthly'],
+        ];
+        $t = ProposalRules::commercialTotals($items, []);
+        $base = ProposalRules::totals($items);
+        $this->assertSame($base['once'], $t['once']['net']);
+        $this->assertSame($base['monthly'], $t['monthly']['net']);
+        $this->assertSame($base['year'], $t['year']['net']);
+    }
+
+    // ---- projeção com desconto temporal ----
+
+    public function testProjecaoConsideraDescontoTemporal(): void
+    {
+        $items = [['amount' => 1000, 'billing' => 'monthly', 'schedule_start' => '2026-11-01']];
+        $net = ProposalRules::monthlyNetByMonth(1000.0, ProposalRules::normalizeDiscounts([
+            ['scope' => 'monthly', 'type' => 'schedule', 'months' => [
+                ['month' => 1, 'type' => 'percent', 'value' => 20],
+                ['month' => 2, 'type' => 'percent', 'value' => 10],
+            ]],
+        ]));
+        $p = ProposalRules::projection($items, '2026-11-01', null, null, $net);
+        // Mês 1 = 800, mês 2 = 900, mês 3 = 1000 (líquidos).
+        $this->assertSame(800.0, $p['months'][0]['invest']);
+        $this->assertSame(900.0, $p['months'][1]['invest']);
+        $this->assertSame(1000.0, $p['months'][2]['invest']);
+        // Sem o array líquido, continua cheio (compatibilidade).
+        $pCheio = ProposalRules::projection($items, '2026-11-01');
+        $this->assertSame(1000.0, $pCheio['months'][0]['invest']);
+    }
+
+    // ---- fonte única de apresentação ----
+
+    public function testBuildPresentationDataSemMensalidadeNaoTemOpcaoDePlano(): void
+    {
+        $proposal = ['client_name' => 'ACME', 'content' => null, 'discounts' => null];
+        $items = [['amount' => 5000, 'billing' => 'once', 'description' => 'Site']];
+        $data = ProposalRules::buildPresentationData($proposal, $items);
+        $this->assertTrue($data['has_once']);
+        $this->assertFalse($data['has_monthly']);
+        $this->assertNull($data['plans']);
+        $this->assertSame([], $data['plan_options']); // aceite simples
+        $this->assertSame(5000.0, $data['commercial']['once']['net']);
+    }
+
+    public function testBuildPresentationDataComMensalidadeOfereceTresPlanos(): void
+    {
+        $proposal = ['client_name' => 'ACME', 'content' => json_encode(['discount_6' => 20, 'discount_12' => 30]), 'discounts' => null];
+        $items = [
+            ['amount' => 15000, 'billing' => 'once', 'description' => 'Implantação'],
+            ['amount' => 1000, 'billing' => 'monthly', 'description' => 'Gestão', 'renewal' => 'auto', 'recurrence_period' => 'monthly'],
+        ];
+        $data = ProposalRules::buildPresentationData($proposal, $items);
+        $this->assertTrue($data['has_monthly']);
+        $this->assertCount(3, $data['plan_options']);
+        $this->assertSame('plan_3', $data['plan_options'][0]['key']);
+        $this->assertSame('plan_12', $data['plan_options'][2]['key']);
+        // Recorrência/renovação estruturada chega montada no item.
+        $monthly = array_values(array_filter($data['items'], fn($i) => $i['is_monthly']))[0];
+        $this->assertSame('auto', $monthly['renewal']);
+        $this->assertStringContainsString('automática', $monthly['renewal_label']);
+    }
+
+    public function testBuildPresentationDataAplicaDescontoNasVariaveis(): void
+    {
+        $proposal = [
+            'client_name' => 'ACME',
+            'content' => json_encode(['payment_method' => '50/50']),
+            'discounts' => json_encode([['scope' => 'once', 'type' => 'percent', 'value' => 10]]),
+        ];
+        $items = [['amount' => 1000, 'billing' => 'once', 'description' => 'Site']];
+        $data = ProposalRules::buildPresentationData($proposal, $items);
+        $this->assertTrue($data['has_discount']);
+        $this->assertSame(900.0, $data['commercial']['once']['net']);
+        // A variável {total_pontual} reflete o líquido.
+        $this->assertSame('R$ 900,00', $data['vars']['total_pontual']);
+    }
 }

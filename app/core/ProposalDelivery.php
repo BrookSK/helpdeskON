@@ -34,15 +34,18 @@ class ProposalDelivery
         ];
     }
 
-    /** Mensagem de WhatsApp enviada ao CLIENTE com o link da proposta. */
-    public static function clientWhatsapp(string $name, string $link, ?string $title, ?string $company): string
+    /** Mensagem de WhatsApp enviada ao CLIENTE com o link da proposta online (+ PDF). */
+    public static function clientWhatsapp(string $name, string $link, ?string $title, ?string $company, ?string $pdfLink = null): string
     {
         $saud = $name !== '' ? "Olá, {$name}!" : 'Olá!';
         $assunto = $title ? " \"{$title}\"" : '';
         $msg = "{$saud}\n\n"
             . ($company ? "*{$company}*\n" : '')
-            . "Preparamos sua proposta{$assunto}. Segue o PDF; na última página está o link para aceitar ou pedir ajustes:\n"
+            . "Preparamos sua proposta{$assunto}. Abra a proposta online para ver tudo e, no final, aceitar ou pedir ajustes:\n"
             . $link;
+        if ($pdfLink && $pdfLink !== $link) {
+            $msg .= "\n\nPrefere o PDF? " . $pdfLink;
+        }
         return $msg;
     }
 
@@ -52,16 +55,21 @@ class ProposalDelivery
     }
 
     /** Corpo HTML do e-mail ao cliente (usar com Mailer::template no controller). */
-    public static function clientEmailBody(string $name, string $link, ?string $title): string
+    public static function clientEmailBody(string $name, string $link, ?string $title, ?string $pdfLink = null): string
     {
         $saud = $name !== '' ? htmlspecialchars($name) : 'Olá';
         $t = $title ? htmlspecialchars($title) : 'sua proposta';
-        return "<p>Olá, <strong>{$saud}</strong>!</p>"
-            . "<p>Preparamos <strong>{$t}</strong>. Clique no botão abaixo para abrir o PDF. Na última página está o link para aceitar ou pedir ajustes.</p>"
+        $html = "<p>Olá, <strong>{$saud}</strong>!</p>"
+            . "<p>Preparamos <strong>{$t}</strong>. Clique no botão abaixo para abrir a proposta online. No final da página você pode aceitar ou pedir ajustes.</p>"
             . "<p style='text-align:center;margin:25px 0;'>"
-            . "<a href='{$link}' style='background:#00BFA6;color:#fff;padding:12px 30px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;'>Abrir proposta (PDF)</a>"
+            . "<a href='{$link}' style='background:#00BFA6;color:#fff;padding:12px 30px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;'>Abrir proposta</a>"
             . "</p>"
             . "<p style='font-size:0.8rem;color:#888;word-break:break-all;'>Link direto: {$link}</p>";
+        if ($pdfLink && $pdfLink !== $link) {
+            $html .= "<p style='font-size:0.85rem;color:#555;'>Também disponível em PDF: "
+                . "<a href='{$pdfLink}'>{$pdfLink}</a></p>";
+        }
+        return $html;
     }
 
     /** Aviso à EQUIPE (WhatsApp do grupo) quando o cliente responde. */
@@ -69,11 +77,17 @@ class ProposalDelivery
     {
         $t = $title ? " \"{$title}\"" : '';
         if ($event === 'accepted') {
-            return "✅ *Proposta aceita*\nO cliente aceitou a proposta{$t}. Hora de gerar o contrato.";
+            $extra = $reason ? "\n{$reason}" : '';
+            return "✅ *Proposta aceita*\nO cliente aceitou a proposta{$t}.{$extra}\nHora de gerar o contrato.";
         }
         if ($event === 'rejected') {
             $m = "❌ *Proposta recusada*\nO cliente recusou a proposta{$t}.";
             if ($reason) $m .= "\n*Motivo:* {$reason}";
+            return $m;
+        }
+        if ($event === 'change') {
+            $m = "✏️ *Solicitação de alteração*\nO cliente pediu ajustes na proposta{$t}.";
+            if ($reason) $m .= "\n*Pedido:* {$reason}";
             return $m;
         }
         return "Proposta{$t}: atualização.";

@@ -64,7 +64,9 @@ class ProposalController extends Controller
             'leads' => $leads,
             'companies' => $companies,
             'content' => ProposalRules::decodeContent($proposal['content'] ?? null),
+            'discounts' => ProposalRules::decodeDiscounts($proposal['discounts'] ?? null),
             'publicLink' => $this->pdfLink($proposal),
+            'onlineLink' => $this->onlineLink($proposal),
         ]);
     }
 
@@ -157,6 +159,10 @@ class ProposalController extends Controller
             );
             $fields['content'] = json_encode($content, JSON_UNESCAPED_UNICODE);
         }
+        if (array_key_exists('discounts', $body)) {
+            $discounts = ProposalRules::normalizeDiscounts($body['discounts']);
+            $fields['discounts'] = $discounts ? json_encode($discounts, JSON_UNESCAPED_UNICODE) : null;
+        }
         $fields['fixed_snapshot'] = json_encode($this->fixedSnapshot(), JSON_UNESCAPED_UNICODE);
         try {
             $this->model->update($id, $fields);
@@ -213,14 +219,17 @@ class ProposalController extends Controller
             $this->model->changeStatus($id, ProposalRules::STATUS_READY, $user['id']);
         }
         $this->model->changeStatus($id, ProposalRules::STATUS_SENT, $user['id'], ['sent_at' => date('Y-m-d H:i:s')]);
-        $link = $this->pdfLink($proposal);
+        $online = $this->onlineLink($proposal);
+        $pdf = $this->pdfLink($proposal);
 
-        // Envia o link ao CLIENTE por WhatsApp + e-mail (quando houver contato).
-        $delivery = $this->deliverToClient($proposal, $link);
+        // O cliente recebe o LINK PRINCIPAL (proposta online) + o PDF.
+        $delivery = $this->deliverToClient($proposal, $online, $pdf);
 
         $this->json([
             'success' => true,
-            'link' => $link,
+            'link' => $online,
+            'online_link' => $online,
+            'pdf_link' => $pdf,
             'sent_whats' => $delivery['sent_whats'],
             'sent_email' => $delivery['sent_email'],
             'no_contact' => $delivery['no_contact'],
@@ -231,7 +240,7 @@ class ProposalController extends Controller
      * Envia o link da proposta ao cliente (WhatsApp + e-mail). Nunca interrompe:
      * canais são complementares. Retorna o que foi enviado.
      */
-    private function deliverToClient(array $proposal, string $link): array
+    private function deliverToClient(array $proposal, string $link, ?string $pdfLink = null): array
     {
         $out = ['sent_whats' => 0, 'sent_email' => 0, 'no_contact' => true];
         $c = ProposalDelivery::clientContact($proposal);
@@ -240,14 +249,14 @@ class ProposalController extends Controller
 
         if (!empty($c['phone'])) {
             $out['no_contact'] = false;
-            $msg = ProposalDelivery::clientWhatsapp($c['name'], $link, $title, $company);
+            $msg = ProposalDelivery::clientWhatsapp($c['name'], $link, $title, $company, $pdfLink);
             try { if (WhatsappNotifier::sendToPhone($c['phone'], $msg, $c['name'])) $out['sent_whats']++; }
             catch (\Throwable $e) { /* não interrompe */ }
         }
         if (!empty($c['email'])) {
             $out['no_contact'] = false;
             $subject = ProposalDelivery::clientEmailSubject($title);
-            $html = Mailer::template($subject, ProposalDelivery::clientEmailBody($c['name'], $link, $title));
+            $html = Mailer::template($subject, ProposalDelivery::clientEmailBody($c['name'], $link, $title, $pdfLink));
             try { if (Mailer::send($c['email'], $subject, $html)) $out['sent_email']++; }
             catch (\Throwable $e) { /* não interrompe */ }
         }
@@ -296,9 +305,17 @@ class ProposalController extends Controller
             $proposal['status'] = ProposalRules::STATUS_AWAITING;
         }
         $items = $this->model->getItems($proposal['id']);
+        $data = ProposalRules::buildPresentationData($proposal, $items);
+        $current = ProposalRules::decodeBlocks(json_encode($this->fixedSnapshot()));
+        $blocks = ProposalRules::decodeBlocks($proposal['fixed_snapshot'] ?? null) ?: $current;
+        foreach ($current as $key => $block) {
+            if (!isset($blocks[$key]) || ProposalRules::isLegacyBlock($key, $blocks[$key]['body'])) $blocks[$key] = $block;
+        }
         $this->view('commercial/proposal_public', [
             'proposal' => $proposal,
-            'totals' => ProposalRules::totals($items),
+            'data' => $data,
+            'blocks' => $blocks,
+            'totals' => ProposalRules::totals($items), // compatibilidade
             'pdfLink' => $this->pdfLink($proposal),
             'isTerminal' => ProposalRules::isTerminal($proposal['status']),
         ]);
@@ -315,14 +332,34 @@ class ProposalController extends Controller
             $this->json(['error' => 'Esta proposta já foi finalizada.'], 409);
         }
 
+        // Plano escolhido pelo cliente (quando a proposta oferece mais de uma opção).
+        $items = $this->model->getItems($proposal['id']);
+        $data = ProposalRules::buildPresentationData($proposal, $items);
+        $acceptedPlan = null;
+        $planLabel = '';
+        if (!empty($data['plan_options'])) {
+            $chosen = trim((string)($_POST['plan'] ?? ''));
+            $valid = array_column($data['plan_options'], 'key');
+            if (!in_array($chosen, $valid, true)) {
+                $this->json(['error' => 'Selecione o plano que deseja aceitar.'], 400);
+            }
+            $acceptedPlan = $chosen;
+            foreach ($data['plan_options'] as $opt) {
+                if ($opt['key'] === $chosen) { $planLabel = $opt['label']; break; }
+            }
+        }
+
         $respondedAt = date('Y-m-d H:i:s');
         $this->markSentForResponse($proposal);
-        if (!$this->model->changeStatus($proposal['id'], ProposalRules::STATUS_ACCEPTED, null, ['responded_at' => $respondedAt])) {
+        $extra = ['responded_at' => $respondedAt];
+        if ($acceptedPlan !== null) $extra['accepted_plan'] = $acceptedPlan;
+        if (!$this->model->changeStatus($proposal['id'], ProposalRules::STATUS_ACCEPTED, null, $extra)) {
             $this->json(['error' => 'Não foi possível registrar o aceite. Tente novamente.'], 409);
         }
-        $this->model->addEvent($proposal['id'], null, 'accepted', 'Cliente aceitou a proposta');
-        $this->notifyTeamResponse($proposal, 'accepted');
-        $this->json(['success' => true, 'status' => ProposalRules::STATUS_ACCEPTED, 'responded_at' => date('d/m/Y \à\s H:i', strtotime($respondedAt))]);
+        $msg = 'Cliente aceitou a proposta' . ($planLabel !== '' ? ' — ' . $planLabel : '');
+        $this->model->addEvent($proposal['id'], null, 'accepted', $msg);
+        $this->notifyTeamResponse($proposal, 'accepted', $planLabel !== '' ? ('Plano: ' . $planLabel) : null);
+        $this->json(['success' => true, 'status' => ProposalRules::STATUS_ACCEPTED, 'accepted_plan' => $acceptedPlan, 'responded_at' => date('d/m/Y \à\s H:i', strtotime($respondedAt))]);
     }
 
     /**
@@ -374,6 +411,29 @@ class ProposalController extends Controller
                 (new CrmBoard())->moveContactToColumn((int)$proposal['contact_id'], CrmRules::COLUMN_INTERNAL_ANALYSIS);
             } catch (\Throwable $e) { /* não interrompe */ }
         }
+        $this->json(['success' => true]);
+    }
+
+    /**
+     * Cliente solicita alteração na proposta (POST público). Não muda o status
+     * para terminal: registra o pedido como evento e avisa a equipe, que edita
+     * e reenvia. Mensagem obrigatória.
+     */
+    public function change($token = null)
+    {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $token = $this->tokenFromUrl($token);
+        $proposal = $token ? $this->model->findByToken($token) : null;
+        if (!$proposal) $this->json(['error' => 'Proposta não encontrada'], 404);
+        if (ProposalRules::isTerminal($proposal['status'])) {
+            $this->json(['error' => 'Esta proposta já foi finalizada.'], 409);
+        }
+
+        $message = ProposalRules::sanitizeRejectReason($_POST['message'] ?? '');
+        if ($message === null) $this->json(['error' => 'Descreva o que você gostaria de alterar.'], 400);
+
+        $this->model->addEvent($proposal['id'], null, 'change_request', 'Cliente solicitou alteração: ' . $message);
+        $this->notifyTeamResponse($proposal, 'change', $message);
         $this->json(['success' => true]);
     }
 
@@ -435,6 +495,12 @@ class ProposalController extends Controller
         return $this->publicBase() . '/proposal/file/' . $proposal['public_token'];
     }
 
+    /** Link PRINCIPAL enviado ao cliente: a proposta online (responsiva). */
+    private function onlineLink(array $proposal): string
+    {
+        return $this->publicBase() . '/proposal/show/' . $proposal['public_token'];
+    }
+
     private function outputPdf(array $proposal): void
     {
         try {
@@ -462,35 +528,23 @@ class ProposalController extends Controller
         foreach ($current as $key => $block) {
             if (!isset($blocks[$key]) || ProposalRules::isLegacyBlock($key, $blocks[$key]['body'])) $blocks[$key] = $block;
         }
-        $content = ProposalRules::decodeContent($proposal['content'] ?? null);
-        $timeline = ProposalRules::timeline($items, $proposal['dev_start'] ?? null, $proposal['dev_end'] ?? null);
-        $totals = ProposalRules::totals($items);
-        $projection = ProposalRules::projection($items, $timeline['start'], $timeline['end'], $content['expected_return'] ?? null);
-
-        $brl = fn($v) => 'R$ ' . number_format((float)$v, 2, ',', '.');
-        $br = fn($d) => $d ? date('d/m/Y', strtotime($d)) : 'a definir';
-        $vars = [
-            'cliente' => (string)($proposal['client_name'] ?? ''),
-            'total' => $brl($totals['year']),
-            'total_pontual' => $brl($totals['once']),
-            'total_mensal' => $brl($totals['monthly']),
-            'total_12_meses' => $brl($totals['year']),
-            'condicao_pagamento' => ($content['payment_method'] ?? '') !== '' ? $content['payment_method'] : 'a combinar',
-            'validade' => $br($proposal['validity_date'] ?? null),
-            'inicio' => $br($timeline['start']),
-            'fim' => $br($timeline['end']),
-        ];
+        // Fonte única de dados de apresentação (mesma do online): descontos,
+        // recorrência/renovação, projeção com desconto temporal, planos.
+        $data = ProposalRules::buildPresentationData($proposal, $items);
 
         $public = defined('PUBLIC_PATH') ? PUBLIC_PATH : BASE_PATH . '/public';
         return ProposalPdf::render([
             'proposal' => $proposal,
-            'items' => $items,
+            'items' => $data['items'],
             'blocks' => $blocks,
-            'content' => $content,
-            'timeline' => $timeline,
-            'totals' => $totals,
-            'projection' => $projection,
-            'vars' => $vars,
+            'content' => $data['content'],
+            'timeline' => $data['timeline'],
+            'totals' => $data['totals_gross'],        // compatibilidade (valores cheios)
+            'commercial' => $data['commercial'],      // valores COM desconto (cheio/desconto/líquido)
+            'discounts' => $data['discounts'],
+            'hasDiscount' => $data['has_discount'],
+            'projection' => $data['projection'],
+            'vars' => $data['vars'],
             'acceptLink' => $this->publicBase() . '/proposal/show/' . $proposal['public_token'],
         ], $public);
     }
@@ -518,10 +572,16 @@ class ProposalController extends Controller
     private function notifyTeamResponse(array $proposal, string $event, ?string $reason = null): void
     {
         $title = $proposal['title'] ?? null;
-        $sinoTitle = $event === 'accepted' ? 'Proposta aceita' : 'Proposta recusada';
-        $sinoMsg = $event === 'accepted'
-            ? "O cliente aceitou a proposta \"{$title}\"."
-            : "O cliente recusou a proposta \"{$title}\"." . ($reason ? " Motivo: {$reason}" : '');
+        if ($event === 'accepted') {
+            $sinoTitle = 'Proposta aceita';
+            $sinoMsg = "O cliente aceitou a proposta \"{$title}\"." . ($reason ? " {$reason}" : '');
+        } elseif ($event === 'change') {
+            $sinoTitle = 'Solicitação de alteração';
+            $sinoMsg = "O cliente pediu alteração na proposta \"{$title}\"." . ($reason ? " {$reason}" : '');
+        } else {
+            $sinoTitle = 'Proposta recusada';
+            $sinoMsg = "O cliente recusou a proposta \"{$title}\"." . ($reason ? " Motivo: {$reason}" : '');
+        }
         $this->notifyTeam($proposal, $sinoTitle, $sinoMsg);
 
         $wa = ProposalDelivery::teamWhatsapp($event, $title, $reason);

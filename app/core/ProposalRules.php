@@ -240,6 +240,329 @@ class ProposalRules
         return $value === self::BILLING_MONTHLY ? self::BILLING_MONTHLY : self::BILLING_ONCE;
     }
 
+    // ============================================================
+    // Recorrência e renovação (estruturadas)
+    // ============================================================
+
+    /** Renovação do item: não renova / automática / manual. */
+    public const RENEWAL_NONE = 'none';
+    public const RENEWAL_AUTO = 'auto';
+    public const RENEWAL_MANUAL = 'manual';
+    public const RENEWALS = [self::RENEWAL_NONE, self::RENEWAL_AUTO, self::RENEWAL_MANUAL];
+
+    public static function normalizeRenewal($value): string
+    {
+        return in_array($value, self::RENEWALS, true) ? $value : self::RENEWAL_NONE;
+    }
+
+    /** Periodicidade da recorrência; vazio/pontual => null. */
+    public const RECURRENCES = ['monthly', 'yearly'];
+
+    public static function normalizeRecurrence($value): ?string
+    {
+        return in_array($value, self::RECURRENCES, true) ? $value : null;
+    }
+
+    /** Rótulo legível da renovação (para PDF/online). */
+    public static function renewalLabel(string $renewal, ?string $recurrence = null): string
+    {
+        $period = $recurrence === 'yearly' ? 'anual' : 'mensal';
+        switch (self::normalizeRenewal($renewal)) {
+            case self::RENEWAL_AUTO:   return 'Renovação automática ' . $period;
+            case self::RENEWAL_MANUAL: return 'Renovação ' . $period . ' (mediante confirmação)';
+            default:                   return 'Sem renovação automática';
+        }
+    }
+
+    // ============================================================
+    // Descontos comerciais (estruturados) — fonte única de verdade
+    // ============================================================
+
+    /** Escopo em que o desconto incide. */
+    public const DISCOUNT_ONCE = 'once';       // só o pontual (implantação)
+    public const DISCOUNT_MONTHLY = 'monthly'; // só a mensalidade
+    public const DISCOUNT_TOTAL = 'total';     // o total (pontual + mensalidades)
+    public const DISCOUNT_SCOPES = [self::DISCOUNT_ONCE, self::DISCOUNT_MONTHLY, self::DISCOUNT_TOTAL];
+
+    /** Tipo do desconto. */
+    public const DISCOUNT_PERCENT = 'percent';   // percentual sobre o valor base
+    public const DISCOUNT_FIXED = 'fixed';       // valor fixo em reais
+    public const DISCOUNT_SCHEDULE = 'schedule'; // por período (mês a mês), só na mensalidade
+    public const DISCOUNT_TYPES = [self::DISCOUNT_PERCENT, self::DISCOUNT_FIXED, self::DISCOUNT_SCHEDULE];
+
+    /**
+     * Saneia a lista de descontos vinda do formulário/JSON.
+     *
+     * @param mixed $data lista de descontos
+     * @return array<int,array{scope:string,type:string,value:float,label:string,months:array}>
+     */
+    public static function normalizeDiscounts($data): array
+    {
+        if (is_string($data)) {
+            $decoded = json_decode($data, true);
+            $data = is_array($decoded) ? $decoded : [];
+        }
+        if (!is_array($data)) return [];
+        $out = [];
+        foreach ($data as $d) {
+            if (!is_array($d)) continue;
+            $scope = in_array($d['scope'] ?? null, self::DISCOUNT_SCOPES, true) ? $d['scope'] : self::DISCOUNT_TOTAL;
+            $type = in_array($d['type'] ?? null, self::DISCOUNT_TYPES, true) ? $d['type'] : self::DISCOUNT_PERCENT;
+            // 'schedule' só faz sentido na mensalidade (desconto por mês).
+            if ($type === self::DISCOUNT_SCHEDULE) $scope = self::DISCOUNT_MONTHLY;
+            $label = trim((string)($d['label'] ?? ''));
+            $label = $label === '' ? '' : mb_substr($label, 0, 120);
+
+            if ($type === self::DISCOUNT_SCHEDULE) {
+                $months = [];
+                foreach (($d['months'] ?? []) as $m) {
+                    if (!is_array($m)) continue;
+                    $mn = (int)($m['month'] ?? 0);
+                    if ($mn < 1 || $mn > 12) continue;
+                    $mt = in_array($m['type'] ?? null, [self::DISCOUNT_PERCENT, self::DISCOUNT_FIXED], true) ? $m['type'] : self::DISCOUNT_PERCENT;
+                    $mv = $mt === self::DISCOUNT_PERCENT ? self::pct($m['value'] ?? 0, 0) : round(max(0.0, self::num($m['value'] ?? 0)), 2);
+                    $months[$mn] = ['month' => $mn, 'type' => $mt, 'value' => $mv];
+                }
+                if (!$months) continue; // schedule sem meses não vale
+                ksort($months);
+                $out[] = ['scope' => $scope, 'type' => $type, 'value' => 0.0, 'label' => $label, 'months' => array_values($months)];
+                continue;
+            }
+
+            $value = $type === self::DISCOUNT_PERCENT ? self::pct($d['value'] ?? 0, 0) : round(max(0.0, self::num($d['value'] ?? 0)), 2);
+            if ($value <= 0) continue; // desconto zero não vale
+            $out[] = ['scope' => $scope, 'type' => $type, 'value' => $value, 'label' => $label, 'months' => []];
+        }
+        return $out;
+    }
+
+    public static function decodeDiscounts($json): array
+    {
+        return self::normalizeDiscounts($json);
+    }
+
+    /**
+     * Valor de um desconto simples (percent/fixed) sobre uma base. Nunca passa
+     * do valor da base (desconto maior que o valor zera, não fica negativo).
+     */
+    private static function discountAmount(array $d, float $base): float
+    {
+        if ($base <= 0) return 0.0;
+        if (($d['type'] ?? '') === self::DISCOUNT_PERCENT) {
+            return round($base * min(100.0, (float)$d['value']) / 100, 2);
+        }
+        if (($d['type'] ?? '') === self::DISCOUNT_FIXED) {
+            return round(min($base, (float)$d['value']), 2);
+        }
+        return 0.0;
+    }
+
+    /**
+     * Aplica os descontos de um escopo (once/monthly) a um valor base, somando
+     * também os descontos de escopo 'total' rateados proporcionalmente.
+     * Ignora descontos 'schedule' (que são por mês, tratados à parte).
+     *
+     * @return array{gross:float,discount:float,net:float}
+     */
+    public static function applyDiscounts(float $base, string $scope, array $discounts, float $onceBase = 0.0, float $monthlyBase = 0.0): array
+    {
+        $base = round(max(0.0, $base), 2);
+        $discount = 0.0;
+        $totalBase = round($onceBase + $monthlyBase, 2);
+        foreach ($discounts as $d) {
+            $ds = $d['scope'] ?? self::DISCOUNT_TOTAL;
+            $dt = $d['type'] ?? self::DISCOUNT_PERCENT;
+            if ($dt === self::DISCOUNT_SCHEDULE) continue;
+            if ($ds === $scope) {
+                $discount += self::discountAmount($d, $base);
+            } elseif ($ds === self::DISCOUNT_TOTAL && $totalBase > 0) {
+                // Rateia o desconto 'total' na proporção deste escopo.
+                $whole = self::discountAmount($d, $totalBase);
+                $discount += round($whole * ($base / $totalBase), 2);
+            }
+        }
+        $discount = round(min($base, $discount), 2);
+        return ['gross' => $base, 'discount' => $discount, 'net' => round($base - $discount, 2)];
+    }
+
+    /**
+     * Desconto da mensalidade por período (type=schedule). Retorna o valor
+     * líquido da mensalidade para cada mês (1..12), partindo da mensalidade cheia.
+     *
+     * @return float[] índice 0 = mês 1 ... índice 11 = mês 12
+     */
+    public static function monthlyNetByMonth(float $monthlyGross, array $discounts): array
+    {
+        $net = array_fill(0, 12, round($monthlyGross, 2));
+        // Primeiro, descontos simples na mensalidade valem para todos os meses.
+        $flat = self::applyDiscounts($monthlyGross, self::DISCOUNT_MONTHLY, $discounts, 0.0, $monthlyGross);
+        $flatNet = $flat['net'];
+        for ($i = 0; $i < 12; $i++) $net[$i] = $flatNet;
+        // Depois, o desconto por período sobrescreve os meses indicados.
+        foreach ($discounts as $d) {
+            if (($d['type'] ?? '') !== self::DISCOUNT_SCHEDULE) continue;
+            foreach ($d['months'] as $m) {
+                $idx = (int)$m['month'] - 1;
+                if ($idx < 0 || $idx > 11) continue;
+                $val = $m['type'] === self::DISCOUNT_PERCENT
+                    ? round($flatNet * (1 - min(100.0, (float)$m['value']) / 100), 2)
+                    : round(max(0.0, $flatNet - (float)$m['value']), 2);
+                $net[$idx] = max(0.0, $val);
+            }
+        }
+        return $net;
+    }
+
+    /**
+     * Totais comerciais da proposta COM desconto. Fonte única para resumo,
+     * investimento, projeção, PDF e proposta online.
+     *
+     * @param array<int,array> $items
+     * @return array{
+     *   once:array{gross:float,discount:float,net:float},
+     *   monthly:array{gross:float,discount:float,net:float},
+     *   monthly_by_month:float[],
+     *   has_schedule:bool,
+     *   year:array{gross:float,discount:float,net:float}
+     * }
+     */
+    public static function commercialTotals(array $items, $discounts = []): array
+    {
+        $discounts = self::normalizeDiscounts($discounts);
+        $base = self::totals($items); // once/monthly/year "cheios"
+        $onceGross = $base['once'];
+        $monthlyGross = $base['monthly'];
+
+        $once = self::applyDiscounts($onceGross, self::DISCOUNT_ONCE, $discounts, $onceGross, $monthlyGross);
+        $monthlyNet = self::monthlyNetByMonth($monthlyGross, $discounts);
+        $hasSchedule = false;
+        foreach ($discounts as $d) {
+            if (($d['type'] ?? '') === self::DISCOUNT_SCHEDULE) { $hasSchedule = true; break; }
+        }
+
+        // Mensalidade "representativa": líquida do mês mais recorrente (último mês,
+        // já estabilizado após o período de desconto temporário).
+        $monthlyNetSteady = $monthlyNet[11];
+        $monthlyLineDiscount = round($monthlyGross - $monthlyNetSteady, 2);
+
+        // Total do primeiro ano = pontual líquido + soma das 12 mensalidades líquidas.
+        $monthlyYearNet = round(array_sum($monthlyNet), 2);
+        $yearGross = round($onceGross + $monthlyGross * 12, 2);
+        $yearNet = round($once['net'] + $monthlyYearNet, 2);
+
+        return [
+            'once' => $once,
+            'monthly' => [
+                'gross' => round($monthlyGross, 2),
+                'discount' => $monthlyLineDiscount,
+                'net' => $monthlyNetSteady,
+            ],
+            'monthly_by_month' => $monthlyNet,
+            'has_schedule' => $hasSchedule,
+            'year' => [
+                'gross' => $yearGross,
+                'discount' => round($yearGross - $yearNet, 2),
+                'net' => $yearNet,
+            ],
+        ];
+    }
+
+    /**
+     * FONTE ÚNICA de dados de apresentação da proposta. PDF e proposta online
+     * consomem exatamente esta estrutura — sem recalcular por conta própria —
+     * para nunca divergirem em valores, descontos, recorrência ou cronograma.
+     *
+     * @param array $proposal linha da proposta (com content, discounts, datas)
+     * @param array<int,array> $items itens já persistidos
+     * @return array estrutura de apresentação (ver chaves abaixo)
+     */
+    public static function buildPresentationData(array $proposal, array $items): array
+    {
+        $content = self::decodeContent($proposal['content'] ?? null);
+        $discounts = self::decodeDiscounts($proposal['discounts'] ?? null);
+
+        $timeline = self::timeline($items, $proposal['dev_start'] ?? null, $proposal['dev_end'] ?? null);
+        $comm = self::commercialTotals($items, $discounts);
+        $totalsGross = self::totals($items); // compatibilidade com quem ainda usa o cheio
+
+        $hasMonthly = $comm['monthly']['gross'] > 0;
+        $hasOnce = $comm['once']['gross'] > 0;
+
+        // Planos 3/6/12 só quando há mensalidade (há mais de uma opção para o cliente).
+        $plans = $hasMonthly ? self::plans($items, $content['discount_6'] ?? 20, $content['discount_12'] ?? 30) : null;
+
+        // Opções selecionáveis no aceite: só existem quando há mais de um plano.
+        $planOptions = [];
+        if ($plans && count($plans['items']) > 1) {
+            $keys = ['plan_3', 'plan_6', 'plan_12'];
+            foreach ($plans['items'] as $i => $p) {
+                $planOptions[] = [
+                    'key' => $keys[$i] ?? ('plan_' . ($p['months'] ?? $i)),
+                    'label' => $p['label'],
+                    'months' => $p['months'],
+                    'monthly' => $p['monthly'],
+                    'year' => $p['year'],
+                ];
+            }
+        }
+
+        // Projeção considerando o desconto temporal na mensalidade.
+        $projection = self::projection(
+            $items,
+            $timeline['start'],
+            $timeline['end'],
+            $content['expected_return'] ?? null,
+            $comm['has_schedule'] ? $comm['monthly_by_month'] : null
+        );
+
+        // Recorrência/renovação estruturada por item (para PDF e online).
+        $itemsOut = [];
+        foreach ($items as $it) {
+            $billing = self::normalizeBilling($it['billing'] ?? null);
+            $renewal = self::normalizeRenewal($it['renewal'] ?? null);
+            $recurrence = self::normalizeRecurrence($it['recurrence_period'] ?? null)
+                ?? ($billing === self::BILLING_MONTHLY ? 'monthly' : null);
+            $itemsOut[] = $it + [
+                'is_monthly' => $billing === self::BILLING_MONTHLY,
+                'renewal' => $renewal,
+                'recurrence_period' => $recurrence,
+                'renewal_label' => self::renewalLabel($renewal, $recurrence),
+            ];
+        }
+
+        // Variáveis de texto (mesmas chaves de VARS), já líquidas quando há desconto.
+        $brl = fn($v) => 'R$ ' . number_format((float)$v, 2, ',', '.');
+        $br = fn($d) => $d ? date('d/m/Y', strtotime($d)) : 'a definir';
+        $vars = [
+            'cliente' => (string)($proposal['client_name'] ?? ''),
+            'total' => $brl($comm['year']['net']),
+            'total_pontual' => $brl($comm['once']['net']),
+            'total_mensal' => $brl($comm['monthly']['net']),
+            'total_12_meses' => $brl($comm['year']['net']),
+            'condicao_pagamento' => ($content['payment_method'] ?? '') !== '' ? $content['payment_method'] : 'a combinar',
+            'validade' => $br($proposal['validity_date'] ?? null),
+            'inicio' => $br($timeline['start']),
+            'fim' => $br($timeline['end']),
+        ];
+
+        return [
+            'proposal' => $proposal,
+            'items' => $itemsOut,
+            'content' => $content,
+            'discounts' => $discounts,
+            'has_discount' => $discounts !== [],
+            'timeline' => $timeline,
+            'commercial' => $comm,   // totais COM desconto (cheio/desconto/líquido)
+            'totals_gross' => $totalsGross,
+            'has_once' => $hasOnce,
+            'has_monthly' => $hasMonthly,
+            'plans' => $plans,
+            'plan_options' => $planOptions, // vazio => aceite simples
+            'projection' => $projection,
+            'vars' => $vars,
+        ];
+    }
+
     /**
      * Totais da proposta separados por cobrança.
      *
@@ -351,7 +674,7 @@ class ProposalRules
      * @param array<int,array> $items
      * @return array{months:array<int,array>,invest:float,return:float,payback:?int,roi:?float}
      */
-    public static function projection(array $items, $devStart = null, $devEnd = null, $monthlyReturn = null): array
+    public static function projection(array $items, $devStart = null, $devEnd = null, $monthlyReturn = null, ?array $monthlyNetByMonth = null): array
     {
         $start = self::normalizeDate($devStart) ?: date('Y-m-01');
         $base = (int)date('Y', strtotime($start)) * 12 + (int)date('n', strtotime($start)) - 1;
@@ -362,13 +685,31 @@ class ProposalRules
             return max(0, min(11, $o));
         };
 
+        // Mensalidade cheia total (para ratear o desconto temporal por mês).
+        $monthlyGrossTotal = 0.0;
+        foreach ($items as $it) {
+            if (self::normalizeBilling($it['billing'] ?? null) === self::BILLING_MONTHLY) {
+                $monthlyGrossTotal += self::num($it['amount'] ?? 0);
+            }
+        }
+        $useNet = is_array($monthlyNetByMonth) && $monthlyGrossTotal > 0;
+
         $invest = array_fill(0, 12, 0.0);
         $lastEnd = self::normalizeDate($devEnd);
         foreach ($items as $it) {
             $amount = self::num($it['amount'] ?? 0);
             $from = $offset(self::normalizeDate($it['schedule_start'] ?? null));
             if (self::normalizeBilling($it['billing'] ?? null) === self::BILLING_MONTHLY) {
-                for ($m = $from; $m < 12; $m++) $invest[$m] += $amount;
+                for ($m = $from; $m < 12; $m++) {
+                    // Com desconto temporal: substitui o valor cheio pela fração
+                    // líquida daquele mês (líquido do mês / cheio total × amount do item).
+                    if ($useNet) {
+                        $factor = ($monthlyNetByMonth[$m] ?? $monthlyGrossTotal) / $monthlyGrossTotal;
+                        $invest[$m] += round($amount * $factor, 2);
+                    } else {
+                        $invest[$m] += $amount;
+                    }
+                }
             } else {
                 $invest[$from] += $amount;
             }

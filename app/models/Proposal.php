@@ -121,6 +121,8 @@ class Proposal
                 'hourly_rate'    => ($it['hourly_rate'] ?? '') !== '' ? (float)$it['hourly_rate'] : null,
                 'amount'         => $amount,
                 'billing'        => ProposalRules::normalizeBilling($it['billing'] ?? null),
+                'renewal'        => ProposalRules::normalizeRenewal($it['renewal'] ?? null),
+                'recurrence_period' => ProposalRules::normalizeRecurrence($it['recurrence_period'] ?? null),
                 'is_hosting'     => !empty($it['is_hosting']) ? 1 : 0,
                 'schedule_start' => ProposalRules::normalizeDate($it['schedule_start'] ?? null),
                 'schedule_end'   => ProposalRules::normalizeDate($it['schedule_end'] ?? null),

@@ -21,6 +21,7 @@ $statusLabels = [
         <div class="d-flex gap-2 flex-wrap justify-content-end">
             <a href="<?= baseUrl('proposal') ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> Voltar</a>
             <button type="button" class="btn btn-sm btn-outline-primary" onclick="openPdf()"><i class="bi bi-file-earmark-pdf"></i> Ver PDF</button>
+            <button type="button" class="btn btn-sm btn-outline-info" onclick="openOnline()"><i class="bi bi-globe"></i> Ver proposta online</button>
             <?php if (!$isTerminal): ?>
             <button id="btn-save" class="btn btn-sm btn-success" onclick="saveProposal()"><i class="bi bi-check-lg"></i> Salvar</button>
             <button id="btn-send" class="btn btn-sm btn-primary" onclick="sendProposal()"><i class="bi bi-send"></i> Enviar ao cliente</button>
@@ -165,13 +166,48 @@ $statusLabels = [
                     </div>
                 </div>
             </div>
+
+            <div class="card mt-3">
+                <div class="card-header py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <strong>Condições comerciais — descontos</strong>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addDiscount()"><i class="bi bi-plus-lg"></i> Adicionar desconto</button>
+                </div>
+                <div class="card-body">
+                    <div id="discounts-body" class="d-flex flex-column gap-2"></div>
+                    <small class="text-muted d-block mt-2">O desconto pode incidir no valor pontual, na mensalidade ou no total. "Por período (mensal)" permite desconto só em alguns meses (ex.: 1º mês 20%, 2º mês 10%, demais cheios). Os valores são recalculados pelo backend.</small>
+                </div>
+            </div>
+
+            <div class="card mt-3">
+                <div class="card-header py-2"><strong>Resumo comercial</strong></div>
+                <div class="card-body">
+                    <table class="table table-sm mb-0" id="summary-table">
+                        <tbody>
+                            <tr><td>Pontual (cheio)</td><td class="text-end" id="sum-once-gross">—</td></tr>
+                            <tr><td>Mensalidade (cheia)</td><td class="text-end" id="sum-monthly-gross">—</td></tr>
+                            <tr class="text-success"><td>Desconto total</td><td class="text-end" id="sum-discount">—</td></tr>
+                            <tr class="fw-bold"><td>Pontual (líquido)</td><td class="text-end" id="sum-once-net">—</td></tr>
+                            <tr class="fw-bold"><td>Mensalidade (líquida)</td><td class="text-end" id="sum-monthly-net">—</td></tr>
+                            <tr class="fw-bold"><td>Total do 1º ano (líquido)</td><td class="text-end" id="sum-year-net">—</td></tr>
+                        </tbody>
+                    </table>
+                    <div id="sum-months" class="small text-muted mt-2"></div>
+                    <small class="text-muted d-block mt-1">Prévia; o cálculo oficial é feito ao salvar e aparece no PDF e na proposta online.</small>
+                </div>
+            </div>
         </div>
 
         <div class="col-lg-4">
             <div class="card mb-3">
-                <div class="card-header py-2"><strong>PDF do cliente</strong></div>
+                <div class="card-header py-2"><strong>Links do cliente</strong></div>
                 <div class="card-body">
-                    <p class="small text-muted mb-2">O cliente recebe este link do PDF. A última página tem o link para aceitar ou recusar.</p>
+                    <p class="small text-muted mb-1">Link principal (proposta online). É o que o cliente recebe; nela há o PDF e o aceite.</p>
+                    <div class="input-group input-group-sm mb-2">
+                        <input class="form-control" id="p-online-link" readonly value="<?= escape($onlineLink ?? '') ?>">
+                        <button class="btn btn-outline-secondary" type="button" onclick="copyOnline()">Copiar</button>
+                        <a class="btn btn-outline-primary" href="<?= escape($onlineLink ?? '#') ?>" target="_blank"><i class="bi bi-box-arrow-up-right"></i></a>
+                    </div>
+                    <p class="small text-muted mb-1">PDF (também enviado ao cliente).</p>
                     <div class="input-group input-group-sm">
                         <input class="form-control" id="p-link" readonly value="<?= escape($publicLink) ?>">
                         <button class="btn btn-outline-secondary" type="button" onclick="copyLink()">Copiar</button>
@@ -200,6 +236,7 @@ const CSRF = '<?= csrf_token() ?>';
 const PROPOSAL_ID = <?= (int)$proposal['id'] ?>;
 const CAN_EDIT = <?= $isTerminal ? 'false' : 'true' ?>;
 const EXISTING_ITEMS = <?= json_encode($items, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT) ?: '[]' ?>;
+const EXISTING_DISCOUNTS = <?= json_encode($discounts ?? [], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT) ?: '[]' ?>;
 const SERVICES = <?= json_encode($services, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT) ?: '[]' ?>;
 
 function money(v) { return 'R$ ' + (Number(v)||0).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2}); }
@@ -216,6 +253,10 @@ function addRow(data) {
                 <div style="flex:1"><label class="form-label small mb-0 text-muted">Cobrança</label><select class="form-select form-select-sm it-billing"><option value="once">Pontual</option><option value="monthly">Mensal</option></select></div>
                 <div style="flex:1"><label class="form-label small mb-0 text-muted">Início</label><input type="date" class="form-control form-control-sm it-start"></div>
                 <div style="flex:1"><label class="form-label small mb-0 text-muted">Fim</label><input type="date" class="form-control form-control-sm it-end"></div>
+            </div>
+            <div class="d-flex gap-2 mt-1 it-recurrence-wrap" style="display:none !important;">
+                <div style="flex:1"><label class="form-label small mb-0 text-muted">Renovação</label><select class="form-select form-select-sm it-renewal"><option value="none">Sem renovação</option><option value="auto">Automática</option><option value="manual">Manual</option></select></div>
+                <div style="flex:1"><label class="form-label small mb-0 text-muted">Periodicidade</label><select class="form-select form-select-sm it-recurrence"><option value="monthly">Mensal</option><option value="yearly">Anual</option></select></div>
             </div>
             <div class="it-hint small text-muted mt-1"></div>
             <input type="hidden" class="it-service">
@@ -245,11 +286,19 @@ function addRow(data) {
     tr.querySelector('.it-billing').value = data.billing === 'monthly' ? 'monthly' : 'once';
     tr.querySelector('.it-start').value = data.schedule_start || '';
     tr.querySelector('.it-end').value = data.schedule_end || '';
+    tr.querySelector('.it-renewal').value = ['none','auto','manual'].includes(data.renewal) ? data.renewal : 'none';
+    tr.querySelector('.it-recurrence').value = data.recurrence_period === 'yearly' ? 'yearly' : 'monthly';
     tr.querySelector('.it-service').value = data.service_id || '';
     tr.querySelector('.it-hosting').value = data.is_hosting ? '1' : '0';
     if (data.hint) tr.querySelector('.it-hint').textContent = data.hint;
     tr.querySelector('.it-remove').addEventListener('click', () => { tr.remove(); recalc(); });
-    tr.querySelectorAll('input').forEach(inp => inp.addEventListener('input', recalc));
+    tr.querySelectorAll('input,select').forEach(inp => inp.addEventListener('input', recalc));
+    const billingSel = tr.querySelector('.it-billing');
+    const toggleRecurrence = () => {
+        tr.querySelector('.it-recurrence-wrap').style.display = billingSel.value === 'monthly' ? 'flex' : 'none';
+    };
+    billingSel.addEventListener('change', toggleRecurrence);
+    toggleRecurrence();
     tb.appendChild(tr);
     recalc();
     return tr;
@@ -272,6 +321,188 @@ function recalc() {
         total += amt;
     });
     document.getElementById('grand-total').textContent = money(total);
+    refreshSummary();
+}
+
+// ===== Descontos comerciais =====
+function discountRowHtml() {
+    return `
+        <div class="d-flex gap-2 align-items-end flex-wrap disc-row border rounded p-2">
+            <div><label class="form-label small mb-0 text-muted">Incide em</label>
+                <select class="form-select form-select-sm d-scope">
+                    <option value="total">Total</option>
+                    <option value="once">Pontual</option>
+                    <option value="monthly">Mensalidade</option>
+                </select></div>
+            <div><label class="form-label small mb-0 text-muted">Tipo</label>
+                <select class="form-select form-select-sm d-type">
+                    <option value="percent">Percentual (%)</option>
+                    <option value="fixed">Valor fixo (R$)</option>
+                    <option value="schedule">Por período (mensal)</option>
+                </select></div>
+            <div class="d-simple"><label class="form-label small mb-0 text-muted">Valor</label>
+                <input type="number" step="0.01" min="0" class="form-control form-control-sm d-value" style="width:120px;"></div>
+            <div class="flex-grow-1"><label class="form-label small mb-0 text-muted">Rótulo (opcional)</label>
+                <input class="form-control form-control-sm d-label" placeholder="Ex.: Desconto de lançamento"></div>
+            <button type="button" class="btn btn-sm btn-outline-danger d-remove"><i class="bi bi-x"></i></button>
+            <div class="d-months w-100 mt-1" style="display:none;">
+                <div class="small text-muted mb-1">Desconto por mês (1 a 12). Deixe vazio o mês sem desconto.</div>
+                <div class="d-flex flex-wrap gap-1 d-months-grid"></div>
+            </div>
+        </div>`;
+}
+function addDiscount(data) {
+    data = data || {};
+    const wrap = document.createElement('div');
+    wrap.innerHTML = discountRowHtml();
+    const row = wrap.firstElementChild;
+    const scope = row.querySelector('.d-scope');
+    const type = row.querySelector('.d-type');
+    const value = row.querySelector('.d-value');
+    const label = row.querySelector('.d-label');
+    const monthsBox = row.querySelector('.d-months');
+    const monthsGrid = row.querySelector('.d-months-grid');
+    for (let m = 1; m <= 12; m++) {
+        const cell = document.createElement('div');
+        cell.innerHTML = `<label class="form-label small mb-0 text-muted">M${m}</label>
+            <div class="input-group input-group-sm" style="width:92px;">
+                <input type="number" step="0.01" min="0" class="form-control dm-value" data-month="${m}">
+                <select class="form-select dm-type" data-month="${m}" style="max-width:42px;"><option value="percent">%</option><option value="fixed">R$</option></select>
+            </div>`;
+        monthsGrid.appendChild(cell);
+    }
+    const sync = () => {
+        const isSchedule = type.value === 'schedule';
+        if (isSchedule) scope.value = 'monthly';
+        scope.disabled = isSchedule;
+        row.querySelector('.d-simple').style.display = isSchedule ? 'none' : '';
+        monthsBox.style.display = isSchedule ? 'block' : 'none';
+        refreshSummary();
+    };
+    type.addEventListener('change', sync);
+    [scope, value, label].forEach(el => el.addEventListener('input', refreshSummary));
+    monthsGrid.querySelectorAll('input,select').forEach(el => el.addEventListener('input', refreshSummary));
+    row.querySelector('.d-remove').addEventListener('click', () => { row.remove(); refreshSummary(); });
+
+    // Preenche com dados existentes
+    scope.value = ['total','once','monthly'].includes(data.scope) ? data.scope : 'total';
+    type.value = ['percent','fixed','schedule'].includes(data.type) ? data.type : 'percent';
+    if (data.type !== 'schedule') value.value = (data.value ?? '') === 0 ? '' : (data.value ?? '');
+    label.value = data.label || '';
+    if (data.type === 'schedule' && Array.isArray(data.months)) {
+        data.months.forEach(m => {
+            const vi = monthsGrid.querySelector(`.dm-value[data-month="${m.month}"]`);
+            const ti = monthsGrid.querySelector(`.dm-type[data-month="${m.month}"]`);
+            if (vi) vi.value = m.value;
+            if (ti) ti.value = m.type === 'fixed' ? 'fixed' : 'percent';
+        });
+    }
+    document.getElementById('discounts-body').appendChild(row);
+    sync();
+    return row;
+}
+function collectDiscounts() {
+    const out = [];
+    document.querySelectorAll('#discounts-body .disc-row').forEach(row => {
+        const type = row.querySelector('.d-type').value;
+        const scope = row.querySelector('.d-scope').value;
+        const label = row.querySelector('.d-label').value.trim();
+        if (type === 'schedule') {
+            const months = [];
+            row.querySelectorAll('.dm-value').forEach(vi => {
+                const v = parseFloat(vi.value);
+                if (!isNaN(v) && v > 0) {
+                    const m = parseInt(vi.getAttribute('data-month'), 10);
+                    const ti = row.querySelector(`.dm-type[data-month="${m}"]`);
+                    months.push({ month: m, type: ti ? ti.value : 'percent', value: v });
+                }
+            });
+            if (months.length) out.push({ scope: 'monthly', type: 'schedule', label, months });
+        } else {
+            const v = parseFloat(row.querySelector('.d-value').value);
+            if (!isNaN(v) && v > 0) out.push({ scope, type, value: v, label });
+        }
+    });
+    return out;
+}
+
+// ===== Resumo comercial (prévia; backend é a autoridade) =====
+function refreshSummary() {
+    const items = collectItems();
+    let onceGross = 0, monthlyGross = 0;
+    items.forEach(it => {
+        const amt = parseFloat(it.amount) || (parseFloat(it.hours) > 0 ? (parseFloat(it.quantity||1) * parseFloat(it.hours) * parseFloat(it.hourly_rate||0)) : 0);
+        // amount já vem de collectItems (0 quando por hora). Recalcula igual ao backend:
+        const q = parseFloat(it.quantity) || 1, h = parseFloat(it.hours) || 0, r = parseFloat(it.hourly_rate) || parseFloat(it.amount) || 0;
+        const val = (h > 0 && r > 0) ? q*h*r : (r > 0 ? q*r : 0);
+        if (it.billing === 'monthly') monthlyGross += val; else onceGross += val;
+    });
+    const discounts = collectDiscounts();
+    const prev = computeCommercial(onceGross, monthlyGross, discounts);
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = money(v); };
+    set('sum-once-gross', onceGross);
+    set('sum-monthly-gross', monthlyGross);
+    set('sum-discount', prev.totalDiscount);
+    set('sum-once-net', prev.onceNet);
+    set('sum-monthly-net', prev.monthlyNet);
+    set('sum-year-net', prev.yearNet);
+    const monthsEl = document.getElementById('sum-months');
+    if (prev.hasSchedule) {
+        monthsEl.textContent = 'Mensalidade por mês: ' + prev.monthlyByMonth.map((v,i)=>'M'+(i+1)+' '+money(v)).join(' · ');
+    } else { monthsEl.textContent = ''; }
+}
+// Réplica fiel de ProposalRules (só para prévia visual).
+function computeCommercial(onceGross, monthlyGross, discounts) {
+    const totalBase = onceGross + monthlyGross;
+    const scopeDiscount = (scope, base) => {
+        let disc = 0;
+        discounts.forEach(d => {
+            if (d.type === 'schedule') return;
+            if (d.scope === scope) disc += (d.type === 'percent' ? base * Math.min(100,d.value)/100 : Math.min(base, d.value));
+            else if (d.scope === 'total' && totalBase > 0) {
+                const whole = (d.type === 'percent' ? totalBase * Math.min(100,d.value)/100 : Math.min(totalBase, d.value));
+                disc += whole * (base / totalBase);
+            }
+        });
+        return Math.min(base, disc);
+    };
+    const onceDisc = scopeDiscount('once', onceGross);
+    const onceNet = onceGross - onceDisc;
+    // mensalidade: flat + schedule
+    const flatMonthlyDisc = scopeDiscount('monthly', monthlyGross);
+    const flatMonthlyNet = monthlyGross - flatMonthlyDisc;
+    const byMonth = Array(12).fill(flatMonthlyNet);
+    let hasSchedule = false;
+    discounts.forEach(d => {
+        if (d.type !== 'schedule') return;
+        hasSchedule = true;
+        (d.months||[]).forEach(m => {
+            const idx = m.month - 1;
+            if (idx < 0 || idx > 11) return;
+            byMonth[idx] = m.type === 'percent' ? flatMonthlyNet * (1 - Math.min(100,m.value)/100) : Math.max(0, flatMonthlyNet - m.value);
+        });
+    });
+    const monthlyYearNet = byMonth.reduce((a,b)=>a+b, 0);
+    const yearNet = onceNet + monthlyYearNet;
+    const yearGross = onceGross + monthlyGross * 12;
+    return {
+        onceNet, monthlyNet: byMonth[11], monthlyByMonth: byMonth, hasSchedule,
+        totalDiscount: yearGross - yearNet, yearNet
+    };
+}
+
+function openOnline() {
+    const win = window.open('', '_blank');
+    (async () => {
+        if (CAN_EDIT && !await saveProposal()) { if (win) win.close(); return; }
+        const url = `${PROP_BASE}proposal/show/${'<?= escape($proposal['public_token']) ?>'}?t=${Date.now()}`;
+        if (win) win.location = url; else location.href = url;
+    })();
+}
+function copyOnline() {
+    const input = document.getElementById('p-online-link');
+    input.select();
+    navigator.clipboard.writeText(input.value).then(() => alert('Link copiado.')).catch(() => alert(input.value));
 }
 function collectItems() {
     const items = [];
@@ -292,6 +523,8 @@ function collectItems() {
             amount: hNum > 0 ? 0 : rNum,
             is_hosting: tr.querySelector('.it-hosting').value === '1' ? 1 : 0,
             billing: tr.querySelector('.it-billing').value,
+            renewal: tr.querySelector('.it-renewal').value,
+            recurrence_period: tr.querySelector('.it-billing').value === 'monthly' ? tr.querySelector('.it-recurrence').value : '',
             schedule_start: tr.querySelector('.it-start').value,
             schedule_end: tr.querySelector('.it-end').value,
         });
@@ -333,6 +566,7 @@ function body() {
         dev_end: document.getElementById('p-dev-end').value,
         observations: document.getElementById('p-obs').value.trim(),
         content: collectContent(),
+        discounts: collectDiscounts(),
         items: collectItems(),
     };
 }
@@ -383,6 +617,8 @@ document.getElementById('svc-pick').addEventListener('change', function () {
         quantity: 1,
         is_hosting: parseInt(s.is_hosting, 10) === 1,
         billing: s.billing === 'monthly' ? 'monthly' : 'once',
+        renewal: ['none','auto','manual'].includes(s.renewal) ? s.renewal : 'none',
+        recurrence_period: s.recurrence_period === 'yearly' ? 'yearly' : 'monthly',
         hint: forecast ? ('Previsão do catálogo: ' + money(forecast) + '. Altere o valor se esta proposta for diferente.') : ''
     });
     const a = document.getElementById('p-dev-start').value;
@@ -447,13 +683,15 @@ async function sendProposal() {
     const canais = [];
     if (r.sent_whats) canais.push('WhatsApp');
     if (r.sent_email) canais.push('e-mail');
-    if (canais.length) msg += 'Enviada ao cliente por: ' + canais.join(' e ') + '.';
+    if (canais.length) msg += 'Enviada ao cliente por: ' + canais.join(' e ') + ' (link da proposta online + PDF).';
     else if (r.no_contact) msg += 'O cliente não tem telefone nem e-mail. Copie o link e envie manualmente:\n' + r.link;
     else msg += 'Não foi possível enviar automaticamente. Envie o link manualmente:\n' + r.link;
     alert(msg);
     location.reload();
 }
 if (EXISTING_ITEMS.length) EXISTING_ITEMS.forEach(it => addRow(it));
+if (EXISTING_DISCOUNTS.length) EXISTING_DISCOUNTS.forEach(d => addDiscount(d));
+refreshSummary();
 
 async function reopenProposal() {
     if (!confirm('Reabrir esta proposta recusada para editar? Ela volta para "em elaboração".')) return;

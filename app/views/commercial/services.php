@@ -83,10 +83,27 @@
                 </div>
                 <div class="mt-2">
                     <label class="form-label small fw-medium">Cobrança</label>
-                    <select id="svc-billing" class="form-select form-select-sm">
+                    <select id="svc-billing" class="form-select form-select-sm" onchange="svcToggleRecurrence()">
                         <option value="once">Pontual (uma vez)</option>
                         <option value="monthly">Mensal (recorrente)</option>
                     </select>
+                </div>
+                <div class="row g-2 mt-1" id="svc-recurrence-wrap" style="display:none;">
+                    <div class="col-6">
+                        <label class="form-label small fw-medium">Renovação</label>
+                        <select id="svc-renewal" class="form-select form-select-sm">
+                            <option value="none">Sem renovação</option>
+                            <option value="auto">Automática</option>
+                            <option value="manual">Manual</option>
+                        </select>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small fw-medium">Periodicidade</label>
+                        <select id="svc-recurrence" class="form-select form-select-sm">
+                            <option value="monthly">Mensal</option>
+                            <option value="yearly">Anual</option>
+                        </select>
+                    </div>
                 </div>
                 <div class="form-check mt-2">
                     <input class="form-check-input" type="checkbox" id="svc-hosting">
@@ -116,7 +133,14 @@ function openServiceModal() {
     document.getElementById('svc-cost').value = '';
     document.getElementById('svc-hosting').checked = false;
     document.getElementById('svc-billing').value = 'once';
+    document.getElementById('svc-renewal').value = 'none';
+    document.getElementById('svc-recurrence').value = 'monthly';
+    svcToggleRecurrence();
     getSvcModal().show();
+}
+function svcToggleRecurrence() {
+    document.getElementById('svc-recurrence-wrap').style.display =
+        document.getElementById('svc-billing').value === 'monthly' ? 'flex' : 'none';
 }
 function editService(s) {
     document.getElementById('svc-modal-title').textContent = 'Editar serviço';
@@ -128,6 +152,9 @@ function editService(s) {
     document.getElementById('svc-cost').value = s.cost_price || '';
     document.getElementById('svc-hosting').checked = (parseInt(s.is_hosting, 10) === 1);
     document.getElementById('svc-billing').value = s.billing === 'monthly' ? 'monthly' : 'once';
+    document.getElementById('svc-renewal').value = ['none','auto','manual'].includes(s.renewal) ? s.renewal : 'none';
+    document.getElementById('svc-recurrence').value = s.recurrence_period === 'yearly' ? 'yearly' : 'monthly';
+    svcToggleRecurrence();
     getSvcModal().show();
 }
 function saveService() {
@@ -141,6 +168,8 @@ function saveService() {
     fd.append('cost_price', document.getElementById('svc-cost').value);
     fd.append('is_hosting', document.getElementById('svc-hosting').checked ? '1' : '0');
     fd.append('billing', document.getElementById('svc-billing').value);
+    fd.append('renewal', document.getElementById('svc-renewal').value);
+    fd.append('recurrence_period', document.getElementById('svc-billing').value === 'monthly' ? document.getElementById('svc-recurrence').value : '');
     const url = id ? `${SVC_BASE}servicecatalog/update/${id}` : `${SVC_BASE}servicecatalog/store`;
     fetch(url, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json()).then(d => { if (d.error) { alert(d.error); return; } location.reload(); })
