@@ -365,7 +365,17 @@ class AgendaController extends Controller
             $this->notifyExternalGuests($id);
             $this->notifyParticipants($id);
         } elseif (!empty($data['meeting_at'])) {
-            $this->createGoogleEventAndInvites($id, !$preEventId);
+            // Opção de reunião escolhida no modal: '' (Nenhuma), 'meet' ou 'room'.
+            // A regra pura normaliza (e deduz pelo link em modais antigos).
+            $linkIsNativeRoom = VideoRoomRules::isNativeRoomLink($preMeetLink);
+            $meetingMode = AgendaRules::resolveMeetingMode($_POST['meeting_mode'] ?? '', $preMeetLink, $linkIsNativeRoom);
+
+            // Só cria evento no Google quando a opção é "Google Meet" e ainda
+            // não há evento. Para "Sala de vídeo do sistema" ou "Nenhuma" não
+            // gera Meet (nem sobrescreve o link da sala). Em qualquer caso o
+            // método envia os convites (e-mail/WhatsApp) com o link existente.
+            $createGoogleEvent = AgendaRules::shouldCreateGoogleEvent($meetingMode, $preEventId);
+            $this->createGoogleEventAndInvites($id, $createGoogleEvent);
             $this->notifyParticipants($id);
         }
 
@@ -1011,8 +1021,15 @@ class AgendaController extends Controller
                 if ($g->isConfigured()) $g->updateEventTime($meeting['google_event_id'], $data['meeting_at'], 60);
             } catch (\Throwable $e) { /* ignora */ }
         }
-        // Se não havia evento e agora tem data, cria (e envia convites)
-        if (empty($meeting['google_event_id']) && !empty($data['meeting_at'])) {
+        // Se não havia evento e agora tem data, cria (e envia convites).
+        // Mesma regra do create: só gera Meet quando a opção é "Google Meet".
+        // Para a SALA DE VÍDEO do sistema (meet_link = /videocall/room/...) ou
+        // "Nenhuma", não cria evento Google nem sobrescreve o link da sala.
+        $existingLink = $meeting['meet_link'] ?? '';
+        $linkIsNativeRoom = VideoRoomRules::isNativeRoomLink($existingLink);
+        $meetingMode = AgendaRules::resolveMeetingMode($_POST['meeting_mode'] ?? '', $existingLink, $linkIsNativeRoom);
+        if (!empty($data['meeting_at'])
+            && AgendaRules::shouldCreateGoogleEvent($meetingMode, $meeting['google_event_id'] ?? '')) {
             $this->createGoogleEventAndInvites($id);
         }
 

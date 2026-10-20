@@ -217,4 +217,50 @@ class AgendaRules
         }
         return $clients;
     }
+
+    /** Opções de reunião possíveis (seletor do modal). */
+    public const MEETING_MODES = ['', 'meet', 'room'];
+
+    /**
+     * Normaliza a opção de reunião escolhida no modal:
+     *   '' = Nenhuma, 'meet' = Google Meet, 'room' = Sala de vídeo do sistema.
+     *
+     * Para compatibilidade com versões antigas do modal (que não enviavam o
+     * modo), deduz pelo link já gerado: se há link e ele é da sala nativa →
+     * 'room'; se há link e não é nativo → 'meet'; sem link → '' (Nenhuma).
+     *
+     * @param string|null $mode            Valor cru de meeting_mode do POST.
+     * @param string|null $meetLink        Link já gerado (meet_link), se houver.
+     * @param bool        $linkIsNativeRoom O link aponta para a sala nativa?
+     */
+    public static function resolveMeetingMode($mode, $meetLink, bool $linkIsNativeRoom): string
+    {
+        $mode = (string) $mode;
+        if (in_array($mode, ['meet', 'room'], true)) {
+            return $mode;
+        }
+        // Modo ausente/!= conhecido: deduz pelo link.
+        $meetLink = trim((string) $meetLink);
+        if ($meetLink !== '') {
+            return $linkIsNativeRoom ? 'room' : 'meet';
+        }
+        return '';
+    }
+
+    /**
+     * Deve criar um NOVO evento no Google (com Meet) ao salvar a reunião?
+     *
+     * Só quando a opção é "Google Meet" E ainda não há um evento criado
+     * (google_event_id vazio). Para "Sala de vídeo do sistema" ('room') ou
+     * "Nenhuma" ('') nunca cria — evitando gerar Meet indevido e sobrescrever
+     * o link da sala do sistema.
+     *
+     * @param string      $mode             Modo normalizado (via resolveMeetingMode).
+     * @param string|null $existingEventId  google_event_id já presente, se houver.
+     */
+    public static function shouldCreateGoogleEvent(string $mode, $existingEventId): bool
+    {
+        if ($mode !== 'meet') return false;
+        return trim((string) $existingEventId) === '';
+    }
 }

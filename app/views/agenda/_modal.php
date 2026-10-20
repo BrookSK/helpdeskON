@@ -1033,6 +1033,13 @@ function selectContact(item) {
     const phone = item.getAttribute('data-phone') || '';
     // Contato da empresa é um "snapshot": NÃO vira contact_id do CRM.
     addClient({ contact_id: null, name: name, email: email, phone: phone });
+    // Preenche o campo "E-mail do cliente" com o e-mail do contato escolhido,
+    // sem sobrescrever um e-mail já digitado manualmente. Reflete o e-mail do
+    // cliente PRINCIPAL (primeiro da lista) na tela.
+    const emailField = document.getElementById('mt-client-email');
+    if (emailField && email && emailField.value.trim() === '') {
+        emailField.value = email;
+    }
     // Limpa o campo de busca para permitir escolher o próximo contato.
     document.getElementById('mt-contact').value = '';
     document.getElementById('mt-contact-search').value = '';
@@ -1096,6 +1103,14 @@ function renderClients() {
         chip.querySelector('button').addEventListener('click', () => removeClient(i));
         wrap.appendChild(chip);
     });
+
+    // Mantém o campo "E-mail do cliente" refletindo o e-mail do cliente
+    // PRINCIPAL (primeiro da lista), quando ele tiver e-mail. Não limpa um
+    // e-mail digitado manualmente se o principal não tiver e-mail próprio.
+    const emailField = document.getElementById('mt-client-email');
+    if (emailField && mtClients[0] && mtClients[0].email) {
+        emailField.value = mtClients[0].email;
+    }
 }
 
 // Limpa e repopula a lista de clientes (usado ao abrir/editar).
@@ -1202,6 +1217,11 @@ function collectPayload() {
         fd.append('new_client_name', document.getElementById('mt-new-name').value.trim());
         fd.append('new_client_phone', document.getElementById('mt-new-phone').value.trim());
     }
+    // Opção de reunião escolhida: '' (Nenhuma), 'meet' (Google Meet) ou 'room'
+    // (Sala de vídeo do sistema). O backend usa isso para decidir se cria um
+    // evento no Google — evita gerar Meet quando o usuário escolheu Nenhuma/Sala.
+    const meetingMode = document.querySelector('input[name="mt-meeting-mode"]:checked')?.value || '';
+    fd.append('meeting_mode', meetingMode);
     // Link do Meet já gerado (evita criar evento duplicado)
     fd.append('google_event_id', document.getElementById('mt-google-event-id').value);
     fd.append('meet_link', document.getElementById('mt-meet-link').value);
