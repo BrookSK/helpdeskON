@@ -77,6 +77,16 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
             <form method="GET" class="row g-2 align-items-center" id="filters-form">
                 <input type="hidden" name="show_all" id="show_all_input" value="1">
 
+                <!-- Busca por nome/descrição do card -->
+                <div class="col-12 col-md-auto">
+                    <div class="input-group input-group-sm" style="min-width:220px;">
+                        <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+                        <input type="search" name="q" class="form-control form-control-sm"
+                               placeholder="Buscar por nome ou descrição"
+                               value="<?= escape($_GET['q'] ?? '') ?>">
+                    </div>
+                </div>
+
                 <!-- Empresas (múltipla escolha) -->
                 <div class="col-6 col-md-auto">
                     <div class="dropdown multi-filter">

@@ -243,4 +243,107 @@ final class PlanningCardTest extends TestCase
         $this->assertContains($comDono, $ids);
         $this->assertContains($semDono, $ids);
     }
+
+    /**
+     * Helper: coleta os IDs de cards retornados pelo calendário num range amplo.
+     */
+    private function idsCalendario(string $start, string $end, array $filters = []): array
+    {
+        $cards = $this->cards->getForCalendar($start, $end, $filters);
+        return array_map(fn($c) => (int) $c['id'], $cards);
+    }
+
+    public function testCalendarioNaoMostraCardArquivadoComPrazo(): void
+    {
+        // Card ATIVO com prazo dentro do range: deve aparecer.
+        $ativo = $this->novoCard([
+            'title'    => 'Ativo com prazo',
+            'status'   => 'in_progress',
+            'due_date' => '2026-05-15 10:00:00',
+        ]);
+
+        // Card ARQUIVADO com o MESMO prazo: não deve aparecer, apesar da data.
+        $arquivado = $this->novoCard([
+            'title'    => 'Arquivado com prazo',
+            'status'   => 'archived',
+            'due_date' => '2026-05-15 10:00:00',
+        ]);
+
+        $ids = $this->idsCalendario('2026-05-01 00:00:00', '2026-05-31 23:59:59');
+
+        $this->assertContains($ativo, $ids, 'Card ativo com prazo deveria aparecer no calendário.');
+        $this->assertNotContains($arquivado, $ids, 'Card arquivado não deveria aparecer no calendário.');
+    }
+
+    public function testCalendarioNaoMostraCardArquivadoComJanelaDeDesenvolvimento(): void
+    {
+        // Card arquivado com start_date/end_date (janela de desenvolvimento)
+        // que intersecta o range também deve ser ocultado.
+        $arquivado = $this->novoCard([
+            'title'      => 'Arquivado com janela',
+            'status'     => 'archived',
+            'start_date' => '2026-06-05 09:00:00',
+            'end_date'   => '2026-06-10 18:00:00',
+        ]);
+
+        $ids = $this->idsCalendario('2026-06-01 00:00:00', '2026-06-30 23:59:59');
+
+        $this->assertNotContains($arquivado, $ids, 'Card arquivado com janela de desenvolvimento não deveria aparecer no calendário.');
+    }
+
+    public function testCalendarioAindaMostraCardConcluidoComPrazo(): void
+    {
+        // A correção mira SÓ em arquivadas. Concluídas continuam visíveis.
+        $concluido = $this->novoCard([
+            'title'    => 'Concluido com prazo',
+            'status'   => 'completed',
+            'due_date' => '2026-07-15 10:00:00',
+        ]);
+
+        $ids = $this->idsCalendario('2026-07-01 00:00:00', '2026-07-31 23:59:59');
+
+        $this->assertContains($concluido, $ids, 'Card concluído com prazo deveria continuar aparecendo no calendário.');
+    }
+
+    public function testBuscaNoKanbanFiltraPorTituloEDescricao(): void
+    {
+        $alvo = $this->novoCard([
+            'title'       => 'Implementar relatorio financeiro',
+            'description' => '<p>Gerar PDF com totais</p>',
+        ]);
+        $porDescricao = $this->novoCard([
+            'title'       => 'Tarefa qualquer',
+            'description' => '<p>Ajustar o relatorio mensal do cliente</p>',
+        ]);
+        $foraDaBusca = $this->novoCard([
+            'title'       => 'Configurar servidor',
+            'description' => '<p>Deploy em producao</p>',
+        ]);
+
+        // Busca por um termo presente no título de um e na descrição de outro.
+        $ids = $this->idsAgrupados(['q' => 'relatorio']);
+
+        $this->assertContains($alvo, $ids, 'Deve achar pelo título.');
+        $this->assertContains($porDescricao, $ids, 'Deve achar pela descrição.');
+        $this->assertNotContains($foraDaBusca, $ids, 'Card sem o termo não deve aparecer.');
+    }
+
+    public function testBuscaNoCalendarioFiltraPorTituloEDescricao(): void
+    {
+        $alvo = $this->novoCard([
+            'title'    => 'Migracao de banco',
+            'status'   => 'in_progress',
+            'due_date' => '2026-08-12 10:00:00',
+        ]);
+        $outro = $this->novoCard([
+            'title'    => 'Reuniao de alinhamento',
+            'status'   => 'in_progress',
+            'due_date' => '2026-08-13 10:00:00',
+        ]);
+
+        $ids = $this->idsCalendario('2026-08-01 00:00:00', '2026-08-31 23:59:59', ['q' => 'Migracao']);
+
+        $this->assertContains($alvo, $ids, 'Card com o termo deve aparecer no calendário.');
+        $this->assertNotContains($outro, $ids, 'Card sem o termo não deve aparecer no calendário.');
+    }
 }

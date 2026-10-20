@@ -160,6 +160,13 @@ class PlanningCard
                 $sql .= " AND pc.created_by IN ($ph)";
                 $params = array_merge($params, $createdByIds);
             }
+            // Busca livre por nome/descrição do card.
+            if (isset($filters['q']) && trim((string)$filters['q']) !== '') {
+                $term = '%' . trim((string)$filters['q']) . '%';
+                $sql .= " AND (pc.title LIKE ? OR pc.description LIKE ?)";
+                $params[] = $term;
+                $params[] = $term;
+            }
             if (!empty($filters['allowed_companies'])) {
                 $placeholders = implode(',', array_fill(0, count($filters['allowed_companies']), '?'));
                 $sql .= " AND (pc.company_id IS NULL OR pc.company_id IN ($placeholders))";
@@ -256,8 +263,19 @@ class PlanningCard
                 $params = array_merge($params, $sts);
             }
         }
+        // Demandas arquivadas NUNCA aparecem no calendário, mesmo que tenham
+        // datas vinculadas (prazo/janela de desenvolvimento). O arquivamento as
+        // tira do fluxo ativo, então não devem poluir a visualização de datas.
+        $sql .= " AND pc.status <> 'archived'";
         if (!empty($filters['hide_completed'])) {
             $sql .= " AND pc.status NOT IN ('completed', 'archived')";
+        }
+        // Busca livre por nome/descrição do card.
+        if (isset($filters['q']) && trim((string)$filters['q']) !== '') {
+            $term = '%' . trim((string)$filters['q']) . '%';
+            $sql .= " AND (pc.title LIKE ? OR pc.description LIKE ?)";
+            $params[] = $term;
+            $params[] = $term;
         }
         if (!empty($filters['allowed_companies'])) {
             $placeholders = implode(',', array_fill(0, count($filters['allowed_companies']), '?'));

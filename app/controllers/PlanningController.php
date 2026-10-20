@@ -30,6 +30,7 @@ class PlanningController extends Controller
         if (!empty($_GET['created_by'])) $filters['created_by'] = array_filter((array)$_GET['created_by'], fn($v) => $v !== '');
         if (!empty($_GET['statuses'])) $filters['statuses'] = array_filter((array)$_GET['statuses'], fn($v) => $v !== '');
         if (!empty($_GET['order'])) $filters['order'] = $_GET['order'];
+        if (isset($_GET['q']) && trim((string)$_GET['q']) !== '') $filters['q'] = trim((string)$_GET['q']);
 
         // whatsapp_agent, developer e analyst só veem cards atribuídos a eles (forçar filtro)
         if (in_array($user['role'], ['whatsapp_agent', 'developer', 'analyst', 'comercial'])) {
@@ -109,6 +110,7 @@ class PlanningController extends Controller
         if (!empty($_GET['assigned_to'])) $filters['assigned_to'] = array_filter((array)$_GET['assigned_to'], fn($v) => $v !== '');
         if (!empty($_GET['statuses'])) $filters['statuses'] = array_filter((array)$_GET['statuses'], fn($v) => $v !== '');
         if (!empty($_GET['hide_completed'])) $filters['hide_completed'] = true;
+        if (isset($_GET['q']) && trim((string)$_GET['q']) !== '') $filters['q'] = trim((string)$_GET['q']);
 
         // whatsapp_agent/developer/analyst/comercial só veem os próprios cards
         if (in_array($user['role'], ['whatsapp_agent', 'developer', 'analyst', 'comercial'])) {
