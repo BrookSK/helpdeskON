@@ -123,6 +123,29 @@ class EvolutionApi
     }
 
     /**
+     * Envia um documento (ex.: PDF) em base64 para um número.
+     * Usa o endpoint /message/sendMedia da Evolution (mediatype document).
+     *
+     * @param string $number   número/jid do destinatário
+     * @param string $base64    conteúdo do arquivo em base64 (sem prefixo data:)
+     * @param string $fileName  nome do arquivo (ex.: proposta-6.pdf)
+     * @param string $mimetype  ex.: application/pdf
+     * @param string $caption   legenda opcional
+     */
+    public function sendDocumentBase64($number, string $base64, string $fileName, string $mimetype = 'application/pdf', string $caption = '')
+    {
+        $payload = [
+            'number' => $this->normalizeNumber($number),
+            'mediatype' => 'document',
+            'mimetype' => $mimetype,
+            'media' => $base64,
+            'fileName' => $fileName,
+        ];
+        if ($caption !== '') $payload['caption'] = $caption;
+        return $this->request('POST', "/message/sendMedia/{$this->instanceName}", $payload);
+    }
+
+    /**
      * Enviar mídia (imagem, vídeo, documento)
      */
     public function sendMedia($number, $mediaType, $url, $caption = '', $fileName = '')

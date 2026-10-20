@@ -53,6 +53,7 @@ class Permissions
         'leadcapture',
         'leadcapture_admin',
         'service_catalog',      // Catálogo de serviços (esteira comercial)
+        'presentations',        // Apresentação comercial com link público (esteira comercial, antes da proposta)
         'proposals',            // Propostas/orçamentos (esteira comercial)
         'contracts',            // Contratos + assinatura (esteira comercial)
         'finance',              // Financeiro: parcelas, recorrência, Asaas (esteira comercial)
@@ -91,7 +92,7 @@ class Permissions
             'tickets', 'planning', 'agenda', 'performance_comercial',
             'prospection', 'videocall',
             'crm', 'crm_apollo', 'crm_prospecting', 'sequences', 'linkedin', 'leadcapture',
-            'service_catalog', 'proposals', 'contracts', 'onboarding', 'provisioning', 'projects',
+            'service_catalog', 'presentations', 'proposals', 'contracts', 'onboarding', 'provisioning', 'projects',
         ],
         'attendant' => [
             'dashboard', 'account', 'notifications', 'whatsapp', 'rdo',

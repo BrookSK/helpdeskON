@@ -95,6 +95,28 @@ final class ProposalTest extends TestCase
         $this->assertSame(1850.0, (float)$this->model->findById($id)['total']);
     }
 
+    public function testReplaceItemsComQuantidadeECronograma(): void
+    {
+        $id = $this->novaProposta();
+        $total = $this->model->replaceItems($id, [
+            [
+                'description' => 'Site',
+                'scope' => 'Institucional',
+                'quantity' => 2,
+                'hours' => 3,
+                'hourly_rate' => 50,
+                'schedule_start' => '2026-11-02',
+                'schedule_end' => '2026-11-16',
+                'service_id' => null,
+            ],
+        ]);
+        $this->assertSame(300.0, $total);
+        $items = $this->model->getItems($id);
+        $this->assertSame(2.0, (float)$items[0]['quantity']);
+        $this->assertSame('2026-11-02', $items[0]['schedule_start']);
+        $this->assertSame('2026-11-16', $items[0]['schedule_end']);
+    }
+
     public function testReplaceItemsSubstituiAnteriores(): void
     {
         $id = $this->novaProposta();
@@ -147,6 +169,79 @@ final class ProposalTest extends TestCase
         $this->assertSame('Fora do orçamento', $p['reject_reason']);
         // Recusada pode voltar a draft (refazer).
         $this->assertTrue($this->model->changeStatus($id, 'draft', $this->userId));
+    }
+
+    public function testReplaceItemsPersisteRecorrenciaERenovacao(): void
+    {
+        $id = $this->novaProposta();
+        $this->model->replaceItems($id, [
+            [
+                'description' => 'Suporte mensal',
+                'amount' => 800,
+                'billing' => 'monthly',
+                'renewal' => 'auto',
+                'recurrence_period' => 'monthly',
+            ],
+            [
+                'description' => 'Implantação',
+                'amount' => 5000,
+                'billing' => 'once',
+                'renewal' => 'none',
+            ],
+        ]);
+        $items = $this->model->getItems($id);
+        $monthly = array_values(array_filter($items, fn($i) => $i['billing'] === 'monthly'))[0];
+        $this->assertSame('auto', $monthly['renewal']);
+        $this->assertSame('monthly', $monthly['recurrence_period']);
+        $once = array_values(array_filter($items, fn($i) => $i['billing'] === 'once'))[0];
+        $this->assertSame('none', $once['renewal']);
+        $this->assertNull($once['recurrence_period']);
+    }
+
+    public function testPersisteDescontosEAceiteComPlano(): void
+    {
+        $discounts = json_encode([
+            ['scope' => 'monthly', 'type' => 'schedule', 'months' => [
+                ['month' => 1, 'type' => 'percent', 'value' => 20],
+            ]],
+        ]);
+        $id = $this->novaProposta(['discounts' => $discounts]);
+        $this->model->replaceItems($id, [['description' => 'Gestão', 'amount' => 1000, 'billing' => 'monthly']]);
+
+        $p = $this->model->findById($id);
+        $decoded = \ProposalRules::decodeDiscounts($p['discounts']);
+        $this->assertCount(1, $decoded);
+        $this->assertSame('schedule', $decoded[0]['type']);
+
+        // Aceite registrando o plano escolhido.
+        $this->model->changeStatus($id, 'ready', $this->userId);
+        $this->model->changeStatus($id, 'sent', $this->userId);
+        $ok = $this->model->changeStatus($id, 'accepted', null, [
+            'responded_at' => date('Y-m-d H:i:s'),
+            'accepted_plan' => 'plan_12',
+        ]);
+        $this->assertTrue($ok);
+        $this->assertSame('plan_12', $this->model->findById($id)['accepted_plan']);
+    }
+
+    public function testBuildPresentationDataComProposicaoReal(): void
+    {
+        $id = $this->novaProposta([
+            'content' => json_encode(['discount_6' => 20, 'discount_12' => 30]),
+            'discounts' => json_encode([['scope' => 'once', 'type' => 'percent', 'value' => 10]]),
+            'dev_start' => '2026-11-01',
+            'dev_end' => '2026-12-20',
+        ]);
+        $this->model->replaceItems($id, [
+            ['description' => 'Implantação', 'amount' => 10000, 'billing' => 'once', 'schedule_start' => '2026-11-01', 'schedule_end' => '2026-12-20'],
+            ['description' => 'Gestão', 'amount' => 2000, 'billing' => 'monthly', 'renewal' => 'auto', 'schedule_start' => '2026-12-01'],
+        ]);
+        $p = $this->model->findById($id);
+        $data = \ProposalRules::buildPresentationData($p, $this->model->getItems($id));
+        // Pontual com -10% = 9000; mensal cheio 2000; ano = 9000 + 2000*12 = 33000.
+        $this->assertSame(9000.0, $data['commercial']['once']['net']);
+        $this->assertSame(33000.0, $data['commercial']['year']['net']);
+        $this->assertCount(3, $data['plan_options']); // tem mensalidade => 3 planos
     }
 
     public function testCatalogoDeServicosCrudEToggle(): void

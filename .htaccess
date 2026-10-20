@@ -1,5 +1,10 @@
 RewriteEngine On
 
+# Bloqueia acesso HTTP ao diretório interno de gravações (journals/chunks das
+# sessões de vídeo). A raiz do projeto é servida pelo Apache, então sem esta
+# regra o conteúdo de storage/ ficaria acessível pela web.
+RewriteRule ^storage/ - [F,L]
+
 # Servir assets diretamente do /public
 RewriteRule ^assets/(.*)$ public/assets/$1 [L]
 RewriteRule ^uploads/(.*)$ public/uploads/$1 [L]

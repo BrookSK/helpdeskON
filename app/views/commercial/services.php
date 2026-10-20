@@ -5,7 +5,7 @@
     <div class="top-bar">
         <div>
             <h5 class="mb-0">Catálogo de serviços</h5>
-            <small class="text-muted">Serviços pré-cadastrados usados ao montar propostas</small>
+            <small class="text-muted">Nome, descrição, horas e valor entram na proposta. O valor pode ser ajustado em cada proposta.</small>
         </div>
         <button class="btn btn-primary btn-sm" onclick="openServiceModal()"><i class="bi bi-plus-lg"></i> Novo serviço</button>
     </div>
@@ -16,13 +16,13 @@
                 <table class="table table-hover mb-0 align-middle">
                     <thead class="table-light">
                         <tr>
-                            <th>#</th><th>Serviço</th><th>Horas</th><th>Valor/hora</th><th>Custo/hora</th>
+                            <th>#</th><th>Serviço</th><th>Horas</th><th>Valor/hora</th><th>Previsão</th><th>Custo/hora</th>
                             <th>Hospedagem</th><th>Status</th><th class="text-end">Ações</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php if (empty($services)): ?>
-                        <tr><td colspan="8" class="text-center text-muted py-4">Nenhum serviço cadastrado.</td></tr>
+                        <tr><td colspan="9" class="text-center text-muted py-4">Nenhum serviço cadastrado.</td></tr>
                         <?php else: foreach ($services as $s): ?>
                         <tr>
                             <td><?= (int)$s['id'] ?></td>
@@ -32,8 +32,9 @@
                             </td>
                             <td><?= $s['est_hours'] !== null ? escape($s['est_hours']) : '—' ?></td>
                             <td><?= $s['hourly_rate'] !== null ? ('R$ ' . number_format((float)$s['hourly_rate'],2,',','.')) : '—' ?></td>
+                            <td><?php $prev = ProposalRules::forecast($s['est_hours'] ?? null, $s['hourly_rate'] ?? null); echo $prev !== null ? ('R$ ' . number_format($prev, 2, ',', '.')) : '—'; ?></td>
                             <td><?= (isset($s['cost_price']) && $s['cost_price'] !== null) ? ('R$ ' . number_format((float)$s['cost_price'],2,',','.')) : '—' ?></td>
-                            <td><?= ((int)$s['is_hosting'] === 1) ? '<span class="badge bg-info">Sim</span>' : 'Não' ?></td>
+                            <td><?= ((int)$s['is_hosting'] === 1) ? '<span class="badge bg-info">Sim</span>' : 'Não' ?><?= (($s['billing'] ?? '') === 'monthly') ? ' <span class="badge bg-light text-dark border">Mensal</span>' : '' ?></td>
                             <td><?= ((int)$s['active'] === 1) ? '<span class="badge bg-success">Ativo</span>' : '<span class="badge bg-secondary">Inativo</span>' ?></td>
                             <td class="text-end">
                                 <button class="btn btn-sm btn-outline-secondary" onclick='editService(<?= json_encode($s, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'><i class="bi bi-pencil"></i></button>
@@ -62,7 +63,7 @@
                     <input type="text" id="svc-name" class="form-control form-control-sm" maxlength="200">
                 </div>
                 <div class="mb-2">
-                    <label class="form-label small fw-medium">Descrição / escopo padrão</label>
+                    <label class="form-label small fw-medium">Descrição (entra na proposta)</label>
                     <textarea id="svc-description" class="form-control form-control-sm" rows="3"></textarea>
                 </div>
                 <div class="row g-2">
@@ -78,6 +79,30 @@
                         <label class="form-label small fw-medium">Custo/hora (R$)</label>
                         <input type="number" step="0.01" min="0" id="svc-cost" class="form-control form-control-sm">
                         <small class="text-muted" style="font-size:0.68rem">Interno. Não aparece na proposta.</small>
+                    </div>
+                </div>
+                <div class="mt-2">
+                    <label class="form-label small fw-medium">Cobrança</label>
+                    <select id="svc-billing" class="form-select form-select-sm" onchange="svcToggleRecurrence()">
+                        <option value="once">Pontual (uma vez)</option>
+                        <option value="monthly">Mensal (recorrente)</option>
+                    </select>
+                </div>
+                <div class="row g-2 mt-1" id="svc-recurrence-wrap" style="display:none;">
+                    <div class="col-6">
+                        <label class="form-label small fw-medium">Renovação</label>
+                        <select id="svc-renewal" class="form-select form-select-sm">
+                            <option value="none">Sem renovação</option>
+                            <option value="auto">Automática</option>
+                            <option value="manual">Manual</option>
+                        </select>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small fw-medium">Periodicidade</label>
+                        <select id="svc-recurrence" class="form-select form-select-sm">
+                            <option value="monthly">Mensal</option>
+                            <option value="yearly">Anual</option>
+                        </select>
                     </div>
                 </div>
                 <div class="form-check mt-2">
@@ -107,7 +132,15 @@ function openServiceModal() {
     document.getElementById('svc-rate').value = '';
     document.getElementById('svc-cost').value = '';
     document.getElementById('svc-hosting').checked = false;
+    document.getElementById('svc-billing').value = 'once';
+    document.getElementById('svc-renewal').value = 'none';
+    document.getElementById('svc-recurrence').value = 'monthly';
+    svcToggleRecurrence();
     getSvcModal().show();
+}
+function svcToggleRecurrence() {
+    document.getElementById('svc-recurrence-wrap').style.display =
+        document.getElementById('svc-billing').value === 'monthly' ? 'flex' : 'none';
 }
 function editService(s) {
     document.getElementById('svc-modal-title').textContent = 'Editar serviço';
@@ -118,6 +151,10 @@ function editService(s) {
     document.getElementById('svc-rate').value = s.hourly_rate || '';
     document.getElementById('svc-cost').value = s.cost_price || '';
     document.getElementById('svc-hosting').checked = (parseInt(s.is_hosting, 10) === 1);
+    document.getElementById('svc-billing').value = s.billing === 'monthly' ? 'monthly' : 'once';
+    document.getElementById('svc-renewal').value = ['none','auto','manual'].includes(s.renewal) ? s.renewal : 'none';
+    document.getElementById('svc-recurrence').value = s.recurrence_period === 'yearly' ? 'yearly' : 'monthly';
+    svcToggleRecurrence();
     getSvcModal().show();
 }
 function saveService() {
@@ -130,6 +167,9 @@ function saveService() {
     fd.append('hourly_rate', document.getElementById('svc-rate').value);
     fd.append('cost_price', document.getElementById('svc-cost').value);
     fd.append('is_hosting', document.getElementById('svc-hosting').checked ? '1' : '0');
+    fd.append('billing', document.getElementById('svc-billing').value);
+    fd.append('renewal', document.getElementById('svc-renewal').value);
+    fd.append('recurrence_period', document.getElementById('svc-billing').value === 'monthly' ? document.getElementById('svc-recurrence').value : '');
     const url = id ? `${SVC_BASE}servicecatalog/update/${id}` : `${SVC_BASE}servicecatalog/store`;
     fetch(url, { method: 'POST', body: fd, headers: {'X-Requested-With':'XMLHttpRequest'} })
         .then(r => r.json()).then(d => { if (d.error) { alert(d.error); return; } location.reload(); })

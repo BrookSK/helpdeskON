@@ -520,6 +520,8 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
 
 <!-- MediaPipe Selfie Segmentation (planos de fundo) -->
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/selfie_segmentation.js" crossorigin="anonymous"></script>
+<!-- Transportador de gravação v2 (chunks verificados + IndexedDB + manifesto) -->
+<script src="<?= $base ?>/assets/js/recording-upload.js"></script>
 
 <script>
 const BASE = '<?= $base ?>';
@@ -2833,15 +2835,31 @@ function startRecording() {
     try { recordedChunks = []; mediaRecorder = new MediaRecorder(buildRecordingStream(), { mimeType: mime }); }
     catch (e) { toast('Este navegador não suporta gravação.'); return; }
 
-    // Sessão de gravação: os pedaços são ENVIADOS progressivamente ao servidor.
-    // Se cair no meio, o que já subiu não se perde.
-    recSessId = 'r' + Math.random().toString(36).slice(2, 12) + Date.now().toString(36).slice(-4);
+    // Protocolo v2: cada pedaço é persistido em IndexedDB e enviado com
+    // sequência + SHA-256; o servidor confirma após persistir. Se o v2 não
+    // estiver disponível no navegador, cai para o fluxo legado (streaming .part).
+    recUseV2 = !!(global_supportsV2());
+    recSessId = 'r' + Math.random().toString(36).slice(2, 12) + Date.now().toString(36).slice(-4) + Math.random().toString(36).slice(2, 8);
     recUploadChain = Promise.resolve();
+    recChunksSent = 0;
+    recUploader = null;
+    if (recUseV2) {
+        try {
+            recUploader = new RecordingUploader({ base: BASE, roomToken: ROOM_TOKEN, sess: recSessId, recordedByName: myName });
+            recUploader.open().then(() => recUploader.start()).catch(() => { /* start sob demanda no 1º chunk */ });
+        } catch (e) { recUseV2 = false; }
+    }
 
     mediaRecorder.ondataavailable = (e) => {
         if (e.data && e.data.size) {
-            recordedChunks.push(e.data);           // mantém cópia local (fallback)
-            uploadChunk(e.data);                   // e envia o pedaço já
+            if (recUseV2 && recUploader) {
+                // v2: persiste+envia via uploader (não acumula a reunião em RAM).
+                recUploadChain = recUploadChain.then(() => recUploader.enqueue(e.data)).catch(() => {});
+                recChunksSent++;
+            } else {
+                recordedChunks.push(e.data);       // legado: cópia local (fallback)
+                uploadChunk(e.data);               // legado: envia o pedaço já
+            }
         }
     };
     mediaRecorder.onstop = uploadRecording;
@@ -2920,6 +2938,16 @@ function showRemoteRecState(payload) {
 }
 // Envia um pedaço da gravação ao servidor (em fila, para manter a ordem).
 let recSessId = null, recUploadChain = Promise.resolve(), recChunksSent = 0;
+let recUploader = null, recUseV2 = false;
+
+// O navegador suporta o protocolo v2 (IndexedDB + Web Crypto + a classe)?
+function global_supportsV2() {
+    return typeof RecordingUploader === 'function'
+        && 'indexedDB' in window
+        && window.crypto && window.crypto.subtle;
+}
+
+// --- LEGADO: envio por streaming .part (mantido como fallback) ---
 function uploadChunk(blob) {
     if (!recSessId) return;
     const sess = recSessId;
@@ -2939,8 +2967,26 @@ async function uploadRecording() {
     const sess = recSessId;
     recSessId = null;
 
-    // Espera os pedaços pendentes subirem.
+    // Espera os pedaços pendentes subirem/gravarem.
     try { await recUploadChain; } catch (e) {}
+
+    // --- v2: finaliza com manifesto; em falha, oferece reenviar/baixar cópia ---
+    if (recUseV2 && recUploader) {
+        toast('Finalizando a gravação no servidor…');
+        try {
+            const res = await recUploader.finalize(durationSec);
+            currentRecToken = res.token || null;
+            document.getElementById('rec-url').value = res.url; document.getElementById('rec-open').href = res.url;
+            document.getElementById('rec-modal').style.display = 'flex';
+            await recUploader.destroy(); // publicado: limpa a cópia local
+            recUploader = null; recChunksSent = 0; recordedChunks = [];
+            return;
+        } catch (e) {
+            // A cópia local fica preservada no IndexedDB. Oferece ações ao usuário.
+            offerRecoveryActions(recUploader, durationSec, String(e && e.message || e));
+            return;
+        }
+    }
 
     if (sess && recChunksSent > 0) {
         toast('Finalizando a gravação no servidor…');
@@ -2972,6 +3018,32 @@ async function uploadRecording() {
         document.getElementById('rec-modal').style.display = 'flex';
     } catch (e) { toast('Falha ao enviar a gravação.'); }
     recChunksSent = 0;
+}
+
+// Pendência de envio (v2): a captura está salva localmente; oferece reenviar
+// ou baixar a cópia. Não limpa o IndexedDB até o usuário resolver.
+async function offerRecoveryActions(uploader, durationSec, reason) {
+    const parcial = (reason || '').indexOf('limit') >= 0
+        ? 'O limite do servidor foi atingido; a captura foi interrompida de forma controlada.'
+        : 'O envio não pôde ser concluído.';
+    toast('⚠️ ' + parcial + ' Sua cópia local foi preservada.');
+    const retry = confirm(parcial + '\n\nTentar reenviar agora? (Cancelar = baixar a cópia local no seu computador)');
+    if (retry) {
+        try {
+            const res = await uploader.finalize(durationSec);
+            currentRecToken = res.token || null;
+            document.getElementById('rec-url').value = res.url; document.getElementById('rec-open').href = res.url;
+            document.getElementById('rec-modal').style.display = 'flex';
+            await uploader.destroy();
+            recUploader = null;
+            toast('Gravação reenviada e salva.');
+            return;
+        } catch (e) {
+            toast('Reenvio falhou de novo. Baixando a cópia local…');
+        }
+    }
+    try { await uploader.downloadLocal(); toast('Cópia local baixada. Guarde o arquivo.'); }
+    catch (e) { toast('Não foi possível baixar a cópia local.'); }
 }
 
 // Token da última gravação (usado apenas para exibir o link no pop-up).
