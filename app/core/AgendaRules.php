@@ -149,4 +149,72 @@ class AgendaRules
         }
         return $guests;
     }
+
+    /**
+     * Valida e normaliza a lista de CLIENTES de uma reunião comercial.
+     *
+     * Suporta múltiplos clientes por reunião via arrays paralelos. Cada
+     * cliente pode vir do CRM (contact_id) e/ou trazer um snapshot
+     * (nome/telefone/e-mail) quando a origem foi "Empresa → Contato".
+     *
+     * Regra de validade: um cliente é mantido quando tem contact_id (lead do
+     * CRM, que já carrega os dados) OU um nome (snapshot). Linhas totalmente
+     * vazias são descartadas. E-mails inválidos são limpos (viram ''); o
+     * telefone é reduzido a dígitos. O contact_id só é aceito como inteiro > 0.
+     *
+     * Deduplica por contact_id (quando presente) e, no snapshot, por
+     * (nome+e-mail+telefone) normalizados, preservando a ordem de chegada —
+     * a primeira ocorrência vence (posição 0 = cliente principal).
+     *
+     * @param array|string $contactIds
+     * @param array|string $names
+     * @param array|string $emails
+     * @param array|string $phones
+     * @return array<int, array{contact_id:?int, name:string, email:string, phone:string}>
+     */
+    public static function parseClients($contactIds, $names, $emails, $phones): array
+    {
+        if (!is_array($contactIds)) $contactIds = [$contactIds];
+        if (!is_array($names))      $names      = [$names];
+        if (!is_array($emails))     $emails     = [$emails];
+        if (!is_array($phones))     $phones     = [$phones];
+
+        $clients = [];
+        $seenContacts = [];
+        $seenSnapshots = [];
+        $count = max(count($contactIds), count($names), count($emails), count($phones));
+
+        for ($i = 0; $i < $count; $i++) {
+            $cid   = (int) ($contactIds[$i] ?? 0);
+            $cid   = $cid > 0 ? $cid : null;
+            $name  = trim((string) ($names[$i]  ?? ''));
+            $email = trim((string) ($emails[$i] ?? ''));
+            $phone = preg_replace('/\D/', '', trim((string) ($phones[$i] ?? '')));
+
+            // Descarta linhas totalmente vazias.
+            if ($cid === null && $name === '' && $email === '' && $phone === '') continue;
+            // Precisa de vínculo de CRM OU de um nome (snapshot).
+            if ($cid === null && $name === '') continue;
+            // E-mail inválido é limpo (não invalida o cliente: nome/contact_id bastam).
+            if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) $email = '';
+
+            // Deduplicação.
+            if ($cid !== null) {
+                if (isset($seenContacts[$cid])) continue;
+                $seenContacts[$cid] = true;
+            } else {
+                $key = mb_strtolower($name) . '|' . mb_strtolower($email) . '|' . $phone;
+                if (isset($seenSnapshots[$key])) continue;
+                $seenSnapshots[$key] = true;
+            }
+
+            $clients[] = [
+                'contact_id' => $cid,
+                'name'  => $name,
+                'email' => $email,
+                'phone' => $phone,
+            ];
+        }
+        return $clients;
+    }
 }

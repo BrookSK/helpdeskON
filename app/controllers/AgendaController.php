@@ -96,6 +96,8 @@ class AgendaController extends Controller
         }
         $meeting['briefing'] = $briefing;
         $meeting['participants'] = $this->model->getParticipants($id);
+        // Clientes da reunião (N por reunião). O front repopula as linhas do modal.
+        $meeting['clients'] = $this->model->getClients($id);
 
         // Link para a ata: token da gravação mais recente com ata gerada para esta reunião.
         $minutesToken = $this->model->getLatestMinutesToken($id);
@@ -156,6 +158,16 @@ class AgendaController extends Controller
         $isOperational = $meetingType === 'operacional' || $meetingType === 'interno';
         $isExternal = $meetingType === 'externo';
 
+        // Clientes da reunião comercial (N por reunião). Mantém retrocompat com
+        // os campos escalares antigos (contact_id / client_name/phone/email),
+        // tratados como UM cliente quando os arrays client_*[] não vierem.
+        $clients = [];
+        if (!$isOperational && !$isExternal) {
+            // Garante a tabela de clientes múltiplos (idempotente).
+            $this->ensureMeetingClientsSchema();
+            $clients = $this->parseClients();
+        }
+
         $contactId = !empty($_POST['contact_id']) ? intval($_POST['contact_id']) : null;
 
         // Cliente novo (manual): cria o lead no CRM para ficar disponível depois (só reunião comercial)
@@ -165,12 +177,41 @@ class AgendaController extends Controller
                 trim($_POST['new_client_phone'] ?? ''),
                 $user['id']
             );
+            // Reflete o lead recém-criado na lista de clientes (vira o principal).
+            array_unshift($clients, [
+                'contact_id' => $contactId,
+                'name'  => trim($_POST['new_client_name']),
+                'email' => '',
+                'phone' => preg_replace('/\D/', '', trim($_POST['new_client_phone'] ?? '')),
+            ]);
+        }
+
+        // O cliente PRINCIPAL (posição 0) preenche os campos escalares da reunião,
+        // preservando todo o comportamento existente (Kanban, briefing, conversão,
+        // evento Google). Os demais clientes só recebem notificação e entram na sala.
+        // IMPORTANTE: o modal envia client_name[]/phone[]/email[] como ARRAYS; aqui
+        // reduzimos os campos escalares do $_POST ao cliente principal (string), de
+        // modo que o restante do fluxo (montagem de $data) continue lendo escalares.
+        if (!empty($clients)) {
+            $primary = $clients[0];
+            if (!$contactId && $primary['contact_id']) $contactId = (int) $primary['contact_id'];
+            $_POST['client_name']  = (string) $primary['name'];
+            $_POST['client_phone'] = (string) $primary['phone'];
+            // E-mail: usa o do principal; se vazio, preserva um e-mail escalar
+            // digitado manualmente (quando não veio na lista).
+            $manualEmail = is_array($_POST['client_email'] ?? null) ? '' : trim((string) ($_POST['client_email'] ?? ''));
+            $_POST['client_email'] = $primary['email'] !== '' ? $primary['email'] : $manualEmail;
+        } else {
+            // Sem lista de clientes: garante que os escalares não sejam arrays.
+            foreach (['client_name', 'client_phone', 'client_email'] as $k) {
+                if (is_array($_POST[$k] ?? null)) $_POST[$k] = '';
+            }
         }
 
         // Em reunião comercial o cliente pode vir do CRM (contact_id) ou de uma empresa
         // (Empresa → Contato), que preenche client_name/phone/email como snapshot.
-        $hasClientSnapshot = trim($_POST['client_name'] ?? '') !== '';
-        if (!$isOperational && !$isExternal && !$contactId && !$hasClientSnapshot) {
+        $hasClientSnapshot = trim((string) ($_POST['client_name'] ?? '')) !== '';
+        if (!$isOperational && !$isExternal && !$contactId && !$hasClientSnapshot && empty($clients)) {
             $this->json(['error' => 'Selecione um cliente ou cadastre um novo.'], 400);
         }
 
@@ -281,6 +322,11 @@ class AgendaController extends Controller
         $participantIds = array_filter(array_map('intval', $_POST['participants'] ?? []));
         if (!empty($participantIds)) {
             $this->model->setParticipants($id, $participantIds);
+        }
+
+        // Salva os clientes da reunião (comercial, N por reunião).
+        if (!empty($clients)) {
+            try { $this->model->setClients($id, $clients); } catch (\Throwable $e) { /* schema garantido acima */ }
         }
 
         // Sala de vídeo do sistema (nativa): cria e vincula à reunião quando pedido.
@@ -482,6 +528,77 @@ class AgendaController extends Controller
     }
 
     /**
+     * Lê e sanitiza a lista de CLIENTES de uma reunião comercial.
+     *
+     * Aceita arrays paralelos (client_contact_id[], client_name[],
+     * client_email[], client_phone[]) vindos do modal. Para retrocompat com
+     * versões antigas do modal (um único cliente em campos escalares), cai nos
+     * campos contact_id / client_name / client_phone / client_email quando os
+     * arrays não vierem.
+     *
+     * @return array Lista normalizada por AgendaRules::parseClients.
+     */
+    private function parseClients()
+    {
+        $hasArray = isset($_POST['client_name']) && is_array($_POST['client_name'])
+            || isset($_POST['client_contact_id']) && is_array($_POST['client_contact_id'])
+            || isset($_POST['client_email']) && is_array($_POST['client_email'])
+            || isset($_POST['client_phone']) && is_array($_POST['client_phone']);
+
+        if ($hasArray) {
+            return AgendaRules::parseClients(
+                $_POST['client_contact_id'] ?? [],
+                $_POST['client_name']       ?? [],
+                $_POST['client_email']      ?? [],
+                $_POST['client_phone']      ?? []
+            );
+        }
+
+        // Retrocompat: um único cliente nos campos escalares.
+        return AgendaRules::parseClients(
+            [$_POST['contact_id']   ?? ''],
+            [$_POST['client_name']  ?? ''],
+            [$_POST['client_email'] ?? ''],
+            [$_POST['client_phone'] ?? '']
+        );
+    }
+
+    /**
+     * Auto-correção de schema para os clientes múltiplos da reunião (equivalente
+     * à migration 162_agenda_meeting_clients.sql). Cria a tabela se faltar, com
+     * o mesmo padrão idempotente/silencioso já usado em ensureExternalInviteSchema.
+     */
+    private function ensureMeetingClientsSchema()
+    {
+        $db = Database::getInstance();
+        try {
+            $exists = $db->fetch(
+                "SELECT 1 FROM information_schema.TABLES
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agenda_meeting_clients'"
+            );
+            if ($exists) return;
+            $db->query(
+                "CREATE TABLE IF NOT EXISTS agenda_meeting_clients (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    meeting_id INT NOT NULL,
+                    contact_id INT NULL,
+                    client_name VARCHAR(255) NULL,
+                    client_phone VARCHAR(50) NULL,
+                    client_email VARCHAR(255) NULL,
+                    position INT NOT NULL DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (meeting_id) REFERENCES agenda_meetings(id) ON DELETE CASCADE,
+                    FOREIGN KEY (contact_id) REFERENCES whatsapp_contacts(id) ON DELETE SET NULL,
+                    KEY idx_meeting (meeting_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+            );
+            if (class_exists('Logger')) Logger::info('ensureMeetingClientsSchema: tabela criada');
+        } catch (\Throwable $e) {
+            if (class_exists('Logger')) Logger::error('ensureMeetingClientsSchema falhou', ['error' => $e->getMessage()]);
+        }
+    }
+
+    /**
      * Decodifica os convidados externos persistidos (coluna external_guests em JSON).
      */
     private function decodeExternalGuests($meeting)
@@ -663,6 +780,21 @@ class AgendaController extends Controller
         $clientPhone = $meeting['crm_contact_phone'] ?? $meeting['client_phone'] ?? null;
         $meetingAt = $meeting['meeting_at'];
 
+        // Clientes da reunião (N por reunião). Se a tabela estiver vazia (reunião
+        // antiga ou criada sem clientes múltiplos), cai no cliente escalar único.
+        $clients = [];
+        try { $clients = $this->model->getClientContacts($meetingId); } catch (\Throwable $e) { $clients = []; }
+        if (empty($clients)) {
+            $clients = [[
+                'contact_id' => $meeting['contact_id'] !== null ? (int) $meeting['contact_id'] : null,
+                'name'  => trim((string) $clientName),
+                'email' => trim((string) ($clientEmail ?? '')),
+                'phone' => preg_replace('/\D/', '', trim((string) ($clientPhone ?? ''))),
+            ]];
+        }
+        // E-mails de todos os clientes (para os attendees do evento Google).
+        $clientEmails = array_values(array_filter(array_map(fn($c) => trim((string) $c['email']), $clients)));
+
         // E-mail do super admin (primeiro super_admin ativo)
         $db = Database::getInstance();
         $admin = $db->fetch("SELECT name, email FROM users WHERE role = 'super_admin' AND is_active = 1 AND email <> '' ORDER BY id ASC LIMIT 1");
@@ -678,7 +810,7 @@ class AgendaController extends Controller
         $google = new GoogleCalendarApi();
         if ($createEvent && empty($meeting['google_event_id']) && $google->isConfigured()) {
             $attendees = array_values(array_unique(array_filter(
-                array_merge([$adminEmail, $clientEmail], $participantEmails)
+                array_merge([$adminEmail], $clientEmails, $participantEmails)
             )));
             $res = $google->createEvent([
                 'title' => 'Reunião: ' . $meeting['title'],
@@ -716,14 +848,23 @@ class AgendaController extends Controller
                     <p style='font-size:0.8rem;color:#888;word-break:break-all;'>Link: {$meetLink}</p>" : "")
              . "<p>Nos vemos lá!</p>"
         );
-        foreach (array_filter([$adminEmail, $clientEmail]) as $to) {
+        // E-mail: super admin + TODOS os clientes (deduplicados).
+        $emailRecipients = array_values(array_unique(array_filter(
+            array_merge([$adminEmail], $clientEmails)
+        )));
+        foreach ($emailRecipients as $to) {
             try { Mailer::send($to, 'Convite de Reunião — ' . $meeting['title'], $emailBody); } catch (\Throwable $e) {}
         }
 
-        // 3) WhatsApp para o cliente
-        if (!empty($clientPhone)) {
-            $dateFmt = date('d/m/Y', strtotime($meetingAt));
-            $timeFmt = date('H\hi', strtotime($meetingAt));
+        // 3) WhatsApp para CADA cliente com telefone.
+        $dateFmt = date('d/m/Y', strtotime($meetingAt));
+        $timeFmt = date('H\hi', strtotime($meetingAt));
+        $sentPhones = [];
+        foreach ($clients as $c) {
+            $phone = preg_replace('/\D/', '', (string) $c['phone']);
+            if ($phone === '' || isset($sentPhones[$phone])) continue;
+            $sentPhones[$phone] = true;
+            $name = trim((string) $c['name']) ?: $clientName;
             $waMsg = "Olá, tudo bem?\n\n"
                 . "Eu sou a Carla e faço parte da equipe da ON Solutions.\n"
                 . "Estou entrando em contato para informar que sua reunião {$meeting['title']} está confirmada.\n\n"
@@ -731,7 +872,7 @@ class AgendaController extends Controller
                 . "📅 Data: {$dateFmt}\n"
                 . "🕐 Horário: {$timeFmt}"
                 . ($meetLink ? "\n\n🔗 Link da reunião:\n{$meetLink}" : "");
-            try { WhatsappNotifier::sendToPhone($clientPhone, $waMsg, $clientName); } catch (\Throwable $e) {}
+            try { WhatsappNotifier::sendToPhone($phone, $waMsg, $name); } catch (\Throwable $e) {}
         }
     }
 
@@ -757,7 +898,12 @@ class AgendaController extends Controller
         if (isset($_POST['status']) && AgendaRules::isValidStatus($_POST['status'])) $data['status'] = $_POST['status'];
         if (isset($_POST['meeting_at'])) $data['meeting_at'] = AgendaRules::normalizeMeetingAt($_POST['meeting_at']);
         if (isset($_POST['notes'])) $data['notes'] = trim($_POST['notes']) ?: null;
-        if (isset($_POST['client_email'])) $data['client_email'] = trim($_POST['client_email']) ?: null;
+        // client_email escalar: o modal também envia client_email[] (array) para a
+        // lista de clientes; aqui tratamos apenas o escalar (string). Quando vier
+        // como array, a sincronização do e-mail principal ocorre em setClients abaixo.
+        if (isset($_POST['client_email']) && !is_array($_POST['client_email'])) {
+            $data['client_email'] = trim($_POST['client_email']) ?: null;
+        }
 
         // auto_record: só aplica em reuniões operacionais/internas.
         if ($isOperational && isset($_POST['auto_record'])) {
@@ -790,6 +936,26 @@ class AgendaController extends Controller
         if (isset($_POST['participants'])) {
             $participantIds = array_filter(array_map('intval', $_POST['participants']));
             $this->model->setParticipants($id, $participantIds);
+        }
+
+        // Reunião comercial: atualiza os clientes múltiplos quando o modal os enviou.
+        // O cliente principal (posição 0) também reflete no client_email escalar
+        // (já tratado acima via $_POST['client_email'], quando enviado).
+        if (!$isOperational && !$isExternal
+            && (isset($_POST['client_contact_id']) || (isset($_POST['client_name']) && is_array($_POST['client_name'])))) {
+            $this->ensureMeetingClientsSchema();
+            $clients = $this->parseClients();
+            if (!empty($clients)) {
+                try { $this->model->setClients($id, $clients); } catch (\Throwable $e) { /* schema garantido */ }
+                // Mantém os campos escalares sincronizados com o cliente principal.
+                $primary = $clients[0];
+                $escalar = [];
+                if ($primary['contact_id']) $escalar['contact_id'] = (int) $primary['contact_id'];
+                if ($primary['name']  !== '') $escalar['client_name']  = $primary['name'];
+                if ($primary['phone'] !== '') $escalar['client_phone'] = $primary['phone'];
+                if ($primary['email'] !== '') $escalar['client_email'] = $primary['email'];
+                if (!empty($escalar)) { try { $this->model->update($id, $escalar); } catch (\Throwable $e) {} }
+            }
         }
 
         // Reunião operacional: não mexe em briefing/Google. Só (re)notifica participantes

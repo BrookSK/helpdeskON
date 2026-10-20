@@ -93,6 +93,40 @@
         font-size: 0.8rem;
         color: #9aa0b3;
     }
+
+    /* ===== Chips de clientes selecionados (reunião comercial, N clientes) ===== */
+    .mt-client-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 8px 5px 10px;
+        border: 1px solid #d7f0eb;
+        background: #f2fbf9;
+        color: #0b7f70;
+        border-radius: 999px;
+        font-size: 0.8rem;
+        max-width: 100%;
+    }
+    .mt-client-chip .mt-client-chip-name { font-weight: 600; }
+    .mt-client-chip .mt-client-chip-meta { color: #5a7f79; font-weight: 400; }
+    .mt-client-chip .mt-client-chip-primary {
+        font-size: 0.66rem;
+        text-transform: uppercase;
+        letter-spacing: .03em;
+        background: #00BFA6;
+        color: #fff;
+        border-radius: 999px;
+        padding: 1px 6px;
+    }
+    .mt-client-chip button {
+        border: none;
+        background: transparent;
+        color: #0b7f70;
+        line-height: 1;
+        padding: 0 2px;
+        cursor: pointer;
+    }
+    .mt-client-chip button:hover { color: #c0392b; }
 </style>
 
 <div class="modal fade" id="meetingModal" tabindex="-1">
@@ -177,6 +211,16 @@
                                    onfocus="openContactList()" oninput="filterContactOptions()">
                             <div class="mt-combo-list" id="mt-contact-list"></div>
                         </div>
+                        <small class="text-muted">Selecione para adicionar; pode incluir vários contatos.</small>
+                    </div>
+
+                    <!-- Clientes da reunião (N). Preenchido ao escolher CRM/Contato. -->
+                    <div class="col-12 mt-commercial-only">
+                        <label class="form-label small fw-medium mb-1"><i class="bi bi-people"></i> Clientes da reunião</label>
+                        <div id="mt-clients-list" class="d-flex flex-wrap gap-2">
+                            <span class="text-muted small" id="mt-clients-empty">Nenhum cliente adicionado ainda.</span>
+                        </div>
+                        <small class="text-muted">O primeiro é o cliente principal (briefing/conversão). Todos recebem o convite e podem entrar na sala.</small>
                     </div>
                     <div class="col-md-4">
                         <label class="form-label small fw-medium">Data e horário da reunião</label>
@@ -502,6 +546,8 @@ function resetMeetingForm() {
     mtContactCache = [];
     const ctList = document.getElementById('mt-contact-list'); if (ctList) ctList.innerHTML = '';
     closeContactList();
+    // Limpa a lista de clientes da reunião (N clientes).
+    fillClients([]);
     document.getElementById('mt-urgency').value = 'media';
     document.getElementById('mt-temperature').value = '';
     document.getElementById('mt-status').value = 'a_agendar';
@@ -721,7 +767,16 @@ function fillMeeting(m) {
     document.getElementById('mt-contact-id').value = m.contact_id || '';
     document.getElementById('mt-title').value = m.title || '';
     document.getElementById('mt-meeting-at').value = m.meeting_at ? m.meeting_at.replace(' ', 'T').slice(0,16) : '';
-    document.getElementById('mt-client').value = m.contact_id || '';
+    document.getElementById('mt-client').value = '';
+    // Clientes da reunião (N). Fallback para o cliente escalar antigo quando a
+    // reunião não tem lista (criada antes do suporte a múltiplos clientes).
+    if (Array.isArray(m.clients) && m.clients.length) {
+        fillClients(m.clients);
+    } else if (m.contact_id || m.client_name) {
+        fillClients([{ contact_id: m.contact_id || null, name: m.crm_contact_name || m.client_name || '', email: m.client_email || '', phone: m.crm_contact_phone || m.client_phone || '' }]);
+    } else {
+        fillClients([]);
+    }
     document.getElementById('mt-assigned').value = m.assigned_to || '';
     document.getElementById('mt-status').value = m.status || 'a_agendar';
     document.getElementById('mt-closed-by').value = m.closed_by || '';
@@ -797,9 +852,11 @@ function onClientSourceChange() {
     document.querySelectorAll('.mt-source-empresa').forEach(el => el.style.display = isEmpresa ? '' : 'none');
 }
 
-// Ao escolher cliente: carrega o briefing ou mostra campos de novo cliente
+// Ao escolher cliente: carrega o briefing ou mostra campos de novo cliente.
+// Leads do CRM são ADICIONADOS à lista de clientes da reunião (N clientes).
 function onClientChange() {
-    const val = document.getElementById('mt-client').value;
+    const sel = document.getElementById('mt-client');
+    const val = sel.value;
     const newFields = document.querySelectorAll('.mt-new-client');
     if (val === '__new__') {
         newFields.forEach(el => el.style.display = '');
@@ -810,7 +867,17 @@ function onClientChange() {
     newFields.forEach(el => el.style.display = 'none');
     document.getElementById('mt-contact-id').value = val || '';
     if (val) {
-        fetch(`${BASE}agenda/briefing/${val}`).then(r => r.json()).then(d => { fillBriefing(d.briefing); syncInherited('media', ''); });
+        // Adiciona o lead escolhido à lista de clientes (snapshot vem do texto da option).
+        const opt = sel.options[sel.selectedIndex];
+        const label = opt ? opt.textContent : '';
+        const name = label.split(' — ')[0].trim();
+        addClient({ contact_id: parseInt(val, 10), name: name, email: '', phone: '' });
+        // Carrega o briefing do PRIMEIRO cliente (principal) para manter o fluxo atual.
+        const primary = mtClients[0];
+        const briefingId = primary && primary.contact_id ? primary.contact_id : val;
+        fetch(`${BASE}agenda/briefing/${briefingId}`).then(r => r.json()).then(d => { fillBriefing(d.briefing); syncInherited('media', ''); });
+        // Reseta o seletor para permitir escolher o próximo lead.
+        sel.value = '';
     } else {
         clearBriefing();
         syncInherited('media', '');
@@ -956,22 +1023,93 @@ function onCompanyChange() {
         });
 }
 
-// Seleciona um contato: guarda o id e preenche o snapshot (nome/telefone/email).
-// NÃO altera o contact_id do CRM (agenda_meetings.contact_id continua apontando p/ whatsapp_contacts).
+// Seleciona um contato (Empresa → Contato): ADICIONA à lista de clientes da
+// reunião. Permite incluir vários contatos (de empresas diferentes também).
+// O snapshot (nome/telefone/email) vem dos atributos do item.
 function selectContact(item) {
     const id = item.getAttribute('data-value');
     const name  = item.getAttribute('data-contact-name') || '';
     const email = item.getAttribute('data-email') || '';
     const phone = item.getAttribute('data-phone') || '';
-    document.getElementById('mt-contact').value = id || '';
-    document.getElementById('mt-contact-search').value = name;
-    document.getElementById('mt-contact-list').querySelectorAll('.mt-combo-item').forEach(i => {
-        i.classList.toggle('selected', i === item);
-    });
-    document.getElementById('mt-client-name').value = name;
-    document.getElementById('mt-client-phone').value = phone;
-    if (email) document.getElementById('mt-client-email').value = email;
+    // Contato da empresa é um "snapshot": NÃO vira contact_id do CRM.
+    addClient({ contact_id: null, name: name, email: email, phone: phone });
+    // Limpa o campo de busca para permitir escolher o próximo contato.
+    document.getElementById('mt-contact').value = '';
+    document.getElementById('mt-contact-search').value = '';
+    document.getElementById('mt-contact-list').querySelectorAll('.mt-combo-item').forEach(i => i.classList.remove('selected'));
     closeContactList();
+}
+
+// ===== Clientes da reunião (N) =====
+// Fonte de verdade: array mtClients. Cada item: {contact_id, name, email, phone}.
+let mtClients = [];
+
+// Chave de deduplicação: contact_id (CRM) ou nome+email+telefone (snapshot).
+function clientKey(c) {
+    if (c.contact_id) return 'crm:' + c.contact_id;
+    const phone = (c.phone || '').toString().replace(/\D/g, '');
+    return 'snap:' + (c.name || '').trim().toLowerCase() + '|' + (c.email || '').trim().toLowerCase() + '|' + phone;
+}
+
+function addClient(c) {
+    const client = {
+        contact_id: c.contact_id || null,
+        name: (c.name || '').trim(),
+        email: (c.email || '').trim(),
+        phone: (c.phone || '').toString().replace(/\D/g, ''),
+    };
+    if (!client.contact_id && client.name === '') return; // precisa de CRM ou nome
+    const key = clientKey(client);
+    if (mtClients.some(x => clientKey(x) === key)) { renderClients(); return; } // já existe
+    mtClients.push(client);
+    renderClients();
+}
+
+function removeClient(index) {
+    mtClients.splice(index, 1);
+    renderClients();
+}
+
+function renderClients() {
+    const wrap = document.getElementById('mt-clients-list');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    if (mtClients.length === 0) {
+        const empty = document.createElement('span');
+        empty.className = 'text-muted small';
+        empty.id = 'mt-clients-empty';
+        empty.textContent = 'Nenhum cliente adicionado ainda.';
+        wrap.appendChild(empty);
+        return;
+    }
+    mtClients.forEach((c, i) => {
+        const chip = document.createElement('span');
+        chip.className = 'mt-client-chip';
+        const meta = c.email || (c.phone ? c.phone : '');
+        chip.innerHTML =
+            (i === 0 ? '<span class="mt-client-chip-primary">Principal</span>' : '') +
+            '<span class="mt-client-chip-name"></span>' +
+            (meta ? ' <span class="mt-client-chip-meta"></span>' : '') +
+            '<button type="button" title="Remover" aria-label="Remover"><i class="bi bi-x-lg"></i></button>';
+        chip.querySelector('.mt-client-chip-name').textContent = c.name || ('Contato #' + (c.contact_id || ''));
+        if (meta) chip.querySelector('.mt-client-chip-meta').textContent = '— ' + meta;
+        chip.querySelector('button').addEventListener('click', () => removeClient(i));
+        wrap.appendChild(chip);
+    });
+}
+
+// Limpa e repopula a lista de clientes (usado ao abrir/editar).
+function fillClients(list) {
+    mtClients = [];
+    (Array.isArray(list) ? list : []).forEach(c => {
+        mtClients.push({
+            contact_id: c.contact_id ? parseInt(c.contact_id, 10) : null,
+            name: (c.name || '').trim(),
+            email: (c.email || '').trim(),
+            phone: (c.phone || '').toString().replace(/\D/g, ''),
+        });
+    });
+    renderClients();
 }
 
 // Clique nos itens das listas (delegação) + fechar ao clicar fora.
@@ -1040,17 +1178,29 @@ function collectPayload() {
     fd.append('status', statusVal);
     fd.append('closed_by', document.getElementById('mt-closed-by').value);
     fd.append('notes', document.getElementById('mt-notes').value);
-    fd.append('client_email', document.getElementById('mt-client-email').value.trim());
-    // Snapshot do contato escolhido via Empresa → Contato (campos já persistidos hoje)
-    fd.append('client_name', document.getElementById('mt-client-name').value.trim());
-    fd.append('client_phone', document.getElementById('mt-client-phone').value.trim());
+    // Clientes da reunião (N): envia arrays paralelos. O backend usa o primeiro
+    // como principal (campos escalares). Convite externo não usa estes campos.
+    // O e-mail digitado manualmente (#mt-client-email) completa o 1º cliente
+    // quando ele ainda não tem e-mail (ex.: lead do CRM sem e-mail no snapshot).
+    const manualEmail = document.getElementById('mt-client-email').value.trim();
+    const clientsPayload = mtClients.map((c, i) => ({ ...c }));
+    if (manualEmail && clientsPayload.length && !clientsPayload[0].email) {
+        clientsPayload[0].email = manualEmail;
+    }
+    clientsPayload.forEach(c => {
+        fd.append('client_contact_id[]', c.contact_id ? String(c.contact_id) : '');
+        fd.append('client_name[]', c.name || '');
+        fd.append('client_email[]', c.email || '');
+        fd.append('client_phone[]', c.phone || '');
+    });
+    // Compat: ainda envia client_email escalar (usado quando não há cliente na lista).
+    fd.append('client_email', manualEmail);
 
+    // Cliente novo (manual): ainda pode ser cadastrado via "Cadastrar novo".
     const clientVal = document.getElementById('mt-client').value;
     if (clientVal === '__new__') {
         fd.append('new_client_name', document.getElementById('mt-new-name').value.trim());
         fd.append('new_client_phone', document.getElementById('mt-new-phone').value.trim());
-    } else if (clientVal) {
-        fd.append('contact_id', clientVal);
     }
     // Link do Meet já gerado (evita criar evento duplicado)
     fd.append('google_event_id', document.getElementById('mt-google-event-id').value);
@@ -1243,17 +1393,15 @@ function saveMeeting() {
             alert('Selecione ao menos um participante.'); return;
         }
     } else {
-        // Reunião comercial: valida conforme a origem do cliente (CRM ou Empresa)
-        const source = document.getElementById('mt-client-source').value;
-        if (source === 'empresa') {
-            if (!document.getElementById('mt-company').value) { alert('Selecione uma empresa.'); return; }
-            if (!document.getElementById('mt-contact').value) { alert('Selecione um contato da empresa.'); return; }
-        } else {
-            const clientVal = document.getElementById('mt-client').value;
-            if (!clientVal) { alert('Selecione um cliente (CRM) ou cadastre um novo.'); return; }
-            if (clientVal === '__new__' && !document.getElementById('mt-new-name').value.trim()) {
-                alert('Informe o nome do novo cliente.'); return;
-            }
+        // Reunião comercial: exige ao menos UM cliente na lista. Exceção: o
+        // usuário está cadastrando um cliente novo (vira o cliente ao salvar).
+        const clientVal = document.getElementById('mt-client').value;
+        const isNew = clientVal === '__new__';
+        if (mtClients.length === 0 && !isNew) {
+            alert('Adicione ao menos um cliente (CRM ou Empresa → Contato).'); return;
+        }
+        if (isNew && !document.getElementById('mt-new-name').value.trim()) {
+            alert('Informe o nome do novo cliente.'); return;
         }
         // Se convertida, exige quem fechou
         const status = document.getElementById('mt-status').value;

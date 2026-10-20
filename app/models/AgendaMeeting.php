@@ -152,6 +152,69 @@ class AgendaMeeting
         return array_column($rows, 'email');
     }
 
+    // --- Clientes (comerciais) da reunião: N por reunião ---
+
+    /**
+     * Define os clientes da reunião (substitui os existentes).
+     *
+     * Espera uma lista normalizada por AgendaRules::parseClients:
+     * [['contact_id'=>?int,'name'=>,'email'=>,'phone'=>], ...]. A ordem define
+     * a posição (0 = cliente principal).
+     */
+    public function setClients($meetingId, array $clients)
+    {
+        $this->db->delete('agenda_meeting_clients', 'meeting_id = ?', [$meetingId]);
+        $pos = 0;
+        foreach ($clients as $c) {
+            $cid = isset($c['contact_id']) ? (int) $c['contact_id'] : 0;
+            $this->db->insert('agenda_meeting_clients', [
+                'meeting_id'   => (int) $meetingId,
+                'contact_id'   => $cid > 0 ? $cid : null,
+                'client_name'  => ($c['name'] ?? '') !== '' ? $c['name'] : null,
+                'client_phone' => ($c['phone'] ?? '') !== '' ? $c['phone'] : null,
+                'client_email' => ($c['email'] ?? '') !== '' ? $c['email'] : null,
+                'position'     => $pos++,
+            ]);
+        }
+    }
+
+    /**
+     * Retorna os clientes da reunião em ordem (posição 0 = principal).
+     * O snapshot gravado tem prioridade; se faltar algum campo, completa com
+     * os dados do contato do CRM vinculado (whatsapp_contacts).
+     */
+    public function getClients($meetingId)
+    {
+        return $this->db->fetchAll(
+            "SELECT mc.id, mc.contact_id, mc.position,
+                    COALESCE(NULLIF(mc.client_name, ''),  wc.contact_name) AS name,
+                    COALESCE(NULLIF(mc.client_phone, ''), wc.phone)        AS phone,
+                    mc.client_email AS email
+             FROM agenda_meeting_clients mc
+             LEFT JOIN whatsapp_contacts wc ON mc.contact_id = wc.id
+             WHERE mc.meeting_id = ?
+             ORDER BY mc.position ASC, mc.id ASC",
+            [$meetingId]
+        );
+    }
+
+    /**
+     * Retorna os clientes da reunião com os canais de contato prontos para a
+     * notificação (nome, e-mail, telefone). Útil para iterar e-mail + WhatsApp.
+     */
+    public function getClientContacts($meetingId)
+    {
+        $rows = $this->getClients($meetingId);
+        return array_map(function ($r) {
+            return [
+                'contact_id' => $r['contact_id'] !== null ? (int) $r['contact_id'] : null,
+                'name'  => trim((string) ($r['name'] ?? '')),
+                'email' => trim((string) ($r['email'] ?? '')),
+                'phone' => preg_replace('/\D/', '', trim((string) ($r['phone'] ?? ''))),
+            ];
+        }, $rows);
+    }
+
     // --- Métricas de performance para o Dashboard Comercial ---
 
     /**

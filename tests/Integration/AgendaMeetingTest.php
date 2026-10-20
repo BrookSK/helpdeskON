@@ -214,6 +214,89 @@ final class AgendaMeetingTest extends TestCase
         $this->assertSame($this->participantBId, (int) $parts[0]['id']);
     }
 
+    // ================= Clientes (múltiplos) =================
+
+    public function testUmClienteDoCrm(): void
+    {
+        $id = $this->novaReuniao(['meeting_type' => 'comercial', 'contact_id' => $this->contactId]);
+        $this->model->setClients($id, [
+            ['contact_id' => $this->contactId, 'name' => '', 'email' => '', 'phone' => ''],
+        ]);
+
+        $clients = $this->model->getClients($id);
+        $this->assertCount(1, $clients);
+        $this->assertSame($this->contactId, (int) $clients[0]['contact_id']);
+        // Nome e telefone vêm do JOIN com whatsapp_contacts (snapshot vazio).
+        $this->assertNotEmpty($clients[0]['name']);
+    }
+
+    public function testVariosClientesMisturandoCrmESnapshot(): void
+    {
+        $id = $this->novaReuniao(['meeting_type' => 'comercial', 'contact_id' => $this->contactId]);
+        $this->model->setClients($id, [
+            ['contact_id' => $this->contactId, 'name' => '', 'email' => '', 'phone' => ''],
+            ['contact_id' => null, 'name' => 'Contato Empresa', 'email' => 'contato@empresa.test', 'phone' => '11955554444'],
+            ['contact_id' => null, 'name' => 'Outro Contato', 'email' => '', 'phone' => '11944443333'],
+        ]);
+
+        $clients = $this->model->getClients($id);
+        $this->assertCount(3, $clients);
+        // Ordem preservada (posição 0 = principal = CRM).
+        $this->assertSame($this->contactId, (int) $clients[0]['contact_id']);
+        $this->assertSame('Contato Empresa', $clients[1]['name']);
+        $this->assertSame('contato@empresa.test', $clients[1]['email']);
+        $this->assertSame('Outro Contato', $clients[2]['name']);
+    }
+
+    public function testGetClientContactsNormalizaTelefoneECanais(): void
+    {
+        $id = $this->novaReuniao(['meeting_type' => 'comercial']);
+        $this->model->setClients($id, [
+            ['contact_id' => null, 'name' => 'Cliente A', 'email' => 'a@x.test', 'phone' => '(11) 98888-7777'],
+            ['contact_id' => null, 'name' => 'Cliente B', 'email' => '', 'phone' => ''],
+        ]);
+
+        $contacts = $this->model->getClientContacts($id);
+        $this->assertCount(2, $contacts);
+        $this->assertSame('11988887777', $contacts[0]['phone']); // só dígitos
+        $this->assertSame('a@x.test', $contacts[0]['email']);
+        $this->assertSame('Cliente B', $contacts[1]['name']);
+        $this->assertSame('', $contacts[1]['phone']);
+    }
+
+    public function testSetClientsSubstituiOsAnteriores(): void
+    {
+        $id = $this->novaReuniao(['meeting_type' => 'comercial']);
+        $this->model->setClients($id, [
+            ['contact_id' => null, 'name' => 'Primeiro', 'email' => '', 'phone' => ''],
+            ['contact_id' => null, 'name' => 'Segundo', 'email' => '', 'phone' => ''],
+        ]);
+        // Redefine para apenas um.
+        $this->model->setClients($id, [
+            ['contact_id' => null, 'name' => 'Único', 'email' => '', 'phone' => ''],
+        ]);
+
+        $clients = $this->model->getClients($id);
+        $this->assertCount(1, $clients);
+        $this->assertSame('Único', $clients[0]['name']);
+    }
+
+    public function testClientesSaoRemovidosComAReuniao(): void
+    {
+        $id = $this->novaReuniao(['meeting_type' => 'comercial']);
+        $this->model->setClients($id, [
+            ['contact_id' => null, 'name' => 'Some junto', 'email' => '', 'phone' => ''],
+        ]);
+        $this->assertCount(1, $this->model->getClients($id));
+
+        // DELETE da reunião deve cascatear para agenda_meeting_clients.
+        $this->db->delete('agenda_meetings', 'id = ?', [$id]);
+        $this->meetingIds = array_values(array_filter($this->meetingIds, fn($x) => $x !== $id));
+
+        $rows = $this->db->fetchAll('SELECT id FROM agenda_meeting_clients WHERE meeting_id = ?', [$id]);
+        $this->assertCount(0, $rows);
+    }
+
     // ================= Status / fluxo =================
 
     public function testUpdateStatusPercorreOFluxo(): void
