@@ -710,13 +710,18 @@ class RdoController extends Controller
 
         $items = [];
         foreach ($professionals as $pro) {
-            $filled  = $this->model->getReportDatesForUser((int) $pro['id'], $from, $to);
-            $missing = RdoRules::missingDates($businessDays, $filled);
+            $filled = $this->model->getReportDatesForUser((int) $pro['id'], $from, $to);
+            // Ausências já reconhecidas pelo admin ("Aprovar tudo") não voltam
+            // a aparecer: são tratadas como "preenchidas" para fins de varredura.
+            $acked   = $this->model->getAcknowledgedMissingDates((int) $pro['id'], $from, $to);
+            $known   = array_merge($filled, $acked);
+            $missing = RdoRules::missingDates($businessDays, $known);
             foreach ($missing as $date) {
                 $items[] = [
                     'id'          => null,
                     'type'        => 'missing_report',
                     'report_id'   => null,
+                    'owner_id'    => (int) $pro['id'],
                     'owner_name'  => $pro['name'],
                     'report_date' => $date,
                     'payload'     => null,
@@ -755,10 +760,30 @@ class RdoController extends Controller
 
         $notes = trim($_POST['notes'] ?? '');
 
-        // Marca a revisão como aprovada
-        $this->model->updateReview((int) $reviewId, [
+        $this->applyReviewApproval($review, (int) $admin['id'], $notes ?: null);
+
+        $this->json(['success' => true, 'message' => 'Revisão aprovada.']);
+    }
+
+    /**
+     * Aplica a aprovação de UMA revisão pendente (efeitos colaterais inclusos):
+     *   - marca a revisão como approved (reviewer/quando/notes);
+     *   - edit_request  → aplica os campos propostos ao relatório;
+     *   - unlock_request→ desbloqueia o relatório;
+     *   - reseta review_status se o relatório não tiver mais pendências;
+     *   - registra o histórico.
+     *
+     * Reaproveitado por approveEdit (um a um) e approveAllForUser (em lote).
+     * Pressupõe que a revisão está 'pending' e que o relatório existe.
+     */
+    private function applyReviewApproval(array $review, int $adminId, ?string $notes): void
+    {
+        $reviewId = (int) $review['id'];
+        $reportId = (int) $review['report_id'];
+
+        $this->model->updateReview($reviewId, [
             'status'      => 'approved',
-            'reviewed_by' => (int) $admin['id'],
+            'reviewed_by' => $adminId,
             'reviewed_at' => date('Y-m-d H:i:s'),
             'notes'       => $notes ?: null,
         ]);
@@ -792,9 +817,68 @@ class RdoController extends Controller
         $this->resetReviewStatusIfClear($reportId);
 
         $updatedReport = $this->model->findById($reportId);
-        $this->logHistory($reportId, (int) $admin['id'], 'approved', $updatedReport ?: [], (int) $reviewId, $notes ?: null);
+        $this->logHistory($reportId, $adminId, 'approved', $updatedReport ?: [], $reviewId, $notes ?: null);
+    }
 
-        $this->json(['success' => true, 'message' => 'Revisão aprovada.']);
+    // =========================================================================
+    // API: aprovar tudo de uma pessoa (POST /rdo/approveAllForUser/{userId})
+    // =========================================================================
+
+    /**
+     * "Aprovar tudo" do card de uma pessoa (apenas super_admin):
+     *   - aprova TODAS as revisões pendentes dos relatórios dessa pessoa
+     *     (edit_request, unlock_request, late_fill, post_deadline), aplicando
+     *     os efeitos colaterais de cada uma;
+     *   - reconhece TODAS as ausências (dias úteis sem relatório) dela dentro
+     *     da janela de varredura, para que não voltem a aparecer na aba.
+     *
+     * Idempotente: revisões já resolvidas são ignoradas; ausências já
+     * reconhecidas não duplicam (UNIQUE user_id+report_date).
+     */
+    public function approveAllForUser($userId = null)
+    {
+        $this->requireModule('rdo');
+        $this->requireReviewer();
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$userId) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+
+        $ownerId = (int) $userId;
+        $admin   = $this->currentUser();
+        $notes   = trim($_POST['notes'] ?? '');
+
+        // 1) Aprova as revisões reais (persistidas) da pessoa.
+        $reviews           = $this->model->getPendingReviewsForUser($ownerId);
+        $approvedReviews   = 0;
+        foreach ($reviews as $review) {
+            if (($review['status'] ?? '') !== 'pending') {
+                continue;
+            }
+            $this->applyReviewApproval($review, (int) $admin['id'], $notes ?: null);
+            $approvedReviews++;
+        }
+
+        // 2) Reconhece as ausências da pessoa na janela de varredura, para que
+        //    deixem de ser listadas como pendência "Relatório não preenchido".
+        $acknowledgedAbsences = 0;
+        foreach ($this->collectMissingAbsences() as $item) {
+            if (($item['type'] ?? '') !== 'missing_report') {
+                continue;
+            }
+            if ((int) ($item['owner_id'] ?? 0) !== $ownerId) {
+                continue;
+            }
+            if ($this->model->acknowledgeMissingReport($ownerId, (string) $item['report_date'])) {
+                $acknowledgedAbsences++;
+            }
+        }
+
+        $this->json([
+            'success'               => true,
+            'message'               => 'Pendências da pessoa aprovadas.',
+            'approved_reviews'      => $approvedReviews,
+            'acknowledged_absences' => $acknowledgedAbsences,
+        ]);
     }
 
     // =========================================================================
