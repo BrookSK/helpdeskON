@@ -316,6 +316,17 @@ class PlanningController extends Controller
 
         $this->cardModel->update($id, $data);
 
+        // Resposta IMEDIATA ao navegador: devolve o card já atualizado e encerra
+        // a conexão do cliente ANTES de rodar as notificações. As notificações
+        // (WhatsApp/e-mail/webhook) são chamadas de rede síncronas e lentas; se
+        // rodassem antes da resposta, segurariam o salvamento por vários
+        // segundos. Aqui o UPDATE (rápido) já foi persistido, então respondemos
+        // na hora e disparamos os avisos em segundo plano.
+        $updatedCard = $this->cardModel->findById($id);
+        $this->respondAndContinue(['success' => true, 'card' => $updatedCard]);
+
+        // ===== A partir daqui roda em segundo plano (resposta já enviada) =====
+
         // Notificar responsável se mudou
         if (isset($data['assigned_to']) && $data['assigned_to'] != $card['assigned_to'] && $data['assigned_to'] != $user['id']) {
             $this->notifyAssignment($id, $data['assigned_to'], $user, $card['title']);
@@ -333,8 +344,47 @@ class PlanningController extends Controller
             $ticketModel->updateStatus($card['ticket_id'], $data['status']);
         }
 
-        $updatedCard = $this->cardModel->findById($id);
-        $this->json(['success' => true, 'card' => $updatedCard]);
+        exit;
+    }
+
+    /**
+     * Envia a resposta JSON e libera o navegador imediatamente, permitindo que
+     * o restante do script (notificações lentas) continue em segundo plano.
+     *
+     * Em FPM usa fastcgi_finish_request(); fora dele, fecha a conexão via
+     * Content-Length + flush. Também encerra a sessão (session_write_close) para
+     * não travar outras requisições do mesmo usuário enquanto os avisos saem.
+     *
+     * Observação: NÃO dá exit aqui — o chamador segue executando o trabalho de
+     * segundo plano e encerra com exit ao final.
+     */
+    private function respondAndContinue($data): void
+    {
+        $payload = json_encode($data);
+
+        @set_time_limit(0);
+        @ignore_user_abort(true);
+
+        http_response_code(200);
+        header('Content-Type: application/json');
+
+        // Libera o lock da sessão: já lemos o usuário e não gravamos mais nela.
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            @session_write_close();
+        }
+
+        if (function_exists('fastcgi_finish_request')) {
+            echo $payload;
+            fastcgi_finish_request();
+        } else {
+            // Fallback (Apache mod_php / CLI server): declara o tamanho e manda
+            // fechar a conexão para o cliente não ficar aguardando o restante.
+            header('Connection: close');
+            header('Content-Length: ' . strlen($payload));
+            echo $payload;
+            @ob_end_flush();
+            @flush();
+        }
     }
 
     // Atualizar status via drag-and-drop (Kanban)
