@@ -53,7 +53,7 @@
                 <i class="bi bi-journal-text"></i> Relatórios
             </button>
         </li>
-        <?php if ($isReviewer): ?>
+        <?php if ($canViewPendencias): ?>
         <li class="nav-item">
             <button class="nav-link" id="tab-pendencias-btn" onclick="switchTab('pendencias')">
                 <i class="bi bi-hourglass-split"></i> Pendências de Revisão
@@ -152,8 +152,8 @@
         </div></div>
     </div><!-- /#tab-relatorios -->
 
-    <!-- ===== ABA: Pendências de Revisão (admin) ===== -->
-    <?php if ($isReviewer): ?>
+    <!-- ===== ABA: Pendências de Revisão (equipe com visão global vê; só o revisor designado age) ===== -->
+    <?php if ($canViewPendencias): ?>
     <div id="tab-pendencias" style="display:none">
         <div class="card border-0 shadow-sm">
             <div class="card-body p-0">
@@ -398,7 +398,7 @@
   </div>
 </div>
 
-<!-- ===== Modal de revisão (diff — apenas admin) ===== -->
+<!-- ===== Modal de revisão (diff) — só o revisor designado ($isReviewer) ===== -->
 <?php if ($isReviewer): ?>
 <div class="modal fade" id="rdoReviewModal" tabindex="-1">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
@@ -563,11 +563,11 @@ function toggleCompanyLegend(key) {
 // =========================================================================
 function switchTab(tab) {
     document.getElementById('tab-relatorios').style.display    = tab === 'relatorios' ? '' : 'none';
-    <?php if ($isReviewer): ?>
+    <?php if ($canViewPendencias): ?>
     document.getElementById('tab-pendencias').style.display    = tab === 'pendencias' ? '' : 'none';
     <?php endif; ?>
     document.getElementById('tab-relatorios-btn').classList.toggle('active', tab === 'relatorios');
-    <?php if ($isReviewer): ?>
+    <?php if ($canViewPendencias): ?>
     document.getElementById('tab-pendencias-btn').classList.toggle('active', tab === 'pendencias');
     if (tab === 'pendencias') loadPendencias();
     <?php endif; ?>
@@ -1252,9 +1252,9 @@ async function processAudio() {
 }
 
 // =========================================================================
-// Aba de pendências (admin)
+// Aba de pendências: a equipe com visão global VÊ; só o revisor designado AGE.
 // =========================================================================
-<?php if ($isReviewer): ?>
+<?php if ($canViewPendencias): ?>
 let _currentReviewId = null;
 let rdoReviewModal;
 
@@ -1323,13 +1323,12 @@ function renderPersonCard(group) {
            </div>`
         : '';
 
-    <?php if ($isReviewer): ?>
-    const approveAllBtn = `<button class="btn btn-sm btn-success" onclick="approveAllForUser('${group.key}', this)">
-        <i class="bi bi-check2-all"></i> Aprovar tudo (${total})
-    </button>`;
-    <?php else: ?>
-    const approveAllBtn = '';
-    <?php endif; ?>
+    // "Aprovar tudo" só aparece para o revisor designado (RDO.isReviewer).
+    const approveAllBtn = RDO.isReviewer
+        ? `<button class="btn btn-sm btn-success" onclick="approveAllForUser('${group.key}', this)">
+               <i class="bi bi-check2-all"></i> Aprovar tudo (${total})
+           </button>`
+        : '';
 
     return `<div class="card border-0 shadow-sm mb-3" id="card-${group.key}">
         <div class="card-header bg-white d-flex flex-wrap gap-2 align-items-center justify-content-between">
@@ -1416,8 +1415,10 @@ function renderReviewItem(r) {
             </div>
             <div class="d-flex gap-2 flex-shrink-0 align-items-start mt-1">
                 <button class="btn btn-sm btn-outline-primary" onclick="viewRdo(${r.report_id})"><i class="bi bi-eye"></i> Ver</button>
+                ${RDO.isReviewer ? `
                 <button class="btn btn-sm btn-success"  onclick="openReviewModal(${r.id})"><i class="bi bi-check-lg"></i> Aprovar</button>
                 <button class="btn btn-sm btn-danger"   onclick="openReviewModal(${r.id})"><i class="bi bi-x-lg"></i> Recusar</button>
+                ` : ''}
             </div>
         </div>
     </div>`;

@@ -84,6 +84,19 @@ class RdoController extends Controller
     }
 
     /**
+     * Garante que o usuário atual pode VER a aba de pendências (equipe com
+     * visão global do RDO). Diferente de requireReviewer(): aqui só lê; as
+     * AÇÕES (aprovar/recusar/aprovar-tudo) continuam restritas ao revisor.
+     */
+    private function requirePendenciasViewer(): void
+    {
+        $user = $this->currentUser();
+        if (!RdoRules::hasGlobalView($user['role'] ?? null)) {
+            $this->json(['error' => 'Sem permissão para ver as pendências'], 403);
+        }
+    }
+
+    /**
      * Retorna o horário limite configurado (ex.: '19:00:00').
      * Lê da tabela settings via RdoRules::getDeadline().
      */
@@ -222,26 +235,34 @@ class RdoController extends Controller
 
         $companies = (new Company())->getAll();
 
-        // Conta pendências para badge na aba (apenas o revisor designado):
+        // Dois conceitos distintos:
+        //  - $canViewPendencias: quem ENXERGA a aba "Pendências de Revisão"
+        //    (toda a equipe com visão global do RDO).
+        //  - $isReviewer: quem pode AGIR (Aprovar/Recusar/Aprovar tudo) — só o
+        //    revisor designado (super_admin + e-mail configurado).
+        $canViewPendencias = RdoRules::hasGlobalView($user['role']);
+        $isReviewer        = RdoRules::canReview($user['role'], $user['email'] ?? null);
+
+        // Conta pendências para o badge da aba (para quem a enxerga):
         // revisões reais + dias úteis sem relatório (ausências).
-        $isReviewer   = RdoRules::canReview($user['role'], $user['email'] ?? null);
         $pendingCount = 0;
-        if ($isReviewer) {
+        if ($canViewPendencias) {
             $pendingCount = count($this->model->getAllPendingReviews())
                           + count($this->collectMissingAbsences());
         }
 
         $this->view('rdo/index', [
-            'user'         => $user,
-            'currentPage'  => 'rdo',
-            'isGlobal'     => RdoRules::hasGlobalView($user['role']),
-            'isReviewer'   => $isReviewer,
-            'team'         => $team,
-            'companies'    => $companies,
-            'statuses'     => RdoRules::STATUSES,
-            'statusLabels' => RdoRules::STATUS_LABELS,
-            'pendingCount' => $pendingCount,
-            'deadline'     => RdoRules::getDeadline(),
+            'user'              => $user,
+            'currentPage'       => 'rdo',
+            'isGlobal'          => RdoRules::hasGlobalView($user['role']),
+            'canViewPendencias' => $canViewPendencias,
+            'isReviewer'        => $isReviewer,
+            'team'              => $team,
+            'companies'         => $companies,
+            'statuses'          => RdoRules::STATUSES,
+            'statusLabels'      => RdoRules::STATUS_LABELS,
+            'pendingCount'      => $pendingCount,
+            'deadline'          => RdoRules::getDeadline(),
         ]);
     }
 
@@ -661,7 +682,7 @@ class RdoController extends Controller
     public function pendingReviews()
     {
         $this->requireModule('rdo');
-        $this->requireReviewer();
+        $this->requirePendenciasViewer();
 
         $reviews = $this->model->getAllPendingReviews();
 
