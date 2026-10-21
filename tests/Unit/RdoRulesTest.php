@@ -116,16 +116,58 @@ final class RdoRulesTest extends TestCase
     // Revisão / aprovação
     // =========================================================================
 
-    public function testSuperAdminPodeRevisar(): void
+    private const REVIEWER = 'admin@onsolutionsbrasil.com.br';
+
+    public function testRevisorDesignadoPodeRevisar(): void
     {
-        $this->assertTrue(RdoRules::canReview('super_admin'));
+        // super_admin E e-mail designado → pode revisar.
+        $this->assertTrue(RdoRules::canReview('super_admin', self::REVIEWER, self::REVIEWER));
     }
 
-    public function testDeveloperEDemaisNaoPodeRevisar(): void
+    public function testSuperAdminComOutroEmailNaoPodeRevisar(): void
     {
+        // Mesmo sendo super_admin, se não é o e-mail designado, não revisa.
+        $this->assertFalse(RdoRules::canReview('super_admin', 'outro.admin@ex.test', self::REVIEWER));
+    }
+
+    public function testSuperAdminSemEmailNaoPodeRevisar(): void
+    {
+        $this->assertFalse(RdoRules::canReview('super_admin', null, self::REVIEWER));
+        $this->assertFalse(RdoRules::canReview('super_admin', '', self::REVIEWER));
+    }
+
+    public function testComparacaoDeEmailIgnoraCaixaEEspacos(): void
+    {
+        $this->assertTrue(RdoRules::canReview('super_admin', '  ADMIN@OnSolutionsBrasil.com.BR ', self::REVIEWER));
+    }
+
+    public function testDeveloperEDemaisNaoPodeRevisarMesmoComEmailDesignado(): void
+    {
+        // O e-mail designado não eleva quem não é super_admin.
         foreach (['developer', 'comercial', 'attendant', 'analyst', 'marketing', 'whatsapp_agent', 'client', null] as $role) {
-            $this->assertFalse(RdoRules::canReview($role), "papel '{$role}' não deveria poder revisar");
+            $this->assertFalse(
+                RdoRules::canReview($role, self::REVIEWER, self::REVIEWER),
+                "papel '{$role}' não deveria poder revisar"
+            );
         }
+    }
+
+    public function testIsDesignatedReviewerComparaEmail(): void
+    {
+        $this->assertTrue(RdoRules::isDesignatedReviewer(self::REVIEWER, self::REVIEWER));
+        $this->assertTrue(RdoRules::isDesignatedReviewer('ADMIN@onsolutionsbrasil.com.br', self::REVIEWER));
+        $this->assertFalse(RdoRules::isDesignatedReviewer('outro@ex.test', self::REVIEWER));
+        $this->assertFalse(RdoRules::isDesignatedReviewer(null, self::REVIEWER));
+        $this->assertFalse(RdoRules::isDesignatedReviewer('', self::REVIEWER));
+    }
+
+    public function testGetReviewerEmailUsaOverrideEDefault(): void
+    {
+        $this->assertSame('x@ex.test', RdoRules::getReviewerEmail('x@ex.test'));
+        $this->assertSame('  trim@ex.test  ', '  trim@ex.test  '); // sanity
+        $this->assertSame('trim@ex.test', RdoRules::getReviewerEmail('  trim@ex.test  '));
+        // Sem override cai no default da constante (settings pode não existir no unit).
+        $this->assertSame(RdoRules::DEFAULT_REVIEWER_EMAIL, RdoRules::getReviewerEmail());
     }
 
     // =========================================================================

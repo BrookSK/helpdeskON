@@ -71,11 +71,14 @@ class RdoController extends Controller
         }
     }
 
-    /** Garante que o usuário atual pode aprovar revisões (super_admin). */
+    /**
+     * Garante que o usuário atual é o revisor designado do RDO (super_admin E
+     * e-mail configurado em settings). Só ele aprova/recusa/aprova-tudo.
+     */
     private function requireReviewer(): void
     {
         $user = $this->currentUser();
-        if (!RdoRules::canReview($user['role'] ?? null)) {
+        if (!RdoRules::canReview($user['role'] ?? null, $user['email'] ?? null)) {
             $this->json(['error' => 'Sem permissão para aprovar revisões'], 403);
         }
     }
@@ -219,10 +222,11 @@ class RdoController extends Controller
 
         $companies = (new Company())->getAll();
 
-        // Conta pendências para badge na aba (apenas super_admin): revisões
-        // reais + dias úteis sem relatório (ausências).
+        // Conta pendências para badge na aba (apenas o revisor designado):
+        // revisões reais + dias úteis sem relatório (ausências).
+        $isReviewer   = RdoRules::canReview($user['role'], $user['email'] ?? null);
         $pendingCount = 0;
-        if (RdoRules::canReview($user['role'])) {
+        if ($isReviewer) {
             $pendingCount = count($this->model->getAllPendingReviews())
                           + count($this->collectMissingAbsences());
         }
@@ -231,7 +235,7 @@ class RdoController extends Controller
             'user'         => $user,
             'currentPage'  => 'rdo',
             'isGlobal'     => RdoRules::hasGlobalView($user['role']),
-            'isReviewer'   => RdoRules::canReview($user['role']),
+            'isReviewer'   => $isReviewer,
             'team'         => $team,
             'companies'    => $companies,
             'statuses'     => RdoRules::STATUSES,
