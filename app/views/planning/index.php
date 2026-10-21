@@ -1129,20 +1129,26 @@ function openCreateModal() {
     });
 })();
 
-// Insere um card recém-criado na coluna correta do Kanban, sem recarregar.
-function addCardToBoard(card) {
-    const list = document.querySelector('.kanban-list[data-status="' + card.status + '"]');
-    if (!list) return; // Coluna do status não está visível no filtro atual.
+// Verifica se um card está em atraso (prazo no passado e não concluído/arquivado).
+function cardIsOverdue(card) {
+    return !!card.due_date
+        && (new Date(String(card.due_date).replace(' ', 'T')).getTime() < Date.now())
+        && card.status !== 'completed' && card.status !== 'archived';
+}
 
+// Monta o HTML INTERNO de um card do Kanban a partir do JSON do backend.
+// Espelha exatamente o markup renderizado em PHP no board (inclui tags de
+// categoria e de marco de aprovação), para que criar/atualizar via AJAX gere
+// o mesmo resultado de um reload da página.
+function buildCardInner(card) {
     const priorityLabelsMap = {low:'Baixa',medium:'Média',high:'Alta',urgent:'Urgente'};
     const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 
-    const isOverdue = card.due_date && (new Date(card.due_date).getTime() < Date.now())
-        && card.status !== 'completed' && card.status !== 'archived';
+    const isOverdue = cardIsOverdue(card);
 
     let dueHtml = '';
     if (card.due_date) {
-        const d = new Date(card.due_date);
+        const d = new Date(String(card.due_date).replace(' ', 'T'));
         const dd = String(d.getDate()).padStart(2,'0');
         const mm = String(d.getMonth()+1).padStart(2,'0');
         const hh = String(d.getHours()).padStart(2,'0');
@@ -1150,26 +1156,81 @@ function addCardToBoard(card) {
         dueHtml = '<span class="float-end ' + (isOverdue ? 'text-danger fw-semibold' : '') + '"><i class="bi bi-clock"></i> ' + dd + '/' + mm + ' ' + hh + ':' + mi + '</span>';
     }
 
-    const div = document.createElement('div');
-    div.className = 'kanban-card planning-card' + (isOverdue ? ' overdue' : '');
-    div.dataset.id = card.id;
-    div.setAttribute('onclick', 'openCardModal(' + card.id + ')');
-    div.innerHTML =
-        '<div class="d-flex justify-content-between align-items-start mb-1">' +
+    // Tag de MARCO de aprovação (uma só, da mais avançada para a menos) —
+    // mesma precedência do PHP: aprovado_producao > recusado > aprovado.
+    let milestoneHtml = '';
+    if ((card.status || '') === 'aprovado_producao') {
+        milestoneHtml = '<span class="badge bg-success" style="font-size:0.62rem;" title="Aprovado para produção">Aprov. Produção</span>';
+    } else if (card.scope_rejected_reason) {
+        milestoneHtml = '<span class="badge bg-danger" style="font-size:0.62rem;" title="Escopo recusado pelo cliente">Recusado</span>';
+    } else if (card.scope_approved_at) {
+        milestoneHtml = '<span class="badge bg-success" style="font-size:0.62rem;" title="Escopo aprovado pelo cliente">Aprovado</span>';
+    }
+
+    const categoryHtml = card.category ? categoryBadgeHtml(card.category) : '';
+    const tagsRow = (categoryHtml || milestoneHtml)
+        ? '<div class="mt-1 d-flex flex-wrap gap-1">' + categoryHtml + milestoneHtml + '</div>'
+        : '';
+
+    return '<div class="d-flex justify-content-between align-items-start mb-1">' +
             '<span class="text-muted" style="font-size:0.7rem">#' + card.id + '</span>' +
             '<span class="priority-' + esc(card.priority) + '" style="font-size:0.7rem">' + (priorityLabelsMap[card.priority] || '') + '</span>' +
         '</div>' +
         '<div class="fw-medium" style="font-size:0.82rem;word-break:break-word;">' + esc(card.title) + '</div>' +
-        (card.category ? '<div class="mt-1">' + categoryBadgeHtml(card.category) + '</div>' : '') +
+        tagsRow +
         '<div class="text-muted mt-2" style="font-size:0.7rem">' +
             (card.company_name ? '<span><i class="bi bi-building"></i> ' + esc(card.company_name) + '</span><br>' : '') +
             (card.created_by_name ? '<span><i class="bi bi-person-badge"></i> ' + esc(card.created_by_name) + '</span><br>' : '') +
             '<span><i class="bi bi-person"></i> ' + esc(card.assigned_name || 'Não atribuído') + '</span>' +
             dueHtml +
         '</div>';
+}
+
+// Insere um card recém-criado na coluna correta do Kanban, sem recarregar.
+function addCardToBoard(card) {
+    const list = document.querySelector('.kanban-list[data-status="' + card.status + '"]');
+    if (!list) return; // Coluna do status não está visível no filtro atual.
+
+    const div = document.createElement('div');
+    div.className = 'kanban-card planning-card' + (cardIsOverdue(card) ? ' overdue' : '');
+    div.dataset.id = card.id;
+    div.setAttribute('onclick', 'openCardModal(' + card.id + ')');
+    div.innerHTML = buildCardInner(card);
 
     list.prepend(div);
     updateKanbanCounts();
+}
+
+// Atualiza um card já existente no Kanban a partir do JSON do backend, sem
+// recarregar a página. Reescreve o conteúdo, ajusta a classe de atraso e,
+// se o status mudou, move o card para a coluna correta.
+// Retorna true se conseguiu refletir a mudança no board; false quando o card
+// não está visível no DOM (ex.: filtros escondem a coluna) — nesse caso o
+// chamador deve recarregar para garantir consistência.
+function updateCardOnBoard(card) {
+    const el = document.querySelector('.planning-card[data-id="' + card.id + '"]');
+    if (!el) return false;
+
+    el.innerHTML = buildCardInner(card);
+    el.classList.toggle('overdue', cardIsOverdue(card));
+
+    // Se o status mudou, mover o card para a coluna correspondente.
+    const currentList = el.closest('.kanban-list');
+    const currentStatus = currentList ? currentList.dataset.status : null;
+    if (currentStatus !== card.status) {
+        const targetList = document.querySelector('.kanban-list[data-status="' + card.status + '"]');
+        if (!targetList) {
+            // A coluna do novo status não está visível (filtro). Remove o card
+            // da coluna atual e sinaliza que não há como posicioná-lo aqui.
+            el.remove();
+            updateKanbanCounts();
+            return false;
+        }
+        targetList.prepend(el);
+    }
+
+    updateKanbanCounts();
+    return true;
 }
 
 // Mostra o campo da segunda branch e esconde o botão "+ segunda branch".
@@ -1512,8 +1573,22 @@ function saveCard() {
         })
         .then(data => {
             if (data.success) {
-                alert('Card salvo com sucesso!');
-                location.reload();
+                // Fecha o modal de detalhe (se estiver aberto) e atualiza apenas
+                // o card afetado no board — sem recarregar a página inteira.
+                const modalEl = document.getElementById('cardDetailModal');
+                if (modalEl) {
+                    const modal = bootstrap.Modal.getInstance(modalEl);
+                    if (modal) modal.hide();
+                }
+                // O endpoint devolve o card já atualizado (data.card). Usamos ele
+                // para refletir a mudança no DOM. Se o card não estiver visível
+                // (filtros escondendo a coluna), caímos no reload como garantia.
+                const reflected = data.card ? updateCardOnBoard(data.card) : false;
+                if (!reflected) {
+                    location.reload();
+                    return;
+                }
+                if (typeof showToast === 'function') showToast('Card salvo com sucesso!');
             } else {
                 alert('Erro ao salvar: ' + (data.error || 'Erro desconhecido'));
             }
