@@ -1376,22 +1376,33 @@ function renderReviewItem(r) {
         };
         const changed = Object.keys(proposed).filter(k => k !== 'has_occurrence');
         if (changed.length) {
+            // "Campos alterados" começa RECOLHIDO; a seta expande/recolhe só
+            // este item (id único via r.id). O modal de aprovação continua
+            // mostrando o diff sempre expandido.
+            const diffId = 'diff-' + r.id;
             diffHtml = `<div class="mt-2 small">
-                <div class="fw-semibold mb-1">Campos alterados:</div>
-                <table class="table table-sm table-bordered mb-0">
-                    <thead class="table-light"><tr><th>Campo</th><th class="text-danger">Atual</th><th class="text-success">Proposto</th></tr></thead>
-                    <tbody>` +
-                changed.map(k => {
-                    const lbl  = fieldLabels[k] || k;
-                    const cur  = current[k]  ?? '—';
-                    const prop = proposed[k] ?? '—';
-                    return `<tr>
-                        <td class="text-muted">${escapeHtml(lbl)}</td>
-                        <td class="text-danger">${escapeHtml(String(cur)).replace(/\n/g,'<br>') || '<em>vazio</em>'}</td>
-                        <td class="text-success">${escapeHtml(String(prop)).replace(/\n/g,'<br>') || '<em>vazio</em>'}</td>
-                    </tr>`;
-                }).join('') +
-                `</tbody></table></div>`;
+                <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none fw-semibold"
+                        onclick="toggleDiff('${diffId}', this)">
+                    <i class="bi bi-chevron-down" id="${diffId}-icon"></i>
+                    Campos alterados (${changed.length})
+                </button>
+                <div id="${diffId}" style="display:none">
+                    <table class="table table-sm table-bordered mb-0 mt-1">
+                        <thead class="table-light"><tr><th>Campo</th><th class="text-danger">Atual</th><th class="text-success">Proposto</th></tr></thead>
+                        <tbody>` +
+                    changed.map(k => {
+                        const lbl  = fieldLabels[k] || k;
+                        const cur  = current[k]  ?? '—';
+                        const prop = proposed[k] ?? '—';
+                        return `<tr>
+                            <td class="text-muted">${escapeHtml(lbl)}</td>
+                            <td class="text-danger">${escapeHtml(String(cur)).replace(/\n/g,'<br>') || '<em>vazio</em>'}</td>
+                            <td class="text-success">${escapeHtml(String(prop)).replace(/\n/g,'<br>') || '<em>vazio</em>'}</td>
+                        </tr>`;
+                    }).join('') +
+                    `</tbody></table>
+                </div>
+            </div>`;
         }
     }
 
@@ -1410,6 +1421,19 @@ function renderReviewItem(r) {
             </div>
         </div>
     </div>`;
+}
+
+// Expande/recolhe a tabela "Campos alterados" de um item e gira a seta.
+function toggleDiff(diffId, btn) {
+    const box  = document.getElementById(diffId);
+    const icon = document.getElementById(diffId + '-icon');
+    if (!box) return;
+    const open = box.style.display === 'none';
+    box.style.display = open ? '' : 'none';
+    if (icon) {
+        icon.classList.toggle('bi-chevron-down', !open);
+        icon.classList.toggle('bi-chevron-up', open);
+    }
 }
 
 // Mostra mais PENDENCIAS_PAGE itens do card de uma pessoa.
