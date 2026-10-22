@@ -1000,10 +1000,18 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
 .cal-month-header-cell:last-child { border-right: none; }
 .cal-month-week { border-bottom: 1px solid #e9ecef; }
 .cal-month-days-row { display: grid; grid-template-columns: repeat(7, 1fr); border-bottom: 1px solid #f0f0f0; }
-.cal-month-day-num { padding: 6px 8px 4px; font-size: 0.78rem; font-weight: 600; color: #555; border-right: 1px solid #f0f0f0; min-height: 28px; }
+.cal-month-day-num { padding: 6px 8px 4px; font-size: 0.78rem; font-weight: 600; color: #555; border-right: 1px solid #f0f0f0; min-height: 28px; display: flex; align-items: center; justify-content: space-between; gap: 4px; }
 .cal-month-day-num:last-child { border-right: none; }
 .cal-month-day-num.other-month { opacity: 0.3; }
 .cal-month-day-num.today .day-number { background: var(--primary, #00BFA6); color: #fff; border-radius: 50%; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.75rem; }
+/* Botão "+" para criar card com prazo no dia (aparece no hover do dia) */
+.cal-day-add { border: none; background: transparent; color: var(--primary, #00BFA6); cursor: pointer; padding: 0; width: 20px; height: 20px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.72rem; line-height: 1; opacity: 0; transition: opacity 0.12s, background 0.12s; flex-shrink: 0; }
+.cal-month-days-row .cal-month-day-num:hover .cal-day-add { opacity: 1; }
+.cal-day-add:hover { background: var(--primary, #00BFA6); color: #fff; }
+/* Em telas touch não há hover: deixa o "+" sempre visível, discreto */
+@media (hover: none) {
+    .cal-day-add { opacity: 0.5; }
+}
 .cal-month-events { position: relative; min-height: 30px; padding: 2px 0; overflow: visible; }
 /* Barra de evento com extensão multi-dia (estilo Google Agenda) */
 .cal-span-event { position: absolute; height: 22px; display: flex; align-items: center; gap: 5px; padding: 2px 8px; cursor: pointer; overflow: hidden; white-space: nowrap; transition: filter 0.15s, box-shadow 0.15s; z-index: 1; }
@@ -1210,22 +1218,42 @@ function updateKanbanCounts() {
 }
 
 // === MODALS ===
-function openCreateModal() {
-    // Limpa o autocomplete de predecessor do form de criar (sem resíduo do uso
-    // anterior). O form de criação não exclui nenhum card (card ainda não existe).
+// Formata uma data LOCAL como YYYY-MM-DD (sem o deslocamento de fuso que o
+// toISOString causaria perto da meia-noite).
+function calYmd(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+// Reseta o autocomplete de predecessor do form de criar (sem resíduo do uso
+// anterior). O form de criação não exclui nenhum card (card ainda não existe).
+function resetCreatePredecessor() {
     const form = document.getElementById('createCardForm');
-    if (form) {
-        const root = form.querySelector('[data-pred-root]');
-        if (root) {
-            const idEl = root.querySelector('.pred-input-id');
-            const searchEl = root.querySelector('.pred-input-search');
-            const resEl = root.querySelector('.pred-results');
-            if (idEl) idEl.value = '';
-            if (searchEl) searchEl.value = '';
-            if (resEl) { resEl.style.display = 'none'; resEl.innerHTML = ''; }
-            delete root.dataset.excludeId;
-        }
-    }
+    if (!form) return;
+    const root = form.querySelector('[data-pred-root]');
+    if (!root) return;
+    const idEl = root.querySelector('.pred-input-id');
+    const searchEl = root.querySelector('.pred-input-search');
+    const resEl = root.querySelector('.pred-results');
+    if (idEl) idEl.value = '';
+    if (searchEl) searchEl.value = '';
+    if (resEl) { resEl.style.display = 'none'; resEl.innerHTML = ''; }
+    delete root.dataset.excludeId;
+}
+
+function openCreateModal() {
+    resetCreatePredecessor();
+    // Garante que o prazo não fica preso de uma abertura anterior pelo atalho do dia.
+    const dueEl = document.querySelector('#createCardForm [name="due_date"]');
+    if (dueEl) dueEl.value = '';
+    new bootstrap.Modal(document.getElementById('createCardModal')).show();
+}
+
+// Atalho do calendário: abre o modal de criar card já com o PRAZO DE ENTREGA
+// (due_date) preenchido no dia clicado. Hora padrão 18:00 (fim do dia útil).
+function openCreateForDate(ymd) {
+    resetCreatePredecessor();
+    const dueEl = document.querySelector('#createCardForm [name="due_date"]');
+    if (dueEl) dueEl.value = ymd + 'T18:00';
     new bootstrap.Modal(document.getElementById('createCardModal')).show();
 }
 
@@ -2700,8 +2728,14 @@ function renderCalendar(start, end) {
             weekDates.forEach((d, i) => {
                 const isOther = d.getMonth() !== calDate.getMonth();
                 const isToday = d.getTime() === today.getTime();
+                const ymd = calYmd(d);
+                // Botão "+" (aparece no hover do dia): cria um card já com o prazo
+                // de entrega preenchido com este dia. Igual ao atalho da agenda.
                 html += `<div class="cal-month-day-num ${isOther?'other-month':''} ${isToday?'today':''}">
                     <span class="day-number">${d.getDate()}</span>
+                    <button type="button" class="cal-day-add" title="Novo card com prazo ${d.getDate()}" onclick="openCreateForDate('${ymd}')" aria-label="Criar card neste dia">
+                        <i class="bi bi-plus-lg"></i>
+                    </button>
                 </div>`;
             });
             html += '</div>';
