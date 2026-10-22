@@ -56,3 +56,7 @@ tests-e2e/.artifacts/
 test-results/
 playwright-report/
 csrf_result.txt
+
+# Documentação de trabalho (OpenSpec, orçamentos e rascunhos); não versionar
+openspec/
+.outbox/

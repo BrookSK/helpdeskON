@@ -18,7 +18,21 @@ if ($rawSummary !== '') {
         $minutesDecoded = $decoded;
     }
 }
+$canManage = empty($isPublic);
+$minutesSentAt = $rec['minutes_sent_at'] ?? null;
+// Link público: a minuta só aparece depois de revisada e enviada ao cliente.
+if (!$canManage && empty($minutesSentAt)) $minutesDecoded = null;
 $minutesJson = json_encode($minutesDecoded, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+$recInfo = [
+    'canManage' => $canManage,
+    'segmentCount' => (int)($segmentCount ?? 0),
+    'transcribeError' => (string)($rec['transcribe_error'] ?? ''),
+    'minutesSentAt' => $minutesSentAt ? date('d/m/Y H:i', strtotime($minutesSentAt)) : null,
+    'minutesEditedAt' => !empty($rec['minutes_edited_at']) ? date('d/m/Y H:i', strtotime($rec['minutes_edited_at'])) : null,
+    'csrf' => $canManage ? csrf_token() : '',
+    'canProposals' => !empty($canProposals),
+    'proposal' => !empty($linkedProposal) ? ['id' => (int)$linkedProposal['id'], 'url' => $base . '/proposal/edit/' . (int)$linkedProposal['id']] : null,
+];
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -76,12 +90,24 @@ $minutesJson = json_encode($minutesDecoded, JSON_UNESCAPED_UNICODE | JSON_UNESCA
         .minutes-list li:last-child { border-bottom:none; }
         .minutes-list li::before { content:''; position:absolute; left:4px; top:10px;
                                    width:6px; height:6px; border-radius:50%; background:var(--brand); }
-        .minutes-empty { color:#9aa2c0; font-size:.82rem; font-style:italic; }    </style>
+        .minutes-empty { color:#9aa2c0; font-size:.82rem; font-style:italic; }
+        .min-state { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:12px; font-size:.8rem; }
+        .badge-draft { background:#e8a838; color:#1a1c2e; border-radius:6px; padding:2px 8px; font-weight:700; }
+        .badge-sent { background:var(--brand); color:#fff; border-radius:6px; padding:2px 8px; font-weight:700; }
+        .min-actions { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px; }
+        .min-actions .btn { font-size:.78rem; }
+        .min-form label { display:block; font-size:.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--brand); margin:10px 0 4px; }
+        .min-form textarea { width:100%; background:var(--panel2); color:#e8eaf1; border:1px solid #33375a; border-radius:8px; padding:8px; font-size:.84rem; }
+        .min-form .hint { font-size:.72rem; color:#9aa2c0; }
+        .tr-state { font-size:.86rem; }    </style>
 </head>
 <body>
 <div class="top">
     <i class="bi bi-camera-reels" style="color:var(--brand);font-size:1.3rem;"></i>
     <h1><?= $title ?></h1>
+    <?php if ($canManage && !empty($rec['is_incomplete'])): ?>
+    <span class="badge-draft" title="Quem gravava fechou a aba sem parar. A gravação foi publicada com o que chegou ao servidor.">Gravação incompleta</span>
+    <?php endif; ?>
     <span class="sp"></span>
     <?php if (empty($isPublic)): ?>
     <a href="<?= $base ?>/videocall/myRecordings" class="btn btn-sm btn-outline-light"><i class="bi bi-arrow-left"></i> Gravações</a>
@@ -112,16 +138,35 @@ $minutesJson = json_encode($minutesDecoded, JSON_UNESCAPED_UNICODE | JSON_UNESCA
         </div>
         <div class="tab-body" id="tab-tr">
             <div id="tr-list"></div>
-            <div id="tr-empty" class="empty" style="display:none;">
-                <p>Esta gravação ainda não foi transcrita.</p>
-                <button class="btn btn-sm btn-brand" id="tr-btn" onclick="startTranscription()"><i class="bi bi-magic"></i> Transcrever com IA</button>
-            </div>
+            <div id="tr-empty" class="empty" style="display:none;"></div>
         </div>
         <div class="tab-body" id="tab-rs" style="display:none;">
             <div id="rs-empty" class="muted" style="font-size:.86rem;">Sem resumo ainda. Ele é gerado automaticamente junto com a transcrição.</div>
             <div id="rs-body" class="minutes-resumo" style="display:none;"></div>
         </div>
         <div class="tab-body" id="tab-sm" style="display:none;">
+            <div id="sm-state" class="min-state" style="display:none;"></div>
+            <?php if ($canManage): ?>
+            <div id="sm-actions" class="min-actions" style="display:none;">
+                <button class="btn btn-sm btn-outline-light" id="min-edit-btn" onclick="editMinutes()"><i class="bi bi-pencil"></i> Editar</button>
+                <button class="btn btn-sm btn-outline-light" id="min-regen-btn" onclick="regenerateMinutes()"><i class="bi bi-arrow-repeat"></i> Gerar de novo</button>
+                <button class="btn btn-sm btn-brand" id="min-send-btn" onclick="sendMinutes()"><i class="bi bi-send"></i> Enviar ao cliente</button>
+                <?php if (!empty($canProposals)): ?>
+                <button class="btn btn-sm btn-outline-light" id="min-proposal-btn" onclick="generateProposal()"><i class="bi bi-file-earmark-text"></i> Gerar proposta</button>
+                <a class="btn btn-sm btn-outline-light" id="min-proposal-link" style="display:none;"><i class="bi bi-box-arrow-up-right"></i> Ver proposta</a>
+                <?php endif; ?>
+            </div>
+            <form id="sm-form" class="min-form" style="display:none;" onsubmit="saveMinutesForm(event)">
+                <label for="f-resumo">Resumo</label>
+                <textarea id="f-resumo" rows="4"></textarea>
+                <div class="hint">Nos campos abaixo, um item por linha. Deixe vazio o que não foi tratado na reunião.</div>
+                <div id="f-lists"></div>
+                <div class="min-actions" style="margin-top:12px;">
+                    <button type="submit" class="btn btn-sm btn-brand" id="min-save-btn"><i class="bi bi-check2"></i> Salvar</button>
+                    <button type="button" class="btn btn-sm btn-outline-light" onclick="cancelEditMinutes()">Cancelar</button>
+                </div>
+            </form>
+            <?php endif; ?>
             <div id="sm-empty" class="muted" style="font-size:.86rem;">Sem minuta ainda. Ela é gerada automaticamente junto com a transcrição.</div>
             <div id="sm-minutes" style="display:none;">
                 <div class="minutes-section">
@@ -140,6 +185,7 @@ $minutesJson = json_encode($minutesDecoded, JSON_UNESCAPED_UNICODE | JSON_UNESCA
                     <div class="minutes-label"><i class="bi bi-arrow-right-circle"></i> Próximos Passos</div>
                     <ul id="min-proximos" class="minutes-list"></ul>
                 </div>
+                <div id="min-comercial"></div>
             </div>
         </div>
         <div class="toolbar">
@@ -160,7 +206,16 @@ let segments = <?= $segJson ?: '[]' ?>;
 // null quando ainda não gerado. summary (legado) mantido apenas para retrocompat.
 let minutes = <?= $minutesJson ?: 'null' ?>;
 let status = '<?= $status ?>';
+const INFO = <?= json_encode($recInfo, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 const player = document.getElementById('player');
+
+// POST com o token CSRF (os endpoints de transcrição e minuta exigem login).
+function postJson(url, body) {
+    const opts = { method: 'POST', headers: { 'X-CSRF-Token': INFO.csrf } };
+    if (body instanceof FormData) opts.body = body;
+    else if (body !== undefined) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+    return fetch(url, opts).then(r => r.json().catch(() => ({ error: 'Resposta inválida do servidor (' + r.status + ').' })));
+}
 
 // -------------------------------------------------------------------
 // Seek em qualquer minutagem.
@@ -185,8 +240,8 @@ function renderSegments() {
     if (!segments || !segments.length) {
         list.innerHTML = '';
         empty.style.display = 'block';
-        // Se está processando, mostra spinner.
-        if (status === 'processing') { empty.innerHTML = '<p><span class="spin"></span> Transcrevendo… isso pode levar alguns minutos em reuniões longas.</p>'; pollStatus(); }
+        empty.innerHTML = transcriptionStateHtml();
+        if (INFO.canManage && (status === 'queued' || status === 'processing')) pollStatus();
         return;
     }
     empty.style.display = 'none';
@@ -194,6 +249,24 @@ function renderSegments() {
         `<div class="seg" id="seg-${i}" onclick="seek(${s.start})"><span class="t">${fmt(s.start)}</span><span>${esc(s.text)}</span></div>`
     ).join('');
 }
+// Estado da transcrição quando ainda não há texto: na fila, transcrevendo, falhou ou manual.
+function transcriptionStateHtml() {
+    const manualBtn = INFO.canManage
+        ? '<button class="btn btn-sm btn-brand" id="tr-btn" onclick="startTranscription()"><i class="bi bi-magic"></i> Transcrever com IA</button>'
+        : '';
+    if (status === 'queued') {
+        return '<p class="tr-state"><span class="spin"></span> Na fila de transcrição. O servidor transcreve o áudio em alguns minutos.</p>';
+    }
+    if (status === 'processing') {
+        return '<p class="tr-state"><span class="spin"></span> Transcrevendo no servidor… em reuniões longas pode levar alguns minutos.</p>';
+    }
+    if (status === 'error') {
+        const msg = INFO.transcribeError || 'A transcrição falhou.';
+        return '<p class="text-danger tr-state">Transcrição falhou: ' + esc(msg) + '</p>' + manualBtn;
+    }
+    return '<p>Esta gravação ainda não foi transcrita.</p>' + manualBtn;
+}
+
 function seek(t) {
     try { player.currentTime = t; } catch (e) {}
     player.play().catch(() => {});
@@ -244,13 +317,34 @@ function renderMinutes() {
     // --- Aba Minuta ---
     const smEmpty   = document.getElementById('sm-empty');
     const smMinutes = document.getElementById('sm-minutes');
+    const smState   = document.getElementById('sm-state');
+    const smActions = document.getElementById('sm-actions');
     if (!minutes) {
         smEmpty.style.display = '';
         smMinutes.style.display = 'none';
+        smState.style.display = 'none';
+        if (smActions) smActions.style.display = 'none';
         return;
     }
     smEmpty.style.display = 'none';
     smMinutes.style.display = '';
+    if (INFO.canManage) {
+        smState.style.display = 'flex';
+        smState.innerHTML = INFO.minutesSentAt
+            ? '<span class="badge-sent">Enviada</span><span class="muted">em ' + esc(INFO.minutesSentAt) + '</span>'
+            : '<span class="badge-draft">Rascunho</span><span class="muted">Revise antes de enviar ao cliente.</span>';
+        if (INFO.minutesEditedAt) smState.innerHTML += '<span class="muted">· editada em ' + esc(INFO.minutesEditedAt) + '</span>';
+        if (smActions) smActions.style.display = 'flex';
+        const propLink = document.getElementById('min-proposal-link');
+        if (propLink && INFO.proposal) { propLink.href = INFO.proposal.url; propLink.style.display = ''; }
+        const sendBtn = document.getElementById('min-send-btn');
+        if (sendBtn) sendBtn.innerHTML = INFO.minutesSentAt ? '<i class="bi bi-send"></i> Reenviar ao cliente' : '<i class="bi bi-send"></i> Enviar ao cliente';
+    }
+    const com = document.getElementById('min-comercial');
+    com.innerHTML = COMMERCIAL_FIELDS.filter(([k]) => minutes[k] && minutes[k].length).map(([k, label, icon]) =>
+        `<div class="minutes-section"><div class="minutes-label"><i class="bi ${icon}"></i> ${label}</div>`
+        + `<ul class="minutes-list">${minutes[k].map(i => `<li>${esc(i)}</li>`).join('')}</ul></div>`
+    ).join('');
 
     const renderList = (id, arr, emptyMsg) => {
         const ul = document.getElementById(id);
@@ -265,6 +359,94 @@ function renderMinutes() {
     renderList('min-topicos-nr', minutes.topicos_nao_resolvidos, 'Nenhum tópico em aberto.');
     renderList('min-decisoes',   minutes.decisoes,               'Nenhuma decisão registrada.');
     renderList('min-proximos',   minutes.proximos_passos,        'Nenhum próximo passo identificado.');
+}
+
+// Campos de lista da ata (mesma ordem de MeetingMinutesRules::LIST_FIELDS).
+const LIST_FIELDS = [
+    ['topicos', 'Tópicos discutidos'], ['topicos_nao_resolvidos', 'Tópicos não resolvidos'],
+    ['decisoes', 'Decisões tomadas'], ['proximos_passos', 'Próximos passos'],
+    ['necessidades', 'Necessidades do cliente'], ['escopo', 'Escopo desejado'], ['prazos', 'Prazos citados'],
+    ['orcamento', 'Orçamento citado'], ['decisores', 'Decisores'],
+];
+const COMMERCIAL_FIELDS = [
+    ['necessidades', 'Necessidades do Cliente', 'bi-person-check'], ['escopo', 'Escopo Desejado', 'bi-box'],
+    ['prazos', 'Prazos Citados', 'bi-calendar-event'], ['orcamento', 'Orçamento Citado', 'bi-cash-coin'],
+    ['decisores', 'Decisores', 'bi-people'],
+];
+
+function editMinutes() {
+    if (!minutes) return;
+    document.getElementById('f-resumo').value = minutes.resumo || '';
+    document.getElementById('f-lists').innerHTML = LIST_FIELDS.map(([k, label]) =>
+        `<label for="f-${k}">${label}</label><textarea id="f-${k}" rows="3">${esc((minutes[k] || []).join('\n'))}</textarea>`
+    ).join('');
+    document.getElementById('sm-form').style.display = 'block';
+    document.getElementById('sm-minutes').style.display = 'none';
+    document.getElementById('sm-actions').style.display = 'none';
+}
+function cancelEditMinutes() {
+    document.getElementById('sm-form').style.display = 'none';
+    renderMinutes();
+}
+async function saveMinutesForm(ev) {
+    ev.preventDefault();
+    const btn = document.getElementById('min-save-btn');
+    const structured = { resumo: document.getElementById('f-resumo').value };
+    LIST_FIELDS.forEach(([k]) => {
+        structured[k] = document.getElementById('f-' + k).value.split('\n').map(x => x.trim()).filter(Boolean);
+    });
+    btn.disabled = true;
+    const r = await postJson(`${BASE}/videocall/saveMinutes/${REC_TOKEN}`, { structured });
+    btn.disabled = false;
+    if (r.error) { alert(r.error); return; }
+    minutes = structured;
+    INFO.minutesEditedAt = r.edited_at ? new Date(r.edited_at.replace(' ', 'T')).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : INFO.minutesEditedAt;
+    document.getElementById('sm-form').style.display = 'none';
+    renderMinutes();
+}
+async function regenerateMinutes() {
+    if (!confirm('Gerar a minuta de novo a partir da transcrição? As edições feitas serão substituídas.')) return;
+    const btn = document.getElementById('min-regen-btn');
+    btn.disabled = true; btn.innerHTML = '<span class="spin" style="width:14px;height:14px;border-width:2px;"></span> Gerando…';
+    const r = await postJson(`${BASE}/videocall/generateMinutes/${REC_TOKEN}`);
+    btn.disabled = false; btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Gerar de novo';
+    if (r.error) { alert(r.error); return; }
+    if (r.structured) minutes = r.structured;
+    INFO.minutesEditedAt = null;
+    renderMinutes();
+}
+async function sendMinutes() {
+    const again = !!INFO.minutesSentAt;
+    if (!confirm(again ? 'Reenviar a minuta ao cliente e aos participantes?' : 'Enviar a minuta ao cliente e aos participantes por WhatsApp e e-mail?')) return;
+    const btn = document.getElementById('min-send-btn');
+    btn.disabled = true;
+    const r = await postJson(`${BASE}/videocall/sendMinutes/${REC_TOKEN}`);
+    btn.disabled = false;
+    if (r.error) { alert(r.error); renderMinutes(); return; }
+    INFO.minutesSentAt = r.sent_at ? new Date(r.sent_at.replace(' ', 'T')).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+    alert('Minuta enviada: ' + (r.sent_whats || 0) + ' WhatsApp e ' + (r.sent_email || 0) + ' e-mail.');
+    renderMinutes();
+}
+
+// Cria o rascunho da proposta a partir da minuta e abre o editor de proposta.
+async function generateProposal(confirmed) {
+    if (!confirmed && INFO.proposal && !confirm('Esta gravação já tem uma proposta. Criar outra mesmo assim?')) return;
+    const btn = document.getElementById('min-proposal-btn');
+    btn.disabled = true; btn.innerHTML = '<span class="spin" style="width:14px;height:14px;border-width:2px;"></span> Gerando…';
+    const fd = new FormData();
+    fd.append('rec', REC_TOKEN);
+    if (confirmed || INFO.proposal) fd.append('confirm', '1');
+    const r = await postJson(`${BASE}/proposal/fromRecording`, fd);
+    btn.disabled = false; btn.innerHTML = '<i class="bi bi-file-earmark-text"></i> Gerar proposta';
+    if (r.existing_id) {
+        INFO.proposal = { id: r.existing_id, url: r.edit_url };
+        renderMinutes();
+        if (confirm('Esta gravação já tem uma proposta. Criar outra mesmo assim?')) return generateProposal(true);
+        return;
+    }
+    if (r.error) { alert(r.error); return; }
+    if (r.warning) alert(r.warning);
+    window.location.href = r.edit_url;
 }
 
 function copyTranscript() {
@@ -354,14 +536,12 @@ function trProgress(msg) {
 }
 
 async function startTranscription() {
-    const btn = document.getElementById('tr-btn');
-    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Transcrevendo…'; }
-    status = 'processing';
     trProgress('Preparando o áudio da gravação…');
     try {
         // 1) Baixa o arquivo da gravação e decodifica o áudio (no navegador).
         const resp = await fetch(VIDEO_URL);
         const buf = await resp.arrayBuffer();
+        if (!resp.ok) throw new Error('Não foi possível baixar a gravação.');
         const AC = window.AudioContext || window.webkitAudioContext;
         const actx = new AC();
         const audio = await actx.decodeAudioData(buf.slice(0));
@@ -385,7 +565,7 @@ async function startTranscription() {
             fd.append('audio', wav, 'parte.wav');
             fd.append('offset', String(accOffset)); // offset acumulado real
             fd.append('index', String(i));
-            const r = await fetch(`${BASE}/videocall/transcribeChunk/${REC_TOKEN}`, { method: 'POST', body: fd }).then(x => x.json());
+            const r = await postJson(`${BASE}/videocall/transcribeChunk/${REC_TOKEN}`, fd);
             if (r.error) throw new Error(r.error);
             allSegs = allSegs.concat(r.segments || []);
             accOffset += chunkDuration; // avança pelo tempo real do pedaço
@@ -394,10 +574,7 @@ async function startTranscription() {
 
         // 3) Salva a transcrição montada e gera a minuta no servidor.
         trProgress('Gerando a minuta…');
-        const save = await fetch(`${BASE}/videocall/saveTranscript/${REC_TOKEN}`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ segments: allSegs })
-        }).then(x => x.json());
+        const save = await postJson(`${BASE}/videocall/saveTranscript/${REC_TOKEN}`, { segments: allSegs });
         if (save.error) throw new Error(save.error);
 
         segments = allSegs;
@@ -412,7 +589,6 @@ async function startTranscription() {
         document.getElementById('tr-empty').style.display = 'block';
         document.getElementById('tr-empty').innerHTML = '<p class="text-danger">Falha ao transcrever: ' + esc(e.message || 'erro') + '</p>'
             + '<button class="btn btn-sm btn-brand" onclick="startTranscription()">Tentar de novo</button>';
-        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-magic"></i> Transcrever com IA'; }
     }
 }
 
@@ -466,16 +642,20 @@ function pollStatus() {
         try {
             const r = await fetch(`${BASE}/videocall/recordingInfo/${REC_TOKEN}`).then(x => x.json());
             if (r.status === 'done') {
-                clearInterval(pollTimer); pollTimer = null;
                 segments = r.transcript_json || [];
-                // r.minutes é o objeto estruturado da ata (novo); fallback para null.
-                minutes = (r.minutes && typeof r.minutes === 'object') ? r.minutes : null;
+                minutes = (r.minutes_structured && typeof r.minutes_structured === 'object') ? r.minutes_structured : null;
                 status = 'done';
                 renderSegments(); renderMinutes();
+                // A minuta sai logo depois da transcrição: espera por ela também.
+                if (minutes || r.minutes_status === 'error') { clearInterval(pollTimer); pollTimer = null; }
             } else if (r.status === 'error') {
                 clearInterval(pollTimer); pollTimer = null;
-                document.getElementById('tr-empty').innerHTML = '<p class="text-danger">' + esc(r.error_message || 'A transcrição falhou.') + '</p>'
-                    + '<button class="btn btn-sm btn-brand" onclick="startTranscription()">Tentar de novo</button>';
+                status = 'error';
+                INFO.transcribeError = r.error_message || '';
+                renderSegments();
+            } else if (r.status !== status) {
+                status = r.status;
+                renderSegments();
             }
         } catch (e) {}
     }, 4000);

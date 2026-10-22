@@ -66,6 +66,9 @@ export default defineConfig({
   webServer: {
     command: `"${PHP}" -S ${HOST}:${PORT} tests-e2e/server-router.php`,
     url: BASE_URL + '/login',
+    // O long-poll da sala segura uma requisição por 6 s; com um só worker o
+    // segundo participante não consegue entrar. (Ignorado no Windows.)
+    env: { PHP_CLI_SERVER_WORKERS: '4' },
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,
     stdout: 'ignore',
