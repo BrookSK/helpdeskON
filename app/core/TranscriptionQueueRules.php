@@ -88,6 +88,39 @@ class TranscriptionQueueRules
         return ['segments' => $out, 'text' => implode("\n", $texts)];
     }
 
+    /**
+     * Limpa os trechos da transcrição: remove vazios e só pontuação (silêncio
+     * vira "..." no Whisper), ordena por início e tira repetições consecutivas.
+     */
+    public static function cleanSegments($segments): array
+    {
+        if (!is_array($segments)) return [];
+        $clean = [];
+        foreach ($segments as $s) {
+            $text = trim((string)($s['text'] ?? ''));
+            // remove segmentos vazios ou compostos só de pontuação/reticências
+            $stripped = preg_replace('/[\p{P}\p{Z}\s]+/u', '', $text);
+            if ($stripped === '' || $stripped === null) continue;
+            $start = (float)($s['start'] ?? 0);
+            $end = (float)($s['end'] ?? $start);
+            if ($end < $start) $end = $start;
+            $clean[] = ['start' => $start, 'end' => $end, 'text' => $text];
+        }
+        // ordena por início (e por fim como desempate)
+        usort($clean, static function ($a, $b) {
+            if ($a['start'] === $b['start']) return $a['end'] <=> $b['end'];
+            return $a['start'] <=> $b['start'];
+        });
+        // remove repetições consecutivas do mesmo texto no ~mesmo tempo
+        $out = [];
+        foreach ($clean as $seg) {
+            $prev = end($out);
+            if ($prev !== false && $prev['text'] === $seg['text'] && abs($prev['start'] - $seg['start']) < 1.0) continue;
+            $out[] = $seg;
+        }
+        return $out;
+    }
+
     /** Texto plano com marca de tempo [mm:ss] ou [h:mm:ss], um trecho por linha. */
     public static function transcriptText(array $segments): string
     {

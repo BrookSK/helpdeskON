@@ -34,6 +34,59 @@ class CronController extends Controller
     }
 
     /**
+     * Token obrigatório: recusa a chamada se cron_token não estiver configurado
+     * ou não conferir. Usado pelas rotinas que gastam com a API da OpenAI.
+     */
+    private function validateStrictToken()
+    {
+        $token = (string)($_GET['token'] ?? ($_POST['token'] ?? ''));
+        $expected = (string)Config::get('cron_token');
+        if ($expected === '' || !hash_equals($expected, $token)) {
+            $this->json(['error' => 'Token inválido'], 403);
+        }
+    }
+
+    /**
+     * GET /cron/transcribeRecordings?token=XXX
+     * Transcreve no servidor os segmentos de áudio das gravações na fila, em
+     * lotes, e gera a minuta em rascunho quando a gravação inteira termina.
+     */
+    public function transcribeRecordings()
+    {
+        $this->validateStrictToken();
+        @set_time_limit(900);
+        $stats = $this->runTranscriptionQueue();
+        $this->json(['success' => true, 'stats' => $stats]);
+    }
+
+    /** Uma execução da fila de transcrição (lote limitado). */
+    private function runTranscriptionQueue()
+    {
+        $transcriber = new RecordingTranscriber(new RecordingSegment(), new OpenAiClient(), function ($recToken) {
+            (new VideocallController())->completeTranscription($recToken);
+        });
+        return $transcriber->run();
+    }
+
+    /**
+     * Gravações no servidor penduradas em crons já agendados: publica sessões
+     * abandonadas e, com cron_token configurado, roda um lote da transcrição.
+     */
+    private function processRecordingQueues()
+    {
+        $out = ['abandoned' => 0, 'transcription' => null];
+        try { $out['abandoned'] = (new VideocallController())->finalizeAbandonedSessions(); } catch (\Throwable $e) {
+            Logger::error('Falha ao publicar sessões de gravação abandonadas', ['error' => $e->getMessage()]);
+        }
+        if ((string)Config::get('cron_token') !== '') {
+            try { $out['transcription'] = $this->runTranscriptionQueue(); } catch (\Throwable $e) {
+                Logger::error('Falha na fila de transcrição', ['error' => $e->getMessage()]);
+            }
+        }
+        return $out;
+    }
+
+    /**
      * GET /cron/syncAll?token=XXX
      * Executa sincronização completa: Buffer + Meta + LinkedIn + Snapshot.
      */
@@ -528,6 +581,7 @@ class CronController extends Controller
         try { (new VideocallController())->recoverOrphanRecordings(); } catch (\Throwable $e) {
             Logger::error('runProspecting: falha ao finalizar gravações órfãs', ['error' => $e->getMessage()]);
         }
+        $this->processRecordingQueues();
 
         // 7) Régua de homologação (48h): 3 contatos (0h/24h/~42h) + liberação
         //    automática para produção ao fim das 48h sem manifestação do cliente.
@@ -566,7 +620,8 @@ class CronController extends Controller
         $this->validateToken();
         @set_time_limit(300);
         $recovered = (new VideocallController())->recoverOrphanRecordings();
-        $this->json(['success' => true, 'recovered' => (int) $recovered]);
+        $queues = $this->processRecordingQueues();
+        $this->json(['success' => true, 'recovered' => (int) $recovered] + $queues);
     }
 
     /** Dispara os lembretes das reuniões próximas. Retorna a quantidade enviada. */
@@ -1171,6 +1226,8 @@ class CronController extends Controller
                 'GET /cron/checkMissingReports?token=XXX' => 'Verifica profissionais sem Relatório Diário e notifica via WhatsApp/e-mail',
                 'GET /cron/homologacaoRegua?token=XXX' => 'Régua de homologação (48h): 3 contatos + liberação automática para produção',
                 'GET /cron/warrantyWarnings?token=XXX' => 'Aviso 15 dias antes do fim da garantia do projeto (cliente + gestor)',
+                'GET /cron/finalizeRecordings?token=XXX' => 'Publica gravações órfãs e sessões abandonadas; com token, roda um lote da transcrição',
+                'GET /cron/transcribeRecordings?token=XXX' => 'Transcrição no servidor dos segmentos de áudio (a cada 5 min; token obrigatório)',
             ],
             'tip' => 'Configure cron_token em Configurações para proteger este endpoint.',
         ]);

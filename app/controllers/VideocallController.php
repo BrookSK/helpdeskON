@@ -1069,9 +1069,7 @@ class VideocallController extends Controller
     /** Consulta o estado atual de transcrição/resumo de uma gravação. */
     public function recordingInfo($recToken = null)
     {
-        $recToken = $this->tokenFromUrl($recToken, 2);
-        $rec = $recToken ? $this->model->findRecordingByToken($recToken) : null;
-        if (!$rec) $this->json(['error' => 'Gravação não encontrada'], 404);
+        $rec = $this->requireRecordingAccess($recToken);
 
         $st = $rec['transcribe_status'] ?? 'none';
         // O campo summary agora armazena JSON estruturado da ata.
@@ -1106,9 +1104,8 @@ class VideocallController extends Controller
     public function transcribeChunk($recToken = null)
     {
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
-        $recToken = $this->tokenFromUrl($recToken, 2);
-        $rec = $recToken ? $this->model->findRecordingByToken($recToken) : null;
-        if (!$rec) $this->json(['error' => 'Gravação não encontrada'], 404);
+        $rec = $this->requireRecordingAccess($recToken);
+        $recToken = $rec['token'];
 
         $ai = new OpenAiClient();
         if (!$ai->isConfigured()) $this->json(['error' => 'IA (OpenAI) não configurada no sistema.'], 400);
@@ -1155,9 +1152,8 @@ class VideocallController extends Controller
     public function saveTranscript($recToken = null)
     {
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
-        $recToken = $this->tokenFromUrl($recToken, 2);
-        $rec = $recToken ? $this->model->findRecordingByToken($recToken) : null;
-        if (!$rec) $this->json(['error' => 'Gravação não encontrada'], 404);
+        $rec = $this->requireRecordingAccess($recToken);
+        $recToken = $rec['token'];
 
         $raw = file_get_contents('php://input');
         $body = json_decode($raw, true);
@@ -1199,6 +1195,21 @@ class VideocallController extends Controller
         $minutes = $this->generateMinutesContent($recToken, $transcript, $ai);
 
         $this->json(['success' => true, 'summary' => $summary, 'minutes' => $minutes]);
+    }
+
+    /**
+     * Pós-transcrição feita pelo cron (RecordingTranscriber): gera a ata
+     * estruturada (summary) e a minuta a partir da transcrição já salva.
+     */
+    public function completeTranscription($recToken)
+    {
+        $rec = $this->model->findRecordingByToken($recToken);
+        if (!$rec || trim((string)$rec['transcript']) === '') return;
+        $ai = new OpenAiClient();
+        if (!$ai->isConfigured()) return;
+        $summary = $this->generateMinutesJson((string)$rec['transcript'], $this->buildMeetingContext($rec), $ai);
+        if ($summary !== '') $this->model->updateRecording($recToken, ['summary' => $summary]);
+        $this->generateMinutesContent($recToken, (string)$rec['transcript'], $ai);
     }
 
     /**
@@ -1283,16 +1294,9 @@ class VideocallController extends Controller
      */
     public function generateMinutes($recToken = null)
     {
-        $this->requireLogin();
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
-        $recToken = $this->tokenFromUrl($recToken, 2);
-        $rec = $recToken ? $this->model->findRecordingByToken($recToken) : null;
-        if (!$rec) $this->json(['error' => 'Gravação não encontrada'], 404);
-
-        $user = $this->currentUser();
-        if (!$this->model->canUserSeeRecording($rec, $user['id'], $user['role'])) {
-            $this->json(['error' => 'Sem permissão para esta gravação.'], 403);
-        }
+        $rec = $this->requireRecordingAccess($recToken);
+        $recToken = $rec['token'];
 
         $transcript = (string)($rec['transcript'] ?? '');
         if (!MeetingMinutesRules::canGenerate($transcript)) {
@@ -1312,16 +1316,9 @@ class VideocallController extends Controller
      */
     public function saveMinutes($recToken = null)
     {
-        $this->requireLogin();
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
-        $recToken = $this->tokenFromUrl($recToken, 2);
-        $rec = $recToken ? $this->model->findRecordingByToken($recToken) : null;
-        if (!$rec) $this->json(['error' => 'Gravação não encontrada'], 404);
-
-        $user = $this->currentUser();
-        if (!$this->model->canUserSeeRecording($rec, $user['id'], $user['role'])) {
-            $this->json(['error' => 'Sem permissão para esta gravação.'], 403);
-        }
+        $rec = $this->requireRecordingAccess($recToken);
+        $recToken = $rec['token'];
 
         $raw = file_get_contents('php://input');
         $body = json_decode($raw, true);
@@ -1417,16 +1414,9 @@ class VideocallController extends Controller
      */
     public function sendMinutes($recToken = null)
     {
-        $this->requireLogin();
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
-        $recToken = $this->tokenFromUrl($recToken, 2);
-        $rec = $recToken ? $this->model->findRecordingByToken($recToken) : null;
-        if (!$rec) $this->json(['error' => 'Gravação não encontrada'], 404);
-
-        $user = $this->currentUser();
-        if (!$this->model->canUserSeeRecording($rec, $user['id'], $user['role'])) {
-            $this->json(['error' => 'Sem permissão para esta gravação.'], 403);
-        }
+        $rec = $this->requireRecordingAccess($recToken);
+        $recToken = $rec['token'];
         if (empty($rec['minutes'])) $this->json(['error' => 'Não há minuta para enviar.'], 400);
 
         $this->releaseSession();
@@ -1956,36 +1946,29 @@ class VideocallController extends Controller
      */
     private function cleanTranscriptSegments($segments)
     {
-        if (!is_array($segments)) return [];
-        $clean = [];
-        foreach ($segments as $s) {
-            $text = trim((string)($s['text'] ?? ''));
-            // remove segmentos vazios ou compostos só de pontuação/reticências
-            $stripped = preg_replace('/[\p{P}\p{Z}\s]+/u', '', $text);
-            if ($stripped === '' || $stripped === null) continue;
-            $start = (float)($s['start'] ?? 0);
-            $end = (float)($s['end'] ?? $start);
-            if ($end < $start) $end = $start;
-            $clean[] = ['start' => $start, 'end' => $end, 'text' => $text];
-        }
-        // ordena por início (e por fim como desempate)
-        usort($clean, function ($a, $b) {
-            if ($a['start'] === $b['start']) return $a['end'] <=> $b['end'];
-            return $a['start'] <=> $b['start'];
-        });
-        // remove repetições consecutivas do mesmo texto no ~mesmo tempo
-        $out = [];
-        foreach ($clean as $seg) {
-            $prev = end($out);
-            if ($prev !== false && $prev['text'] === $seg['text'] && abs($prev['start'] - $seg['start']) < 1.0) continue;
-            $out[] = $seg;
-        }
-        return $out;
+        return TranscriptionQueueRules::cleanSegments($segments);
     }
 
     // ============================================================
     // Helpers
     // ============================================================
+
+    /**
+     * Exige login com o módulo de videochamada e permissão sobre a gravação.
+     * Encerra com JSON de erro; devolve a gravação quando permitido.
+     */
+    private function requireRecordingAccess($recToken)
+    {
+        $this->requireModule('videocall');
+        $recToken = $this->tokenFromUrl($recToken, 2);
+        $rec = $recToken ? $this->model->findRecordingByToken($recToken) : null;
+        if (!$rec) $this->json(['error' => 'Gravação não encontrada'], 404);
+        $user = $this->currentUser();
+        if (!$this->model->canUserSeeRecording($rec, $user['id'], $user['role'])) {
+            $this->json(['error' => 'Sem permissão para esta gravação.'], 403);
+        }
+        return $rec;
+    }
 
     /** Extrai o token da URL quando o roteador não passa como argumento. */
     private function tokenFromUrl($token, $index)
