@@ -43,7 +43,7 @@ class Router
         $this->controller = new $controllerName();
 
         $this->method = $this->url[1] ?? 'index';
-        if (!method_exists($this->controller, $this->method)) {
+        if (!method_exists($this->controller, $this->method) || self::isInternal($controllerName, $this->method)) {
             $this->method = 'index';
         }
 
@@ -60,6 +60,18 @@ class Router
         }
 
         call_user_func_array([$this->controller, $this->method], $this->params);
+    }
+
+    /**
+     * Método público que o controller marcou como interno (INTERNAL_METHODS):
+     * existe para o cron ou para os testes e não pode ser chamado pela URL.
+     * Compara sem caixa, como o PHP resolve nomes de método.
+     */
+    public static function isInternal(string $controllerName, string $method): bool
+    {
+        $const = $controllerName . '::INTERNAL_METHODS';
+        if (!defined($const)) return false;
+        return in_array(strtolower($method), array_map('strtolower', (array)constant($const)), true);
     }
 
     /**

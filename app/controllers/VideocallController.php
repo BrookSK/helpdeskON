@@ -20,6 +20,12 @@
  */
 class VideocallController extends Controller
 {
+    /**
+     * Métodos públicos chamados só pelo cron (e pelos testes), nunca pela URL.
+     * O Router recusa estes nomes.
+     */
+    public const INTERNAL_METHODS = ['finalizeAbandonedSessions', 'completeTranscription'];
+
     /** Papéis que podem CRIAR salas (qualquer usuário interno da equipe). */
     private $creatorRoles = ['super_admin', 'attendant', 'developer', 'analyst', 'comercial', 'marketing', 'whatsapp_agent'];
 
