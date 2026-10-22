@@ -166,24 +166,23 @@ class RdoRules
     // =========================================================================
 
     /**
-     * O usuário pode aprovar/recusar/aprovar-tudo as pendências do RDO?
+     * O usuário pode aprovar/recusar/aprovar-tudo/reprovar-tudo as pendências do RDO?
      *
-     * Regra (Interpretação B): precisa ter papel de reviewer (super_admin) E
-     * ser o revisor DESIGNADO — o usuário cujo e-mail está configurado em
-     * settings (rdo_reviewer_email), com fallback para DEFAULT_REVIEWER_EMAIL.
-     * Assim, mesmo havendo vários super_admins, só um aprova.
+     * Regra atual: QUALQUER usuário com papel de reviewer (super_admin) pode
+     * revisar. (Antes era restrito ao revisor designado por e-mail; liberado a
+     * pedido para que qualquer super_admin consiga agir nas pendências.)
+     *
+     * Os parâmetros $email/$reviewerEmail são mantidos por compatibilidade de
+     * assinatura (chamadas existentes e isDesignatedReviewer continuam válidos),
+     * mas não são mais exigidos aqui.
      *
      * @param string|null $role           Papel do usuário atual.
-     * @param string|null $email          E-mail do usuário atual.
-     * @param string|null $reviewerEmail  E-mail do revisor designado (injeção
-     *                                     p/ teste). Null = lê de settings.
+     * @param string|null $email          (ignorado) E-mail do usuário atual.
+     * @param string|null $reviewerEmail  (ignorado) E-mail do revisor designado.
      */
     public static function canReview(?string $role, ?string $email = null, ?string $reviewerEmail = null): bool
     {
-        if ($role === null || !in_array($role, self::REVIEWER_ROLES, true)) {
-            return false;
-        }
-        return self::isDesignatedReviewer($email, $reviewerEmail);
+        return $role !== null && in_array($role, self::REVIEWER_ROLES, true);
     }
 
     /**

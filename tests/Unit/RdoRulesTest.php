@@ -118,32 +118,30 @@ final class RdoRulesTest extends TestCase
 
     private const REVIEWER = 'admin@onsolutionsbrasil.com.br';
 
-    public function testRevisorDesignadoPodeRevisar(): void
+    // Regra atual: QUALQUER super_admin pode revisar (liberado a pedido).
+    // O e-mail do usuário não influencia mais o canReview.
+
+    public function testQualquerSuperAdminPodeRevisar(): void
     {
-        // super_admin E e-mail designado → pode revisar.
         $this->assertTrue(RdoRules::canReview('super_admin', self::REVIEWER, self::REVIEWER));
     }
 
-    public function testSuperAdminComOutroEmailNaoPodeRevisar(): void
+    public function testSuperAdminComOutroEmailTambemPodeRevisar(): void
     {
-        // Mesmo sendo super_admin, se não é o e-mail designado, não revisa.
-        $this->assertFalse(RdoRules::canReview('super_admin', 'outro.admin@ex.test', self::REVIEWER));
+        // Antes era bloqueado; agora qualquer super_admin revisa, independe do e-mail.
+        $this->assertTrue(RdoRules::canReview('super_admin', 'outro.admin@ex.test', self::REVIEWER));
     }
 
-    public function testSuperAdminSemEmailNaoPodeRevisar(): void
+    public function testSuperAdminSemEmailPodeRevisar(): void
     {
-        $this->assertFalse(RdoRules::canReview('super_admin', null, self::REVIEWER));
-        $this->assertFalse(RdoRules::canReview('super_admin', '', self::REVIEWER));
+        // E-mail não é mais exigido para revisar.
+        $this->assertTrue(RdoRules::canReview('super_admin', null, self::REVIEWER));
+        $this->assertTrue(RdoRules::canReview('super_admin', '', self::REVIEWER));
     }
 
-    public function testComparacaoDeEmailIgnoraCaixaEEspacos(): void
+    public function testDemaisPapeisNaoPodemRevisar(): void
     {
-        $this->assertTrue(RdoRules::canReview('super_admin', '  ADMIN@OnSolutionsBrasil.com.BR ', self::REVIEWER));
-    }
-
-    public function testDeveloperEDemaisNaoPodeRevisarMesmoComEmailDesignado(): void
-    {
-        // O e-mail designado não eleva quem não é super_admin.
+        // Só super_admin revisa; demais papéis não, mesmo com qualquer e-mail.
         foreach (['developer', 'comercial', 'attendant', 'analyst', 'marketing', 'whatsapp_agent', 'client', null] as $role) {
             $this->assertFalse(
                 RdoRules::canReview($role, self::REVIEWER, self::REVIEWER),
