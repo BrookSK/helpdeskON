@@ -231,9 +231,9 @@ class AgendaController extends Controller
         // uma sala vinculada. É ortogonal ao Meet do Google.
         $useVideoRoom = !empty($_POST['use_video_room']) || (($_POST['video_conference'] ?? '') === 'system');
 
-        // Gravação automática: só disponível para reuniões operacionais/internas.
-        // Para outros tipos o valor é ignorado e fixado em 0.
-        $autoRecord = ($isOperational) ? AgendaRules::normalizeAutoRecord($_POST['auto_record'] ?? 0) : 0;
+        // Gravação automática: respeita a escolha do agendamento para qualquer tipo
+        // (na reunião comercial o modal já vem marcado na sala do sistema).
+        $autoRecord = AgendaRules::normalizeAutoRecord($_POST['auto_record'] ?? 0);
 
         $data = [
             'title' => $title,
@@ -915,8 +915,8 @@ class AgendaController extends Controller
             $data['client_email'] = trim($_POST['client_email']) ?: null;
         }
 
-        // auto_record: só aplica em reuniões operacionais/internas.
-        if ($isOperational && isset($_POST['auto_record'])) {
+        // auto_record: respeita a escolha do formulário para qualquer tipo.
+        if (isset($_POST['auto_record'])) {
             $data['auto_record'] = AgendaRules::normalizeAutoRecord($_POST['auto_record']);
         }
 
@@ -933,7 +933,7 @@ class AgendaController extends Controller
 
         // Propaga auto_record para a sala de vídeo ativa vinculada — garante
         // sincronia mesmo quando a sala foi criada antes do save da reunião.
-        if ($isOperational && isset($data['auto_record'])) {
+        if (isset($data['auto_record'])) {
             try {
                 Database::getInstance()->query(
                     "UPDATE video_rooms SET auto_record = ? WHERE meeting_id = ? AND status = 'active'",
