@@ -112,6 +112,8 @@ class PlanningController extends Controller
             'columnCounts' => $columnCounts,
             'kanbanPageSize' => self::KANBAN_PAGE_SIZE,
             'filters' => $filters,
+            // Qual visão abrir (kanban|calendar) — preserva a aba ao filtrar.
+            'activeView' => (($_GET['view'] ?? '') === 'calendar') ? 'calendar' : 'kanban',
         ]);
     }
 

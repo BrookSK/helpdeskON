@@ -76,6 +76,8 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
             ?>
             <form method="GET" class="row g-2 align-items-center" id="filters-form">
                 <input type="hidden" name="show_all" id="show_all_input" value="1">
+                <!-- Visão atual (kanban|calendar): preserva a aba ao aplicar o filtro. -->
+                <input type="hidden" name="view" id="view_input" value="<?= escape($activeView ?? 'kanban') ?>">
 
                 <!-- Busca por nome/descrição do card -->
                 <div class="col-12 col-md-auto">
@@ -1085,6 +1087,35 @@ let calendarEvents = [];
 let calDate = new Date();
 let calMode = 'month';
 
+// Filtros EFETIVOS aplicados pelo servidor (inclui o pré-filtro implícito do
+// usuário, ex.: "meus cards", que pode não estar na query string). O calendário
+// usa estes filtros para mostrar exatamente o mesmo recorte do Kanban.
+const EFFECTIVE_FILTERS = <?= json_encode([
+    'company_id'  => array_values(array_map('strval', (array)($filters['company_id'] ?? []))),
+    'assigned_to' => array_values(array_map('strval', (array)($filters['assigned_to'] ?? []))),
+    'created_by'  => array_values(array_map('strval', (array)($filters['created_by'] ?? []))),
+    'statuses'    => array_values((array)($filters['statuses'] ?? [])),
+    'order'       => $filters['order'] ?? '',
+    'q'           => $filters['q'] ?? '',
+], JSON_UNESCAPED_UNICODE) ?>;
+
+// Visão com que a página deve abrir (preserva a aba ao aplicar filtro).
+const ACTIVE_VIEW = '<?= escape($activeView ?? 'kanban') ?>';
+
+// Monta os params de filtro do calendário a partir dos filtros EFETIVOS
+// (não da query string), para refletir o mesmo recorte do Kanban.
+function calendarFilterParams() {
+    const p = new URLSearchParams();
+    p.set('show_all', '1');
+    (EFFECTIVE_FILTERS.company_id  || []).forEach(v => p.append('company_id[]', v));
+    (EFFECTIVE_FILTERS.assigned_to || []).forEach(v => p.append('assigned_to[]', v));
+    (EFFECTIVE_FILTERS.created_by  || []).forEach(v => p.append('created_by[]', v));
+    (EFFECTIVE_FILTERS.statuses    || []).forEach(v => p.append('statuses[]', v));
+    if (EFFECTIVE_FILTERS.order) p.set('order', EFFECTIVE_FILTERS.order);
+    if (EFFECTIVE_FILTERS.q)     p.set('q', EFFECTIVE_FILTERS.q);
+    return p;
+}
+
 const priorityColors = {low:'#6b7280',medium:'#f59e0b',high:'#ef4444',urgent:'#dc2626'};
 const statusColors = {open:'#1565c0',in_progress:'#e65100',em_revisao_interna:'#5c6bc0',waiting_client:'#7b1fa2',em_homologacao:'#0097a7',aprovado_producao:'#8bc34a',completed:'#2e7d32',denied:'#d84315',archived:'#546e7a'};
 
@@ -1093,16 +1124,38 @@ const statusColors = {open:'#1565c0',in_progress:'#e65100',em_revisao_interna:'#
 // (o pré-filtro pelo usuário logado só ocorre no primeiro acesso, sem parâmetros).
 
 // === VIEW TOGGLE ===
+// Aplica uma visão (kanban|calendar): alterna os painéis, marca o botão ativo,
+// guarda a escolha no hidden do form (para o filtro preservar a aba) e reflete
+// na URL sem recarregar (para F5/compartilhar manter a visão).
+function applyView(view, pushUrl) {
+    view = (view === 'calendar') ? 'calendar' : 'kanban';
+    document.querySelectorAll('#view-toggle button').forEach(b => {
+        b.classList.toggle('active', b.dataset.view === view);
+    });
+    const kv = document.getElementById('kanban-view');
+    const cv = document.getElementById('calendar-view');
+    if (kv) kv.style.display = view === 'kanban' ? '' : 'none';
+    if (cv) cv.style.display = view === 'calendar' ? '' : 'none';
+    const viewInput = document.getElementById('view_input');
+    if (viewInput) viewInput.value = view;
+    if (pushUrl) {
+        const u = new URL(window.location.href);
+        u.searchParams.set('view', view);
+        history.replaceState(null, '', u.toString());
+    }
+    if (view === 'calendar') loadCalendar();
+}
+
 document.querySelectorAll('#view-toggle button').forEach(btn => {
     btn.addEventListener('click', function() {
-        document.querySelectorAll('#view-toggle button').forEach(b => b.classList.remove('active'));
-        this.classList.add('active');
-        const view = this.dataset.view;
-        document.getElementById('kanban-view').style.display = view === 'kanban' ? '' : 'none';
-        document.getElementById('calendar-view').style.display = view === 'calendar' ? '' : 'none';
-        if (view === 'calendar') loadCalendar();
+        applyView(this.dataset.view, true);
     });
 });
+
+// Abre a página na visão que veio do servidor (preserva a aba ao filtrar).
+if (ACTIVE_VIEW === 'calendar') {
+    applyView('calendar', false);
+}
 
 // === BARRA DE ROLAGEM HORIZONTAL FIXA (sincronizada com o Kanban) ===
 (function() {
@@ -1321,8 +1374,9 @@ function loadMoreColumn(status, btn) {
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:0.8rem;height:0.8rem;"></span> Carregando...';
 
-    // Reaproveita os filtros atuais da URL (mesma query da página).
-    const params = new URLSearchParams(window.location.search);
+    // Usa os filtros EFETIVOS (mesmo recorte do Kanban, incluindo pré-filtro
+    // implícito do usuário), não só a query string.
+    const params = calendarFilterParams();
     params.set('status', status);
     params.set('offset', String(shown));
 
@@ -2355,7 +2409,8 @@ function loadCalendar() {
         start = new Date(calDate); start.setHours(0,0,0);
         end = new Date(calDate); end.setHours(23,59,59);
     }
-    const params = new URLSearchParams(window.location.search);
+    // Usa os filtros EFETIVOS (mesmo recorte do Kanban), não só a query string.
+    const params = calendarFilterParams();
     params.set('start', fmt(start)); params.set('end', fmt(end));
     fetch(BASE + 'planning/calendar?' + params.toString())
         .then(r => r.json()).then(resp => {
@@ -2391,7 +2446,7 @@ function openUndatedModal() {
     list.innerHTML = '<div class="text-center py-4 text-muted small"><span class="spinner-border spinner-border-sm"></span> Carregando...</div>';
     modal.show();
 
-    const params = new URLSearchParams(window.location.search);
+    const params = calendarFilterParams();
     fetch(BASE + 'planning/calendarUndated?' + params.toString())
         .then(r => r.json())
         .then(data => {
