@@ -56,6 +56,10 @@ $migrations = [
 
 $db = Database::getInstance();
 $pdo = $db->getConnection();
+// Prepares emulados: query() manda o texto direto (PREPARE/EXECUTE funcionam) e
+// permite consumir o resultado do "SELECT 1" das migrations já aplicadas. Sem
+// isso, o resultado aberto quebra os comandos seguintes (erro 2014).
+$pdo->setAttribute(PDO::ATTR_EMULATE_PREPARES, true);
 $cfg = require BASE_PATH . '/config/database.php';
 echo "Banco em uso: " . ($cfg['database'] ?? '?') . "\n";
 echo "========================================\n";
@@ -76,9 +80,13 @@ foreach ($migrations as $file) {
     $erros = 0;
     foreach ($statements as $st) {
         try {
-            // exec() (não prepare) — necessário para DDL e para blocos
-            // SET @.../PREPARE/EXECUTE/DEALLOCATE usados nas migrations idempotentes.
-            $pdo->exec($st);
+            // query() com prepares emulados: aceita DDL e os blocos
+            // SET @.../PREPARE/EXECUTE/DEALLOCATE das migrations idempotentes.
+            $q = $pdo->query($st);
+            if ($q instanceof PDOStatement) {
+                do { try { $q->fetchAll(); } catch (\Throwable $e) {} } while ($q->nextRowset());
+                $q->closeCursor();
+            }
         } catch (\Throwable $e) {
             // "already exists" / "Duplicate column" sao esperados em re-execucao.
             $msg = $e->getMessage();
