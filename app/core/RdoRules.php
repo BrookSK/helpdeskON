@@ -38,8 +38,23 @@ class RdoRules
     /** Papéis que podem ver o RDO de QUALQUER pessoa (visão global). */
     public const GLOBAL_VIEW_ROLES = ['super_admin'];
 
-    /** Papéis que podem aprovar/recusar revisões. */
+    /**
+     * Papéis que podem aprovar/recusar revisões. É condição NECESSÁRIA, mas
+     * não suficiente: além de ter o papel, o usuário precisa ser o revisor
+     * designado (ver canReview() e REVIEWER_EMAIL_SETTING_KEY). A regra de
+     * negócio é: aprovar/recusar/aprovar-tudo ficam restritos a UM usuário.
+     */
     public const REVIEWER_ROLES = ['super_admin'];
+
+    /** Chave em settings com o e-mail do revisor designado do RDO. */
+    public const REVIEWER_EMAIL_SETTING_KEY = 'rdo_reviewer_email';
+
+    /**
+     * E-mail do revisor padrão do RDO quando a config não está definida.
+     * É o único usuário autorizado a aprovar/recusar pendências. Fica em
+     * settings (REVIEWER_EMAIL_SETTING_KEY) para poder mudar sem deploy.
+     */
+    public const DEFAULT_REVIEWER_EMAIL = 'admin@onsolutionsbrasil.com.br';
 
     /** Horário limite padrão (HH:MM:SS). Sobrescrito pela config rdo_deadline_time. */
     public const DEFAULT_DEADLINE = '19:00:00';
@@ -150,10 +165,62 @@ class RdoRules
     // Aprovação / revisão
     // =========================================================================
 
-    /** O papel pode aprovar/recusar revisões? */
-    public static function canReview(?string $role): bool
+    /**
+     * O usuário pode aprovar/recusar/aprovar-tudo as pendências do RDO?
+     *
+     * Regra (Interpretação B): precisa ter papel de reviewer (super_admin) E
+     * ser o revisor DESIGNADO — o usuário cujo e-mail está configurado em
+     * settings (rdo_reviewer_email), com fallback para DEFAULT_REVIEWER_EMAIL.
+     * Assim, mesmo havendo vários super_admins, só um aprova.
+     *
+     * @param string|null $role           Papel do usuário atual.
+     * @param string|null $email          E-mail do usuário atual.
+     * @param string|null $reviewerEmail  E-mail do revisor designado (injeção
+     *                                     p/ teste). Null = lê de settings.
+     */
+    public static function canReview(?string $role, ?string $email = null, ?string $reviewerEmail = null): bool
     {
-        return $role !== null && in_array($role, self::REVIEWER_ROLES, true);
+        if ($role === null || !in_array($role, self::REVIEWER_ROLES, true)) {
+            return false;
+        }
+        return self::isDesignatedReviewer($email, $reviewerEmail);
+    }
+
+    /**
+     * O e-mail informado é o do revisor designado do RDO? Comparação pura,
+     * case-insensitive e aparando espaços. Não checa papel (ver canReview()).
+     *
+     * @param string|null $email          E-mail do usuário.
+     * @param string|null $reviewerEmail  E-mail designado (null = lê settings).
+     */
+    public static function isDesignatedReviewer(?string $email, ?string $reviewerEmail = null): bool
+    {
+        $email = strtolower(trim((string) $email));
+        if ($email === '') {
+            return false;
+        }
+        $target = strtolower(trim((string) ($reviewerEmail ?? self::getReviewerEmail())));
+        return $target !== '' && $email === $target;
+    }
+
+    /**
+     * E-mail do revisor designado do RDO. Lê de settings quando disponível
+     * (REVIEWER_EMAIL_SETTING_KEY); senão usa DEFAULT_REVIEWER_EMAIL.
+     *
+     * @param string|null $override E-mail já carregado (injeção p/ teste).
+     */
+    public static function getReviewerEmail(?string $override = null): string
+    {
+        if ($override !== null && trim($override) !== '') {
+            return trim($override);
+        }
+        if (class_exists('Config')) {
+            $v = Config::get(self::REVIEWER_EMAIL_SETTING_KEY);
+            if ($v !== null && trim((string) $v) !== '') {
+                return trim((string) $v);
+            }
+        }
+        return self::DEFAULT_REVIEWER_EMAIL;
     }
 
     // =========================================================================

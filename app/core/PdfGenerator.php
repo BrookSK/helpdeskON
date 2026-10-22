@@ -38,6 +38,51 @@ class PdfGenerator
         return $dompdf->output();
     }
 
+    /**
+     * Converte um documento HTML completo (com o próprio CSS e @page) em PDF.
+     * Imagens só podem vir de arquivos dentro de $chroot.
+     *
+     * Fontes declaradas com @font-face precisam estar dentro de $chroot.
+     *
+     * $pageScript é chamado depois da renderização, por página, e desenha por cima
+     * do conteúdo: function (int $page, int $count, $canvas, $fontMetrics).
+     * $beforePage desenha por baixo do conteúdo (fundo da folha inteira, fora das
+     * margens): function (int $page, $canvas).
+     */
+    public static function fromDocument(string $html, string $chroot, ?callable $pageScript = null, string $paper = 'A4', string $orientation = 'portrait', ?callable $beforePage = null): string
+    {
+        if (!self::isAvailable()) {
+            throw new \RuntimeException('Gerador de PDF (dompdf) não instalado. Rode: composer require dompdf/dompdf');
+        }
+        $fontCache = rtrim(sys_get_temp_dir(), '/\\') . DIRECTORY_SEPARATOR . 'dompdf-fonts';
+        if (!is_dir($fontCache)) @mkdir($fontCache, 0775, true);
+
+        $options = new Options();
+        $options->set('isRemoteEnabled', false);
+        $options->set('defaultFont', 'DejaVu Sans');
+        $options->set('isHtml5ParserEnabled', true);
+        $options->set('chroot', $chroot);
+        if (is_dir($fontCache) && is_writable($fontCache)) {
+            $options->set('fontDir', $fontCache);
+            $options->set('fontCache', $fontCache);
+        }
+
+        $dompdf = new Dompdf($options);
+        if ($beforePage !== null) {
+            $dompdf->setCallbacks([[
+                'event' => 'begin_page_render',
+                'f' => function ($frame, $canvas) use ($beforePage) {
+                    $beforePage($canvas->get_page_number(), $canvas);
+                },
+            ]]);
+        }
+        $dompdf->loadHtml($html, 'UTF-8');
+        $dompdf->setPaper($paper, $orientation);
+        $dompdf->render();
+        if ($pageScript !== null) $dompdf->getCanvas()->page_script($pageScript);
+        return $dompdf->output();
+    }
+
     /** Envolve o corpo num HTML completo com margens e tipografia legível. */
     private static function wrap(string $bodyHtml): string
     {

@@ -58,6 +58,7 @@ final class DailyReportReviewTest extends TestCase
             try { $this->db->delete('daily_reports',              'id = ?',        [$id]); } catch (\Throwable $e) {}
         }
         foreach ([$this->userA, $this->admin] as $uid) {
+            try { $this->db->delete('daily_report_missing_notifications', 'user_id = ?', [$uid]); } catch (\Throwable $e) {}
             try { $this->db->delete('daily_reports', 'user_id = ?', [$uid]); } catch (\Throwable $e) {}
             try { $this->db->delete('users',         'id = ?',      [$uid]); } catch (\Throwable $e) {}
         }
@@ -496,5 +497,83 @@ final class DailyReportReviewTest extends TestCase
         $ids = array_column($lista, 'id');
         $this->assertContains($idPend, array_map('intval', $ids));
         $this->assertNotContains($idOk, array_map('intval', $ids));
+    }
+
+    // =========================================================================
+    // "Aprovar tudo" por pessoa: owner_id, revisões por pessoa e ausências
+    // =========================================================================
+
+    public function testGetAllPendingReviewsIncluiOwnerId(): void
+    {
+        $id = $this->novoRdo($this->userA, ['review_status' => 'pending_review']);
+        $this->criarRevisao($id, 'edit_request', $this->userA, '{"current":{},"proposed":{}}');
+
+        $pending = $this->model->getAllPendingReviews();
+        $mine    = array_values(array_filter($pending, fn($r) => (int) $r['report_id'] === $id));
+        $this->assertNotEmpty($mine, 'A revisão criada deve estar entre as pendentes');
+        $this->assertArrayHasKey('owner_id', $mine[0]);
+        $this->assertSame($this->userA, (int) $mine[0]['owner_id']);
+    }
+
+    public function testGetPendingReviewsForUserRetornaSoDaPessoaESoPendentes(): void
+    {
+        // Pessoa A: um relatório com duas revisões (uma será aprovada).
+        $idA = $this->novoRdo($this->userA, ['review_status' => 'pending_review']);
+        $rA1 = $this->criarRevisao($idA, 'late_fill',    $this->userA);
+        $rA2 = $this->criarRevisao($idA, 'edit_request', $this->userA, '{"current":{},"proposed":{}}');
+        $this->model->updateReview($rA1, [
+            'status' => 'approved', 'reviewed_by' => $this->admin, 'reviewed_at' => date('Y-m-d H:i:s'),
+        ]);
+
+        // Outra pessoa com pendência própria — não deve vazar para A.
+        $u       = uniqid();
+        $outro   = $this->novoUsuario("Outro {$u}", "outro_{$u}@ex.test", 'developer');
+        $idOutro = $this->novoRdo($outro, ['review_status' => 'pending_review']);
+        $this->criarRevisao($idOutro, 'late_fill', $outro);
+
+        $pendingA = $this->model->getPendingReviewsForUser($this->userA);
+        $idsA     = array_map('intval', array_column($pendingA, 'id'));
+
+        $this->assertContains($rA2, $idsA, 'edit_request pendente de A deve aparecer');
+        $this->assertNotContains($rA1, $idsA, 'revisão já aprovada de A não deve aparecer');
+
+        // Limpeza do usuário extra.
+        $this->db->delete('daily_report_reviews', 'report_id = ?', [$idOutro]);
+        $this->db->delete('daily_reports',        'id = ?',        [$idOutro]);
+        $this->db->delete('users',                'id = ?',        [$outro]);
+    }
+
+    public function testAcknowledgeMissingReportInsereUmaVezEhIdempotente(): void
+    {
+        $data = date('Y-m-d', strtotime('-3 days'));
+
+        $primeira = $this->model->acknowledgeMissingReport($this->userA, $data);
+        $this->assertTrue($primeira, 'Primeira chamada deve inserir a ausência reconhecida');
+
+        $segunda = $this->model->acknowledgeMissingReport($this->userA, $data);
+        $this->assertFalse($segunda, 'Segunda chamada (mesma data) não deve duplicar');
+
+        $acked = $this->model->getAcknowledgedMissingDates(
+            $this->userA,
+            date('Y-m-d', strtotime('-10 days')),
+            date('Y-m-d')
+        );
+        $this->assertContains($data, $acked, 'A data reconhecida deve ser listada');
+    }
+
+    public function testGetAcknowledgedMissingDatesRespeitaJanela(): void
+    {
+        $dentro = date('Y-m-d', strtotime('-2 days'));
+        $fora   = date('Y-m-d', strtotime('-40 days'));
+        $this->model->acknowledgeMissingReport($this->userA, $dentro);
+        $this->model->acknowledgeMissingReport($this->userA, $fora);
+
+        $acked = $this->model->getAcknowledgedMissingDates(
+            $this->userA,
+            date('Y-m-d', strtotime('-30 days')),
+            date('Y-m-d')
+        );
+        $this->assertContains($dentro, $acked, 'Data dentro da janela deve aparecer');
+        $this->assertNotContains($fora, $acked, 'Data fora da janela não deve aparecer');
     }
 }

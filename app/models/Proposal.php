@@ -92,8 +92,9 @@ class Proposal
 
     /**
      * Substitui todos os itens da proposta pelos informados e recalcula o total.
-     * Cada item: description (obrigatório), scope, hours, hourly_rate, amount,
-     * is_hosting, service_id. amount é recalculado por ProposalRules.
+     * Cada item: description (obrigatório), scope, quantity, hours, hourly_rate,
+     * amount, billing, is_hosting, service_id, schedule_start, schedule_end.
+     * amount é recalculado por ProposalRules.
      *
      * @return float total recalculado
      */
@@ -104,17 +105,28 @@ class Proposal
         foreach ($items as $it) {
             $desc = trim((string)($it['description'] ?? ''));
             if ($desc === '') continue; // ignora linhas vazias
-            $amount = ProposalRules::itemAmount($it['hours'] ?? null, $it['hourly_rate'] ?? null, $it['amount'] ?? ($it['fixed_amount'] ?? null));
+            $amount = ProposalRules::itemAmount(
+                $it['hours'] ?? null,
+                $it['hourly_rate'] ?? null,
+                $it['amount'] ?? ($it['fixed_amount'] ?? null),
+                $it['quantity'] ?? null
+            );
             $this->addItem([
-                'proposal_id' => $proposalId,
-                'service_id'  => !empty($it['service_id']) ? (int)$it['service_id'] : null,
-                'description' => mb_substr($desc, 0, 255),
-                'scope'       => isset($it['scope']) ? trim((string)$it['scope']) : null,
-                'hours'       => ($it['hours'] ?? '') !== '' ? (float)$it['hours'] : null,
-                'hourly_rate' => ($it['hourly_rate'] ?? '') !== '' ? (float)$it['hourly_rate'] : null,
-                'amount'      => $amount,
-                'is_hosting'  => !empty($it['is_hosting']) ? 1 : 0,
-                'position'    => $pos++,
+                'proposal_id'    => $proposalId,
+                'service_id'     => !empty($it['service_id']) ? (int)$it['service_id'] : null,
+                'description'    => mb_substr($desc, 0, 255),
+                'scope'          => isset($it['scope']) ? trim((string)$it['scope']) : null,
+                'quantity'       => ProposalRules::quantity($it['quantity'] ?? null),
+                'hours'          => ($it['hours'] ?? '') !== '' ? (float)$it['hours'] : null,
+                'hourly_rate'    => ($it['hourly_rate'] ?? '') !== '' ? (float)$it['hourly_rate'] : null,
+                'amount'         => $amount,
+                'billing'        => ProposalRules::normalizeBilling($it['billing'] ?? null),
+                'renewal'        => ProposalRules::normalizeRenewal($it['renewal'] ?? null),
+                'recurrence_period' => ProposalRules::normalizeRecurrence($it['recurrence_period'] ?? null),
+                'is_hosting'     => !empty($it['is_hosting']) ? 1 : 0,
+                'schedule_start' => ProposalRules::normalizeDate($it['schedule_start'] ?? null),
+                'schedule_end'   => ProposalRules::normalizeDate($it['schedule_end'] ?? null),
+                'position'       => $pos++,
             ]);
         }
         $total = $this->recalcTotal($proposalId);

@@ -23,7 +23,11 @@ class Mailer
         }
     }
 
-    public static function send($to, $subject, $htmlBody)
+    /**
+     * @param array $attachments lista de anexos: cada item ['name','content','mime'].
+     *                           'content' é o conteúdo binário do arquivo.
+     */
+    public static function send($to, $subject, $htmlBody, array $attachments = [])
     {
         $host = Config::get('smtp_host');
         $port = Config::get('smtp_port', '587');
@@ -49,13 +53,13 @@ class Mailer
 
             if (!$socket) {
                 // Fallback para mail() nativo
-                return self::sendViaMail($to, $subject, $htmlBody, $fromName, $fromEmail);
+                return self::sendViaMail($to, $subject, $htmlBody, $fromName, $fromEmail, $attachments);
             }
 
             $response = fgets($socket, 512);
             if (substr($response, 0, 3) !== '220') {
                 fclose($socket);
-                return self::sendViaMail($to, $subject, $htmlBody, $fromName, $fromEmail);
+                return self::sendViaMail($to, $subject, $htmlBody, $fromName, $fromEmail, $attachments);
             }
 
             // EHLO
@@ -102,10 +106,15 @@ class Mailer
             $headers .= "To: {$to}\r\n";
             $headers .= "Subject: {$subject}\r\n";
             $headers .= "MIME-Version: 1.0\r\n";
-            $headers .= "Content-Type: text/html; charset=UTF-8\r\n";
             $headers .= "Date: " . date('r') . "\r\n";
-            $headers .= "\r\n";
-            $headers .= $htmlBody . "\r\n";
+            if (!empty($attachments)) {
+                $boundary = 'onbnd_' . bin2hex(random_bytes(8));
+                $headers .= "Content-Type: multipart/mixed; boundary=\"{$boundary}\"\r\n\r\n";
+                $headers .= self::multipartBody($htmlBody, $attachments, $boundary);
+            } else {
+                $headers .= "Content-Type: text/html; charset=UTF-8\r\n\r\n";
+                $headers .= $htmlBody . "\r\n";
+            }
 
             fwrite($socket, $headers . ".\r\n");
             $dataResponse = self::readResponse($socket);
@@ -116,8 +125,31 @@ class Mailer
             return substr($dataResponse, 0, 3) === '250';
 
         } catch (Exception $e) {
-            return self::sendViaMail($to, $subject, $htmlBody, $fromName, $fromEmail);
+            return self::sendViaMail($to, $subject, $htmlBody, $fromName, $fromEmail, $attachments);
         }
+    }
+
+    /** Monta o corpo multipart/mixed (HTML + anexos em base64). */
+    private static function multipartBody(string $htmlBody, array $attachments, string $boundary): string
+    {
+        $nl = "\r\n";
+        $body = "--{$boundary}{$nl}";
+        $body .= "Content-Type: text/html; charset=UTF-8{$nl}";
+        $body .= "Content-Transfer-Encoding: 8bit{$nl}{$nl}";
+        $body .= $htmlBody . $nl . $nl;
+        foreach ($attachments as $att) {
+            $name = (string)($att['name'] ?? 'arquivo');
+            $mime = (string)($att['mime'] ?? 'application/octet-stream');
+            $content = (string)($att['content'] ?? '');
+            if ($content === '') continue;
+            $body .= "--{$boundary}{$nl}";
+            $body .= "Content-Type: {$mime}; name=\"{$name}\"{$nl}";
+            $body .= "Content-Transfer-Encoding: base64{$nl}";
+            $body .= "Content-Disposition: attachment; filename=\"{$name}\"{$nl}{$nl}";
+            $body .= chunk_split(base64_encode($content)) . $nl;
+        }
+        $body .= "--{$boundary}--{$nl}";
+        return $body;
     }
 
     private static function readResponse($socket)
@@ -130,8 +162,18 @@ class Mailer
         return $response;
     }
 
-    private static function sendViaMail($to, $subject, $htmlBody, $fromName, $fromEmail)
+    private static function sendViaMail($to, $subject, $htmlBody, $fromName, $fromEmail, array $attachments = [])
     {
+        if (!empty($attachments)) {
+            $boundary = 'onbnd_' . bin2hex(random_bytes(8));
+            $headers = implode("\r\n", [
+                "MIME-Version: 1.0",
+                "Content-Type: multipart/mixed; boundary=\"{$boundary}\"",
+                "From: {$fromName} <{$fromEmail}>",
+                "Reply-To: {$fromEmail}",
+            ]);
+            return @mail($to, $subject, self::multipartBody($htmlBody, $attachments, $boundary), $headers);
+        }
         $headers = implode("\r\n", [
             "MIME-Version: 1.0",
             "Content-Type: text/html; charset=UTF-8",

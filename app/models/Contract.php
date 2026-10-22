@@ -123,7 +123,11 @@ class Contract
                 $co = $this->db->fetch("SELECT name FROM companies WHERE id = ?", [(int)$proposal['company_id']]);
                 $empresaCliente = $co['name'] ?? null;
             }
-            $values = ContractTemplateVars::valuesFromProposal($proposal, $prestador, $empresaCliente);
+            $items = [];
+            if (!empty($proposal['id'])) {
+                try { $items = (new Proposal())->getItems((int)$proposal['id']); } catch (\Throwable $e) { $items = []; }
+            }
+            $values = ContractTemplateVars::valuesFromProposal($proposal, $prestador, $empresaCliente, $items);
             $body = ContractTemplateVars::render($body, $values);
         }
         return $this->create([

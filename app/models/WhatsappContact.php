@@ -29,7 +29,7 @@ class WhatsappContact
     public function getLeadsForSelect()
     {
         return $this->db->fetchAll(
-            "SELECT id, contact_name, phone
+            "SELECT id, contact_name, phone, lead_email
              FROM whatsapp_contacts
              WHERE COALESCE(is_group, 0) = 0
              ORDER BY contact_name IS NULL, contact_name ASC"

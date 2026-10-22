@@ -25,11 +25,23 @@ class ContractTemplateVars
             'empresa_nome'     => 'Nome da empresa (cliente), quando houver',
             'proposta_titulo'  => 'Título da proposta',
             'proposta_total'   => 'Valor total da proposta (R$)',
+            'proposta_total_liquido' => 'Total do 1º ano já com desconto (R$)',
+            'proposta_pontual' => 'Valor pontual/implantação com desconto (R$)',
+            'proposta_mensalidade' => 'Mensalidade com desconto (R$)',
+            'proposta_desconto' => 'Desconto comercial aplicado (R$)',
+            'plano_aceito'     => 'Plano aceito pelo cliente (quando houver opções)',
             'proposta_validade'=> 'Data de validade da proposta',
             'tipo_contratacao' => 'Tipo de contratação (ex.: Desenvolvimento do zero)',
             'data_hoje'        => 'Data de hoje (dd/mm/aaaa)',
             'empresa_prestador'=> 'Nome da sua empresa (do sistema)',
         ];
+    }
+
+    /** Rótulo amigável do plano aceito. */
+    private static function planLabel(?string $plan): string
+    {
+        $map = ['plan_3' => 'Plano 3 meses', 'plan_6' => 'Plano 6 meses', 'plan_12' => 'Plano 12 meses'];
+        return $plan && isset($map[$plan]) ? $map[$plan] : '';
     }
 
     /** Rótulos amigáveis dos tipos de contratação (espelha ProposalRules). */
@@ -65,8 +77,18 @@ class ContractTemplateVars
      * @param string|null $empresaCliente Nome da empresa do cliente (companies.name)
      * @return array<string,string>
      */
-    public static function valuesFromProposal(array $proposal, ?string $prestador = null, ?string $empresaCliente = null): array
+    public static function valuesFromProposal(array $proposal, ?string $prestador = null, ?string $empresaCliente = null, array $items = []): array
     {
+        // Totais comerciais (com desconto) via fonte única, quando disponível.
+        $comm = null;
+        if (class_exists('ProposalRules')) {
+            $comm = ProposalRules::commercialTotals($items, $proposal['discounts'] ?? []);
+        }
+        $totalNet = $comm ? $comm['year']['net'] : (float)($proposal['total'] ?? 0);
+        $onceNet = $comm ? $comm['once']['net'] : 0.0;
+        $monthlyNet = $comm ? $comm['monthly']['net'] : 0.0;
+        $discount = $comm ? $comm['year']['discount'] : 0.0;
+
         return [
             'cliente_nome'      => (string)($proposal['client_name'] ?? ''),
             'cliente_email'     => (string)($proposal['client_email'] ?? ''),
@@ -74,6 +96,11 @@ class ContractTemplateVars
             'empresa_nome'      => (string)($empresaCliente ?? ''),
             'proposta_titulo'   => (string)($proposal['title'] ?? ''),
             'proposta_total'    => self::money($proposal['total'] ?? 0),
+            'proposta_total_liquido' => self::money($totalNet),
+            'proposta_pontual'  => self::money($onceNet),
+            'proposta_mensalidade' => self::money($monthlyNet),
+            'proposta_desconto' => self::money($discount),
+            'plano_aceito'      => self::planLabel($proposal['accepted_plan'] ?? null),
             'proposta_validade' => self::dateBr($proposal['validity_date'] ?? null),
             'tipo_contratacao'  => self::contractTypeLabel($proposal['contract_type'] ?? null),
             'data_hoje'         => date('d/m/Y'),

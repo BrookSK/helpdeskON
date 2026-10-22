@@ -172,6 +172,76 @@ class WhatsappNotifier
     }
 
     /**
+     * Envia um documento (PDF) para um número individual, pela instância padrão.
+     * Opcionalmente com legenda. Registra no chat como mensagem de documento.
+     *
+     * @return bool sucesso
+     */
+    public static function sendDocumentToPhone($phone, string $base64, string $fileName, string $mimetype = 'application/pdf', string $caption = '', $contactName = null)
+    {
+        if (empty($phone) || $base64 === '') {
+            return false;
+        }
+        $db = Database::getInstance();
+        $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE is_default = 1 AND user_id IS NULL LIMIT 1");
+        if (!$instance) {
+            $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE is_default = 1 LIMIT 1");
+        }
+        if (!$instance) {
+            self::log("NENHUMA INSTANCIA PADRAO para documento phone={$phone}.");
+            return false;
+        }
+        $api = EvolutionApi::fromInstance($instance['id']);
+        if (!$api) {
+            self::log("SEM API para documento instancia={$instance['id']} phone={$phone}");
+            return false;
+        }
+        $jid = $api->normalizeJid($api->normalizeNumber($phone));
+        try {
+            $result = $api->sendDocumentBase64($jid, $base64, $fileName, $mimetype, $caption);
+        } catch (\Throwable $e) {
+            self::log("EXCECAO sendDocument phone={$phone}: " . $e->getMessage());
+            return false;
+        }
+        if (!empty($result['error'])) {
+            self::log("FALHA ENVIO documento phone={$phone} http=" . ($result['http_code'] ?? '?') . " msg=" . ($result['message'] ?? ''));
+            return false;
+        }
+        if (empty($result['key'])) {
+            self::log("ENVIO DOCUMENTO NAO CONFIRMADO (sem key) phone={$phone} resp=" . json_encode($result));
+            return false;
+        }
+        // Registra no chat como documento (texto da legenda ou nome do arquivo).
+        $realJid = $result['key']['remoteJid'] ?? $jid;
+        if (strpos($realJid, '@') === false) $realJid = $api->normalizeJid($realJid);
+        $realPhone = $api->extractPhone($realJid);
+        try {
+            $contactModel = new WhatsappContact();
+            $messageModel = new WhatsappMessage();
+            $contactId = $contactModel->upsert($instance['id'], $realJid, [
+                'phone' => $realPhone, 'is_group' => 0, 'last_message_at' => date('Y-m-d H:i:s'),
+            ], $contactName);
+            $db->update('whatsapp_contacts', ['is_archived' => 0], 'id = ?', [$contactId]);
+            $messageModel->create([
+                'instance_id' => $instance['id'],
+                'contact_id' => $contactId,
+                'remote_jid' => $realJid,
+                'message_id' => $result['key']['id'] ?? uniqid('notif_'),
+                'from_me' => 1,
+                'message_type' => 'document',
+                'message_text' => $caption !== '' ? $caption : $fileName,
+                'sender_name' => 'Sistema',
+                'timestamp' => date('Y-m-d H:i:s'),
+                'is_read' => 1,
+            ]);
+            $contactModel->updateLastMessage($contactId, date('Y-m-d H:i:s'));
+        } catch (\Throwable $e) {
+            self::log("ERRO persistencia documento phone={$phone}: " . $e->getMessage());
+        }
+        return true;
+    }
+
+    /**
      * Registra no histórico do chat a mensagem enviada com sucesso.
      */
     private static function persistChatMessage($db, $instance, $realJid, $realPhone, $message, $result, $contactName, $phone)

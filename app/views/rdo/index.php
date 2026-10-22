@@ -53,7 +53,7 @@
                 <i class="bi bi-journal-text"></i> Relatórios
             </button>
         </li>
-        <?php if ($isReviewer): ?>
+        <?php if ($canViewPendencias): ?>
         <li class="nav-item">
             <button class="nav-link" id="tab-pendencias-btn" onclick="switchTab('pendencias')">
                 <i class="bi bi-hourglass-split"></i> Pendências de Revisão
@@ -152,8 +152,8 @@
         </div></div>
     </div><!-- /#tab-relatorios -->
 
-    <!-- ===== ABA: Pendências de Revisão (admin) ===== -->
-    <?php if ($isReviewer): ?>
+    <!-- ===== ABA: Pendências de Revisão (equipe com visão global vê; só o revisor designado age) ===== -->
+    <?php if ($canViewPendencias): ?>
     <div id="tab-pendencias" style="display:none">
         <div class="card border-0 shadow-sm">
             <div class="card-body p-0">
@@ -398,7 +398,7 @@
   </div>
 </div>
 
-<!-- ===== Modal de revisão (diff — apenas admin) ===== -->
+<!-- ===== Modal de revisão (diff) — só o revisor designado ($isReviewer) ===== -->
 <?php if ($isReviewer): ?>
 <div class="modal fade" id="rdoReviewModal" tabindex="-1">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
@@ -563,11 +563,11 @@ function toggleCompanyLegend(key) {
 // =========================================================================
 function switchTab(tab) {
     document.getElementById('tab-relatorios').style.display    = tab === 'relatorios' ? '' : 'none';
-    <?php if ($isReviewer): ?>
+    <?php if ($canViewPendencias): ?>
     document.getElementById('tab-pendencias').style.display    = tab === 'pendencias' ? '' : 'none';
     <?php endif; ?>
     document.getElementById('tab-relatorios-btn').classList.toggle('active', tab === 'relatorios');
-    <?php if ($isReviewer): ?>
+    <?php if ($canViewPendencias): ?>
     document.getElementById('tab-pendencias-btn').classList.toggle('active', tab === 'pendencias');
     if (tab === 'pendencias') loadPendencias();
     <?php endif; ?>
@@ -1252,11 +1252,15 @@ async function processAudio() {
 }
 
 // =========================================================================
-// Aba de pendências (admin)
+// Aba de pendências: a equipe com visão global VÊ; só o revisor designado AGE.
 // =========================================================================
-<?php if ($isReviewer): ?>
+<?php if ($canViewPendencias): ?>
 let _currentReviewId = null;
 let rdoReviewModal;
+
+// Estado da aba de pendências agrupada por pessoa.
+const PENDENCIAS_PAGE = 5;          // itens exibidos por card a cada "página"
+let _pendenciasGroups = {};         // key -> { key, name, items[], shown }
 
 async function loadPendencias() {
     document.getElementById('pendencias-loading').style.display = '';
@@ -1283,38 +1287,106 @@ async function loadPendencias() {
         return;
     }
 
-    const html = data.reviews.map(r => {
-        const typeLbl  = REVIEW_TYPE_LABELS[r.type] || r.type;
-        const dateBR   = r.report_date ? r.report_date.split('-').reverse().join('/') : '—';
-        const when     = (r.requested_at || '').substring(0, 16).replace('T', ' ');
-        const owner    = escapeHtml(r.owner_name || '—');
-        const requester= escapeHtml(r.requester_name || '—');
-
-        // Dia útil sem relatório: item apenas informativo (sem ações).
-        if (r.type === 'missing_report') {
-            return `<div class="border-bottom p-3" style="border-left:4px solid #f0ad4e;background:#fffdf7;">
-                <div class="fw-semibold">
-                    <i class="bi bi-calendar-x text-warning"></i>
-                    ${owner} — <span class="text-muted fw-normal">${dateBR}</span>
-                </div>
-                <div class="small text-muted">Tipo: <strong>${escapeHtml(typeLbl)}</strong></div>
-            </div>`;
+    // Agrupa as pendências por PESSOA (owner_id; nome como rótulo e fallback).
+    _pendenciasGroups = {};
+    const order = [];
+    data.reviews.forEach(r => {
+        const key = (r.owner_id != null && r.owner_id !== '') ? ('u' + r.owner_id) : ('n:' + (r.owner_name || '—'));
+        if (!_pendenciasGroups[key]) {
+            _pendenciasGroups[key] = { key, name: r.owner_name || '—', items: [], shown: PENDENCIAS_PAGE };
+            order.push(key);
         }
+        _pendenciasGroups[key].items.push(r);
+    });
 
-        let diffHtml = '';
-        if (r.type === 'edit_request' && r.payload) {
-            const current  = r.payload.current  || {};
-            const proposed = r.payload.proposed || {};
-            const fieldLabels = {
-                title: 'Título', activities: 'Atividades', occurrences: 'Ocorrências',
-                pending_tasks: 'Pendências', next_day_plan: 'Plano p/ amanhã',
-                status: 'Status', company_id: 'Empresa', report_date: 'Data',
-            };
-            const changed = Object.keys(proposed).filter(k => k !== 'has_occurrence');
-            if (changed.length) {
-                diffHtml = `<div class="mt-2 small">
-                    <div class="fw-semibold mb-1">Campos alterados:</div>
-                    <table class="table table-sm table-bordered mb-0">
+    // Renderiza um card por pessoa, com os itens inicialmente limitados.
+    const html = order.map(key => renderPersonCard(_pendenciasGroups[key])).join('');
+
+    document.getElementById('pendencias-list').innerHTML = html;
+    document.getElementById('pendencias-list').style.display = '';
+}
+
+// Renderiza o card de uma pessoa: cabeçalho (nome + total + "Aprovar tudo")
+// e os itens visíveis (limitados a group.shown), com botão "Carregar mais 5".
+function renderPersonCard(group) {
+    const total   = group.items.length;
+    const visible = group.items.slice(0, group.shown);
+    const itemsHtml = visible.map(renderReviewItem).join('');
+
+    const remaining = total - visible.length;
+    const moreBtn = remaining > 0
+        ? `<div class="p-3 border-top text-center">
+               <button class="btn btn-sm btn-outline-secondary" onclick="loadMorePendencias('${group.key}')">
+                   <i class="bi bi-chevron-down"></i> Carregar mais ${Math.min(PENDENCIAS_PAGE, remaining)}
+                   <span class="text-muted">(${remaining} restantes)</span>
+               </button>
+           </div>`
+        : '';
+
+    // "Aprovar tudo" só aparece para o revisor designado (RDO.isReviewer).
+    const approveAllBtn = RDO.isReviewer
+        ? `<button class="btn btn-sm btn-success" onclick="approveAllForUser('${group.key}', this)">
+               <i class="bi bi-check2-all"></i> Aprovar tudo (${total})
+           </button>`
+        : '';
+
+    return `<div class="card border-0 shadow-sm mb-3" id="card-${group.key}">
+        <div class="card-header bg-white d-flex flex-wrap gap-2 align-items-center justify-content-between">
+            <div class="fw-semibold">
+                <i class="bi bi-person-circle text-primary"></i>
+                ${escapeHtml(group.name)}
+                <span class="badge bg-secondary ms-1">${total}</span>
+            </div>
+            ${approveAllBtn}
+        </div>
+        <div class="card-body p-0" id="card-body-${group.key}">
+            ${itemsHtml}
+        </div>
+        ${moreBtn}
+    </div>`;
+}
+
+// Renderiza UM item de pendência (revisão real ou ausência informativa).
+function renderReviewItem(r) {
+    const typeLbl  = REVIEW_TYPE_LABELS[r.type] || r.type;
+    const dateBR   = r.report_date ? r.report_date.split('-').reverse().join('/') : '—';
+    const when     = (r.requested_at || '').substring(0, 16).replace('T', ' ');
+    const requester= escapeHtml(r.requester_name || '—');
+
+    // Dia útil sem relatório: item apenas informativo (sem ações).
+    if (r.type === 'missing_report') {
+        return `<div class="border-bottom p-3" style="border-left:4px solid #f0ad4e;background:#fffdf7;">
+            <div class="fw-semibold">
+                <i class="bi bi-calendar-x text-warning"></i>
+                <span class="text-muted fw-normal">${dateBR}</span>
+            </div>
+            <div class="small text-muted">Tipo: <strong>${escapeHtml(typeLbl)}</strong></div>
+        </div>`;
+    }
+
+    let diffHtml = '';
+    if (r.type === 'edit_request' && r.payload) {
+        const current  = r.payload.current  || {};
+        const proposed = r.payload.proposed || {};
+        const fieldLabels = {
+            title: 'Título', activities: 'Atividades', occurrences: 'Ocorrências',
+            pending_tasks: 'Pendências', next_day_plan: 'Plano p/ amanhã',
+            status: 'Status', company_id: 'Empresa', report_date: 'Data',
+        };
+        const changed = Object.keys(proposed).filter(k => k !== 'has_occurrence');
+        if (changed.length) {
+            // "Campos alterados" começa RECOLHIDO; a seta expande/recolhe só
+            // este item (id único via r.id). O modal de aprovação continua
+            // mostrando o diff sempre expandido.
+            const diffId = 'diff-' + r.id;
+            diffHtml = `<div class="mt-2 small">
+                <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none fw-semibold"
+                        onclick="toggleDiff('${diffId}', this)">
+                    <i class="bi bi-chevron-down" id="${diffId}-icon"></i>
+                    Campos alterados (${changed.length})
+                </button>
+                <div id="${diffId}" style="display:none">
+                    <table class="table table-sm table-bordered mb-0 mt-1">
                         <thead class="table-light"><tr><th>Campo</th><th class="text-danger">Atual</th><th class="text-success">Proposto</th></tr></thead>
                         <tbody>` +
                     changed.map(k => {
@@ -1327,30 +1399,92 @@ async function loadPendencias() {
                             <td class="text-success">${escapeHtml(String(prop)).replace(/\n/g,'<br>') || '<em>vazio</em>'}</td>
                         </tr>`;
                     }).join('') +
-                    `</tbody></table></div>`;
-            }
+                    `</tbody></table>
+                </div>
+            </div>`;
         }
+    }
 
-        return `<div class="border-bottom p-3">
-            <div class="d-flex flex-wrap gap-2 align-items-start">
-                <div class="flex-grow-1">
-                    <div class="fw-semibold">${owner} — <span class="text-muted fw-normal">${dateBR}</span></div>
-                    <div class="small text-muted">Tipo: <strong>${escapeHtml(typeLbl)}</strong> · Solicitado por ${requester} em ${when}</div>
-                    ${r.report_status ? `<div class="small mt-1">Status do relatório: ${statusBadge(r.report_status)}</div>` : ''}
-                    ${diffHtml}
-                </div>
-                <div class="d-flex gap-2 flex-shrink-0 align-items-start mt-1">
-                    <button class="btn btn-sm btn-outline-primary" onclick="viewRdo(${r.report_id})"><i class="bi bi-eye"></i> Ver</button>
-                    <button class="btn btn-sm btn-success"  onclick="openReviewModal(${r.id})"><i class="bi bi-check-lg"></i> Aprovar</button>
-                    <button class="btn btn-sm btn-danger"   onclick="openReviewModal(${r.id})"><i class="bi bi-x-lg"></i> Recusar</button>
-                </div>
+    return `<div class="border-bottom p-3">
+        <div class="d-flex flex-wrap gap-2 align-items-start">
+            <div class="flex-grow-1">
+                <div class="fw-semibold"><span class="text-muted fw-normal">${dateBR}</span></div>
+                <div class="small text-muted">Tipo: <strong>${escapeHtml(typeLbl)}</strong> · Solicitado por ${requester} em ${when}</div>
+                ${r.report_status ? `<div class="small mt-1">Status do relatório: ${statusBadge(r.report_status)}</div>` : ''}
+                ${diffHtml}
             </div>
-        </div>`;
-    }).join('');
-
-    document.getElementById('pendencias-list').innerHTML = html;
-    document.getElementById('pendencias-list').style.display = '';
+            <div class="d-flex gap-2 flex-shrink-0 align-items-start mt-1">
+                <button class="btn btn-sm btn-outline-primary" onclick="viewRdo(${r.report_id})"><i class="bi bi-eye"></i> Ver</button>
+                ${RDO.isReviewer ? `
+                <button class="btn btn-sm btn-success"  onclick="openReviewModal(${r.id})"><i class="bi bi-check-lg"></i> Aprovar</button>
+                <button class="btn btn-sm btn-danger"   onclick="openReviewModal(${r.id})"><i class="bi bi-x-lg"></i> Recusar</button>
+                ` : ''}
+            </div>
+        </div>
+    </div>`;
 }
+
+// Expande/recolhe a tabela "Campos alterados" de um item e gira a seta.
+function toggleDiff(diffId, btn) {
+    const box  = document.getElementById(diffId);
+    const icon = document.getElementById(diffId + '-icon');
+    if (!box) return;
+    const open = box.style.display === 'none';
+    box.style.display = open ? '' : 'none';
+    if (icon) {
+        icon.classList.toggle('bi-chevron-down', !open);
+        icon.classList.toggle('bi-chevron-up', open);
+    }
+}
+
+// Mostra mais PENDENCIAS_PAGE itens do card de uma pessoa.
+function loadMorePendencias(key) {
+    const group = _pendenciasGroups[key];
+    if (!group) return;
+    group.shown += PENDENCIAS_PAGE;
+    const card = document.getElementById('card-' + key);
+    if (card) card.outerHTML = renderPersonCard(group);
+}
+
+// "Aprovar tudo" de uma pessoa: aprova as revisões reais e reconhece as
+// ausências. Só disponível para o super_admin (botão não renderizado p/ outros).
+<?php if ($isReviewer): ?>
+async function approveAllForUser(key, btn) {
+    const group = _pendenciasGroups[key];
+    if (!group) return;
+
+    // Precisa do owner_id numérico. A chave 'u<ID>' carrega o id; se vier de
+    // fallback por nome (sem id), não há como aprovar em lote com segurança.
+    if (!key.startsWith('u')) {
+        alert('Não foi possível identificar a pessoa para aprovar em lote.');
+        return;
+    }
+    const ownerId = key.substring(1);
+
+    if (!confirm(`Aprovar TODAS as ${group.items.length} pendência(s) de ${group.name}?\n\n`
+               + `As solicitações de alteração serão aplicadas aos relatórios, os desbloqueios efetivados `
+               + `e as ausências ("relatório não preenchido") serão reconhecidas. Esta ação não pode ser desfeita.`)) {
+        return;
+    }
+
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Aprovando...'; }
+
+    const res  = await fetch(RDO.base + '/approveAllForUser/' + ownerId, {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    });
+    const data = await res.json();
+
+    if (data.error) {
+        alert(data.error);
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-check2-all"></i> Aprovar tudo'; }
+        return;
+    }
+
+    loadPendencias();
+    loadRdos();
+}
+<?php endif; ?>
 
 async function openReviewModal(reviewId) {
     _currentReviewId = reviewId;

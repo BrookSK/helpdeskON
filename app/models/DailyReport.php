@@ -271,6 +271,7 @@ class DailyReport
                     u.name  AS requester_name,
                     dr.report_date, dr.title, dr.activities, dr.status AS report_status,
                     dr.review_status,
+                    dr.user_id AS owner_id,
                     ow.name AS owner_name
              FROM daily_report_reviews r
              JOIN daily_reports dr ON r.report_id = dr.id
@@ -279,6 +280,24 @@ class DailyReport
              WHERE r.status = 'pending'
              ORDER BY r.requested_at ASC",
             []
+        );
+    }
+
+    /**
+     * Lista as revisões pendentes (status='pending') de todos os relatórios de
+     * UMA pessoa (dono). Usado na aprovação em lote por card ("Aprovar tudo").
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    public function getPendingReviewsForUser(int $ownerId): array
+    {
+        return $this->db->fetchAll(
+            "SELECT r.*
+             FROM daily_report_reviews r
+             JOIN daily_reports dr ON r.report_id = dr.id
+             WHERE dr.user_id = ? AND r.status = 'pending'
+             ORDER BY r.requested_at ASC",
+            [$ownerId]
         );
     }
 
@@ -372,5 +391,49 @@ class DailyReport
             [$userId, $from, $to]
         );
         return array_map(static fn($r) => (string) $r['report_date'], $rows);
+    }
+
+    /**
+     * Retorna, para um usuário, as datas (Y-m-d) de ausência já RECONHECIDAS
+     * pelo admin dentro do período [from, to]. Reaproveita a tabela de
+     * idempotência daily_report_missing_notifications (user_id + report_date):
+     * uma vez registrada ali, a ausência deixa de ser listada como pendência.
+     *
+     * @return string[] Datas Y-m-d.
+     */
+    public function getAcknowledgedMissingDates(int $userId, string $from, string $to): array
+    {
+        $rows = $this->db->fetchAll(
+            "SELECT DISTINCT report_date
+             FROM daily_report_missing_notifications
+             WHERE user_id = ? AND report_date >= ? AND report_date <= ?",
+            [$userId, $from, $to]
+        );
+        return array_map(static fn($r) => (string) $r['report_date'], $rows);
+    }
+
+    /**
+     * Marca a ausência de um usuário numa data como reconhecida pelo admin,
+     * gravando em daily_report_missing_notifications. Idempotente graças ao
+     * UNIQUE(user_id, report_date): se já existir, não duplica.
+     *
+     * @return bool true se inseriu uma nova linha; false se já existia.
+     */
+    public function acknowledgeMissingReport(int $userId, string $reportDate): bool
+    {
+        $exists = $this->db->fetch(
+            "SELECT 1 FROM daily_report_missing_notifications
+             WHERE user_id = ? AND report_date = ?",
+            [$userId, $reportDate]
+        );
+        if ($exists) {
+            return false;
+        }
+        $this->db->insert('daily_report_missing_notifications', [
+            'user_id'     => $userId,
+            'report_date' => $reportDate,
+            'notified_at' => date('Y-m-d H:i:s'),
+        ]);
+        return true;
     }
 }

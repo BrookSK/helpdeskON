@@ -137,6 +137,7 @@
             // Cada link usa a rota real do controller (singular onde o controller
             // é singular: proposal/contract/provider/project).
             $esteiraItems = [
+                ['mod' => 'presentations',   'page' => 'presentations',   'route' => 'presentation',    'icon' => 'bi-easel',              'label' => 'Apresentação'],
                 ['mod' => 'proposals',       'page' => 'proposals',       'route' => 'proposal',        'icon' => 'bi-file-earmark-text',  'label' => 'Propostas'],
                 ['mod' => 'contracts',       'page' => 'contracts',       'route' => 'contract',        'icon' => 'bi-file-earmark-check', 'label' => 'Contratos'],
                 ['mod' => 'finance',         'page' => 'finance',         'route' => 'finance',         'icon' => 'bi-cash-coin',          'label' => 'Financeiro'],
