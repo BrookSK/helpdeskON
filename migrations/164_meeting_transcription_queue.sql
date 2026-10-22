@@ -7,6 +7,7 @@
 --   abandonada (aba fechada sem parar).
 -- - video_recordings.minutes_edited_by / minutes_edited_at: revisão interna da
 --   minuta. Minuta "rascunho" = minutes_status='done' e minutes_sent_at nulo.
+-- - video_recordings.minutes_sent_by: quem enviou a minuta ao cliente.
 -- - video_recording_segments: segmentos só de áudio gravados em paralelo,
 --   transcritos um a um pelo cron (sem ffmpeg no servidor).
 -- - proposals.recording_id: proposta gerada a partir da minuta da gravação.
@@ -38,6 +39,11 @@ PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
 SET @c := (SELECT COUNT(*) FROM information_schema.COLUMNS
     WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='video_recordings' AND COLUMN_NAME='minutes_edited_at');
 SET @s := IF(@c=0,'ALTER TABLE video_recordings ADD COLUMN minutes_edited_at DATETIME NULL AFTER minutes_edited_by','SELECT 1');
+PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+
+SET @c := (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='video_recordings' AND COLUMN_NAME='minutes_sent_by');
+SET @s := IF(@c=0,'ALTER TABLE video_recordings ADD COLUMN minutes_sent_by INT NULL AFTER minutes_sent_at','SELECT 1');
 PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
 
 CREATE TABLE IF NOT EXISTS video_recording_segments (

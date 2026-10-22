@@ -1091,7 +1091,8 @@ class VideocallController extends Controller
             'minutes' => $rec['minutes'] ?? null,
             'minutes_structured' => $minutesObj,
             'minutes_status' => $rec['minutes_status'] ?? 'none',
-            'error_message' => ($st === 'error') ? ($rec['summary'] ?? 'Falha ao transcrever.') : null,
+            'minutes_sent_at' => $rec['minutes_sent_at'] ?? null,
+            'error_message' => ($st === 'error') ? ($rec['transcribe_error'] ?: ($rec['summary'] ?? 'Falha ao transcrever.')) : null,
             'url' => rtrim(baseUrl(''), '/') . '/videocall/recording/' . $rec['token'],
         ]);
     }
@@ -1201,11 +1202,11 @@ class VideocallController extends Controller
      * Pós-transcrição feita pelo cron (RecordingTranscriber): gera a ata
      * estruturada (summary) e a minuta a partir da transcrição já salva.
      */
-    public function completeTranscription($recToken)
+    public function completeTranscription($recToken, $ai = null)
     {
         $rec = $this->model->findRecordingByToken($recToken);
         if (!$rec || trim((string)$rec['transcript']) === '') return;
-        $ai = new OpenAiClient();
+        if (!$ai) $ai = new OpenAiClient();
         if (!$ai->isConfigured()) return;
         $summary = $this->generateMinutesJson((string)$rec['transcript'], $this->buildMeetingContext($rec), $ai);
         if ($summary !== '') $this->model->updateRecording($recToken, ['summary' => $summary]);
@@ -1214,18 +1215,19 @@ class VideocallController extends Controller
 
     /**
      * Gera a MINUTA/ATA a partir da transcrição e salva em video_recordings.
-     * Usada tanto no fluxo automático (após saveTranscript) quanto no botão de
-     * "regerar". Devolve o conteúdo gerado (ou '' se não foi possível). Nunca
-     * lança: em falha, marca minutes_status='error' e segue.
+     * Usada tanto no fluxo automático (após a transcrição) quanto no botão de
+     * "gerar de novo". A minuta fica como rascunho (minutes_sent_at nulo) e o
+     * organizador é avisado. Devolve o conteúdo gerado (ou '' se não foi
+     * possível). Nunca lança: em falha, marca minutes_status='error' e segue.
      *
-     * @param OpenAiClient|null $ai  Cliente já instanciado (reaproveita), ou null.
+     * @param object|null $ai  Cliente de IA já instanciado (reaproveita), ou null.
      */
     private function generateMinutesContent($recToken, string $transcript, $ai = null): string
     {
         if (!MeetingMinutesRules::canGenerate($transcript)) {
             return '';
         }
-        if (!($ai instanceof OpenAiClient)) $ai = new OpenAiClient();
+        if (!$ai) $ai = new OpenAiClient();
         if (!$ai->isConfigured()) {
             // Sem IA configurada: não é erro de execução, apenas não há como gerar.
             return '';
@@ -1273,11 +1275,9 @@ class VideocallController extends Controller
                 'minutes_status' => MeetingMinutesRules::STATUS_DONE,
                 'minutes_generated_at' => date('Y-m-d H:i:s'),
             ]);
-            // Envio automático do link da minuta (WhatsApp + e-mail) à equipe e ao
-            // cliente — só uma vez (idempotente por minutes_sent_at). Não interrompe.
-            try { $this->deliverMinutes($recToken); } catch (\Throwable $e) {
-                if (class_exists('Logger')) Logger::error('deliverMinutes falhou', ['rec' => $recToken, 'error' => $e->getMessage()]);
-            }
+            // A minuta nasce como rascunho: nada sai para o cliente aqui. O envio é
+            // feito pela tela da gravação (sendMinutes) depois da revisão interna.
+            if (empty($rec['minutes_sent_at'])) $this->notifyMinutesReady($recToken);
             return $minutes;
         } catch (\Throwable $e) {
             $this->model->updateRecording($recToken, ['minutes_status' => MeetingMinutesRules::STATUS_ERROR]);
@@ -1285,6 +1285,39 @@ class VideocallController extends Controller
                 Logger::error('generateMinutesContent falhou', ['rec' => $recToken, 'error' => $e->getMessage()]);
             }
             return '';
+        }
+    }
+
+    /**
+     * Avisa o organizador da reunião (responsável, senão quem criou a reunião ou
+     * a sala) que a minuta em rascunho está pronta para revisão.
+     */
+    private function notifyMinutesReady($recToken)
+    {
+        try {
+            $rec = $this->model->findRecordingByToken($recToken);
+            $room = $rec ? $this->model->findById($rec['room_id']) : null;
+            if (!$room) return;
+            $userId = null;
+            $title = $room['title'] ?? 'Reunião';
+            if (!empty($room['meeting_id'])) {
+                $meeting = (new AgendaMeeting())->findById((int)$room['meeting_id']);
+                if ($meeting) {
+                    $userId = $meeting['assigned_to'] ?: $meeting['created_by'];
+                    $title = $meeting['title'] ?: $title;
+                }
+            }
+            if (!$userId) $userId = $room['created_by'] ?? null;
+            if (!$userId) return;
+            Database::getInstance()->insert('notifications', [
+                'user_id' => (int)$userId,
+                'title' => 'Minuta pronta para revisão',
+                'message' => "A minuta da reunião \"{$title}\" está em rascunho. Revise antes de enviar ao cliente: "
+                    . $this->publicBase() . '/videocall/watch/' . $rec['token'],
+                'type' => 'system',
+            ]);
+        } catch (\Throwable $e) {
+            if (class_exists('Logger')) Logger::error('notifyMinutesReady falhou', ['rec' => $recToken, 'error' => $e->getMessage()]);
         }
     }
 
@@ -1305,9 +1338,15 @@ class VideocallController extends Controller
 
         $this->releaseSession();
         @set_time_limit(0);
-        $minutes = $this->generateMinutesContent($recToken, $transcript);
+        // Gerar de novo refaz a ata estruturada a partir da transcrição e
+        // substitui as edições anteriores (a tela pede confirmação antes).
+        $ai = new OpenAiClient();
+        $summary = $this->generateMinutesJson($transcript, $this->buildMeetingContext($rec), $ai);
+        if ($summary === '') $this->json(['error' => 'Não foi possível gerar a minuta (verifique a IA).'], 502);
+        $this->model->updateRecording($recToken, ['summary' => $summary, 'minutes_edited_by' => null, 'minutes_edited_at' => null]);
+        $minutes = $this->generateMinutesContent($recToken, $transcript, $ai);
         if ($minutes === '') $this->json(['error' => 'Não foi possível gerar a minuta (verifique a IA).'], 502);
-        $this->json(['success' => true, 'minutes' => $minutes]);
+        $this->json(['success' => true, 'minutes' => $minutes, 'structured' => json_decode($summary, true)]);
     }
 
     /**
@@ -1323,13 +1362,23 @@ class VideocallController extends Controller
         $raw = file_get_contents('php://input');
         $body = json_decode($raw, true);
         if (!is_array($body)) $body = $_POST;
-        $minutes = MeetingMinutesRules::sanitizeContent($body['minutes'] ?? '');
 
-        $this->model->updateRecording($recToken, [
-            'minutes' => $minutes,
+        $user = $this->currentUser();
+        $data = [
             'minutes_status' => MeetingMinutesRules::STATUS_DONE,
-        ]);
-        $this->json(['success' => true]);
+            'minutes_edited_by' => (int)$user['id'],
+            'minutes_edited_at' => date('Y-m-d H:i:s'),
+        ];
+        // Revisão pelos campos da ata (tela da gravação): o texto é derivado deles.
+        $structured = isset($body['structured']) ? MeetingMinutesRules::normalizeStructured($body['structured']) : null;
+        if ($structured !== null) {
+            $data['summary'] = json_encode($structured, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $data['minutes'] = MeetingMinutesRules::textFromStructured($structured);
+        } else {
+            $data['minutes'] = MeetingMinutesRules::sanitizeContent($body['minutes'] ?? '');
+        }
+        $this->model->updateRecording($recToken, $data);
+        $this->json(['success' => true, 'minutes' => $data['minutes'], 'edited_at' => $data['minutes_edited_at']]);
     }
 
     /**
@@ -1419,10 +1468,16 @@ class VideocallController extends Controller
         $recToken = $rec['token'];
         if (empty($rec['minutes'])) $this->json(['error' => 'Não há minuta para enviar.'], 400);
 
+        $user = $this->currentUser();
         $this->releaseSession();
         @set_time_limit(0);
         $r = $this->deliverMinutes($recToken, true);
-        $this->json(['success' => true] + $r);
+        if ($r['recipients'] === 0) {
+            $this->json(['error' => 'A reunião não tem destinatários com WhatsApp ou e-mail para receber a minuta.'] + $r, 422);
+        }
+        $this->model->updateRecording($recToken, ['minutes_sent_by' => (int)$user['id']]);
+        $after = $this->model->findRecordingByToken($recToken);
+        $this->json(['success' => true, 'sent_at' => $after['minutes_sent_at'] ?? null] + $r);
     }
 
     /**
@@ -1667,10 +1722,13 @@ class VideocallController extends Controller
     private function renderPlayer($rec, $isPublic)
     {
         $room = $this->model->findById($rec['room_id']);
+        $segmentCount = 0;
+        try { $segmentCount = count((new RecordingSegment())->listByRecording((int)$rec['id'])); } catch (\Throwable $e) {}
         $this->view('videocall/watch', [
             'rec' => $rec,
             'room' => $room,
             'isPublic' => $isPublic,
+            'segmentCount' => $segmentCount,
             'videoUrl' => rtrim(baseUrl(''), '/') . '/videocall/recording/' . $rec['token'],
             'segments' => $rec['transcript_json'] ? json_decode($rec['transcript_json'], true) : [],
         ]);
@@ -2284,64 +2342,9 @@ class VideocallController extends Controller
      * @param  OpenAiClient $ai
      * @return string  JSON serializado (ou '' em caso de falha)
      */
-    private function generateMinutesJson(string $transcript, array $ctx, OpenAiClient $ai): string
+    private function generateMinutesJson(string $transcript, array $ctx, $ai): string
     {
-        if (!$ai->isConfigured() || $transcript === '') return '';
-
-        // Monta o cabeçalho de contexto para enriquecer o prompt.
-        $header = '';
-        if ($ctx['title'])        $header .= "Reunião: {$ctx['title']}\n";
-        if ($ctx['meeting_type']) $header .= "Tipo: {$ctx['meeting_type']}\n";
-        if ($ctx['meeting_at'])   $header .= "Data/hora: {$ctx['meeting_at']}\n";
-        if ($ctx['participants']) $header .= "Participantes: {$ctx['participants']}\n";
-        if ($header !== '')       $header .= "\n";
-
-        $systemPrompt =
-            'Você é um assistente especializado em gerar minutas de reunião em português do Brasil. ' .
-            'Analise a transcrição fornecida e produza uma minuta estruturada. ' .
-            'Responda SOMENTE com um objeto JSON válido com estas 5 chaves (sem nenhum texto fora do JSON): ' .
-            '"resumo" (string: parágrafo geral descrevendo o contexto e objetivo da reunião), ' .
-            '"topicos" (array de strings: principais tópicos discutidos e concluídos, em bullets), ' .
-            '"topicos_nao_resolvidos" (array de strings: tópicos citados mas sem conclusão, sem encaminhamento claro ou deixados em aberto), ' .
-            '"decisoes" (array de strings: decisões formalmente tomadas durante a reunião), ' .
-            '"proximos_passos" (array de strings: tarefas, ações e próximos passos identificados, ' .
-            'idealmente com responsável e prazo quando mencionados na transcrição). ' .
-            'Se uma seção não tiver conteúdo claro na transcrição, retorne array vazio []. ' .
-            'Seja direto e objetivo; evite repetir informações entre seções.';
-
-        $userPrompt = $header .
-            "Transcrição da reunião (formato [mm:ss] texto):\n\n" .
-            mb_substr($transcript, 0, 48000);
-
-        $res = $ai->chat(
-            [
-                ['role' => 'system', 'content' => $systemPrompt],
-                ['role' => 'user',   'content' => $userPrompt],
-            ],
-            [
-                'model'           => 'gpt-4o-mini',
-                'temperature'     => 0.3,
-                'max_tokens'      => 1200,
-                'response_format' => ['type' => 'json_object'],
-                'timeout'         => 60,
-            ]
-        );
-
-        if (empty($res['success'])) return '';
-
-        // Valida que veio um JSON com as chaves esperadas; normaliza se necessário.
-        $data = json_decode($res['content'], true);
-        if (!is_array($data)) return '';
-
-        $minutes = [
-            'resumo'                => trim((string)($data['resumo']          ?? '')),
-            'topicos'               => array_values(array_filter((array)($data['topicos']               ?? []), 'is_string')),
-            'topicos_nao_resolvidos'=> array_values(array_filter((array)($data['topicos_nao_resolvidos'] ?? []), 'is_string')),
-            'decisoes'              => array_values(array_filter((array)($data['decisoes']              ?? []), 'is_string')),
-            'proximos_passos'       => array_values(array_filter((array)($data['proximos_passos']       ?? []), 'is_string')),
-        ];
-
-        return json_encode($minutes, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        return (new MeetingMinutesGenerator($ai))->generate($transcript, $ctx);
     }
 
     /** Página simples de mensagem (link inválido/expirado/encerrado). */
