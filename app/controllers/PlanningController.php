@@ -83,6 +83,10 @@ class PlanningController extends Controller
         // Lista de solicitantes (criadores dos cards) para o filtro
         $requesters = $this->cardModel->getRequesters($allowedCompanies);
 
+        // Cards que podem ser escolhidos como atividade predecessora (exclui
+        // concluídos/arquivados; respeita o escopo de empresas do usuário).
+        $selectableCards = $this->cardModel->getSelectableCards(null, $allowedCompanies);
+
         $this->view('planning/index', [
             'user' => $user,
             'grouped' => $grouped,
@@ -92,6 +96,7 @@ class PlanningController extends Controller
             'techniciansList' => $techniciansList,
             'analystsList' => $analystsList,
             'requesters' => $requesters,
+            'selectableCards' => $selectableCards,
             'filters' => $filters,
         ]);
     }
@@ -177,10 +182,31 @@ class PlanningController extends Controller
             'end_date' => !empty($_POST['end_date']) ? $_POST['end_date'] : null,
             'client_start_date' => !empty($_POST['client_start_date']) ? $_POST['client_start_date'] : null,
             'client_end_date' => !empty($_POST['client_end_date']) ? $_POST['client_end_date'] : null,
+            'predecessor_id' => !empty($_POST['predecessor_id']) ? (int) $_POST['predecessor_id'] : null,
+            'predecessor_lag_days' => isset($_POST['predecessor_lag_days']) ? max(0, (int) $_POST['predecessor_lag_days']) : 0,
             'position' => 0,
         ];
 
         $cardId = $this->cardModel->create($data);
+
+        // Se o card nasce com predecessor e ainda não tem datas próprias, já as
+        // deriva do término do predecessor (começa logo após ele). A cascata
+        // em PlanningRules respeita o due_date como teto.
+        if ($data['predecessor_id']) {
+            $predecessor = $this->cardModel->findById($data['predecessor_id']);
+            if ($predecessor && !empty($predecessor['end_date'])) {
+                $newDates = PlanningRules::recalcDependentDates(
+                    $predecessor['end_date'],
+                    $data['start_date'],
+                    $data['end_date'],
+                    $data['due_date'],
+                    $data['predecessor_lag_days']
+                );
+                if ($newDates !== null) {
+                    $this->cardModel->update($cardId, $newDates);
+                }
+            }
+        }
 
         // Notificar responsável se atribuído
         if ($data['assigned_to'] && $data['assigned_to'] != $user['id']) {
@@ -297,6 +323,19 @@ class PlanningController extends Controller
         if (isset($_POST['end_date'])) $data['end_date'] = $_POST['end_date'] ?: null;
         if (isset($_POST['client_start_date'])) $data['client_start_date'] = $_POST['client_start_date'] ?: null;
         if (isset($_POST['client_end_date'])) $data['client_end_date'] = $_POST['client_end_date'] ?: null;
+        // Atividade predecessora (dependência de cronograma). Valida ciclo antes
+        // de aceitar: um card não pode depender de si mesmo nem formar laço.
+        if (isset($_POST['predecessor_id'])) {
+            $predId = !empty($_POST['predecessor_id']) ? (int) $_POST['predecessor_id'] : null;
+            if ($predId !== null) {
+                $map = $this->cardModel->getPredecessorMap();
+                if (PlanningRules::wouldCreateCycle((int) $id, $predId, $map)) {
+                    $this->json(['error' => 'Vínculo inválido: criaria uma dependência circular entre os cards.'], 400);
+                }
+            }
+            $data['predecessor_id'] = $predId;
+        }
+        if (isset($_POST['predecessor_lag_days'])) $data['predecessor_lag_days'] = max(0, (int) $_POST['predecessor_lag_days']);
         // Campos CX Hub
         if (isset($_POST['cx_hub_number'])) $data['cx_hub_number'] = trim($_POST['cx_hub_number']) ?: null;
         if (isset($_POST['cx_hub_name'])) $data['cx_hub_name'] = trim($_POST['cx_hub_name']) ?: null;
@@ -316,6 +355,15 @@ class PlanningController extends Controller
 
         $this->cardModel->update($id, $data);
 
+        // Atividade predecessora: se a data de término (ou o prazo) deste card
+        // mudou, recalcula em cascata as datas dos cards que dependem dele —
+        // sempre respeitando o due_date de cada dependente (ver PlanningRules).
+        // A lista de afetados vai na resposta para o board atualizar sem reload.
+        $affectedCards = [];
+        if (PlanningRules::scheduleChanged($card, $data)) {
+            $affectedCards = $this->cardModel->cascadeRecalcDependents((int) $id);
+        }
+
         // Resposta IMEDIATA ao navegador: devolve o card já atualizado e encerra
         // a conexão do cliente ANTES de rodar as notificações. As notificações
         // (WhatsApp/e-mail/webhook) são chamadas de rede síncronas e lentas; se
@@ -323,7 +371,7 @@ class PlanningController extends Controller
         // segundos. Aqui o UPDATE (rápido) já foi persistido, então respondemos
         // na hora e disparamos os avisos em segundo plano.
         $updatedCard = $this->cardModel->findById($id);
-        $this->respondAndContinue(['success' => true, 'card' => $updatedCard]);
+        $this->respondAndContinue(['success' => true, 'card' => $updatedCard, 'affected_cards' => $affectedCards]);
 
         // ===== A partir daqui roda em segundo plano (resposta já enviada) =====
 

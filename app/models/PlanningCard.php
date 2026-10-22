@@ -354,6 +354,141 @@ class PlanningCard
         return $grouped;
     }
 
+    /**
+     * Cards que podem ser escolhidos como PREDECESSOR de um dado card.
+     * Exclui o próprio card (não pode depender de si mesmo) e os já concluídos/
+     * arquivados/negados (não faz sentido depender de algo encerrado para efeito
+     * de cronograma). Respeita o escopo de empresas quando informado.
+     *
+     * @param int|null   $excludeId         Card a excluir da lista (o próprio).
+     * @param array|null $allowedCompanies  IDs de empresas permitidas (ou null).
+     */
+    public function getSelectableCards($excludeId = null, $allowedCompanies = null)
+    {
+        $sql = "SELECT id, title, status, due_date, company_id
+                FROM planning_cards
+                WHERE status NOT IN ('completed', 'denied', 'archived')";
+        $params = [];
+        if ($excludeId) {
+            $sql .= " AND id <> ?";
+            $params[] = $excludeId;
+        }
+        if (is_array($allowedCompanies) && !in_array(0, $allowedCompanies, true)) {
+            if (empty($allowedCompanies)) {
+                $sql .= " AND company_id IS NULL";
+            } else {
+                $ph = implode(',', array_fill(0, count($allowedCompanies), '?'));
+                $sql .= " AND (company_id IS NULL OR company_id IN ($ph))";
+                $params = array_merge($params, $allowedCompanies);
+            }
+        }
+        $sql .= " ORDER BY title ASC";
+        return $this->db->fetchAll($sql, $params);
+    }
+
+    /**
+     * Cards que têm $cardId como predecessor (dependentes diretos). Usado no
+     * recálculo em cascata quando a data do predecessor muda.
+     */
+    public function getDependents($cardId)
+    {
+        return $this->db->fetchAll(
+            "SELECT * FROM planning_cards WHERE predecessor_id = ?",
+            [$cardId]
+        );
+    }
+
+    /**
+     * Mapa [id => predecessor_id] de todos os cards, para a detecção de ciclos
+     * em PlanningRules::wouldCreateCycle sem múltiplas idas ao banco.
+     */
+    public function getPredecessorMap()
+    {
+        $rows = $this->db->fetchAll("SELECT id, predecessor_id FROM planning_cards");
+        $map = [];
+        foreach ($rows as $r) {
+            $map[(int) $r['id']] = $r['predecessor_id'] !== null ? (int) $r['predecessor_id'] : null;
+        }
+        return $map;
+    }
+
+    /**
+     * Recalcula em cascata as datas dos cards que dependem de $cardId (e dos
+     * dependentes deles, recursivamente), a partir do end_date do predecessor.
+     *
+     * Para cada dependente: PlanningRules::recalcDependentDates define o novo
+     * start_date/end_date preservando a duração e respeitando o due_date como
+     * teto. Só grava (e desce a cascata) quando a data efetivamente muda, o que
+     * naturalmente interrompe a propagação quando nada mais se desloca.
+     *
+     * Proteção contra ciclos pré-existentes: um conjunto de visitados impede
+     * reprocessar o mesmo card (evita laço infinito mesmo com dados ruins).
+     *
+     * @param int   $cardId  Card cujo término acabou de mudar (o predecessor).
+     * @return array Lista de cards afetados já atualizados (via findById), para
+     *               o front refletir no board sem reload.
+     */
+    public function cascadeRecalcDependents($cardId, array &$visited = [])
+    {
+        $affected = [];
+        if (isset($visited[$cardId])) {
+            return $affected;
+        }
+        $visited[$cardId] = true;
+
+        $predecessor = $this->findById($cardId);
+        if (!$predecessor) {
+            return $affected;
+        }
+        $predEnd = $predecessor['end_date'] ?? null;
+        if (empty($predEnd)) {
+            // Sem término no predecessor não há âncora; não propaga.
+            return $affected;
+        }
+
+        foreach ($this->getDependents($cardId) as $dep) {
+            $lag = (int) ($dep['predecessor_lag_days'] ?? 0);
+            $newDates = PlanningRules::recalcDependentDates(
+                $predEnd,
+                $dep['start_date'] ?? null,
+                $dep['end_date'] ?? null,
+                $dep['due_date'] ?? null,
+                $lag
+            );
+            if ($newDates === null) {
+                continue;
+            }
+
+            $before = [
+                'start_date' => PlanningRules::normalizeDateTime($dep['start_date'] ?? null),
+                'end_date'   => PlanningRules::normalizeDateTime($dep['end_date'] ?? null),
+            ];
+            $after = [
+                'start_date' => PlanningRules::normalizeDateTime($newDates['start_date']),
+                'end_date'   => PlanningRules::normalizeDateTime($newDates['end_date']),
+            ];
+
+            // Só grava se algo mudou de fato (evita UPDATEs e cascata inúteis).
+            if ($before['start_date'] === $after['start_date'] && $before['end_date'] === $after['end_date']) {
+                continue;
+            }
+
+            $this->update($dep['id'], [
+                'start_date' => $newDates['start_date'],
+                'end_date'   => $newDates['end_date'],
+            ]);
+            $affected[] = $this->findById($dep['id']);
+
+            // Desce a cascata: os dependentes deste dependente também se ajustam.
+            $deeper = $this->cascadeRecalcDependents($dep['id'], $visited);
+            if (!empty($deeper)) {
+                $affected = array_merge($affected, $deeper);
+            }
+        }
+
+        return $affected;
+    }
+
     public function create($data)
     {
         return $this->db->insert('planning_cards', $data);

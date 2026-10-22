@@ -146,4 +146,146 @@ class PlanningRules
         $after = self::normalizeDateTime($new['due_date']);
         return $before !== $after;
     }
+
+    // =====================================================================
+    // ATIVIDADE PREDECESSORA — recálculo de datas em cascata
+    // =====================================================================
+
+    /**
+     * Calcula as novas datas (start_date/end_date) de um card DEPENDENTE a
+     * partir do término do seu predecessor, preservando a DURAÇÃO original do
+     * dependente e respeitando o prazo final (due_date) como teto intocável.
+     *
+     * Regra de negócio (ex.: construir → emassar → pintar o muro):
+     *  - O dependente só pode começar DEPOIS que o predecessor termina. O novo
+     *    início é o fim do predecessor + folga (lagDays), em dias corridos.
+     *  - A duração do dependente é preservada: novo fim = novo início + duração
+     *    que ele já tinha (end - start). Se o dependente não tinha start/end
+     *    definidos, assume duração de 1 dia (apenas desloca para após o
+     *    predecessor).
+     *  - O prazo final (due_date) do dependente NUNCA é ultrapassado pelo
+     *    recálculo automático. Se o novo fim estourar o due_date, o fim é
+     *    "grampeado" no due_date (comprimindo a janela). O início acompanha
+     *    (fim - duração), mas nunca é empurrado para antes do fim do
+     *    predecessor — ou seja, em caso de aperto, a janela encolhe em vez de
+     *    violar a dependência.
+     *
+     * Entradas e saída usam o formato "Y-m-d H:i:s". Retorna um array com as
+     * chaves 'start_date' e 'end_date' (strings) a serem gravadas, ou null
+     * quando não há o que recalcular (sem fim de predecessor).
+     *
+     * @param string|null $predecessorEnd Fim (end_date) do predecessor.
+     * @param string|null $depStart       Início atual do dependente.
+     * @param string|null $depEnd         Fim atual do dependente.
+     * @param string|null $depDue         Prazo final (due_date) do dependente.
+     * @param int         $lagDays        Folga em dias entre fim do predecessor
+     *                                    e início do dependente.
+     * @return array{start_date:string,end_date:string}|null
+     */
+    public static function recalcDependentDates(
+        ?string $predecessorEnd,
+        ?string $depStart,
+        ?string $depEnd,
+        ?string $depDue,
+        int $lagDays = 0
+    ): ?array {
+        $predEndTs = self::toTimestamp($predecessorEnd);
+        if ($predEndTs === null) {
+            // Sem término do predecessor não há âncora para a cascata.
+            return null;
+        }
+
+        if ($lagDays < 0) {
+            $lagDays = 0;
+        }
+
+        // Duração original do dependente (em segundos). Default: 1 dia.
+        $duration = 86400;
+        $startTs = self::toTimestamp($depStart);
+        $endTs = self::toTimestamp($depEnd);
+        if ($startTs !== null && $endTs !== null && $endTs >= $startTs) {
+            $duration = $endTs - $startTs;
+        }
+
+        // Novo início = fim do predecessor + folga.
+        $newStart = $predEndTs + ($lagDays * 86400);
+        $newEnd = $newStart + $duration;
+
+        // Teto do prazo final: o fim recalculado não ultrapassa o due_date.
+        $dueTs = self::toTimestamp($depDue);
+        if ($dueTs !== null && $newEnd > $dueTs) {
+            $newEnd = $dueTs;
+            // Recua o início para manter a duração, mas sem ir antes do término
+            // do predecessor (a dependência tem precedência sobre a duração).
+            $candidateStart = $newEnd - $duration;
+            $newStart = max($candidateStart, $predEndTs + ($lagDays * 86400));
+            // Se ainda assim o início ficou após o fim (janela negativa por um
+            // deadline muito apertado), encosta início no fim (janela zero).
+            if ($newStart > $newEnd) {
+                $newStart = $newEnd;
+            }
+        }
+
+        return [
+            'start_date' => date('Y-m-d H:i:s', $newStart),
+            'end_date'   => date('Y-m-d H:i:s', $newEnd),
+        ];
+    }
+
+    /**
+     * Detecta se definir $predecessorId como predecessor de $cardId criaria um
+     * ciclo (A→B→A) na cadeia de dependências. Recebe um mapa
+     * [cardId => predecessorId|null] com o estado atual e simula a nova aresta.
+     *
+     * Retorna true quando o vínculo é PROIBIDO (gera ciclo ou aponta para si
+     * mesmo). Puro: não toca banco; o chamador monta o mapa.
+     *
+     * @param int                     $cardId        Card que receberá o predecessor.
+     * @param int|null                $predecessorId Predecessor pretendido.
+     * @param array<int,int|null>     $predecessorMap Estado atual (cardId => predId).
+     */
+    public static function wouldCreateCycle(int $cardId, ?int $predecessorId, array $predecessorMap): bool
+    {
+        if ($predecessorId === null) {
+            return false;
+        }
+        if ($predecessorId === $cardId) {
+            return true;
+        }
+        // Caminha pela cadeia de predecessores a partir do predecessor pretendido.
+        // Se em algum ponto chegarmos de volta ao próprio card, há ciclo.
+        $map = $predecessorMap;
+        $map[$cardId] = $predecessorId; // aplica a aresta pretendida
+        $visited = [];
+        $cursor = $predecessorId;
+        while ($cursor !== null) {
+            if ($cursor === $cardId) {
+                return true;
+            }
+            if (isset($visited[$cursor])) {
+                // Ciclo pré-existente na cadeia — trava para não repetir infinito.
+                return true;
+            }
+            $visited[$cursor] = true;
+            $cursor = $map[$cursor] ?? null;
+        }
+        return false;
+    }
+
+    /**
+     * Converte um valor de data/hora em timestamp, ou null se vazio/inválido.
+     * Auxiliar interno do recálculo de cascata.
+     */
+    private static function toTimestamp($value): ?int
+    {
+        if ($value === null) {
+            return null;
+        }
+        $s = trim((string) $value);
+        if ($s === '') {
+            return null;
+        }
+        $ts = strtotime($s);
+        return $ts === false ? null : $ts;
+    }
 }

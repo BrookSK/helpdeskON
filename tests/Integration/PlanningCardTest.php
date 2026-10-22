@@ -346,4 +346,131 @@ final class PlanningCardTest extends TestCase
         $this->assertContains($alvo, $ids, 'Card com o termo deve aparecer no calendário.');
         $this->assertNotContains($outro, $ids, 'Card sem o termo não deve aparecer no calendário.');
     }
+
+    // ================= Atividade predecessora =================
+
+    public function testPredecessorIdEhPersistido(): void
+    {
+        $muro = $this->novoCard(['title' => 'Construir muro']);
+        $emassar = $this->novoCard([
+            'title'          => 'Emassar muro',
+            'predecessor_id' => $muro,
+            'predecessor_lag_days' => 2,
+        ]);
+
+        $card = $this->cards->findById($emassar);
+        $this->assertSame($muro, (int) $card['predecessor_id']);
+        $this->assertSame(2, (int) $card['predecessor_lag_days']);
+    }
+
+    public function testGetDependentsTrazSomenteOsQueDependem(): void
+    {
+        $muro = $this->novoCard(['title' => 'Construir muro']);
+        $emassar = $this->novoCard(['title' => 'Emassar', 'predecessor_id' => $muro]);
+        $pintar = $this->novoCard(['title' => 'Pintar', 'predecessor_id' => $emassar]);
+
+        $depsDoMuro = array_map(fn($c) => (int) $c['id'], $this->cards->getDependents($muro));
+        $this->assertContains($emassar, $depsDoMuro);
+        $this->assertNotContains($pintar, $depsDoMuro, 'Pintar depende de emassar, não do muro (dependência direta).');
+    }
+
+    public function testGetSelectableCardsExcluiOProprioEOsEncerrados(): void
+    {
+        $a = $this->novoCard(['title' => 'Atividade A', 'status' => 'in_progress']);
+        $concluido = $this->novoCard(['title' => 'Já concluída', 'status' => 'completed']);
+
+        $ids = array_map(fn($c) => (int) $c['id'], $this->cards->getSelectableCards($a));
+        $this->assertNotContains($a, $ids, 'Não pode escolher a si mesmo como predecessor.');
+        $this->assertNotContains($concluido, $ids, 'Card concluído não deve ser selecionável.');
+    }
+
+    public function testCascataDeslocaDependenteQuandoPredecessorAtrasa(): void
+    {
+        // Muro termina 10/01; emassar (2 dias) começa depois; prazo 31/01.
+        $muro = $this->novoCard([
+            'title'      => 'Construir muro',
+            'start_date' => '2026-01-05 08:00:00',
+            'end_date'   => '2026-01-10 18:00:00',
+        ]);
+        $emassar = $this->novoCard([
+            'title'          => 'Emassar muro',
+            'predecessor_id' => $muro,
+            'start_date'     => '2026-01-11 08:00:00',
+            'end_date'       => '2026-01-13 08:00:00', // 2 dias
+            'due_date'       => '2026-01-31 23:59:00',
+        ]);
+
+        // Muro atrasa: novo fim 20/01. A cascata deve reagendar o emassar.
+        $this->cards->update($muro, ['end_date' => '2026-01-20 18:00:00']);
+        $afetados = $this->cards->cascadeRecalcDependents($muro);
+
+        $this->assertNotEmpty($afetados, 'A cascata deveria ter afetado o dependente.');
+        $dep = $this->cards->findById($emassar);
+        // Começa no fim do predecessor (20/01 18:00) e mantém ~2 dias.
+        $this->assertStringStartsWith('2026-01-20 18:00', (string) $dep['start_date']);
+        $this->assertStringStartsWith('2026-01-22 18:00', (string) $dep['end_date']);
+    }
+
+    public function testCascataRespeitaPrazoFinalDoDependente(): void
+    {
+        // Muro atrasa MUITO (termina 30/01), mas o emassar tem prazo final 31/01.
+        $muro = $this->novoCard([
+            'title'    => 'Construir muro',
+            'end_date' => '2026-01-10 00:00:00',
+        ]);
+        $emassar = $this->novoCard([
+            'title'          => 'Emassar muro',
+            'predecessor_id' => $muro,
+            'start_date'     => '2026-01-11 00:00:00',
+            'end_date'       => '2026-01-16 00:00:00', // 5 dias
+            'due_date'       => '2026-01-31 00:00:00', // prazo final
+        ]);
+
+        $this->cards->update($muro, ['end_date' => '2026-01-30 00:00:00']);
+        $this->cards->cascadeRecalcDependents($muro);
+
+        $dep = $this->cards->findById($emassar);
+        // O fim não pode passar do prazo final (31/01).
+        $this->assertLessThanOrEqual(
+            strtotime('2026-01-31 00:00:00'),
+            strtotime((string) $dep['end_date']),
+            'A cascata não pode ultrapassar o prazo final do dependente.'
+        );
+    }
+
+    public function testCascataEmCadeiaDeTresAtividades(): void
+    {
+        // muro -> emassar -> pintar. Atrasar o muro empurra os dois seguintes.
+        $muro = $this->novoCard([
+            'title'    => 'Construir muro',
+            'end_date' => '2026-01-10 00:00:00',
+        ]);
+        $emassar = $this->novoCard([
+            'title'          => 'Emassar',
+            'predecessor_id' => $muro,
+            'start_date'     => '2026-01-11 00:00:00',
+            'end_date'       => '2026-01-13 00:00:00', // 2 dias
+            'due_date'       => '2026-03-01 00:00:00',
+        ]);
+        $pintar = $this->novoCard([
+            'title'          => 'Pintar',
+            'predecessor_id' => $emassar,
+            'start_date'     => '2026-01-14 00:00:00',
+            'end_date'       => '2026-01-15 00:00:00', // 1 dia
+            'due_date'       => '2026-03-01 00:00:00',
+        ]);
+
+        $this->cards->update($muro, ['end_date' => '2026-01-20 00:00:00']);
+        $this->cards->cascadeRecalcDependents($muro);
+
+        $emassarCard = $this->cards->findById($emassar);
+        $pintarCard = $this->cards->findById($pintar);
+
+        // Emassar começa quando o muro termina (20/01) e dura 2 dias → fim 22/01.
+        $this->assertStringStartsWith('2026-01-20 00:00', (string) $emassarCard['start_date']);
+        $this->assertStringStartsWith('2026-01-22 00:00', (string) $emassarCard['end_date']);
+        // Pintar começa quando emassar termina (22/01) e dura 1 dia → fim 23/01.
+        $this->assertStringStartsWith('2026-01-22 00:00', (string) $pintarCard['start_date']);
+        $this->assertStringStartsWith('2026-01-23 00:00', (string) $pintarCard['end_date']);
+    }
 }

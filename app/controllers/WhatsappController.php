@@ -225,6 +225,157 @@ class WhatsappController extends Controller
     }
 
     /**
+     * API: Arquivar/desarquivar um único contato ou grupo.
+     *
+     * Arquivar faz o item SAIR da listagem principal do chat (getAll oculta
+     * is_archived = 1 por padrão). Ele volta sozinho quando chegar uma nova
+     * mensagem (ver processMessage). Aceita `archived` (1/0); sem o parâmetro,
+     * alterna o estado atual.
+     */
+    public function archiveContact($contactId = null)
+    {
+        $this->requireRole(['super_admin', 'developer', 'attendant', 'analyst', 'comercial', 'marketing', 'whatsapp_agent']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$contactId) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+
+        $contact = $this->contactModel->findById($contactId);
+        if (!$contact) $this->json(['error' => 'Contato não encontrado'], 404);
+
+        if (isset($_POST['archived'])) {
+            $this->contactModel->setArchived($contactId, (bool) ((int) $_POST['archived']));
+        } else {
+            $this->contactModel->toggleArchive($contactId);
+        }
+
+        $this->json(['success' => true]);
+    }
+
+    /**
+     * API: Concluir vários contatos/grupos de uma vez.
+     *
+     * "Concluir" aqui significa encerrar o atendimento e LIMPAR da listagem:
+     * marca service_status = 'concluido' e arquiva (is_archived = 1), de modo
+     * que o item some do chat. Se o lead voltar a mandar mensagem, o webhook o
+     * desarquiva e devolve para "novo" (ver processMessage), reabrindo o
+     * atendimento. Recebe `ids` (array ou CSV).
+     */
+    public function bulkComplete()
+    {
+        $this->requireRole(['super_admin', 'developer', 'attendant', 'analyst', 'comercial', 'marketing', 'whatsapp_agent']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            $this->json(['error' => 'Método inválido'], 405);
+        }
+
+        $ids = $this->parseIdList($_POST['ids'] ?? []);
+        if (empty($ids)) {
+            $this->json(['error' => 'Nenhum item selecionado'], 400);
+        }
+
+        $count = 0;
+        foreach ($ids as $cid) {
+            $contact = $this->contactModel->findById($cid);
+            if (!$contact) continue;
+            $this->contactModel->updateServiceStatus($cid, 'concluido');
+            $this->contactModel->setArchived($cid, true);
+            $count++;
+        }
+
+        $this->json(['success' => true, 'count' => $count]);
+    }
+
+    /**
+     * API: Arquivar vários contatos/grupos de uma vez (some da lista, sem mexer
+     * no status de atendimento). Recebe `ids` (array ou CSV).
+     */
+    public function bulkArchive()
+    {
+        $this->requireRole(['super_admin', 'developer', 'attendant', 'analyst', 'comercial', 'marketing', 'whatsapp_agent']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            $this->json(['error' => 'Método inválido'], 405);
+        }
+
+        $ids = $this->parseIdList($_POST['ids'] ?? []);
+        if (empty($ids)) {
+            $this->json(['error' => 'Nenhum item selecionado'], 400);
+        }
+
+        $count = 0;
+        foreach ($ids as $cid) {
+            if ($this->contactModel->findById($cid)) {
+                $this->contactModel->setArchived($cid, true);
+                $count++;
+            }
+        }
+
+        $this->json(['success' => true, 'count' => $count]);
+    }
+
+    /**
+     * API: Atribuir um responsável a vários contatos de uma vez.
+     *
+     * Mesma regra de permissão do updateContact individual: usuário não-admin só
+     * pode atribuir a si mesmo (o parâmetro user_id é ignorado e forçado para o
+     * próprio id). Admin pode atribuir a qualquer usuário, ou "" para desatribuir.
+     * Recebe `ids` (array ou CSV) e `user_id`.
+     */
+    public function bulkAssign()
+    {
+        $this->requireRole(['super_admin', 'developer', 'attendant', 'analyst', 'comercial', 'marketing', 'whatsapp_agent']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            $this->json(['error' => 'Método inválido'], 405);
+        }
+
+        $ids = $this->parseIdList($_POST['ids'] ?? []);
+        if (empty($ids)) {
+            $this->json(['error' => 'Nenhum item selecionado'], 400);
+        }
+
+        $user = $this->currentUser();
+        if ($user['role'] === 'super_admin') {
+            $targetUserId = !empty($_POST['user_id']) ? (int) $_POST['user_id'] : null;
+        } else {
+            // Não-admin só atribui a si mesmo (espelha updateContact).
+            $targetUserId = (int) $user['id'];
+        }
+
+        $count = 0;
+        foreach ($ids as $cid) {
+            if ($this->contactModel->findById($cid)) {
+                $this->contactModel->assignTo($cid, $targetUserId);
+                $count++;
+            }
+        }
+
+        $this->json(['success' => true, 'count' => $count]);
+    }
+
+    /**
+     * Normaliza a entrada de IDs das ações em massa: aceita array (ids[]) ou
+     * string CSV ("1,2,3"). Devolve inteiros positivos, sem duplicatas.
+     *
+     * @param mixed $raw
+     * @return int[]
+     */
+    private function parseIdList($raw): array
+    {
+        if (is_string($raw)) {
+            $raw = explode(',', $raw);
+        }
+        if (!is_array($raw)) {
+            return [];
+        }
+        $ids = [];
+        foreach ($raw as $v) {
+            $n = (int) $v;
+            if ($n > 0) {
+                $ids[$n] = $n;
+            }
+        }
+        return array_values($ids);
+    }
+
+    /**
      * API: Buscar mensagens de um contato (AJAX)
      */
     public function messages($contactId = null)
@@ -2005,6 +2156,13 @@ class WhatsappController extends Controller
             $contact = $this->contactModel->findById($contactId);
             if ($contact && $contact['service_status'] === 'concluido') {
                 $this->contactModel->updateServiceStatus($contactId, 'novo');
+            }
+
+            // Se o contato/grupo foi arquivado (concluído/limpo da lista) e chegou
+            // uma nova mensagem, desarquiva automaticamente para que volte à
+            // listagem do chat e o atendimento seja reaberto.
+            if ($contact && !empty($contact['is_archived'])) {
+                $this->contactModel->setArchived($contactId, false);
             }
 
             // Resposta do lead por WhatsApp: se ele está numa sequência ativa,

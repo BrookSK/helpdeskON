@@ -91,7 +91,41 @@
                 <button class="wpp-tab" data-tab="groups" onclick="switchTab('groups')">
                     <i class="bi bi-people"></i> Grupos <span class="wpp-tab-count" id="count-groups">0</span>
                 </button>
+                <!-- Botão que liga/desliga o modo de seleção múltipla -->
+                <button class="wpp-select-toggle" id="wpp-select-toggle" onclick="toggleSelectMode()" title="Selecionar vários">
+                    <i class="bi bi-check2-square"></i>
+                </button>
             </div>
+
+            <!-- Barra de ações em massa (aparece só no modo de seleção) -->
+            <div class="wpp-bulk-bar" id="wpp-bulk-bar" style="display:none;">
+                <label class="wpp-bulk-all" title="Selecionar todos">
+                    <input type="checkbox" id="wpp-select-all" onchange="toggleSelectAll(this)">
+                    <span id="wpp-bulk-count">0 selecionado(s)</span>
+                </label>
+                <div class="wpp-bulk-actions">
+                    <button class="btn btn-sm btn-outline-success py-0 px-2" id="wpp-bulk-complete" onclick="bulkComplete()" title="Concluir e limpar da lista" disabled>
+                        <i class="bi bi-check2-all"></i> Concluir
+                    </button>
+                    <div class="dropdown d-inline-block">
+                        <button class="btn btn-sm btn-outline-primary py-0 px-2" id="wpp-bulk-assign-btn" data-bs-toggle="dropdown" aria-expanded="false" title="Atribuir responsável" disabled>
+                            <i class="bi bi-person-check"></i> Atribuir
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end" style="font-size:0.8rem;max-height:260px;overflow:auto;">
+                            <li><h6 class="dropdown-header">Atribuir selecionados a</h6></li>
+                            <?php if ($user['role'] === 'super_admin'): ?>
+                            <li><button type="button" class="dropdown-item" onclick="bulkAssign('')"><i class="bi bi-person-dash"></i> Ninguém (desatribuir)</button></li>
+                            <?php foreach ($teamMembers as $m): ?>
+                            <li><button type="button" class="dropdown-item" onclick="bulkAssign('<?= $m['id'] ?>')"><?= escape($m['name']) ?></button></li>
+                            <?php endforeach; ?>
+                            <?php else: ?>
+                            <li><button type="button" class="dropdown-item" onclick="bulkAssign('<?= (int) $user['id'] ?>')"><i class="bi bi-person-check"></i> Para mim (<?= escape($user['name']) ?>)</button></li>
+                            <?php endif; ?>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
             <div class="wpp-contacts-list" id="contacts-list">
                 <div class="text-center py-4 text-muted small">Carregando...</div>
             </div>
@@ -541,6 +575,22 @@ body { overflow: hidden !important; margin: 0; padding: 0; }
 .wpp-tab:hover { background: #f5f5f5; }
 .wpp-tab-count { font-size: 0.65rem; background: #e0e0e0; padding: 1px 5px; border-radius: 8px; color: #555; }
 .wpp-tab.active .wpp-tab-count { background: var(--primary-light); color: var(--primary-dark); }
+/* Botão de ligar/desligar seleção múltipla (fica ao lado das abas) */
+.wpp-select-toggle { flex: 0 0 auto; padding: 8px 10px; border: none; background: none; color: #888; cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s; }
+.wpp-select-toggle:hover { background: #f5f5f5; color: #555; }
+.wpp-select-toggle.active { color: var(--primary); background: #f0faf8; border-bottom-color: var(--primary); }
+/* Barra de ações em massa */
+.wpp-bulk-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; background: #f0faf8; border-bottom: 1px solid #e9ecef; flex-shrink: 0; flex-wrap: wrap; }
+.wpp-bulk-all { display: flex; align-items: center; gap: 6px; font-size: 0.72rem; color: #555; margin: 0; cursor: pointer; white-space: nowrap; }
+.wpp-bulk-actions { display: flex; align-items: center; gap: 4px; }
+/* Checkbox de seleção por item (só visível no modo de seleção) */
+.wpp-contact-check { flex: 0 0 auto; margin-right: 2px; display: none; }
+.wpp-contacts-list.select-mode .wpp-contact-check { display: inline-block; }
+.wpp-contacts-list.select-mode .wpp-contact-item { cursor: default; }
+/* Botão de arquivar/concluir por item (aparece no hover) */
+.wpp-item-archive { flex: 0 0 auto; border: none; background: none; color: #bbb; cursor: pointer; padding: 2px 4px; font-size: 0.85rem; opacity: 0; transition: opacity 0.15s, color 0.15s; }
+.wpp-contact-item:hover .wpp-item-archive { opacity: 1; }
+.wpp-item-archive:hover { color: var(--primary); }
 .wpp-contacts-list { flex: 1; overflow-y: auto; }
 .wpp-section-header { padding: 6px 12px; font-size: 0.68rem; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: 0.5px; background: #fafafa; border-bottom: 1px solid #f0f0f0; position: sticky; top: 0; z-index: 1; }
 .wpp-contact-item { padding: 10px 12px; display: flex; align-items: center; gap: 10px; cursor: pointer; border-bottom: 1px solid #f8f8f8; transition: background 0.15s; }
@@ -1471,6 +1521,16 @@ function renderContactsList() {
         html += items.map(c => renderContactItem(c, true)).join('');
     }
     list.innerHTML = html;
+
+    // Reaplica o modo de seleção após re-render (a lista é recriada a cada
+    // loadContacts): mantém a classe e marca de volta os itens já selecionados.
+    if (typeof selectMode !== 'undefined' && selectMode) {
+        list.classList.add('select-mode');
+        document.querySelectorAll('.wpp-contact-check').forEach(cb => {
+            cb.checked = selectedIds.has(parseInt(cb.dataset.id, 10));
+        });
+        if (typeof updateBulkBar === 'function') updateBulkBar();
+    }
 }
 
 function renderContactItem(c, isGroup) {
@@ -1516,7 +1576,13 @@ function renderContactItem(c, isGroup) {
         ? `<div class="wpp-contact-tags">${instanceHtml}${labelsHtml}${crmHtml}</div>`
         : '';
 
-    return `<div class="wpp-contact-item ${isActive}" onclick="openChat(${c.id}, ${isGroup})" data-id="${c.id}">
+    // Checkbox de seleção (visível só no modo de seleção) e botão de arquivar.
+    // Ambos usam stopPropagation para não abrir o chat ao serem clicados.
+    const checkbox = `<input type="checkbox" class="form-check-input wpp-contact-check" data-id="${c.id}" onclick="event.stopPropagation(); onItemCheck(this)">`;
+    const archiveBtn = `<button class="wpp-item-archive" title="Concluir / arquivar (sai da lista)" onclick="event.stopPropagation(); archiveItem(${c.id})"><i class="bi bi-check2-circle"></i></button>`;
+
+    return `<div class="wpp-contact-item ${isActive}" onclick="onContactClick(event, ${c.id}, ${isGroup})" data-id="${c.id}">
+        ${checkbox}
         <div class="${avatarClass}">${icon}</div>
         <div class="wpp-contact-info">
             <div class="wpp-contact-name">${escapeHtml(name)}</div>
@@ -1526,8 +1592,135 @@ function renderContactItem(c, isGroup) {
         <div class="wpp-contact-meta">
             <div class="wpp-contact-time">${time}</div>
             ${unread}
+            ${archiveBtn}
         </div>
     </div>`;
+}
+
+// =========================================
+// SELEÇÃO MÚLTIPLA + AÇÕES EM MASSA
+// =========================================
+let selectMode = false;
+const selectedIds = new Set();
+
+// Clique no item: no modo de seleção marca/desmarca; fora dele abre o chat.
+function onContactClick(ev, id, isGroup) {
+    if (selectMode) {
+        const cb = document.querySelector('.wpp-contact-check[data-id="' + id + '"]');
+        if (cb) { cb.checked = !cb.checked; onItemCheck(cb); }
+        return;
+    }
+    openChat(id, isGroup);
+}
+
+function toggleSelectMode() {
+    selectMode = !selectMode;
+    selectedIds.clear();
+    const list = document.getElementById('contacts-list');
+    const bar = document.getElementById('wpp-bulk-bar');
+    const toggle = document.getElementById('wpp-select-toggle');
+    list.classList.toggle('select-mode', selectMode);
+    bar.style.display = selectMode ? 'flex' : 'none';
+    toggle.classList.toggle('active', selectMode);
+    // Limpa marcações ao sair/entrar
+    document.querySelectorAll('.wpp-contact-check').forEach(cb => cb.checked = false);
+    const selAll = document.getElementById('wpp-select-all');
+    if (selAll) selAll.checked = false;
+    updateBulkBar();
+}
+
+function onItemCheck(cb) {
+    const id = parseInt(cb.dataset.id, 10);
+    if (cb.checked) selectedIds.add(id); else selectedIds.delete(id);
+    // Sincroniza o "selecionar todos" com o estado atual dos itens visíveis.
+    const visible = Array.from(document.querySelectorAll('.wpp-contact-check'));
+    const selAll = document.getElementById('wpp-select-all');
+    if (selAll) selAll.checked = visible.length > 0 && visible.every(x => x.checked);
+    updateBulkBar();
+}
+
+function toggleSelectAll(master) {
+    document.querySelectorAll('.wpp-contact-check').forEach(cb => {
+        cb.checked = master.checked;
+        const id = parseInt(cb.dataset.id, 10);
+        if (master.checked) selectedIds.add(id); else selectedIds.delete(id);
+    });
+    updateBulkBar();
+}
+
+function updateBulkBar() {
+    const n = selectedIds.size;
+    const label = document.getElementById('wpp-bulk-count');
+    if (label) label.textContent = n + ' selecionado(s)';
+    const btnComplete = document.getElementById('wpp-bulk-complete');
+    const btnAssign = document.getElementById('wpp-bulk-assign-btn');
+    if (btnComplete) btnComplete.disabled = n === 0;
+    if (btnAssign) btnAssign.disabled = n === 0;
+}
+
+// Arquivar/concluir um único item direto da lista (fora do modo de seleção).
+function archiveItem(id) {
+    const fd = new FormData();
+    fd.append('archived', '1');
+    fetch(BASE + 'whatsapp/archiveContact/' + id, { method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'} })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                loadContacts();
+                if (typeof showToast === 'function') showToast('Conversa arquivada. Volta se o contato responder.');
+            }
+        })
+        .catch(() => {});
+}
+
+function bulkComplete() {
+    const ids = Array.from(selectedIds);
+    if (!ids.length) return;
+    const fd = new FormData();
+    ids.forEach(id => fd.append('ids[]', id));
+    fetch(BASE + 'whatsapp/bulkComplete', { method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'} })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                if (typeof showToast === 'function') showToast(data.count + ' atendimento(s) concluído(s).');
+                exitSelectAndReload();
+            } else {
+                alert(data.error || 'Falha ao concluir.');
+            }
+        })
+        .catch(() => {});
+}
+
+function bulkAssign(userId) {
+    const ids = Array.from(selectedIds);
+    if (!ids.length) return;
+    const fd = new FormData();
+    ids.forEach(id => fd.append('ids[]', id));
+    fd.append('user_id', userId);
+    fetch(BASE + 'whatsapp/bulkAssign', { method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'} })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                if (typeof showToast === 'function') showToast(data.count + ' contato(s) atribuído(s).');
+                exitSelectAndReload();
+            } else {
+                alert(data.error || 'Falha ao atribuir.');
+            }
+        })
+        .catch(() => {});
+}
+
+// Sai do modo de seleção e recarrega a lista (os concluídos/arquivados somem).
+function exitSelectAndReload() {
+    selectedIds.clear();
+    selectMode = false;
+    const list = document.getElementById('contacts-list');
+    const bar = document.getElementById('wpp-bulk-bar');
+    const toggle = document.getElementById('wpp-select-toggle');
+    if (list) list.classList.remove('select-mode');
+    if (bar) bar.style.display = 'none';
+    if (toggle) toggle.classList.remove('active');
+    loadContacts();
 }
 
 // Monta a prévia resumida da última mensagem, como no WhatsApp
@@ -2748,6 +2941,9 @@ function refreshAckStatuses() {
 function startContactsPolling() {
     if (contactsPollInterval) clearInterval(contactsPollInterval);
     contactsPollInterval = setInterval(() => {
+        // Não recarrega enquanto o usuário está selecionando vários itens, para
+        // não perder a seleção/estado no meio de uma ação em massa.
+        if (typeof selectMode !== 'undefined' && selectMode) return;
         loadContacts(true);
     }, 3000);
 }

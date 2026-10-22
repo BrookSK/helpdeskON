@@ -433,6 +433,27 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                                 <input type="datetime-local" name="end_date" class="form-control form-control-sm">
                             </div>
                         </div>
+                        <!-- Atividade predecessora: este card só começa depois que o
+                             predecessor terminar. Se o predecessor atrasar, as datas
+                             deste card são recalculadas (respeitando o prazo). -->
+                        <div class="row g-2">
+                            <div class="col-sm-8 mb-3">
+                                <label class="form-label small fw-medium">
+                                    <i class="bi bi-diagram-3 text-primary"></i> Atividade predecessora
+                                </label>
+                                <select name="predecessor_id" class="form-select form-select-sm">
+                                    <option value="">Nenhuma (independente)</option>
+                                    <?php foreach (($selectableCards ?? []) as $sc): ?>
+                                    <option value="<?= $sc['id'] ?>">#<?= $sc['id'] ?> — <?= escape($sc['title']) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <small class="text-muted" style="font-size:0.68rem;">Só inicia após o término da atividade escolhida.</small>
+                            </div>
+                            <div class="col-sm-4 mb-3">
+                                <label class="form-label small fw-medium">Folga (dias)</label>
+                                <input type="number" name="predecessor_lag_days" class="form-control form-control-sm" min="0" value="0" title="Dias de folga entre o fim do predecessor e o início deste card">
+                            </div>
+                        </div>
                         <hr class="my-2">
                         <div class="d-flex align-items-center gap-2 mb-2">
                             <i class="bi bi-calendar-range text-primary"></i>
@@ -761,6 +782,26 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                                         <label class="form-label small fw-medium text-muted">Fim Dev</label>
                                         <input type="datetime-local" id="detail-end-date" class="form-control form-control-sm">
                                     </div>
+                                </div>
+
+                                <!-- Atividade predecessora -->
+                                <div class="row g-2 mb-3">
+                                    <div class="col-8">
+                                        <label class="form-label small fw-medium text-muted"><i class="bi bi-diagram-3"></i> Atividade predecessora</label>
+                                        <select id="detail-predecessor" class="form-select form-select-sm">
+                                            <option value="">Nenhuma (independente)</option>
+                                            <?php foreach (($selectableCards ?? []) as $sc): ?>
+                                            <option value="<?= $sc['id'] ?>">#<?= $sc['id'] ?> — <?= escape($sc['title']) ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+                                    <div class="col-4">
+                                        <label class="form-label small fw-medium text-muted">Folga (dias)</label>
+                                        <input type="number" id="detail-predecessor-lag" class="form-control form-control-sm" min="0" value="0">
+                                    </div>
+                                </div>
+                                <div class="mb-3" id="detail-predecessor-hint" style="display:none;">
+                                    <small class="text-muted" style="font-size:0.68rem;"><i class="bi bi-info-circle"></i> Ao mover o prazo/fim desta atividade, as dependentes são reagendadas automaticamente (respeitando o prazo de cada uma).</small>
                                 </div>
 
                                 <hr class="my-2">
@@ -1350,6 +1391,20 @@ function openCardModal(id) {
         document.getElementById('detail-client-start-date').value = c.client_start_date ? c.client_start_date.slice(0,10) : '';
         document.getElementById('detail-client-end-date').value = c.client_end_date ? c.client_end_date.slice(0,10) : '';
 
+        // Atividade predecessora: seleciona o predecessor atual e evita que o
+        // próprio card apareça como opção escolhível (não pode depender de si).
+        const predSel = document.getElementById('detail-predecessor');
+        if (predSel) {
+            Array.from(predSel.options).forEach(opt => {
+                opt.disabled = (opt.value !== '' && String(opt.value) === String(c.id));
+            });
+            predSel.value = c.predecessor_id ? String(c.predecessor_id) : '';
+        }
+        const predLag = document.getElementById('detail-predecessor-lag');
+        if (predLag) predLag.value = (c.predecessor_lag_days != null ? c.predecessor_lag_days : 0);
+        const predHint = document.getElementById('detail-predecessor-hint');
+        if (predHint) predHint.style.display = c.predecessor_id ? '' : 'none';
+
         // Campos CX Hub
         document.getElementById('detail-cx-hub-number').value = c.cx_hub_number || '';
         document.getElementById('detail-cx-hub-name').value = c.cx_hub_name || '';
@@ -1554,6 +1609,9 @@ function saveCard() {
     formData.append('end_date', document.getElementById('detail-end-date').value);
     formData.append('client_start_date', document.getElementById('detail-client-start-date').value);
     formData.append('client_end_date', document.getElementById('detail-client-end-date').value);
+    // Atividade predecessora
+    formData.append('predecessor_id', document.getElementById('detail-predecessor').value);
+    formData.append('predecessor_lag_days', document.getElementById('detail-predecessor-lag').value || '0');
     // Campos CX Hub
     formData.append('cx_hub_number', document.getElementById('detail-cx-hub-number').value);
     formData.append('cx_hub_name', document.getElementById('detail-cx-hub-name').value);
@@ -1567,8 +1625,13 @@ function saveCard() {
     formData.append('description_file', descBlob, 'description.html');
 
     fetch(BASE + 'planning/update/' + currentCardId, { method: 'POST', body: formData, headers: {'X-Requested-With':'XMLHttpRequest'} })
-        .then(r => {
-            if (!r.ok) throw new Error('HTTP ' + r.status);
+        .then(async r => {
+            // Em erro (ex.: 400 por dependência circular) o backend devolve JSON
+            // com a mensagem — mostramos ao usuário em vez de um alerta genérico.
+            if (!r.ok) {
+                const errData = await r.json().catch(() => ({}));
+                throw new Error(errData.error || ('HTTP ' + r.status));
+            }
             return r.json();
         })
         .then(data => {
@@ -1588,12 +1651,28 @@ function saveCard() {
                     location.reload();
                     return;
                 }
+                // Cascata da atividade predecessora: o backend pode ter reagendado
+                // cards dependentes. Reflete cada um no board; se algum não estiver
+                // visível, recarrega para garantir consistência.
+                if (Array.isArray(data.affected_cards) && data.affected_cards.length) {
+                    let allReflected = true;
+                    data.affected_cards.forEach(ac => {
+                        if (!updateCardOnBoard(ac)) allReflected = false;
+                    });
+                    if (!allReflected) { location.reload(); return; }
+                    if (typeof showToast === 'function') showToast(data.affected_cards.length + ' card(s) dependente(s) reagendado(s).');
+                }
                 if (typeof showToast === 'function') showToast('Card salvo com sucesso!');
             } else {
                 alert('Erro ao salvar: ' + (data.error || 'Erro desconhecido'));
             }
         }).catch(err => {
-            alert('Erro na requisição. Verifique se o conteúdo não é muito grande.');
+            // Mostra a mensagem específica do backend (ex.: dependência circular)
+            // quando houver; senão, cai no aviso genérico de requisição.
+            const msg = (err && err.message && !/^HTTP \d+$/.test(err.message))
+                ? err.message
+                : 'Erro na requisição. Verifique se o conteúdo não é muito grande.';
+            alert(msg);
             console.error(err);
         });
 }

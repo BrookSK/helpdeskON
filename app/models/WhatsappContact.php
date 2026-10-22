@@ -482,6 +482,24 @@ class WhatsappContact
     }
 
     /**
+     * Define explicitamente o estado de arquivamento do contato/grupo.
+     * Usado pelo "concluir/arquivar" da listagem (sai do chat) e pelo
+     * desarquivamento automático quando chega uma mensagem nova.
+     *
+     * @param int  $id        ID do contato/grupo.
+     * @param bool $archived   true = arquivado (some da lista); false = ativo.
+     */
+    public function setArchived($id, bool $archived)
+    {
+        return $this->db->update(
+            'whatsapp_contacts',
+            ['is_archived' => $archived ? 1 : 0],
+            'id = ?',
+            [$id]
+        );
+    }
+
+    /**
      * Arquivar/desarquivar lead apenas na aba "Meus Leads" do CRM.
      * Usa a coluna crm_archived, sem afetar a visibilidade no chat do WhatsApp.
      */

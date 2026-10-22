@@ -176,4 +176,107 @@ final class PlanningRulesTest extends TestCase
         // due_date presente mas igual — não mudou.
         $this->assertFalse(PlanningRules::dueDateChanged($old, ['due_date' => '2026-09-26 12:00:00']));
     }
+
+    // ---- recalcDependentDates (atividade predecessora / cascata) ----
+
+    public function testRecalculoDeslocaDependentePreservandoDuracao(): void
+    {
+        // Predecessor termina 10/01 12:00. Dependente durava 2 dias (12→14).
+        // Sem folga e com prazo folgado, deve começar no fim do predecessor e
+        // manter os 2 dias de duração.
+        $r = PlanningRules::recalcDependentDates(
+            '2026-01-10 12:00:00',
+            '2026-01-12 12:00:00',
+            '2026-01-14 12:00:00',
+            '2026-01-31 23:59:00',
+            0
+        );
+        $this->assertNotNull($r);
+        $this->assertSame('2026-01-10 12:00:00', $r['start_date']);
+        $this->assertSame('2026-01-12 12:00:00', $r['end_date']); // 10 + 2 dias
+    }
+
+    public function testRecalculoAplicaFolgaEmDias(): void
+    {
+        // Folga de 3 dias: início = fim do predecessor + 3 dias.
+        $r = PlanningRules::recalcDependentDates(
+            '2026-01-10 00:00:00',
+            '2026-01-11 00:00:00',
+            '2026-01-12 00:00:00', // duração 1 dia
+            '2026-01-31 00:00:00',
+            3
+        );
+        $this->assertSame('2026-01-13 00:00:00', $r['start_date']); // 10 + 3
+        $this->assertSame('2026-01-14 00:00:00', $r['end_date']);   // + 1 dia
+    }
+
+    public function testRecalculoNuncaUltrapassaOPrazoFinal(): void
+    {
+        // Predecessor atrasou e termina 28/01. Dependente durava 5 dias, mas o
+        // prazo final é 30/01: o fim é grampeado no prazo e a janela encolhe.
+        $r = PlanningRules::recalcDependentDates(
+            '2026-01-28 00:00:00',
+            '2026-01-10 00:00:00',
+            '2026-01-15 00:00:00', // duração 5 dias
+            '2026-01-30 00:00:00', // prazo final (teto)
+            0
+        );
+        // Fim não pode passar do prazo final.
+        $this->assertSame('2026-01-30 00:00:00', $r['end_date']);
+        // Início recua para manter duração (30 - 5 = 25), mas não antes do fim
+        // do predecessor (28). Como 25 < 28, usa o fim do predecessor.
+        $this->assertSame('2026-01-28 00:00:00', $r['start_date']);
+    }
+
+    public function testRecalculoSemFimDoPredecessorRetornaNull(): void
+    {
+        $this->assertNull(PlanningRules::recalcDependentDates(null, '2026-01-10 00:00:00', '2026-01-12 00:00:00', null, 0));
+        $this->assertNull(PlanningRules::recalcDependentDates('', '2026-01-10 00:00:00', '2026-01-12 00:00:00', null, 0));
+    }
+
+    public function testRecalculoDependenteSemDatasAssumeUmDia(): void
+    {
+        // Sem start/end definidos, apenas desloca para após o predecessor com 1 dia.
+        $r = PlanningRules::recalcDependentDates('2026-01-10 08:00:00', null, null, null, 0);
+        $this->assertSame('2026-01-10 08:00:00', $r['start_date']);
+        $this->assertSame('2026-01-11 08:00:00', $r['end_date']);
+    }
+
+    public function testRecalculoLagNegativoViraZero(): void
+    {
+        $r = PlanningRules::recalcDependentDates('2026-01-10 00:00:00', null, null, null, -5);
+        $this->assertSame('2026-01-10 00:00:00', $r['start_date']);
+    }
+
+    // ---- wouldCreateCycle (proteção contra dependência circular) ----
+
+    public function testCicloDiretoProprioCardEhProibido(): void
+    {
+        $this->assertTrue(PlanningRules::wouldCreateCycle(1, 1, []));
+    }
+
+    public function testCicloIndiretoEhDetectado(): void
+    {
+        // B já depende de A. Tentar fazer A depender de B fecha o ciclo A→B→A.
+        $map = [2 => 1]; // card 2 (B) tem predecessor 1 (A)
+        $this->assertTrue(PlanningRules::wouldCreateCycle(1, 2, $map));
+    }
+
+    public function testVinculoValidoNaoEhCiclo(): void
+    {
+        // A independente; fazer B depender de A é válido.
+        $this->assertFalse(PlanningRules::wouldCreateCycle(2, 1, [1 => null]));
+    }
+
+    public function testSemPredecessorNaoEhCiclo(): void
+    {
+        $this->assertFalse(PlanningRules::wouldCreateCycle(1, null, [2 => 1]));
+    }
+
+    public function testCadeiaLongaValidaNaoEhCiclo(): void
+    {
+        // A→B→C (C depende de B, B depende de A). Fazer D depender de C é válido.
+        $map = [3 => 2, 2 => 1];
+        $this->assertFalse(PlanningRules::wouldCreateCycle(4, 3, $map));
+    }
 }
