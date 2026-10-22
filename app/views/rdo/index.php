@@ -1323,11 +1323,19 @@ function renderPersonCard(group) {
            </div>`
         : '';
 
-    // "Aprovar tudo" só aparece para o revisor designado (RDO.isReviewer).
-    const approveAllBtn = RDO.isReviewer
-        ? `<button class="btn btn-sm btn-success" onclick="approveAllForUser('${group.key}', this)">
-               <i class="bi bi-check2-all"></i> Aprovar tudo (${total})
-           </button>`
+    // "Aprovar tudo" / "Reprovar tudo" só aparecem para o revisor (RDO.isReviewer).
+    // Quantas são revisões REAIS (ação em massa só faz sentido para elas; itens
+    // "missing_report" são informativos e não contam para o Reprovar).
+    const realReviews = group.items.filter(it => it.type !== 'missing_report').length;
+    const bulkBtns = RDO.isReviewer
+        ? `<div class="d-flex gap-2">
+               <button class="btn btn-sm btn-success" onclick="approveAllForUser('${group.key}', this)">
+                   <i class="bi bi-check2-all"></i> Aprovar tudo (${total})
+               </button>
+               ${realReviews > 0 ? `<button class="btn btn-sm btn-outline-danger" onclick="rejectAllForUser('${group.key}', this)">
+                   <i class="bi bi-x-circle"></i> Reprovar tudo (${realReviews})
+               </button>` : ''}
+           </div>`
         : '';
 
     return `<div class="card border-0 shadow-sm mb-3" id="card-${group.key}">
@@ -1337,7 +1345,7 @@ function renderPersonCard(group) {
                 ${escapeHtml(group.name)}
                 <span class="badge bg-secondary ms-1">${total}</span>
             </div>
-            ${approveAllBtn}
+            ${bulkBtns}
         </div>
         <div class="card-body p-0" id="card-body-${group.key}">
             ${itemsHtml}
@@ -1478,6 +1486,43 @@ async function approveAllForUser(key, btn) {
     if (data.error) {
         alert(data.error);
         if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-check2-all"></i> Aprovar tudo'; }
+        return;
+    }
+
+    loadPendencias();
+    loadRdos();
+}
+
+// "Reprovar tudo" de uma pessoa: recusa todas as revisões reais pendentes dela.
+// NÃO mexe nas ausências (recusar não "limpa" dia sem relatório). Só revisor.
+async function rejectAllForUser(key, btn) {
+    const group = _pendenciasGroups[key];
+    if (!group) return;
+    if (!key.startsWith('u')) {
+        alert('Não foi possível identificar a pessoa para reprovar em lote.');
+        return;
+    }
+    const ownerId = key.substring(1);
+    const realReviews = group.items.filter(it => it.type !== 'missing_report').length;
+    if (realReviews === 0) { alert('Não há solicitações para reprovar (apenas ausências informativas).'); return; }
+
+    if (!confirm(`Reprovar TODAS as ${realReviews} solicitação(ões) de ${group.name}?\n\n`
+               + `As solicitações de alteração serão descartadas (os relatórios originais permanecem) e os `
+               + `desbloqueios NÃO serão efetivados. Esta ação não pode ser desfeita.`)) {
+        return;
+    }
+
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Reprovando...'; }
+
+    const res  = await fetch(RDO.base + '/rejectAllForUser/' + ownerId, {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    });
+    const data = await res.json();
+
+    if (data.error) {
+        alert(data.error);
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-x-circle"></i> Reprovar tudo'; }
         return;
     }
 

@@ -935,9 +935,31 @@ class RdoController extends Controller
 
         $notes = trim($_POST['notes'] ?? '');
 
-        $this->model->updateReview((int) $reviewId, [
+        $this->applyReviewRejection($review, (int) $admin['id'], $notes ?: null);
+
+        $this->json(['success' => true, 'message' => 'Revisão recusada.']);
+    }
+
+    /**
+     * Aplica a RECUSA de UMA revisão pendente (sem alterar o relatório):
+     *   - marca a revisão como rejected (reviewer/quando/notes);
+     *   - edit_request  → descarta o draft (relatório original intacto);
+     *   - unlock_request → mantém o bloqueio;
+     *   - reseta review_status se o relatório não tiver mais pendências;
+     *   - registra o histórico.
+     *
+     * Reaproveitado por rejectEdit (um a um) e rejectAllForUser (em lote).
+     * Pressupõe que a revisão está 'pending' e que o relatório existe.
+     */
+    private function applyReviewRejection(array $review, int $adminId, ?string $notes): void
+    {
+        $reviewId = (int) $review['id'];
+        $reportId = (int) $review['report_id'];
+        $report   = $this->model->findById($reportId);
+
+        $this->model->updateReview($reviewId, [
             'status'      => 'rejected',
-            'reviewed_by' => (int) $admin['id'],
+            'reviewed_by' => $adminId,
             'reviewed_at' => date('Y-m-d H:i:s'),
             'notes'       => $notes ?: null,
         ]);
@@ -945,8 +967,49 @@ class RdoController extends Controller
         // Reseta review_status se não houver mais pendências.
         $this->resetReviewStatusIfClear($reportId);
 
-        $this->logHistory($reportId, (int) $admin['id'], 'rejected', $report, (int) $reviewId, $notes ?: 'Revisão recusada');
+        $this->logHistory($reportId, $adminId, 'rejected', $report ?: [], $reviewId, $notes ?: 'Revisão recusada');
+    }
 
-        $this->json(['success' => true, 'message' => 'Revisão recusada.']);
+    // =========================================================================
+    // API: recusar tudo de uma pessoa (POST /rdo/rejectAllForUser/{userId})
+    // =========================================================================
+
+    /**
+     * "Recusar tudo" das pendências de uma pessoa (apenas revisor):
+     *   - recusa TODAS as revisões pendentes dos relatórios dessa pessoa,
+     *     aplicando os efeitos de cada uma (relatórios permanecem intactos;
+     *     desbloqueios NÃO são efetivados; drafts descartados).
+     *
+     * Diferente do "Aprovar tudo", NÃO reconhece as ausências (dias úteis sem
+     * relatório): recusar não deve "limpar" ausência — a cobrança permanece.
+     * Idempotente: revisões já resolvidas são ignoradas.
+     */
+    public function rejectAllForUser($userId = null)
+    {
+        $this->requireModule('rdo');
+        $this->requireReviewer();
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$userId) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+
+        $ownerId = (int) $userId;
+        $admin   = $this->currentUser();
+        $notes   = trim($_POST['notes'] ?? '');
+
+        $reviews         = $this->model->getPendingReviewsForUser($ownerId);
+        $rejectedReviews = 0;
+        foreach ($reviews as $review) {
+            if (($review['status'] ?? '') !== 'pending') {
+                continue;
+            }
+            $this->applyReviewRejection($review, (int) $admin['id'], $notes ?: null);
+            $rejectedReviews++;
+        }
+
+        $this->json([
+            'success'          => true,
+            'message'          => 'Pendências da pessoa recusadas.',
+            'rejected_reviews' => $rejectedReviews,
+        ]);
     }
 }

@@ -19,7 +19,8 @@ class PlanningCard
                     cb.name as created_by_name,
                     co.name as company_name,
                     t.title as ticket_title,
-                    t.category as category
+                    t.category as category,
+                    pred.title as predecessor_title
              FROM planning_cards pc
              LEFT JOIN users u ON pc.assigned_to = u.id
              LEFT JOIN users tr ON pc.technical_responsible_id = tr.id
@@ -27,6 +28,7 @@ class PlanningCard
              LEFT JOIN users cb ON pc.created_by = cb.id
              LEFT JOIN companies co ON pc.company_id = co.id
              LEFT JOIN tickets t ON pc.ticket_id = t.id
+             LEFT JOIN planning_cards pred ON pc.predecessor_id = pred.id
              WHERE pc.id = ?",
             [$id]
         );
@@ -81,7 +83,16 @@ class PlanningCard
         return $this->db->fetchAll($sql, $params);
     }
 
-    public function getGroupedByStatus($filters = [])
+    /**
+     * Cards agrupados por status (colunas do Kanban).
+     *
+     * @param array $filters Filtros (status, assigned_to, company_id, created_by, q, order, allowed_companies).
+     * @param int   $perColumn Limite de cards por coluna (0 = sem limite). Quando > 0,
+     *              cada coluna traz no máximo esse tanto; a contagem TOTAL fica em
+     *              getColumnCounts() (para o botão "carregar mais" do Kanban). Evita
+     *              renderizar centenas de cards de uma vez (lag/altura gigante).
+     */
+    public function getGroupedByStatus($filters = [], $perColumn = 0)
     {
         $allStatuses = ['open', 'in_progress', 'em_revisao_interna', 'waiting_client', 'em_homologacao', 'aprovado_producao', 'completed', 'denied', 'archived'];
 
@@ -173,21 +184,159 @@ class PlanningCard
                 $params = array_merge($params, $filters['allowed_companies']);
             }
 
-            $sql .= " ORDER BY ";
-            if (!empty($filters['order']) && $filters['order'] === 'overdue') {
-                // Vencidos primeiro (prazo no passado), ordenados do mais antigo
-                $sql .= "CASE WHEN pc.due_date IS NOT NULL AND pc.due_date < NOW() THEN 0 ELSE 1 END, pc.due_date ASC, FIELD(pc.priority, 'urgent', 'high', 'medium', 'low'), pc.position ASC, pc.id ASC";
-            } elseif (!empty($filters['order']) && $filters['order'] === 'priority') {
-                $sql .= "FIELD(pc.priority, 'urgent', 'high', 'medium', 'low'), pc.due_date IS NULL, pc.due_date ASC, pc.position ASC, pc.id ASC";
-            } elseif (!empty($filters['order']) && $filters['order'] === 'newest') {
-                $sql .= "pc.id DESC";
-            } else {
-                $sql .= "FIELD(pc.priority, 'urgent', 'high', 'medium', 'low'), pc.due_date IS NULL, pc.due_date ASC, pc.position ASC, pc.id ASC";
+            $sql .= " ORDER BY " . $this->kanbanOrderBy($filters['order'] ?? null);
+
+            // Limite por coluna (paginação do Kanban): só o 1º lote vem aqui.
+            if ($perColumn > 0) {
+                $sql .= " LIMIT " . ((int) $perColumn);
             }
             $result[$status] = $this->db->fetchAll($sql, $params);
         }
 
         return $result;
+    }
+
+    /**
+     * Cláusula ORDER BY do Kanban conforme a opção de ordenação escolhida.
+     * Centralizada para que getGroupedByStatus e getColumnCards ordenem igual.
+     */
+    private function kanbanOrderBy(?string $order): string
+    {
+        if ($order === 'overdue') {
+            return "CASE WHEN pc.due_date IS NOT NULL AND pc.due_date < NOW() THEN 0 ELSE 1 END, pc.due_date ASC, FIELD(pc.priority, 'urgent', 'high', 'medium', 'low'), pc.position ASC, pc.id ASC";
+        }
+        if ($order === 'newest') {
+            return "pc.id DESC";
+        }
+        // priority (default)
+        return "FIELD(pc.priority, 'urgent', 'high', 'medium', 'low'), pc.due_date IS NULL, pc.due_date ASC, pc.position ASC, pc.id ASC";
+    }
+
+    /**
+     * Monta o trecho WHERE (após "pc.status = ?") + os params dos filtros do
+     * Kanban, para reaproveitar entre getGroupedByStatus, getColumnCounts e
+     * getColumnCards. Recebe os filtros já normalizados pelo chamador.
+     *
+     * @return array{0:string,1:array} [sqlWhere, params] — params NÃO incluem o status.
+     */
+    private function kanbanFilterWhere(array $filters): array
+    {
+        $sql = '';
+        $params = [];
+
+        $assignedIds = [];
+        $assignedNone = false;
+        if (!empty($filters['assigned_to'])) {
+            $rawAssigned = (array) $filters['assigned_to'];
+            $assignedNone = in_array('none', $rawAssigned, true);
+            $assignedIds = array_values(array_unique(array_filter(array_map('intval', $rawAssigned))));
+        }
+        if (!empty($filters['assigned_none'])) {
+            $assignedNone = true;
+        }
+
+        $companyIds = [];
+        if (!empty($filters['company_id'])) {
+            $companyIds = array_values(array_unique(array_filter(array_map('intval', (array) $filters['company_id']))));
+        }
+        $createdByIds = [];
+        if (!empty($filters['created_by'])) {
+            $createdByIds = array_values(array_unique(array_filter(array_map('intval', (array) $filters['created_by']))));
+        }
+
+        if (!empty($companyIds)) {
+            $ph = implode(',', array_fill(0, count($companyIds), '?'));
+            $sql .= " AND pc.company_id IN ($ph)";
+            $params = array_merge($params, $companyIds);
+        }
+        if (!empty($assignedIds) && $assignedNone) {
+            $ph = implode(',', array_fill(0, count($assignedIds), '?'));
+            $sql .= " AND (pc.assigned_to IN ($ph) OR pc.assigned_to IS NULL)";
+            $params = array_merge($params, $assignedIds);
+        } elseif (!empty($assignedIds)) {
+            $ph = implode(',', array_fill(0, count($assignedIds), '?'));
+            $sql .= " AND pc.assigned_to IN ($ph)";
+            $params = array_merge($params, $assignedIds);
+        } elseif ($assignedNone) {
+            $sql .= " AND pc.assigned_to IS NULL";
+        }
+        if (!empty($createdByIds)) {
+            $ph = implode(',', array_fill(0, count($createdByIds), '?'));
+            $sql .= " AND pc.created_by IN ($ph)";
+            $params = array_merge($params, $createdByIds);
+        }
+        if (isset($filters['q']) && trim((string) $filters['q']) !== '') {
+            $term = '%' . trim((string) $filters['q']) . '%';
+            $sql .= " AND (pc.title LIKE ? OR pc.description LIKE ?)";
+            $params[] = $term;
+            $params[] = $term;
+        }
+        if (!empty($filters['allowed_companies'])) {
+            $ph = implode(',', array_fill(0, count($filters['allowed_companies']), '?'));
+            $sql .= " AND (pc.company_id IS NULL OR pc.company_id IN ($ph))";
+            $params = array_merge($params, $filters['allowed_companies']);
+        }
+
+        return [$sql, $params];
+    }
+
+    /**
+     * Total de cards por status (respeitando os filtros), para o Kanban saber
+     * quantos cards existem além do 1º lote renderizado (botão "carregar mais").
+     *
+     * @return array<string,int> status => total
+     */
+    public function getColumnCounts($filters = [])
+    {
+        $allStatuses = ['open', 'in_progress', 'em_revisao_interna', 'waiting_client', 'em_homologacao', 'aprovado_producao', 'completed', 'denied', 'archived'];
+        $statuses = $allStatuses;
+        if (!empty($filters['statuses'])) {
+            $selected = array_values(array_intersect($allStatuses, (array) $filters['statuses']));
+            if (!empty($selected)) {
+                $statuses = $selected;
+            }
+        }
+
+        [$where, $baseParams] = $this->kanbanFilterWhere($filters);
+
+        $counts = [];
+        foreach ($statuses as $status) {
+            $params = array_merge([$status], $baseParams);
+            $row = $this->db->fetch(
+                "SELECT COUNT(*) AS cnt FROM planning_cards pc WHERE pc.status = ?" . $where,
+                $params
+            );
+            $counts[$status] = (int) ($row['cnt'] ?? 0);
+        }
+        return $counts;
+    }
+
+    /**
+     * Um lote de cards de UMA coluna (status), com offset/limit — alimenta o
+     * botão "Carregar mais" do Kanban sem recarregar a página.
+     */
+    public function getColumnCards($status, $filters = [], $offset = 0, $limit = 50)
+    {
+        [$where, $baseParams] = $this->kanbanFilterWhere($filters);
+        $params = array_merge([$status], $baseParams);
+
+        $sql = "SELECT pc.*,
+                       u.name as assigned_name,
+                       co.name as company_name,
+                       cb.name as created_by_name,
+                       t.category as category,
+                       t.scope_rejected_reason as scope_rejected_reason,
+                       t.scope_approved_at as scope_approved_at
+                FROM planning_cards pc
+                LEFT JOIN users u ON pc.assigned_to = u.id
+                LEFT JOIN companies co ON pc.company_id = co.id
+                LEFT JOIN users cb ON pc.created_by = cb.id
+                LEFT JOIN tickets t ON pc.ticket_id = t.id
+                WHERE pc.status = ?" . $where;
+        $sql .= " ORDER BY " . $this->kanbanOrderBy($filters['order'] ?? null);
+        $sql .= " LIMIT " . ((int) $limit) . " OFFSET " . ((int) $offset);
+
+        return $this->db->fetchAll($sql, $params);
     }
 
     /**
@@ -425,26 +574,40 @@ class PlanningCard
      * @param int|null   $excludeId         Card a excluir da lista (o próprio).
      * @param array|null $allowedCompanies  IDs de empresas permitidas (ou null).
      */
-    public function getSelectableCards($excludeId = null, $allowedCompanies = null)
+    public function getSelectableCards($excludeId = null, $allowedCompanies = null, $search = null, $limit = 30)
     {
-        $sql = "SELECT id, title, status, due_date, company_id
-                FROM planning_cards
-                WHERE status NOT IN ('completed', 'denied', 'archived')";
+        $sql = "SELECT pc.id, pc.title, pc.status, pc.due_date, pc.company_id, co.name AS company_name
+                FROM planning_cards pc
+                LEFT JOIN companies co ON pc.company_id = co.id
+                WHERE pc.status NOT IN ('completed', 'denied', 'archived')";
         $params = [];
         if ($excludeId) {
-            $sql .= " AND id <> ?";
+            $sql .= " AND pc.id <> ?";
             $params[] = $excludeId;
+        }
+        // Busca por título, nº do card (#123) ou empresa — alimenta o autocomplete.
+        if ($search !== null && trim((string) $search) !== '') {
+            $term = trim((string) $search);
+            $sql .= " AND (pc.title LIKE ? OR co.name LIKE ?";
+            $params[] = '%' . $term . '%';
+            $params[] = '%' . $term . '%';
+            if (ctype_digit(ltrim($term, '#'))) {
+                $sql .= " OR pc.id = ?";
+                $params[] = (int) ltrim($term, '#');
+            }
+            $sql .= ")";
         }
         if (is_array($allowedCompanies) && !in_array(0, $allowedCompanies, true)) {
             if (empty($allowedCompanies)) {
-                $sql .= " AND company_id IS NULL";
+                $sql .= " AND pc.company_id IS NULL";
             } else {
                 $ph = implode(',', array_fill(0, count($allowedCompanies), '?'));
-                $sql .= " AND (company_id IS NULL OR company_id IN ($ph))";
+                $sql .= " AND (pc.company_id IS NULL OR pc.company_id IN ($ph))";
                 $params = array_merge($params, $allowedCompanies);
             }
         }
-        $sql .= " ORDER BY title ASC";
+        $sql .= " ORDER BY pc.id DESC";
+        $sql .= " LIMIT " . ((int) $limit);
         return $this->db->fetchAll($sql, $params);
     }
 

@@ -4,6 +4,14 @@ class PlanningController extends Controller
 {
     private $cardModel;
 
+    /**
+     * Quantos cards renderizar por coluna no 1º carregamento do Kanban. O
+     * excedente vem por "Carregar mais" (columnCards). Valor alto o bastante
+     * para o uso diário caber de primeira, mas que evita pintar centenas de
+     * cards de uma vez (lag/altura gigante) em colunas como "Concluído".
+     */
+    private const KANBAN_PAGE_SIZE = 50;
+
     public function __construct()
     {
         $this->cardModel = new PlanningCard();
@@ -51,7 +59,13 @@ class PlanningController extends Controller
             $filters['allowed_companies'] = $allowedCompanies;
         }
 
-        $grouped = $this->cardModel->getGroupedByStatus($filters);
+        // Kanban paginado: renderiza só o 1º lote por coluna (evita página gigante
+        // e lag quando uma coluna tem centenas de cards). O resto vem via
+        // columnCards() sob demanda ("Carregar mais"). As contagens totais
+        // alimentam o botão. KANBAN_PAGE_SIZE é grande o bastante para o uso
+        // normal caber de primeira, mas limita colunas enormes (ex.: Concluído).
+        $grouped = $this->cardModel->getGroupedByStatus($filters, self::KANBAN_PAGE_SIZE);
+        $columnCounts = $this->cardModel->getColumnCounts($filters);
 
         $companyModel = new Company();
         // Atendente/agent só vê empresas que tem acesso
@@ -83,9 +97,8 @@ class PlanningController extends Controller
         // Lista de solicitantes (criadores dos cards) para o filtro
         $requesters = $this->cardModel->getRequesters($allowedCompanies);
 
-        // Cards que podem ser escolhidos como atividade predecessora (exclui
-        // concluídos/arquivados; respeita o escopo de empresas do usuário).
-        $selectableCards = $this->cardModel->getSelectableCards(null, $allowedCompanies);
+        // (Atividade predecessora agora usa autocomplete via planning/searchCards,
+        // em vez de um <select> com todos os cards — inviável com muitos cards.)
 
         $this->view('planning/index', [
             'user' => $user,
@@ -96,7 +109,8 @@ class PlanningController extends Controller
             'techniciansList' => $techniciansList,
             'analystsList' => $analystsList,
             'requesters' => $requesters,
-            'selectableCards' => $selectableCards,
+            'columnCounts' => $columnCounts,
+            'kanbanPageSize' => self::KANBAN_PAGE_SIZE,
             'filters' => $filters,
         ]);
     }
@@ -189,6 +203,78 @@ class PlanningController extends Controller
         }
 
         $this->json(['cards' => $out]);
+    }
+
+    /**
+     * API: busca de cards para o autocomplete de "atividade predecessora".
+     * ?q=termo&exclude=cardId — retorna até 30 cards (id, título, empresa, status).
+     * Respeita o escopo de empresas do usuário.
+     */
+    public function searchCards()
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']);
+        $user = $this->currentUser();
+
+        $q = trim((string) ($_GET['q'] ?? ''));
+        $exclude = !empty($_GET['exclude']) ? (int) $_GET['exclude'] : null;
+
+        $allowedCompanies = PlanningCard::getUserAllowedCompanies($user['id'], $user['role']);
+        $cards = $this->cardModel->getSelectableCards($exclude, $allowedCompanies, $q, 30);
+
+        $out = [];
+        foreach ($cards as $c) {
+            $out[] = [
+                'id' => (int) $c['id'],
+                'title' => $c['title'],
+                'company_name' => $c['company_name'] ?? '',
+                'status' => $c['status'],
+            ];
+        }
+        $this->json(['cards' => $out]);
+    }
+
+    /**
+     * API: próximo lote de cards de UMA coluna do Kanban (paginação por coluna).
+     * Recebe ?status=&offset= e os mesmos filtros do Kanban. Devolve os cards já
+     * com os campos usados pelo card do board, para o front injetar sem reload.
+     */
+    public function columnCards()
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']);
+        $user = $this->currentUser();
+
+        $status = $_GET['status'] ?? '';
+        $validStatuses = ['open', 'in_progress', 'em_revisao_interna', 'waiting_client', 'em_homologacao', 'aprovado_producao', 'completed', 'denied', 'archived'];
+        if (!in_array($status, $validStatuses, true)) {
+            $this->json(['error' => 'Status inválido'], 400);
+        }
+        $offset = max(0, (int) ($_GET['offset'] ?? 0));
+
+        // Reconstrói os mesmos filtros do Kanban (index), para o lote bater com o
+        // que já está na tela.
+        $filters = [];
+        if (!empty($_GET['company_id'])) $filters['company_id'] = array_filter((array)$_GET['company_id'], fn($v) => $v !== '');
+        if (!empty($_GET['assigned_to'])) $filters['assigned_to'] = array_filter((array)$_GET['assigned_to'], fn($v) => $v !== '');
+        if (!empty($_GET['created_by'])) $filters['created_by'] = array_filter((array)$_GET['created_by'], fn($v) => $v !== '');
+        if (!empty($_GET['order'])) $filters['order'] = $_GET['order'];
+        if (isset($_GET['q']) && trim((string)$_GET['q']) !== '') $filters['q'] = trim((string)$_GET['q']);
+
+        if (in_array($user['role'], ['whatsapp_agent', 'developer', 'analyst', 'comercial'])) {
+            $filters['assigned_to'] = [$user['id']];
+        } elseif (in_array($user['role'], ['super_admin', 'attendant'])) {
+            if (empty($_GET['show_all']) && empty($_GET['assigned_to'])) {
+                $filters['assigned_to'] = [$user['id']];
+            }
+        }
+
+        $allowedCompanies = PlanningCard::getUserAllowedCompanies($user['id'], $user['role']);
+        if ($allowedCompanies !== null) {
+            $filters['allowed_companies'] = $allowedCompanies;
+        }
+
+        $cards = $this->cardModel->getColumnCards($status, $filters, $offset, self::KANBAN_PAGE_SIZE);
+
+        $this->json(['cards' => $cards, 'status' => $status, 'offset' => $offset, 'page_size' => self::KANBAN_PAGE_SIZE]);
     }
 
     // Criar card
