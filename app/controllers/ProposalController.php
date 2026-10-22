@@ -105,6 +105,56 @@ class ProposalController extends Controller
         $this->json(['success' => true, 'id' => $id]);
     }
 
+    /**
+     * Cria o rascunho da proposta a partir da minuta de uma gravação (POST,
+     * JSON). Se a gravação já tem proposta, devolve 409 com o link, e só cria
+     * outra com confirm=1. A IA sugere itens só do catálogo ativo; se falhar,
+     * a proposta nasce com cliente e vínculo e a resposta avisa.
+     */
+    public function fromRecording($recToken = null)
+    {
+        $this->requireModule('proposals');
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $recToken = $recToken ?: ($_POST['rec'] ?? '');
+        $rooms = new VideoRoom();
+        $rec = $recToken ? $rooms->findRecordingByToken((string)$recToken) : null;
+        if (!$rec) $this->json(['error' => 'Gravação não encontrada'], 404);
+        $user = $this->currentUser();
+        if (!$rooms->canUserSeeRecording($rec, $user['id'], $user['role'])) {
+            $this->json(['error' => 'Sem permissão para esta gravação.'], 403);
+        }
+        if (MeetingMinutesRules::normalizeStructured($rec['summary'] ?? null) === null && trim((string)($rec['minutes'] ?? '')) === '') {
+            $this->json(['error' => 'A gravação ainda não tem minuta para gerar a proposta.'], 400);
+        }
+
+        $builder = new ProposalFromRecording(new OpenAiClient());
+        $existing = $builder->existingFor((int)$rec['id']);
+        if ($existing && empty($_POST['confirm'])) {
+            $this->json([
+                'error' => 'Esta gravação já tem uma proposta.',
+                'existing_id' => (int)$existing['id'],
+                'edit_url' => baseUrl('proposal/edit/' . $existing['id']),
+            ], 409);
+        }
+
+        $this->releaseSession();
+        @set_time_limit(120);
+        $r = $builder->create($rec, (int)$user['id']);
+        $this->json([
+            'success' => true,
+            'id' => $r['id'],
+            'items' => $r['items'],
+            'edit_url' => baseUrl('proposal/edit/' . $r['id']),
+            'warning' => $r['ai_ok'] ? null : 'A sugestão da IA falhou. Cliente e vínculo foram preenchidos; complete o conteúdo e os itens à mão.',
+        ]);
+    }
+
+    /** Libera a sessão PHP antes da chamada à IA (não trava outras abas). */
+    private function releaseSession()
+    {
+        if (session_status() === PHP_SESSION_ACTIVE) session_write_close();
+    }
+
     /** Salva os dados + itens da proposta (POST, JSON). Recalcula o total. */
     public function save($id = null)
     {

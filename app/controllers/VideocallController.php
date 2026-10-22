@@ -1724,11 +1724,19 @@ class VideocallController extends Controller
         $room = $this->model->findById($rec['room_id']);
         $segmentCount = 0;
         try { $segmentCount = count((new RecordingSegment())->listByRecording((int)$rec['id'])); } catch (\Throwable $e) {}
+        // Proposta gerada da minuta (só na tela interna, para quem tem o módulo comercial).
+        $canProposals = !$isPublic && Permissions::canAccess($_SESSION['user_role'] ?? null, 'proposals');
+        $linkedProposal = null;
+        if ($canProposals) {
+            try { $linkedProposal = (new ProposalFromRecording(null))->existingFor((int)$rec['id']); } catch (\Throwable $e) {}
+        }
         $this->view('videocall/watch', [
             'rec' => $rec,
             'room' => $room,
             'isPublic' => $isPublic,
             'segmentCount' => $segmentCount,
+            'canProposals' => $canProposals,
+            'linkedProposal' => $linkedProposal,
             'videoUrl' => rtrim(baseUrl(''), '/') . '/videocall/recording/' . $rec['token'],
             'segments' => $rec['transcript_json'] ? json_decode($rec['transcript_json'], true) : [],
         ]);

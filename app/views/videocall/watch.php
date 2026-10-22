@@ -30,6 +30,8 @@ $recInfo = [
     'minutesSentAt' => $minutesSentAt ? date('d/m/Y H:i', strtotime($minutesSentAt)) : null,
     'minutesEditedAt' => !empty($rec['minutes_edited_at']) ? date('d/m/Y H:i', strtotime($rec['minutes_edited_at'])) : null,
     'csrf' => $canManage ? csrf_token() : '',
+    'canProposals' => !empty($canProposals),
+    'proposal' => !empty($linkedProposal) ? ['id' => (int)$linkedProposal['id'], 'url' => $base . '/proposal/edit/' . (int)$linkedProposal['id']] : null,
 ];
 ?>
 <!DOCTYPE html>
@@ -149,6 +151,10 @@ $recInfo = [
                 <button class="btn btn-sm btn-outline-light" id="min-edit-btn" onclick="editMinutes()"><i class="bi bi-pencil"></i> Editar</button>
                 <button class="btn btn-sm btn-outline-light" id="min-regen-btn" onclick="regenerateMinutes()"><i class="bi bi-arrow-repeat"></i> Gerar de novo</button>
                 <button class="btn btn-sm btn-brand" id="min-send-btn" onclick="sendMinutes()"><i class="bi bi-send"></i> Enviar ao cliente</button>
+                <?php if (!empty($canProposals)): ?>
+                <button class="btn btn-sm btn-outline-light" id="min-proposal-btn" onclick="generateProposal()"><i class="bi bi-file-earmark-text"></i> Gerar proposta</button>
+                <a class="btn btn-sm btn-outline-light" id="min-proposal-link" style="display:none;"><i class="bi bi-box-arrow-up-right"></i> Ver proposta</a>
+                <?php endif; ?>
             </div>
             <form id="sm-form" class="min-form" style="display:none;" onsubmit="saveMinutesForm(event)">
                 <label for="f-resumo">Resumo</label>
@@ -329,6 +335,8 @@ function renderMinutes() {
             : '<span class="badge-draft">Rascunho</span><span class="muted">Revise antes de enviar ao cliente.</span>';
         if (INFO.minutesEditedAt) smState.innerHTML += '<span class="muted">· editada em ' + esc(INFO.minutesEditedAt) + '</span>';
         if (smActions) smActions.style.display = 'flex';
+        const propLink = document.getElementById('min-proposal-link');
+        if (propLink && INFO.proposal) { propLink.href = INFO.proposal.url; propLink.style.display = ''; }
         const sendBtn = document.getElementById('min-send-btn');
         if (sendBtn) sendBtn.innerHTML = INFO.minutesSentAt ? '<i class="bi bi-send"></i> Reenviar ao cliente' : '<i class="bi bi-send"></i> Enviar ao cliente';
     }
@@ -418,6 +426,27 @@ async function sendMinutes() {
     INFO.minutesSentAt = r.sent_at ? new Date(r.sent_at.replace(' ', 'T')).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
     alert('Minuta enviada: ' + (r.sent_whats || 0) + ' WhatsApp e ' + (r.sent_email || 0) + ' e-mail.');
     renderMinutes();
+}
+
+// Cria o rascunho da proposta a partir da minuta e abre o editor de proposta.
+async function generateProposal(confirmed) {
+    if (!confirmed && INFO.proposal && !confirm('Esta gravação já tem uma proposta. Criar outra mesmo assim?')) return;
+    const btn = document.getElementById('min-proposal-btn');
+    btn.disabled = true; btn.innerHTML = '<span class="spin" style="width:14px;height:14px;border-width:2px;"></span> Gerando…';
+    const fd = new FormData();
+    fd.append('rec', REC_TOKEN);
+    if (confirmed || INFO.proposal) fd.append('confirm', '1');
+    const r = await postJson(`${BASE}/proposal/fromRecording`, fd);
+    btn.disabled = false; btn.innerHTML = '<i class="bi bi-file-earmark-text"></i> Gerar proposta';
+    if (r.existing_id) {
+        INFO.proposal = { id: r.existing_id, url: r.edit_url };
+        renderMinutes();
+        if (confirm('Esta gravação já tem uma proposta. Criar outra mesmo assim?')) return generateProposal(true);
+        return;
+    }
+    if (r.error) { alert(r.error); return; }
+    if (r.warning) alert(r.warning);
+    window.location.href = r.edit_url;
 }
 
 function copyTranscript() {
