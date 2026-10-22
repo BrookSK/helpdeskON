@@ -20,7 +20,17 @@ if (preg_match('#^(assets|uploads)/#', $path)) {
     $real = realpath($root . '/public/' . $path);
     $baseReal = realpath($root . '/public');
     if ($real && $baseReal && strpos($real, $baseReal) === 0 && is_file($real)) {
-        return false; // deixa o servidor embutido servir o arquivo estático
+        // O docroot do php -S é a raiz do projeto, não /public: "return false"
+        // procuraria o arquivo no lugar errado. Serve direto com o tipo certo.
+        $types = ['js' => 'application/javascript', 'css' => 'text/css', 'json' => 'application/json',
+            'svg' => 'image/svg+xml', 'png' => 'image/png', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg',
+            'gif' => 'image/gif', 'webp' => 'image/webp', 'ico' => 'image/x-icon', 'woff2' => 'font/woff2',
+            'webm' => 'video/webm', 'mp4' => 'video/mp4'];
+        $ext = strtolower(pathinfo($real, PATHINFO_EXTENSION));
+        header('Content-Type: ' . ($types[$ext] ?? ((function_exists('mime_content_type') ? mime_content_type($real) : '') ?: 'application/octet-stream')));
+        header('Content-Length: ' . filesize($real));
+        readfile($real);
+        return true;
     }
     http_response_code(404);
     return true;
