@@ -495,7 +495,7 @@ class VideocallController extends Controller
      * Duration quando não há FFmpeg) e cria o registro via addRecording.
      * Devolve [recToken, shareUrl, duration].
      */
-    private function publishRecordingFile($roomId, $assembledPath, $recToken, $recordedBy, $recordedByName, $clientDuration = null)
+    private function publishRecordingFile($roomId, $assembledPath, $recToken, $recordedBy, $recordedByName, $clientDuration = null, $isIncomplete = false)
     {
         $dir = PUBLIC_PATH . '/uploads/recordings';
         if (!is_dir($dir)) @mkdir($dir, 0775, true);
@@ -535,6 +535,7 @@ class VideocallController extends Controller
             'duration_sec' => $duration,
             'recorded_by' => $recordedBy,
             'recorded_by_name' => $recordedByName,
+            'is_incomplete' => $isIncomplete ? 1 : 0,
         ]);
 
         return [$recToken, $this->publicBase() . '/videocall/share/' . $recToken, $duration];
@@ -607,6 +608,120 @@ class VideocallController extends Controller
         }
     }
 
+    /**
+     * [v2] Recebe um segmento só de áudio (seq, início em segundos, SHA-256),
+     * gravado em paralelo ao vídeo para a transcrição no servidor. Idempotente
+     * por seq. Se a sessão já foi publicada, liga o segmento direto à gravação.
+     */
+    public function recAudioV2($token = null)
+    {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $room = $this->requireActiveRoom($token, 2, true);
+        $this->authorizeRecording($room);
+        $this->releaseSession();
+
+        $sess = (string)($_POST['sess'] ?? '');
+        if (!RecordingSessionStore::isValidSess($sess)) $this->json(['error' => 'Sessão inválida.'], 422);
+        $seq = (int)($_POST['seq'] ?? 0);
+        if ($seq < 1) $this->json(['error' => 'Sequência inválida.'], 422);
+        $mime = (string)($_POST['mime'] ?? '');
+        if (RecordingSessionStore::audioExtForMime($mime) === null) {
+            $this->json(['error' => 'Tipo de áudio não aceito.', 'reason' => 'mime'], 422);
+        }
+        if (empty($_FILES['audio']) || $_FILES['audio']['error'] !== UPLOAD_ERR_OK) {
+            $this->json(['error' => 'Segmento de áudio ausente.'], 400);
+        }
+        if ((int)$_FILES['audio']['size'] > RecordingSessionStore::MAX_AUDIO_SEGMENT_BYTES) {
+            $this->json(['error' => 'Segmento de áudio grande demais.', 'reason' => 'too_large'], 413);
+        }
+        $bytes = @file_get_contents($_FILES['audio']['tmp_name']);
+        if ($bytes === false) $this->json(['error' => 'Falha ao ler o segmento.'], 400);
+
+        try {
+            $store = new RecordingSessionStore($this->recordingSessionsDir(), (int)$room['id'], $sess, $this->recordingMaxBytes());
+            $r = $store->appendAudioSegment($seq, $bytes, (string)($_POST['sha256'] ?? ''), (float)($_POST['start_sec'] ?? 0), $mime);
+            // Segmento que chegou depois da publicação: liga direto à gravação.
+            if ($store->isFinalized() && $store->publishedToken()) {
+                $this->attachAudioSegments($store, $store->publishedToken());
+            }
+            $this->json(['success' => true, 'seq' => $r['seq'], 'size' => $r['size'], 'status' => $r['status']]);
+        } catch (\RangeException $e) {
+            $this->json(['error' => 'Segmento de áudio grande demais.', 'reason' => 'too_large'], 413);
+        } catch (\UnexpectedValueException $e) {
+            $this->json(['error' => 'Checksum do segmento não confere.', 'reason' => 'checksum'], 422);
+        } catch (\DomainException $e) {
+            $this->json(['error' => 'Segmento recusado.', 'reason' => $e->getMessage()], 409);
+        } catch (\Throwable $e) {
+            $this->json(['error' => 'Falha ao persistir o segmento.'], 507);
+        }
+    }
+
+    /**
+     * Liga os segmentos de áudio da sessão à gravação publicada e coloca a
+     * gravação na fila de transcrição. Nunca interrompe a publicação.
+     */
+    private function attachAudioSegments(RecordingSessionStore $store, $recToken)
+    {
+        try {
+            $rec = $this->model->findRecordingByToken($recToken);
+            if (!$rec) return 0;
+            return (new RecordingSegment())->attachFromSession($store, (int)$rec['id'], (string)$recToken);
+        } catch (\Throwable $e) {
+            if (class_exists('Logger')) Logger::error('attachAudioSegments falhou', ['rec' => $recToken, 'error' => $e->getMessage()]);
+            return 0;
+        }
+    }
+
+    /**
+     * Publica as sessões v2 sem atividade há mais de $idleSeconds (aba fechada
+     * sem parar a gravação). Monta os pedaços contíguos já recebidos, publica
+     * marcada como incompleta e libera a transcrição dos segmentos de áudio.
+     * Idempotente: sessão já publicada não gera outra gravação. Chamado pelo cron.
+     *
+     * @return int quantidade de gravações publicadas nesta execução
+     */
+    public function finalizeAbandonedSessions($idleSeconds = 900, $sessionsDir = null)
+    {
+        $published = 0;
+        $base = $sessionsDir ?: $this->recordingSessionsDir();
+        if (!is_dir($base)) return 0;
+        $idleSeconds = max(300, (int)$idleSeconds);
+
+        foreach (RecordingSessionStore::listSessions($base) as $s) {
+            try {
+                $store = new RecordingSessionStore($base, $s['room_id'], $s['sess'], $this->recordingMaxBytes());
+                if ($store->isFinalized()) continue;
+                $last = $store->lastActivityAt();
+                if ($last === null || (time() - $last) < $idleSeconds) continue;
+
+                $chunks = $store->confirmedChunks();
+                if (empty($chunks)) continue;
+                $bytes = array_sum(array_column($chunks, 'size'));
+                $assembled = $store->assemble(RecordingSessionStore::manifestHash($chunks), count($chunks), $bytes);
+                $meta = $store->meta();
+                $recToken = $meta['rec_token'] ?: $this->model->generateToken();
+
+                // Token já usado por uma gravação (falha depois do insert): só conclui a sessão.
+                if (!$this->model->findRecordingByToken($recToken)) {
+                    $this->publishRecordingFile(
+                        $s['room_id'], $assembled, $recToken,
+                        $meta['recorded_by'] ?? null, $meta['recorded_by_name'] ?? null,
+                        null, true
+                    );
+                    $published++;
+                } else {
+                    @unlink($assembled);
+                }
+                $store->markFinalized($recToken);
+                $store->cleanupChunks();
+                $this->attachAudioSegments($store, $recToken);
+            } catch (\Throwable $e) {
+                if (class_exists('Logger')) Logger::error('finalizeAbandonedSessions falhou', ['sess' => $s['sess'], 'error' => $e->getMessage()]);
+            }
+        }
+        return $published;
+    }
+
     /** [v2] Estado da sessão: próxima sequência e bytes confirmados. */
     public function recStatus($token = null)
     {
@@ -637,7 +752,14 @@ class VideocallController extends Controller
         $this->authorizeRecording($room);
         $this->releaseSession();
         // Presença/pausa não altera o conteúdo; apenas confirma que a sessão vive.
-        // A inatividade NÃO finaliza nem move a sessão (correção do bug de mtime).
+        // Registra a atividade para a pausa longa não ser tratada como sessão
+        // abandonada (finalizeAbandonedSessions).
+        $sess = (string)($_POST['sess'] ?? '');
+        if (RecordingSessionStore::isValidSess($sess)) {
+            try {
+                (new RecordingSessionStore($this->recordingSessionsDir(), (int)$room['id'], $sess, $this->recordingMaxBytes()))->touch();
+            } catch (\Throwable $e) { /* presença é opcional */ }
+        }
         $this->json(['success' => true]);
     }
 
@@ -678,6 +800,7 @@ class VideocallController extends Controller
             // Só depois de arquivo + banco confirmados: marca finalizado e limpa chunks.
             $store->markFinalized($recToken);
             $store->cleanupChunks();
+            $this->attachAudioSegments($store, $recToken);
 
             $this->json(['success' => true, 'token' => $recToken, 'url' => $shareUrl, 'duration_sec' => $duration]);
         } catch (\DomainException $e) {

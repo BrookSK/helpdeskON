@@ -2866,6 +2866,9 @@ function startRecording() {
     mediaRecorder.start(4000); // um pedaço a cada 4s
     recStartTs = Date.now();
     recElapsedMs = 0; recResumeTs = Date.now();
+    audioSegSeq = 0; audioSegDone = Promise.resolve();
+    startAudioSegment();
+    lastRecBroadcastAt = Date.now(); lastRecHeartbeatAt = Date.now();
     document.getElementById('btn-rec').classList.add('off');
     const pauseBtn = document.getElementById('btn-rec-pause');
     if (pauseBtn) { pauseBtn.style.display = 'flex'; pauseBtn.innerHTML = '<i class="bi bi-pause-fill"></i>'; }
@@ -2876,6 +2879,18 @@ function startRecording() {
     if (typeof syncPipButtons === 'function') syncPipButtons();
 }
 function updateRecTime() {
+    rotateAudioSegmentIfDue();
+    // Reenvia o aviso de gravação: quem entra depois do início também vê o indicador.
+    if (Date.now() - lastRecBroadcastAt > 15000) {
+        lastRecBroadcastAt = Date.now();
+        broadcast('rec', { state: (mediaRecorder && mediaRecorder.state === 'paused') ? 'pause' : 'start', by: myName });
+    }
+    // Presença da sessão v2: pausa longa não pode parecer aba fechada para o servidor.
+    if (recUseV2 && recSessId && Date.now() - lastRecHeartbeatAt > 60000) {
+        lastRecHeartbeatAt = Date.now();
+        const fd = new FormData(); fd.append('sess', recSessId);
+        fetch(`${BASE}/videocall/recHeartbeat/${ROOM_TOKEN}`, { method: 'POST', body: fd }).catch(() => {});
+    }
     const ms = recElapsedMs + (recResumeTs ? (Date.now() - recResumeTs) : 0);
     const s = Math.floor(ms / 1000);
     document.getElementById('rec-time').textContent = String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
@@ -2885,6 +2900,7 @@ function togglePauseRecording() {
     const btn = document.getElementById('btn-rec-pause');
     if (mediaRecorder.state === 'recording') {
         mediaRecorder.pause();
+        if (audioSegRec && audioSegRec.state === 'recording') { try { audioSegRec.pause(); } catch (e) {} }
         recElapsedMs += (Date.now() - recResumeTs); recResumeTs = 0;
         if (btn) btn.innerHTML = '<i class="bi bi-play-fill"></i>';
         document.getElementById('rec-label').textContent = 'Pausado';
@@ -2892,6 +2908,7 @@ function togglePauseRecording() {
         broadcast('rec', { state: 'pause', by: myName });
     } else if (mediaRecorder.state === 'paused') {
         mediaRecorder.resume();
+        if (audioSegRec && audioSegRec.state === 'paused') { try { audioSegRec.resume(); } catch (e) {} }
         recResumeTs = Date.now();
         if (btn) btn.innerHTML = '<i class="bi bi-pause-fill"></i>';
         document.getElementById('rec-label').textContent = 'Gravando';
@@ -2900,6 +2917,7 @@ function togglePauseRecording() {
     }
 }
 function stopRecording() {
+    stopAudioSegment(); // antes do stopComposite, que fecha o mix de áudio
     if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
     clearInterval(recTimer);
     recResumeTs = 0;
@@ -2930,12 +2948,73 @@ function showRemoteRecState(payload) {
     if (!ind) return;
     // Só reflete o estado remoto se EU não estiver gravando localmente.
     if (mediaRecorder && mediaRecorder.state !== 'inactive') return;
+    clearTimeout(remoteRecHideTimer);
     if (st === 'stop') { ind.style.display = 'none'; return; }
     ind.style.display = 'flex';
+    // Sem novo aviso em 45s (gravador caiu sem avisar), o indicador some.
+    remoteRecHideTimer = setTimeout(() => {
+        if (!(mediaRecorder && mediaRecorder.state !== 'inactive')) ind.style.display = 'none';
+    }, 45000);
     if (timeEl) timeEl.textContent = '';
     if (label) label.textContent = (st === 'pause') ? ('Gravação pausada' + (payload.by ? ' · ' + payload.by : '')) : ('Sendo gravada' + (payload.by ? ' · ' + payload.by : ''));
     ind.style.opacity = (st === 'pause') ? '.6' : '1';
 }
+let remoteRecHideTimer = null, lastRecBroadcastAt = 0, lastRecHeartbeatAt = 0;
+
+// ---- Segmentos só de áudio para a transcrição no servidor ----
+// Um segundo MediaRecorder grava o mesmo mix de áudio e é reiniciado a cada
+// AUDIO_SEG_MS de gravação (pausas não contam). Cada segmento é um arquivo de
+// áudio completo, enviado pelo RecordingUploader com o início em segundos.
+// ?audio_seg_sec=N na URL encurta o segmento (testes).
+const AUDIO_SEG_MS = (() => {
+    const q = parseInt(new URLSearchParams(location.search).get('audio_seg_sec') || '', 10);
+    return (q >= 5 && q <= 600 ? q : 300) * 1000;
+})();
+let audioSegRec = null, audioSegSeq = 0, audioSegStartMs = 0, audioSegMime = '', audioSegDone = Promise.resolve();
+
+function recordedMs() { return recElapsedMs + (recResumeTs ? (Date.now() - recResumeTs) : 0); }
+
+function pickAudioSegMime() {
+    const opts = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'];
+    return opts.find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+}
+
+function startAudioSegment() {
+    if (!recUseV2 || !recUploader || !audioDest) return;
+    if (!audioSegMime) audioSegMime = pickAudioSegMime();
+    if (!audioSegMime) return; // sem suporte: transcrição fica pelo botão manual
+    let rec;
+    try { rec = new MediaRecorder(audioDest.stream, { mimeType: audioSegMime, audioBitsPerSecond: 32000 }); }
+    catch (e) { return; }
+    const up = recUploader, seq = ++audioSegSeq, startSec = Math.round(recordedMs()) / 1000, mime = audioSegMime;
+    const parts = [];
+    let finish;
+    const done = new Promise(r => { finish = r; });
+    audioSegDone = audioSegDone.then(() => done);
+    rec.ondataavailable = (e) => { if (e.data && e.data.size) parts.push(e.data); };
+    rec.onstop = () => {
+        const blob = new Blob(parts, { type: mime });
+        const p = blob.size ? up.enqueueAudio(seq, blob, startSec, mime) : Promise.resolve();
+        p.catch(() => {}).then(finish);
+    };
+    try { rec.start(); } catch (e) { finish(); return; }
+    audioSegRec = rec;
+    audioSegStartMs = recordedMs();
+}
+
+function rotateAudioSegmentIfDue() {
+    if (!audioSegRec || audioSegRec.state !== 'recording') return;
+    if (recordedMs() - audioSegStartMs < AUDIO_SEG_MS) return;
+    const old = audioSegRec;
+    startAudioSegment();
+    try { old.stop(); } catch (e) {}
+}
+
+function stopAudioSegment() {
+    if (audioSegRec && audioSegRec.state !== 'inactive') { try { audioSegRec.stop(); } catch (e) {} }
+    audioSegRec = null;
+}
+
 // Envia um pedaço da gravação ao servidor (em fila, para manter a ordem).
 let recSessId = null, recUploadChain = Promise.resolve(), recChunksSent = 0;
 let recUploader = null, recUseV2 = false;
@@ -2974,6 +3053,7 @@ async function uploadRecording() {
     if (recUseV2 && recUploader) {
         toast('Finalizando a gravação no servidor…');
         try {
+            await audioSegDone; // último segmento de áudio entra na fila antes da publicação
             const res = await recUploader.finalize(durationSec);
             currentRecToken = res.token || null;
             document.getElementById('rec-url').value = res.url; document.getElementById('rec-open').href = res.url;
@@ -3217,7 +3297,8 @@ window.addEventListener('beforeunload', () => {
     try { navigator.sendBeacon(`${BASE}/videocall/leave/${ROOM_TOKEN}`, new URLSearchParams({ peer_id: peerId })); } catch (e) {}
     // Se eu estava gravando e fechei a aba sem parar, pede ao servidor para
     // finalizar o que já subiu (sem depender do cron de gravações órfãs).
-    if (recSessId && mediaRecorder && mediaRecorder.state !== 'inactive') {
+    // No v2 a sessão fica no servidor e o cron publica o que subiu (finalizeAbandonedSessions).
+    if (!recUseV2 && recSessId && mediaRecorder && mediaRecorder.state !== 'inactive') {
         try {
             const dur = Math.floor((recElapsedMs + (recResumeTs ? (Date.now() - recResumeTs) : 0)) / 1000);
             navigator.sendBeacon(`${BASE}/videocall/recFinalize/${ROOM_TOKEN}`, new URLSearchParams({ sess: recSessId, duration_sec: dur, recorded_by_name: myName }));

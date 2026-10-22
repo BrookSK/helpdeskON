@@ -19,6 +19,7 @@
  *   const up = new RecordingUploader({ base, roomToken, sess, recordedByName });
  *   await up.open();
  *   // para cada blob do MediaRecorder: await up.enqueue(blob);
+ *   // segmento só de áudio: await up.enqueueAudio(seq, blob, startSec, mime);
  *   // ao parar: const res = await up.finalize(durationSec);
  *
  * Sem dependências externas. Requer IndexedDB, Web Crypto (crypto.subtle) e fetch.
@@ -59,17 +60,19 @@
       this.carry = new Uint8Array(0); // bytes acumulados que ainda não fecharam 1 MiB
       this.started = false;
       this.failed = false;
+      this.audioPump = Promise.resolve(); // fila própria dos segmentos de áudio
     }
 
     dbName() { return DB_PREFIX + this.roomToken + '_' + this.sess; }
 
     open() {
       return new Promise((resolve, reject) => {
-        const req = indexedDB.open(this.dbName(), 1);
+        const req = indexedDB.open(this.dbName(), 2);
         req.onupgradeneeded = () => {
           const db = req.result;
           if (!db.objectStoreNames.contains('chunks')) db.createObjectStore('chunks', { keyPath: 'seq' });
           if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', { keyPath: 'k' });
+          if (!db.objectStoreNames.contains('audio')) db.createObjectStore('audio', { keyPath: 'seq' });
         };
         req.onsuccess = () => { this.db = req.result; resolve(this); };
         req.onerror = () => reject(req.error);
@@ -185,6 +188,50 @@
       }
     }
 
+    /**
+     * Segmento só de áudio (arquivo completo, para a transcrição no servidor).
+     * Grava no IndexedDB antes de enviar e entra numa fila separada do vídeo:
+     * falha no áudio nunca impede a publicação do vídeo.
+     */
+    async enqueueAudio(seq, blob, startSec, mime) {
+      if (!this.started) await this.start();
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      const sha = await sha256Hex(bytes.buffer);
+      await this._put('audio', { seq, bytes, startSec, mime, sha256: sha, acked: false });
+      this.audioPump = this.audioPump
+        .then(() => this._sendAudio(seq, bytes, sha, startSec, mime))
+        .catch(() => { /* segmento fica no IndexedDB; a gravação segue */ });
+    }
+
+    async _sendAudio(seq, bytes, sha, startSec, mime) {
+      for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        const fd = new FormData();
+        fd.append('sess', this.sess);
+        fd.append('seq', String(seq));
+        fd.append('sha256', sha);
+        fd.append('start_sec', String(startSec));
+        fd.append('mime', mime);
+        fd.append('audio', new Blob([bytes], { type: mime }), 'a.bin');
+        let status = 0, res = null;
+        try {
+          const r = await fetch(`${this.base}/videocall/recAudioV2/${this.roomToken}`, { method: 'POST', body: fd });
+          status = r.status;
+          res = await r.json().catch(() => null);
+        } catch (e) { res = null; }
+        if (res && res.success) {
+          await this._put('audio', { seq, bytes, startSec, mime, sha256: sha, acked: true });
+          return;
+        }
+        // Recusa de conteúdo (hash, tipo, tamanho) não se resolve tentando de novo.
+        if (status === 409 || status === 413 || status === 422) throw new Error('audio:' + status);
+        await sleep(Math.min(1000 * attempt, 4000));
+      }
+      throw new Error('audio:exhausted');
+    }
+
+    /** Espera os segmentos de áudio enfileirados terminarem de subir. */
+    drainAudio() { return this.audioPump.catch(() => {}); }
+
     manifestText() {
       const sorted = this.chunks.slice().sort((a, b) => a.seq - b.seq);
       return sorted.map((c) => `${c.seq}:${c.size}:${c.sha256}`).join('\n') + (sorted.length ? '\n' : '');
@@ -203,6 +250,7 @@
     async finalize(durationSec) {
       await this.flushCarry();
       await this.pump; // propaga erro se algum pedaço falhou de forma definitiva
+      await this.drainAudio(); // segmentos de áudio sobem antes da publicação
 
       const count = this.chunks.length;
       const bytes = this.chunks.reduce((s, c) => s + c.size, 0);

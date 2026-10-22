@@ -32,6 +32,17 @@ class RecordingSessionStore
     /** Formato de sess aceito: 16–64 chars alfanum/hífen/underscore. */
     public const SESS_REGEX = '/^[A-Za-z0-9_-]{16,64}$/';
 
+    /** Tamanho máximo de UM segmento só de áudio (abaixo dos 25 MB do Whisper). */
+    public const MAX_AUDIO_SEGMENT_BYTES = 20971520; // 20 MiB
+
+    /** Tipos de áudio aceitos nos segmentos → extensão usada no arquivo. */
+    public const AUDIO_MIME_EXT = [
+        'audio/webm' => 'webm',
+        'audio/ogg' => 'ogg',
+        'audio/mp4' => 'm4a',
+        'audio/mpeg' => 'mp3',
+    ];
+
     /** @var string Diretório desta sessão. */
     private $dir;
 
@@ -111,6 +122,37 @@ class RecordingSessionStore
             $expected++;
         }
         return true;
+    }
+
+    /**
+     * Extensão do arquivo para o tipo de áudio informado pelo navegador
+     * (ignora parâmetros como ";codecs=opus"). Null quando o tipo não é aceito.
+     */
+    public static function audioExtForMime($mime): ?string
+    {
+        $base = strtolower(trim(explode(';', (string)$mime)[0]));
+        return self::AUDIO_MIME_EXT[$base] ?? null;
+    }
+
+    /** Nome determinístico do arquivo de um segmento de áudio (1-based). */
+    public static function audioFileName(int $seq, string $ext): string
+    {
+        return sprintf('seg_%06d.%s', $seq, $ext);
+    }
+
+    /**
+     * Lista as sessões existentes no diretório base: [{room_id, sess}].
+     * Usado pela rotina que publica sessões abandonadas.
+     */
+    public static function listSessions(string $baseDir): array
+    {
+        $out = [];
+        foreach (glob(rtrim($baseDir, '/\\') . DIRECTORY_SEPARATOR . '*_*', GLOB_ONLYDIR) ?: [] as $d) {
+            if (preg_match('/^(\d+)_([A-Za-z0-9_-]{16,64})$/', basename($d), $m)) {
+                $out[] = ['room_id' => (int)$m[1], 'sess' => $m[2]];
+            }
+        }
+        return $out;
     }
 
     /** Lê o teto acumulado por sessão a partir da env (fallback no padrão). */
@@ -200,6 +242,7 @@ class RecordingSessionStore
                 'recorded_by' => null,
                 'recorded_by_name' => null,
                 'chunks' => [], // seq => {size, sha256}
+                'audio' => [],  // seq => {size, sha256, start_sec, mime, file}
                 'bytes' => 0,
                 'finalized' => false,
                 'rec_token' => null,
@@ -214,6 +257,8 @@ class RecordingSessionStore
     {
         $path = $this->journalPath();
         $tmp = $path . '.tmp';
+        // Última atividade da sessão: usada para achar gravações abandonadas.
+        $journal['updated_at'] = time();
         $json = json_encode($journal, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
         if ($json === false) {
             throw new RuntimeException('Falha ao serializar o journal.');
@@ -396,6 +441,113 @@ class RecordingSessionStore
                 throw new RuntimeException('assemble_publish_failed');
             }
             return $out;
+        });
+    }
+
+    /** Diretório dos segmentos só de áudio desta sessão. */
+    public function audioDir(): string
+    {
+        return $this->dir . DIRECTORY_SEPARATOR . 'audio';
+    }
+
+    /**
+     * Persiste um segmento só de áudio (gravado em paralelo ao vídeo para a
+     * transcrição). Diferente dos chunks de vídeo, cada segmento é um arquivo
+     * de áudio completo e pode chegar fora de ordem. Reenvio idempotente: mesma
+     * seq + mesmo sha256 devolve 'duplicate'; conteúdo divergente é recusado.
+     *
+     * @return array{status:string,seq:int,size:int,sha256:string}
+     */
+    public function appendAudioSegment(int $seq, string $bytes, string $sha256Hex, float $startSec, string $mime): array
+    {
+        if ($seq < 1) throw new DomainException('invalid_seq');
+        $ext = self::audioExtForMime($mime);
+        if ($ext === null) throw new DomainException('invalid_mime');
+        if ($bytes === '') throw new DomainException('empty_segment');
+        if (strlen($bytes) > self::MAX_AUDIO_SEGMENT_BYTES) throw new RangeException('too_large');
+        if (!self::checksumMatches($bytes, $sha256Hex)) throw new UnexpectedValueException('checksum_mismatch');
+        $sha = strtolower(trim($sha256Hex));
+        $startSec = max(0.0, $startSec);
+
+        return $this->withLock(function () use ($seq, $bytes, $sha, $startSec, $mime, $ext) {
+            $j = $this->readJournal();
+            $audio = $j['audio'] ?? [];
+            if (isset($audio[$seq])) {
+                if ($audio[$seq]['sha256'] === $sha) {
+                    return ['status' => 'duplicate', 'seq' => $seq, 'size' => (int)$audio[$seq]['size'], 'sha256' => $sha];
+                }
+                throw new DomainException('seq_conflict');
+            }
+
+            $dir = $this->audioDir();
+            if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
+                throw new RuntimeException('persist_open_failed');
+            }
+            $file = self::audioFileName($seq, $ext);
+            $path = $dir . DIRECTORY_SEPARATOR . $file;
+            $tmp = $path . '.tmp';
+            if (@file_put_contents($tmp, $bytes) !== strlen($bytes)
+                || self::hashBytes((string)file_get_contents($tmp)) !== $sha
+                || !@rename($tmp, $path)) {
+                @unlink($tmp);
+                throw new RuntimeException('persist_write_failed');
+            }
+
+            $audio[$seq] = [
+                'size' => strlen($bytes),
+                'sha256' => $sha,
+                'start_sec' => round($startSec, 3),
+                'mime' => substr(strtolower(trim(explode(';', $mime)[0])), 0, 60),
+                'file' => $file,
+            ];
+            $j['audio'] = $audio;
+            $this->writeJournal($j);
+            return ['status' => 'ok', 'seq' => $seq, 'size' => strlen($bytes), 'sha256' => $sha];
+        });
+    }
+
+    /**
+     * Segmentos de áudio confirmados, ordenados por seq, com o caminho absoluto
+     * do arquivo: [{seq,size,sha256,start_sec,mime,path}].
+     */
+    public function audioSegments(): array
+    {
+        $j = $this->readJournal();
+        $out = [];
+        foreach (($j['audio'] ?? []) as $seq => $meta) {
+            $out[] = [
+                'seq' => (int)$seq,
+                'size' => (int)$meta['size'],
+                'sha256' => (string)$meta['sha256'],
+                'start_sec' => (float)$meta['start_sec'],
+                'mime' => (string)$meta['mime'],
+                'path' => $this->audioDir() . DIRECTORY_SEPARATOR . $meta['file'],
+            ];
+        }
+        usort($out, static function ($a, $b) { return $a['seq'] <=> $b['seq']; });
+        return $out;
+    }
+
+    /**
+     * Momento (timestamp) da última escrita na sessão. Journals antigos sem
+     * updated_at usam a data de modificação do arquivo. Null se não há journal.
+     */
+    public function lastActivityAt(): ?int
+    {
+        $path = $this->journalPath();
+        if (!is_file($path)) return null;
+        $j = $this->readJournal();
+        if (!empty($j['updated_at'])) return (int)$j['updated_at'];
+        return (int)filemtime($path) ?: null;
+    }
+
+    /** Registra atividade sem mudar o conteúdo (heartbeat durante a pausa). */
+    public function touch(): void
+    {
+        if (!is_file($this->journalPath())) return;
+        $this->withLock(function () {
+            $this->writeJournal($this->readJournal());
+            return null;
         });
     }
 
