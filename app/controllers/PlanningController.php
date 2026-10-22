@@ -101,15 +101,13 @@ class PlanningController extends Controller
         ]);
     }
 
-    // API: Retornar cards para o calendário (JSON)
-    public function calendar()
+    /**
+     * Monta os filtros do calendário a partir do $_GET + escopo do usuário.
+     * Reutilizado por calendar() e calendarUndated() para não duplicar as
+     * regras de empresa/responsável/busca.
+     */
+    private function calendarFilters(array $user): array
     {
-        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']);
-        $user = $this->currentUser();
-
-        $start = $_GET['start'] ?? date('Y-m-01');
-        $end = $_GET['end'] ?? date('Y-m-t 23:59:59');
-
         $filters = [];
         if (!empty($_GET['company_id'])) $filters['company_id'] = array_filter((array)$_GET['company_id'], fn($v) => $v !== '');
         if (!empty($_GET['assigned_to'])) $filters['assigned_to'] = array_filter((array)$_GET['assigned_to'], fn($v) => $v !== '');
@@ -128,6 +126,20 @@ class PlanningController extends Controller
             $filters['allowed_companies'] = $allowedCompanies;
         }
 
+        return $filters;
+    }
+
+    // API: Retornar cards para o calendário (JSON)
+    public function calendar()
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']);
+        $user = $this->currentUser();
+
+        $start = $_GET['start'] ?? date('Y-m-01');
+        $end = $_GET['end'] ?? date('Y-m-t 23:59:59');
+
+        $filters = $this->calendarFilters($user);
+
         $cards = $this->cardModel->getForCalendar($start, $end, $filters);
 
         $events = [];
@@ -145,7 +157,38 @@ class PlanningController extends Controller
             ];
         }
 
-        $this->json($events);
+        // Contagem de demandas ATIVAS sem nenhuma data (não entram no calendário).
+        // Alimenta o aviso "X demandas sem data" + botão Revisar.
+        $undatedCount = count($this->cardModel->getUndated($filters));
+
+        $this->json(['events' => $events, 'undated_count' => $undatedCount]);
+    }
+
+    /**
+     * API: Lista as demandas ATIVAS sem data (para o modal "Revisar").
+     * Mesmo escopo/filtros do calendário.
+     */
+    public function calendarUndated()
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']);
+        $user = $this->currentUser();
+
+        $filters = $this->calendarFilters($user);
+        $cards = $this->cardModel->getUndated($filters);
+
+        $out = [];
+        foreach ($cards as $card) {
+            $out[] = [
+                'id' => $card['id'],
+                'title' => $card['title'],
+                'priority' => $card['priority'],
+                'status' => $card['status'],
+                'assigned_name' => $card['assigned_name'] ?? 'Não atribuído',
+                'company_name' => $card['company_name'] ?? '',
+            ];
+        }
+
+        $this->json(['cards' => $out]);
     }
 
     // Criar card

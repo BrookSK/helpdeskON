@@ -473,4 +473,54 @@ final class PlanningCardTest extends TestCase
         $this->assertStringStartsWith('2026-01-22 00:00', (string) $pintarCard['start_date']);
         $this->assertStringStartsWith('2026-01-23 00:00', (string) $pintarCard['end_date']);
     }
+
+    // ================= Demandas sem data (aviso "Revisar") =================
+
+    public function testGetUndatedTrazSomenteCardsAtivosSemData(): void
+    {
+        // Sem nenhuma data e ativo: deve aparecer.
+        $semData = $this->novoCard(['title' => 'Sem data', 'status' => 'open']);
+        // Com prazo: não aparece (tem data).
+        $comPrazo = $this->novoCard(['title' => 'Com prazo', 'due_date' => '2026-05-10 10:00:00']);
+        // Com janela de desenvolvimento: não aparece (tem data).
+        $comJanela = $this->novoCard([
+            'title'      => 'Com janela',
+            'start_date' => '2026-05-01 09:00:00',
+            'end_date'   => '2026-05-03 18:00:00',
+        ]);
+
+        $ids = array_map(fn($c) => (int) $c['id'], $this->cards->getUndated([]));
+
+        $this->assertContains($semData, $ids, 'Card sem data deveria aparecer.');
+        $this->assertNotContains($comPrazo, $ids, 'Card com prazo não deveria aparecer.');
+        $this->assertNotContains($comJanela, $ids, 'Card com janela não deveria aparecer.');
+    }
+
+    public function testGetUndatedIgnoraEncerrados(): void
+    {
+        // Sem data mas já encerrados (concluído/negado/arquivado): não precisam
+        // de agendamento, então não entram na revisão.
+        $concluido = $this->novoCard(['title' => 'Concluido sem data', 'status' => 'completed']);
+        $negado    = $this->novoCard(['title' => 'Negado sem data', 'status' => 'denied']);
+        $arquivado = $this->novoCard(['title' => 'Arquivado sem data', 'status' => 'archived']);
+        $aberto    = $this->novoCard(['title' => 'Aberto sem data', 'status' => 'open']);
+
+        $ids = array_map(fn($c) => (int) $c['id'], $this->cards->getUndated([]));
+
+        $this->assertContains($aberto, $ids);
+        $this->assertNotContains($concluido, $ids);
+        $this->assertNotContains($negado, $ids);
+        $this->assertNotContains($arquivado, $ids);
+    }
+
+    public function testGetUndatedRespeitaFiltroSemResponsavel(): void
+    {
+        $semDono = $this->novoCard(['title' => 'Sem dono sem data', 'assigned_to' => null]);
+        $comDono = $this->novoCard(['title' => 'Com dono sem data', 'assigned_to' => $this->userId]);
+
+        $ids = array_map(fn($c) => (int) $c['id'], $this->cards->getUndated(['assigned_to' => ['none']]));
+
+        $this->assertContains($semDono, $ids);
+        $this->assertNotContains($comDono, $ids);
+    }
 }
