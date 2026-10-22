@@ -328,8 +328,40 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                     <span class="cal-legend-item"><span class="cal-legend-swatch cat-on_track"></span>Dentro do prazo</span>
                     <span class="cal-legend-item"><span class="cal-legend-swatch cat-near_due"></span>Próximo do vencimento</span>
                     <span class="cal-legend-item"><span class="cal-legend-swatch cat-due_today"></span>Na data de vencimento</span>
+                    <span class="cal-legend-item"><span class="cal-legend-swatch cat-in_progress"></span>Em andamento</span>
+                    <span class="cal-legend-item"><span class="cal-legend-swatch cat-denied"></span>Negada</span>
+                </div>
+                <!-- Aviso de demandas sem data: aparece só quando há cards ativos
+                     sem prazo/janela. O botão "Revisar" abre o modal de revisão. -->
+                <div id="cal-undated-banner" class="cal-undated-banner" style="display:none;" role="status">
+                    <div class="cal-undated-msg">
+                        <i class="bi bi-exclamation-triangle-fill"></i>
+                        <span><strong id="cal-undated-count">0</strong> <span id="cal-undated-text">demandas sem data definida</span></span>
+                        <span class="cal-undated-sub">não aparecem no calendário até receberem um prazo.</span>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-warning" onclick="openUndatedModal()">
+                        <i class="bi bi-calendar-check"></i> Revisar
+                    </button>
                 </div>
                 <div id="calendar-container"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL REVISAR DEMANDAS SEM DATA -->
+    <div class="modal fade" id="undatedModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header py-2">
+                    <h6 class="modal-title mb-0 fw-bold"><i class="bi bi-calendar-check text-warning"></i> Demandas sem data</h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small mb-2">Estas demandas ativas não têm prazo nem janela de desenvolvimento, por isso não aparecem no calendário. Clique para abrir e definir uma data.</p>
+                    <div id="undated-list">
+                        <div class="text-center py-4 text-muted small"><span class="spinner-border spinner-border-sm"></span> Carregando...</div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -967,17 +999,34 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
 .cal-legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: 0.72rem; color: #556; }
 .cal-legend-swatch { width: 14px; height: 14px; border-radius: 3px; border-left-width: 3px; border-left-style: solid; flex-shrink: 0; }
 /* Paleta compartilhada por prazo/status (blocos, tempo e legenda) */
-.cat-overdue   { --cat-bg:#fde8e8; --cat-border:#dc2626; }
-.cat-done      { --cat-bg:rgba(129,199,132,0.5); --cat-border:rgba(76,175,80,0.6); }
-.cat-on_track  { --cat-bg:#e7effd; --cat-border:#2563eb; }
-.cat-near_due  { --cat-bg:#fef7d6; --cat-border:#f59e0b; }
-.cat-due_today { --cat-bg:#fde8e8; --cat-border:#dc2626; }
-.cat-none      { --cat-bg:#eef1f4; --cat-border:#94a3b8; }
+.cat-overdue     { --cat-bg:#fde8e8; --cat-border:#dc2626; }
+.cat-done        { --cat-bg:rgba(129,199,132,0.5); --cat-border:rgba(76,175,80,0.6); }
+.cat-on_track    { --cat-bg:#e7effd; --cat-border:#2563eb; }
+.cat-near_due    { --cat-bg:#fef7d6; --cat-border:#f59e0b; }
+.cat-due_today   { --cat-bg:#fde8e8; --cat-border:#dc2626; }
+.cat-in_progress { --cat-bg:#ede9fe; --cat-border:#7c3aed; }
+.cat-denied      { --cat-bg:#f1f1f3; --cat-border:#9ca3af; }
+.cat-none        { --cat-bg:#eef1f4; --cat-border:#94a3b8; }
 .cal-legend-swatch.cat-overdue,
 .cal-legend-swatch.cat-done,
 .cal-legend-swatch.cat-on_track,
 .cal-legend-swatch.cat-near_due,
-.cal-legend-swatch.cat-due_today { background: var(--cat-bg); border-left-color: var(--cat-border); }
+.cal-legend-swatch.cat-due_today,
+.cal-legend-swatch.cat-in_progress,
+.cal-legend-swatch.cat-denied { background: var(--cat-bg); border-left-color: var(--cat-border); }
+/* Aviso de demandas sem data (acima do calendário) */
+.cal-undated-banner { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; background: #fff8e6; border: 1px solid #fde68a; border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; }
+.cal-undated-msg { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; color: #7a5900; flex-wrap: wrap; }
+.cal-undated-msg > span:first-of-type { white-space: nowrap; }
+.cal-undated-msg .bi { color: #f59e0b; }
+.cal-undated-sub { color: #9a7b2e; font-size: 0.74rem; }
+/* Itens do modal de revisão */
+.undated-item { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; border: 1px solid #eef0f2; background: #fff; border-radius: 8px; padding: 8px 12px; margin-bottom: 6px; cursor: pointer; transition: background 0.15s, border-color 0.15s; }
+.undated-item:hover { background: #f0faf8; border-color: var(--primary, #00BFA6); }
+.undated-item-main { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.undated-item-title { font-size: 0.82rem; font-weight: 600; color: #333; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.undated-item-meta { font-size: 0.7rem; color: #888; display: flex; gap: 10px; flex-wrap: wrap; }
+.undated-item-pr { font-size: 0.68rem; font-weight: 600; white-space: nowrap; }
 @media (max-width: 768px) {
     .cal-month-day-num { padding: 4px 4px 2px; font-size: 0.7rem; }
     .cal-span-event { height: 18px; padding: 1px 4px; }
@@ -2084,7 +2133,75 @@ function loadCalendar() {
     const params = new URLSearchParams(window.location.search);
     params.set('start', fmt(start)); params.set('end', fmt(end));
     fetch(BASE + 'planning/calendar?' + params.toString())
-        .then(r => r.json()).then(events => { calendarEvents = events; renderCalendar(start, end); });
+        .then(r => r.json()).then(resp => {
+            // A resposta agora é { events, undated_count }. Mantém retrocompat
+            // caso venha um array puro (versões antigas).
+            const events = Array.isArray(resp) ? resp : (resp.events || []);
+            const undatedCount = Array.isArray(resp) ? 0 : (resp.undated_count || 0);
+            calendarEvents = events;
+            updateUndatedBanner(undatedCount);
+            renderCalendar(start, end);
+        });
+}
+
+// Mostra/oculta o aviso de demandas sem data acima do calendário.
+function updateUndatedBanner(count) {
+    const banner = document.getElementById('cal-undated-banner');
+    if (!banner) return;
+    if (count > 0) {
+        document.getElementById('cal-undated-count').textContent = count;
+        document.getElementById('cal-undated-text').textContent =
+            count === 1 ? 'demanda sem data definida' : 'demandas sem data definida';
+        banner.style.display = '';
+    } else {
+        banner.style.display = 'none';
+    }
+}
+
+// Abre o modal de revisão e carrega a lista de demandas sem data (mesmo
+// escopo/filtros do calendário atual, via query string da página).
+function openUndatedModal() {
+    const modal = new bootstrap.Modal(document.getElementById('undatedModal'));
+    const list = document.getElementById('undated-list');
+    list.innerHTML = '<div class="text-center py-4 text-muted small"><span class="spinner-border spinner-border-sm"></span> Carregando...</div>';
+    modal.show();
+
+    const params = new URLSearchParams(window.location.search);
+    fetch(BASE + 'planning/calendarUndated?' + params.toString())
+        .then(r => r.json())
+        .then(data => {
+            const cards = (data && data.cards) ? data.cards : [];
+            if (!cards.length) {
+                list.innerHTML = '<div class="text-center py-4 text-muted small"><i class="bi bi-check2-circle text-success"></i> Nenhuma demanda sem data. Tudo agendado!</div>';
+                return;
+            }
+            const prLabels = {low:'Baixa',medium:'Média',high:'Alta',urgent:'Urgente'};
+            list.innerHTML = cards.map(c => {
+                const pr = prLabels[c.priority] || c.priority || '';
+                const company = c.company_name ? '<span class="text-muted"><i class="bi bi-building"></i> ' + escHtml(c.company_name) + '</span>' : '';
+                const who = c.assigned_name ? '<span class="text-muted"><i class="bi bi-person"></i> ' + escHtml(c.assigned_name) + '</span>' : '';
+                const meta = [company, who].filter(Boolean).join(' · ');
+                return '<button type="button" class="undated-item" onclick="reviewUndated(' + c.id + ')">' +
+                    '<div class="undated-item-main">' +
+                        '<span class="undated-item-title">#' + c.id + ' — ' + escHtml(c.title) + '</span>' +
+                        (meta ? '<span class="undated-item-meta">' + meta + '</span>' : '') +
+                    '</div>' +
+                    '<span class="undated-item-pr priority-' + escAttr(c.priority) + '">' + escHtml(pr) + '</span>' +
+                    '<i class="bi bi-chevron-right text-muted"></i>' +
+                '</button>';
+            }).join('');
+        })
+        .catch(() => {
+            list.innerHTML = '<div class="text-center py-4 text-danger small">Falha ao carregar.</div>';
+        });
+}
+
+// Abre o card para o usuário definir a data; fecha o modal de revisão antes.
+function reviewUndated(id) {
+    const modalEl = document.getElementById('undatedModal');
+    const modal = bootstrap.Modal.getInstance(modalEl);
+    if (modal) modal.hide();
+    openCardModal(id);
 }
 
 function fmt(d) { return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')+':00'; }
@@ -2100,13 +2217,21 @@ function isCompletedStatus(status) { return status === 'completed'; }
 // Paleta de cores do calendário por prazo/status (regras da demanda).
 // Cada entrada define: fundo (bg), borda (border), cor do texto (text) e rótulo.
 const DEADLINE_COLORS = {
-    overdue:   { key:'overdue',   bg:'#fde8e8', border:'#dc2626', text:'#991b1b', label:'Passado e não concluído' },
-    done:      { key:'done',      bg:'rgba(129,199,132,0.5)', border:'rgba(76,175,80,0.6)', text:'#2e5b31', label:'Passado e concluído' },
-    on_track:  { key:'on_track',  bg:'#e7effd', border:'#2563eb', text:'#1e3a8a', label:'Dentro do prazo' },
-    near_due:  { key:'near_due',  bg:'#fef7d6', border:'#f59e0b', text:'#7a5900', label:'Próximo do vencimento' },
-    due_today: { key:'due_today', bg:'#fde8e8', border:'#dc2626', text:'#991b1b', label:'Na data de vencimento' },
-    none:      { key:'none',      bg:'#eef1f4', border:'#94a3b8', text:'#475569', label:'Sem prazo definido' },
+    overdue:     { key:'overdue',     bg:'#fde8e8', border:'#dc2626', text:'#991b1b', label:'Passado e não concluído' },
+    done:        { key:'done',        bg:'rgba(129,199,132,0.5)', border:'rgba(76,175,80,0.6)', text:'#2e5b31', label:'Passado e concluído' },
+    on_track:    { key:'on_track',    bg:'#e7effd', border:'#2563eb', text:'#1e3a8a', label:'Dentro do prazo' },
+    near_due:    { key:'near_due',    bg:'#fef7d6', border:'#f59e0b', text:'#7a5900', label:'Próximo do vencimento' },
+    due_today:   { key:'due_today',   bg:'#fde8e8', border:'#dc2626', text:'#991b1b', label:'Na data de vencimento' },
+    // Em andamento (dentro do prazo): roxo/índigo para separar do "aberto".
+    in_progress: { key:'in_progress', bg:'#ede9fe', border:'#7c3aed', text:'#5b21b6', label:'Em andamento' },
+    // Negada: cinza neutro — não é atraso, saiu do fluxo sem conclusão.
+    denied:      { key:'denied',      bg:'#f1f1f3', border:'#9ca3af', text:'#4b5563', label:'Negada' },
+    none:        { key:'none',        bg:'#eef1f4', border:'#94a3b8', text:'#475569', label:'Sem prazo definido' },
 };
+
+// Status que representam "trabalho em andamento" (já saiu de aberto e ainda não
+// concluiu/negou). Usados para dar cor própria quando estão dentro do prazo.
+const IN_PROGRESS_STATUSES = ['in_progress', 'em_revisao_interna', 'waiting_client', 'em_homologacao', 'aprovado_producao'];
 
 // Janela (em dias) que caracteriza "próximo do vencimento".
 const NEAR_DUE_DAYS = 2;
@@ -2119,25 +2244,31 @@ function startOfDay(d) { const x = new Date(d); x.setHours(0,0,0,0); return x; }
 function deadlineCategory(ev, todayRef) {
     const today = startOfDay(todayRef || new Date());
     const completed = isCompletedStatus(ev.status);
+    const denied = ev.status === 'denied';
+    const inProgress = IN_PROGRESS_STATUSES.indexOf(ev.status) !== -1;
+
+    // Status encerrados têm cor própria, independem de prazo:
+    // - Concluída -> verde; Negada -> cinza neutro (não é atraso).
+    if (completed) return DEADLINE_COLORS.done;
+    if (denied) return DEADLINE_COLORS.denied;
 
     if (!ev.due_date) {
-        // Sem prazo: concluído fica verde; caso contrário, dentro do prazo (azul).
-        return completed ? DEADLINE_COLORS.done : DEADLINE_COLORS.none;
+        // Sem prazo: em andamento ganha o roxo; aberto fica neutro.
+        return inProgress ? DEADLINE_COLORS.in_progress : DEADLINE_COLORS.none;
     }
 
     const due = startOfDay(ev.due_date);
     const isPast = due < today;
     const isToday = due.getTime() === today.getTime();
 
-    if (completed) {
-        // Concluído: verde claro translúcido (independe de estar no passado).
-        return DEADLINE_COLORS.done;
-    }
-    // A partir daqui, NÃO concluído.
-    if (isPast) return DEADLINE_COLORS.overdue;       // passado e não concluído -> vermelho
-    if (isToday) return DEADLINE_COLORS.due_today;    // vence hoje -> vermelho
+    // Atraso é atraso: vencido/vence-hoje fica vermelho mesmo em andamento,
+    // para o alerta de prazo não ser mascarado pelo status.
+    if (isPast) return DEADLINE_COLORS.overdue;
+    if (isToday) return DEADLINE_COLORS.due_today;
 
-    // Futuro: próximo do vencimento (amarelo) x dentro do prazo (azul).
+    // Futuro e dentro do prazo: em andamento (roxo) tem prioridade sobre a
+    // leitura de "aberto" (azul on_track / amarelo near_due).
+    if (inProgress) return DEADLINE_COLORS.in_progress;
     const diffDays = Math.round((due - today) / 86400000);
     if (diffDays <= NEAR_DUE_DAYS) return DEADLINE_COLORS.near_due;
     return DEADLINE_COLORS.on_track;

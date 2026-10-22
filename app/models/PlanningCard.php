@@ -288,6 +288,68 @@ class PlanningCard
     }
 
     /**
+     * Cards ATIVOS sem NENHUMA data definida (sem prazo, sem início e sem fim).
+     * São as demandas que não aparecem no calendário por falta de data e que
+     * precisam ser revisadas. Exclui concluídos/negados/arquivados (saíram do
+     * fluxo, não precisam de agendamento) e respeita o escopo do usuário (os
+     * mesmos filtros de empresa/responsável usados no calendário).
+     *
+     * @param array $filters company_id, assigned_to ('none' = sem responsável),
+     *                        allowed_companies, q (busca).
+     */
+    public function getUndated($filters = [])
+    {
+        $sql = "SELECT pc.*, u.name as assigned_name, co.name as company_name
+                FROM planning_cards pc
+                LEFT JOIN users u ON pc.assigned_to = u.id
+                LEFT JOIN companies co ON pc.company_id = co.id
+                WHERE pc.due_date IS NULL
+                  AND pc.start_date IS NULL
+                  AND pc.end_date IS NULL
+                  AND pc.status NOT IN ('completed', 'denied', 'archived')";
+        $params = [];
+
+        if (!empty($filters['company_id'])) {
+            $ids = array_values(array_unique(array_filter(array_map('intval', (array)$filters['company_id']))));
+            if (!empty($ids)) {
+                $ph = implode(',', array_fill(0, count($ids), '?'));
+                $sql .= " AND pc.company_id IN ($ph)";
+                $params = array_merge($params, $ids);
+            }
+        }
+        if (!empty($filters['assigned_to'])) {
+            $rawAssigned = (array)$filters['assigned_to'];
+            $assignedNone = in_array('none', $rawAssigned, true);
+            $ids = array_values(array_unique(array_filter(array_map('intval', $rawAssigned))));
+            if (!empty($ids) && $assignedNone) {
+                $ph = implode(',', array_fill(0, count($ids), '?'));
+                $sql .= " AND (pc.assigned_to IN ($ph) OR pc.assigned_to IS NULL)";
+                $params = array_merge($params, $ids);
+            } elseif (!empty($ids)) {
+                $ph = implode(',', array_fill(0, count($ids), '?'));
+                $sql .= " AND pc.assigned_to IN ($ph)";
+                $params = array_merge($params, $ids);
+            } elseif ($assignedNone) {
+                $sql .= " AND pc.assigned_to IS NULL";
+            }
+        }
+        if (isset($filters['q']) && trim((string)$filters['q']) !== '') {
+            $term = '%' . trim((string)$filters['q']) . '%';
+            $sql .= " AND (pc.title LIKE ? OR pc.description LIKE ?)";
+            $params[] = $term;
+            $params[] = $term;
+        }
+        if (!empty($filters['allowed_companies'])) {
+            $placeholders = implode(',', array_fill(0, count($filters['allowed_companies']), '?'));
+            $sql .= " AND (pc.company_id IS NULL OR pc.company_id IN ($placeholders))";
+            $params = array_merge($params, $filters['allowed_companies']);
+        }
+
+        $sql .= " ORDER BY FIELD(pc.priority, 'urgent', 'high', 'medium', 'low'), pc.created_at DESC";
+        return $this->db->fetchAll($sql, $params);
+    }
+
+    /**
      * Cards em atraso: prazo (due_date) no passado e não concluídos/arquivados.
      */
     public function getOverdue($limit = 10)
