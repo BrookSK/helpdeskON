@@ -1,5 +1,5 @@
 -- ============================================================
--- 164_meeting_transcription_queue.sql
+-- 165_meeting_transcription_queue.sql
 -- Fluxo comercial (reunião até proposta):
 -- - video_recordings.transcribe_status ganha o valor 'queued' (fila do cron).
 -- - video_recordings.transcribe_error: motivo da última falha da transcrição.
