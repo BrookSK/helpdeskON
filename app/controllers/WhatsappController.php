@@ -181,7 +181,19 @@ class WhatsappController extends Controller
 
         if (!empty($_GET['label_id'])) $filters['label_id'] = $_GET['label_id'];
         if (!empty($_GET['search'])) $filters['search'] = $_GET['search'];
-        if (!empty($_GET['service_status'])) $filters['service_status'] = $_GET['service_status'];
+        if (!empty($_GET['service_status'])) {
+            $filters['service_status'] = $_GET['service_status'];
+            // Ao filtrar explicitamente por um status (ex.: "Concluído"), inclui os
+            // arquivados daquele status. "Concluir em massa" arquiva o contato (sai
+            // da lista normal); sem isto, filtrar por Concluído não traria essas
+            // conversas e o histórico ficaria inacessível para revisão/busca.
+            $filters['show_archived'] = true;
+        }
+        // Busca por texto também deve alcançar conversas arquivadas — senão
+        // pesquisar uma mensagem de um atendimento já concluído não acha nada.
+        if (!empty($_GET['search'])) {
+            $filters['show_archived'] = true;
+        }
 
         // Tipo: contacts, groups ou all
         $type = $_GET['type'] ?? 'all';

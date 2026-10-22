@@ -144,4 +144,50 @@ final class WhatsappArchiveBulkTest extends TestCase
             $this->contacts->getAll([$this->instanceId], [], 'groups')
         ), 'Grupo arquivado deve sumir da aba de grupos.');
     }
+
+    public function testConcluidoArquivadoApareceAoFiltrarPorStatusConcluido(): void
+    {
+        // Reproduz o cenário relatado: contato concluído em massa (concluido +
+        // arquivado) some da lista normal, mas DEVE aparecer ao filtrar por
+        // "Concluído" (controller liga show_archived junto do service_status),
+        // para que o histórico seja acessível para revisão/busca.
+        $cid = $this->novoContato();
+        $this->contacts->updateServiceStatus($cid, 'concluido');
+        $this->contacts->setArchived($cid, true);
+
+        // Lista normal (sem filtro): não aparece (arquivado oculto por padrão).
+        $idsNormal = $this->idsNaLista();
+        $this->assertNotContains($cid, $idsNormal, 'Concluído/arquivado não deve poluir a lista normal.');
+
+        // Filtro "Concluído" + show_archived (contrato usado pelo controller): aparece.
+        $idsFiltro = array_map(
+            fn($r) => (int) $r['id'],
+            $this->contacts->getAll(
+                [$this->instanceId],
+                ['service_status' => 'concluido', 'show_archived' => true],
+                'contacts'
+            )
+        );
+        $this->assertContains($cid, $idsFiltro, 'Ao filtrar por Concluído deve trazer o arquivado para revisão.');
+    }
+
+    public function testBuscaAlcancaConversaArquivada(): void
+    {
+        // Pesquisar uma mensagem/contato de um atendimento concluído deve achar,
+        // mesmo arquivado (controller liga show_archived quando há busca).
+        $u = uniqid();
+        $nome = "Busca Arquivada {$u}";
+        $cid = $this->novoContato(['contact_name' => $nome]);
+        $this->contacts->setArchived($cid, true);
+
+        $ids = array_map(
+            fn($r) => (int) $r['id'],
+            $this->contacts->getAll(
+                [$this->instanceId],
+                ['search' => $nome, 'show_archived' => true],
+                'contacts'
+            )
+        );
+        $this->assertContains($cid, $ids, 'Busca deve alcançar conversa arquivada.');
+    }
 }

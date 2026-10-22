@@ -591,6 +591,8 @@ body { overflow: hidden !important; margin: 0; padding: 0; }
 .wpp-item-archive { flex: 0 0 auto; border: none; background: none; color: #bbb; cursor: pointer; padding: 2px 4px; font-size: 0.85rem; opacity: 0; transition: opacity 0.15s, color 0.15s; }
 .wpp-contact-item:hover .wpp-item-archive { opacity: 1; }
 .wpp-item-archive:hover { color: var(--primary); }
+/* Botão "reabrir" (contato arquivado/concluído): sempre visível e destacado */
+.wpp-item-archive--on { opacity: 1; color: var(--primary); }
 .wpp-contacts-list { flex: 1; overflow-y: auto; }
 .wpp-section-header { padding: 6px 12px; font-size: 0.68rem; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: 0.5px; background: #fafafa; border-bottom: 1px solid #f0f0f0; position: sticky; top: 0; z-index: 1; }
 .wpp-contact-item { padding: 10px 12px; display: flex; align-items: center; gap: 10px; cursor: pointer; border-bottom: 1px solid #f8f8f8; transition: background 0.15s; }
@@ -1579,7 +1581,13 @@ function renderContactItem(c, isGroup) {
     // Checkbox de seleção (visível só no modo de seleção) e botão de arquivar.
     // Ambos usam stopPropagation para não abrir o chat ao serem clicados.
     const checkbox = `<input type="checkbox" class="form-check-input wpp-contact-check" data-id="${c.id}" onclick="event.stopPropagation(); onItemCheck(this)">`;
-    const archiveBtn = `<button class="wpp-item-archive" title="Concluir / arquivar (sai da lista)" onclick="event.stopPropagation(); archiveItem(${c.id})"><i class="bi bi-check2-circle"></i></button>`;
+    // Botão por item: se o contato está arquivado (ex.: concluído em massa) e
+    // está visível por causa de um filtro, o botão vira "reabrir" (desarquivar);
+    // caso contrário, "concluir / arquivar" (sai da lista).
+    const isArchived = Number(c.is_archived) === 1;
+    const archiveBtn = isArchived
+        ? `<button class="wpp-item-archive wpp-item-archive--on" title="Reabrir (voltar para a lista)" onclick="event.stopPropagation(); unarchiveItem(${c.id})"><i class="bi bi-arrow-counterclockwise"></i></button>`
+        : `<button class="wpp-item-archive" title="Concluir / arquivar (sai da lista)" onclick="event.stopPropagation(); archiveItem(${c.id})"><i class="bi bi-check2-circle"></i></button>`;
 
     return `<div class="wpp-contact-item ${isActive}" onclick="onContactClick(event, ${c.id}, ${isGroup})" data-id="${c.id}">
         ${checkbox}
@@ -1668,6 +1676,21 @@ function archiveItem(id) {
             if (data.success) {
                 loadContacts();
                 if (typeof showToast === 'function') showToast('Conversa arquivada. Volta se o contato responder.');
+            }
+        })
+        .catch(() => {});
+}
+
+// Reabrir (desarquivar) um contato que estava concluído/arquivado — volta à lista.
+function unarchiveItem(id) {
+    const fd = new FormData();
+    fd.append('archived', '0');
+    fetch(BASE + 'whatsapp/archiveContact/' + id, { method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'} })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                loadContacts();
+                if (typeof showToast === 'function') showToast('Conversa reaberta.');
             }
         })
         .catch(() => {});
