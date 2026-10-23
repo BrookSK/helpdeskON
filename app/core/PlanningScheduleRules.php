@@ -83,6 +83,29 @@ class PlanningScheduleRules
         'urgent' => 'Urgente',
     ];
 
+    /*
+     * Calibração do resumo da descrição no PDF (critério "até ~15 linhas"):
+     *
+     * O PHP não conhece a renderização do dompdf, então aproximamos "linhas"
+     * por caracteres, medindo a largura da coluna "Atividade" e a fonte usada:
+     *   - A4 paisagem, margens 1,2cm cada lado  => largura útil ~26,3 cm;
+     *   - coluna "Atividade" = 34% dessa largura => ~8,9 cm;
+     *   - descrição em DejaVu Sans 7,5pt: largura média de caractere ~1,45mm,
+     *     o que cabe ~60 caracteres por linha dentro da coluna (com folga para
+     *     o padding da célula).
+     *   - 15 linhas * ~60 caracteres  => ~900 caracteres.
+     *
+     * Usamos DESC_SUMMARY_MAX_CHARS como o teto antes de resumir. Descrições
+     * com até esse tamanho ficam INALTERADAS; acima dele, são resumidas.
+     * O valor é uma estimativa calibrável: ajuste olhando o PDF real.
+     */
+    public const DESC_LINE_CHARS = 60;
+    public const DESC_MAX_LINES = 15;
+    public const DESC_SUMMARY_MAX_CHARS = self::DESC_LINE_CHARS * self::DESC_MAX_LINES; // ~900
+
+    /** Marca de continuação acrescentada ao fim de uma descrição resumida. */
+    public const DESC_CONTINUATION = ' […] (descrição completa no card)';
+
     /** Uma atividade está ativa (é "próxima etapa", não concluída/negada/arquivada)? */
     public static function isActive($status): bool
     {
@@ -285,6 +308,62 @@ class PlanningScheduleRules
             $s = rtrim(mb_substr($s, 0, $max, 'UTF-8')) . '…';
         }
         return $s;
+    }
+
+    /**
+     * Resume a descrição de uma atividade para o PDF (resumo extrativo, sem IA).
+     *
+     * Objetivo: descrições que ocupariam mais de ~15 linhas na largura atual
+     * viram uma "minuta" que preserva o início (onde normalmente está o cerne)
+     * e sinaliza que há continuação, em vez de dominar o cronograma. Descrições
+     * dentro do limite ficam INALTERADAS.
+     *
+     * Estratégia (determinista e testável):
+     *  1) limpa o HTML com plainText (texto corrido, sem tags);
+     *  2) se couber em $maxChars, devolve o texto completo (sem marca nenhuma);
+     *  3) senão, corta no FIM DE FRASE mais próximo antes do limite (último
+     *     '.', '!' ou '?'), para não terminar no meio de uma ideia. Se não
+     *     houver pontuação numa posição razoável (>= 50% do limite, para não
+     *     resumir cedo demais), recua até o fim de PALAVRA mais próximo;
+     *  4) acrescenta a marca de continuação (DESC_CONTINUATION).
+     *
+     * @param mixed $value    Descrição (possivelmente HTML).
+     * @param int   $maxChars Teto de caracteres (default: DESC_SUMMARY_MAX_CHARS).
+     */
+    public static function summarizeDescription($value, int $maxChars = self::DESC_SUMMARY_MAX_CHARS): string
+    {
+        $text = self::plainText($value, 0); // limpa HTML, sem truncar
+        if ($text === '') {
+            return '';
+        }
+        if ($maxChars <= 0 || mb_strlen($text, 'UTF-8') <= $maxChars) {
+            return $text; // dentro do limite: inalterada
+        }
+
+        // Janela candidata: do início até o teto.
+        $window = mb_substr($text, 0, $maxChars, 'UTF-8');
+
+        // 1) Tenta cortar no fim de frase mais próximo dentro da janela.
+        $cut = -1;
+        foreach (['.', '!', '?'] as $mark) {
+            $pos = mb_strrpos($window, $mark, 0, 'UTF-8');
+            if ($pos !== false && $pos > $cut) {
+                $cut = $pos;
+            }
+        }
+        // Só aceita o fim de frase se não resumir cedo demais (>= metade do teto).
+        if ($cut >= (int) ($maxChars * 0.5)) {
+            $summary = mb_substr($text, 0, $cut + 1, 'UTF-8'); // inclui a pontuação
+        } else {
+            // 2) Fallback: recua para o fim de palavra mais próximo.
+            $space = mb_strrpos($window, ' ', 0, 'UTF-8');
+            $summary = $space !== false
+                ? mb_substr($text, 0, $space, 'UTF-8')
+                : $window;
+        }
+
+        $summary = rtrim($summary);
+        return $summary . self::DESC_CONTINUATION;
     }
 
     /**

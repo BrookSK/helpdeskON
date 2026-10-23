@@ -228,6 +228,77 @@ final class PlanningScheduleRulesTest extends TestCase
         $this->assertSame('', PlanningScheduleRules::plainText('<p>   </p>'));
     }
 
+    // ---- summarizeDescription (resumo >15 linhas) ----
+
+    public function testResumoMantemDescricaoCurtaInalterada(): void
+    {
+        $txt = '<p>Descrição curta e completa.</p>';
+        // Abaixo do limite: volta o texto limpo, sem marca de continuação.
+        $out = PlanningScheduleRules::summarizeDescription($txt);
+        $this->assertSame('Descrição curta e completa.', $out);
+        $this->assertStringNotContainsString(PlanningScheduleRules::DESC_CONTINUATION, $out);
+    }
+
+    public function testResumoNoLimiteExatoNaoCorta(): void
+    {
+        // Texto com exatamente o tamanho do teto não é resumido.
+        $txt = str_repeat('a', PlanningScheduleRules::DESC_SUMMARY_MAX_CHARS);
+        $out = PlanningScheduleRules::summarizeDescription($txt);
+        $this->assertSame($txt, $out);
+    }
+
+    public function testResumoCortaNoFimDeFrase(): void
+    {
+        // Monta um texto longo com frases; o corte deve terminar num ponto final
+        // e anexar a marca de continuação.
+        $frase = 'Esta é uma frase completa de exemplo com tamanho razoavel. ';
+        $txt = str_repeat($frase, 40); // bem acima do teto (~900)
+        $out = PlanningScheduleRules::summarizeDescription($txt);
+
+        $this->assertStringEndsWith(PlanningScheduleRules::DESC_CONTINUATION, $out);
+        // A parte antes da marca deve terminar com pontuação de fim de frase.
+        $core = substr($out, 0, -strlen(PlanningScheduleRules::DESC_CONTINUATION));
+        $this->assertMatchesRegularExpression('/[.!?]$/u', $core);
+        // E deve ser mais curta que o original.
+        $this->assertLessThan(mb_strlen($txt, 'UTF-8'), mb_strlen($out, 'UTF-8'));
+    }
+
+    public function testResumoFallbackFimDePalavraQuandoSemPontuacao(): void
+    {
+        // Sem nenhuma pontuação de fim de frase: recua para fim de palavra, sem
+        // cortar no meio de uma palavra, e anexa a marca.
+        $txt = str_repeat('palavra ', 300); // 2400 chars, sem ponto final
+        $out = PlanningScheduleRules::summarizeDescription($txt);
+
+        $this->assertStringEndsWith(PlanningScheduleRules::DESC_CONTINUATION, $out);
+        $core = substr($out, 0, -strlen(PlanningScheduleRules::DESC_CONTINUATION));
+        // Não termina no meio de "palavra" (termina exatamente numa palavra inteira).
+        $this->assertMatchesRegularExpression('/palavra$/u', rtrim($core));
+    }
+
+    public function testResumoLimpaHtmlAntesDeResumir(): void
+    {
+        $html = '<p>Primeiro parágrafo.</p>' . str_repeat('<li>item de lista bem comprido para passar do limite</li>', 40);
+        $out = PlanningScheduleRules::summarizeDescription($html);
+        // Não sobra nenhuma tag HTML no resumo.
+        $this->assertStringNotContainsString('<', $out);
+        $this->assertStringEndsWith(PlanningScheduleRules::DESC_CONTINUATION, $out);
+    }
+
+    public function testResumoVazioOuNull(): void
+    {
+        $this->assertSame('', PlanningScheduleRules::summarizeDescription(null));
+        $this->assertSame('', PlanningScheduleRules::summarizeDescription(''));
+        $this->assertSame('', PlanningScheduleRules::summarizeDescription('<p>   </p>'));
+    }
+
+    public function testResumoMaxCharsZeroNaoCorta(): void
+    {
+        // Teto 0 desativa o resumo (texto integral).
+        $txt = str_repeat('x', 5000);
+        $this->assertSame($txt, PlanningScheduleRules::summarizeDescription($txt, 0));
+    }
+
     // ---- filtersSummary ----
 
     public function testFiltersSummaryMontaResumoLegivel(): void

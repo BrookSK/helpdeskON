@@ -170,8 +170,10 @@ $esc = function ($v) { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8')
                     <?php foreach ($group['cards'] as $card): ?>
                         <?php
                         $badge = PlanningScheduleRules::statusBadge($card['status'] ?? '');
-                        // Descrição integral: limpa o HTML, mas NÃO trunca (max = 0).
-                        $desc = PlanningScheduleRules::plainText($card['description'] ?? '', 0);
+                        // Descrição: completa até ~15 linhas; acima disso, resumo
+                        // extrativo (minuta) que preserva o início e sinaliza
+                        // continuação. Ver PlanningScheduleRules::summarizeDescription.
+                        $desc = PlanningScheduleRules::summarizeDescription($card['description'] ?? '');
                         $assigned = trim((string) ($card['assigned_name'] ?? ''));
                         $requester = trim((string) ($card['created_by_name'] ?? ''));
                         ?>
