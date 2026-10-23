@@ -51,8 +51,15 @@ $esc = function ($v) { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8')
     .doc-header .meta { color: #e6fffb; font-size: 8.5pt; margin: 4pt 0 0; }
     .doc-header .filters { color: #e6fffb; font-size: 8.5pt; margin: 3pt 0 0; }
 
-    /* Bloco de cada empresa: mantém título + tabela na mesma página. */
-    .group { page-break-inside: avoid; margin-bottom: 12pt; }
+    /*
+     * Bloco de cada empresa. NÃO usamos page-break-inside: avoid aqui de
+     * propósito: uma empresa grande (muitas linhas) poderia não caber no espaço
+     * restante da página e seria empurrada inteira para a próxima, deixando um
+     * vazio grande. Em vez disso, aproveitamos o espaço disponível e deixamos a
+     * TABELA quebrar entre páginas quando necessário — protegendo cada linha
+     * individualmente (tr) e o cabeçalho da empresa (não fica órfão no rodapé).
+     */
+    .group { margin-bottom: 12pt; }
 
     .company {
         font-size: 11pt;
@@ -61,12 +68,16 @@ $esc = function ($v) { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8')
         padding: 0 0 4pt;
         margin: 0 0 5pt;
         border-bottom: 2pt solid #00BFA6;
+        /* O título nunca fica sozinho no fim da página: gruda na tabela. */
+        page-break-after: avoid;
     }
     .company .count { color: #8a8a99; font-weight: 400; font-size: 8.5pt; }
 
     table { width: 100%; border-collapse: collapse; }
-    /* Repete o cabeçalho caso uma empresa grande precise quebrar de página. */
+    /* Repete o cabeçalho da tabela no topo da continuação quando ela quebra. */
     thead { display: table-header-group; }
+    /* Nenhuma atividade é cortada ao meio entre páginas. */
+    tr { page-break-inside: avoid; }
     th {
         background: #f0f2f6;
         color: #5a5a6a;
