@@ -343,6 +343,8 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                     <span class="cal-legend-item"><span class="cal-legend-swatch cat-near_due"></span>Próximo do vencimento</span>
                     <span class="cal-legend-item"><span class="cal-legend-swatch cat-due_today"></span>Na data de vencimento</span>
                     <span class="cal-legend-item"><span class="cal-legend-swatch cat-in_progress"></span>Em andamento</span>
+                    <span class="cal-legend-item"><span class="cal-legend-swatch cat-revisao"></span>Em revisão interna</span>
+                    <span class="cal-legend-item"><span class="cal-legend-swatch cat-waiting"></span>Aguardando cliente</span>
                     <span class="cal-legend-item"><span class="cal-legend-swatch cat-homolog"></span>Em homologação</span>
                     <span class="cal-legend-item"><span class="cal-legend-swatch cat-denied"></span>Negada</span>
                 </div>
@@ -1042,6 +1044,8 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
 .cat-near_due    { --cat-bg:#fef7d6; --cat-border:#f59e0b; }
 .cat-due_today   { --cat-bg:#fde8e8; --cat-border:#dc2626; }
 .cat-in_progress { --cat-bg:#ede9fe; --cat-border:#7c3aed; }
+.cat-revisao     { --cat-bg:#e3e6f7; --cat-border:#5c6bc0; }
+.cat-waiting     { --cat-bg:#f3e5f5; --cat-border:#7b1fa2; }
 .cat-homolog     { --cat-bg:#d7f3f7; --cat-border:#0097a7; }
 .cat-denied      { --cat-bg:#f1f1f3; --cat-border:#9ca3af; }
 .cat-none        { --cat-bg:#eef1f4; --cat-border:#94a3b8; }
@@ -1051,6 +1055,8 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
 .cal-legend-swatch.cat-near_due,
 .cal-legend-swatch.cat-due_today,
 .cal-legend-swatch.cat-in_progress,
+.cal-legend-swatch.cat-revisao,
+.cal-legend-swatch.cat-waiting,
 .cal-legend-swatch.cat-homolog,
 .cal-legend-swatch.cat-denied { background: var(--cat-bg); border-left-color: var(--cat-border); }
 /* Aviso de demandas sem data (acima do calendário) */
@@ -1334,12 +1340,24 @@ function openCreateForDate(ymd) {
                 alert(data.error || 'Erro ao criar o card.');
                 return;
             }
-            addCardToBoard(data.card);
+            // Reflete o novo card na visão ATIVA, sem F5:
+            // - Calendário: recarrega os eventos (o card novo aparece se tiver data).
+            // - Kanban: insere o card na coluna correspondente.
+            const calView = document.getElementById('calendar-view');
+            const isCalendar = calView && calView.style.display !== 'none';
+            if (isCalendar) {
+                loadCalendar();
+            } else {
+                addCardToBoard(data.card);
+            }
             // Fecha o modal e limpa o formulário para o próximo card.
             const modalEl = document.getElementById('createCardModal');
             const modal = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
             modal.hide();
             form.reset();
+            // O form.reset() não limpa o hidden do predecessor nem o due_date do
+            // atalho do dia — garante estado limpo para a próxima criação.
+            resetCreatePredecessor();
         })
         .catch(() => {
             // Fallback: se o AJAX falhar, faz o envio tradicional (recarrega a página).
@@ -2502,8 +2520,12 @@ const DEADLINE_COLORS = {
     on_track:    { key:'on_track',    bg:'#e7effd', border:'#2563eb', text:'#1e3a8a', label:'Dentro do prazo' },
     near_due:    { key:'near_due',    bg:'#fef7d6', border:'#f59e0b', text:'#7a5900', label:'Próximo do vencimento' },
     due_today:   { key:'due_today',   bg:'#fde8e8', border:'#dc2626', text:'#991b1b', label:'Na data de vencimento' },
-    // Em andamento (dentro do prazo): roxo/índigo para separar do "aberto".
+    // Em andamento / desenvolvimento (dentro do prazo): roxo para separar do "aberto".
     in_progress: { key:'in_progress', bg:'#ede9fe', border:'#7c3aed', text:'#5b21b6', label:'Em andamento' },
+    // Em revisão interna: índigo (combina com a cor do status no Kanban).
+    revisao:     { key:'revisao',     bg:'#e3e6f7', border:'#5c6bc0', text:'#2f3a86', label:'Em revisão interna' },
+    // Aguardando cliente: roxo (combina com a cor do status no Kanban).
+    waiting:     { key:'waiting',     bg:'#f3e5f5', border:'#7b1fa2', text:'#5a1773', label:'Aguardando cliente' },
     // Em homologação: ciano/turquesa (combina com a cor do status no Kanban).
     homolog:     { key:'homolog',     bg:'#d7f3f7', border:'#0097a7', text:'#065a67', label:'Em homologação' },
     // Negada: cinza neutro — não é atraso, saiu do fluxo sem conclusão.
@@ -2511,12 +2533,16 @@ const DEADLINE_COLORS = {
     none:        { key:'none',        bg:'#eef1f4', border:'#94a3b8', text:'#475569', label:'Sem prazo definido' },
 };
 
-// Status de "em homologação" (inclui aprovado p/ produção, que é a etapa final
-// da homologação) — recebem cor própria no calendário.
+// Status de "em homologação" (inclui aprovado p/ produção, etapa final) — cor própria.
 const HOMOLOG_STATUSES = ['em_homologacao', 'aprovado_producao'];
-// Status que representam "trabalho em andamento" (já saiu de aberto e ainda não
-// concluiu/negou/homologou). Usados para dar cor própria quando dentro do prazo.
-const IN_PROGRESS_STATUSES = ['in_progress', 'em_revisao_interna', 'waiting_client'];
+// Status de ETAPA avançada do fluxo: já saíram do desenvolvimento e aguardam
+// outra pessoa/etapa. Mostram a cor do status MESMO vencidos (um "atraso" aqui
+// não é atraso de desenvolvimento, então não deve virar o vermelho de overdue).
+const REVISAO_STATUSES = ['em_revisao_interna'];
+const WAITING_STATUSES = ['waiting_client'];
+// "Em desenvolvimento" de fato: aberto e em andamento. SÓ estes viram vermelho
+// quando vencem — é onde o prazo realmente cobra ação.
+const IN_PROGRESS_STATUSES = ['in_progress'];
 
 // Janela (em dias) que caracteriza "próximo do vencimento".
 const NEAR_DUE_DAYS = 2;
@@ -2531,17 +2557,22 @@ function deadlineCategory(ev, todayRef) {
     const completed = isCompletedStatus(ev.status);
     const denied = ev.status === 'denied';
     const homolog = HOMOLOG_STATUSES.indexOf(ev.status) !== -1;
+    const revisao = REVISAO_STATUSES.indexOf(ev.status) !== -1;
+    const waiting = WAITING_STATUSES.indexOf(ev.status) !== -1;
     const inProgress = IN_PROGRESS_STATUSES.indexOf(ev.status) !== -1;
 
-    // Status encerrados têm cor própria, independem de prazo:
-    // - Concluída -> verde; Negada -> cinza neutro (não é atraso).
+    // Status com COR PRÓPRIA que prevalece sobre o prazo (não viram vermelho de
+    // atraso): concluída (verde), negada (cinza), e as etapas avançadas do fluxo
+    // — revisão interna, aguardando cliente e homologação. Nessas etapas o card
+    // já saiu do desenvolvimento, então "vencido" não deve parecer atraso de dev.
     if (completed) return DEADLINE_COLORS.done;
-    if (denied) return DEADLINE_COLORS.denied;
+    if (denied)    return DEADLINE_COLORS.denied;
+    if (revisao)   return DEADLINE_COLORS.revisao;
+    if (waiting)   return DEADLINE_COLORS.waiting;
+    if (homolog)   return DEADLINE_COLORS.homolog;
 
+    // A partir daqui: open / in_progress (em desenvolvimento). O prazo cobra ação.
     if (!ev.due_date) {
-        // Sem prazo: homologação (ciano) e em andamento (roxo) têm cor própria;
-        // aberto fica neutro.
-        if (homolog) return DEADLINE_COLORS.homolog;
         return inProgress ? DEADLINE_COLORS.in_progress : DEADLINE_COLORS.none;
     }
 
@@ -2549,14 +2580,11 @@ function deadlineCategory(ev, todayRef) {
     const isPast = due < today;
     const isToday = due.getTime() === today.getTime();
 
-    // Atraso é atraso: vencido/vence-hoje fica vermelho mesmo em andamento,
-    // para o alerta de prazo não ser mascarado pelo status.
+    // Vencido/vence-hoje em desenvolvimento → vermelho (alerta de prazo real).
     if (isPast) return DEADLINE_COLORS.overdue;
     if (isToday) return DEADLINE_COLORS.due_today;
 
-    // Futuro e dentro do prazo: homologação (ciano) e em andamento (roxo) têm
-    // prioridade sobre a leitura de "aberto" (azul on_track / amarelo near_due).
-    if (homolog) return DEADLINE_COLORS.homolog;
+    // Futuro e dentro do prazo: em andamento (roxo) tem prioridade sobre "aberto".
     if (inProgress) return DEADLINE_COLORS.in_progress;
     const diffDays = Math.round((due - today) / 86400000);
     if (diffDays <= NEAR_DUE_DAYS) return DEADLINE_COLORS.near_due;
