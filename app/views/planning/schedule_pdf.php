@@ -94,11 +94,22 @@ $esc = function ($v) { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8')
         vertical-align: top;
         font-size: 8.5pt;
         border-bottom: 1pt solid #eceef3;
+        /* Descrições integrais podem ser longas: quebra palavras/URLs grandes
+           para não estourar a largura da coluna. */
+        word-wrap: break-word;
+        overflow-wrap: break-word;
     }
     tr:nth-child(even) td { background: #f8fafc; }
 
     .act-title { font-weight: 700; color: #2b2b3a; }
-    .act-desc { color: #8a8a99; font-size: 7.5pt; margin-top: 1.5pt; }
+    .act-desc {
+        color: #8a8a99;
+        font-size: 7.5pt;
+        margin-top: 1.5pt;
+        line-height: 1.35;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+    }
 
     /* Badge de status: pílula clara com texto colorido (igual ao site). */
     .st {
@@ -159,7 +170,8 @@ $esc = function ($v) { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8')
                     <?php foreach ($group['cards'] as $card): ?>
                         <?php
                         $badge = PlanningScheduleRules::statusBadge($card['status'] ?? '');
-                        $desc = PlanningScheduleRules::plainText($card['description'] ?? '', 180);
+                        // Descrição integral: limpa o HTML, mas NÃO trunca (max = 0).
+                        $desc = PlanningScheduleRules::plainText($card['description'] ?? '', 0);
                         $assigned = trim((string) ($card['assigned_name'] ?? ''));
                         $requester = trim((string) ($card['created_by_name'] ?? ''));
                         ?>
