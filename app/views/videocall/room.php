@@ -2965,10 +2965,12 @@ let remoteRecHideTimer = null, lastRecBroadcastAt = 0, lastRecHeartbeatAt = 0;
 // Um segundo MediaRecorder grava o mesmo mix de áudio e é reiniciado a cada
 // AUDIO_SEG_MS de gravação (pausas não contam). Cada segmento é um arquivo de
 // áudio completo, enviado pelo RecordingUploader com o início em segundos.
+// 1 minuto: se quem grava cair (energia, aba fechada), a transcrição perde no
+// máximo o último minuto, porque o segmento em andamento só existe ao parar.
 // ?audio_seg_sec=N na URL encurta o segmento (testes).
 const AUDIO_SEG_MS = (() => {
     const q = parseInt(new URLSearchParams(location.search).get('audio_seg_sec') || '', 10);
-    return (q >= 5 && q <= 600 ? q : 300) * 1000;
+    return (q >= 5 && q <= 600 ? q : 60) * 1000;
 })();
 let audioSegRec = null, audioSegSeq = 0, audioSegStartMs = 0, audioSegMime = '', audioSegDone = Promise.resolve();
 

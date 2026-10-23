@@ -16,8 +16,15 @@ class TranscriptionQueueRules
     /** Minutos até uma reserva "processing" ser considerada presa. */
     public const STALE_LOCK_MINUTES = 10;
 
-    /** Segmentos enviados à API por execução do cron. */
-    public const BATCH_SIZE = 3;
+    /**
+     * Segmentos enviados à API por execução do cron (segmentos de 1 minuto).
+     * O lote é reservado de uma vez: precisa terminar bem antes de
+     * STALE_LOCK_MINUTES, senão outra execução pegaria o mesmo segmento.
+     */
+    public const BATCH_SIZE = 6;
+
+    /** Limite de cada chamada de transcrição de um segmento, em segundos. */
+    public const SEGMENT_TIMEOUT_SEC = 90;
 
     /** Estado do segmento depois de uma falha, dado o total de tentativas já feitas. */
     public static function statusAfterFailure(int $attempts): string
