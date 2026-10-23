@@ -1044,7 +1044,7 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
 .cat-near_due    { --cat-bg:#fef7d6; --cat-border:#f59e0b; }
 .cat-due_today   { --cat-bg:#fde8e8; --cat-border:#dc2626; }
 .cat-in_progress { --cat-bg:#ede9fe; --cat-border:#7c3aed; }
-.cat-revisao     { --cat-bg:#e3e6f7; --cat-border:#5c6bc0; }
+.cat-revisao     { --cat-bg:#fce4ef; --cat-border:#db2777; }
 .cat-waiting     { --cat-bg:#f3e5f5; --cat-border:#7b1fa2; }
 .cat-homolog     { --cat-bg:#d7f3f7; --cat-border:#0097a7; }
 .cat-denied      { --cat-bg:#f1f1f3; --cat-border:#9ca3af; }
@@ -2522,8 +2522,9 @@ const DEADLINE_COLORS = {
     due_today:   { key:'due_today',   bg:'#fde8e8', border:'#dc2626', text:'#991b1b', label:'Na data de vencimento' },
     // Em andamento / desenvolvimento (dentro do prazo): roxo para separar do "aberto".
     in_progress: { key:'in_progress', bg:'#ede9fe', border:'#7c3aed', text:'#5b21b6', label:'Em andamento' },
-    // Em revisão interna: índigo (combina com a cor do status no Kanban).
-    revisao:     { key:'revisao',     bg:'#e3e6f7', border:'#5c6bc0', text:'#2f3a86', label:'Em revisão interna' },
+    // Em revisão interna: rosa/magenta — bem distinto do roxo "em andamento"
+    // e do roxo "aguardando cliente", para não confundir as etapas.
+    revisao:     { key:'revisao',     bg:'#fce4ef', border:'#db2777', text:'#9d174d', label:'Em revisão interna' },
     // Aguardando cliente: roxo (combina com a cor do status no Kanban).
     waiting:     { key:'waiting',     bg:'#f3e5f5', border:'#7b1fa2', text:'#5a1773', label:'Aguardando cliente' },
     // Em homologação: ciano/turquesa (combina com a cor do status no Kanban).
