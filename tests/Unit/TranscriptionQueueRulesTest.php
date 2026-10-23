@@ -67,4 +67,12 @@ final class TranscriptionQueueRulesTest extends TestCase
         $this->assertSame(500, mb_strlen(TranscriptionQueueRules::truncateError(str_repeat('é', 600))));
         $this->assertSame('a b', TranscriptionQueueRules::truncateError("  a\n  b "));
     }
+
+    public function testLoteInteiroTerminaAntesDaReservaVencer(): void
+    {
+        // Se o lote passar da janela de reserva, outra execução do cron devolve e
+        // pega os mesmos segmentos, e eles são transcritos (e cobrados) duas vezes.
+        $pior = TranscriptionQueueRules::BATCH_SIZE * TranscriptionQueueRules::SEGMENT_TIMEOUT_SEC;
+        $this->assertLessThan(TranscriptionQueueRules::STALE_LOCK_MINUTES * 60, $pior);
+    }
 }

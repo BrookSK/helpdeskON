@@ -50,8 +50,10 @@ class RecordingTranscriber
             );
 
             $path = $this->segments->absolutePath((string)$seg['file_path']);
+            // Segmento de 1 minuto responde em segundos. O limite por chamada mantém
+            // o lote inteiro abaixo de STALE_LOCK_MINUTES no pior caso.
             $r = is_file($path)
-                ? $this->ai->transcribe($path, ['language' => 'pt', 'verbose' => true, 'timeout' => 600])
+                ? $this->ai->transcribe($path, ['language' => 'pt', 'verbose' => true, 'timeout' => TranscriptionQueueRules::SEGMENT_TIMEOUT_SEC])
                 : ['success' => false, 'error' => 'Arquivo do segmento não encontrado.'];
 
             if (!empty($r['success'])) {
