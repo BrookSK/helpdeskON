@@ -56,6 +56,25 @@ class PlanningScheduleRules
         'archived'                    => '#546e7a',
     ];
 
+    /**
+     * Pares [fundo, texto] dos badges de status, espelhando as classes
+     * .badge-* da identidade visual do site (app/views/layouts/header.php):
+     * pílula de fundo claro com texto colorido. Fonte única para o PDF ficar
+     * fiel à tela, em vez do badge sólido genérico.
+     */
+    public const STATUS_BADGE = [
+        'open'                        => ['#e3f2fd', '#1565c0'],
+        'in_progress'                 => ['#fff3e0', '#e65100'],
+        'aguardando_aprovacao_escopo' => ['#efebe9', '#8d6e63'],
+        'em_revisao_interna'          => ['#e8eaf6', '#5c6bc0'],
+        'waiting_client'              => ['#fce4ec', '#c62828'],
+        'em_homologacao'              => ['#e0f7fa', '#0097a7'],
+        'aprovado_producao'           => ['#f1f8e9', '#689f38'],
+        'completed'                   => ['#e8f5e9', '#2e7d32'],
+        'denied'                      => ['#fbe9e7', '#d84315'],
+        'archived'                    => ['#eceff1', '#546e7a'],
+    ];
+
     /** Rótulos legíveis de prioridade. */
     public const PRIORITY_LABELS = [
         'low'    => 'Baixa',
@@ -82,6 +101,18 @@ class PlanningScheduleRules
     {
         $s = (string) $status;
         return self::STATUS_COLORS[$s] ?? '#546e7a';
+    }
+
+    /**
+     * Par de cores do badge de status para o PDF: ['bg' => fundo, 'fg' => texto],
+     * fiel às pílulas .badge-* do site. Fallback neutro (cinza claro) para
+     * status desconhecido.
+     */
+    public static function statusBadge($status): array
+    {
+        $s = (string) $status;
+        $pair = self::STATUS_BADGE[$s] ?? ['#eceff1', '#546e7a'];
+        return ['bg' => $pair[0], 'fg' => $pair[1]];
     }
 
     /** Rótulo legível da prioridade (fallback: o próprio valor). */

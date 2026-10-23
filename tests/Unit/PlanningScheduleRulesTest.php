@@ -166,6 +166,28 @@ final class PlanningScheduleRulesTest extends TestCase
         $this->assertSame('???', PlanningScheduleRules::priorityLabel('???'));
     }
 
+    public function testStatusBadgeDevolveParFundoETexto(): void
+    {
+        // Espelha as pílulas .badge-* do site (fundo claro + texto colorido).
+        $open = PlanningScheduleRules::statusBadge('open');
+        $this->assertSame('#e3f2fd', $open['bg']);
+        $this->assertSame('#1565c0', $open['fg']);
+
+        $done = PlanningScheduleRules::statusBadge('completed');
+        $this->assertSame('#e8f5e9', $done['bg']);
+        $this->assertSame('#2e7d32', $done['fg']);
+    }
+
+    public function testStatusBadgeFallbackNeutroParaDesconhecido(): void
+    {
+        $b = PlanningScheduleRules::statusBadge('xpto');
+        $this->assertSame('#eceff1', $b['bg']);
+        $this->assertSame('#546e7a', $b['fg']);
+        // Sempre retorna as duas chaves esperadas pela view.
+        $this->assertArrayHasKey('bg', $b);
+        $this->assertArrayHasKey('fg', $b);
+    }
+
     // ---- formatDate ----
 
     public function testFormatDate(): void

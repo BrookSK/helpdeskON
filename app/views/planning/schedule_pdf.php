@@ -6,6 +6,20 @@
  * convertido via PdfGenerator (dompdf). Usa apenas CSS inline/simples: o dompdf
  * tem suporte limitado a CSS e recursos externos ficam desabilitados.
  *
+ * Identidade visual alinhada ao site (app/views/layouts/header.php):
+ *   - cor primária teal #00BFA6 / #00997D (faixa do cabeçalho, títulos);
+ *   - fundo claro #f5f7fa, cartões com cantos arredondados e borda suave;
+ *   - tabela com cabeçalho em maiúsculas/cinza e zebra leve;
+ *   - badges de status como pílula de fundo claro + texto colorido
+ *     (PlanningScheduleRules::statusBadge, espelhando as classes .badge-*).
+ *   - tipografia: o site usa Inter; o dompdf não a embarca, então usamos
+ *     DejaVu Sans (fallback com acentuação) preservando pesos/tamanhos.
+ *
+ * Quebra de página: cada bloco "empresa + tabela" fica em um container com
+ * page-break-inside: avoid, então uma empresa que não caiba no resto da página
+ * é deslocada inteira para a próxima. Se uma única empresa tiver linhas demais
+ * para caber numa página, o cabeçalho da tabela repete (table-header-group).
+ *
  * Variáveis esperadas:
  *   $viewGroups        array de ['company' => string, 'cards' => array]
  *   $viewTotal         int    total de atividades
@@ -22,79 +36,139 @@ if (!isset($viewFiltersLabel)) { $viewFiltersLabel = ''; }
 $esc = function ($v) { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'); };
 ?>
 <style>
-    body { font-family: "DejaVu Sans", sans-serif; color: #222; font-size: 10pt; }
-    h1 { font-size: 16pt; margin: 0 0 2pt; }
-    .meta { color: #555; font-size: 9pt; margin: 0 0 2pt; }
-    .filters { color: #555; font-size: 9pt; margin: 0 0 12pt; }
-    .company { font-size: 12pt; font-weight: bold; color: #1565c0;
-               border-bottom: 2px solid #1565c0; padding-bottom: 2pt;
-               margin: 14pt 0 6pt; }
-    .count { color: #666; font-weight: normal; font-size: 9pt; }
-    table { width: 100%; border-collapse: collapse; margin-bottom: 4pt; }
-    th { background: #1565c0; color: #fff; text-align: left; font-size: 9pt;
-         padding: 4pt 5pt; }
-    td { border-bottom: 1px solid #ddd; padding: 4pt 5pt; vertical-align: top;
-         font-size: 9pt; }
-    tr:nth-child(even) td { background: #f5f7fa; }
-    .act-title { font-weight: bold; }
-    .act-desc { color: #666; font-size: 8pt; margin-top: 1pt; }
-    .st { display: inline-block; padding: 1pt 5pt; border-radius: 8pt;
-          color: #fff; font-size: 8pt; }
-    .empty { color: #777; font-style: italic; padding: 10pt 0; }
+    @page { margin: 1.4cm 1.2cm; }
+    body { font-family: "DejaVu Sans", sans-serif; color: #2b2b3a; font-size: 9.5pt; }
+
+    /* Cabeçalho do documento — faixa com a cor primária do site. */
+    .doc-header {
+        background: #00BFA6;
+        color: #ffffff;
+        padding: 12pt 14pt;
+        border-radius: 8pt;
+        margin-bottom: 12pt;
+    }
+    .doc-header h1 { font-size: 15pt; margin: 0; font-weight: 700; letter-spacing: 0.2pt; }
+    .doc-header .meta { color: #e6fffb; font-size: 8.5pt; margin: 4pt 0 0; }
+    .doc-header .filters { color: #e6fffb; font-size: 8.5pt; margin: 3pt 0 0; }
+
+    /* Bloco de cada empresa: mantém título + tabela na mesma página. */
+    .group { page-break-inside: avoid; margin-bottom: 12pt; }
+
+    .company {
+        font-size: 11pt;
+        font-weight: 700;
+        color: #00997D;
+        padding: 0 0 4pt;
+        margin: 0 0 5pt;
+        border-bottom: 2pt solid #00BFA6;
+    }
+    .company .count { color: #8a8a99; font-weight: 400; font-size: 8.5pt; }
+
+    table { width: 100%; border-collapse: collapse; }
+    /* Repete o cabeçalho caso uma empresa grande precise quebrar de página. */
+    thead { display: table-header-group; }
+    th {
+        background: #f0f2f6;
+        color: #5a5a6a;
+        text-align: left;
+        font-size: 7.5pt;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.3pt;
+        padding: 5pt 6pt;
+        border-bottom: 1pt solid #e2e5ec;
+    }
+    td {
+        padding: 5pt 6pt;
+        vertical-align: top;
+        font-size: 8.5pt;
+        border-bottom: 1pt solid #eceef3;
+    }
+    tr:nth-child(even) td { background: #f8fafc; }
+
+    .act-title { font-weight: 700; color: #2b2b3a; }
+    .act-desc { color: #8a8a99; font-size: 7.5pt; margin-top: 1.5pt; }
+
+    /* Badge de status: pílula clara com texto colorido (igual ao site). */
+    .st {
+        display: inline-block;
+        padding: 2pt 7pt;
+        border-radius: 10pt;
+        font-size: 7.5pt;
+        font-weight: 700;
+        white-space: nowrap;
+    }
+
+    .muted { color: #a0a0ac; }
+    .empty {
+        color: #8a8a99;
+        font-style: italic;
+        padding: 14pt;
+        background: #f8fafc;
+        border: 1pt solid #e2e5ec;
+        border-radius: 8pt;
+        text-align: center;
+    }
 </style>
 
-<h1>Cronograma de Atividades &mdash; Planejamento</h1>
-<p class="meta">
-    Gerado em <?= $esc($viewGeneratedAt) ?>.
-    <?= $viewOnlyActive ? 'Exibindo as próximas etapas (atividades em andamento).' : 'Exibindo todas as atividades.' ?>
-    Total: <?= (int) $viewTotal ?> atividade<?= $viewTotal === 1 ? '' : 's' ?>.
-</p>
-<?php if (trim((string) $viewFiltersLabel) !== ''): ?>
-    <p class="filters">Filtros aplicados &mdash; <?= $esc($viewFiltersLabel) ?></p>
-<?php endif; ?>
+<div class="doc-header">
+    <h1>Cronograma de Atividades &mdash; Planejamento</h1>
+    <p class="meta">
+        Gerado em <?= $esc($viewGeneratedAt) ?>.
+        <?= $viewOnlyActive ? 'Exibindo as próximas etapas (atividades em andamento).' : 'Exibindo todas as atividades.' ?>
+        Total: <?= (int) $viewTotal ?> atividade<?= $viewTotal === 1 ? '' : 's' ?>.
+    </p>
+    <?php if (trim((string) $viewFiltersLabel) !== ''): ?>
+        <p class="filters">Filtros aplicados &mdash; <?= $esc($viewFiltersLabel) ?></p>
+    <?php endif; ?>
+</div>
 
 <?php if (empty($viewGroups)): ?>
     <p class="empty">Nenhuma atividade encontrada para os filtros selecionados.</p>
 <?php else: ?>
     <?php foreach ($viewGroups as $group): ?>
-        <div class="company">
-            <?= $esc($group['company']) ?>
-            <span class="count">(<?= count($group['cards']) ?>)</span>
-        </div>
-        <table>
-            <thead>
-                <tr>
-                    <th style="width:34%;">Atividade</th>
-                    <th style="width:10%;">Início</th>
-                    <th style="width:10%;">Término</th>
-                    <th style="width:10%;">Prazo</th>
-                    <th style="width:14%;">Status</th>
-                    <th style="width:11%;">Responsável</th>
-                    <th style="width:11%;">Solicitante</th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php foreach ($group['cards'] as $card): ?>
-                    <?php
-                    $statusColor = PlanningScheduleRules::statusColor($card['status'] ?? '');
-                    $desc = PlanningScheduleRules::plainText($card['description'] ?? '', 180);
-                    ?>
+        <div class="group">
+            <div class="company">
+                <?= $esc($group['company']) ?>
+                <span class="count">(<?= count($group['cards']) ?>)</span>
+            </div>
+            <table>
+                <thead>
                     <tr>
-                        <td>
-                            <div class="act-title"><?= $esc($card['title'] ?? '') ?></div>
-                            <?php if ($desc !== ''): ?>
-                                <div class="act-desc"><?= $esc($desc) ?></div>
-                            <?php endif; ?>
-                        </td>
-                        <td><?= $esc(PlanningScheduleRules::formatDate($card['start_date'] ?? null)) ?></td>
-                        <td><?= $esc(PlanningScheduleRules::formatDate($card['end_date'] ?? null)) ?></td>
-                        <td><?= $esc(PlanningScheduleRules::formatDate($card['due_date'] ?? null)) ?></td>
-                        <td><span class="st" style="background:<?= $esc($statusColor) ?>;"><?= $esc(PlanningScheduleRules::statusLabel($card['status'] ?? '')) ?></span></td>
-                        <td><?= $esc($card['assigned_name'] ?? '—') ?></td>
-                        <td><?= $esc($card['created_by_name'] ?? '—') ?></td>
+                        <th style="width:34%;">Atividade</th>
+                        <th style="width:10%;">Início</th>
+                        <th style="width:10%;">Término</th>
+                        <th style="width:10%;">Prazo</th>
+                        <th style="width:14%;">Status</th>
+                        <th style="width:11%;">Responsável</th>
+                        <th style="width:11%;">Solicitante</th>
                     </tr>
-                <?php endforeach; ?>
-            </tbody>
-        </table>
+                </thead>
+                <tbody>
+                    <?php foreach ($group['cards'] as $card): ?>
+                        <?php
+                        $badge = PlanningScheduleRules::statusBadge($card['status'] ?? '');
+                        $desc = PlanningScheduleRules::plainText($card['description'] ?? '', 180);
+                        $assigned = trim((string) ($card['assigned_name'] ?? ''));
+                        $requester = trim((string) ($card['created_by_name'] ?? ''));
+                        ?>
+                        <tr>
+                            <td>
+                                <div class="act-title"><?= $esc($card['title'] ?? '') ?></div>
+                                <?php if ($desc !== ''): ?>
+                                    <div class="act-desc"><?= $esc($desc) ?></div>
+                                <?php endif; ?>
+                            </td>
+                            <td><?= $esc(PlanningScheduleRules::formatDate($card['start_date'] ?? null)) ?></td>
+                            <td><?= $esc(PlanningScheduleRules::formatDate($card['end_date'] ?? null)) ?></td>
+                            <td><?= $esc(PlanningScheduleRules::formatDate($card['due_date'] ?? null)) ?></td>
+                            <td><span class="st" style="background:<?= $esc($badge['bg']) ?>;color:<?= $esc($badge['fg']) ?>;"><?= $esc(PlanningScheduleRules::statusLabel($card['status'] ?? '')) ?></span></td>
+                            <td<?= $assigned === '' ? ' class="muted"' : '' ?>><?= $assigned !== '' ? $esc($assigned) : '—' ?></td>
+                            <td<?= $requester === '' ? ' class="muted"' : '' ?>><?= $requester !== '' ? $esc($requester) : '—' ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
     <?php endforeach; ?>
 <?php endif; ?>
