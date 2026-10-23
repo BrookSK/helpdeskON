@@ -102,6 +102,167 @@ class PlanningController extends Controller
     }
 
     /**
+     * Exporta, em PDF, o cronograma consolidado das atividades do Planejamento
+     * agrupadas pela empresa responsável.
+     *
+     * Reaproveita os MESMOS filtros da tela (empresa, responsável, solicitante,
+     * status, busca) e o controle de acesso por empresa do Kanban — ou seja, o
+     * PDF reflete exatamente o recorte que o usuário está vendo.
+     *
+     * Por padrão mostra só as atividades ativas (próximas etapas), ocultando
+     * concluídas/negadas/arquivadas; o usuário escolhe na hora incluir todas
+     * passando ?all=1 (checkbox "Incluir concluídas/arquivadas" na tela).
+     *
+     * A montagem/ordenação/agrupamento fica em PlanningScheduleRules (regra pura
+     * testável), que é a fonte única de verdade com os testes.
+     */
+    public function exportSchedulePdf()
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']);
+        $user = $this->currentUser();
+
+        // Mesmos filtros da tela (múltipla escolha).
+        $filters = [];
+        if (!empty($_GET['company_id'])) $filters['company_id'] = array_filter((array)$_GET['company_id'], fn($v) => $v !== '');
+        if (!empty($_GET['assigned_to'])) $filters['assigned_to'] = array_filter((array)$_GET['assigned_to'], fn($v) => $v !== '');
+        if (!empty($_GET['created_by'])) $filters['created_by'] = array_filter((array)$_GET['created_by'], fn($v) => $v !== '');
+        if (!empty($_GET['statuses'])) $filters['statuses'] = array_filter((array)$_GET['statuses'], fn($v) => $v !== '');
+        if (isset($_GET['q']) && trim((string)$_GET['q']) !== '') $filters['q'] = trim((string)$_GET['q']);
+
+        // whatsapp_agent/developer/analyst/comercial só exportam os próprios cards.
+        if (in_array($user['role'], ['whatsapp_agent', 'developer', 'analyst', 'comercial'])) {
+            $filters['assigned_to'] = [$user['id']];
+        }
+
+        // Controle de acesso por empresa (igual ao Kanban/calendário). Vale
+        // sempre, independente dos filtros: nunca exporta empresa sem acesso.
+        $allowedCompanies = PlanningCard::getUserAllowedCompanies($user['id'], $user['role']);
+        if ($allowedCompanies !== null) {
+            $filters['allowed_companies'] = $allowedCompanies;
+        }
+
+        $cards = $this->cardModel->getForSchedule($filters);
+
+        // ?all=1 inclui concluídas/negadas/arquivadas; padrão = só próximas etapas.
+        $onlyActive = empty($_GET['all']);
+        $groups = PlanningScheduleRules::buildSchedule($cards, $onlyActive);
+        $total = PlanningScheduleRules::countActivities($groups);
+
+        if (!PdfGenerator::isAvailable()) {
+            $this->renderSchedulePdfUnavailable();
+            return;
+        }
+
+        // Monta o HTML do documento a partir da view dedicada.
+        ob_start();
+        $viewGroups = $groups;
+        $viewTotal = $total;
+        $viewOnlyActive = $onlyActive;
+        $viewGeneratedAt = date('d/m/Y H:i');
+        $viewFiltersLabel = PlanningScheduleRules::filtersSummary($this->scheduleFilterLabels($filters, $allowedCompanies));
+        require APP_PATH . '/views/planning/schedule_pdf.php';
+        $html = ob_get_clean();
+
+        try {
+            $pdf = PdfGenerator::fromHtml($html, 'A4', 'landscape');
+        } catch (\Throwable $e) {
+            $this->renderSchedulePdfUnavailable($e->getMessage());
+            return;
+        }
+
+        $name = 'cronograma-planejamento-' . date('Y-m-d') . '.pdf';
+        header('Content-Type: application/pdf');
+        header('Content-Disposition: attachment; filename="' . $name . '"');
+        header('Content-Length: ' . strlen($pdf));
+        header('Cache-Control: private, no-store');
+        echo $pdf;
+        exit;
+    }
+
+    /**
+     * Resolve os nomes legíveis dos filtros aplicados, para o resumo no
+     * cabeçalho do PDF. Retorna o mapa esperado por
+     * PlanningScheduleRules::filtersSummary (chaves company/assigned/requester/
+     * statuses/q). Não expõe o escopo de empresas (allowed_companies), que é
+     * controle de acesso, não um filtro escolhido pelo usuário.
+     */
+    private function scheduleFilterLabels(array $filters, $allowedCompanies = null): array
+    {
+        $labels = [];
+
+        // Empresas.
+        if (!empty($filters['company_id'])) {
+            $ids = array_values(array_unique(array_filter(array_map('intval', (array)$filters['company_id']))));
+            if (!empty($ids)) {
+                $companyModel = new Company();
+                $names = [];
+                foreach ($companyModel->getAll() as $c) {
+                    if (in_array((int)$c['id'], $ids, true)) $names[] = $c['name'];
+                }
+                if (!empty($names)) $labels['company'] = implode(', ', $names);
+            }
+        }
+
+        // Responsáveis (com 'none' = sem responsável).
+        if (!empty($filters['assigned_to'])) {
+            $raw = (array)$filters['assigned_to'];
+            $ids = array_values(array_unique(array_filter(array_map('intval', $raw))));
+            $names = [];
+            if (!empty($ids)) {
+                $userModel = new User();
+                foreach ($userModel->getByRoles(['super_admin', 'attendant', 'whatsapp_agent', 'analyst', 'developer', 'comercial']) as $u) {
+                    if (in_array((int)$u['id'], $ids, true)) $names[] = $u['name'];
+                }
+            }
+            if (in_array('none', $raw, true)) $names[] = 'Sem responsável';
+            if (!empty($names)) $labels['assigned'] = implode(', ', $names);
+        }
+
+        // Solicitantes.
+        if (!empty($filters['created_by'])) {
+            $ids = array_values(array_unique(array_filter(array_map('intval', (array)$filters['created_by']))));
+            if (!empty($ids)) {
+                $names = [];
+                foreach ($this->cardModel->getRequesters($allowedCompanies) as $r) {
+                    if (in_array((int)$r['id'], $ids, true)) $names[] = $r['name'];
+                }
+                if (!empty($names)) $labels['requester'] = implode(', ', $names);
+            }
+        }
+
+        // Status.
+        if (!empty($filters['statuses'])) {
+            $sts = array_values(array_filter((array)$filters['statuses'], fn($v) => $v !== ''));
+            if (!empty($sts)) {
+                $labels['statuses'] = implode(', ', array_map(
+                    fn($s) => PlanningScheduleRules::statusLabel($s),
+                    $sts
+                ));
+            }
+        }
+
+        // Busca livre.
+        if (isset($filters['q']) && trim((string)$filters['q']) !== '') {
+            $labels['q'] = '"' . trim((string)$filters['q']) . '"';
+        }
+
+        return $labels;
+    }
+
+    /** Mensagem amigável quando o gerador de PDF não está disponível. */
+    private function renderSchedulePdfUnavailable(string $detail = ''): void
+    {
+        http_response_code(503);
+        $msg = 'Não foi possível gerar o PDF do cronograma.';
+        if ($detail !== '') {
+            $msg .= ' ' . $detail;
+        }
+        header('Content-Type: text/plain; charset=UTF-8');
+        echo $msg;
+        exit;
+    }
+
+    /**
      * Monta os filtros do calendário a partir do $_GET + escopo do usuário.
      * Reutilizado por calendar() e calendarUndated() para não duplicar as
      * regras de empresa/responsável/busca.

@@ -191,6 +191,114 @@ class PlanningCard
     }
 
     /**
+     * Atividades para o cronograma consolidado (exportação em PDF).
+     *
+     * Traz os campos necessários ao documento — título, descrição, datas
+     * internas (start_date/end_date/due_date), status, prioridade, o nome da
+     * empresa responsável (company_name), do responsável (assigned_name) e do
+     * solicitante (created_by_name) — respeitando os MESMOS filtros e o controle
+     * de acesso por empresa usados no Kanban (empresa, responsável, solicitante,
+     * status, busca livre).
+     *
+     * A decisão de QUAIS status entram (ocultar concluídas/arquivadas ou não) e
+     * o agrupamento por empresa ficam no PlanningScheduleRules; aqui só buscamos
+     * os dados já no escopo/recorte da tela.
+     *
+     * @param array $filters company_id[], assigned_to[] (com 'none'), created_by[],
+     *                       statuses[], q, allowed_companies.
+     */
+    public function getForSchedule($filters = [])
+    {
+        $sql = "SELECT pc.id, pc.title, pc.description, pc.status, pc.priority,
+                       pc.start_date, pc.end_date, pc.due_date,
+                       pc.company_id,
+                       co.name as company_name,
+                       u.name as assigned_name,
+                       cb.name as created_by_name
+                FROM planning_cards pc
+                LEFT JOIN users u ON pc.assigned_to = u.id
+                LEFT JOIN users cb ON pc.created_by = cb.id
+                LEFT JOIN companies co ON pc.company_id = co.id
+                WHERE 1=1";
+        $params = [];
+
+        // Empresa (múltipla escolha).
+        if (!empty($filters['company_id'])) {
+            $ids = array_values(array_unique(array_filter(array_map('intval', (array)$filters['company_id']))));
+            if (!empty($ids)) {
+                $ph = implode(',', array_fill(0, count($ids), '?'));
+                $sql .= " AND pc.company_id IN ($ph)";
+                $params = array_merge($params, $ids);
+            }
+        }
+
+        // Responsável (múltipla escolha, com 'none' = sem responsável).
+        $assignedNone = false;
+        if (!empty($filters['assigned_to'])) {
+            $rawAssigned = (array)$filters['assigned_to'];
+            $assignedNone = in_array('none', $rawAssigned, true);
+            $ids = array_values(array_unique(array_filter(array_map('intval', $rawAssigned))));
+            if (!empty($ids) && $assignedNone) {
+                $ph = implode(',', array_fill(0, count($ids), '?'));
+                $sql .= " AND (pc.assigned_to IN ($ph) OR pc.assigned_to IS NULL)";
+                $params = array_merge($params, $ids);
+            } elseif (!empty($ids)) {
+                $ph = implode(',', array_fill(0, count($ids), '?'));
+                $sql .= " AND pc.assigned_to IN ($ph)";
+                $params = array_merge($params, $ids);
+            } elseif ($assignedNone) {
+                $sql .= " AND pc.assigned_to IS NULL";
+            }
+        }
+        if (!empty($filters['assigned_none'])) {
+            $sql .= " AND pc.assigned_to IS NULL";
+        }
+
+        // Solicitante/criador (múltipla escolha).
+        if (!empty($filters['created_by'])) {
+            $ids = array_values(array_unique(array_filter(array_map('intval', (array)$filters['created_by']))));
+            if (!empty($ids)) {
+                $ph = implode(',', array_fill(0, count($ids), '?'));
+                $sql .= " AND pc.created_by IN ($ph)";
+                $params = array_merge($params, $ids);
+            }
+        }
+
+        // Status (múltipla escolha).
+        if (!empty($filters['statuses'])) {
+            $sts = array_values(array_filter((array)$filters['statuses'], fn($v) => $v !== ''));
+            if (!empty($sts)) {
+                $ph = implode(',', array_fill(0, count($sts), '?'));
+                $sql .= " AND pc.status IN ($ph)";
+                $params = array_merge($params, $sts);
+            }
+        }
+
+        // Busca livre por título/descrição.
+        if (isset($filters['q']) && trim((string)$filters['q']) !== '') {
+            $term = '%' . trim((string)$filters['q']) . '%';
+            $sql .= " AND (pc.title LIKE ? OR pc.description LIKE ?)";
+            $params[] = $term;
+            $params[] = $term;
+        }
+
+        // Controle de acesso por empresa (igual ao Kanban/calendário).
+        if (!empty($filters['allowed_companies'])) {
+            $placeholders = implode(',', array_fill(0, count($filters['allowed_companies']), '?'));
+            $sql .= " AND (pc.company_id IS NULL OR pc.company_id IN ($placeholders))";
+            $params = array_merge($params, $filters['allowed_companies']);
+        }
+
+        // Ordenação base por empresa e data; o agrupamento/ordenação final para
+        // o PDF é refinado em PlanningScheduleRules::buildSchedule().
+        $sql .= " ORDER BY (co.name IS NULL), co.name ASC,
+                           (pc.start_date IS NULL), pc.start_date ASC,
+                           (pc.due_date IS NULL), pc.due_date ASC, pc.id ASC";
+
+        return $this->db->fetchAll($sql, $params);
+    }
+
+    /**
      * Lista os solicitantes (usuários que criaram cards), para o filtro.
      * Respeita o controle de acesso por empresa quando informado.
      */

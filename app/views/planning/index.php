@@ -58,6 +58,22 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                 <button type="button" class="btn btn-outline-primary active" data-view="kanban"><i class="bi bi-kanban"></i> Kanban</button>
                 <button type="button" class="btn btn-outline-primary" data-view="calendar"><i class="bi bi-calendar3"></i> Calendário</button>
             </div>
+            <div class="btn-group btn-group-sm" role="group">
+                <a id="export-schedule-btn" href="<?= baseUrl('planning/exportSchedulePdf') ?>" target="_blank"
+                   class="btn btn-outline-primary" title="Exportar o cronograma consolidado (respeita os filtros aplicados)">
+                    <i class="bi bi-file-earmark-pdf"></i> Exportar PDF
+                </a>
+                <button type="button" class="btn btn-outline-primary dropdown-toggle dropdown-toggle-split"
+                        data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                    <span class="visually-hidden">Opções de exportação</span>
+                </button>
+                <div class="dropdown-menu dropdown-menu-end p-2" style="min-width:230px;">
+                    <label class="dropdown-item d-flex align-items-center gap-2 px-2 py-1" style="cursor:pointer;">
+                        <input class="form-check-input mt-0" type="checkbox" id="export-include-done">
+                        <span class="small">Incluir concluídas/arquivadas</span>
+                    </label>
+                </div>
+            </div>
             <button class="btn btn-primary btn-sm" onclick="openCreateModal()"><i class="bi bi-plus-lg"></i> Novo Card</button>
         </div>
     </div>
@@ -1054,6 +1070,35 @@ const statusColors = {open:'#1565c0',in_progress:'#e65100',em_revisao_interna:'#
 // === FILTER FORM ===
 // show_all fica sempre em 1: sem responsáveis marcados = ver todos os cards
 // (o pré-filtro pelo usuário logado só ocorre no primeiro acesso, sem parâmetros).
+
+// === EXPORTAR PDF (cronograma consolidado) ===
+// Monta o link do botão a partir do formulário de filtros, para o PDF refletir
+// exatamente o recorte aplicado na tela + a opção "incluir concluídas/arquivadas".
+(function() {
+    const btn = document.getElementById('export-schedule-btn');
+    const form = document.getElementById('filters-form');
+    const includeDone = document.getElementById('export-include-done');
+    if (!btn || !form) return;
+
+    function buildUrl() {
+        const params = new URLSearchParams();
+        // Reaproveita os mesmos campos do form de filtros (q, company_id[],
+        // assigned_to[], created_by[], statuses[]). Ignora show_all/order, que
+        // não afetam o conteúdo do cronograma.
+        const skip = ['show_all', 'order'];
+        new FormData(form).forEach((value, key) => {
+            if (skip.includes(key)) return;
+            if (value === '' || value === null) return;
+            params.append(key, value);
+        });
+        if (includeDone && includeDone.checked) params.set('all', '1');
+        const qs = params.toString();
+        return BASE + 'planning/exportSchedulePdf' + (qs ? ('?' + qs) : '');
+    }
+
+    // Atualiza o href no momento do clique (pega o estado mais recente dos filtros).
+    btn.addEventListener('click', function() { btn.href = buildUrl(); });
+})();
 
 // === VIEW TOGGLE ===
 document.querySelectorAll('#view-toggle button').forEach(btn => {
