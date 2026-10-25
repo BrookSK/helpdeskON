@@ -47,6 +47,8 @@ class OnboardingController extends Controller
             // Catálogo de serviço (orçamento por módulo) + opções da decisão de pipeline.
             'serviceCatalog' => (new ServiceCatalog())->getAll(true),
             'projectTypes' => OnboardingRules::PROJECT_TYPES,
+            'vaultReady' => OnboardingCredentialLink::vaultReady(),
+            'credentialLinks' => (new OnboardingCredentialLink())->listForOnboarding((int)$id),
         ]);
     }
 
@@ -73,6 +75,50 @@ class OnboardingController extends Controller
         $onb = (new OnboardingStarter($this->projects, $this->onboardings))->ensureForFinanceProject($projectId, (int)$user['id']);
         if (!$onb) $this->json(['error' => 'O onboarding só inicia após a entrada ser paga.'], 409);
         $this->json(['success' => true, 'id' => $onb['id'], 'created' => $onb['created']]);
+    }
+
+    /** Gera o link para o cliente enviar credenciais (POST). O token só aparece nesta resposta. */
+    public function credentialLink($id = null)
+    {
+        $this->requireModule('onboarding');
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+        $user = $this->currentUser();
+        $r = (new OnboardingCredentialLink())->generate((int)$id, (int)$user['id']);
+        if (!$r['ok']) $this->json(['error' => $r['error']], $r['code']);
+        $base = rtrim((string)Config::get('app_public_url'), '/') ?: rtrim(baseUrl(''), '/');
+        $this->json(['success' => true, 'url' => $base . '/onboarding/credentials/' . $r['token'], 'expires_at' => $r['expires_at']]);
+    }
+
+    public function revokeCredentialLink($linkId = null)
+    {
+        $this->requireModule('onboarding');
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$linkId) $this->json(['error' => 'Requisição inválida'], 400);
+        $user = $this->currentUser();
+        if (!(new OnboardingCredentialLink())->revoke((int)$linkId, (int)$user['id'])) {
+            $this->json(['error' => 'Link não encontrado ou já revogado.'], 409);
+        }
+        $this->json(['success' => true]);
+    }
+
+    /**
+     * Página pública do link de credenciais (sem login). GET mostra o
+     * formulário; POST grava no cofre. O que foi enviado não volta na tela.
+     */
+    public function credentials($token = null)
+    {
+        $token = trim((string)$token);
+        $links = new OnboardingCredentialLink();
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            if (!verify_csrf((string)($_POST['csrf_token'] ?? ''))) $this->json(['error' => 'Sessão expirada. Recarregue a página.'], 419);
+            $r = $links->submit($token, $_POST, (string)($_SERVER['REMOTE_ADDR'] ?? ''));
+            if (!$r['ok']) $this->json(['error' => $r['error']], $r['code']);
+            $this->json(['success' => true]);
+        }
+        $check = $links->check($token);
+        $this->view('commercial/onboarding_credentials_public', [
+            'check' => $check,
+            'token' => $token,
+        ]);
     }
 
     /** Inicia o onboarding (destrava se a entrada estiver paga). */
