@@ -32,6 +32,10 @@ $labels = [
     <div class="alert alert-success py-2"><i class="bi bi-check-circle"></i> Contrato assinado. Siga para o financeiro.</div>
     <?php endif; ?>
 
+    <?php if (!$clicksignReady && in_array($contract['status'], ['approved', 'awaiting_signature'], true)): ?>
+    <div id="clicksign-missing" class="alert alert-warning py-2 small"><i class="bi bi-exclamation-triangle"></i> ClickSign não configurada (Configurações &rarr; ClickSign). Enquanto isso, colete a assinatura fora do sistema e envie o PDF assinado abaixo.</div>
+    <?php endif; ?>
+
     <?php if ($contract['status'] === 'client_rejected' && !empty($contract['reject_reason'])): ?>
     <div class="alert alert-warning py-2"><strong>Ajuste solicitado pelo cliente:</strong> <?= escape($contract['reject_reason']) ?></div>
     <?php endif; ?>
@@ -45,6 +49,8 @@ $labels = [
                         <div class="col-md-5"><label class="form-label small">Título</label><input id="c-title" class="form-control form-control-sm" value="<?= escape($contract['title']) ?>" <?= $canEdit?'':'disabled' ?>></div>
                         <div class="col-md-4"><label class="form-label small">E-mail do cliente</label><input id="c-email" class="form-control form-control-sm" value="<?= escape($contract['client_email'] ?? '') ?>" <?= $canEdit?'':'disabled' ?>></div>
                         <div class="col-md-3"><label class="form-label small">Telefone</label><input id="c-phone" class="form-control form-control-sm" value="<?= escape($contract['client_phone'] ?? '') ?>" <?= $canEdit?'':'disabled' ?>></div>
+                        <div class="col-md-4"><label class="form-label small">CPF/CNPJ do cliente</label><input id="c-document" class="form-control form-control-sm" value="<?= escape($contract['client_document'] ?? '') ?>" <?= $canEdit?'':'disabled' ?>></div>
+                        <div class="col-md-8"><label class="form-label small">Endereço do cliente</label><input id="c-address" class="form-control form-control-sm" value="<?= escape($contract['client_address'] ?? '') ?>" <?= $canEdit?'':'disabled' ?>></div>
                     </div>
                     <div class="d-flex justify-content-between align-items-center mb-1 flex-wrap gap-2">
                         <div class="btn-group btn-group-sm" role="group">
@@ -69,6 +75,29 @@ $labels = [
             </div>
         </div>
         <div class="col-lg-4">
+            <?php
+            $fileStatus = $contract['signed_file_status'] ?? null;
+            if ($canUpload || $fileStatus): ?>
+            <div class="card mb-3" id="signed-file-card">
+                <div class="card-header py-2"><strong>Contrato assinado (PDF)</strong></div>
+                <div class="card-body small">
+                    <?php if ($fileStatus === 'stored'): ?>
+                    <p class="mb-2" id="signed-file-status"><i class="bi bi-file-earmark-pdf text-danger"></i> PDF guardado<?= !empty($contract['signed_via']) ? ' (' . ($contract['signed_via'] === 'upload' ? 'upload' : 'ClickSign') . ')' : '' ?>.
+                        <a href="<?= baseUrl('contract/signedFile/' . (int)$contract['id']) ?>" target="_blank" id="signed-file-link">Baixar</a></p>
+                    <?php elseif ($fileStatus === 'pending'): ?>
+                    <p class="mb-2 text-warning" id="signed-file-status"><i class="bi bi-hourglass-split"></i> Aguardando o PDF da ClickSign (tentativa <?= (int)($contract['signed_file_attempts'] ?? 0) ?>).<?= !empty($contract['signed_file_error']) ? '<br><span class="text-muted">' . escape($contract['signed_file_error']) . '</span>' : '' ?></p>
+                    <?php elseif ($fileStatus === 'failed'): ?>
+                    <p class="mb-2 text-danger" id="signed-file-status"><i class="bi bi-x-circle"></i> Não foi possível baixar o PDF da ClickSign. Envie o arquivo assinado.</p>
+                    <?php endif; ?>
+                    <?php if ($canUpload): ?>
+                    <label class="form-label mb-1" for="signed-file-input"><?= $contract['status'] === 'signed' ? 'Substituir pelo PDF assinado' : 'Enviar o PDF assinado (marca o contrato como assinado)' ?></label>
+                    <input type="file" id="signed-file-input" accept="application/pdf,.pdf" class="form-control form-control-sm mb-2">
+                    <button type="button" id="btn-upload-signed" class="btn btn-sm btn-outline-dark" onclick="uploadSigned()"><i class="bi bi-upload"></i> Enviar PDF</button>
+                    <div class="text-muted mt-1">Somente PDF, até 20 MB.</div>
+                    <?php endif; ?>
+                </div>
+            </div>
+            <?php endif; ?>
             <div class="card">
                 <div class="card-header py-2"><strong>Histórico</strong></div>
                 <div class="card-body" style="max-height:60vh;overflow:auto;">
@@ -126,7 +155,8 @@ async function loadTemplate() {
 
 function cbody() {
     return { title: document.getElementById('c-title').value.trim(), body: document.getElementById('c-body').value,
-        client_email: document.getElementById('c-email').value.trim(), client_phone: document.getElementById('c-phone').value.trim() };
+        client_email: document.getElementById('c-email').value.trim(), client_phone: document.getElementById('c-phone').value.trim(),
+        client_document: document.getElementById('c-document').value.trim(), client_address: document.getElementById('c-address').value.trim() };
 }
 let SAVING = false;
 async function saveContract() {
@@ -189,6 +219,18 @@ async function sendSignature() {
     if (r.fails && r.fails.length) msg += '\n\nFalhas: ' + r.fails.join('; ');
     alert(msg); location.reload();
 }
+async function uploadSigned() {
+    const input = document.getElementById('signed-file-input');
+    if (!input.files.length) { alert('Escolha o PDF assinado.'); return; }
+    if (input.files[0].size > 20 * 1024 * 1024) { alert('O arquivo passa de 20 MB.'); return; }
+    const btn = document.getElementById('btn-upload-signed');
+    btn.disabled = true;
+    const fd = new FormData(); fd.append('csrf_token', CSRF); fd.append('file', input.files[0]);
+    const r = await fetch(`${BASE}contract/uploadSigned/${CID}`, { method:'POST', body: fd, headers:{'X-Requested-With':'XMLHttpRequest'} }).then(x=>x.json()).catch(()=>({error:'Falha de rede'}));
+    btn.disabled = false;
+    if (r.error) { alert(r.error); return; }
+    location.reload();
+}
 async function startFinance() {
     if (!confirm('Criar o projeto financeiro a partir deste contrato assinado?')) return;
     const fd = new FormData(); fd.append('csrf_token', CSRF); fd.append('contract_id', CID);
@@ -211,6 +253,9 @@ async function startFinance() {
            <span class="text-muted"><?= escape($contract['client_name'] ?? 'Cliente') ?> · <?= escape($contract['client_email'] ?? 'sem e-mail') ?></span></p>
         <?php if (empty($contract['client_email'])): ?>
         <div class="alert alert-warning py-2 small">O cliente não tem e-mail. Informe o e-mail do cliente e salve antes de enviar.</div>
+        <?php endif; ?>
+        <?php if (!ContractRules::hasClientDocument($contract['client_document'] ?? '')): ?>
+        <div class="alert alert-warning py-2 small">O contrato não tem CPF/CNPJ do cliente. O envio para assinatura fica bloqueado até informar o documento.</div>
         <?php endif; ?>
         <hr class="my-2">
         <label class="form-label small fw-medium mb-1">Signatários da empresa (opcional)</label>

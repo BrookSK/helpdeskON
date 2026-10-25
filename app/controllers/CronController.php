@@ -1136,6 +1136,18 @@ class CronController extends Controller
      * Sugestão de agendamento (diário de manhã):
      *   0 9 * * * curl -s "https://seudominio.com/cron/warrantyWarnings?token=TOKEN"
      */
+    /**
+     * GET /cron/contractSignedFiles?token=XXX
+     * Tenta de novo baixar da ClickSign os PDFs assinados que ficaram pendentes.
+     */
+    public function contractSignedFiles()
+    {
+        $this->validateToken();
+        @set_time_limit(300);
+        $stats = (new ContractSigning())->retryPending();
+        $this->json(['success' => true, 'stats' => $stats]);
+    }
+
     public function warrantyWarnings()
     {
         $this->validateToken();
