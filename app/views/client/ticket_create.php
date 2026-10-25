@@ -286,6 +286,19 @@
                             </select>
                         </div>
                     </div>
+                    <div class="col-sm-6" id="project-field" style="display:none">
+                        <div class="form-field">
+                            <label class="form-label fw-medium" for="field-project">Projeto</label>
+                            <select name="project_id" id="field-project" class="form-select"></select>
+                            <small class="text-danger d-none" id="project-blocked"></small>
+                        </div>
+                    </div>
+                    <div class="col-sm-6" id="service-field" style="display:none">
+                        <div class="form-field">
+                            <label class="form-label fw-medium" for="field-service">Serviço contratado (opcional)</label>
+                            <select name="proposal_item_id" id="field-service" class="form-select"></select>
+                        </div>
+                    </div>
                     <div class="col-12">
                         <div class="form-field">
                             <label class="form-label fw-medium">Descrição *</label>
@@ -317,6 +330,42 @@
 </div>
 
 <script>
+// Projeto e serviço do chamado, por empresa. Um projeto único vem selecionado.
+(function() {
+    const projects = <?= json_encode($ticketProjects ?? new stdClass()) ?>;
+    const fixedCompany = <?= json_encode($ticketCompanyId ?? null) ?>;
+    const isClient = <?= json_encode(($user['role'] ?? '') === 'client') ?>;
+    const pField = document.getElementById('project-field'), sField = document.getElementById('service-field');
+    const pSel = document.getElementById('field-project'), sSel = document.getElementById('field-service');
+    const blocked = document.getElementById('project-blocked');
+    const esc = t => String(t).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    function current() { return (projects[companyId()] || []).find(p => String(p.id) === pSel.value) || null; }
+    function companyId() {
+        if (fixedCompany) return fixedCompany;
+        const cs = document.getElementById('company-select');
+        return cs ? cs.value : '';
+    }
+    function renderServices() {
+        const p = current();
+        sSel.innerHTML = '<option value="">Não informar</option>';
+        (p ? p.services : []).forEach(s => sSel.insertAdjacentHTML('beforeend', `<option value="${s.id}">${esc(s.description)}</option>`));
+        sField.style.display = p && p.services.length ? '' : 'none';
+        blocked.classList.toggle('d-none', !(p && p.blocked));
+        blocked.textContent = p && p.blocked ? (isClient ? p.reason + ' Para abrir chamados deste projeto, é preciso contratar o suporte.' : 'Aviso: ' + p.reason) : '';
+    }
+    function renderProjects() {
+        const list = projects[companyId()] || [];
+        pSel.innerHTML = list.length === 1 ? '' : '<option value="">Sem projeto</option>';
+        list.forEach(p => pSel.insertAdjacentHTML('beforeend', `<option value="${p.id}">${esc(p.name)}</option>`));
+        pField.style.display = list.length ? '' : 'none';
+        renderServices();
+    }
+    pSel.addEventListener('change', renderServices);
+    const cs = document.getElementById('company-select');
+    if (cs) cs.addEventListener('change', renderProjects);
+    renderProjects();
+})();
+
 // Seleção hierárquica Empresa > Usuários
 (function() {
     const companySelect = document.getElementById('company-select');

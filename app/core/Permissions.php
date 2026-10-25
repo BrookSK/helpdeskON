@@ -76,6 +76,7 @@ class Permissions
         // Área do cliente
         'client_tickets',
         'client_schedule',
+        'client_portal',        // Contratos, cobranças e projetos da empresa do cliente
         'subusers',
     ];
 
@@ -112,7 +113,7 @@ class Permissions
         ],
         'client' => [
             'dashboard', 'account', 'notifications', 'whatsapp',
-            'client_tickets', 'client_schedule', 'documents', 'subusers',
+            'client_tickets', 'client_schedule', 'client_portal', 'documents', 'subusers',
         ],
     ];
 

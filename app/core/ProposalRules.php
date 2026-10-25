@@ -80,6 +80,37 @@ class ProposalRules
     }
 
     /**
+     * Editar uma proposta neste status cria uma nova versão? Sim depois que o
+     * cliente já viu: enviada, aguardando ou recusada. Rascunho e montada são
+     * editadas na própria linha; aceita e cancelada não se editam.
+     */
+    public static function requiresNewRevision($status): bool
+    {
+        return in_array($status, [self::STATUS_SENT, self::STATUS_AWAITING, self::STATUS_REJECTED], true);
+    }
+
+    /** Rótulo da versão: 1 => R01, 12 => R12. */
+    public static function revisionLabel($revisionNo): string
+    {
+        return sprintf('R%02d', max(1, (int)$revisionNo));
+    }
+
+    /** A validade passou? Sem data de validade, nunca vence. Vale o dia inteiro. */
+    public static function isExpired($validityDate, ?string $today = null): bool
+    {
+        $v = self::normalizeDate($validityDate);
+        if ($v === null) return false;
+        return $v < ($today ?? date('Y-m-d'));
+    }
+
+    /** Nome de quem aceita: obrigatório, até 200 caracteres. Null se vazio. */
+    public static function sanitizeAcceptName($name): ?string
+    {
+        $n = trim(preg_replace('/\s+/', ' ', (string)$name));
+        return $n === '' ? null : mb_substr($n, 0, 200);
+    }
+
+    /**
      * A transição de $from para $to é permitida? Transição para o mesmo estado é
      * sempre permitida (idempotente). Estados inválidos retornam false.
      */

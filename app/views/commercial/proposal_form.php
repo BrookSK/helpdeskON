@@ -7,6 +7,11 @@ $ctLabels = [
     'suporte' => 'Suporte', 'dev_suporte' => 'Desenvolvimento + suporte', 'outro' => 'Outro',
 ];
 $isTerminal = in_array($proposal['status'], ['accepted','rejected','cancelled'], true);
+$isSuperseded = !empty($proposal['superseded_by']);
+// Enviada, aguardando ou recusada: editar cria nova versão (R02...).
+$needsRevision = !$isSuperseded && ProposalRules::requiresNewRevision($proposal['status']);
+$canEdit = !$isSuperseded && in_array($proposal['status'], ['draft','ready'], true);
+$revLabel = ProposalRules::revisionLabel($proposal['revision_no'] ?? 1);
 $statusLabels = [
     'draft' => 'Em elaboração', 'ready' => 'Montada', 'sent' => 'Enviada',
     'awaiting' => 'Aguardando', 'accepted' => 'Aceita', 'rejected' => 'Recusada', 'cancelled' => 'Cancelada',
@@ -15,25 +20,53 @@ $statusLabels = [
 <div class="main-content">
     <div class="top-bar">
         <div>
-            <h5 class="mb-0">Proposta #<?= (int)$proposal['id'] ?></h5>
+            <h5 class="mb-0">Proposta #<?= (int)$proposal['id'] ?> <span class="badge bg-secondary" id="p-revision"><?= escape($revLabel) ?></span></h5>
             <small class="text-muted"><?= escape($proposal['title']) ?> · <span id="p-status-label"><?= escape($statusLabels[$proposal['status']] ?? $proposal['status']) ?></span></small>
         </div>
         <div class="d-flex gap-2 flex-wrap justify-content-end">
             <a href="<?= baseUrl('proposal') ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> Voltar</a>
             <button type="button" class="btn btn-sm btn-outline-primary" onclick="openPdf()"><i class="bi bi-file-earmark-pdf"></i> Ver PDF</button>
             <button type="button" class="btn btn-sm btn-outline-info" onclick="openOnline()"><i class="bi bi-globe"></i> Ver proposta online</button>
-            <?php if (!$isTerminal): ?>
+            <?php if ($canEdit): ?>
             <button id="btn-save" class="btn btn-sm btn-success" onclick="saveProposal()"><i class="bi bi-check-lg"></i> Salvar</button>
             <button id="btn-send" class="btn btn-sm btn-primary" onclick="sendProposal()"><i class="bi bi-send"></i> Enviar ao cliente</button>
             <?php endif; ?>
             <?php if ($proposal['status'] === 'accepted'): ?>
             <button class="btn btn-sm btn-dark" onclick="genContract()"><i class="bi bi-file-earmark-check"></i> Gerar contrato</button>
             <?php endif; ?>
-            <?php if ($proposal['status'] === 'rejected'): ?>
-            <button class="btn btn-sm btn-warning" onclick="reopenProposal()"><i class="bi bi-arrow-counterclockwise"></i> Reabrir para editar</button>
+            <?php if ($needsRevision): ?>
+            <button id="btn-reopen" class="btn btn-sm btn-warning" onclick="reopenProposal()"><i class="bi bi-arrow-counterclockwise"></i> Reabrir para editar (nova versão)</button>
             <?php endif; ?>
         </div>
     </div>
+
+    <?php if ($isSuperseded): ?>
+    <div class="alert alert-secondary py-2" id="superseded-alert"><i class="bi bi-lock"></i> Versão <?= escape($revLabel) ?> substituída, somente leitura. <a href="<?= baseUrl('proposal/edit/' . (int)$proposal['superseded_by']) ?>">Abrir a versão seguinte</a>.</div>
+    <?php elseif ($needsRevision && $proposal['status'] !== 'rejected'): ?>
+    <div class="alert alert-info py-2"><i class="bi bi-info-circle"></i> O cliente já recebeu esta versão. Para mudar, use "Reabrir para editar": o sistema cria a próxima versão e guarda esta.</div>
+    <?php endif; ?>
+
+    <?php if (count($revisions ?? []) > 1): ?>
+    <div class="card mb-3" id="revisions-card">
+        <div class="card-header py-2"><strong>Versões</strong></div>
+        <div class="card-body p-0">
+            <table class="table table-sm mb-0 align-middle">
+                <thead class="table-light"><tr><th>Versão</th><th>Data</th><th>Status</th><th class="text-end">Total</th><th></th></tr></thead>
+                <tbody>
+                <?php foreach ($revisions as $rv): ?>
+                <tr class="<?= (int)$rv['id'] === (int)$proposal['id'] ? 'table-active' : '' ?>">
+                    <td><?= escape(ProposalRules::revisionLabel($rv['revision_no'])) ?></td>
+                    <td><?= $rv['created_at'] ? date('d/m/Y H:i', strtotime($rv['created_at'])) : '' ?></td>
+                    <td><?= escape($statusLabels[$rv['status']] ?? $rv['status']) ?><?= !empty($rv['superseded_by']) ? ' <span class="text-muted small">(substituída)</span>' : '' ?></td>
+                    <td class="text-end">R$ <?= number_format((float)$rv['total'], 2, ',', '.') ?></td>
+                    <td class="text-end"><?php if ((int)$rv['id'] !== (int)$proposal['id']): ?><a href="<?= baseUrl('proposal/edit/' . (int)$rv['id']) ?>">Abrir</a><?php endif; ?></td>
+                </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <?php endif; ?>
 
     <?php if ($proposal['status'] === 'accepted'): ?>
     <div class="alert alert-success py-2"><i class="bi bi-check-circle"></i> Proposta aceita pelo cliente. Gere o contrato para seguir a esteira.</div>
@@ -230,7 +263,7 @@ $statusLabels = [
 const PROP_BASE = '<?= baseUrl("") ?>';
 const CSRF = '<?= csrf_token() ?>';
 const PROPOSAL_ID = <?= (int)$proposal['id'] ?>;
-const CAN_EDIT = <?= $isTerminal ? 'false' : 'true' ?>;
+const CAN_EDIT = <?= $canEdit ? 'true' : 'false' ?>;
 const EXISTING_ITEMS = <?= json_encode($items, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT) ?: '[]' ?>;
 const EXISTING_DISCOUNTS = <?= json_encode($discounts ?? [], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT) ?: '[]' ?>;
 const SERVICES = <?= json_encode($services, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT) ?: '[]' ?>;
@@ -684,14 +717,19 @@ async function sendProposal() {
 if (EXISTING_ITEMS.length) EXISTING_ITEMS.forEach(it => addRow(it));
 if (EXISTING_DISCOUNTS.length) EXISTING_DISCOUNTS.forEach(d => addDiscount(d));
 refreshSummary();
+// Versão enviada, substituída ou encerrada: tela só de leitura.
+if (!CAN_EDIT) {
+    document.querySelectorAll('.main-content input, .main-content textarea, .main-content select, .main-content .btn-outline-danger')
+        .forEach(el => { if (!el.closest('.modal') && el.id !== 'p-online-link') el.disabled = true; });
+}
 
 async function reopenProposal() {
-    if (!confirm('Reabrir esta proposta recusada para editar? Ela volta para "em elaboração".')) return;
-    const fd = new FormData(); fd.append('csrf_token', CSRF); fd.append('status', 'draft');
-    const r = await fetch(`${PROP_BASE}proposal/status/${PROPOSAL_ID}`, { method:'POST', body: fd, headers:{'X-Requested-With':'XMLHttpRequest'} })
+    if (!confirm('Criar uma nova versão desta proposta para editar? A versão atual fica guardada, somente leitura.')) return;
+    const fd = new FormData(); fd.append('csrf_token', CSRF);
+    const r = await fetch(`${PROP_BASE}proposal/reopen/${PROPOSAL_ID}`, { method:'POST', body: fd, headers:{'X-Requested-With':'XMLHttpRequest'} })
         .then(x=>x.json()).catch(()=>({error:'Falha de rede'}));
     if (r.error) { alert(r.error); return; }
-    location.reload();
+    location.href = `${PROP_BASE}proposal/edit/${r.id}`;
 }
 function genContract() {
     const modal = new bootstrap.Modal(document.getElementById('genContractModal'));

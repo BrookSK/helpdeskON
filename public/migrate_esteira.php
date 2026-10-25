@@ -53,6 +53,7 @@ $migrations = [
     '161_commercial_presentations.sql',
     '162_proposal_document.sql',
     '165_meeting_transcription_queue.sql',
+    '166_commercial_flow_links.sql',
 ];
 
 $db = Database::getInstance();

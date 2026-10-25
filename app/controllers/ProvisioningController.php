@@ -60,8 +60,9 @@ class ProvisioningController extends Controller
         if (!$onb) $this->json(['error' => 'Onboarding não encontrado.'], 404);
 
         // Pipeline: 'esteira_cx' (projeto entra na esteira do CX) ou 'fora_esteira'
-        // (projeto do zero, infra automática pela API LRV). Default fora_esteira.
-        $pipeline = ProvisioningRules::normalizePipeline($_POST['pipeline'] ?? null) ?? ProvisioningRules::PIPELINE_OUT;
+        // (projeto do zero, infra automática pela API LRV). Vale o definido no
+        // onboarding; sem ele, o do POST; sem os dois, fora_esteira.
+        $pipeline = ProvisioningRules::pipelineFor($onb['pipeline_mode'] ?? null, $_POST['pipeline'] ?? null);
 
         $id = $this->prov->createFromOnboarding($onb, $user['id'], $pipeline);
         $this->json(['success' => true, 'id' => $id, 'pipeline' => $pipeline]);

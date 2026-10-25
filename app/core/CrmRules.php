@@ -62,6 +62,21 @@ class CrmRules
         return in_array($n, ['fechado', 'ganho', 'convertido', 'fechado/ganho'], true);
     }
 
+    /**
+     * Coluna de ganho de um quadro: a primeira (por posição) cujo nome é de
+     * "fechado/ganho". Null quando o quadro não tem coluna de ganho.
+     *
+     * @param array<int,array{id:int|string,name:string,position?:int|string|null}> $columns
+     */
+    public static function findWonColumn(array $columns): ?array
+    {
+        usort($columns, fn($a, $b) => (int)($a['position'] ?? 0) <=> (int)($b['position'] ?? 0));
+        foreach ($columns as $col) {
+            if (self::isClosedColumn($col['name'] ?? null)) return $col;
+        }
+        return null;
+    }
+
     // Nomes canônicos das colunas terminais de perda no board de prospecção.
     // O SequenceEngine e a etiqueta manual movem o card para estas colunas.
     public const COLUMN_NOT_INTERESTED = 'Sem Interesse';

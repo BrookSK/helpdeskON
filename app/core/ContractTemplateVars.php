@@ -23,6 +23,10 @@ class ContractTemplateVars
             'cliente_email'    => 'E-mail do cliente',
             'cliente_telefone' => 'Telefone do cliente',
             'empresa_nome'     => 'Nome da empresa (cliente), quando houver',
+            'cliente_documento'=> 'CPF ou CNPJ do cliente',
+            'cliente_endereco' => 'Endereço do cliente',
+            'proposta_itens'   => 'Tabela com os itens da proposta aceita (descrição, quantidade e valor)',
+            'condicao_pagamento' => 'Condição de pagamento (da proposta ou o padrão das configurações)',
             'proposta_titulo'  => 'Título da proposta',
             'proposta_total'   => 'Valor total da proposta (R$)',
             'proposta_total_liquido' => 'Total do 1º ano já com desconto (R$)',
@@ -62,6 +66,38 @@ class ContractTemplateVars
         return 'R$ ' . number_format((float)$v, 2, ',', '.');
     }
 
+    /**
+     * Condição de pagamento do contrato: o texto da proposta; sem ele, o padrão
+     * das configurações; sem os dois, "a combinar".
+     */
+    public static function paymentCondition(array $proposal, ?string $default = null): string
+    {
+        $content = class_exists('ProposalRules') ? ProposalRules::decodeContent($proposal['content'] ?? null) : [];
+        $text = trim((string)($content['payment_method'] ?? ''));
+        if ($text === '') $text = trim((string)$default);
+        return $text !== '' ? $text : 'a combinar';
+    }
+
+    /** Tabela HTML dos itens (descrição, quantidade e valor). Vazia sem itens. */
+    public static function itemsTable(array $items): string
+    {
+        $rows = '';
+        foreach ($items as $it) {
+            $desc = trim((string)($it['description'] ?? ''));
+            if ($desc === '') continue;
+            $qty = (float)($it['quantity'] ?? 1) ?: 1.0;
+            $qtyTxt = rtrim(rtrim(number_format($qty, 2, ',', '.'), '0'), ',');
+            $value = self::money($it['amount'] ?? 0) . (($it['billing'] ?? '') === 'monthly' ? '/mês' : '');
+            $rows .= '<tr><td>' . htmlspecialchars($desc, ENT_QUOTES, 'UTF-8') . '</td>'
+                . '<td style="text-align:center">' . $qtyTxt . '</td>'
+                . '<td style="text-align:right">' . $value . '</td></tr>';
+        }
+        if ($rows === '') return '';
+        return '<table style="width:100%;border-collapse:collapse" border="1" cellpadding="6">'
+            . '<thead><tr><th>Descrição</th><th>Quantidade</th><th>Valor</th></tr></thead>'
+            . '<tbody>' . $rows . '</tbody></table>';
+    }
+
     private static function dateBr(?string $d): string
     {
         $ts = $d ? strtotime($d) : false;
@@ -75,9 +111,14 @@ class ContractTemplateVars
      * @param array $proposal
      * @param string|null $prestador Nome da empresa dona do sistema (app_name)
      * @param string|null $empresaCliente Nome da empresa do cliente (companies.name)
+     * @param array $items itens da proposta (versão aceita)
+     * @param string|null $paymentDefault condição de pagamento padrão (Settings)
      * @return array<string,string>
+     *
+     * client_document e client_address vêm do contrato quando o chamador os
+     * junta à proposta.
      */
-    public static function valuesFromProposal(array $proposal, ?string $prestador = null, ?string $empresaCliente = null, array $items = []): array
+    public static function valuesFromProposal(array $proposal, ?string $prestador = null, ?string $empresaCliente = null, array $items = [], ?string $paymentDefault = null): array
     {
         // Totais comerciais (com desconto) via fonte única, quando disponível.
         $comm = null;
@@ -94,6 +135,10 @@ class ContractTemplateVars
             'cliente_email'     => (string)($proposal['client_email'] ?? ''),
             'cliente_telefone'  => (string)($proposal['client_phone'] ?? ''),
             'empresa_nome'      => (string)($empresaCliente ?? ''),
+            'cliente_documento' => (string)($proposal['client_document'] ?? ''),
+            'cliente_endereco'  => (string)($proposal['client_address'] ?? ''),
+            'proposta_itens'    => self::itemsTable($items),
+            'condicao_pagamento'=> self::paymentCondition($proposal, $paymentDefault),
             'proposta_titulo'   => (string)($proposal['title'] ?? ''),
             'proposta_total'    => self::money($proposal['total'] ?? 0),
             'proposta_total_liquido' => self::money($totalNet),

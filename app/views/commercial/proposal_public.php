@@ -160,6 +160,10 @@ $period = (!empty($timeline['start']) && !empty($timeline['end']))
         </div></div>
     <?php elseif ($proposal['status'] === 'cancelled'): ?>
         <div class="banner no">Esta proposta foi cancelada.</div>
+    <?php elseif (!empty($isSuperseded)): ?>
+        <div class="banner no" id="superseded-banner">Existe uma versão mais nova desta proposta. Esta versão (<?= $e($revisionLabel ?? '') ?>) não pode mais ser aceita nem recusada. Abra o link mais recente que você recebeu.</div>
+    <?php elseif (!empty($isExpired)): ?>
+        <div class="banner no" id="expired-banner">Esta proposta venceu em <?= $e($brDate($proposal['validity_date'])) ?>. Fale com a equipe para receber uma versão atualizada.</div>
     <?php endif; ?>
     </div>
 
@@ -310,6 +314,9 @@ $period = (!empty($timeline['start']) && !empty($timeline['end']))
             </div>
             <?php endif; ?>
 
+            <label for="accept-name" style="display:block;margin:10px 0 4px;color:#fff;font-weight:600;">Seu nome completo (registrado no aceite)</label>
+            <input id="accept-name" type="text" maxlength="200" autocomplete="name" style="width:100%;padding:11px;border-radius:10px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.06);color:#fff;">
+
             <div class="actions">
                 <button class="btn btn-ok" onclick="accept(this)">Aceitar proposta</button>
                 <button class="btn btn-alt" onclick="toggle('alt-box')">Solicitar alteração</button>
@@ -385,6 +392,9 @@ $period = (!empty($timeline['start']) && !empty($timeline['end']))
     async function accept(btn) {
         let planLabel = '';
         const fd = new URLSearchParams();
+        const name = document.getElementById('accept-name').value.trim();
+        if (!name) { alert('Informe seu nome para registrar o aceite.'); document.getElementById('accept-name').focus(); return; }
+        fd.append('name', name);
         if (HAS_PLANS) {
             const plan = chosenPlan();
             if (!plan) { alert('Selecione o plano que deseja aceitar.'); return; }

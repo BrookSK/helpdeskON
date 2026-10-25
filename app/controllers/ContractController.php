@@ -10,6 +10,9 @@
  */
 class ContractController extends Controller
 {
+    /** Usado pelo portal do cliente; não é rota. */
+    public const INTERNAL_METHODS = ['sendSignedPdf'];
+
     private $model;
 
     public function __construct()
@@ -225,31 +228,8 @@ class ContractController extends Controller
         if (!$tpl) $this->json(['error' => 'Modelo não encontrado.'], 404);
 
         $contract = $contractId ? $this->model->findById($contractId) : null;
-        // Monta os valores a partir do contrato (que já tem os dados do cliente).
-        $prestador = (string) Config::get('app_name');
-        $empresaCliente = null;
-        if ($contract && !empty($contract['company_id'])) {
-            $co = Database::getInstance()->fetch("SELECT name FROM companies WHERE id = ?", [(int)$contract['company_id']]);
-            $empresaCliente = $co['name'] ?? null;
-        }
-        // O contrato guarda client_name/email/phone e proposal_id; usamos a
-        // proposta vinculada p/ total/validade/tipo quando houver.
-        $proposalLike = [
-            'client_name'  => $contract['client_name'] ?? '',
-            'client_email' => $contract['client_email'] ?? '',
-            'client_phone' => $contract['client_phone'] ?? '',
-            'title'        => $contract['title'] ?? '',
-        ];
-        if ($contract && !empty($contract['proposal_id'])) {
-            $p = (new Proposal())->findById((int)$contract['proposal_id']);
-            if ($p) {
-                $proposalLike['title'] = $p['title'] ?? $proposalLike['title'];
-                $proposalLike['total'] = $p['total'] ?? 0;
-                $proposalLike['validity_date'] = $p['validity_date'] ?? null;
-                $proposalLike['contract_type'] = $p['contract_type'] ?? null;
-            }
-        }
-        $values = ContractTemplateVars::valuesFromProposal($proposalLike, $prestador, $empresaCliente);
+        // Valores do contrato (cliente, CPF/CNPJ, endereço) e da proposta vinculada.
+        $values = $this->model->valuesForContract($contract ?: []);
         $rendered = ContractTemplateVars::render((string)($tpl['body'] ?? ''), $values);
         $this->json(['success' => true, 'body' => $rendered]);
     }
@@ -267,6 +247,8 @@ class ContractController extends Controller
             'events' => $this->model->getEvents($id),
             'canEdit' => ContractRules::canEditBody($contract['status']),
             'canSign' => ContractRules::canSendToSignature($contract['status']),
+            'canUpload' => ContractRules::canUploadSigned($contract['status']),
+            'clicksignReady' => (new ClickSignApi())->isConfigured(),
             // Modelos ativos para o botão "Carregar de um modelo" (só com corpo editável).
             'templates' => (new ContractTemplate())->getAll(true),
             // Signatários da empresa (para escolher quem assina junto com o cliente).
@@ -323,6 +305,8 @@ class ContractController extends Controller
             'client_name'  => isset($body['client_name']) ? (trim($body['client_name']) ?: null) : $contract['client_name'],
             'client_email' => isset($body['client_email']) ? (trim($body['client_email']) ?: null) : $contract['client_email'],
             'client_phone' => isset($body['client_phone']) ? (trim($body['client_phone']) ?: null) : $contract['client_phone'],
+            'client_document' => isset($body['client_document']) ? (mb_substr(trim($body['client_document']), 0, 30) ?: null) : $contract['client_document'],
+            'client_address'  => isset($body['client_address']) ? (mb_substr(trim($body['client_address']), 0, 500) ?: null) : $contract['client_address'],
         ]);
         $this->model->addEvent($id, $user['id'], 'edited', 'Contrato editado');
         $this->json(['success' => true]);
@@ -420,6 +404,9 @@ class ContractController extends Controller
         }
         if (empty($contract['client_email'])) {
             $this->json(['error' => 'Informe o e-mail do cliente para a assinatura.'], 400);
+        }
+        if (!ContractRules::hasClientDocument($contract['client_document'] ?? '')) {
+            $this->json(['error' => 'Informe o CPF ou CNPJ do cliente no contrato antes de enviar para assinatura.'], 400);
         }
         $user = $this->currentUser();
 
@@ -535,6 +522,61 @@ class ContractController extends Controller
         ]);
     }
 
+    /**
+     * Upload do PDF assinado fora da ClickSign (POST multipart, campo "file").
+     * Assina o contrato pelo mesmo caminho do webhook.
+     */
+    public function uploadSigned($id = null)
+    {
+        $this->requireModule('contracts');
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+        $user = $this->currentUser();
+        $f = $_FILES['file'] ?? null;
+        if (!$f || ($f['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || !is_uploaded_file($f['tmp_name'])) {
+            $tooBig = in_array($f['error'] ?? null, [UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE], true);
+            $this->json(['error' => $tooBig ? 'O arquivo passa do limite de upload do servidor.' : 'Envie o PDF do contrato assinado.'], 400);
+        }
+        $contract = $this->model->findById($id);
+        if (!$contract) $this->json(['error' => 'Contrato não encontrado'], 404);
+
+        $r = (new ContractSigning($this->model))->uploadSigned((int)$id, $f['tmp_name'], (int)$user['id'], $user['name'] ?? null);
+        if (!$r['ok']) $this->json(['error' => $r['error']], $r['code']);
+        if ($r['newly_signed']) {
+            $this->notifyTeamResponse($contract, 'signed', 'Contrato assinado',
+                "O contrato \"{$contract['title']}\" foi assinado (PDF enviado por upload)."
+                . ($r['finance_id'] ? " Projeto financeiro #{$r['finance_id']} criado." : ''));
+        }
+        $this->json(['success' => true, 'finance_id' => $r['finance_id']]);
+    }
+
+    /** Download do PDF assinado (só com login no módulo de contratos). */
+    public function signedFile($id = null)
+    {
+        $this->requireModule('contracts');
+        $contract = $id ? $this->model->findById($id) : null;
+        self::sendSignedPdf($contract);
+    }
+
+    /** Envia o PDF assinado guardado em storage/ ou responde 404. */
+    public static function sendSignedPdf(?array $contract): void
+    {
+        $path = '';
+        if ($contract && ($contract['signed_file_status'] ?? '') === ContractSigning::FILE_STORED && !empty($contract['signed_file_path'])) {
+            $path = (new ContractSigning())->absolutePath($contract['signed_file_path']);
+        }
+        if ($path === '' || !is_file($path)) {
+            http_response_code(404);
+            echo 'Arquivo não encontrado.';
+            exit;
+        }
+        header('Content-Type: application/pdf');
+        header('Content-Length: ' . filesize($path));
+        header('Content-Disposition: inline; filename="contrato-' . (int)$contract['id'] . '-assinado.pdf"');
+        header('X-Content-Type-Options: nosniff');
+        readfile($path);
+        exit;
+    }
+
     // ================= Área pública (cliente, por token) =================
 
     /**
@@ -615,17 +657,22 @@ class ContractController extends Controller
 
         if ($docKey && $action === 'signed') {
             $contract = $this->model->findByClickSignDocKey($docKey);
-            if ($contract && $contract['status'] !== ContractRules::STATUS_SIGNED) {
-                $this->model->changeStatus($contract['id'], ContractRules::STATUS_SIGNED, null, ['signed_at' => date('Y-m-d H:i:s')]);
-                $this->model->addEvent($contract['id'], null, 'signed', 'Assinatura confirmada pela ClickSign');
-                // Emenda automática contrato -> financeiro: ao assinar, já cria o
-                // projeto financeiro (se ainda não existir). O onboarding só começa
-                // depois da ENTRADA PAGA (regra do financeiro), então aqui paramos
-                // no financeiro, que é o próximo passo real do fluxo.
-                $financeId = $this->ensureFinanceProject($contract);
-                $extra = $financeId ? " Projeto financeiro #{$financeId} criado — defina o plano de pagamento." : ' Siga para o financeiro.';
-                $this->notifyTeamResponse($contract, 'signed', 'Contrato assinado',
-                    "O contrato \"{$contract['title']}\" foi assinado." . $extra);
+            if ($contract) {
+                // Mesmo caminho do upload: assina e garante um único projeto
+                // financeiro. O onboarding só começa com a ENTRADA PAGA.
+                $signing = new ContractSigning($this->model);
+                $r = $signing->onContractSigned((int)$contract['id'], ContractSigning::ORIGIN_CLICKSIGN);
+                if ($r['ok']) {
+                    $signing->markFilePending((int)$contract['id']);
+                    if ($r['newly_signed']) {
+                        $extra = $r['finance_id'] ? " Projeto financeiro #{$r['finance_id']} criado — defina o plano de pagamento." : ' Siga para o financeiro.';
+                        $this->notifyTeamResponse($contract, 'signed', 'Contrato assinado',
+                            "O contrato \"{$contract['title']}\" foi assinado." . $extra);
+                    }
+                    // Primeira tentativa do PDF assinado; se falhar, o cron
+                    // contractSignedFiles tenta de novo.
+                    try { $signing->fetchSignedFile((int)$contract['id']); } catch (\Throwable $e) { /* o cron tenta de novo */ }
+                }
             }
         } elseif ($docKey && $action === 'cancelled') {
             $contract = $this->model->findByClickSignDocKey($docKey);
@@ -639,32 +686,6 @@ class ContractController extends Controller
     }
 
     // ================= Helpers =================
-
-    /**
-     * Garante o projeto financeiro do contrato assinado (idempotente). Retorna o
-     * id do projeto (novo ou existente) ou null em falha. O total vem da proposta
-     * vinculada, quando houver. Nunca interrompe o webhook.
-     */
-    private function ensureFinanceProject(array $contract): ?int
-    {
-        try {
-            $fp = new FinanceProject();
-            $existing = $fp->findByContract((int)$contract['id']);
-            if ($existing) return (int)$existing['id'];
-
-            $total = 0.0;
-            if (!empty($contract['proposal_id'])) {
-                $p = (new Proposal())->findById((int)$contract['proposal_id']);
-                if ($p) $total = (float)$p['total'];
-            }
-            // created_by: usa o criador do contrato (webhook não tem usuário logado).
-            $userId = !empty($contract['created_by']) ? (int)$contract['created_by'] : null;
-            return (int) $fp->createFromContract($contract, $total, $userId);
-        } catch (\Throwable $e) {
-            if (class_exists('Logger')) Logger::error('ensureFinanceProject falhou', ['contract' => $contract['id'] ?? null, 'error' => $e->getMessage()]);
-            return null;
-        }
-    }
 
     private function notifyTeam($contract, $title, $message)
     {

@@ -70,6 +70,69 @@ class Proposal
         return $this->db->delete('proposals', 'id = ?', [$id]);
     }
 
+    // ================= Versões =================
+
+    /** Todas as versões da proposta (R01, R02...), da mais antiga à vigente. */
+    public function getRevisions(array $proposal): array
+    {
+        $root = (int)($proposal['root_proposal_id'] ?? 0) ?: (int)$proposal['id'];
+        return $this->db->fetchAll(
+            "SELECT id, revision_no, status, total, created_at, sent_at, responded_at, superseded_by
+             FROM proposals WHERE root_proposal_id = ? OR id = ?
+             ORDER BY revision_no ASC, id ASC",
+            [$root, $root]
+        );
+    }
+
+    /**
+     * Cria a próxima versão em rascunho copiando a proposta, os itens e o texto
+     * fixo gravado (fixed_snapshot). A anterior ganha superseded_by e fica só
+     * para leitura. Devolve o id da nova versão, ou null se não cabe versão
+     * (status que se edita na própria linha) ou se já foi substituída.
+     */
+    public function createRevision($proposalId, $userId = null): ?int
+    {
+        $pdo = $this->db->getConnection();
+        $pdo->beginTransaction();
+        try {
+            $old = $this->db->fetch("SELECT * FROM proposals WHERE id = ? FOR UPDATE", [$proposalId]);
+            if (!$old || !empty($old['superseded_by']) || !ProposalRules::requiresNewRevision($old['status'])) {
+                $pdo->rollBack();
+                return null;
+            }
+            $root = (int)($old['root_proposal_id'] ?: $old['id']);
+            $max = $this->db->fetch("SELECT MAX(revision_no) AS n FROM proposals WHERE root_proposal_id = ? OR id = ?", [$root, $root]);
+            $next = max((int)($max['n'] ?? 1), (int)$old['revision_no']) + 1;
+
+            $row = $old;
+            foreach (['id', 'created_at', 'updated_at', 'sent_at', 'responded_at', 'reject_reason', 'accepted_plan',
+                      'accepted_name', 'accepted_ip', 'accepted_user_agent', 'accepted_revision', 'superseded_by'] as $k) {
+                unset($row[$k]);
+            }
+            $row['public_token'] = $this->generateToken();
+            $row['status'] = ProposalRules::STATUS_DRAFT;
+            $row['root_proposal_id'] = $root;
+            $row['revision_no'] = $next;
+            $row['created_by'] = $userId ?: $old['created_by'];
+            $newId = (int)$this->db->insert('proposals', $row);
+
+            foreach ($this->getItems($old['id']) as $it) {
+                unset($it['id'], $it['created_at']);
+                $it['proposal_id'] = $newId;
+                $this->db->insert('proposal_items', $it);
+            }
+            $this->update($old['id'], ['superseded_by' => $newId]);
+            $label = ProposalRules::revisionLabel($next);
+            $this->addEvent($old['id'], $userId, 'superseded', 'Substituída pela versão ' . $label . ' (#' . $newId . ')');
+            $this->addEvent($newId, $userId, 'revision', 'Versão ' . $label . ' criada a partir da ' . ProposalRules::revisionLabel($old['revision_no']) . ' (#' . $old['id'] . ')');
+            $pdo->commit();
+            return $newId;
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            throw $e;
+        }
+    }
+
     // ================= Itens =================
 
     public function getItems($proposalId)
