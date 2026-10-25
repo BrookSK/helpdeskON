@@ -89,11 +89,7 @@ class AsaasApi
         curl_setopt($ch, CURLOPT_URL, $url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_TIMEOUT, 30);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, [
-            'Content-Type: application/json',
-            'Accept: application/json',
-            'access_token: ' . $this->token,
-        ]);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, AsaasRules::headers($this->token));
         curl_setopt($ch, CURLOPT_CUSTOMREQUEST, strtoupper($method));
         if ($data !== null && strtoupper($method) !== 'GET') {
             curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data, JSON_UNESCAPED_UNICODE));

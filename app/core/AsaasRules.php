@@ -16,6 +16,17 @@ class AsaasRules
         return $sandbox ? self::BASE_SANDBOX : self::BASE_PROD;
     }
 
+    /** Cabeçalhos da API. O Asaas recusa requisição sem User-Agent. */
+    public static function headers(string $token): array
+    {
+        return [
+            'Content-Type: application/json',
+            'Accept: application/json',
+            'User-Agent: HelpdeskON',
+            'access_token: ' . $token,
+        ];
+    }
+
     /** Mapeia nosso método para o billingType do Asaas. */
     public static function billingType(?string $method): string
     {
