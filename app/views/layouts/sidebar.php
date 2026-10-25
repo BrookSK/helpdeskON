@@ -69,6 +69,11 @@
                     <i class="bi bi-folder"></i> Documentos
                 </a>
             </li>
+            <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'portal' ? 'active' : '' ?>" href="<?= baseUrl('portal') ?>">
+                    <i class="bi bi-briefcase"></i> Contratos e cobranças
+                </a>
+            </li>
             <?php
             $sidebarFullUser = (new User())->findById($user['id'] ?? 0);
             if ($sidebarFullUser && $sidebarFullUser['is_company_owner']): ?>

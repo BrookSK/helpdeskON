@@ -357,6 +357,11 @@ class OnboardingController extends Controller
             $pending = $this->onboardings->pendingRequired($id);
             $this->json(['error' => 'Etapas obrigatórias pendentes.', 'pending' => $pending], 409);
         }
-        $this->json(['success' => true]);
+        // O projeto do cliente nasce aqui (idempotente).
+        $project = (new Project())->ensureForOnboarding($this->onboardings->findById($id), (int)$user['id']);
+        if ($project['created']) {
+            $this->onboardings->addEvent((int)$id, $user['id'], 'project', 'Projeto #' . $project['id'] . ' criado');
+        }
+        $this->json(['success' => true, 'project_id' => $project['id']]);
     }
 }
