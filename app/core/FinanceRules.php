@@ -72,6 +72,8 @@ class FinanceRules
      *   'installments' => int (nº de parcelas do restante),
      *   'first_installment_due' => 'Y-m-d', 'installment_interval_days' => int (ex.: 30),
      *   'installment_method' => 'pix|boleto|cartao',
+     *   'recurring_amount' => float (mensalidade, vira assinatura no Asaas),
+     *   'recurring_start' => 'Y-m-d', 'recurring_method', 'recurring_cycle',
      * ]
      * @return array<int,array> cada item: kind, amount, due_date, method,
      *   installment_no, installment_total, description.
@@ -118,7 +120,91 @@ class FinanceRules
                 ];
             }
         }
+
+        $recurring = self::money($p['recurring_amount'] ?? 0);
+        if ($recurring > 0) {
+            $start = self::dateOrNull($p['recurring_start'] ?? null);
+            $charges[] = [
+                'kind' => 'recurring',
+                'amount' => round($recurring, 2),
+                'due_date' => $start,
+                'method' => self::normalizeMethod($p['recurring_method'] ?? null),
+                'installment_no' => null,
+                'installment_total' => null,
+                'recurring_cycle' => self::normalizeCycle($p['recurring_cycle'] ?? null) ?? 'monthly',
+                'recurring_start' => $start,
+                'description' => 'Mensalidade',
+            ];
+        }
         return $charges;
+    }
+
+    /** Percentual de entrada quando nada está configurado (spec finance-billing). */
+    public const DEFAULT_ENTRY_PERCENT = 50.0;
+
+    /** Percentual de entrada válido (0 a 100); vazio ou inválido usa o padrão. */
+    public static function entryPercent($v): float
+    {
+        if ($v === null || trim((string)$v) === '' || !is_numeric(str_replace(',', '.', (string)$v))) {
+            return self::DEFAULT_ENTRY_PERCENT;
+        }
+        return round(min(100.0, max(0.0, (float)str_replace(',', '.', (string)$v))), 2);
+    }
+
+    /**
+     * Plano sugerido a partir da versão aceita da proposta. Recebe os valores já
+     * calculados por ProposalRules: pontual líquido de desconto e mensalidade do
+     * plano aceito. A entrada é um percentual do pontual; o restante vira a
+     * parcela de entrega, que vence no fim do desenvolvimento quando houver.
+     *
+     * @return array{entry_percent:float,once_total:float,entry:float,delivery:float,delivery_due:?string,monthly:float,monthly_months:?int}
+     */
+    public static function suggestFromProposal(float $onceNet, float $monthly, $entryPercent = null, ?string $deliveryDue = null, ?int $planMonths = null): array
+    {
+        $once = round(max(0.0, $onceNet), 2);
+        $pct = self::entryPercent($entryPercent);
+        $entry = round($once * $pct / 100, 2);
+        return [
+            'entry_percent' => $pct,
+            'once_total' => $once,
+            'entry' => $entry,
+            'delivery' => round($once - $entry, 2),
+            'delivery_due' => self::dateOrNull($deliveryDue),
+            'monthly' => round(max(0.0, $monthly), 2),
+            'monthly_months' => $monthly > 0 ? $planMonths : null,
+        ];
+    }
+
+    /**
+     * Salvar o plano de novo: as cobranças pagas, emitidas no Asaas ou em
+     * emissão ficam; o plano novo não repete a entrada nem a mensalidade que
+     * já ficaram.
+     *
+     * @param array $existing cobranças atuais do projeto
+     * @param array $plan plano novo (buildChargePlan)
+     * @return array{keep:array,remove_ids:int[],add:array}
+     */
+    public static function mergePlan(array $existing, array $plan): array
+    {
+        $keep = [];
+        $remove = [];
+        foreach ($existing as $c) {
+            if (self::isReplaceable($c)) $remove[] = (int)$c['id'];
+            else $keep[] = $c;
+        }
+        $keptKinds = array_column($keep, 'kind');
+        $add = array_values(array_filter($plan, function ($c) use ($keptKinds) {
+            $kind = $c['kind'] ?? 'installment';
+            return !in_array($kind, ['entry', 'recurring'], true) || !in_array($kind, $keptKinds, true);
+        }));
+        return ['keep' => $keep, 'remove_ids' => $remove, 'add' => $add];
+    }
+
+    /** Cobrança pendente que nunca foi ao Asaas: pode ser substituída. */
+    public static function isReplaceable(array $c): bool
+    {
+        return ($c['status'] ?? '') === 'pending' && empty($c['asaas_charge_id'])
+            && empty($c['asaas_subscription_id']) && empty($c['issuing_at']);
     }
 
     /**

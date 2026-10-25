@@ -29,14 +29,42 @@ class AsaasApi
         return AsaasRules::isConfigured($this->token);
     }
 
-    public function createCharge(string $customerId, float $value, ?string $dueDate, ?string $method, ?string $description): array
+    /** Ambiente da conta (para a tela mostrar SANDBOX ou PRODUÇÃO). */
+    public function isSandbox(): bool
     {
-        return $this->request('POST', '/payments', AsaasRules::chargePayload($customerId, $value, $dueDate, $method, $description));
+        return $this->sandbox;
     }
 
-    public function createSubscription(string $customerId, float $value, string $cycle, ?string $nextDueDate, ?string $method, ?string $description): array
+    public function createCharge(string $customerId, float $value, ?string $dueDate, ?string $method, ?string $description, ?string $externalReference = null): array
     {
-        return $this->request('POST', '/subscriptions', AsaasRules::subscriptionPayload($customerId, $value, $cycle, $nextDueDate, $method, $description));
+        return $this->request('POST', '/payments', AsaasRules::chargePayload($customerId, $value, $dueDate, $method, $description, $externalReference));
+    }
+
+    public function createSubscription(string $customerId, float $value, string $cycle, ?string $nextDueDate, ?string $method, ?string $description, ?string $externalReference = null): array
+    {
+        return $this->request('POST', '/subscriptions', AsaasRules::subscriptionPayload($customerId, $value, $cycle, $nextDueDate, $method, $description, $externalReference));
+    }
+
+    /** Cliente da conta pelo CPF/CNPJ (GET /customers?cpfCnpj=). Lista em data['data']. */
+    public function findCustomerByDocument(string $document): array
+    {
+        return $this->request('GET', '/customers?' . http_build_query(['cpfCnpj' => AsaasRules::documentDigits($document)]));
+    }
+
+    public function createCustomer(string $name, string $document, ?string $email = null, ?string $phone = null, ?string $externalReference = null): array
+    {
+        return $this->request('POST', '/customers', AsaasRules::customerPayload($name, $document, $email, $phone, $externalReference));
+    }
+
+    /** Cobrança criada numa tentativa anterior (recupera após estouro de tempo). */
+    public function findPaymentByReference(string $externalReference): array
+    {
+        return $this->request('GET', '/payments?' . http_build_query(['externalReference' => $externalReference]));
+    }
+
+    public function findSubscriptionByReference(string $externalReference): array
+    {
+        return $this->request('GET', '/subscriptions?' . http_build_query(['externalReference' => $externalReference]));
     }
 
     /**
@@ -81,6 +109,7 @@ class AsaasApi
         }
         $decoded = json_decode($raw, true);
         $ok = $http >= 200 && $http < 300;
-        return ['success' => $ok, 'http' => $http, 'data' => is_array($decoded) ? $decoded : null, 'error' => $ok ? null : ('Asaas HTTP ' . $http)];
+        $data = is_array($decoded) ? $decoded : null;
+        return ['success' => $ok, 'http' => $http, 'data' => $data, 'error' => $ok ? null : AsaasRules::errorMessage($data, $http)];
     }
 }

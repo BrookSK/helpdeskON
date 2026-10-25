@@ -91,11 +91,10 @@ class ContractSigning
         $existing = $fp->findByContract((int)$contract['id']);
         if ($existing) return (int)$existing['id'];
 
-        $total = 0.0;
-        if (!empty($contract['proposal_id'])) {
-            $p = (new Proposal())->findById((int)$contract['proposal_id']);
-            if ($p) $total = (float)$p['total'];
-        }
+        // Total do projeto: o pontual líquido da versão aceita (a mensalidade
+        // vira assinatura à parte, no plano).
+        $suggestion = !empty($contract['proposal_id']) ? $fp->suggestionForProposal((int)$contract['proposal_id']) : null;
+        $total = (float)($suggestion['once_total'] ?? 0);
         // created_by: o criador do contrato (o webhook não tem usuário logado).
         $userId = !empty($contract['created_by']) ? (int)$contract['created_by'] : null;
         return (int)$fp->createFromContract($contract, $total, $userId);

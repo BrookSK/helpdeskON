@@ -68,12 +68,11 @@ class OnboardingController extends Controller
             $this->json(['error' => 'O onboarding só inicia após a entrada ser paga.'], 409);
         }
 
-        $contract = null;
-        if (!empty($project['contract_id'])) {
-            $contract = (new Contract())->findById((int)$project['contract_id']);
-        }
-        $id = $this->onboardings->createFromProject($project, $contract, $user['id']);
-        $this->json(['success' => true, 'id' => $id]);
+        // Um onboarding por projeto financeiro: devolve o que já existe (criado
+        // pela baixa automática ou por outro clique).
+        $onb = (new OnboardingStarter($this->projects, $this->onboardings))->ensureForFinanceProject($projectId, (int)$user['id']);
+        if (!$onb) $this->json(['error' => 'O onboarding só inicia após a entrada ser paga.'], 409);
+        $this->json(['success' => true, 'id' => $onb['id'], 'created' => $onb['created']]);
     }
 
     /** Inicia o onboarding (destrava se a entrada estiver paga). */
