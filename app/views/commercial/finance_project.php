@@ -10,6 +10,23 @@ $brl = fn($v) => 'R$ ' . number_format((float)$v, 2, ',', '.');
 // Sem cobranças ainda, o formulário já vem com a sugestão da proposta aceita.
 $sg = $suggestion;
 $prefill = empty($charges) && $sg;
+// Conta pré-selecionada por tipo: a das cobranças já geradas; sem plano, a da finalidade.
+$accSel = [
+    'entry' => FinanceRules::pickAccount($accounts, 'parcela'),
+    'installment' => FinanceRules::pickAccount($accounts, 'parcela'),
+    'recurring' => FinanceRules::pickAccount($accounts, 'recorrente'),
+];
+foreach ($charges as $c) {
+    if (!empty($c['account_id']) && isset($accById[(int)$c['account_id']]) && isset($accSel[$c['kind']])) $accSel[$c['kind']] = (int)$c['account_id'];
+}
+$accOptions = function (?int $selected) use ($accounts) {
+    $html = '';
+    foreach ($accounts as $a) {
+        $env = (int)$a['sandbox'] === 1 ? 'SANDBOX' : 'PRODUÇÃO';
+        $html .= '<option value="' . (int)$a['id'] . '"' . ((int)$a['id'] === $selected ? ' selected' : '') . '>' . escape($a['name']) . ' (' . $env . ')</option>';
+    }
+    return $html;
+};
 ?>
 <div class="main-content">
     <div class="top-bar">
@@ -70,6 +87,17 @@ $prefill = empty($charges) && $sg;
                         <div class="col-4"><label class="form-label small">Método</label>
                             <select id="f-monthly-method" class="form-select form-select-sm"><option value="boleto">Boleto</option><option value="pix">Pix</option><option value="cartao">Cartão</option></select>
                         </div>
+                        <?php if (!empty($accounts)): ?>
+                        <div class="col-4"><label class="form-label small">Conta da entrada</label>
+                            <select id="f-acc-entry" class="form-select form-select-sm"><?= $accOptions($accSel['entry']) ?></select>
+                        </div>
+                        <div class="col-4"><label class="form-label small">Conta das parcelas</label>
+                            <select id="f-acc-inst" class="form-select form-select-sm"><?= $accOptions($accSel['installment']) ?></select>
+                        </div>
+                        <div class="col-4"><label class="form-label small">Conta da mensalidade</label>
+                            <select id="f-acc-monthly" class="form-select form-select-sm"><?= $accOptions($accSel['recurring']) ?></select>
+                        </div>
+                        <?php endif; ?>
                     </div>
                     <p class="text-muted small mt-2 mb-0">Salvar de novo troca só as cobranças pendentes que ainda não foram ao Asaas. Pagas e emitidas ficam.</p>
                     <div class="form-check mt-3">
@@ -155,6 +183,9 @@ async function savePlan() {
         recurring_start: document.getElementById('f-monthly-start').value,
         recurring_method: document.getElementById('f-monthly-method').value,
         notify_client: document.getElementById('f-notify').checked ? 1 : 0,
+        account_entry: document.getElementById('f-acc-entry')?.value || null,
+        account_installment: document.getElementById('f-acc-inst')?.value || null,
+        account_recurring: document.getElementById('f-acc-monthly')?.value || null,
     };
     const r = await fetch(`${BASE}finance/savePlan/${PID}`, { method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':CSRF}, body: JSON.stringify(body) })
         .then(x=>x.json()).catch(()=>({error:'Falha de rede'}));

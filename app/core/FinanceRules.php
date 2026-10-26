@@ -223,6 +223,20 @@ class FinanceRules
     }
 
     /**
+     * Conta escolhida na tela do plano, se for uma conta ativa; senão, a regra
+     * por finalidade (pickAccount). Evita cair na primeira conta quando há
+     * produção e sandbox com a mesma finalidade.
+     */
+    public static function resolveAccount(array $accounts, $requested, string $purpose): ?int
+    {
+        $id = (int)$requested;
+        foreach ($accounts as $a) {
+            if ($id > 0 && (int)$a['id'] === $id && (int)($a['active'] ?? 1) === 1) return $id;
+        }
+        return self::pickAccount($accounts, $purpose);
+    }
+
+    /**
      * REGRA CENTRAL: o onboarding só pode começar quando a entrada estiver paga.
      * Recebe as cobranças do projeto; retorna true se há uma 'entry' paga OU se
      * não há entrada (projeto sem entrada exigida — ex.: só recorrente) e ao
