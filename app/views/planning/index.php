@@ -333,6 +333,11 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                         <span class="fw-medium" id="cal-title" style="font-size:0.9rem;min-width:140px;text-align:center;"></span>
                         <button class="btn btn-sm btn-outline-secondary" id="cal-next"><i class="bi bi-chevron-right"></i></button>
                         <button class="btn btn-sm btn-outline-primary" id="cal-today">Hoje</button>
+                        <?php if (($user['role'] ?? '') === 'super_admin'): ?>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="openRecessModal()" title="Gerenciar períodos de recesso">
+                            <i class="bi bi-calendar-x"></i> Recessos
+                        </button>
+                        <?php endif; ?>
                     </div>
                 </div>
                 <!-- Legenda de cores por prazo/status -->
@@ -347,6 +352,7 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                     <span class="cal-legend-item"><span class="cal-legend-swatch cat-waiting"></span>Aguardando cliente</span>
                     <span class="cal-legend-item"><span class="cal-legend-swatch cat-homolog"></span>Em homologação</span>
                     <span class="cal-legend-item"><span class="cal-legend-swatch cat-denied"></span>Negada</span>
+                    <span class="cal-legend-item"><span class="cal-legend-swatch legend-recess"></span>Recesso (ninguém trabalha)</span>
                 </div>
                 <!-- Aviso de demandas sem data: aparece só quando há cards ativos
                      sem prazo/janela. O botão "Revisar" abre o modal de revisão. -->
@@ -377,6 +383,48 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                     <p class="text-muted small mb-2">Estas demandas ativas não têm prazo nem janela de desenvolvimento, por isso não aparecem no calendário. Clique para abrir e definir uma data.</p>
                     <div id="undated-list">
                         <div class="text-center py-4 text-muted small"><span class="spinner-border spinner-border-sm"></span> Carregando...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL GERENCIAR RECESSOS (super_admin) -->
+    <div class="modal fade" id="recessModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header py-2">
+                    <h6 class="modal-title mb-0 fw-bold"><i class="bi bi-calendar-x text-secondary"></i> Períodos de recesso</h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small mb-3">Datas em que ninguém trabalha. Ao recalcular um cronograma (atividade predecessora), os cards que cairiam dentro de um recesso são deslocados automaticamente para depois dele.</p>
+
+                    <!-- Formulário de novo recesso -->
+                    <form id="recessForm" class="border rounded p-2 mb-3">
+                        <div class="row g-2 align-items-end">
+                            <div class="col-12">
+                                <label class="form-label small mb-1">Título</label>
+                                <input type="text" class="form-control form-control-sm" name="title" placeholder="Ex.: Recesso de fim de ano" required>
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small mb-1">Início</label>
+                                <input type="date" class="form-control form-control-sm" name="start_date" required>
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small mb-1">Fim</label>
+                                <input type="date" class="form-control form-control-sm" name="end_date" required>
+                            </div>
+                            <div class="col-12 d-grid">
+                                <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-plus-lg"></i> Adicionar recesso</button>
+                            </div>
+                        </div>
+                        <div id="recess-form-error" class="text-danger small mt-2" style="display:none;"></div>
+                    </form>
+
+                    <!-- Lista de recessos cadastrados -->
+                    <div id="recess-list">
+                        <div class="text-center py-3 text-muted small"><span class="spinner-border spinner-border-sm"></span> Carregando...</div>
                     </div>
                 </div>
             </div>
@@ -1007,6 +1055,11 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
 .cal-month-day-num { padding: 6px 8px 4px; font-size: 0.78rem; font-weight: 600; color: #555; border-right: 1px solid #f0f0f0; min-height: 28px; display: flex; align-items: center; justify-content: space-between; gap: 4px; }
 .cal-month-day-num:last-child { border-right: none; }
 .cal-month-day-num.other-month { opacity: 0.3; }
+/* Dia em recesso: fundo listrado discreto (ninguém trabalha). O "+" some para
+   não sugerir criação automática ali (criação manual ainda é possível pelo modal). */
+.cal-month-day-num.is-recess { background: repeating-linear-gradient(45deg, #f1f5f9, #f1f5f9 6px, #e2e8f0 6px, #e2e8f0 12px); color: #64748b; }
+.cal-month-day-num.is-recess .cal-day-add { display: none; }
+.cal-legend-swatch.legend-recess { background: repeating-linear-gradient(45deg, #f1f5f9, #f1f5f9 4px, #e2e8f0 4px, #e2e8f0 8px); border-left-color: #94a3b8; }
 .cal-month-day-num.today .day-number { background: var(--primary, #00BFA6); color: #fff; border-radius: 50%; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.75rem; }
 /* Botão "+" para criar card com prazo no dia (aparece no hover do dia) */
 .cal-day-add { border: none; background: transparent; color: var(--primary, #00BFA6); cursor: pointer; padding: 0; width: 20px; height: 20px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.72rem; line-height: 1; opacity: 0; transition: opacity 0.12s, background 0.12s; flex-shrink: 0; }
@@ -1090,6 +1143,8 @@ let currentCardId = null;
 let currentTicket = null;
 let quill = null;
 let calendarEvents = [];
+// Períodos de recesso (ninguém trabalha) para pintar faixas no calendário.
+let recessPeriods = [];
 let calDate = new Date();
 let calMode = 'month';
 
@@ -2415,6 +2470,17 @@ function navCalendar(dir) {
     loadCalendar();
 }
 
+// Retorna o período de recesso que cobre a data 'YYYY-MM-DD', ou null.
+// Comparação por string de data (as faixas vêm como DATE do servidor).
+function recessForYmd(ymd) {
+    for (const r of recessPeriods) {
+        const s = (r.start_date || '').slice(0, 10);
+        const e = (r.end_date || '').slice(0, 10);
+        if (s && e && ymd >= s && ymd <= e) return r;
+    }
+    return null;
+}
+
 function loadCalendar() {
     let start, end;
     if (calMode === 'month') {
@@ -2437,6 +2503,7 @@ function loadCalendar() {
             const events = Array.isArray(resp) ? resp : (resp.events || []);
             const undatedCount = Array.isArray(resp) ? 0 : (resp.undated_count || 0);
             calendarEvents = events;
+            recessPeriods = Array.isArray(resp) ? [] : (resp.recess || []);
             updateUndatedBanner(undatedCount);
             renderCalendar(start, end);
         });
@@ -2495,6 +2562,86 @@ function openUndatedModal() {
 }
 
 // Abre o card para o usuário definir a data; fecha o modal de revisão antes.
+// === RECESSOS (gestão pelo super_admin) ===
+function openRecessModal() {
+    const modal = new bootstrap.Modal(document.getElementById('recessModal'));
+    modal.show();
+    loadRecessList();
+}
+
+function loadRecessList() {
+    const list = document.getElementById('recess-list');
+    list.innerHTML = '<div class="text-center py-3 text-muted small"><span class="spinner-border spinner-border-sm"></span> Carregando...</div>';
+    fetch(BASE + 'planning/recessPeriods')
+        .then(r => r.json())
+        .then(data => {
+            const items = (data && data.recess) ? data.recess : [];
+            if (!items.length) {
+                list.innerHTML = '<div class="text-center py-3 text-muted small">Nenhum recesso cadastrado.</div>';
+                return;
+            }
+            list.innerHTML = items.map(r => {
+                const s = (r.start_date || '').slice(0, 10).split('-').reverse().join('/');
+                const e = (r.end_date || '').slice(0, 10).split('-').reverse().join('/');
+                const company = r.company_name ? (' · ' + escHtml(r.company_name)) : ' · Global';
+                return '<div class="d-flex align-items-center gap-2 border rounded px-2 py-1 mb-1">' +
+                    '<div class="flex-grow-1 min-w-0">' +
+                        '<div class="small fw-semibold text-truncate">' + escHtml(r.title) + '</div>' +
+                        '<div class="text-muted" style="font-size:0.72rem;">' + s + ' → ' + e + company + '</div>' +
+                    '</div>' +
+                    '<button type="button" class="btn btn-sm btn-outline-danger" title="Excluir" onclick="deleteRecess(' + Number(r.id) + ')"><i class="bi bi-trash"></i></button>' +
+                '</div>';
+            }).join('');
+        })
+        .catch(() => {
+            list.innerHTML = '<div class="text-center py-3 text-danger small">Falha ao carregar.</div>';
+        });
+}
+
+function submitRecessForm(ev) {
+    ev.preventDefault();
+    const form = ev.target;
+    const err = document.getElementById('recess-form-error');
+    err.style.display = 'none';
+    const fd = new FormData(form);
+    // Validação simples no cliente: fim não pode ser antes do início.
+    const s = fd.get('start_date'), e = fd.get('end_date');
+    if (s && e && e < s) {
+        err.textContent = 'O fim do recesso não pode ser antes do início.';
+        err.style.display = '';
+        return;
+    }
+    fetch(BASE + 'planning/recessPeriods', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(data => {
+            if (data && data.error) {
+                err.textContent = data.error;
+                err.style.display = '';
+                return;
+            }
+            form.reset();
+            loadRecessList();
+            loadCalendar(); // repinta as faixas no calendário
+        })
+        .catch(() => {
+            err.textContent = 'Falha ao salvar.';
+            err.style.display = '';
+        });
+}
+
+function deleteRecess(id) {
+    if (!confirm('Excluir este período de recesso? Os cards já agendados não serão recalculados.')) return;
+    fetch(BASE + 'planning/deleteRecess/' + id, { method: 'POST' })
+        .then(r => r.json())
+        .then(() => { loadRecessList(); loadCalendar(); })
+        .catch(() => alert('Falha ao excluir.'));
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    const rf = document.getElementById('recessForm');
+    if (rf) rf.addEventListener('submit', submitRecessForm);
+});
+
 function reviewUndated(id) {
     const modalEl = document.getElementById('undatedModal');
     const modal = bootstrap.Modal.getInstance(modalEl);
@@ -2813,9 +2960,13 @@ function renderCalendar(start, end) {
                 const isOther = d.getMonth() !== calDate.getMonth();
                 const isToday = d.getTime() === today.getTime();
                 const ymd = calYmd(d);
+                // Recesso: pinta o dia e mostra o nome do período no title.
+                const rec = recessForYmd(ymd);
+                const recClass = rec ? 'is-recess' : '';
+                const recTitle = rec ? ('title="Recesso: ' + escAttr(rec.title) + '"') : '';
                 // Botão "+" (aparece no hover do dia): cria um card já com o prazo
                 // de entrega preenchido com este dia. Igual ao atalho da agenda.
-                html += `<div class="cal-month-day-num ${isOther?'other-month':''} ${isToday?'today':''}">
+                html += `<div class="cal-month-day-num ${isOther?'other-month':''} ${isToday?'today':''} ${recClass}" ${recTitle}>
                     <span class="day-number">${d.getDate()}</span>
                     <button type="button" class="cal-day-add" title="Novo card com prazo ${d.getDate()}" onclick="openCreateForDate('${ymd}')" aria-label="Criar card neste dia">
                         <i class="bi bi-plus-lg"></i>

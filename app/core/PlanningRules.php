@@ -199,17 +199,12 @@ class PlanningRules
             $lagDays = 0;
         }
 
-        // Duração original do dependente (em segundos). Default: 1 dia.
-        $duration = 86400;
-        $startTs = self::toTimestamp($depStart);
-        $endTs = self::toTimestamp($depEnd);
-        if ($startTs !== null && $endTs !== null && $endTs >= $startTs) {
-            $duration = $endTs - $startTs;
-        }
-
-        // Novo início = fim do predecessor + folga.
-        $newStart = $predEndTs + ($lagDays * 86400);
-        $newEnd = $newStart + $duration;
+        [$newStart, $newEnd, $duration, $anchor] = self::computeRawDependentDates(
+            $predEndTs,
+            $depStart,
+            $depEnd,
+            $lagDays
+        );
 
         // Teto do prazo final: o fim recalculado não ultrapassa o due_date.
         $dueTs = self::toTimestamp($depDue);
@@ -218,7 +213,7 @@ class PlanningRules
             // Recua o início para manter a duração, mas sem ir antes do término
             // do predecessor (a dependência tem precedência sobre a duração).
             $candidateStart = $newEnd - $duration;
-            $newStart = max($candidateStart, $predEndTs + ($lagDays * 86400));
+            $newStart = max($candidateStart, $anchor);
             // Se ainda assim o início ficou após o fim (janela negativa por um
             // deadline muito apertado), encosta início no fim (janela zero).
             if ($newStart > $newEnd) {
@@ -230,6 +225,37 @@ class PlanningRules
             'start_date' => date('Y-m-d H:i:s', $newStart),
             'end_date'   => date('Y-m-d H:i:s', $newEnd),
         ];
+    }
+
+    /**
+     * Cálculo "cru" das datas do dependente a partir do fim do predecessor,
+     * SEM aplicar o teto do due_date. Usado tanto pelo recalcDependentDates
+     * (que aplica o teto depois) quanto pela versão com recesso (em que o
+     * recesso tem prioridade sobre o due e, portanto, o teto não deve cortar
+     * antes do deslocamento).
+     *
+     * @return array{0:int,1:int,2:int,3:int} [newStart, newEnd, duration, anchor]
+     *         anchor = início mínimo permitido (fim do predecessor + folga).
+     */
+    private static function computeRawDependentDates(
+        int $predEndTs,
+        ?string $depStart,
+        ?string $depEnd,
+        int $lagDays
+    ): array {
+        // Duração original do dependente (em segundos). Default: 1 dia.
+        $duration = self::DAY;
+        $startTs = self::toTimestamp($depStart);
+        $endTs = self::toTimestamp($depEnd);
+        if ($startTs !== null && $endTs !== null && $endTs >= $startTs) {
+            $duration = $endTs - $startTs;
+        }
+
+        $anchor = $predEndTs + ($lagDays * self::DAY);
+        $newStart = $anchor;
+        $newEnd = $newStart + $duration;
+
+        return [$newStart, $newEnd, $duration, $anchor];
     }
 
     /**
@@ -287,5 +313,226 @@ class PlanningRules
         }
         $ts = strtotime($s);
         return $ts === false ? null : $ts;
+    }
+
+    // =====================================================================
+    // RECESSO — deslocamento automático de datas para fora de períodos parados
+    // =====================================================================
+
+    private const DAY = 86400;
+
+    /**
+     * Normaliza a lista de períodos de recesso para pares de timestamp
+     * [inicioDia00:00, fimDia23:59:59], ordenados por início e sem entradas
+     * inválidas. Cada recesso cobre dias INTEIROS (start_date e end_date são
+     * DATE, inclusive em ambas as pontas).
+     *
+     * Aceita itens no formato ['start_date' => 'Y-m-d'|..., 'end_date' => ...].
+     *
+     * @param array $recessPeriods
+     * @return array<int,array{start:int,end:int}>
+     */
+    public static function normalizeRecessPeriods(array $recessPeriods): array
+    {
+        $out = [];
+        foreach ($recessPeriods as $r) {
+            $s = self::toTimestamp($r['start_date'] ?? null);
+            $e = self::toTimestamp($r['end_date'] ?? null);
+            if ($s === null || $e === null) {
+                continue;
+            }
+            // Expande para o dia inteiro: início 00:00:00, fim 23:59:59.
+            $s = strtotime(date('Y-m-d 00:00:00', $s));
+            $e = strtotime(date('Y-m-d 23:59:59', $e));
+            if ($e < $s) {
+                continue;
+            }
+            $out[] = ['start' => $s, 'end' => $e];
+        }
+        usort($out, fn($a, $b) => $a['start'] <=> $b['start']);
+        return $out;
+    }
+
+    /**
+     * Desloca um intervalo [start,end] (timestamps) para fora dos períodos de
+     * recesso, aplicando a regra de negócio acordada:
+     *
+     *  (1) Se o INÍCIO cai dentro de um recesso, o bloco inteiro é empurrado
+     *      para começar no primeiro instante APÓS o fim desse recesso
+     *      (preservando a duração).
+     *  (2) Se o bloco ATRAVESSA um recesso (começa antes e termina dentro ou
+     *      depois), o FIM é estendido pelos dias de recesso "engolidos" — o
+     *      card pausa durante o recesso e retoma depois.
+     *
+     * Reaplica em laço até estabilizar (um deslocamento pode encostar em outro
+     * recesso adjacente). Puro e determinístico.
+     *
+     * @param int   $start Timestamp de início.
+     * @param int   $end   Timestamp de fim (>= start).
+     * @param array $periods Saída de normalizeRecessPeriods().
+     * @return array{start:int,end:int,shifted:bool}
+     */
+    private static function shiftTimestampsOutOfRecess(int $start, int $end, array $periods): array
+    {
+        if (empty($periods)) {
+            return ['start' => $start, 'end' => $end, 'shifted' => false];
+        }
+
+        $origStart = $start;
+        $origEnd = $end;
+
+        // Passo 1: se o INÍCIO cai dentro de um recesso, empurra-o para o
+        // primeiro instante após o recesso. Repete porque recessos adjacentes
+        // podem encadear. Converge sempre (só avança no tempo).
+        $moved = true;
+        while ($moved) {
+            $moved = false;
+            foreach ($periods as $p) {
+                if ($start >= $p['start'] && $start <= $p['end']) {
+                    $start = $p['end'] + 1;
+                    $moved = true;
+                }
+            }
+        }
+
+        // Passo 2: preserva a duração de CALENDÁRIO original (origEnd-origStart)
+        // e avança essa duração a partir do novo início, PULANDO os recessos que
+        // aparecerem — o card "pausa" no recesso e retoma depois. Modelo por
+        // avanço de duração: determinístico, sem risco de laço.
+        $duration = max(0, $origEnd - $origStart);
+        $end = self::advanceSkippingRecess($start, $duration, $periods);
+
+        $shifted = ($start !== $origStart) || ($end !== $origEnd);
+        return ['start' => $start, 'end' => $end, 'shifted' => $shifted];
+    }
+
+    /**
+     * Avança $duration segundos a partir de $from, pulando os recessos que o
+     * intervalo percorrido atravessar. Para cada recesso cujo início caia
+     * dentro do intervalo, o fim é empurrado pela duração do recesso — pausando
+     * a contagem durante o período parado. Determinístico (sem laço aberto).
+     *
+     * @param array<int,array{start:int,end:int}> $periods Ordenados por início.
+     */
+    private static function advanceSkippingRecess(int $from, int $duration, array $periods): int
+    {
+        $end = $from + $duration;
+        foreach ($periods as $p) {
+            // Recesso que começa dentro do intervalo [from, end] engole tempo:
+            // empurra o fim pela duração do recesso (+1s de borda inclusiva).
+            if ($p['start'] >= $from && $p['start'] <= $end) {
+                $end += ($p['end'] - $p['start']) + 1;
+            }
+        }
+        return $end;
+    }
+
+    /**
+     * Versão pública, com datas em string "Y-m-d H:i:s". Útil para o front/
+     * controller e para testes. Retorna as datas deslocadas e a flag 'shifted'.
+     *
+     * @return array{start_date:string,end_date:string,shifted:bool}|null
+     *         null se as datas de entrada forem inválidas.
+     */
+    public static function shiftOutOfRecess(?string $start, ?string $end, array $recessPeriods): ?array
+    {
+        $s = self::toTimestamp($start);
+        $e = self::toTimestamp($end);
+        if ($s === null || $e === null) {
+            return null;
+        }
+        if ($e < $s) {
+            $e = $s;
+        }
+        $periods = self::normalizeRecessPeriods($recessPeriods);
+        $r = self::shiftTimestampsOutOfRecess($s, $e, $periods);
+        return [
+            'start_date' => date('Y-m-d H:i:s', $r['start']),
+            'end_date'   => date('Y-m-d H:i:s', $r['end']),
+            'shifted'    => $r['shifted'],
+        ];
+    }
+
+    /**
+     * Como recalcDependentDates, mas aplicando o recesso ao resultado.
+     *
+     * Ordem: calcula as datas base (dependência + duração + teto do due_date);
+     * depois desloca para fora dos recessos. Conforme acordado, o RECESSO TEM
+     * PRIORIDADE sobre o due_date: se o deslocamento por recesso ultrapassar o
+     * prazo, o fim PODE passar do due_date e isso é sinalizado em 'exceeds_due'.
+     *
+     * @return array{start_date:string,end_date:string,shifted:bool,exceeds_due:bool}|null
+     */
+    public static function recalcDependentDatesWithRecess(
+        ?string $predecessorEnd,
+        ?string $depStart,
+        ?string $depEnd,
+        ?string $depDue,
+        int $lagDays,
+        array $recessPeriods
+    ): ?array {
+        $predEndTs = self::toTimestamp($predecessorEnd);
+        if ($predEndTs === null) {
+            // Sem término do predecessor não há âncora para a cascata.
+            return null;
+        }
+        if ($lagDays < 0) {
+            $lagDays = 0;
+        }
+
+        // Datas CRUAS (sem teto do due): como o recesso tem prioridade sobre o
+        // due, não cortamos no prazo antes de deslocar — senão o card ficaria
+        // espremido antes do recesso e o deslocamento nunca aconteceria.
+        [$rawStart, $rawEnd] = self::computeRawDependentDates($predEndTs, $depStart, $depEnd, $lagDays);
+
+        $shift = self::shiftOutOfRecess(
+            date('Y-m-d H:i:s', $rawStart),
+            date('Y-m-d H:i:s', $rawEnd),
+            $recessPeriods
+        );
+        if ($shift === null) {
+            // Datas inválidas (não deveria ocorrer): cai no cálculo base com teto.
+            $base = self::recalcDependentDates($predecessorEnd, $depStart, $depEnd, $depDue, $lagDays);
+            if ($base === null) {
+                return null;
+            }
+            return [
+                'start_date'  => $base['start_date'],
+                'end_date'    => $base['end_date'],
+                'shifted'     => false,
+                'exceeds_due' => false,
+            ];
+        }
+
+        // Se o recesso NÃO deslocou nada, o due_date volta a ser teto (mesmo
+        // comportamento do recalcDependentDates base). O recesso só "vence" o
+        // due quando de fato empurra o card para fora de um período parado.
+        if (!$shift['shifted']) {
+            $base = self::recalcDependentDates($predecessorEnd, $depStart, $depEnd, $depDue, $lagDays);
+            return [
+                'start_date'  => $base['start_date'],
+                'end_date'    => $base['end_date'],
+                'shifted'     => false,
+                'exceeds_due' => false,
+            ];
+        }
+
+        // Houve deslocamento por recesso: recesso tem prioridade sobre o due.
+        // Apenas sinalizamos se o fim ultrapassou o prazo final.
+        $exceedsDue = false;
+        $dueTs = self::toTimestamp($depDue);
+        if ($dueTs !== null) {
+            $endTs = self::toTimestamp($shift['end_date']);
+            if ($endTs !== null && $endTs > $dueTs) {
+                $exceedsDue = true;
+            }
+        }
+
+        return [
+            'start_date'  => $shift['start_date'],
+            'end_date'    => $shift['end_date'],
+            'shifted'     => true,
+            'exceeds_due' => $exceedsDue,
+        ];
     }
 }

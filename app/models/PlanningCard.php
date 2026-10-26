@@ -653,6 +653,36 @@ class PlanningCard
      * @return array Lista de cards afetados já atualizados (via findById), para
      *               o front refletir no board sem reload.
      */
+    /**
+     * Cache em memória (por requisição) dos recessos aplicáveis a cada empresa,
+     * para a cascata não repetir a mesma query a cada dependente. Chave:
+     * company_id ('global' quando null). Valor: lista de períodos.
+     */
+    private $recessCache = [];
+
+    /**
+     * Recessos aplicáveis a um card da empresa $companyId: globais + da empresa.
+     * Tolerante a ambientes antigos sem a tabela recess_periods (retorna []).
+     */
+    private function recessPeriodsFor($companyId)
+    {
+        $key = $companyId === null ? 'global' : (string) (int) $companyId;
+        if (array_key_exists($key, $this->recessCache)) {
+            return $this->recessCache[$key];
+        }
+        $periods = [];
+        try {
+            $model = new RecessPeriod();
+            $periods = $model->getApplicable($companyId !== null ? (int) $companyId : null);
+        } catch (\Throwable $e) {
+            // Tabela ainda não existe (migration 165 não aplicada) ou erro de
+            // consulta: sem recesso, a cascata segue com o comportamento antigo.
+            $periods = [];
+        }
+        $this->recessCache[$key] = $periods;
+        return $periods;
+    }
+
     public function cascadeRecalcDependents($cardId, array &$visited = [])
     {
         $affected = [];
@@ -673,12 +703,15 @@ class PlanningCard
 
         foreach ($this->getDependents($cardId) as $dep) {
             $lag = (int) ($dep['predecessor_lag_days'] ?? 0);
-            $newDates = PlanningRules::recalcDependentDates(
+            // Recessos aplicáveis à empresa do dependente (globais + da empresa).
+            $recess = $this->recessPeriodsFor($dep['company_id'] ?? null);
+            $newDates = PlanningRules::recalcDependentDatesWithRecess(
                 $predEnd,
                 $dep['start_date'] ?? null,
                 $dep['end_date'] ?? null,
                 $dep['due_date'] ?? null,
-                $lag
+                $lag,
+                $recess
             );
             if ($newDates === null) {
                 continue;

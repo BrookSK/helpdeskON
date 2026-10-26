@@ -177,7 +177,25 @@ class PlanningController extends Controller
         // Alimenta o aviso "X demandas sem data" + botão Revisar.
         $undatedCount = count($this->cardModel->getUndated($filters));
 
-        $this->json(['events' => $events, 'undated_count' => $undatedCount]);
+        // Períodos de recesso visíveis na faixa, para o calendário pintar as
+        // faixas de "ninguém trabalha". Tolerante a ambiente sem a tabela.
+        $recess = [];
+        try {
+            $recessModel = new RecessPeriod();
+            foreach ($recessModel->getForRange($start, $end) as $rp) {
+                $recess[] = [
+                    'id'         => (int) $rp['id'],
+                    'title'      => $rp['title'],
+                    'start_date' => $rp['start_date'],
+                    'end_date'   => $rp['end_date'],
+                    'company_id' => $rp['company_id'] !== null ? (int) $rp['company_id'] : null,
+                ];
+            }
+        } catch (\Throwable $e) {
+            $recess = [];
+        }
+
+        $this->json(['events' => $events, 'undated_count' => $undatedCount, 'recess' => $recess]);
     }
 
     /**
@@ -233,6 +251,70 @@ class PlanningController extends Controller
             ];
         }
         $this->json(['cards' => $out]);
+    }
+
+    /**
+     * Períodos de recesso (datas em que ninguém trabalha). Cadastro usado pela
+     * cascata de atividade predecessora para deslocar automaticamente cards que
+     * cairiam dentro do recesso.
+     *
+     * - GET  planning/recessPeriods        -> lista todos (JSON).
+     * - POST planning/recessPeriods        -> cria (title, start_date, end_date,
+     *                                          company_id opcional).
+     * Apenas super_admin gerencia (regra global que afeta todo o cronograma).
+     */
+    public function recessPeriods()
+    {
+        $this->requireRole(['super_admin']);
+        $recessModel = new RecessPeriod();
+
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            $title = trim((string) ($_POST['title'] ?? ''));
+            $start = trim((string) ($_POST['start_date'] ?? ''));
+            $end = trim((string) ($_POST['end_date'] ?? ''));
+            $companyId = !empty($_POST['company_id']) ? (int) $_POST['company_id'] : null;
+
+            if ($title === '' || $start === '' || $end === '') {
+                $this->json(['error' => 'Título, início e fim são obrigatórios.'], 400);
+            }
+            $startTs = strtotime($start);
+            $endTs = strtotime($end);
+            if ($startTs === false || $endTs === false) {
+                $this->json(['error' => 'Datas inválidas.'], 400);
+            }
+            if ($endTs < $startTs) {
+                $this->json(['error' => 'O fim do recesso não pode ser antes do início.'], 400);
+            }
+
+            $user = $this->currentUser();
+            $id = $recessModel->create([
+                'title'      => $title,
+                'start_date' => date('Y-m-d', $startTs),
+                'end_date'   => date('Y-m-d', $endTs),
+                'company_id' => $companyId,
+                'created_by' => $user['id'] ?? null,
+            ]);
+            $this->json(['success' => true, 'recess' => $recessModel->findById($id)]);
+        }
+
+        // GET: lista todos.
+        $this->json(['recess' => $recessModel->all()]);
+    }
+
+    /**
+     * Exclui um período de recesso. POST planning/deleteRecess/{id}.
+     * Só super_admin. Excluir um recesso NÃO recalcula cards já gravados —
+     * o deslocamento só reage a mudanças de data em cascata.
+     */
+    public function deleteRecess($id = null)
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+        $recessModel = new RecessPeriod();
+        $recessModel->delete((int) $id);
+        $this->json(['success' => true]);
     }
 
     /**
@@ -326,15 +408,30 @@ class PlanningController extends Controller
         if ($data['predecessor_id']) {
             $predecessor = $this->cardModel->findById($data['predecessor_id']);
             if ($predecessor && !empty($predecessor['end_date'])) {
-                $newDates = PlanningRules::recalcDependentDates(
+                // Recessos aplicáveis à empresa do card (globais + da empresa),
+                // para o cálculo automático já nascer pulando o recesso.
+                $recess = [];
+                try {
+                    $recessModel = new RecessPeriod();
+                    $recess = $recessModel->getApplicable(
+                        !empty($data['company_id']) ? (int) $data['company_id'] : null
+                    );
+                } catch (\Throwable $e) {
+                    $recess = [];
+                }
+                $newDates = PlanningRules::recalcDependentDatesWithRecess(
                     $predecessor['end_date'],
                     $data['start_date'],
                     $data['end_date'],
                     $data['due_date'],
-                    $data['predecessor_lag_days']
+                    $data['predecessor_lag_days'],
+                    $recess
                 );
                 if ($newDates !== null) {
-                    $this->cardModel->update($cardId, $newDates);
+                    $this->cardModel->update($cardId, [
+                        'start_date' => $newDates['start_date'],
+                        'end_date'   => $newDates['end_date'],
+                    ]);
                 }
             }
         }
