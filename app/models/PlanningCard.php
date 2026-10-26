@@ -624,6 +624,29 @@ class PlanningCard
     }
 
     /**
+     * Todos os dependentes de $cardId em cascata (dependentes diretos + os
+     * deles, recursivamente), como mapa id => linha do card. Usado para
+     * capturar o estado ANTES do recálculo em cascata e depois registrar no
+     * histórico de cada card afetado o que mudou. Protegido contra ciclos.
+     */
+    public function getDependentsDeep($cardId, array &$seen = [])
+    {
+        $result = [];
+        foreach ($this->getDependents($cardId) as $dep) {
+            $depId = (int) $dep['id'];
+            if (isset($seen[$depId])) {
+                continue;
+            }
+            $seen[$depId] = true;
+            $result[$depId] = $dep;
+            foreach ($this->getDependentsDeep($depId, $seen) as $k => $v) {
+                $result[$k] = $v;
+            }
+        }
+        return $result;
+    }
+
+    /**
      * Mapa [id => predecessor_id] de todos os cards, para a detecção de ciclos
      * em PlanningRules::wouldCreateCycle sem múltiplas idas ao banco.
      */
@@ -873,6 +896,59 @@ class PlanningCard
             'user_id' => $userId,
             'message' => $message,
         ]);
+    }
+
+    // Histórico de alterações do card ---------------------------------------
+
+    /**
+     * Lista o histórico de alterações de um card, do mais recente ao mais
+     * antigo, com o nome de quem alterou. Tolerante a ambiente sem a tabela
+     * (migration 166 não aplicada): retorna [] em vez de quebrar.
+     */
+    public function getHistory($cardId)
+    {
+        try {
+            return $this->db->fetchAll(
+                "SELECT h.*, u.name AS user_name
+                 FROM planning_card_history h
+                 LEFT JOIN users u ON h.user_id = u.id
+                 WHERE h.card_id = ?
+                 ORDER BY h.created_at DESC, h.id DESC",
+                [$cardId]
+            );
+        } catch (\Throwable $e) {
+            return [];
+        }
+    }
+
+    /**
+     * Grava um lote de alterações no histórico. $changes é a saída de
+     * PlanningRules::diffCardChanges (cada item com field/label/old/new).
+     * $source = 'manual' (edição) ou 'cascade' (recálculo automático).
+     * Silencioso se a tabela não existir (não bloqueia o salvamento do card).
+     *
+     * @param array $changes Lista de mudanças já formatadas para exibição.
+     */
+    public function logHistory($cardId, $userId, array $changes, $source = 'manual')
+    {
+        if (empty($changes)) {
+            return;
+        }
+        foreach ($changes as $c) {
+            try {
+                $this->db->insert('planning_card_history', [
+                    'card_id'   => $cardId,
+                    'user_id'   => $userId,
+                    'field'     => substr((string) ($c['label'] ?? $c['field'] ?? ''), 0, 64),
+                    'old_value' => $c['old'] ?? null,
+                    'new_value' => $c['new'] ?? null,
+                    'source'    => $source === 'cascade' ? 'cascade' : 'manual',
+                ]);
+            } catch (\Throwable $e) {
+                // Tabela ausente ou erro pontual: não impede o fluxo do card.
+                return;
+            }
+        }
     }
 
     // Anexos

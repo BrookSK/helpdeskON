@@ -410,4 +410,74 @@ final class PlanningRulesTest extends TestCase
         $this->assertFalse($r['shifted']);
         $this->assertFalse($r['exceeds_due']);
     }
+
+    // ---- diffCardChanges (histórico de alterações) ----
+
+    public function testDiffDetectaMudancaDeDataFormatada(): void
+    {
+        $old = ['due_date' => '2026-01-10 18:00:00', 'start_date' => '2026-01-05 09:00:00'];
+        $changes = PlanningRules::diffCardChanges($old, ['due_date' => '2026-01-15 18:00:00']);
+        $this->assertCount(1, $changes);
+        $this->assertSame('due_date', $changes[0]['field']);
+        $this->assertSame('Prazo de entrega', $changes[0]['label']);
+        $this->assertSame('10/01/2026 18:00', $changes[0]['old']);
+        $this->assertSame('15/01/2026 18:00', $changes[0]['new']);
+    }
+
+    public function testDiffIgnoraCamposAusentesEIguais(): void
+    {
+        $old = ['due_date' => '2026-01-10 18:00:00', 'status' => 'open', 'title' => 'X'];
+        // Só title presente e igual => nenhuma mudança.
+        $this->assertSame([], PlanningRules::diffCardChanges($old, ['title' => 'X']));
+        // due_date presente mas igual (formato diferente) => nenhuma mudança.
+        $this->assertSame([], PlanningRules::diffCardChanges($old, ['due_date' => '2026-01-10T18:00']));
+    }
+
+    public function testDiffTraduzStatusEPrioridade(): void
+    {
+        $old = ['status' => 'open', 'priority' => 'medium'];
+        $changes = PlanningRules::diffCardChanges($old, ['status' => 'in_progress', 'priority' => 'urgent']);
+        $this->assertCount(2, $changes);
+        $byField = [];
+        foreach ($changes as $c) { $byField[$c['field']] = $c; }
+        $this->assertSame('Aberto', $byField['status']['old']);
+        $this->assertSame('Em andamento', $byField['status']['new']);
+        $this->assertSame('Média', $byField['priority']['old']);
+        $this->assertSame('Urgente', $byField['priority']['new']);
+    }
+
+    public function testDiffValorVazioViraNaoDefinido(): void
+    {
+        $old = ['end_date' => null];
+        $changes = PlanningRules::diffCardChanges($old, ['end_date' => '2026-02-01 18:00:00']);
+        $this->assertCount(1, $changes);
+        $this->assertSame('Não definido', $changes[0]['old']);
+        $this->assertSame('01/02/2026 18:00', $changes[0]['new']);
+    }
+
+    public function testDiffRemoverDataRegistraComoNaoDefinido(): void
+    {
+        $old = ['due_date' => '2026-01-10 18:00:00'];
+        $changes = PlanningRules::diffCardChanges($old, ['due_date' => null]);
+        $this->assertCount(1, $changes);
+        $this->assertSame('10/01/2026 18:00', $changes[0]['old']);
+        $this->assertSame('Não definido', $changes[0]['new']);
+    }
+
+    public function testDiffVariosCamposDeUmaVez(): void
+    {
+        $old = [
+            'status' => 'open', 'priority' => 'low',
+            'predecessor_lag_days' => 0, 'title' => 'Antigo',
+        ];
+        $changes = PlanningRules::diffCardChanges($old, [
+            'status' => 'completed', 'priority' => 'low', // priority igual: não entra
+            'predecessor_lag_days' => 1, 'title' => 'Novo',
+        ]);
+        $fields = array_column($changes, 'field');
+        $this->assertContains('status', $fields);
+        $this->assertContains('predecessor_lag_days', $fields);
+        $this->assertContains('title', $fields);
+        $this->assertNotContains('priority', $fields, 'priority igual não deve gerar mudança.');
+    }
 }

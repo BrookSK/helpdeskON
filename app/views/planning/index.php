@@ -625,6 +625,11 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                                         <i class="bi bi-chat-dots"></i> Comentários <span class="badge bg-secondary ms-1" id="tab-comentarios-badge" style="font-size:0.6rem;">0</span>
                                     </button>
                                 </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link small py-2" id="tab-historico" data-bs-toggle="tab" data-bs-target="#pane-historico" type="button" role="tab">
+                                        <i class="bi bi-clock-history"></i> Histórico <span class="badge bg-secondary ms-1" id="tab-historico-badge" style="font-size:0.6rem;">0</span>
+                                    </button>
+                                </li>
                                 <!-- Aba Escopo: escopo técnico, previsão e suporte da demanda vinculada.
                                      Fica desabilitada quando o card não está ligado a uma demanda. -->
                                 <li class="nav-item" role="presentation">
@@ -733,6 +738,12 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                                         <textarea id="comment-input" class="form-control form-control-sm" placeholder="Escreva um comentário..." rows="2" style="resize:vertical;" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();addComment();}"></textarea>
                                         <button class="btn btn-sm btn-primary" onclick="addComment()" style="height:fit-content;"><i class="bi bi-send"></i></button>
                                     </div>
+                                </div>
+
+                                <!-- ABA HISTÓRICO (alterações do card: datas, status, responsável...) -->
+                                <div class="tab-pane fade" id="pane-historico" role="tabpanel">
+                                    <p class="text-muted small mb-2"><i class="bi bi-clock-history"></i> Todas as alterações do card (datas, cronograma, status, responsável, etc.), da mais recente para a mais antiga.</p>
+                                    <div id="detail-history" style="max-height:440px;overflow-y:auto;"></div>
                                 </div>
 
                                 <!-- ABA ESCOPO (escopo técnico / previsão / suporte da demanda) -->
@@ -1824,6 +1835,11 @@ function openCardModal(id) {
         renderComments(data.comments);
         document.getElementById('tab-comentarios-badge').textContent = data.comments.length;
 
+        // Histórico de alterações (aba Histórico)
+        renderHistory(data.history);
+        const histBadge = document.getElementById('tab-historico-badge');
+        if (histBadge) histBadge.textContent = (data.history || []).length;
+
         // Demanda vinculada (aba Demanda)
         renderTicketData(data);
 
@@ -2318,6 +2334,39 @@ function renderComments(comments) {
         </div>
     `).join('');
     container.scrollTop = container.scrollHeight;
+}
+
+// Renderiza a aba Histórico: lista de alterações (campo: antes → depois), com
+// quem alterou, quando, e se foi edição manual ou recálculo automático.
+function renderHistory(history) {
+    const container = document.getElementById('detail-history');
+    if (!container) return;
+    history = history || [];
+    if (!history.length) {
+        container.innerHTML = '<p class="text-muted small">Nenhuma alteração registrada ainda. As mudanças de agora em diante aparecerão aqui.</p>';
+        return;
+    }
+    const esc = (str) => (str == null ? '' : String(str)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    container.innerHTML = history.map(h => {
+        const when = h.created_at ? new Date(h.created_at.replace(' ', 'T')).toLocaleString('pt-BR') : '';
+        const who = h.user_name ? esc(h.user_name) : 'Sistema';
+        const auto = (h.source === 'cascade');
+        const tag = auto
+            ? '<span class="badge bg-info-subtle text-info-emphasis border border-info-subtle" style="font-size:0.6rem;">automático</span>'
+            : '';
+        return '<div class="d-flex gap-2 mb-2 pb-2 border-bottom">' +
+            '<div class="flex-shrink-0 text-muted"><i class="bi ' + (auto ? 'bi-arrow-repeat' : 'bi-pencil-square') + '"></i></div>' +
+            '<div class="flex-grow-1 min-w-0">' +
+                '<div class="small"><strong>' + esc(h.field) + '</strong> ' + tag + '</div>' +
+                '<div class="small">' +
+                    '<span class="text-muted text-decoration-line-through">' + esc(h.old_value || 'Não definido') + '</span>' +
+                    ' <i class="bi bi-arrow-right"></i> ' +
+                    '<span class="fw-medium">' + esc(h.new_value || 'Não definido') + '</span>' +
+                '</div>' +
+                '<div class="text-muted" style="font-size:0.7rem;">' + who + ' · ' + when + '</div>' +
+            '</div>' +
+        '</div>';
+    }).join('');
 }
 
 // ====== ABA ESCOPO: escopo técnico / previsão / suporte (equipe) ======

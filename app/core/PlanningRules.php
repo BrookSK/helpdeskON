@@ -535,4 +535,119 @@ class PlanningRules
             'exceeds_due' => $exceedsDue,
         ];
     }
+
+    // =====================================================================
+    // HISTÓRICO — diff legível entre o estado antigo e o novo de um card
+    // =====================================================================
+
+    /**
+     * Campos auditados no histórico, com rótulo amigável e tipo de formatação.
+     * tipo: 'datetime' (Y-m-d H:i -> d/m/Y H:i), 'date' (Y-m-d -> d/m/Y),
+     * 'map' (traduz via mapa de labels), 'raw' (texto puro).
+     */
+    private const HISTORY_FIELDS = [
+        'title'                    => ['label' => 'Título',                    'type' => 'raw'],
+        'status'                   => ['label' => 'Status',                    'type' => 'map'],
+        'priority'                 => ['label' => 'Prioridade',                'type' => 'map'],
+        'assigned_to'              => ['label' => 'Responsável',               'type' => 'raw'],
+        'technical_responsible_id' => ['label' => 'Responsável técnico',       'type' => 'raw'],
+        'analyst_id'               => ['label' => 'Analista',                  'type' => 'raw'],
+        'company_id'               => ['label' => 'Empresa',                   'type' => 'raw'],
+        'due_date'                 => ['label' => 'Prazo de entrega',          'type' => 'datetime'],
+        'start_date'               => ['label' => 'Início do desenvolvimento', 'type' => 'datetime'],
+        'end_date'                 => ['label' => 'Fim do desenvolvimento',    'type' => 'datetime'],
+        'client_start_date'        => ['label' => 'Início (cliente)',          'type' => 'date'],
+        'client_end_date'          => ['label' => 'Fim (cliente)',            'type' => 'date'],
+        'predecessor_id'           => ['label' => 'Atividade predecessora',    'type' => 'raw'],
+        'predecessor_lag_days'     => ['label' => 'Folga do predecessor (dias)', 'type' => 'raw'],
+        'cx_hub_number'            => ['label' => 'CX Hub (número)',           'type' => 'raw'],
+        'cx_hub_name'              => ['label' => 'CX Hub (nome)',             'type' => 'raw'],
+        'branch_name'              => ['label' => 'Branch',                    'type' => 'raw'],
+        'branch_name_2'            => ['label' => 'Branch 2',                   'type' => 'raw'],
+        'pr_number'                => ['label' => 'PR',                        'type' => 'raw'],
+    ];
+
+    private const STATUS_LABELS = [
+        'open' => 'Aberto', 'in_progress' => 'Em andamento',
+        'em_revisao_interna' => 'Em revisão interna', 'waiting_client' => 'Aguardando cliente',
+        'em_homologacao' => 'Em homologação', 'aprovado_producao' => 'Aprovado p/ produção',
+        'completed' => 'Concluído', 'denied' => 'Negado', 'archived' => 'Arquivado',
+    ];
+
+    private const PRIORITY_LABELS = [
+        'low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'urgent' => 'Urgente',
+    ];
+
+    /**
+     * Compara o estado antigo ($old, card completo) com os campos que serão
+     * gravados ($new) e devolve a lista de alterações auditáveis.
+     *
+     * Só considera campos presentes em $new (edição parcial não inventa
+     * mudança). Valores null e "" são equivalentes ("não definido"). Datas são
+     * normalizadas antes de comparar, para "2026-01-01 09:00:00" e
+     * "2026-01-01T09:00" não contarem como diferentes.
+     *
+     * Cada item: ['field','label','old','new'] com old/new já FORMATADOS para
+     * exibição (data em d/m/Y, status/prioridade traduzidos). O chamador grava
+     * esses valores legíveis no histórico.
+     *
+     * @return array<int,array{field:string,label:string,old:string,new:string}>
+     */
+    public static function diffCardChanges(array $old, array $new): array
+    {
+        $changes = [];
+        foreach (self::HISTORY_FIELDS as $field => $meta) {
+            if (!array_key_exists($field, $new)) {
+                continue;
+            }
+            $beforeRaw = $old[$field] ?? null;
+            $afterRaw = $new[$field];
+
+            if (!self::valueChanged($field, $beforeRaw, $afterRaw, $meta['type'])) {
+                continue;
+            }
+
+            $changes[] = [
+                'field' => $field,
+                'label' => $meta['label'],
+                'old'   => self::formatHistoryValue($beforeRaw, $meta['type']),
+                'new'   => self::formatHistoryValue($afterRaw, $meta['type']),
+            ];
+        }
+        return $changes;
+    }
+
+    /** Dois valores de um campo são diferentes (considerando tipo)? */
+    private static function valueChanged(string $field, $before, $after, string $type): bool
+    {
+        if ($type === 'datetime' || $type === 'date') {
+            return self::normalizeDateTime($before) !== self::normalizeDateTime($after);
+        }
+        // Normaliza null/""/espaços para comparação de igualdade textual.
+        $b = $before === null ? '' : trim((string) $before);
+        $a = $after === null ? '' : trim((string) $after);
+        return $b !== $a;
+    }
+
+    /** Formata um valor para exibição no histórico conforme o tipo. */
+    private static function formatHistoryValue($value, string $type): string
+    {
+        if ($value === null || trim((string) $value) === '') {
+            return 'Não definido';
+        }
+        $v = trim((string) $value);
+
+        if ($type === 'datetime') {
+            $ts = strtotime($v);
+            return $ts === false ? $v : date('d/m/Y H:i', $ts);
+        }
+        if ($type === 'date') {
+            $ts = strtotime($v);
+            return $ts === false ? $v : date('d/m/Y', $ts);
+        }
+        if ($type === 'map') {
+            return self::STATUS_LABELS[$v] ?? self::PRIORITY_LABELS[$v] ?? $v;
+        }
+        return $v;
+    }
 }

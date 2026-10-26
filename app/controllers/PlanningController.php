@@ -488,6 +488,7 @@ class PlanningController extends Controller
             'comments' => $comments,
             'attachments' => $attachments,
             'tasks' => $this->cardModel->getTasks($id),
+            'history' => $this->cardModel->getHistory($id),
         ];
 
         // Se o card está vinculado a uma demanda, buscar dados da demanda
@@ -581,7 +582,24 @@ class PlanningController extends Controller
             $data['due_reminder_sent_at'] = null;
         }
 
+        // Snapshot das datas ANTES da cascata, para registrar no histórico dos
+        // dependentes o que o recálculo automático mudou (ver abaixo).
+        $dependentsBefore = [];
+        if (PlanningRules::scheduleChanged($card, $data)) {
+            foreach ($this->cardModel->getDependentsDeep((int) $id) as $dep) {
+                $dependentsBefore[(int) $dep['id']] = $dep;
+            }
+        }
+
         $this->cardModel->update($id, $data);
+
+        // Histórico: registra a edição MANUAL (diff entre o card antigo e os
+        // campos gravados), com quem alterou. Antes da resposta, para garantir
+        // que fica persistido mesmo que as notificações (lentas) falhem.
+        $manualChanges = PlanningRules::diffCardChanges($card, $data);
+        if (!empty($manualChanges)) {
+            $this->cardModel->logHistory((int) $id, $user['id'] ?? null, $manualChanges, 'manual');
+        }
 
         // Atividade predecessora: se a data de término (ou o prazo) deste card
         // mudou, recalcula em cascata as datas dos cards que dependem dele —
@@ -590,6 +608,21 @@ class PlanningController extends Controller
         $affectedCards = [];
         if (PlanningRules::scheduleChanged($card, $data)) {
             $affectedCards = $this->cardModel->cascadeRecalcDependents((int) $id);
+
+            // Histórico dos dependentes: registra o deslocamento AUTOMÁTICO
+            // (source=cascade), comparando as datas de cada dependente antes e
+            // depois do recálculo, para o histórico explicar a mudança "sozinha".
+            foreach ($affectedCards as $aff) {
+                $before = $dependentsBefore[(int) $aff['id']] ?? null;
+                if (!$before) continue;
+                $cascadeChanges = PlanningRules::diffCardChanges($before, [
+                    'start_date' => $aff['start_date'] ?? null,
+                    'end_date'   => $aff['end_date'] ?? null,
+                ]);
+                if (!empty($cascadeChanges)) {
+                    $this->cardModel->logHistory((int) $aff['id'], $user['id'] ?? null, $cascadeChanges, 'cascade');
+                }
+            }
         }
 
         // Resposta IMEDIATA ao navegador: devolve o card já atualizado e encerra
