@@ -135,17 +135,13 @@ class FinanceController extends Controller
             'recurring_cycle' => 'monthly',
         ]);
 
-        // Seleciona a conta Asaas por finalidade.
+        // Conta Asaas escolhida na tela; sem escolha válida, a conta da finalidade.
         $accs = $this->accounts->getAll(true);
         $accountByKind = [
-            'entry' => FinanceRules::pickAccount($accs, 'parcela'),
-            'installment' => FinanceRules::pickAccount($accs, 'parcela'),
-            'recurring' => FinanceRules::pickAccount($accs, 'recorrente'),
+            'entry' => FinanceRules::resolveAccount($accs, $body['account_entry'] ?? null, 'parcela'),
+            'installment' => FinanceRules::resolveAccount($accs, $body['account_installment'] ?? null, 'parcela'),
+            'recurring' => FinanceRules::resolveAccount($accs, $body['account_recurring'] ?? null, 'recorrente'),
         ];
-        // Override manual por conta, se enviado.
-        if (!empty($body['account_entry'])) $accountByKind['entry'] = (int)$body['account_entry'];
-        if (!empty($body['account_installment'])) $accountByKind['installment'] = (int)$body['account_installment'];
-        if (!empty($body['account_recurring'])) $accountByKind['recurring'] = (int)$body['account_recurring'];
 
         $user = $this->currentUser();
         $merge = $this->projects->replaceCharges($id, $plan, $accountByKind);
