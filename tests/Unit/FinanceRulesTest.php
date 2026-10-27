@@ -90,6 +90,21 @@ final class FinanceRulesTest extends TestCase
         $this->assertNull(FinanceRules::pickAccount([], 'parcela'));
     }
 
+    public function testResolveAccountRespeitaAEscolhaDaTela(): void
+    {
+        $accounts = [
+            ['id' => 1, 'purpose' => 'parcela', 'active' => 1],  // produção
+            ['id' => 2, 'purpose' => 'parcela', 'active' => 1],  // sandbox
+            ['id' => 3, 'purpose' => 'parcela', 'active' => 0],  // inativa
+        ];
+        // A conta escolhida na tela vence a primeira da finalidade.
+        $this->assertSame(2, FinanceRules::resolveAccount($accounts, '2', 'parcela'));
+        // Sem escolha, inativa ou inexistente: cai na regra por finalidade.
+        $this->assertSame(1, FinanceRules::resolveAccount($accounts, null, 'parcela'));
+        $this->assertSame(1, FinanceRules::resolveAccount($accounts, 3, 'parcela'));
+        $this->assertSame(1, FinanceRules::resolveAccount($accounts, 99, 'parcela'));
+    }
+
     public function testEntryIsPaidBloqueiaOnboarding(): void
     {
         // Tem entrada pendente -> bloqueado.

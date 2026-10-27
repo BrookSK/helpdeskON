@@ -67,7 +67,43 @@ class ProposalController extends Controller
             'discounts' => ProposalRules::decodeDiscounts($proposal['discounts'] ?? null),
             'publicLink' => $this->pdfLink($proposal),
             'onlineLink' => $this->onlineLink($proposal),
+            'revisions' => $this->model->getRevisions($proposal),
         ]);
+    }
+
+    /**
+     * "Reabrir para editar": enviada, aguardando ou recusada vira uma nova
+     * versão em rascunho (R02, R03...) e a anterior fica só para leitura.
+     * Rascunho e montada não precisam de versão (edita na própria linha).
+     */
+    public function reopen($id = null)
+    {
+        $this->requireModule('proposals');
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+        $proposal = $this->model->findById($id);
+        if (!$proposal) $this->json(['error' => 'Proposta não encontrada'], 404);
+        if (!empty($proposal['superseded_by'])) {
+            $this->json(['error' => 'Esta versão já foi substituída.', 'id' => (int)$proposal['superseded_by']], 409);
+        }
+        if (!ProposalRules::requiresNewRevision($proposal['status'])) {
+            $this->json(['error' => 'Esta proposta não pode ser reaberta neste status.'], 409);
+        }
+        $newId = $this->model->createRevision($id, $this->currentUser()['id']);
+        if (!$newId) $this->json(['error' => 'Não foi possível criar a nova versão.'], 409);
+        $this->json(['success' => true, 'id' => $newId]);
+    }
+
+    /** Versão substituída ou enviada não se edita na própria linha. */
+    private function editBlock(array $proposal): ?string
+    {
+        if (!empty($proposal['superseded_by'])) return 'Esta versão foi substituída e é somente leitura.';
+        if (ProposalRules::isTerminal($proposal['status']) && $proposal['status'] !== ProposalRules::STATUS_REJECTED) {
+            return 'Proposta encerrada não pode ser editada.';
+        }
+        if (ProposalRules::requiresNewRevision($proposal['status'])) {
+            return 'O cliente já recebeu esta versão. Use "Reabrir para editar" para criar uma nova versão.';
+        }
+        return null;
     }
 
     /** Cria uma proposta (POST, JSON). Pode nascer vinculada a um lead/card. */
@@ -162,9 +198,7 @@ class ProposalController extends Controller
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
         $proposal = $this->model->findById($id);
         if (!$proposal) $this->json(['error' => 'Proposta não encontrada'], 404);
-        if (ProposalRules::isTerminal($proposal['status'])) {
-            $this->json(['error' => 'Proposta encerrada não pode ser editada.'], 409);
-        }
+        if ($block = $this->editBlock($proposal)) $this->json(['error' => $block], 409);
         $user = $this->currentUser();
 
         $raw = file_get_contents('php://input');
@@ -238,7 +272,11 @@ class ProposalController extends Controller
         if (!$proposal) $this->json(['error' => 'Proposta não encontrada'], 404);
         $user = $this->currentUser();
 
+        if (!empty($proposal['superseded_by'])) $this->json(['error' => 'Esta versão foi substituída e é somente leitura.'], 409);
         $new = ProposalRules::normalizeStatus($_POST['status'] ?? '');
+        if ($new === ProposalRules::STATUS_DRAFT && ProposalRules::requiresNewRevision($proposal['status'])) {
+            $this->json(['error' => 'Use "Reabrir para editar" para criar uma nova versão.'], 409);
+        }
         $extra = [];
         if ($new === ProposalRules::STATUS_SENT) $extra['sent_at'] = date('Y-m-d H:i:s');
 
@@ -255,6 +293,8 @@ class ProposalController extends Controller
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
         $proposal = $this->model->findById($id);
         if (!$proposal) $this->json(['error' => 'Proposta não encontrada'], 404);
+        if (!empty($proposal['superseded_by'])) $this->json(['error' => 'Esta versão foi substituída e não pode ser enviada.'], 409);
+        if (ProposalRules::isTerminal($proposal['status'])) $this->json(['error' => 'Proposta encerrada não pode ser enviada.'], 409);
         $user = $this->currentUser();
 
         // Gera o ARQUIVO PDF que será enviado ao cliente (anexo WhatsApp/e-mail).
@@ -367,7 +407,7 @@ class ProposalController extends Controller
         $proposal = $token ? $this->model->findByToken($token) : null;
         if (!$proposal) { $this->renderSimple('Proposta indisponível', 'Este link de proposta não é válido.'); return; }
 
-        if ($proposal['status'] === ProposalRules::STATUS_SENT) {
+        if ($proposal['status'] === ProposalRules::STATUS_SENT && empty($proposal['superseded_by'])) {
             $this->model->changeStatus($proposal['id'], ProposalRules::STATUS_AWAITING, null);
             $proposal['status'] = ProposalRules::STATUS_AWAITING;
         }
@@ -384,67 +424,33 @@ class ProposalController extends Controller
             'blocks' => $blocks,
             'totals' => ProposalRules::totals($items), // compatibilidade
             'pdfLink' => $this->pdfLink($proposal),
-            'isTerminal' => ProposalRules::isTerminal($proposal['status']),
+            'isTerminal' => ProposalRules::isTerminal($proposal['status']) || !empty($proposal['superseded_by']),
+            'isSuperseded' => !empty($proposal['superseded_by']),
+            'isExpired' => ProposalRules::isExpired($proposal['validity_date'] ?? null),
+            'revisionLabel' => ProposalRules::revisionLabel($proposal['revision_no'] ?? 1),
         ]);
     }
 
-    /** Cliente aceita a proposta (POST público). */
+    /** Cliente aceita a proposta (POST público). Exige o nome de quem aceita. */
     public function accept($token = null)
     {
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
         $token = $this->tokenFromUrl($token);
         $proposal = $token ? $this->model->findByToken($token) : null;
         if (!$proposal) $this->json(['error' => 'Proposta não encontrada'], 404);
-        if (ProposalRules::isTerminal($proposal['status'])) {
-            $this->json(['error' => 'Esta proposta já foi finalizada.'], 409);
-        }
 
-        // Plano escolhido pelo cliente (quando a proposta oferece mais de uma opção).
-        $items = $this->model->getItems($proposal['id']);
-        $data = ProposalRules::buildPresentationData($proposal, $items);
-        $acceptedPlan = null;
-        $planLabel = '';
-        if (!empty($data['plan_options'])) {
-            $chosen = trim((string)($_POST['plan'] ?? ''));
-            $valid = array_column($data['plan_options'], 'key');
-            if (!in_array($chosen, $valid, true)) {
-                $this->json(['error' => 'Selecione o plano que deseja aceitar.'], 400);
-            }
-            $acceptedPlan = $chosen;
-            foreach ($data['plan_options'] as $opt) {
-                if ($opt['key'] === $chosen) { $planLabel = $opt['label']; break; }
-            }
-        }
-
-        $respondedAt = date('Y-m-d H:i:s');
-        $this->markSentForResponse($proposal);
-        $extra = ['responded_at' => $respondedAt];
-        if ($acceptedPlan !== null) $extra['accepted_plan'] = $acceptedPlan;
-        if (!$this->model->changeStatus($proposal['id'], ProposalRules::STATUS_ACCEPTED, null, $extra)) {
-            $this->json(['error' => 'Não foi possível registrar o aceite. Tente novamente.'], 409);
-        }
-        $msg = 'Cliente aceitou a proposta' . ($planLabel !== '' ? ' — ' . $planLabel : '');
-        $this->model->addEvent($proposal['id'], null, 'accepted', $msg);
-        $this->notifyTeamResponse($proposal, 'accepted', $planLabel !== '' ? ('Plano: ' . $planLabel) : null);
-        $this->json(['success' => true, 'status' => ProposalRules::STATUS_ACCEPTED, 'accepted_plan' => $acceptedPlan, 'responded_at' => date('d/m/Y \à\s H:i', strtotime($respondedAt))]);
-    }
-
-    /**
-     * O cliente pode responder pelo link mesmo antes do envio formal (link copiado
-     * do painel). A proposta passa por "enviada" para que aceite/recusa sejam
-     * transições válidas.
-     */
-    private function markSentForResponse(array $proposal): void
-    {
-        $id = (int)$proposal['id'];
-        if ($proposal['status'] === ProposalRules::STATUS_DRAFT) {
-            $this->model->changeStatus($id, ProposalRules::STATUS_READY, null);
-            $proposal['status'] = ProposalRules::STATUS_READY;
-        }
-        if ($proposal['status'] === ProposalRules::STATUS_READY) {
-            $extra = empty($proposal['sent_at']) ? ['sent_at' => date('Y-m-d H:i:s')] : [];
-            $this->model->changeStatus($id, ProposalRules::STATUS_SENT, null, $extra);
-        }
+        $r = (new ProposalResponse($this->model))->accept($proposal, [
+            'name' => $_POST['name'] ?? '',
+            'plan' => $_POST['plan'] ?? '',
+            'ip' => $_SERVER['REMOTE_ADDR'] ?? '',
+            'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? '',
+        ]);
+        if (!$r['ok']) $this->json(['error' => $r['error']], $r['code']);
+        $this->notifyTeamResponse($proposal, 'accepted', $r['plan_label'] !== '' ? ('Plano: ' . $r['plan_label']) : null, false);
+        $this->json([
+            'success' => true, 'status' => ProposalRules::STATUS_ACCEPTED, 'accepted_plan' => $r['accepted_plan'],
+            'revision' => $r['revision'], 'responded_at' => date('d/m/Y \\à\\s H:i', strtotime($r['responded_at'])),
+        ]);
     }
 
     /** Cliente recusa a proposta (POST público) — motivo obrigatório. */
@@ -454,30 +460,10 @@ class ProposalController extends Controller
         $token = $this->tokenFromUrl($token);
         $proposal = $token ? $this->model->findByToken($token) : null;
         if (!$proposal) $this->json(['error' => 'Proposta não encontrada'], 404);
-        if (ProposalRules::isTerminal($proposal['status'])) {
-            $this->json(['error' => 'Esta proposta já foi finalizada.'], 409);
-        }
 
-        $reason = ProposalRules::sanitizeRejectReason($_POST['reason'] ?? '');
-        if ($reason === null) $this->json(['error' => 'Informe o motivo da recusa.'], 400);
-
-        $this->markSentForResponse($proposal);
-        if (!$this->model->changeStatus($proposal['id'], ProposalRules::STATUS_REJECTED, null, [
-            'responded_at' => date('Y-m-d H:i:s'),
-            'reject_reason' => $reason,
-        ])) {
-            $this->json(['error' => 'Não foi possível registrar a recusa. Tente novamente.'], 409);
-        }
-        $this->model->addEvent($proposal['id'], null, 'rejected', 'Cliente recusou. Motivo: ' . $reason);
-        $this->notifyTeamResponse($proposal, 'rejected', $reason);
-
-        // Volta o card do lead para "Análise interna" (refazer a proposta) — não é
-        // perda, é retrabalho. Nunca interrompe a resposta ao cliente.
-        if (!empty($proposal['contact_id'])) {
-            try {
-                (new CrmBoard())->moveContactToColumn((int)$proposal['contact_id'], CrmRules::COLUMN_INTERNAL_ANALYSIS);
-            } catch (\Throwable $e) { /* não interrompe */ }
-        }
+        $r = (new ProposalResponse($this->model))->reject($proposal, $_POST['reason'] ?? '');
+        if (!$r['ok']) $this->json(['error' => $r['error']], $r['code']);
+        $this->notifyTeamResponse($proposal, 'rejected', $r['reason'], false);
         $this->json(['success' => true]);
     }
 
@@ -492,8 +478,8 @@ class ProposalController extends Controller
         $token = $this->tokenFromUrl($token);
         $proposal = $token ? $this->model->findByToken($token) : null;
         if (!$proposal) $this->json(['error' => 'Proposta não encontrada'], 404);
-        if (ProposalRules::isTerminal($proposal['status'])) {
-            $this->json(['error' => 'Esta proposta já foi finalizada.'], 409);
+        if ($block = (new ProposalResponse($this->model))->blockReason($proposal)) {
+            $this->json(['error' => $block['error']], $block['code']);
         }
 
         $message = ProposalRules::sanitizeRejectReason($_POST['message'] ?? '');
@@ -636,7 +622,7 @@ class ProposalController extends Controller
      * Avisa a equipe quando o cliente responde: sino (criador) + WhatsApp pessoal
      * do criador (se tiver telefone) + WhatsApp do grupo padrão. Nunca interrompe.
      */
-    private function notifyTeamResponse(array $proposal, string $event, ?string $reason = null): void
+    private function notifyTeamResponse(array $proposal, string $event, ?string $reason = null, bool $withBell = true): void
     {
         $title = $proposal['title'] ?? null;
         if ($event === 'accepted') {
@@ -649,7 +635,7 @@ class ProposalController extends Controller
             $sinoTitle = 'Proposta recusada';
             $sinoMsg = "O cliente recusou a proposta \"{$title}\"." . ($reason ? " Motivo: {$reason}" : '');
         }
-        $this->notifyTeam($proposal, $sinoTitle, $sinoMsg);
+        if ($withBell) $this->notifyTeam($proposal, $sinoTitle, $sinoMsg);
 
         $wa = ProposalDelivery::teamWhatsapp($event, $title, $reason);
 

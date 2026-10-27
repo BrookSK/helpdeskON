@@ -58,6 +58,9 @@ if (!function_exists('categoryLabel')) {
     <?php if ($msg = flash('success')): ?>
         <div class="alert alert-success alert-dismissible fade show"><?= escape($msg) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
     <?php endif; ?>
+    <?php if ($msg = flash('warning')): ?>
+        <div class="alert alert-warning alert-dismissible fade show" id="ticket-project-warning"><?= escape($msg) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+    <?php endif; ?>
     <?php if ($msg = flash('error')): ?>
         <div class="alert alert-danger alert-dismissible fade show"><?= escape($msg) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
     <?php endif; ?>

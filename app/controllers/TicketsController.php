@@ -220,6 +220,11 @@ class TicketsController extends Controller
             $data['technicalGrouped'] = $userModel->getGroupedByRole(['developer', 'analyst', 'attendant', 'super_admin']);
         }
 
+        // Projetos e serviços contratados por empresa (o cliente vê só os da empresa ativa).
+        $companyIds = $isAdminCreator ? array_column($data['companies'] ?? [], 'id') : [$this->activeCompanyId()];
+        $data['ticketProjects'] = (new TicketProjectScope())->formOptions($companyIds);
+        $data['ticketCompanyId'] = $isAdminCreator ? null : $this->activeCompanyId();
+
         $this->view('client/ticket_create', $data);
     }
 
@@ -266,6 +271,20 @@ class TicketsController extends Controller
             $technicalId = !empty($_POST['technical_responsible_id']) ? (int)$_POST['technical_responsible_id'] : null;
         }
 
+        // Projeto e serviço contratado. Para o cliente, a garantia vencida sem
+        // suporte bloqueia; para a equipe, só avisa.
+        $isClient = ($user['role'] ?? '') === 'client';
+        $ticketCompanyId = $isClient ? $this->activeCompanyId() : null;
+        if (!$isClient && $clientId !== (int)$user['id']) {
+            $cu = Database::getInstance()->fetch("SELECT company_id FROM users WHERE id = ?", [$clientId]);
+            $ticketCompanyId = !empty($cu['company_id']) ? (int)$cu['company_id'] : null;
+        }
+        $scope = (new TicketProjectScope())->resolve($isClient, $ticketCompanyId, $_POST['project_id'] ?? null, $_POST['proposal_item_id'] ?? null);
+        if (!$scope['ok']) {
+            flash('error', $scope['error']);
+            $this->redirect('tickets/create');
+        }
+
         $ticketData = [
             'client_id' => $clientId,
             'title' => $title,
@@ -285,6 +304,8 @@ class TicketsController extends Controller
         if (!empty($transcription)) {
             $ticketData['transcription'] = $transcription;
         }
+        if ($scope['project_id']) $ticketData['project_id'] = $scope['project_id'];
+        if ($scope['proposal_item_id']) $ticketData['proposal_item_id'] = $scope['proposal_item_id'];
 
         // Calcular número sequencial do cliente
         $db = Database::getInstance();
@@ -362,6 +383,7 @@ class TicketsController extends Controller
         }
 
         flash('success', 'Demanda criada com sucesso!');
+        if ($scope['warning']) flash('warning', $scope['warning']);
         $this->redirect('tickets/show/' . $ticketId);
     }
 
