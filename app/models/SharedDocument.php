@@ -11,11 +11,13 @@ class SharedDocument
 
     public function getByCompany($companyId)
     {
+        // Documentos vinculados a esta empresa. Sem a antiga visibilidade "Todos"
+        // (global), o isolamento entre empresas é garantido pelo company_id.
         return $this->db->fetchAll(
             "SELECT d.*, u.name as uploaded_by
              FROM shared_documents d
              LEFT JOIN users u ON d.user_id = u.id
-             WHERE d.company_id = ? OR d.visibility = 'all'
+             WHERE d.company_id = ?
              ORDER BY d.created_at DESC",
             [$companyId]
         );
@@ -75,23 +77,26 @@ class SharedDocument
 
     public function getForClient($companyId, $userId)
     {
-        // Mostra: docs da empresa dele, docs com visibilidade 'all', ou docs que ele mesmo enviou
+        // Isolamento por empresa: o cliente só vê documentos VISÍVEIS PARA A
+        // EMPRESA (visibility='company') da SUA empresa, mais os que ele mesmo
+        // enviou. Documentos internos ('team') nunca aparecem para clientes, e
+        // não há mais visibilidade global cruzando empresas.
         if ($companyId) {
             return $this->db->fetchAll(
                 "SELECT d.*, u.name as uploaded_by
                  FROM shared_documents d
                  LEFT JOIN users u ON d.user_id = u.id
-                 WHERE d.company_id = ? OR d.visibility = 'all' OR d.user_id = ?
+                 WHERE (d.company_id = ? AND d.visibility = 'company') OR d.user_id = ?
                  ORDER BY d.created_at DESC",
                 [$companyId, $userId]
             );
         }
-        // Se não tem empresa, mostra só os dele e os de visibilidade 'all'
+        // Sem empresa vinculada à conta: só os documentos que ele mesmo enviou.
         return $this->db->fetchAll(
             "SELECT d.*, u.name as uploaded_by
              FROM shared_documents d
              LEFT JOIN users u ON d.user_id = u.id
-             WHERE d.visibility = 'all' OR d.user_id = ?
+             WHERE d.user_id = ?
              ORDER BY d.created_at DESC",
             [$userId]
         );
@@ -174,7 +179,8 @@ class SharedDocument
                 'file_path' => $filePath,
                 'file_type' => $file['type'],
                 'file_size' => $file['size'],
-                'visibility' => $visibility,
+                // Só 'company' ou 'team'; qualquer outro valor vira 'company'.
+                'visibility' => DocumentRules::normalizeVisibility($visibility),
             ]);
             return ['success' => true, 'id' => $id];
         }

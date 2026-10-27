@@ -214,28 +214,35 @@
                         <small class="text-muted">Máx. 500MB. PDF, DOC, XLS, ZIP, SQL, imagens, etc.</small>
                     </div>
                     <?php if (in_array($user['role'], ['super_admin', 'attendant'])): ?>
-                    <?php $preselectCompany = (!empty($currentCompany) && !empty($currentCompany['id'])) ? (int)$currentCompany['id'] : null; ?>
+                    <?php $contextCompanyId = (!empty($currentCompany) && !empty($currentCompany['id'])) ? (int)$currentCompany['id'] : null; ?>
                     <div class="mb-3">
                         <label class="form-label fw-medium small">Empresa destino</label>
-                        <select name="company_id" class="form-select form-select-sm">
-                            <option value="">Geral (todas)</option>
-                            <?php
-                            $companiesForModal = (new Company())->getAll();
-                            foreach ($companiesForModal as $c): ?>
-                            <option value="<?= $c['id'] ?>" <?= $preselectCompany === (int)$c['id'] ? 'selected' : '' ?>><?= escape($c['name']) ?></option>
-                            <?php endforeach; ?>
-                        </select>
+                        <?php if ($contextCompanyId !== null): ?>
+                            <?php /* Dentro de uma empresa: destino travado na empresa atual.
+                                     Mostra o nome (readonly) e envia o id por campo oculto. */ ?>
+                            <input type="text" class="form-control form-control-sm" value="<?= escape($currentCompany['name'] ?? '') ?>" readonly>
+                            <input type="hidden" name="company_id" value="<?= $contextCompanyId ?>">
+                        <?php else: ?>
+                            <?php /* Fora de uma empresa (balde "Geral"): permite escolher. */ ?>
+                            <select name="company_id" class="form-select form-select-sm">
+                                <option value="">Geral (sem empresa)</option>
+                                <?php
+                                $companiesForModal = (new Company())->getAll();
+                                foreach ($companiesForModal as $c): ?>
+                                <option value="<?= $c['id'] ?>"><?= escape($c['name']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        <?php endif; ?>
                     </div>
                     <div class="mb-3">
                         <label class="form-label fw-medium small">Visibilidade</label>
                         <select name="visibility" class="form-select form-select-sm">
-                            <option value="all">Todos</option>
-                            <option value="company">Apenas empresa selecionada</option>
+                            <option value="company">Apenas para a empresa</option>
                             <option value="team">Apenas equipe interna</option>
                         </select>
                     </div>
                     <?php else: ?>
-                    <input type="hidden" name="visibility" value="all">
+                    <input type="hidden" name="visibility" value="company">
                     <?php endif; ?>
                 </div>
                 <div class="modal-footer">

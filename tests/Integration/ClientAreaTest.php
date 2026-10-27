@@ -142,21 +142,49 @@ final class ClientAreaTest extends TestCase
 
     // ================= Documentos: visibilidade =================
 
-    public function testClienteVeDocsDaEmpresaAllEProprios(): void
+    /**
+     * Após a remoção de "Todos" (all), o cliente vê:
+     *  - documentos VISÍVEIS PARA A EMPRESA (visibility='company') da sua empresa;
+     *  - documentos que ele mesmo enviou.
+     * E NÃO vê:
+     *  - documentos internos ('team'), mesmo que vinculados à sua empresa;
+     *  - documentos de OUTRA empresa (isolamento por empresa).
+     */
+    public function testClienteVeSoDocsCompanyDaSuaEmpresaEProprios(): void
     {
         $daEmpresa = $this->novoDoc($this->ownerA, $this->companyA, 'company', 'Doc empresa A');
-        $global = $this->novoDoc($this->ownerA, null, 'all', 'Doc all');
-        $proprio = $this->novoDoc($this->clientA, null, 'company', 'Doc do próprio clienteA');
-        // doc de outra empresa, não-all: NÃO deve aparecer para clientA
+        $interno   = $this->novoDoc($this->ownerA, $this->companyA, 'team', 'Doc interno da empresa A');
+        $proprio   = $this->novoDoc($this->clientA, $this->companyA, 'company', 'Doc do próprio clienteA');
+        // doc de outra empresa: NÃO deve aparecer para clientA
         $outraEmpresa = $this->novoDoc($this->clientB, $this->companyB, 'company', 'Doc empresa B');
 
         $lista = $this->docModel->getForClient($this->companyA, $this->clientA);
         $ids = array_map(fn($d) => (int) $d['id'], $lista);
 
-        $this->assertContains($daEmpresa, $ids);
-        $this->assertContains($global, $ids);
-        $this->assertContains($proprio, $ids);
-        $this->assertNotContains($outraEmpresa, $ids);
+        $this->assertContains($daEmpresa, $ids, 'deveria ver o doc company da própria empresa');
+        $this->assertContains($proprio, $ids, 'deveria ver o doc que ele mesmo enviou');
+        $this->assertNotContains($interno, $ids, 'NÃO deveria ver doc interno (team)');
+        $this->assertNotContains($outraEmpresa, $ids, 'NÃO deveria ver doc de outra empresa');
+    }
+
+    /**
+     * Isolamento também na visão por empresa (getByCompany), usada pela tela de
+     * detalhes da empresa no admin: só documentos daquela empresa, nunca de outra.
+     */
+    public function testGetByCompanyNaoVazaDeOutraEmpresa(): void
+    {
+        $doA = $this->novoDoc($this->ownerA, $this->companyA, 'company', 'A1');
+        $doAinterno = $this->novoDoc($this->ownerA, $this->companyA, 'team', 'A2 interno');
+        $doB = $this->novoDoc($this->clientB, $this->companyB, 'company', 'B1');
+
+        $lista = $this->docModel->getByCompany($this->companyA);
+        $ids = array_map(fn($d) => (int) $d['id'], $lista);
+
+        // A visão da empresa mostra todos os docs daquela empresa (company e team)...
+        $this->assertContains($doA, $ids);
+        $this->assertContains($doAinterno, $ids);
+        // ...mas nunca os de outra empresa.
+        $this->assertNotContains($doB, $ids);
     }
 
     // ================= Subusuários: regra =================
