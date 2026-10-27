@@ -238,7 +238,7 @@
                         <label class="form-label fw-medium small">Visibilidade</label>
                         <select name="visibility" class="form-select form-select-sm">
                             <option value="company">Apenas para a empresa</option>
-                            <option value="team">Apenas equipe interna</option>
+                            <option value="team">Apenas para a equipe interna</option>
                         </select>
                     </div>
                     <?php else: ?>
