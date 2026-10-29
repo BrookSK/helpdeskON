@@ -176,6 +176,9 @@
 </style>
 
 <!-- ===== Modal de visualização (somente leitura) ===== -->
+<!-- Mesma estrutura do modal de visualização da equipe (abas Dados | Histórico),
+     porém SEM os botões de ação (Editar / Solicitar desbloqueio): o cliente
+     apenas consulta. -->
 <div class="modal fade" id="rdoViewModal" tabindex="-1">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content">
@@ -183,8 +186,14 @@
         <h6 class="modal-title"><i class="bi bi-journal-text"></i> Relatório Diário</h6>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
+      <!-- Abas: Dados | Histórico -->
+      <ul class="nav nav-tabs px-3 pt-2" id="viewTabs">
+          <li class="nav-item"><button type="button" class="nav-link active" onclick="switchViewTab('dados')"><i class="bi bi-file-text"></i> Dados</button></li>
+          <li class="nav-item"><button type="button" class="nav-link" onclick="switchViewTab('historico')"><i class="bi bi-clock-history"></i> Histórico</button></li>
+      </ul>
       <div class="modal-body">
           <div id="view-tab-dados"></div>
+          <div id="view-tab-historico" style="display:none"></div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Fechar</button>
@@ -202,6 +211,17 @@ const RDO = {
 };
 
 const KIND_LABELS = { colaborador: 'Colaborador', prestador: 'Prestador' };
+
+// Rótulos das ações do histórico (iguais aos da visão interna).
+const ACTION_LABELS = {
+    created:   { lbl: 'Criado',               cls: 'bg-primary' },
+    updated:   { lbl: 'Editado',              cls: 'bg-info text-dark' },
+    submitted: { lbl: 'Enviado p/ aprovação', cls: 'bg-warning text-dark' },
+    approved:  { lbl: 'Aprovado',             cls: 'bg-success' },
+    rejected:  { lbl: 'Recusado',             cls: 'bg-danger' },
+    locked:    { lbl: 'Bloqueado',            cls: 'bg-secondary' },
+    unlocked:  { lbl: 'Desbloqueado',         cls: 'bg-success' },
+};
 
 // Visão ativa (calendário é o padrão) e cache dos itens carregados, para que a
 // troca de visão não exija nova chamada ao servidor.
@@ -552,13 +572,52 @@ document.getElementById('f-search').addEventListener('input', () => {
 });
 
 // =========================================================================
-// Modal de visualização (somente leitura)
+// Modal de visualização (somente leitura) — abas Dados | Histórico
 // =========================================================================
 let rdoViewModal;
+
+function switchViewTab(tab) {
+    document.getElementById('view-tab-dados').style.display     = tab === 'dados'     ? '' : 'none';
+    document.getElementById('view-tab-historico').style.display = tab === 'historico' ? '' : 'none';
+    document.querySelectorAll('#viewTabs .nav-link').forEach((btn, i) => {
+        btn.classList.toggle('active', (i === 0 && tab === 'dados') || (i === 1 && tab === 'historico'));
+    });
+}
+
+function renderHistoricoTab(history) {
+    const el = document.getElementById('view-tab-historico');
+    if (!history.length) {
+        el.innerHTML = '<p class="text-muted text-center py-4">Nenhum evento registrado.</p>';
+        return;
+    }
+    const rows = history.map(h => {
+        const meta  = ACTION_LABELS[h.action] || { lbl: h.action, cls: 'bg-secondary' };
+        const when  = (h.changed_at || '').substring(0, 16).replace('T', ' ');
+        const actor = escapeHtml(h.actor_name || '—');
+        const notes = h.notes ? `<div class="small text-muted mt-1">${escapeHtml(h.notes)}</div>` : '';
+        return `<tr>
+            <td class="text-nowrap small">${when}</td>
+            <td><span class="badge ${meta.cls}">${meta.lbl}</span></td>
+            <td class="small">${actor}</td>
+            <td class="small">${notes}</td>
+        </tr>`;
+    }).join('');
+    el.innerHTML = `<table class="table table-sm table-hover mb-0">
+        <thead class="table-light"><tr><th>Quando</th><th>Ação</th><th>Por</th><th>Obs.</th></tr></thead>
+        <tbody>${rows}</tbody>
+    </table>`;
+}
+
 async function viewRdo(id) {
-    const res  = await fetch(RDO.base + '/get/' + id, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
-    const data = await res.json();
-    if (data.error) { alert(data.error); return; }
+    let data;
+    try {
+        const res = await fetch(RDO.base + '/get/' + id, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        data = await res.json();
+    } catch (e) {
+        alert('Não foi possível carregar o relatório.');
+        return;
+    }
+    if (!data || data.error) { alert((data && data.error) || 'Relatório não encontrado.'); return; }
     const it   = data.item;
 
     const dateBR  = it.report_date ? rdoDateBR(it.report_date) : '—';
@@ -625,6 +684,10 @@ async function viewRdo(id) {
                 <div class="d-flex flex-wrap gap-2">${attHtml}</div>
             </div>
         </div>`;
+
+    // Histórico (somente leitura) e sempre abre na aba "Dados".
+    renderHistoricoTab(it.history || []);
+    switchViewTab('dados');
 
     rdoViewModal = rdoViewModal || new bootstrap.Modal(document.getElementById('rdoViewModal'));
     rdoViewModal.show();
