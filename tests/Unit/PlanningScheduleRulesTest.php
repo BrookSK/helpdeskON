@@ -629,4 +629,173 @@ final class PlanningScheduleRulesTest extends TestCase
         $this->assertSame('Outubro 2026', PlanningScheduleRules::monthLabel('2026-10'));
         $this->assertSame('Janeiro 2027', PlanningScheduleRules::monthLabel('2027-01'));
     }
+
+    // ---- cardPrimarySpan (intervalo contíguo da demanda) ----
+
+    public function testPrimarySpanJanelaDesenvolvimento(): void
+    {
+        $span = PlanningScheduleRules::cardPrimarySpan([
+            'start_date' => '2026-08-03', 'end_date' => '2026-08-14',
+        ]);
+        $this->assertSame(['start' => '2026-08-03', 'end' => '2026-08-14', 'kind' => 'dev'], $span);
+    }
+
+    public function testPrimarySpanSomenteStartEhUmDia(): void
+    {
+        $span = PlanningScheduleRules::cardPrimarySpan(['start_date' => '2026-08-03']);
+        $this->assertSame(['start' => '2026-08-03', 'end' => '2026-08-03', 'kind' => 'dev'], $span);
+    }
+
+    public function testPrimarySpanSomenteDueEhMarcador(): void
+    {
+        $span = PlanningScheduleRules::cardPrimarySpan(['due_date' => '2026-08-20']);
+        $this->assertSame(['start' => '2026-08-20', 'end' => '2026-08-20', 'kind' => 'due'], $span);
+    }
+
+    public function testPrimarySpanProtegeEndAntesDeStart(): void
+    {
+        $span = PlanningScheduleRules::cardPrimarySpan([
+            'start_date' => '2026-08-10', 'end_date' => '2026-08-05',
+        ]);
+        $this->assertSame(['start' => '2026-08-10', 'end' => '2026-08-10', 'kind' => 'dev'], $span);
+    }
+
+    public function testPrimarySpanSemDatasRetornaNull(): void
+    {
+        $this->assertNull(PlanningScheduleRules::cardPrimarySpan(['status' => 'open']));
+    }
+
+    // ---- weekSegments (faixas contínuas por semana) ----
+
+    /** Constrói uma semana de 7 dias a partir de um domingo 'Y-m-d'. */
+    private function semana(string $domingo): array
+    {
+        $week = [];
+        $ts = strtotime($domingo);
+        for ($i = 0; $i < 7; $i++) {
+            $week[] = ['date' => date('Y-m-d', $ts), 'day' => (int) date('j', $ts), 'otherMonth' => false];
+            $ts = strtotime('+1 day', $ts);
+        }
+        return $week;
+    }
+
+    public function testWeekSegmentsFaixaContinuaDentroDaSemana(): void
+    {
+        // Semana 02/08/2026 (dom) a 08/08/2026 (sáb).
+        $week = $this->semana('2026-08-02');
+        $cards = [['id' => 1, 'title' => 'X', 'status' => 'open', 'start_date' => '2026-08-03', 'end_date' => '2026-08-06']];
+
+        $res = PlanningScheduleRules::weekSegments($cards, $week, '2026-08-01');
+        $this->assertSame(1, $res['lanes']);
+        $this->assertCount(1, $res['segments']);
+        $seg = $res['segments'][0];
+        // 03/08 = coluna 1 (seg), 06/08 = coluna 4 (qui).
+        $this->assertSame(1, $seg['colStart']);
+        $this->assertSame(4, $seg['colEnd']);
+        $this->assertTrue($seg['isStart'], 'Início real dentro da semana.');
+        $this->assertTrue($seg['isEnd'], 'Fim real dentro da semana.');
+        $this->assertSame('dev', $seg['kind']);
+    }
+
+    public function testWeekSegmentsFaixaQueAtravessaSemanaEhRecortada(): void
+    {
+        // Faixa 03/08 a 14/08 cruza duas semanas. Na 1ª semana (02–08), o
+        // segmento vai de col 1 até 6 (sáb) e NÃO termina aqui (isEnd=false).
+        $week1 = $this->semana('2026-08-02');
+        $cards = [['id' => 1, 'title' => 'X', 'status' => 'open', 'start_date' => '2026-08-03', 'end_date' => '2026-08-14']];
+
+        $res = PlanningScheduleRules::weekSegments($cards, $week1, '2026-08-01');
+        $seg = $res['segments'][0];
+        $this->assertSame(1, $seg['colStart']);
+        $this->assertSame(6, $seg['colEnd']);
+        $this->assertTrue($seg['isStart']);
+        $this->assertFalse($seg['isEnd'], 'A faixa continua na semana seguinte.');
+
+        // Na 2ª semana (09–15), começa no domingo (col 0) e termina em 14/08 (col 5).
+        $week2 = $this->semana('2026-08-09');
+        $res2 = PlanningScheduleRules::weekSegments($cards, $week2, '2026-08-01');
+        $seg2 = $res2['segments'][0];
+        $this->assertSame(0, $seg2['colStart']);
+        $this->assertSame(5, $seg2['colEnd']);
+        $this->assertFalse($seg2['isStart'], 'Continuação: sem marca de início.');
+        $this->assertTrue($seg2['isEnd']);
+    }
+
+    public function testWeekSegmentsMarcadorDeDueForaDaJanela(): void
+    {
+        // due 07/08 fora de qualquer janela de desenvolvimento => marcador 1 dia.
+        $week = $this->semana('2026-08-02');
+        $cards = [['id' => 1, 'title' => 'Prazo', 'status' => 'open', 'due_date' => '2026-08-07']];
+
+        $res = PlanningScheduleRules::weekSegments($cards, $week, '2026-08-01');
+        $this->assertCount(1, $res['segments']);
+        $seg = $res['segments'][0];
+        $this->assertSame('due', $seg['kind']);
+        $this->assertSame(5, $seg['colStart']); // 07/08 = sexta = col 5
+        $this->assertSame(5, $seg['colEnd']);
+    }
+
+    public function testWeekSegmentsDueDentroDaJanelaNaoViraMarcador(): void
+    {
+        // due dentro da janela dev não gera segmento separado (evita duplicar).
+        $week = $this->semana('2026-08-02');
+        $cards = [['id' => 1, 'title' => 'X', 'status' => 'open', 'start_date' => '2026-08-03', 'end_date' => '2026-08-06', 'due_date' => '2026-08-05']];
+
+        $res = PlanningScheduleRules::weekSegments($cards, $week, '2026-08-01');
+        // Só a faixa dev; nenhum marcador de due adicional.
+        $this->assertCount(1, $res['segments']);
+        $this->assertSame('dev', $res['segments'][0]['kind']);
+    }
+
+    public function testWeekSegmentsAlocaLanesSemSobreposicao(): void
+    {
+        // Três demandas de 1 dia no mesmo dia => 3 lanes distintas.
+        $week = $this->semana('2026-08-02');
+        $cards = [
+            ['id' => 1, 'title' => 'A', 'status' => 'open', 'due_date' => '2026-08-05'],
+            ['id' => 2, 'title' => 'B', 'status' => 'open', 'due_date' => '2026-08-05'],
+            ['id' => 3, 'title' => 'C', 'status' => 'open', 'due_date' => '2026-08-05'],
+        ];
+
+        $res = PlanningScheduleRules::weekSegments($cards, $week, '2026-08-01');
+        $this->assertSame(3, $res['lanes'], 'Demandas no mesmo dia ocupam lanes diferentes.');
+        $lanes = array_map(fn($s) => $s['lane'], $res['segments']);
+        $this->assertSame([0, 1, 2], array_values(array_unique($lanes)));
+    }
+
+    public function testWeekSegmentsDuasDemandasEmDiasDiferentesPartilhamLane(): void
+    {
+        // Demandas que não se sobrepõem na horizontal cabem na mesma lane.
+        $week = $this->semana('2026-08-02');
+        $cards = [
+            ['id' => 1, 'title' => 'A', 'status' => 'open', 'due_date' => '2026-08-03'], // seg (col 1)
+            ['id' => 2, 'title' => 'B', 'status' => 'open', 'due_date' => '2026-08-07'], // sex (col 5)
+        ];
+
+        $res = PlanningScheduleRules::weekSegments($cards, $week, '2026-08-01');
+        $this->assertSame(1, $res['lanes'], 'Sem sobreposição horizontal => mesma lane.');
+    }
+
+    public function testWeekSegmentsForaDaSemanaNaoAparece(): void
+    {
+        $week = $this->semana('2026-08-02'); // 02–08/08
+        $cards = [['id' => 1, 'title' => 'X', 'status' => 'open', 'due_date' => '2026-09-10']];
+        $res = PlanningScheduleRules::weekSegments($cards, $week, '2026-08-01');
+        $this->assertCount(0, $res['segments']);
+        $this->assertSame(0, $res['lanes']);
+    }
+
+    public function testWeekSegmentsSemSeteDiasRetornaVazio(): void
+    {
+        $res = PlanningScheduleRules::weekSegments([['id' => 1, 'due_date' => '2026-08-05']], [['date' => '2026-08-02']], '2026-08-01');
+        $this->assertSame(['lanes' => 0, 'segments' => []], $res);
+    }
+
+    public function testWeekSegmentsAnexaCategoriaDeCor(): void
+    {
+        $week = $this->semana('2026-08-02');
+        $cards = [['id' => 1, 'title' => 'X', 'status' => 'completed', 'due_date' => '2026-08-05']];
+        $res = PlanningScheduleRules::weekSegments($cards, $week, '2026-08-10');
+        $this->assertSame('done', $res['segments'][0]['_cat']['key']);
+    }
 }

@@ -656,4 +656,155 @@ class PlanningScheduleRules
         $name = self::MONTH_NAMES[$m] ?? $ym;
         return $name . ' ' . $y;
     }
+
+    /**
+     * Intervalo contíguo [início, fim] que uma demanda ocupa no calendário,
+     * fiel ao calendário da tela (buildSpanSegments):
+     *   - start_date + end_date  => [start, end] (faixa de desenvolvimento);
+     *   - só start_date          => [start, start] (1 dia);
+     *   - senão, só due_date     => [due, due]   (marcador de prazo de 1 dia).
+     * Quando há janela de desenvolvimento, o due_date NÃO estende a faixa: ele
+     * já é coberto se cair dentro, e um prazo fora da janela é tratado como um
+     * segmento próprio de 1 dia (ver weekSegments).
+     *
+     * @return array|null ['start'=>'Y-m-d','end'=>'Y-m-d','kind'=>'dev'|'due'] ou null.
+     */
+    public static function cardPrimarySpan(array $card): ?array
+    {
+        $start = self::dayKey($card['start_date'] ?? null);
+        $end = self::dayKey($card['end_date'] ?? null);
+        $due = self::dayKey($card['due_date'] ?? null);
+
+        if ($start !== null && $end !== null) {
+            if (strtotime($end) < strtotime($start)) $end = $start; // protege invertido
+            return ['start' => $start, 'end' => $end, 'kind' => 'dev'];
+        }
+        if ($start !== null) {
+            return ['start' => $start, 'end' => $start, 'kind' => 'dev'];
+        }
+        if ($due !== null) {
+            return ['start' => $due, 'end' => $due, 'kind' => 'due'];
+        }
+        return null;
+    }
+
+    /**
+     * Monta os SEGMENTOS por semana para desenhar cada demanda como UMA faixa
+     * contínua ao longo dos dias (em vez de repetir a demanda em cada célula).
+     * Espelha a lógica do calendário da tela (buildSpanSegments + lanes +
+     * marcador de due fora da janela), adaptada para a grade do PDF.
+     *
+     * Para cada semana (7 dias), devolve:
+     *   ['lanes' => int, 'segments' => [
+     *       ['card'=>linha, '_cat'=>cat, 'colStart'=>0..6, 'colEnd'=>0..6,
+     *        'isStart'=>bool, 'isEnd'=>bool, 'kind'=>'dev'|'due', 'lane'=>int],
+     *       ...
+     *   ]]
+     * colStart/colEnd são índices de coluna (0=Dom .. 6=Sáb) dentro da semana.
+     * isStart/isEnd indicam se a faixa começa/termina de fato naquela semana
+     * (para arredondar só as pontas reais e pôr a marca escura só no início).
+     *
+     * @param array  $cards     Demandas já filtradas (com datas).
+     * @param array  $weekDates Lista de 7 dias da semana: cada um ['date'=>'Y-m-d',...].
+     * @param string $todayStr  Data de referência 'Y-m-d' para as cores.
+     */
+    public static function weekSegments(array $cards, array $weekDates, ?string $todayStr = null): array
+    {
+        if (count($weekDates) !== 7) {
+            return ['lanes' => 0, 'segments' => []];
+        }
+        $weekStart = $weekDates[0]['date'];
+        $weekEnd = $weekDates[6]['date'];
+        $wsTs = strtotime($weekStart);
+        $weTs = strtotime($weekEnd);
+
+        // Índice de coluna (0..6) de uma data dentro da semana.
+        $colOf = function (string $d) use ($wsTs): int {
+            $c = (int) round((strtotime($d) - $wsTs) / 86400);
+            return max(0, min(6, $c));
+        };
+
+        $segments = [];
+        foreach ($cards as $card) {
+            $cat = self::deadlineCategory($card, $todayStr);
+            $start = self::dayKey($card['start_date'] ?? null);
+            $end = self::dayKey($card['end_date'] ?? null);
+            $due = self::dayKey($card['due_date'] ?? null);
+
+            // 1) Faixa de desenvolvimento (start→end ou start simples).
+            $devStart = null;
+            $devEnd = null;
+            if ($start !== null && $end !== null) {
+                $devStart = $start;
+                $devEnd = (strtotime($end) < strtotime($start)) ? $start : $end;
+            } elseif ($start !== null) {
+                $devStart = $start;
+                $devEnd = $start;
+            }
+            if ($devStart !== null) {
+                $segStartTs = max(strtotime($devStart), $wsTs);
+                $segEndTs = min(strtotime($devEnd), $weTs);
+                if ($segStartTs <= $weTs && $segEndTs >= $wsTs) {
+                    $segments[] = [
+                        'card'     => $card,
+                        '_cat'     => $cat,
+                        'colStart' => $colOf(date('Y-m-d', $segStartTs)),
+                        'colEnd'   => $colOf(date('Y-m-d', $segEndTs)),
+                        'isStart'  => (strtotime($devStart) >= $wsTs),
+                        'isEnd'    => (strtotime($devEnd) <= $weTs),
+                        'kind'     => 'dev',
+                        'id'       => (int) ($card['id'] ?? 0),
+                    ];
+                }
+            }
+
+            // 2) Marcador de prazo (due) de 1 dia — só se estiver nesta semana e
+            //    fora da janela de desenvolvimento (mesma regra da tela).
+            if ($due !== null) {
+                $dueTs = strtotime($due);
+                $inWeek = $dueTs >= $wsTs && $dueTs <= $weTs;
+                $insideDev = $devStart !== null
+                    && $dueTs >= strtotime($devStart) && $dueTs <= strtotime($devEnd);
+                if ($inWeek && !$insideDev) {
+                    $col = $colOf($due);
+                    $segments[] = [
+                        'card'     => $card,
+                        '_cat'     => $cat,
+                        'colStart' => $col,
+                        'colEnd'   => $col,
+                        'isStart'  => true,
+                        'isEnd'    => true,
+                        'kind'     => 'due',
+                        'id'       => (int) ($card['id'] ?? 0),
+                    ];
+                }
+            }
+        }
+
+        // Aloca lanes (linhas) evitando sobreposição horizontal — igual à tela.
+        usort($segments, function ($a, $b) {
+            return ($a['colStart'] <=> $b['colStart'])
+                ?: (($b['colEnd'] - $b['colStart']) <=> ($a['colEnd'] - $a['colStart']))
+                ?: ($a['id'] <=> $b['id']);
+        });
+        $laneEnds = []; // última coluna ocupada por lane
+        foreach ($segments as &$seg) {
+            $placed = false;
+            foreach ($laneEnds as $i => $endCol) {
+                if ($endCol < $seg['colStart']) {
+                    $seg['lane'] = $i;
+                    $laneEnds[$i] = $seg['colEnd'];
+                    $placed = true;
+                    break;
+                }
+            }
+            if (!$placed) {
+                $seg['lane'] = count($laneEnds);
+                $laneEnds[] = $seg['colEnd'];
+            }
+        }
+        unset($seg);
+
+        return ['lanes' => count($laneEnds), 'segments' => $segments];
+    }
 }

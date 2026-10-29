@@ -169,17 +169,28 @@ class PlanningController extends Controller
             return;
         }
 
-        // Pré-monta o grid + distribuição de cada mês para a view só desenhar.
+        // Pré-monta, para cada mês, as semanas do grid já com os SEGMENTOS
+        // contínuos (uma faixa por demanda ao longo dos dias, em vez de repetir
+        // a demanda em cada célula). A view só desenha o que vem pronto daqui.
         $today = date('Y-m-d');
         $viewMonths = [];
         foreach ($months as $ym) {
             $y = (int) substr($ym, 0, 4);
             $m = (int) substr($ym, 5, 2);
+            $grid = PlanningScheduleRules::monthGrid($y, $m);
+            $weeks = [];
+            foreach ($grid as $weekDays) {
+                $seg = PlanningScheduleRules::weekSegments($dated, $weekDays, $today);
+                $weeks[] = [
+                    'days'     => $weekDays,
+                    'segments' => $seg['segments'],
+                    'lanes'    => $seg['lanes'],
+                ];
+            }
             $viewMonths[] = [
-                'ym'     => $ym,
-                'label'  => PlanningScheduleRules::monthLabel($ym),
-                'weeks'  => PlanningScheduleRules::monthGrid($y, $m),
-                'byDay'  => PlanningScheduleRules::cardsByDayForMonth($dated, $y, $m, $today),
+                'ym'    => $ym,
+                'label' => PlanningScheduleRules::monthLabel($ym),
+                'weeks' => $weeks,
             ];
         }
 
