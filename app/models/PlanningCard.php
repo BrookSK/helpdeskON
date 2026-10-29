@@ -40,7 +40,10 @@ class PlanningCard
                        cb.name as created_by_name,
                        cb.role as created_by_role,
                        t.category as category,
-                       t.scope_rejected_reason as scope_rejected_reason
+                       t.scope_rejected_reason as scope_rejected_reason,
+                       t.data_inicio as data_inicio,
+                       t.data_termino as data_termino,
+                       t.data_prevista_entrega as data_prevista_entrega
                 FROM planning_cards pc
                 LEFT JOIN users u ON pc.assigned_to = u.id
                 LEFT JOIN tickets t ON pc.ticket_id = t.id
@@ -70,6 +73,16 @@ class PlanningCard
         }
         if (!empty($filters['hide_completed'])) {
             $sql .= " AND pc.status NOT IN ('completed', 'archived')";
+        }
+        // Filtro por "Previsão de término" (data prevista de entrega da demanda).
+        // Intervalo opcional: a partir de (from) e/ou até (until).
+        if (!empty($filters['data_prevista_from'])) {
+            $sql .= " AND t.data_prevista_entrega >= ?";
+            $params[] = $filters['data_prevista_from'];
+        }
+        if (!empty($filters['data_prevista_until'])) {
+            $sql .= " AND t.data_prevista_entrega <= ?";
+            $params[] = $filters['data_prevista_until'];
         }
         if (!empty($filters['allowed_companies'])) {
             $placeholders = implode(',', array_fill(0, count($filters['allowed_companies']), '?'));

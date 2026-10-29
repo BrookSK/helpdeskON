@@ -79,6 +79,8 @@ class TicketsController extends Controller
             if (!empty($_GET['priority'])) $planningFilters['priority'] = $_GET['priority'];
             if (!empty($_GET['company'])) $planningFilters['company_id'] = $_GET['company'];
             if (!empty($_GET['hide_completed'])) $planningFilters['hide_completed'] = true;
+            if (!empty($_GET['prev_from'])) $planningFilters['data_prevista_from'] = $_GET['prev_from'];
+            if (!empty($_GET['prev_until'])) $planningFilters['data_prevista_until'] = $_GET['prev_until'];
 
             $cards = $cardModel->getAll($planningFilters);
 
@@ -133,6 +135,8 @@ class TicketsController extends Controller
             if (!empty($_GET['company'])) $planningFilters['company_id'] = $_GET['company'];
             if (!empty($filters['attendant_id'])) $planningFilters['assigned_to'] = $filters['attendant_id'];
             if (!empty($filters['hide_completed'])) $planningFilters['hide_completed'] = true;
+            if (!empty($_GET['prev_from'])) $planningFilters['data_prevista_from'] = $_GET['prev_from'];
+            if (!empty($_GET['prev_until'])) $planningFilters['data_prevista_until'] = $_GET['prev_until'];
             if (!empty($filters['allowed_companies'])) $planningFilters['allowed_companies'] = $filters['allowed_companies'];
 
             $cards = $cardModel->getAll($planningFilters);
@@ -242,9 +246,27 @@ class TicketsController extends Controller
         $transcription = trim($_POST['transcription'] ?? '');
         $category = trim($_POST['category'] ?? '');
         $priority = $_POST['priority'] ?? 'medium';
+        $dataInicio = trim($_POST['data_inicio'] ?? '');
+        $dataTermino = trim($_POST['data_termino'] ?? '');
+        $dataPrevista = trim($_POST['data_prevista_entrega'] ?? '');
 
         if (empty($title) || empty($description)) {
             flash('error', 'Título e descrição são obrigatórios.');
+            $this->redirect('tickets/create');
+        }
+
+        // As três datas da demanda são obrigatórias e preenchidas pelo cliente.
+        // Validação server-side no mesmo padrão de savePrevisao (formato Y-m-d).
+        $isValidDate = static function ($v) {
+            $d = \DateTime::createFromFormat('Y-m-d', $v);
+            return $d !== false && $d->format('Y-m-d') === $v;
+        };
+        if ($dataInicio === '' || $dataTermino === '' || $dataPrevista === '') {
+            flash('error', 'Informe a data de início, a data de término e a previsão de término.');
+            $this->redirect('tickets/create');
+        }
+        if (!$isValidDate($dataInicio) || !$isValidDate($dataTermino) || !$isValidDate($dataPrevista)) {
+            flash('error', 'Datas inválidas. Verifique a data de início, de término e a previsão de término.');
             $this->redirect('tickets/create');
         }
 
@@ -292,6 +314,9 @@ class TicketsController extends Controller
             'category' => $category,
             'priority' => $priority,
             'status' => 'open',
+            'data_inicio' => $dataInicio,
+            'data_termino' => $dataTermino,
+            'data_prevista_entrega' => $dataPrevista,
         ];
 
         if ($attendantId) {

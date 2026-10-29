@@ -286,6 +286,27 @@
                             </select>
                         </div>
                     </div>
+                    <div class="col-sm-4">
+                        <div class="form-field">
+                            <label class="form-label fw-medium">Data de início *</label>
+                            <input type="date" name="data_inicio" id="field-data-inicio" class="form-control" required>
+                            <small class="field-help field-help-bottom">Quando o trabalho deve começar</small>
+                        </div>
+                    </div>
+                    <div class="col-sm-4">
+                        <div class="form-field">
+                            <label class="form-label fw-medium">Data de término *</label>
+                            <input type="date" name="data_termino" id="field-data-termino" class="form-control" required>
+                            <small class="field-help field-help-bottom">Quando o trabalho deve terminar</small>
+                        </div>
+                    </div>
+                    <div class="col-sm-4">
+                        <div class="form-field">
+                            <label class="form-label fw-medium">Previsão de término *</label>
+                            <input type="date" name="data_prevista_entrega" id="field-data-prevista" class="form-control" required>
+                            <small class="field-help field-help-bottom">Data prevista para a entrega</small>
+                        </div>
+                    </div>
                     <div class="col-sm-6" id="project-field" style="display:none">
                         <div class="form-field">
                             <label class="form-label fw-medium" for="field-project">Projeto</label>

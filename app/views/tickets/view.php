@@ -380,6 +380,24 @@ if (!function_exists('categoryLabel')) {
                 </div>
             </div>
 
+            <!-- ===== Datas da demanda (informadas pelo cliente no cadastro) ===== -->
+            <?php if (!empty($ticket['data_inicio']) || !empty($ticket['data_termino']) || !empty($ticket['data_prevista_entrega'])): ?>
+            <div class="card mb-3">
+                <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.88rem"><i class="bi bi-calendar-range"></i> Datas da demanda</h6></div>
+                <div class="card-body">
+                    <?php if (!empty($ticket['data_inicio'])): ?>
+                    <p class="small mb-1"><strong>Início:</strong> <?= date('d/m/Y', strtotime($ticket['data_inicio'])) ?></p>
+                    <?php endif; ?>
+                    <?php if (!empty($ticket['data_termino'])): ?>
+                    <p class="small mb-1"><strong>Término:</strong> <?= date('d/m/Y', strtotime($ticket['data_termino'])) ?></p>
+                    <?php endif; ?>
+                    <?php if (!empty($ticket['data_prevista_entrega'])): ?>
+                    <p class="small mb-0"><strong>Previsão de término:</strong> <?= date('d/m/Y', strtotime($ticket['data_prevista_entrega'])) ?></p>
+                    <?php endif; ?>
+                </div>
+            </div>
+            <?php endif; ?>
+
             <!-- ===== Previsão de publicação (EQUIPE) ===== -->
             <div class="card mb-3">
                 <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.88rem"><i class="bi bi-calendar-event"></i> Previsão de publicação</h6></div>
