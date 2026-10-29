@@ -220,7 +220,10 @@ class PlanningController extends Controller
         $html = ob_get_clean();
 
         try {
-            $pdf = PdfGenerator::fromHtml($html, 'A4', 'landscape');
+            // Documento HTML completo (com @page e CSS próprios): usamos
+            // fromDocument para o dompdf NÃO injetar o CSS genérico de tabela
+            // do wrap() (que quebrava a largura/bordas do calendário).
+            $pdf = PdfGenerator::fromDocument($html, APP_PATH, null, 'A4', 'landscape');
         } catch (\Throwable $e) {
             $this->renderSchedulePdfUnavailable($e->getMessage());
             return;
