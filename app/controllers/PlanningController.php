@@ -204,9 +204,18 @@ class PlanningController extends Controller
         // 'statuses' acima é regra fixa (só ativas), não entra no resumo.
         $labelFilters = [];
         if (!empty($filters['company_id'])) $labelFilters['company_id'] = $filters['company_id'];
-        $viewFiltersLabel = PlanningScheduleRules::filtersSummary(
-            $this->scheduleFilterLabels($labelFilters, $allowedCompanies)
-        );
+        $resolvedLabels = $this->scheduleFilterLabels($labelFilters, $allowedCompanies);
+        $viewFiltersLabel = PlanningScheduleRules::filtersSummary($resolvedLabels);
+
+        // ----- Dados da CAPA (1ª página) -----
+        // Empresa: nomes selecionados, ou "Todas as empresas" quando "Geral".
+        $viewCompanyLabel = trim((string) ($resolvedLabels['company'] ?? ''));
+        if ($viewCompanyLabel === '') {
+            $viewCompanyLabel = 'Todas as empresas';
+        }
+        // Período derivado dos meses com demanda (ex.: "Agosto 2026 – Setembro 2026").
+        $viewPeriodLabel = PlanningScheduleRules::periodLabel($months);
+
         require APP_PATH . '/views/planning/schedule_pdf.php';
         $html = ob_get_clean();
 

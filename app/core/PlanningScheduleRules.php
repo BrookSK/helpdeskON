@@ -658,6 +658,23 @@ class PlanningScheduleRules
     }
 
     /**
+     * Rótulo do período coberto pelo cronograma, para a capa do PDF.
+     * Ex.: ['2026-08','2026-09'] => "Agosto 2026 – Setembro 2026".
+     * Um único mês => só o nome dele. Lista vazia => string vazia.
+     *
+     * @param string[] $months Meses 'Y-m' em ordem crescente (de monthsForCards).
+     */
+    public static function periodLabel(array $months): string
+    {
+        if (empty($months)) {
+            return '';
+        }
+        $first = self::monthLabel($months[0]);
+        $last = self::monthLabel($months[count($months) - 1]);
+        return $first === $last ? $first : ($first . ' – ' . $last);
+    }
+
+    /**
      * Intervalo contíguo [início, fim] que uma demanda ocupa no calendário,
      * fiel ao calendário da tela (buildSpanSegments):
      *   - start_date + end_date  => [start, end] (faixa de desenvolvimento);

@@ -630,6 +630,34 @@ final class PlanningScheduleRulesTest extends TestCase
         $this->assertSame('Janeiro 2027', PlanningScheduleRules::monthLabel('2027-01'));
     }
 
+    // ---- periodLabel (rótulo do período na capa) ----
+
+    public function testPeriodLabelIntervalo(): void
+    {
+        $this->assertSame(
+            'Agosto 2026 – Setembro 2026',
+            PlanningScheduleRules::periodLabel(['2026-08', '2026-09'])
+        );
+    }
+
+    public function testPeriodLabelUnicoMes(): void
+    {
+        $this->assertSame('Agosto 2026', PlanningScheduleRules::periodLabel(['2026-08']));
+    }
+
+    public function testPeriodLabelAtravessaAno(): void
+    {
+        $this->assertSame(
+            'Dezembro 2026 – Janeiro 2027',
+            PlanningScheduleRules::periodLabel(['2026-12', '2027-01'])
+        );
+    }
+
+    public function testPeriodLabelVazio(): void
+    {
+        $this->assertSame('', PlanningScheduleRules::periodLabel([]));
+    }
+
     // ---- cardPrimarySpan (intervalo contíguo da demanda) ----
 
     public function testPrimarySpanJanelaDesenvolvimento(): void
