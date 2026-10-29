@@ -339,6 +339,7 @@ class RdoController extends Controller
             'currentPage'       => 'rdo',
             'isGlobal'          => RdoRules::hasGlobalView($user['role']),
             'canViewPendencias' => $canViewPendencias,
+            'canExport'         => RdoReportRules::canExport($user['role']),
             'isReviewer'        => $isReviewer,
             'team'              => $team,
             'companies'         => $companies,
@@ -375,6 +376,132 @@ class RdoController extends Controller
             'items' => $this->model->getList($filters),
             'stats' => $this->model->getStats($filters),
         ]);
+    }
+
+    // =========================================================================
+    // Exportação: relatório consolidado em PDF (capa + resumo IA + detalhes + fotos)
+    // =========================================================================
+
+    /**
+     * GET /rdo/exportPdf?date_from=Y-m-d&date_to=Y-m-d
+     *
+     * Consolida os RDOs do período num PDF com capa, resumo executivo gerado
+     * por IA (usando SOMENTE os dados reais) e o detalhamento das atividades com
+     * as fotos anexadas. Restrito a super_admin (RdoReportRules::canExport).
+     *
+     * O resumo por IA é best-effort: se a OpenAI não estiver configurada ou
+     * falhar, o PDF é gerado mesmo assim, sem inventar conteúdo.
+     */
+    public function exportPdf()
+    {
+        $this->requireModule('rdo');
+
+        $user = $this->currentUser();
+        if (!RdoReportRules::canExport($user['role'] ?? null)) {
+            http_response_code(403);
+            header('Content-Type: text/plain; charset=UTF-8');
+            echo 'Sem permissão para exportar o relatório consolidado.';
+            exit;
+        }
+
+        // Período (data inicial/final) — validado pela regra pura.
+        $period = RdoReportRules::normalizePeriod($_GET['date_from'] ?? null, $_GET['date_to'] ?? null);
+        if (empty($period['ok'])) {
+            http_response_code(400);
+            header('Content-Type: text/plain; charset=UTF-8');
+            echo $period['error'];
+            exit;
+        }
+        $from = $period['from'];
+        $to   = $period['to'];
+
+        // super_admin tem visão global: consolida todos os RDOs do período.
+        $reports = $this->model->getList(['date_from' => $from, 'date_to' => $to]);
+
+        // Anexa colaboradores e separa as fotos (anexos de imagem) de cada RDO.
+        foreach ($reports as &$r) {
+            $r['collaborators'] = $this->model->getCollaborators((int) $r['id']);
+            $photos = [];
+            foreach ($this->model->getAttachments((int) $r['id']) as $att) {
+                if (!RdoReportRules::isImageAttachment($att)) {
+                    continue;
+                }
+                $full = PUBLIC_PATH . '/' . ltrim((string) $att['file_path'], '/');
+                if (is_file($full)) {
+                    // Caminho RELATIVO ao chroot (PUBLIC_PATH) para o dompdf.
+                    $att['pdf_src'] = ltrim((string) $att['file_path'], '/');
+                    $photos[] = $att;
+                }
+            }
+            $r['photos'] = $photos;
+        }
+        unset($r);
+
+        if (!PdfGenerator::isAvailable()) {
+            $this->renderExportUnavailable();
+            return;
+        }
+
+        // Resumo executivo por IA (best-effort; nunca inventa dados).
+        $aiSummary = '';
+        $aiError   = '';
+        if (!empty($reports)) {
+            $ai = new OpenAiClient();
+            if ($ai->isConfigured()) {
+                $res = $ai->chat(
+                    RdoReportRules::buildSummaryMessages($reports, $from, $to),
+                    ['temperature' => 0.2, 'max_tokens' => 1200]
+                );
+                if (!empty($res['success'])) {
+                    $aiSummary = trim((string) $res['content']);
+                } else {
+                    $aiError = 'Não foi possível gerar o resumo executivo automático neste momento.';
+                }
+            } else {
+                $aiError = 'Resumo executivo automático indisponível (IA não configurada).';
+            }
+        }
+
+        // Monta o HTML do documento a partir da view dedicada.
+        ob_start();
+        $viewTitle       = RdoReportRules::DOCUMENT_TITLE;
+        $viewReports     = $reports;
+        $viewPeriodLabel = RdoReportRules::periodLabel($from, $to);
+        $viewTotal       = count($reports);
+        $viewGeneratedAt = date('d/m/Y H:i');
+        $viewAiSummary   = $aiSummary;
+        $viewAiError     = $aiError;
+        require APP_PATH . '/views/rdo/report_pdf.php';
+        $html = ob_get_clean();
+
+        try {
+            // chroot = PUBLIC_PATH: habilita as imagens locais de uploads/rdo.
+            $pdf = PdfGenerator::fromDocument($html, PUBLIC_PATH, null, 'A4', 'portrait');
+        } catch (\Throwable $e) {
+            $this->renderExportUnavailable($e->getMessage());
+            return;
+        }
+
+        $name = RdoReportRules::fileName($from, $to);
+        header('Content-Type: application/pdf');
+        header('Content-Disposition: attachment; filename="' . $name . '"');
+        header('Content-Length: ' . strlen($pdf));
+        header('Cache-Control: private, no-store');
+        echo $pdf;
+        exit;
+    }
+
+    /** Mensagem amigável quando o gerador de PDF não está disponível. */
+    private function renderExportUnavailable(string $detail = ''): void
+    {
+        http_response_code(503);
+        $msg = 'Não foi possível gerar o PDF do relatório consolidado.';
+        if ($detail !== '') {
+            $msg .= ' ' . $detail;
+        }
+        header('Content-Type: text/plain; charset=UTF-8');
+        echo $msg;
+        exit;
     }
 
     // =========================================================================
