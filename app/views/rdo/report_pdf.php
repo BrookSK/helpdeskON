@@ -86,6 +86,9 @@ $statusLabels = ['em_andamento' => 'Em andamento', 'finalizado' => 'Finalizado']
 
     /* ===================== SEÇÕES ===================== */
     .section { page-break-before: always; }
+    /* A capa já força page-break-after; a primeira seção logo depois NÃO deve
+       forçar outra quebra, senão sobra uma página em branco entre as duas. */
+    .section-first { page-break-before: avoid; }
     .section-head { background: #1a1a2e; color: #fff; padding: 8pt 12pt; font-size: 13pt; font-weight: 700; letter-spacing: 0.5pt; text-transform: uppercase; border-left: 5pt solid #00BFA6; }
     .section-body { padding: 12pt 2pt 0; }
 
@@ -145,7 +148,7 @@ $statusLabels = ['em_andamento' => 'Em andamento', 'finalizado' => 'Finalizado']
 
 <?php if (empty($viewReports)): ?>
     <!-- Nenhum RDO no período -->
-    <div class="section">
+    <div class="section section-first">
         <div class="section-head">Relatório consolidado</div>
         <div class="section-body">
             <p class="empty">Nenhum relatório diário encontrado no período selecionado.</p>
@@ -154,7 +157,7 @@ $statusLabels = ['em_andamento' => 'Em andamento', 'finalizado' => 'Finalizado']
 <?php else: ?>
 
     <!-- ===================== RESUMO EXECUTIVO ===================== -->
-    <div class="section">
+    <div class="section section-first">
         <div class="section-head">Resumo Executivo</div>
         <div class="section-body">
             <?php if (trim((string) $viewAiSummary) !== ''): ?>
