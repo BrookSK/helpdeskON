@@ -148,10 +148,10 @@ $renderLane = function (array $laneSegments) use ($esc): string {
         border-right: 0.5pt dashed #e2e7ee; background: #ffffff;
     }
     table.daynums td:last-child { border-right: 0; }
-    td.other-month { background: #f7f9fb; }
+    /* Dias de outro mês: célula totalmente vazia (sem número nem fundo). */
+    td.empty-cell { background: #fbfcfd; }
     td.today-cell { background: #e6fbf7; }
     .day-num { font-size: 8.5pt; font-weight: 700; color: #1a1a2e; display: block; }
-    td.other-month .day-num { color: #c7cfda; font-weight: 400; }
     td.today-cell .day-num { color: #00997D; }
 
     table.lane { width: 100%; border-collapse: collapse; table-layout: fixed; }
@@ -239,14 +239,15 @@ $renderLane = function (array $laneSegments) use ($esc): string {
                     <table class="daynums">
                         <tr>
                             <?php foreach ($week['days'] as $cell): ?>
-                                <?php
-                                $cls = [];
-                                if (!empty($cell['otherMonth'])) $cls[] = 'other-month';
-                                if ($cell['date'] === $todayKey)  $cls[] = 'today-cell';
-                                ?>
-                                <td<?= $cls ? ' class="' . implode(' ', $cls) . '"' : '' ?>>
-                                    <span class="day-num"><?= (int) $cell['day'] ?></span>
-                                </td>
+                                <?php if (!empty($cell['otherMonth'])): ?>
+                                    <?php // Dias de outro mês: célula vazia (sem número, sem faixa). ?>
+                                    <td class="empty-cell"></td>
+                                <?php else: ?>
+                                    <?php $cls = ($cell['date'] === $todayKey) ? ' class="today-cell"' : ''; ?>
+                                    <td<?= $cls ?>>
+                                        <span class="day-num"><?= (int) $cell['day'] ?></span>
+                                    </td>
+                                <?php endif; ?>
                             <?php endforeach; ?>
                         </tr>
                     </table>

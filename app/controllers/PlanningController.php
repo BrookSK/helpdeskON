@@ -180,7 +180,9 @@ class PlanningController extends Controller
             $grid = PlanningScheduleRules::monthGrid($y, $m);
             $weeks = [];
             foreach ($grid as $weekDays) {
-                $seg = PlanningScheduleRules::weekSegments($dated, $weekDays, $today);
+                // Recorta as faixas ao mês da página: nada aparece sobre dias de
+                // outro mês; faixas que atravessam a virada continuam do dia 1.
+                $seg = PlanningScheduleRules::weekSegments($dated, $weekDays, $today, $ym);
                 $weeks[] = [
                     'days'     => $weekDays,
                     'segments' => $seg['segments'],

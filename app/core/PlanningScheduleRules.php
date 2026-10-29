@@ -721,11 +721,21 @@ class PlanningScheduleRules
      * isStart/isEnd indicam se a faixa começa/termina de fato naquela semana
      * (para arredondar só as pontas reais e pôr a marca escura só no início).
      *
-     * @param array  $cards     Demandas já filtradas (com datas).
-     * @param array  $weekDates Lista de 7 dias da semana: cada um ['date'=>'Y-m-d',...].
-     * @param string $todayStr  Data de referência 'Y-m-d' para as cores.
+     * Recorte por MÊS (apresentação): quando $monthPrefix ('YYYY-MM') é
+     * informado, as faixas são recortadas também aos limites do mês corrente,
+     * não só da semana. Assim, uma demanda que atravessa a virada de mês:
+     *   - não desenha nada sobre os dias do mês vizinho;
+     *   - no mês seguinte, começa no PRIMEIRO dia do mês (sem a marca escura de
+     *     início, pois o início real foi antes) e segue contínua até a data
+     *     final real. Não altera datas/cores/dados — só o que é desenhado.
+     *
+     * @param array  $cards       Demandas já filtradas (com datas).
+     * @param array  $weekDates   Lista de 7 dias da semana: cada um ['date'=>'Y-m-d',...].
+     * @param string $todayStr    Data de referência 'Y-m-d' para as cores.
+     * @param string $monthPrefix 'YYYY-MM' do mês da página (opcional). Quando
+     *                            informado, recorta as faixas a esse mês.
      */
-    public static function weekSegments(array $cards, array $weekDates, ?string $todayStr = null): array
+    public static function weekSegments(array $cards, array $weekDates, ?string $todayStr = null, ?string $monthPrefix = null): array
     {
         if (count($weekDates) !== 7) {
             return ['lanes' => 0, 'segments' => []];
@@ -734,6 +744,20 @@ class PlanningScheduleRules
         $weekEnd = $weekDates[6]['date'];
         $wsTs = strtotime($weekStart);
         $weTs = strtotime($weekEnd);
+
+        // Limites do mês corrente (para o recorte por mês). Quando não há
+        // $monthPrefix, usamos limites "infinitos" (sem recorte por mês).
+        $monthStartTs = null;
+        $monthEndTs = null;
+        if ($monthPrefix !== null && preg_match('/^(\d{4})-(\d{2})$/', $monthPrefix, $mm)) {
+            $my = (int) $mm[1];
+            $mn = (int) $mm[2];
+            $monthStartTs = mktime(0, 0, 0, $mn, 1, $my);
+            $monthEndTs = mktime(0, 0, 0, $mn, (int) date('t', $monthStartTs), $my);
+        }
+        // Limite efetivo = interseção semana ∩ mês (quando há recorte de mês).
+        $lowTs = $monthStartTs !== null ? max($wsTs, $monthStartTs) : $wsTs;
+        $highTs = $monthEndTs !== null ? min($weTs, $monthEndTs) : $weTs;
 
         // Índice de coluna (0..6) de uma data dentro da semana.
         $colOf = function (string $d) use ($wsTs): int {
@@ -759,30 +783,35 @@ class PlanningScheduleRules
                 $devEnd = $start;
             }
             if ($devStart !== null) {
-                $segStartTs = max(strtotime($devStart), $wsTs);
-                $segEndTs = min(strtotime($devEnd), $weTs);
-                if ($segStartTs <= $weTs && $segEndTs >= $wsTs) {
+                $devStartTs = strtotime($devStart);
+                $devEndTs = strtotime($devEnd);
+                // Recorta à interseção semana ∩ mês (quando há recorte de mês).
+                $segStartTs = max($devStartTs, $lowTs);
+                $segEndTs = min($devEndTs, $highTs);
+                if ($segStartTs <= $highTs && $segEndTs >= $lowTs && $segStartTs <= $segEndTs) {
                     $segments[] = [
                         'card'     => $card,
                         '_cat'     => $cat,
                         'colStart' => $colOf(date('Y-m-d', $segStartTs)),
                         'colEnd'   => $colOf(date('Y-m-d', $segEndTs)),
-                        'isStart'  => (strtotime($devStart) >= $wsTs),
-                        'isEnd'    => (strtotime($devEnd) <= $weTs),
+                        // Marca de início só quando o início REAL cai no trecho
+                        // visível (dentro da semana e, se recortando, do mês).
+                        'isStart'  => ($devStartTs >= $lowTs),
+                        'isEnd'    => ($devEndTs <= $highTs),
                         'kind'     => 'dev',
                         'id'       => (int) ($card['id'] ?? 0),
                     ];
                 }
             }
 
-            // 2) Marcador de prazo (due) de 1 dia — só se estiver nesta semana e
-            //    fora da janela de desenvolvimento (mesma regra da tela).
+            // 2) Marcador de prazo (due) de 1 dia — só se estiver na semana, no
+            //    mês corrente (quando recortando) e fora da janela de dev.
             if ($due !== null) {
                 $dueTs = strtotime($due);
-                $inWeek = $dueTs >= $wsTs && $dueTs <= $weTs;
+                $inRange = $dueTs >= $lowTs && $dueTs <= $highTs;
                 $insideDev = $devStart !== null
                     && $dueTs >= strtotime($devStart) && $dueTs <= strtotime($devEnd);
-                if ($inWeek && !$insideDev) {
+                if ($inRange && !$insideDev) {
                     $col = $colOf($due);
                     $segments[] = [
                         'card'     => $card,

@@ -826,4 +826,75 @@ final class PlanningScheduleRulesTest extends TestCase
         $res = PlanningScheduleRules::weekSegments($cards, $week, '2026-08-10');
         $this->assertSame('done', $res['segments'][0]['_cat']['key']);
     }
+
+    // ---- weekSegments com RECORTE POR MÊS ($monthPrefix) ----
+
+    public function testRecorteMesNaoDesenhaSobreDiasDeOutroMes(): void
+    {
+        // Semana 30/08(dom)–05/09(sáb) mistura agosto e setembro. Demanda com
+        // prazo em 02/09 não pode aparecer quando a página é de AGOSTO.
+        $week = $this->semana('2026-08-30');
+        $cards = [['id' => 1, 'title' => 'Setembro', 'status' => 'open', 'due_date' => '2026-09-02']];
+
+        $resAgosto = PlanningScheduleRules::weekSegments($cards, $week, '2026-09-01', '2026-08');
+        $this->assertCount(0, $resAgosto['segments'], 'Dia de setembro não aparece na página de agosto.');
+
+        $resSetembro = PlanningScheduleRules::weekSegments($cards, $week, '2026-09-01', '2026-09');
+        $this->assertCount(1, $resSetembro['segments']);
+        $this->assertSame(3, $resSetembro['segments'][0]['colStart']); // 02/09 = quarta (col 3)
+    }
+
+    public function testRecorteMesFaixaQueAtravessaViradaComecaNoDia1DoMesSeguinte(): void
+    {
+        // Demanda 28/08 → 04/09. Na página de SETEMBRO, a faixa deve começar em
+        // 01/09 (primeiro dia visível do mês), SEM marca de início, e terminar
+        // em 04/09 (fim real), com marca de fim.
+        $cards = [['id' => 1, 'title' => 'Atravessa', 'status' => 'open', 'start_date' => '2026-08-28', 'end_date' => '2026-09-04']];
+
+        // Semana 30/08(dom)–05/09(sáb), página de setembro.
+        $week = $this->semana('2026-08-30');
+        $res = PlanningScheduleRules::weekSegments($cards, $week, '2026-09-01', '2026-09');
+        $this->assertCount(1, $res['segments']);
+        $seg = $res['segments'][0];
+        // 01/09 = terça (col 2) .. 04/09 = sexta (col 5).
+        $this->assertSame(2, $seg['colStart'], 'Começa no dia 1º do mês (terça).');
+        $this->assertSame(5, $seg['colEnd']);
+        $this->assertFalse($seg['isStart'], 'Sem marca de início: começou no mês anterior.');
+        $this->assertTrue($seg['isEnd'], 'Termina de fato em 04/09.');
+    }
+
+    public function testRecorteMesFaixaNoMesDeOrigemTerminaNoUltimoDiaDoMes(): void
+    {
+        // Mesma demanda 28/08 → 04/09. Na página de AGOSTO, a faixa vai de 28/08
+        // (início real, com marca) até 31/08 (último dia do mês), SEM marca de
+        // fim (continua em setembro).
+        $cards = [['id' => 1, 'title' => 'Atravessa', 'status' => 'open', 'start_date' => '2026-08-28', 'end_date' => '2026-09-04']];
+
+        // Semana 23/08(dom)–29/08(sáb): começa em 28/08.
+        $week1 = $this->semana('2026-08-23');
+        $res1 = PlanningScheduleRules::weekSegments($cards, $week1, '2026-08-01', '2026-08');
+        $seg1 = $res1['segments'][0];
+        $this->assertSame(5, $seg1['colStart']); // 28/08 = sexta (col 5)
+        $this->assertSame(6, $seg1['colEnd']);   // 29/08 = sábado (col 6), fim da semana
+        $this->assertTrue($seg1['isStart'], 'Início real em agosto: tem marca.');
+        $this->assertFalse($seg1['isEnd']);
+
+        // Semana 30/08–05/09: em agosto, só o dia 31/08 é visível.
+        $week2 = $this->semana('2026-08-30');
+        $res2 = PlanningScheduleRules::weekSegments($cards, $week2, '2026-08-01', '2026-08');
+        $seg2 = $res2['segments'][0];
+        $this->assertSame(0, $seg2['colStart']); // 30/08 = domingo (col 0)
+        $this->assertSame(1, $seg2['colEnd']);   // 31/08 = segunda (col 1), último dia do mês
+        $this->assertFalse($seg2['isStart'], 'Continuação dentro de agosto.');
+        $this->assertFalse($seg2['isEnd'], 'Não termina em agosto: segue para setembro.');
+    }
+
+    public function testSemMonthPrefixMantemComportamentoAntigo(): void
+    {
+        // Sem $monthPrefix, o recorte é só por semana (compatibilidade).
+        $week = $this->semana('2026-08-30'); // 30/08–05/09
+        $cards = [['id' => 1, 'title' => 'X', 'status' => 'open', 'due_date' => '2026-09-02']];
+        $res = PlanningScheduleRules::weekSegments($cards, $week, '2026-09-01');
+        $this->assertCount(1, $res['segments'], 'Sem recorte de mês, o dia de setembro aparece.');
+    }
 }
