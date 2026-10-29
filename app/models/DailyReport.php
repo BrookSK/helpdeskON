@@ -60,9 +60,15 @@ class DailyReport
             $sql .= " AND dr.user_id = ?";
             $params[] = $filters['user_id'];
         }
-        if (!empty($filters['company_id'])) {
-            $sql .= " AND dr.company_id = ?";
-            $params[] = $filters['company_id'];
+        // company_id: valor > 0 filtra pela empresa; valor 0 (ex.: cliente SEM
+        // empresa vinculada) força escopo vazio — nunca retorna "tudo".
+        if (isset($filters['company_id']) && $filters['company_id'] !== '') {
+            if ((int) $filters['company_id'] > 0) {
+                $sql .= " AND dr.company_id = ?";
+                $params[] = (int) $filters['company_id'];
+            } else {
+                $sql .= " AND 1=0";
+            }
         }
         if (!empty($filters['search'])) {
             $sql .= " AND (dr.title LIKE ? OR dr.activities LIKE ? OR dr.occurrences LIKE ?
@@ -114,9 +120,14 @@ class DailyReport
             $where .= " AND user_id = ?";
             $params[] = $filters['user_id'];
         }
-        if (!empty($filters['company_id'])) {
-            $where .= " AND company_id = ?";
-            $params[] = $filters['company_id'];
+        // Mesmo tratamento da listagem: 0 = escopo vazio (cliente sem empresa).
+        if (isset($filters['company_id']) && $filters['company_id'] !== '') {
+            if ((int) $filters['company_id'] > 0) {
+                $where .= " AND company_id = ?";
+                $params[] = (int) $filters['company_id'];
+            } else {
+                $where .= " AND 1=0";
+            }
         }
         if (!empty($filters['date_from'])) {
             $where .= " AND report_date >= ?";

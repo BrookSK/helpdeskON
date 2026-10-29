@@ -74,6 +74,14 @@
                     <i class="bi bi-briefcase"></i> Contratos e cobranças
                 </a>
             </li>
+            <?php // RDO (somente leitura) — cliente vê os relatórios da empresa vinculada. ?>
+            <?php if (Permissions::canAccess($role, 'rdo')): ?>
+            <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'rdo' ? 'active' : '' ?>" href="<?= baseUrl('rdo') ?>">
+                    <i class="bi bi-journal-text"></i> Relatório Diário
+                </a>
+            </li>
+            <?php endif; ?>
             <?php
             $sidebarFullUser = (new User())->findById($user['id'] ?? 0);
             if ($sidebarFullUser && $sidebarFullUser['is_company_owner']): ?>
@@ -85,8 +93,8 @@
             <?php endif; ?>
             <?php endif; // fim cliente ?>
 
-            <?php // ===== Relatório Diário (RDO) — equipe interna ===== ?>
-            <?php if (Permissions::canAccess($role, 'rdo')): ?>
+            <?php // ===== Relatório Diário (RDO) — equipe interna (o cliente tem o próprio link acima) ===== ?>
+            <?php if ($role !== 'client' && Permissions::canAccess($role, 'rdo')): ?>
             <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'rdo' ? 'active' : '' ?>" href="<?= baseUrl('rdo') ?>">
                     <i class="bi bi-journal-text"></i> Relatório Diário

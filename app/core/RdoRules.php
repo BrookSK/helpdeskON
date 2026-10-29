@@ -162,6 +162,54 @@ class RdoRules
     }
 
     // =========================================================================
+    // Visão do CLIENTE (somente leitura, escopo por empresa)
+    // =========================================================================
+
+    /**
+     * O papel é um cliente (área do cliente)? O cliente tem acesso ao RDO em
+     * modo SOMENTE LEITURA e restrito à empresa vinculada ao seu cadastro.
+     */
+    public static function isClient(?string $role): bool
+    {
+        return $role === 'client';
+    }
+
+    /**
+     * Normaliza o company_id de vínculo do cliente para int > 0 ou null.
+     * Cliente SEM empresa vinculada (null/0/inválido) → null, e nesse caso não
+     * deve ver nenhum relatório (ver scopeCompanyIdForClient / canClientView).
+     */
+    public static function normalizeClientCompanyId($value): ?int
+    {
+        if ($value === null || $value === '' || !is_numeric($value)) {
+            return null;
+        }
+        $id = (int) $value;
+        return $id > 0 ? $id : null;
+    }
+
+    /**
+     * Um cliente, cuja empresa vinculada é $viewerCompanyId, pode ver um
+     * relatório cuja obra/empresa é $reportCompanyId?
+     *
+     * Regra:
+     *  - Cliente SEM empresa vinculada (null) → não vê NADA.
+     *  - Relatório SEM empresa (null) → o cliente não vê (não é da empresa dele).
+     *  - Caso contrário, só vê se as empresas coincidirem.
+     *
+     * Comparação pura; não checa papel (o acesso ao módulo é feito à parte).
+     */
+    public static function canClientViewReportCompany($viewerCompanyId, $reportCompanyId): bool
+    {
+        $viewer = self::normalizeClientCompanyId($viewerCompanyId);
+        $report = self::normalizeClientCompanyId($reportCompanyId);
+        if ($viewer === null || $report === null) {
+            return false;
+        }
+        return $viewer === $report;
+    }
+
+    // =========================================================================
     // Aprovação / revisão
     // =========================================================================
 

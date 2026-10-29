@@ -34,16 +34,76 @@ class RdoController extends Controller
     // Helpers privados
     // =========================================================================
 
-    /** Aplica o escopo do dono aos filtros quando o papel não tem visão global. */
+    /**
+     * Empresa vinculada ao cliente logado (para o escopo SOMENTE LEITURA).
+     *
+     * Resolve do cadastro real do usuário (users.company_id) e, no contexto
+     * Multi-Empresas ("Ver como"), respeita a empresa ativa SOMENTE se o cliente
+     * estiver de fato vinculado a ela. NUNCA confia em company_id vindo do
+     * request. Retorna null quando o cliente não tem empresa vinculada — e nesse
+     * caso ele não deve ver nenhum relatório.
+     */
+    private function clientCompanyId(): ?int
+    {
+        $user = $this->currentUser();
+        if (!$user) {
+            return null;
+        }
+        $fullUser = (new User())->findById($user['id']);
+        $companyId = RdoRules::normalizeClientCompanyId($fullUser['company_id'] ?? null);
+
+        $activeCompanyId = $this->activeCompanyId();
+        if ($activeCompanyId && (new User())->isLinkedToCompany($user['id'], $activeCompanyId)) {
+            $companyId = (int) $activeCompanyId;
+        }
+        return $companyId;
+    }
+
+    /**
+     * Aplica o escopo de visibilidade aos filtros da listagem:
+     *  - super_admin: vê tudo; respeita o filtro opcional de pessoa (user_id).
+     *  - cliente: SOMENTE LEITURA, restrito à empresa vinculada. Sem empresa →
+     *    escopo impossível (lista vazia). O company_id vem do cadastro, nunca
+     *    do request — qualquer company_id/user_id enviado pelo cliente é ignorado.
+     *  - demais papéis internos: veem apenas o próprio (dono).
+     */
     private function scopeFilters(array $filters): array
     {
         $user = $this->currentUser();
-        if (!RdoRules::hasGlobalView($user['role'] ?? null)) {
+        $role = $user['role'] ?? null;
+
+        if (RdoRules::isClient($role)) {
+            $companyId = $this->clientCompanyId();
+            if ($companyId === null) {
+                // Sem empresa vinculada: nenhum relatório. Força escopo impossível.
+                $filters['company_id'] = 0;
+            } else {
+                $filters['company_id'] = $companyId;
+            }
+            // Cliente não filtra por pessoa nem escolhe empresa: vê todos os RDOs
+            // da empresa. Remove qualquer user_id herdado do request.
+            unset($filters['user_id']);
+            return $filters;
+        }
+
+        if (!RdoRules::hasGlobalView($role)) {
             $filters['user_id'] = $user['id'];
         } elseif (!empty($_GET['user_id'])) {
             $filters['user_id'] = (int) $_GET['user_id'];
         }
         return $filters;
+    }
+
+    /**
+     * Encerra a requisição com 403 se o usuário atual for cliente. Usado para
+     * blindar as ações de escrita do RDO (criar/editar/excluir/upload/etc.):
+     * o cliente tem acesso ao módulo apenas em modo SOMENTE LEITURA.
+     */
+    private function denyClientWrite(): void
+    {
+        if (RdoRules::isClient($this->currentUser()['role'] ?? null)) {
+            $this->json(['error' => 'Visualização somente leitura.'], 403);
+        }
     }
 
     /**
@@ -66,7 +126,19 @@ class RdoController extends Controller
             $this->json(['error' => 'Relatório não encontrado'], 404);
         }
         $user = $this->currentUser();
-        if (!RdoRules::canViewReportOf($user['role'] ?? null, $user['id'], $report['user_id'])) {
+        $role = $user['role'] ?? null;
+
+        // Cliente: acesso SOMENTE LEITURA restrito à empresa vinculada. Fecha o
+        // IDOR em GET /rdo/get/{id} — não basta conhecer o ID, o relatório tem
+        // de ser da empresa do cliente (e ele precisa ter empresa vinculada).
+        if (RdoRules::isClient($role)) {
+            if (!RdoRules::canClientViewReportCompany($this->clientCompanyId(), $report['company_id'] ?? null)) {
+                $this->json(['error' => 'Sem permissão'], 403);
+            }
+            return;
+        }
+
+        if (!RdoRules::canViewReportOf($role, $user['id'], $report['user_id'])) {
             $this->json(['error' => 'Sem permissão'], 403);
         }
     }
@@ -227,6 +299,17 @@ class RdoController extends Controller
         $this->requireModule('rdo');
         $user = $this->currentUser();
 
+        // Cliente: visão SOMENTE LEITURA, restrita à empresa vinculada.
+        if (RdoRules::isClient($user['role'] ?? null)) {
+            $this->view('rdo/client', [
+                'user'         => $user,
+                'currentPage'  => 'rdo',
+                'hasCompany'   => $this->clientCompanyId() !== null,
+                'statusLabels' => RdoRules::STATUS_LABELS,
+            ]);
+            return;
+        }
+
         $team = [];
         if (RdoRules::hasGlobalView($user['role'])) {
             $userModel = new User();
@@ -319,6 +402,7 @@ class RdoController extends Controller
     public function create()
     {
         $this->requireModule('rdo');
+        $this->denyClientWrite();
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             $this->json(['error' => 'Método inválido'], 405);
         }
@@ -389,6 +473,7 @@ class RdoController extends Controller
     public function update($id = null)
     {
         $this->requireModule('rdo');
+        $this->denyClientWrite();
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
             $this->json(['error' => 'Requisição inválida'], 400);
         }
@@ -479,6 +564,7 @@ class RdoController extends Controller
     public function delete($id = null)
     {
         $this->requireModule('rdo');
+        $this->denyClientWrite();
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
             $this->json(['error' => 'Requisição inválida'], 400);
         }
@@ -500,6 +586,7 @@ class RdoController extends Controller
     public function upload($id = null)
     {
         $this->requireModule('rdo');
+        $this->denyClientWrite();
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
             $this->json(['error' => 'Requisição inválida'], 400);
         }
@@ -552,6 +639,7 @@ class RdoController extends Controller
     public function deleteAttachment($attId = null)
     {
         $this->requireModule('rdo');
+        $this->denyClientWrite();
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$attId) {
             $this->json(['error' => 'Requisição inválida'], 400);
         }
@@ -574,6 +662,7 @@ class RdoController extends Controller
     public function transcribe()
     {
         $this->requireModule('rdo');
+        $this->denyClientWrite();
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             $this->json(['error' => 'Método não permitido'], 405);
         }
@@ -643,6 +732,7 @@ class RdoController extends Controller
     public function requestUnlock($id = null)
     {
         $this->requireModule('rdo');
+        $this->denyClientWrite();
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
             $this->json(['error' => 'Requisição inválida'], 400);
         }
