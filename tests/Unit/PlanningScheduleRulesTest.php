@@ -326,4 +326,307 @@ final class PlanningScheduleRulesTest extends TestCase
     {
         $this->assertSame('', PlanningScheduleRules::filtersSummary([]));
     }
+
+    // =====================================================================
+    // CALENDÁRIO VISUAL (export PDF em formato de calendário mensal).
+    // Porta da lógica do calendário da tela: cor por prazo/status, grid do
+    // mês domingo→sábado e distribuição das demandas por dia.
+    // =====================================================================
+
+    // ---- deadlineCategory (cores fiéis ao calendário) ----
+
+    public function testCategoriaConcluidaEhVerdeIndependenteDoPrazo(): void
+    {
+        // Concluída sempre verde, mesmo com prazo vencido.
+        $cat = PlanningScheduleRules::deadlineCategory(
+            ['status' => 'completed', 'due_date' => '2020-01-01'],
+            '2026-10-28'
+        );
+        $this->assertSame('done', $cat['key']);
+    }
+
+    public function testCategoriaNegadaEhCinzaNeutro(): void
+    {
+        $cat = PlanningScheduleRules::deadlineCategory(
+            ['status' => 'denied', 'due_date' => '2020-01-01'],
+            '2026-10-28'
+        );
+        $this->assertSame('denied', $cat['key']);
+    }
+
+    public function testCategoriaVencidoEhVermelho(): void
+    {
+        $cat = PlanningScheduleRules::deadlineCategory(
+            ['status' => 'open', 'due_date' => '2026-10-20'],
+            '2026-10-28'
+        );
+        $this->assertSame('overdue', $cat['key']);
+    }
+
+    public function testCategoriaVenceHojeEhDueToday(): void
+    {
+        $cat = PlanningScheduleRules::deadlineCategory(
+            ['status' => 'open', 'due_date' => '2026-10-28'],
+            '2026-10-28'
+        );
+        $this->assertSame('due_today', $cat['key']);
+    }
+
+    public function testCategoriaVencidoVenceHojeTemPrioridadeSobreEmAndamento(): void
+    {
+        // Atraso é atraso: vencido/vence-hoje fica vermelho mesmo "em andamento".
+        $vencido = PlanningScheduleRules::deadlineCategory(
+            ['status' => 'in_progress', 'due_date' => '2026-10-20'],
+            '2026-10-28'
+        );
+        $this->assertSame('overdue', $vencido['key']);
+
+        $hoje = PlanningScheduleRules::deadlineCategory(
+            ['status' => 'em_homologacao', 'due_date' => '2026-10-28'],
+            '2026-10-28'
+        );
+        $this->assertSame('due_today', $hoje['key']);
+    }
+
+    public function testCategoriaEmAndamentoFuturoEhRoxo(): void
+    {
+        // Futuro, fora da janela "próximo do vencimento", em andamento => roxo.
+        $cat = PlanningScheduleRules::deadlineCategory(
+            ['status' => 'in_progress', 'due_date' => '2026-11-30'],
+            '2026-10-28'
+        );
+        $this->assertSame('in_progress', $cat['key']);
+    }
+
+    public function testCategoriaProximoDoVencimento(): void
+    {
+        // Dentro de NEAR_DUE_DAYS (2) e status aberto => âmbar.
+        $cat = PlanningScheduleRules::deadlineCategory(
+            ['status' => 'open', 'due_date' => '2026-10-30'],
+            '2026-10-28'
+        );
+        $this->assertSame('near_due', $cat['key']);
+    }
+
+    public function testCategoriaDentroDoPrazoEhAzul(): void
+    {
+        $cat = PlanningScheduleRules::deadlineCategory(
+            ['status' => 'open', 'due_date' => '2026-11-15'],
+            '2026-10-28'
+        );
+        $this->assertSame('on_track', $cat['key']);
+    }
+
+    public function testCategoriaSemPrazoAbertoEhNeutro(): void
+    {
+        $cat = PlanningScheduleRules::deadlineCategory(
+            ['status' => 'open', 'due_date' => null],
+            '2026-10-28'
+        );
+        $this->assertSame('none', $cat['key']);
+    }
+
+    public function testCategoriaSemPrazoEmAndamentoEhRoxo(): void
+    {
+        $cat = PlanningScheduleRules::deadlineCategory(
+            ['status' => 'waiting_client', 'due_date' => null],
+            '2026-10-28'
+        );
+        $this->assertSame('in_progress', $cat['key']);
+    }
+
+    public function testCategoriaRetornaCoresEsperadas(): void
+    {
+        // Garante que a paleta espelha DEADLINE_COLORS (bg/border/text/label).
+        $cat = PlanningScheduleRules::deadlineCategory(
+            ['status' => 'open', 'due_date' => '2026-11-15'],
+            '2026-10-28'
+        );
+        $this->assertSame('#e7effd', $cat['bg']);
+        $this->assertSame('#2563eb', $cat['border']);
+        $this->assertSame('#1e3a8a', $cat['text']);
+        $this->assertArrayHasKey('label', $cat);
+    }
+
+    // ---- cardDays / cardMonths (dias ocupados por uma demanda) ----
+
+    public function testCardDaysIntervaloStartEnd(): void
+    {
+        $days = PlanningScheduleRules::cardDays([
+            'start_date' => '2026-01-10',
+            'end_date'   => '2026-01-12',
+        ]);
+        $this->assertSame(['2026-01-10', '2026-01-11', '2026-01-12'], $days);
+    }
+
+    public function testCardDaysSomenteStart(): void
+    {
+        $days = PlanningScheduleRules::cardDays(['start_date' => '2026-01-10']);
+        $this->assertSame(['2026-01-10'], $days);
+    }
+
+    public function testCardDaysIncluiDueDate(): void
+    {
+        $days = PlanningScheduleRules::cardDays([
+            'start_date' => '2026-01-10',
+            'end_date'   => '2026-01-11',
+            'due_date'   => '2026-01-20',
+        ]);
+        $this->assertSame(['2026-01-10', '2026-01-11', '2026-01-20'], $days);
+    }
+
+    public function testCardDaysSomenteDue(): void
+    {
+        $days = PlanningScheduleRules::cardDays(['due_date' => '2026-02-05']);
+        $this->assertSame(['2026-02-05'], $days);
+    }
+
+    public function testCardDaysSemDatasRetornaVazio(): void
+    {
+        $this->assertSame([], PlanningScheduleRules::cardDays(['status' => 'open']));
+        $this->assertSame([], PlanningScheduleRules::cardDays([
+            'start_date' => null, 'end_date' => null, 'due_date' => '',
+        ]));
+    }
+
+    public function testCardDaysEndAntesDeStartNaoVarreIntervaloInvertido(): void
+    {
+        // Proteção contra end < start: cai só no start (não gera intervalo negativo).
+        $days = PlanningScheduleRules::cardDays([
+            'start_date' => '2026-01-10',
+            'end_date'   => '2026-01-05',
+        ]);
+        $this->assertSame(['2026-01-10'], $days);
+    }
+
+    public function testCardMonthsAtravessaViradaDeMes(): void
+    {
+        // Demanda que atravessa a virada de mês aparece nos dois meses tocados.
+        $months = PlanningScheduleRules::cardMonths([
+            'start_date' => '2026-01-28',
+            'end_date'   => '2026-02-03',
+        ]);
+        $this->assertSame(['2026-01', '2026-02'], $months);
+    }
+
+    // ---- monthsForCards (intervalo contíguo de meses) ----
+
+    public function testMonthsForCardsIntervaloContiguo(): void
+    {
+        // Demandas em Jan e Mar => inclui Fev no meio (sem buracos).
+        $cards = [
+            ['start_date' => '2026-01-10'],
+            ['due_date'   => '2026-03-20'],
+        ];
+        $this->assertSame(['2026-01', '2026-02', '2026-03'], PlanningScheduleRules::monthsForCards($cards));
+    }
+
+    public function testMonthsForCardsSemDatasRetornaVazio(): void
+    {
+        $cards = [['status' => 'open'], ['start_date' => null, 'due_date' => '']];
+        $this->assertSame([], PlanningScheduleRules::monthsForCards($cards));
+    }
+
+    public function testMonthsForCardsUnicoMes(): void
+    {
+        $cards = [['start_date' => '2026-05-02'], ['due_date' => '2026-05-28']];
+        $this->assertSame(['2026-05'], PlanningScheduleRules::monthsForCards($cards));
+    }
+
+    // ---- monthGrid (grade domingo→sábado) ----
+
+    public function testMonthGridTemSeisSemanasDeSeteDias(): void
+    {
+        $weeks = PlanningScheduleRules::monthGrid(2026, 10);
+        $this->assertCount(6, $weeks);
+        foreach ($weeks as $w) {
+            $this->assertCount(7, $w);
+        }
+    }
+
+    public function testMonthGridComecaNoDomingoCorreto(): void
+    {
+        // Outubro/2026: dia 1 é quinta-feira (w=4). A primeira célula do grid é
+        // o domingo anterior (27/09/2026).
+        $weeks = PlanningScheduleRules::monthGrid(2026, 10);
+        $first = $weeks[0][0];
+        $this->assertSame('2026-09-27', $first['date']);
+        $this->assertSame(0, (int) date('w', strtotime($first['date'])), 'Primeira coluna é domingo.');
+        $this->assertTrue($first['otherMonth'], 'Dias antes do dia 1 são de outro mês.');
+    }
+
+    public function testMonthGridMarcaDiasDoMesCorrente(): void
+    {
+        $weeks = PlanningScheduleRules::monthGrid(2026, 10);
+        // Procura a célula do dia 15/10/2026 e confere que não é otherMonth.
+        $found = null;
+        foreach ($weeks as $w) {
+            foreach ($w as $cell) {
+                if ($cell['date'] === '2026-10-15') $found = $cell;
+            }
+        }
+        $this->assertNotNull($found);
+        $this->assertFalse($found['otherMonth']);
+        $this->assertSame(15, $found['day']);
+    }
+
+    public function testMonthGridMesComecandoNoDomingo(): void
+    {
+        // Fevereiro/2026 começa num domingo (01/02/2026 é domingo).
+        $weeks = PlanningScheduleRules::monthGrid(2026, 2);
+        $this->assertSame('2026-02-01', $weeks[0][0]['date']);
+        $this->assertFalse($weeks[0][0]['otherMonth']);
+    }
+
+    // ---- cardsByDayForMonth (distribuição por dia) ----
+
+    public function testCardsByDayDistribuiIntervaloSoNoMesPedido(): void
+    {
+        // Demanda cruzando a virada: 28/01 a 03/02. No mês de Janeiro, só os
+        // dias de janeiro recebem a demanda.
+        $cards = [[
+            'id' => 1, 'title' => 'Demanda A', 'status' => 'open',
+            'start_date' => '2026-01-28', 'end_date' => '2026-02-03',
+        ]];
+
+        $jan = PlanningScheduleRules::cardsByDayForMonth($cards, 2026, 1, '2026-01-01');
+        $this->assertArrayHasKey('2026-01-28', $jan);
+        $this->assertArrayHasKey('2026-01-31', $jan);
+        $this->assertArrayNotHasKey('2026-02-01', $jan, 'Dia de fevereiro não entra no mapa de janeiro.');
+
+        $fev = PlanningScheduleRules::cardsByDayForMonth($cards, 2026, 2, '2026-01-01');
+        $this->assertArrayHasKey('2026-02-01', $fev);
+        $this->assertArrayHasKey('2026-02-03', $fev);
+        $this->assertArrayNotHasKey('2026-01-31', $fev);
+    }
+
+    public function testCardsByDayAnexaCategoriaDeCor(): void
+    {
+        $cards = [[
+            'id' => 1, 'title' => 'X', 'status' => 'completed',
+            'due_date' => '2026-10-15',
+        ]];
+        $map = PlanningScheduleRules::cardsByDayForMonth($cards, 2026, 10, '2026-10-28');
+        $this->assertArrayHasKey('2026-10-15', $map);
+        $this->assertSame('done', $map['2026-10-15'][0]['_cat']['key']);
+    }
+
+    public function testCardsByDayOrdenaCardsPorTitulo(): void
+    {
+        $cards = [
+            ['id' => 2, 'title' => 'Zebra', 'status' => 'open', 'due_date' => '2026-10-10'],
+            ['id' => 1, 'title' => 'Alfa',  'status' => 'open', 'due_date' => '2026-10-10'],
+        ];
+        $map = PlanningScheduleRules::cardsByDayForMonth($cards, 2026, 10, '2026-10-01');
+        $titles = array_column($map['2026-10-10'], 'title');
+        $this->assertSame(['Alfa', 'Zebra'], $titles);
+    }
+
+    // ---- monthLabel ----
+
+    public function testMonthLabel(): void
+    {
+        $this->assertSame('Outubro 2026', PlanningScheduleRules::monthLabel('2026-10'));
+        $this->assertSame('Janeiro 2027', PlanningScheduleRules::monthLabel('2027-01'));
+    }
 }

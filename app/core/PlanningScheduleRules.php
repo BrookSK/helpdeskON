@@ -394,4 +394,266 @@ class PlanningScheduleRules
         }
         return implode(' · ', $parts);
     }
+
+    /* =====================================================================
+     * CALENDÁRIO VISUAL (export PDF em formato de calendário mensal).
+     *
+     * Porta determinista e testável da lógica do calendário da tela
+     * (app/views/planning/index.php): categoria de cor por prazo/status
+     * (DEADLINE_COLORS/deadlineCategory) e montagem do grid mensal
+     * domingo→sábado com distribuição das demandas por dia. É a fonte única
+     * de verdade entre o que o PDF desenha e o que o calendário mostra.
+     * ===================================================================== */
+
+    /** Status "em andamento" (fora de aberto, ainda não concluído/negado). */
+    public const IN_PROGRESS_STATUSES = ['in_progress', 'em_revisao_interna', 'waiting_client', 'em_homologacao', 'aprovado_producao'];
+
+    /** Janela (dias) que caracteriza "próximo do vencimento". */
+    public const NEAR_DUE_DAYS = 2;
+
+    /** Nomes dos meses em pt-BR (índice 1..12). */
+    public const MONTH_NAMES = [
+        1 => 'Janeiro', 2 => 'Fevereiro', 3 => 'Março', 4 => 'Abril',
+        5 => 'Maio', 6 => 'Junho', 7 => 'Julho', 8 => 'Agosto',
+        9 => 'Setembro', 10 => 'Outubro', 11 => 'Novembro', 12 => 'Dezembro',
+    ];
+
+    /** Cabeçalho das colunas do calendário (domingo→sábado). */
+    public const WEEKDAY_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
+    /**
+     * Paleta de cores por categoria de prazo/status — espelha DEADLINE_COLORS
+     * do calendário da tela. Cada entrada: [key, bg, border, text, label].
+     */
+    public const DEADLINE_COLORS = [
+        'overdue'     => ['key' => 'overdue',     'bg' => '#fde8e8', 'border' => '#dc2626', 'text' => '#991b1b', 'label' => 'Passado e não concluído'],
+        'done'        => ['key' => 'done',        'bg' => '#cfe9d0', 'border' => '#7bbf80', 'text' => '#2e5b31', 'label' => 'Passado e concluído'],
+        'on_track'    => ['key' => 'on_track',    'bg' => '#e7effd', 'border' => '#2563eb', 'text' => '#1e3a8a', 'label' => 'Dentro do prazo'],
+        'near_due'    => ['key' => 'near_due',    'bg' => '#fef7d6', 'border' => '#f59e0b', 'text' => '#7a5900', 'label' => 'Próximo do vencimento'],
+        'due_today'   => ['key' => 'due_today',   'bg' => '#fde8e8', 'border' => '#dc2626', 'text' => '#991b1b', 'label' => 'Na data de vencimento'],
+        'in_progress' => ['key' => 'in_progress', 'bg' => '#ede9fe', 'border' => '#7c3aed', 'text' => '#5b21b6', 'label' => 'Em andamento'],
+        'denied'      => ['key' => 'denied',      'bg' => '#f1f1f3', 'border' => '#9ca3af', 'text' => '#4b5563', 'label' => 'Negada'],
+        'none'        => ['key' => 'none',        'bg' => '#eef1f4', 'border' => '#94a3b8', 'text' => '#475569', 'label' => 'Sem prazo definido'],
+    ];
+
+    /** Converte uma data (string Y-m-d...) para 'Y-m-d' (meia-noite). Null se inválida. */
+    private static function dayKey($value): ?string
+    {
+        if ($value === null) return null;
+        $s = trim((string) $value);
+        if ($s === '') return null;
+        $ts = strtotime($s);
+        return $ts === false ? null : date('Y-m-d', $ts);
+    }
+
+    /**
+     * Categoria de cor de uma demanda, a partir de status + due_date, igual ao
+     * deadlineCategory() do calendário. Retorna uma das entradas de
+     * DEADLINE_COLORS (array com key/bg/border/text/label).
+     *
+     * @param array  $card     Linha do card (status, due_date).
+     * @param string $todayStr Data de referência 'Y-m-d' (default: hoje).
+     */
+    public static function deadlineCategory(array $card, ?string $todayStr = null): array
+    {
+        $today = $todayStr !== null ? $todayStr : date('Y-m-d');
+        $status = (string) ($card['status'] ?? '');
+        $completed = $status === 'completed';
+        $denied = $status === 'denied';
+        $inProgress = in_array($status, self::IN_PROGRESS_STATUSES, true);
+
+        if ($completed) return self::DEADLINE_COLORS['done'];
+        if ($denied) return self::DEADLINE_COLORS['denied'];
+
+        $due = self::dayKey($card['due_date'] ?? null);
+        if ($due === null) {
+            return $inProgress ? self::DEADLINE_COLORS['in_progress'] : self::DEADLINE_COLORS['none'];
+        }
+
+        if ($due < $today) return self::DEADLINE_COLORS['overdue'];
+        if ($due === $today) return self::DEADLINE_COLORS['due_today'];
+
+        // Futuro e dentro do prazo: em andamento tem prioridade.
+        if ($inProgress) return self::DEADLINE_COLORS['in_progress'];
+        $diffDays = (int) floor((strtotime($due) - strtotime($today)) / 86400);
+        if ($diffDays <= self::NEAR_DUE_DAYS) return self::DEADLINE_COLORS['near_due'];
+        return self::DEADLINE_COLORS['on_track'];
+    }
+
+    /**
+     * Os dias "ocupados" por uma demanda, igual à regra do calendário:
+     *  - start_date + end_date  => todos os dias do intervalo [start..end];
+     *  - só start_date          => o dia de start;
+     *  - due_date               => o dia do prazo (somado ao conjunto).
+     * Uma demanda sem NENHUMA data retorna lista vazia (não aparece).
+     *
+     * @return string[] Dias 'Y-m-d' únicos e ordenados.
+     */
+    public static function cardDays(array $card): array
+    {
+        $days = [];
+        $start = self::dayKey($card['start_date'] ?? null);
+        $end = self::dayKey($card['end_date'] ?? null);
+        $due = self::dayKey($card['due_date'] ?? null);
+
+        if ($start !== null && $end !== null) {
+            $cur = strtotime($start);
+            $stop = strtotime($end);
+            // Protege contra end < start: cai só no start.
+            if ($stop < $cur) {
+                $days[$start] = true;
+            } else {
+                // Limite de segurança para não varrer intervalos absurdos.
+                $guard = 0;
+                while ($cur <= $stop && $guard < 3660) {
+                    $days[date('Y-m-d', $cur)] = true;
+                    $cur = strtotime('+1 day', $cur);
+                    $guard++;
+                }
+            }
+        } elseif ($start !== null) {
+            $days[$start] = true;
+        }
+
+        if ($due !== null) {
+            $days[$due] = true;
+        }
+
+        $out = array_keys($days);
+        sort($out);
+        return $out;
+    }
+
+    /**
+     * Lista os meses (chave 'Y-m') que uma demanda toca, a partir de cardDays.
+     * @return string[] Meses únicos e ordenados.
+     */
+    public static function cardMonths(array $card): array
+    {
+        $months = [];
+        foreach (self::cardDays($card) as $d) {
+            $months[substr($d, 0, 7)] = true;
+        }
+        $out = array_keys($months);
+        sort($out);
+        return $out;
+    }
+
+    /**
+     * Determina quais meses o PDF deve conter: um por mês que tenha ao menos
+     * uma demanda, do primeiro ao último mês tocado (contíguo, sem buracos),
+     * para o calendário não "pular" meses no meio do intervalo.
+     *
+     * @param array $cards Linhas de cards (já filtradas por empresa/escopo).
+     * @return string[]    Meses 'Y-m' em ordem crescente (vazio se não há datas).
+     */
+    public static function monthsForCards(array $cards): array
+    {
+        $touched = [];
+        foreach ($cards as $card) {
+            foreach (self::cardMonths($card) as $m) {
+                $touched[$m] = true;
+            }
+        }
+        if (empty($touched)) {
+            return [];
+        }
+        $keys = array_keys($touched);
+        sort($keys);
+        $first = $keys[0];
+        $last = $keys[count($keys) - 1];
+
+        // Preenche o intervalo contíguo entre o primeiro e o último mês.
+        $out = [];
+        $cur = strtotime($first . '-01');
+        $stop = strtotime($last . '-01');
+        $guard = 0;
+        while ($cur <= $stop && $guard < 600) {
+            $out[] = date('Y-m', $cur);
+            $cur = strtotime('+1 month', $cur);
+            $guard++;
+        }
+        return $out;
+    }
+
+    /**
+     * Monta o grid de um mês no formato domingo→sábado, igual ao calendário:
+     * 6 semanas de 7 dias; os dias fora do mês corrente ficam marcados.
+     *
+     * @param int $year  Ano (ex.: 2026).
+     * @param int $month Mês 1..12.
+     * @return array     Lista de semanas; cada semana é lista de 7 dias:
+     *                   ['date' => 'Y-m-d', 'day' => int, 'otherMonth' => bool].
+     */
+    public static function monthGrid(int $year, int $month): array
+    {
+        $firstTs = mktime(0, 0, 0, $month, 1, $year);
+        $startDow = (int) date('w', $firstTs); // 0=Dom .. 6=Sáb
+
+        $weeks = [];
+        // Primeiro dia renderizado = 1 - startDow (pode cair no mês anterior).
+        $cursor = strtotime(($year) . '-' . sprintf('%02d', $month) . '-01');
+        $cursor = strtotime('-' . $startDow . ' day', $cursor);
+        for ($w = 0; $w < 6; $w++) {
+            $week = [];
+            for ($d = 0; $d < 7; $d++) {
+                $date = date('Y-m-d', $cursor);
+                $week[] = [
+                    'date'       => $date,
+                    'day'        => (int) date('j', $cursor),
+                    'otherMonth' => ((int) date('n', $cursor)) !== $month,
+                ];
+                $cursor = strtotime('+1 day', $cursor);
+            }
+            $weeks[] = $week;
+        }
+        return $weeks;
+    }
+
+    /**
+     * Indexa as demandas por dia ('Y-m-d' => lista de cards) para um mês,
+     * considerando apenas os dias que caem DENTRO do mês pedido (o grid pode
+     * exibir dias de outros meses, mas não repetimos a demanda neles). Cada
+     * card recebe a categoria de cor já resolvida em ['_cat'].
+     *
+     * @param array  $cards    Linhas de cards.
+     * @param int    $year     Ano.
+     * @param int    $month    Mês 1..12.
+     * @param string $todayStr Data de referência 'Y-m-d' para as cores.
+     * @return array           Mapa dia => lista de cards (com '_cat').
+     */
+    public static function cardsByDayForMonth(array $cards, int $year, int $month, ?string $todayStr = null): array
+    {
+        $prefix = sprintf('%04d-%02d', $year, $month);
+        $byDay = [];
+        foreach ($cards as $card) {
+            $cat = self::deadlineCategory($card, $todayStr);
+            foreach (self::cardDays($card) as $day) {
+                if (strpos($day, $prefix) !== 0) {
+                    continue; // só dias do mês pedido
+                }
+                $entry = $card;
+                $entry['_cat'] = $cat;
+                $byDay[$day][] = $entry;
+            }
+        }
+        // Ordena os cards de cada dia por título para uma saída estável.
+        foreach ($byDay as $day => $list) {
+            usort($list, function ($a, $b) {
+                return strcasecmp((string) ($a['title'] ?? ''), (string) ($b['title'] ?? ''))
+                    ?: ((int) ($a['id'] ?? 0)) <=> ((int) ($b['id'] ?? 0));
+            });
+            $byDay[$day] = $list;
+        }
+        return $byDay;
+    }
+
+    /** Nome legível de um mês 'Y-m' (ex.: 'Outubro 2026'). */
+    public static function monthLabel(string $ym): string
+    {
+        $y = (int) substr($ym, 0, 4);
+        $m = (int) substr($ym, 5, 2);
+        $name = self::MONTH_NAMES[$m] ?? $ym;
+        return $name . ' ' . $y;
+    }
 }

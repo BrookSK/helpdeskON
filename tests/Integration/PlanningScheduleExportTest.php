@@ -221,4 +221,69 @@ final class PlanningScheduleExportTest extends TestCase
         $ids = array_map(fn($c) => (int) $c['id'], $grupoSemEmpresa['cards']);
         $this->assertContains($semEmpresa, $ids);
     }
+
+    // =====================================================================
+    // RECORTE POR INTERVALO DE DATAS (calendário em PDF).
+    // Mesma regra do calendário: due no range OU janela start/end intersecta
+    // OU start-only no range. Demandas sem data NÃO entram.
+    // =====================================================================
+
+    public function testFiltroPorIntervaloTrazDueDateNoRange(): void
+    {
+        $dentro = $this->novoCard(['title' => 'Prazo em fev', 'company_id' => $this->companyA, 'due_date' => '2026-02-15']);
+        $fora   = $this->novoCard(['title' => 'Prazo em abr', 'company_id' => $this->companyA, 'due_date' => '2026-04-10']);
+
+        $ids = $this->idsSchedule([
+            'company_id' => [$this->companyA],
+            'date_from'  => '2026-02-01',
+            'date_to'    => '2026-02-28 23:59:59',
+        ]);
+
+        $this->assertContains($dentro, $ids);
+        $this->assertNotContains($fora, $ids, 'Prazo fora do mês não deve entrar no recorte.');
+    }
+
+    public function testFiltroPorIntervaloJanelaQueAtravessaOMes(): void
+    {
+        // Janela 28/01→03/02 intersecta tanto janeiro quanto fevereiro.
+        $atravessa = $this->novoCard([
+            'title' => 'Atravessa virada', 'company_id' => $this->companyA,
+            'start_date' => '2026-01-28', 'end_date' => '2026-02-03',
+        ]);
+
+        $jan = $this->idsSchedule(['company_id' => [$this->companyA], 'date_from' => '2026-01-01', 'date_to' => '2026-01-31 23:59:59']);
+        $fev = $this->idsSchedule(['company_id' => [$this->companyA], 'date_from' => '2026-02-01', 'date_to' => '2026-02-28 23:59:59']);
+
+        $this->assertContains($atravessa, $jan, 'Aparece no recorte de janeiro.');
+        $this->assertContains($atravessa, $fev, 'E também no de fevereiro (demanda multi-mês).');
+    }
+
+    public function testFiltroPorIntervaloExcluiDemandaSemData(): void
+    {
+        $semData = $this->novoCard(['title' => 'Sem nenhuma data', 'company_id' => $this->companyA]);
+        $comData = $this->novoCard(['title' => 'Com prazo', 'company_id' => $this->companyA, 'due_date' => '2026-03-10']);
+
+        $ids = $this->idsSchedule([
+            'company_id' => [$this->companyA],
+            'date_from'  => '2026-03-01',
+            'date_to'    => '2026-03-31 23:59:59',
+        ]);
+
+        $this->assertContains($comData, $ids);
+        $this->assertNotContains($semData, $ids, 'Demanda sem data não aparece no calendário.');
+    }
+
+    public function testMonthsForCardsSobreDadosReaisDoBanco(): void
+    {
+        // Caminho real: busca sem range, filtra dadas, descobre meses contíguos.
+        $this->novoCard(['title' => 'Jan', 'company_id' => $this->companyA, 'start_date' => '2026-01-05']);
+        $this->novoCard(['title' => 'Mar', 'company_id' => $this->companyA, 'due_date' => '2026-03-20']);
+        $this->novoCard(['title' => 'Sem data', 'company_id' => $this->companyA]); // não conta
+
+        $cards = $this->cards->getForSchedule(['company_id' => [$this->companyA]]);
+        $dated = array_values(array_filter($cards, fn($c) => !empty(PlanningScheduleRules::cardDays($c))));
+        $months = PlanningScheduleRules::monthsForCards($dated);
+
+        $this->assertSame(['2026-01', '2026-02', '2026-03'], $months, 'Fevereiro entra no meio mesmo sem demanda própria.');
+    }
 }

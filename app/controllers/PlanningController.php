@@ -121,13 +121,15 @@ class PlanningController extends Controller
         $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']);
         $user = $this->currentUser();
 
-        // Mesmos filtros da tela (múltipla escolha).
+        // O cronograma em PDF agora é um CALENDÁRIO mensal visual (uma página
+        // por mês), fiel ao calendário da tela. O único filtro oferecido na
+        // exportação é a empresa (uma ou várias); "geral" = todas as que o
+        // usuário pode ver. As cores saem da mesma regra de prazo/status do
+        // calendário (PlanningScheduleRules::deadlineCategory).
         $filters = [];
-        if (!empty($_GET['company_id'])) $filters['company_id'] = array_filter((array)$_GET['company_id'], fn($v) => $v !== '');
-        if (!empty($_GET['assigned_to'])) $filters['assigned_to'] = array_filter((array)$_GET['assigned_to'], fn($v) => $v !== '');
-        if (!empty($_GET['created_by'])) $filters['created_by'] = array_filter((array)$_GET['created_by'], fn($v) => $v !== '');
-        if (!empty($_GET['statuses'])) $filters['statuses'] = array_filter((array)$_GET['statuses'], fn($v) => $v !== '');
-        if (isset($_GET['q']) && trim((string)$_GET['q']) !== '') $filters['q'] = trim((string)$_GET['q']);
+        if (!empty($_GET['company_id'])) {
+            $filters['company_id'] = array_filter((array)$_GET['company_id'], fn($v) => $v !== '');
+        }
 
         // whatsapp_agent/developer/analyst/comercial só exportam os próprios cards.
         if (in_array($user['role'], ['whatsapp_agent', 'developer', 'analyst', 'comercial'])) {
@@ -141,25 +143,59 @@ class PlanningController extends Controller
             $filters['allowed_companies'] = $allowedCompanies;
         }
 
+        // Só demandas ATIVAS entram no calendário (espelha o calendário da tela,
+        // que oculta concluídas/negadas/arquivadas do fluxo visual de datas).
+        $filters['statuses'] = array_values(array_filter(
+            array_keys(PlanningScheduleRules::STATUS_LABELS),
+            fn($s) => PlanningScheduleRules::isActive($s)
+        ));
+
+        // Busca todas as demandas (dentro do escopo/empresa). O recorte por mês
+        // é feito depois, a partir das datas reais das demandas.
         $cards = $this->cardModel->getForSchedule($filters);
 
-        // ?all=1 inclui concluídas/negadas/arquivadas; padrão = só próximas etapas.
-        $onlyActive = empty($_GET['all']);
-        $groups = PlanningScheduleRules::buildSchedule($cards, $onlyActive);
-        $total = PlanningScheduleRules::countActivities($groups);
+        // Mantém apenas as demandas que têm pelo menos uma data (as sem data não
+        // aparecem no calendário) e descobre os meses a renderizar: um por mês
+        // tocado, do primeiro ao último (intervalo contíguo).
+        $dated = array_values(array_filter(
+            $cards,
+            fn($c) => !empty(PlanningScheduleRules::cardDays($c))
+        ));
+        $months = PlanningScheduleRules::monthsForCards($dated);
+        $total = count($dated);
 
         if (!PdfGenerator::isAvailable()) {
             $this->renderSchedulePdfUnavailable();
             return;
         }
 
+        // Pré-monta o grid + distribuição de cada mês para a view só desenhar.
+        $today = date('Y-m-d');
+        $viewMonths = [];
+        foreach ($months as $ym) {
+            $y = (int) substr($ym, 0, 4);
+            $m = (int) substr($ym, 5, 2);
+            $viewMonths[] = [
+                'ym'     => $ym,
+                'label'  => PlanningScheduleRules::monthLabel($ym),
+                'weeks'  => PlanningScheduleRules::monthGrid($y, $m),
+                'byDay'  => PlanningScheduleRules::cardsByDayForMonth($dated, $y, $m, $today),
+            ];
+        }
+
         // Monta o HTML do documento a partir da view dedicada.
         ob_start();
-        $viewGroups = $groups;
         $viewTotal = $total;
-        $viewOnlyActive = $onlyActive;
+        $viewWeekdays = PlanningScheduleRules::WEEKDAY_LABELS;
+        $viewLegend = PlanningScheduleRules::DEADLINE_COLORS;
         $viewGeneratedAt = date('d/m/Y H:i');
-        $viewFiltersLabel = PlanningScheduleRules::filtersSummary($this->scheduleFilterLabels($filters, $allowedCompanies));
+        // O único filtro escolhido pelo usuário na exportação é a empresa; o
+        // 'statuses' acima é regra fixa (só ativas), não entra no resumo.
+        $labelFilters = [];
+        if (!empty($filters['company_id'])) $labelFilters['company_id'] = $filters['company_id'];
+        $viewFiltersLabel = PlanningScheduleRules::filtersSummary(
+            $this->scheduleFilterLabels($labelFilters, $allowedCompanies)
+        );
         require APP_PATH . '/views/planning/schedule_pdf.php';
         $html = ob_get_clean();
 

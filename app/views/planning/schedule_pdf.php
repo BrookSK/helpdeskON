@@ -1,135 +1,105 @@
 <?php
 /**
- * Template HTML do cronograma consolidado de atividades (exportação em PDF).
+ * Template HTML do cronograma do Planejamento exportado em PDF, no formato de
+ * CALENDÁRIO MENSAL VISUAL (uma página por mês), fiel ao calendário da tela
+ * (app/views/planning/index.php).
  *
  * Renderizado para string por PlanningController::exportSchedulePdf() e
- * convertido via PdfGenerator (dompdf). Usa apenas CSS inline/simples: o dompdf
- * tem suporte limitado a CSS e recursos externos ficam desabilitados.
+ * convertido via PdfGenerator::fromHtml (dompdf, A4 paisagem). O dompdf tem
+ * suporte limitado a CSS (sem flex/grid confiável), então a grade do mês é uma
+ * <table> de 7 colunas (domingo→sábado); cada demanda do dia é uma "pílula"
+ * colorida com o título, usando a mesma paleta de prazo/status do calendário
+ * (PlanningScheduleRules::DEADLINE_COLORS / deadlineCategory).
  *
- * Identidade visual alinhada ao site (app/views/layouts/header.php):
- *   - cor primária teal #00BFA6 / #00997D (faixa do cabeçalho, títulos);
- *   - fundo claro #f5f7fa, cartões com cantos arredondados e borda suave;
- *   - tabela com cabeçalho em maiúsculas/cinza e zebra leve;
- *   - badges de status como pílula de fundo claro + texto colorido
- *     (PlanningScheduleRules::statusBadge, espelhando as classes .badge-*).
- *   - tipografia: o site usa Inter; o dompdf não a embarca, então usamos
- *     DejaVu Sans (fallback com acentuação) preservando pesos/tamanhos.
- *
- * Quebra de página: cada bloco "empresa + tabela" fica em um container com
- * page-break-inside: avoid, então uma empresa que não caiba no resto da página
- * é deslocada inteira para a próxima. Se uma única empresa tiver linhas demais
- * para caber numa página, o cabeçalho da tabela repete (table-header-group).
+ * Cada mês fica num container com page-break-after para sair em página própria.
  *
  * Variáveis esperadas:
- *   $viewGroups        array de ['company' => string, 'cards' => array]
- *   $viewTotal         int    total de atividades
- *   $viewOnlyActive    bool   se true, só próximas etapas (ativas)
- *   $viewGeneratedAt   string data/hora de geração (d/m/Y H:i)
- *   $viewFiltersLabel  string resumo dos filtros aplicados (pode ser vazio)
+ *   $viewMonths       array de meses, cada um:
+ *                       ['ym' => 'Y-m', 'label' => 'Outubro 2026',
+ *                        'weeks' => [[['date','day','otherMonth'], x7], x6],
+ *                        'byDay' => ['Y-m-d' => [card + '_cat'], ...]]
+ *   $viewWeekdays     array rótulos das colunas ['Dom'..'Sáb']
+ *   $viewLegend       array DEADLINE_COLORS (para a legenda de cores)
+ *   $viewTotal        int    total de demandas com data no período
+ *   $viewGeneratedAt  string data/hora de geração (d/m/Y H:i)
+ *   $viewFiltersLabel string resumo dos filtros aplicados (pode ser vazio)
  */
-if (!isset($viewGroups))       { $viewGroups = []; }
+if (!isset($viewMonths))       { $viewMonths = []; }
+if (!isset($viewWeekdays))     { $viewWeekdays = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']; }
+if (!isset($viewLegend))       { $viewLegend = []; }
 if (!isset($viewTotal))        { $viewTotal = 0; }
-if (!isset($viewOnlyActive))   { $viewOnlyActive = true; }
 if (!isset($viewGeneratedAt))  { $viewGeneratedAt = date('d/m/Y H:i'); }
 if (!isset($viewFiltersLabel)) { $viewFiltersLabel = ''; }
 
 $esc = function ($v) { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'); };
 ?>
 <style>
-    @page { margin: 1.4cm 1.2cm; }
-    body { font-family: "DejaVu Sans", sans-serif; color: #2b2b3a; font-size: 9.5pt; }
+    @page { margin: 1.1cm 1cm; }
+    body { font-family: "DejaVu Sans", sans-serif; color: #2b2b3a; font-size: 9pt; }
 
     /* Cabeçalho do documento — faixa com a cor primária do site. */
     .doc-header {
         background: #00BFA6;
         color: #ffffff;
-        padding: 12pt 14pt;
-        border-radius: 8pt;
-        margin-bottom: 12pt;
+        padding: 10pt 12pt;
+        border-radius: 7pt;
+        margin-bottom: 8pt;
     }
-    .doc-header h1 { font-size: 15pt; margin: 0; font-weight: 700; letter-spacing: 0.2pt; }
-    .doc-header .meta { color: #e6fffb; font-size: 8.5pt; margin: 4pt 0 0; }
-    .doc-header .filters { color: #e6fffb; font-size: 8.5pt; margin: 3pt 0 0; }
+    .doc-header h1 { font-size: 14pt; margin: 0; font-weight: 700; }
+    .doc-header .meta { color: #e6fffb; font-size: 8pt; margin: 3pt 0 0; }
+    .doc-header .filters { color: #e6fffb; font-size: 8pt; margin: 2pt 0 0; }
 
-    /*
-     * Bloco de cada empresa. NÃO usamos page-break-inside: avoid aqui de
-     * propósito: uma empresa grande (muitas linhas) poderia não caber no espaço
-     * restante da página e seria empurrada inteira para a próxima, deixando um
-     * vazio grande. Em vez disso, aproveitamos o espaço disponível e deixamos a
-     * TABELA quebrar entre páginas quando necessário — protegendo cada linha
-     * individualmente (tr) e o cabeçalho da empresa (não fica órfão no rodapé).
-     */
-    .group { margin-bottom: 12pt; }
+    /* Legenda de cores (mesma leitura do calendário da tela). */
+    .legend { margin: 0 0 8pt; font-size: 7.5pt; color: #5a5a6a; }
+    .legend .item { display: inline-block; margin: 0 8pt 2pt 0; white-space: nowrap; }
+    .legend .swatch {
+        display: inline-block; width: 9pt; height: 9pt;
+        border-radius: 2pt; vertical-align: middle; margin-right: 3pt;
+    }
 
-    .company {
-        font-size: 11pt;
-        font-weight: 700;
-        color: #00997D;
-        padding: 0 0 4pt;
-        margin: 0 0 5pt;
+    /* Cada mês ocupa a sua própria página. */
+    .month { page-break-after: always; }
+    .month:last-child { page-break-after: auto; }
+    .month-title {
+        font-size: 12pt; font-weight: 700; color: #00997D;
+        margin: 0 0 5pt; padding: 0 0 3pt;
         border-bottom: 2pt solid #00BFA6;
-        /* O título nunca fica sozinho no fim da página: gruda na tabela. */
-        page-break-after: avoid;
     }
-    .company .count { color: #8a8a99; font-weight: 400; font-size: 8.5pt; }
 
-    table { width: 100%; border-collapse: collapse; }
-    /* Repete o cabeçalho da tabela no topo da continuação quando ela quebra. */
-    thead { display: table-header-group; }
-    /* Nenhuma atividade é cortada ao meio entre páginas. */
-    tr { page-break-inside: avoid; }
-    th {
-        background: #f0f2f6;
-        color: #5a5a6a;
-        text-align: left;
-        font-size: 7.5pt;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.3pt;
-        padding: 5pt 6pt;
-        border-bottom: 1pt solid #e2e5ec;
+    table.cal { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    table.cal th {
+        background: #00997D; color: #ffffff;
+        font-size: 8pt; font-weight: 700; text-transform: uppercase;
+        padding: 4pt 2pt; text-align: center; border: 1pt solid #e2e5ec;
+        width: 14.28%;
     }
-    td {
-        padding: 5pt 6pt;
-        vertical-align: top;
-        font-size: 8.5pt;
-        border-bottom: 1pt solid #eceef3;
-        /* Descrições integrais podem ser longas: quebra palavras/URLs grandes
-           para não estourar a largura da coluna. */
-        word-wrap: break-word;
-        overflow-wrap: break-word;
+    table.cal td {
+        border: 1pt solid #e2e5ec; vertical-align: top;
+        height: 92pt; padding: 2pt; width: 14.28%;
     }
-    tr:nth-child(even) td { background: #f8fafc; }
+    td.other-month { background: #f3f5f8; }
+    td.today { background: #fff8e1; }
 
-    .act-title { font-weight: 700; color: #2b2b3a; }
-    .act-desc {
-        color: #8a8a99;
-        font-size: 7.5pt;
-        margin-top: 1.5pt;
-        line-height: 1.35;
+    .day-num { font-size: 8pt; font-weight: 700; color: #5a5a6a; display: block; margin-bottom: 2pt; }
+    td.other-month .day-num { color: #b5bcc6; }
+
+    /* Pílula de demanda dentro do dia: fundo/borda/texto da categoria. */
+    .ev {
+        display: block;
+        font-size: 6.8pt;
+        line-height: 1.15;
+        padding: 1.5pt 3pt;
+        margin: 0 0 2pt;
+        border-radius: 3pt;
+        border-left: 2.5pt solid #94a3b8;
         word-wrap: break-word;
         overflow-wrap: break-word;
     }
 
-    /* Badge de status: pílula clara com texto colorido (igual ao site). */
-    .st {
-        display: inline-block;
-        padding: 2pt 7pt;
-        border-radius: 10pt;
-        font-size: 7.5pt;
-        font-weight: 700;
-        white-space: nowrap;
-    }
-
-    .muted { color: #a0a0ac; }
     .empty {
-        color: #8a8a99;
-        font-style: italic;
-        padding: 14pt;
-        background: #f8fafc;
-        border: 1pt solid #e2e5ec;
-        border-radius: 8pt;
-        text-align: center;
+        color: #8a8a99; font-style: italic;
+        padding: 14pt; background: #f8fafc;
+        border: 1pt solid #e2e5ec; border-radius: 8pt; text-align: center;
     }
 </style>
 
@@ -137,59 +107,61 @@ $esc = function ($v) { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8')
     <h1>Cronograma de Atividades &mdash; Planejamento</h1>
     <p class="meta">
         Gerado em <?= $esc($viewGeneratedAt) ?>.
-        <?= $viewOnlyActive ? 'Exibindo as próximas etapas (atividades em andamento).' : 'Exibindo todas as atividades.' ?>
-        Total: <?= (int) $viewTotal ?> atividade<?= $viewTotal === 1 ? '' : 's' ?>.
+        Total: <?= (int) $viewTotal ?> demanda<?= $viewTotal === 1 ? '' : 's' ?> com data no período.
     </p>
     <?php if (trim((string) $viewFiltersLabel) !== ''): ?>
-        <p class="filters">Filtros aplicados &mdash; <?= $esc($viewFiltersLabel) ?></p>
+        <p class="filters"><?= $esc($viewFiltersLabel) ?></p>
     <?php endif; ?>
 </div>
 
-<?php if (empty($viewGroups)): ?>
-    <p class="empty">Nenhuma atividade encontrada para os filtros selecionados.</p>
+<?php if (!empty($viewLegend)): ?>
+    <div class="legend">
+        <?php foreach ($viewLegend as $cat): ?>
+            <span class="item">
+                <span class="swatch" style="background:<?= $esc($cat['bg']) ?>;border:1pt solid <?= $esc($cat['border']) ?>;"></span>
+                <?= $esc($cat['label']) ?>
+            </span>
+        <?php endforeach; ?>
+    </div>
+<?php endif; ?>
+
+<?php if (empty($viewMonths)): ?>
+    <p class="empty">Nenhuma demanda com data encontrada para os filtros selecionados.</p>
 <?php else: ?>
-    <?php foreach ($viewGroups as $group): ?>
-        <div class="group">
-            <div class="company">
-                <?= $esc($group['company']) ?>
-                <span class="count">(<?= count($group['cards']) ?>)</span>
-            </div>
-            <table>
+    <?php $todayKey = date('Y-m-d'); ?>
+    <?php foreach ($viewMonths as $month): ?>
+        <div class="month">
+            <div class="month-title"><?= $esc($month['label']) ?></div>
+            <table class="cal">
                 <thead>
                     <tr>
-                        <th style="width:34%;">Atividade</th>
-                        <th style="width:10%;">Início</th>
-                        <th style="width:10%;">Término</th>
-                        <th style="width:10%;">Prazo</th>
-                        <th style="width:14%;">Status</th>
-                        <th style="width:11%;">Responsável</th>
-                        <th style="width:11%;">Solicitante</th>
+                        <?php foreach ($viewWeekdays as $wd): ?>
+                            <th><?= $esc($wd) ?></th>
+                        <?php endforeach; ?>
                     </tr>
                 </thead>
                 <tbody>
-                    <?php foreach ($group['cards'] as $card): ?>
-                        <?php
-                        $badge = PlanningScheduleRules::statusBadge($card['status'] ?? '');
-                        // Descrição: completa até ~15 linhas; acima disso, resumo
-                        // extrativo (minuta) que preserva o início e sinaliza
-                        // continuação. Ver PlanningScheduleRules::summarizeDescription.
-                        $desc = PlanningScheduleRules::summarizeDescription($card['description'] ?? '');
-                        $assigned = trim((string) ($card['assigned_name'] ?? ''));
-                        $requester = trim((string) ($card['created_by_name'] ?? ''));
-                        ?>
+                    <?php foreach ($month['weeks'] as $week): ?>
                         <tr>
-                            <td>
-                                <div class="act-title"><?= $esc($card['title'] ?? '') ?></div>
-                                <?php if ($desc !== ''): ?>
-                                    <div class="act-desc"><?= $esc($desc) ?></div>
-                                <?php endif; ?>
-                            </td>
-                            <td><?= $esc(PlanningScheduleRules::formatDate($card['start_date'] ?? null)) ?></td>
-                            <td><?= $esc(PlanningScheduleRules::formatDate($card['end_date'] ?? null)) ?></td>
-                            <td><?= $esc(PlanningScheduleRules::formatDate($card['due_date'] ?? null)) ?></td>
-                            <td><span class="st" style="background:<?= $esc($badge['bg']) ?>;color:<?= $esc($badge['fg']) ?>;"><?= $esc(PlanningScheduleRules::statusLabel($card['status'] ?? '')) ?></span></td>
-                            <td<?= $assigned === '' ? ' class="muted"' : '' ?>><?= $assigned !== '' ? $esc($assigned) : '—' ?></td>
-                            <td<?= $requester === '' ? ' class="muted"' : '' ?>><?= $requester !== '' ? $esc($requester) : '—' ?></td>
+                            <?php foreach ($week as $cell): ?>
+                                <?php
+                                $classes = [];
+                                if (!empty($cell['otherMonth'])) $classes[] = 'other-month';
+                                if ($cell['date'] === $todayKey)  $classes[] = 'today';
+                                $dayCards = $month['byDay'][$cell['date']] ?? [];
+                                ?>
+                                <td<?= $classes ? ' class="' . implode(' ', $classes) . '"' : '' ?>>
+                                    <span class="day-num"><?= (int) $cell['day'] ?></span>
+                                    <?php foreach ($dayCards as $card): ?>
+                                        <?php
+                                        $cat = $card['_cat'] ?? ['bg' => '#eef1f4', 'border' => '#94a3b8', 'text' => '#475569'];
+                                        $title = trim((string) ($card['title'] ?? ''));
+                                        if ($title === '') $title = '(sem título)';
+                                        ?>
+                                        <span class="ev" style="background:<?= $esc($cat['bg']) ?>;border-left-color:<?= $esc($cat['border']) ?>;color:<?= $esc($cat['text']) ?>;"><?= $esc($title) ?></span>
+                                    <?php endforeach; ?>
+                                </td>
+                            <?php endforeach; ?>
                         </tr>
                     <?php endforeach; ?>
                 </tbody>

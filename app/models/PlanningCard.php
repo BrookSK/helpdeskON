@@ -302,6 +302,28 @@ class PlanningCard
             $params = array_merge($params, $filters['allowed_companies']);
         }
 
+        // Recorte por intervalo de datas (cronograma em calendário): mesma
+        // regra do calendário — a demanda entra se o prazo (due_date) cai no
+        // intervalo OU a janela de desenvolvimento (start/end) o intersecta OU
+        // um start_date sem end cai no intervalo. Demandas SEM nenhuma data
+        // ficam de fora (não aparecem no calendário). Aplicado só quando o
+        // controller informa date_from/date_to.
+        if (!empty($filters['date_from']) && !empty($filters['date_to'])) {
+            $from = (string) $filters['date_from'];
+            $to = (string) $filters['date_to'];
+            $sql .= " AND (
+                (pc.due_date IS NOT NULL AND pc.due_date >= ? AND pc.due_date <= ?)
+                OR (pc.start_date IS NOT NULL AND pc.end_date IS NOT NULL AND pc.start_date <= ? AND pc.end_date >= ?)
+                OR (pc.start_date IS NOT NULL AND pc.end_date IS NULL AND pc.start_date >= ? AND pc.start_date <= ?)
+            )";
+            $params[] = $from;
+            $params[] = $to;
+            $params[] = $to;
+            $params[] = $from;
+            $params[] = $from;
+            $params[] = $to;
+        }
+
         // Ordenação base por empresa e data; o agrupamento/ordenação final para
         // o PDF é refinado em PlanningScheduleRules::buildSchedule().
         $sql .= " ORDER BY (co.name IS NULL), co.name ASC,
