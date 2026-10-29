@@ -697,3 +697,5 @@ async function viewRdo(id) {
 loadRdos();
 </script>
 <?php endif; ?>
+
+<?php require APP_PATH . '/views/layouts/footer.php'; ?>
