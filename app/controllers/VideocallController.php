@@ -1146,7 +1146,7 @@ class VideocallController extends Controller
         if (empty($r['success'])) $this->json(['error' => 'Falha ao transcrever o pedaço: ' . ($r['error'] ?? '')], 502);
 
         $segs = array_map(function ($s) use ($offset) {
-            return ['start' => $s['start'] + $offset, 'end' => $s['end'] + $offset, 'text' => $s['text']];
+            return ['start' => $s['start'] + $offset, 'end' => $s['end'] + $offset] + $s;
         }, $r['segments'] ?? []);
         $segs = $this->cleanTranscriptSegments($segs); // remove "pontinhos"/silêncio
 
@@ -1870,7 +1870,7 @@ class VideocallController extends Controller
                     if (empty($r['success'])) throw new \RuntimeException($r['error'] ?? 'erro no pedaço ' . $i);
                     $transcriptParts[] = $r['text'];
                     foreach (($r['segments'] ?? []) as $s) {
-                        $segments[] = ['start' => $s['start'] + $offset, 'end' => $s['end'] + $offset, 'text' => $s['text']];
+                        $segments[] = ['start' => $s['start'] + $offset, 'end' => $s['end'] + $offset] + $s;
                     }
                     // Avança o offset pela duração real do pedaço (ou 10 min).
                     $dur = $this->mediaDuration($ffmpeg, $chunk);
@@ -1898,6 +1898,7 @@ class VideocallController extends Controller
         }
         foreach ($tmpFiles as $f) @unlink($f);
 
+        $segments = $this->cleanTranscriptSegments($segments); // silêncio e repetições do Whisper
         // Texto plano com marca de tempo por linha (fácil de copiar/colar no GPT).
         $transcript = '';
         if (!empty($segments)) {
