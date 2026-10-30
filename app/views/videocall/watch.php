@@ -30,6 +30,8 @@ $recInfo = [
     'minutesSentAt' => $minutesSentAt ? date('d/m/Y H:i', strtotime($minutesSentAt)) : null,
     'minutesEditedAt' => !empty($rec['minutes_edited_at']) ? date('d/m/Y H:i', strtotime($rec['minutes_edited_at'])) : null,
     'csrf' => $canManage ? csrf_token() : '',
+    'recipients' => $canManage ? array_values($minutesRecipients ?? []) : [],
+    'me' => $canManage ? ($me ?? null) : null,
     'canProposals' => !empty($canProposals),
     'proposal' => !empty($linkedProposal) ? ['id' => (int)$linkedProposal['id'], 'url' => $base . '/proposal/edit/' . (int)$linkedProposal['id']] : null,
 ];
@@ -99,6 +101,10 @@ $recInfo = [
         .min-form label { display:block; font-size:.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--brand); margin:10px 0 4px; }
         .min-form textarea { width:100%; background:var(--panel2); color:#e8eaf1; border:1px solid #33375a; border-radius:8px; padding:8px; font-size:.84rem; }
         .min-form .hint { font-size:.72rem; color:#9aa2c0; }
+        .min-form input[type=text], .min-form input[type=email], .min-form input[type=tel] { width:100%; background:var(--panel2); color:#e8eaf1; border:1px solid #33375a; border-radius:8px; padding:6px 8px; font-size:.84rem; margin-bottom:6px; }
+        .rcpt { display:flex; gap:8px; align-items:flex-start; padding:6px 0; border-bottom:1px solid #2a2d48; font-size:.84rem; }
+        .rcpt input { margin-top:4px; }
+        .rcpt .muted { display:block; font-size:.74rem; }
         .tr-state { font-size:.86rem; }    </style>
 </head>
 <body>
@@ -166,6 +172,20 @@ $recInfo = [
                     <button type="button" class="btn btn-sm btn-outline-light" onclick="cancelEditMinutes()">Cancelar</button>
                 </div>
             </form>
+            <div id="sm-send" class="min-form" style="display:none;">
+                <label>Quem recebe a minuta</label>
+                <div id="rcpt-list"></div>
+                <div id="rcpt-empty" class="hint" style="display:none;">A reunião não tem participantes ou cliente com WhatsApp ou e-mail. Adicione abaixo.</div>
+                <label for="rcpt-name">Adicionar destinatário</label>
+                <input type="text" id="rcpt-name" placeholder="Nome">
+                <input type="tel" id="rcpt-phone" placeholder="WhatsApp com DDD">
+                <input type="email" id="rcpt-email" placeholder="E-mail">
+                <button type="button" class="btn btn-sm btn-outline-light" onclick="addRecipient()"><i class="bi bi-plus"></i> Adicionar</button>
+                <div class="min-actions" style="margin-top:12px;">
+                    <button type="button" class="btn btn-sm btn-brand" id="rcpt-send-btn" onclick="confirmSendMinutes()"><i class="bi bi-send"></i> Enviar</button>
+                    <button type="button" class="btn btn-sm btn-outline-light" onclick="closeSendMinutes()">Cancelar</button>
+                </div>
+            </div>
             <?php endif; ?>
             <div id="sm-empty" class="muted" style="font-size:.86rem;">Sem minuta ainda. Ela é gerada automaticamente junto com a transcrição.</div>
             <div id="sm-minutes" style="display:none;">
@@ -415,17 +435,55 @@ async function regenerateMinutes() {
     INFO.minutesEditedAt = null;
     renderMinutes();
 }
-async function sendMinutes() {
+// Envio: lista os destinatários da reunião (marcados), a opção "Eu" e os
+// adicionados na hora. Só os marcados recebem.
+let recipients = null;
+function sendMinutes() {
+    if (recipients === null) {
+        recipients = (INFO.recipients || []).map(r => ({ ...r, checked: true }));
+        const me = INFO.me;
+        const dup = me && recipients.some(r => (me.phone && r.phone && r.phone.replace(/\D/g, '') === me.phone.replace(/\D/g, ''))
+            || (me.email && r.email && r.email.toLowerCase() === me.email.toLowerCase()));
+        if (me && (me.phone || me.email) && !dup) recipients.push({ ...me, name: me.name + ' (eu)', role: 'team', checked: false });
+    }
+    renderRecipients();
+    document.getElementById('sm-send').style.display = 'block';
+    document.getElementById('sm-actions').style.display = 'none';
+}
+function renderRecipients() {
+    document.getElementById('rcpt-empty').style.display = recipients.length ? 'none' : '';
+    document.getElementById('rcpt-list').innerHTML = recipients.map((r, i) =>
+        `<label class="rcpt"><input type="checkbox" ${r.checked ? 'checked' : ''} onchange="recipients[${i}].checked = this.checked">`
+        + `<span>${esc(r.name || 'Participante')}${r.role === 'client' ? ' · cliente' : ''}`
+        + `<span class="muted">${esc([r.phone, r.email].filter(Boolean).join(' · '))}</span></span></label>`
+    ).join('');
+}
+function addRecipient() {
+    const name = document.getElementById('rcpt-name').value.trim();
+    const phone = document.getElementById('rcpt-phone').value.trim();
+    const email = document.getElementById('rcpt-email').value.trim();
+    if (!phone && !email) { alert('Informe o WhatsApp ou o e-mail.'); return; }
+    recipients.push({ name: name || 'Participante', phone, email, role: 'team', checked: true });
+    ['rcpt-name', 'rcpt-phone', 'rcpt-email'].forEach(id => document.getElementById(id).value = '');
+    renderRecipients();
+}
+function closeSendMinutes() {
+    document.getElementById('sm-send').style.display = 'none';
+    renderMinutes();
+}
+async function confirmSendMinutes() {
+    const chosen = recipients.filter(r => r.checked).map(({ name, phone, email, role }) => ({ name, phone, email, role }));
+    if (!chosen.length) { alert('Marque ou adicione pelo menos um destinatário.'); return; }
     const again = !!INFO.minutesSentAt;
-    if (!confirm(again ? 'Reenviar a minuta ao cliente e aos participantes?' : 'Enviar a minuta ao cliente e aos participantes por WhatsApp e e-mail?')) return;
-    const btn = document.getElementById('min-send-btn');
+    if (!confirm((again ? 'Reenviar' : 'Enviar') + ' a minuta para ' + chosen.length + ' destinatário(s) por WhatsApp e e-mail?')) return;
+    const btn = document.getElementById('rcpt-send-btn');
     btn.disabled = true;
-    const r = await postJson(`${BASE}/videocall/sendMinutes/${REC_TOKEN}`);
+    const r = await postJson(`${BASE}/videocall/sendMinutes/${REC_TOKEN}`, { recipients: chosen });
     btn.disabled = false;
-    if (r.error) { alert(r.error); renderMinutes(); return; }
+    if (r.error) { alert(r.error); return; }
     INFO.minutesSentAt = r.sent_at ? new Date(r.sent_at.replace(' ', 'T')).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
     alert('Minuta enviada: ' + (r.sent_whats || 0) + ' WhatsApp e ' + (r.sent_email || 0) + ' e-mail.');
-    renderMinutes();
+    closeSendMinutes();
 }
 
 // Cria o rascunho da proposta a partir da minuta e abre o editor de proposta.
