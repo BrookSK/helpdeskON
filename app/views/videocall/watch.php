@@ -102,8 +102,8 @@ $recInfo = [
         .min-form textarea { width:100%; background:var(--panel2); color:#e8eaf1; border:1px solid #33375a; border-radius:8px; padding:8px; font-size:.84rem; }
         .min-form .hint { font-size:.72rem; color:#9aa2c0; }
         .min-form input[type=text], .min-form input[type=email], .min-form input[type=tel] { width:100%; background:var(--panel2); color:#e8eaf1; border:1px solid #33375a; border-radius:8px; padding:6px 8px; font-size:.84rem; margin-bottom:6px; }
-        .rcpt { display:flex; gap:8px; align-items:flex-start; padding:6px 0; border-bottom:1px solid #2a2d48; font-size:.84rem; }
-        .rcpt input { margin-top:4px; }
+        .min-form .rcpt { display:flex; gap:8px; align-items:flex-start; padding:6px 0; margin:0; border-bottom:1px solid #2a2d48; font-size:.84rem; font-weight:400; text-transform:none; letter-spacing:0; color:#e8eaf1; cursor:pointer; }
+        .min-form .rcpt input { margin-top:3px; flex:none; }
         .rcpt .muted { display:block; font-size:.74rem; }
         .tr-state { font-size:.86rem; }    </style>
 </head>
@@ -451,7 +451,7 @@ function sendMinutes() {
     document.getElementById('sm-actions').style.display = 'none';
 }
 function renderRecipients() {
-    document.getElementById('rcpt-empty').style.display = recipients.length ? 'none' : '';
+    document.getElementById('rcpt-empty').style.display = (INFO.recipients || []).length ? 'none' : '';
     document.getElementById('rcpt-list').innerHTML = recipients.map((r, i) =>
         `<label class="rcpt"><input type="checkbox" ${r.checked ? 'checked' : ''} onchange="recipients[${i}].checked = this.checked">`
         + `<span>${esc(r.name || 'Participante')}${r.role === 'client' ? ' · cliente' : ''}`
