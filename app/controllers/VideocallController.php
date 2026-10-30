@@ -1396,9 +1396,10 @@ class VideocallController extends Controller
      * lê e imprime/salva em PDF — não enviamos arquivo anexado.
      *
      * @param bool $force Reenvia mesmo que já tenha sido enviado (uso manual).
+     * @param array|null $chosen Destinatários escolhidos na tela; null usa os da reunião.
      * @return array{sent_whats:int,sent_email:int,recipients:int}
      */
-    private function deliverMinutes($recToken, bool $force = false): array
+    private function deliverMinutes($recToken, bool $force = false, ?array $chosen = null): array
     {
         $result = ['sent_whats' => 0, 'sent_email' => 0, 'recipients' => 0];
         $rec = $this->model->findRecordingByToken($recToken);
@@ -1409,39 +1410,19 @@ class VideocallController extends Controller
         // Idempotência: já enviado e sem forçar -> não reenvia.
         if (!$force && !empty($rec['minutes_sent_at'])) return $result;
 
-        // Reúne destinatários a partir da reunião vinculada (equipe + cliente).
-        $participants = [];
-        $client = [];
-        $meetingTitle = null;
-        $room = $this->model->findById($rec['room_id']);
-        if ($room && !empty($room['meeting_id'])) {
-            try {
-                $agenda = new AgendaMeeting();
-                $meeting = $agenda->findById((int)$room['meeting_id']);
-                if ($meeting) {
-                    $meetingTitle = $meeting['title'] ?? null;
-                    $participants = $agenda->getParticipantContacts((int)$room['meeting_id']) ?: [];
-                    // Cliente: snapshot da reunião (client_*) ou dados do contato do CRM.
-                    $client = [
-                        'name' => $meeting['client_name'] ?? ($meeting['crm_contact_name'] ?? ''),
-                        'email' => $meeting['client_email'] ?? ($meeting['lead_email'] ?? null),
-                        'phone' => $meeting['client_phone'] ?? ($meeting['crm_contact_phone'] ?? null),
-                    ];
-                    // Pós-reunião: o lead volta ao CRM em "Análise interna" para
-                    // analisarmos os pré-requisitos antes de montar a proposta.
-                    if (!empty($meeting['contact_id']) && class_exists('CrmBoard')) {
-                        try {
-                            (new CrmBoard())->moveContactToColumn((int)$meeting['contact_id'], CrmRules::COLUMN_INTERNAL_ANALYSIS);
-                        } catch (\Throwable $e) { /* não interrompe o envio da minuta */ }
-                    }
-                }
-            } catch (\Throwable $e) { /* sem reunião vinculada: segue sem destinatários */ }
-        }
-        if ($meetingTitle === null) $meetingTitle = $room['title'] ?? null;
-
-        $recipients = MeetingMinutesDelivery::buildRecipients($participants, $client);
+        $meeting = $this->minutesMeeting($rec);
+        $meetingTitle = $meeting['title'];
+        $recipients = $chosen !== null ? MeetingMinutesDelivery::chosenRecipients($chosen) : $meeting['recipients'];
         $result['recipients'] = count($recipients);
         if (empty($recipients)) return $result;
+
+        // Pós-reunião: o lead volta ao CRM em "Análise interna" para
+        // analisarmos os pré-requisitos antes de montar a proposta.
+        if (!empty($meeting['contact_id']) && class_exists('CrmBoard')) {
+            try {
+                (new CrmBoard())->moveContactToColumn((int)$meeting['contact_id'], CrmRules::COLUMN_INTERNAL_ANALYSIS);
+            } catch (\Throwable $e) { /* não interrompe o envio da minuta */ }
+        }
 
         $link = $this->publicBase() . '/videocall/minutesView/' . $rec['token'];
         $companyName = trim((string) Config::get('app_name')) ?: null;
@@ -1465,6 +1446,44 @@ class VideocallController extends Controller
     }
 
     /**
+     * Destinatários da minuta vindos da reunião da Agenda vinculada à sala
+     * (equipe + cliente), o título e o contato do CRM. Sala avulsa: lista vazia.
+     *
+     * @return array{recipients:array,title:?string,contact_id:?int}
+     */
+    private function minutesMeeting(array $rec): array
+    {
+        $participants = [];
+        $client = [];
+        $title = null;
+        $contactId = null;
+        $room = $this->model->findById($rec['room_id']);
+        if ($room && !empty($room['meeting_id'])) {
+            try {
+                $agenda = new AgendaMeeting();
+                $meeting = $agenda->findById((int)$room['meeting_id']);
+                if ($meeting) {
+                    $title = $meeting['title'] ?? null;
+                    $participants = $agenda->getParticipantContacts((int)$room['meeting_id']) ?: [];
+                    // Cliente: snapshot da reunião (client_*) ou dados do contato do CRM.
+                    $client = [
+                        'name' => $meeting['client_name'] ?? ($meeting['crm_contact_name'] ?? ''),
+                        'email' => $meeting['client_email'] ?? ($meeting['lead_email'] ?? null),
+                        'phone' => $meeting['client_phone'] ?? ($meeting['crm_contact_phone'] ?? null),
+                    ];
+                    $contactId = !empty($meeting['contact_id']) ? (int)$meeting['contact_id'] : null;
+                }
+            } catch (\Throwable $e) { /* sem reunião vinculada: segue sem destinatários */ }
+        }
+        if ($title === null) $title = $room['title'] ?? null;
+        return [
+            'recipients' => MeetingMinutesDelivery::buildRecipients($participants, $client),
+            'title' => $title,
+            'contact_id' => $contactId,
+        ];
+    }
+
+    /**
      * Reenvia manualmente o link da minuta (botão na tela). Logado, com permissão.
      */
     public function sendMinutes($recToken = null)
@@ -1474,12 +1493,19 @@ class VideocallController extends Controller
         $recToken = $rec['token'];
         if (empty($rec['minutes'])) $this->json(['error' => 'Não há minuta para enviar.'], 400);
 
+        // Lista escolhida na tela (marcados + adicionados na hora); sem ela, os da reunião.
+        $body = json_decode((string)file_get_contents('php://input'), true);
+        $chosen = (is_array($body) && isset($body['recipients']) && is_array($body['recipients'])) ? $body['recipients'] : null;
+
         $user = $this->currentUser();
         $this->releaseSession();
         @set_time_limit(0);
-        $r = $this->deliverMinutes($recToken, true);
+        $r = $this->deliverMinutes($recToken, true, $chosen);
         if ($r['recipients'] === 0) {
-            $this->json(['error' => 'A reunião não tem destinatários com WhatsApp ou e-mail para receber a minuta.'] + $r, 422);
+            $msg = $chosen !== null
+                ? 'Escolha ou adicione pelo menos um destinatário com WhatsApp ou e-mail.'
+                : 'A reunião não tem destinatários com WhatsApp ou e-mail para receber a minuta.';
+            $this->json(['error' => $msg] + $r, 422);
         }
         $this->model->updateRecording($recToken, ['minutes_sent_by' => (int)$user['id']]);
         $after = $this->model->findRecordingByToken($recToken);
@@ -1736,8 +1762,18 @@ class VideocallController extends Controller
         if ($canProposals) {
             try { $linkedProposal = (new ProposalFromRecording(null))->existingFor((int)$rec['id']); } catch (\Throwable $e) {}
         }
+        // Sugestão de destinatários da minuta (tela interna): os da reunião e quem está logado.
+        $minutesRecipients = [];
+        $me = null;
+        if (!$isPublic) {
+            try { $minutesRecipients = $this->minutesMeeting($rec)['recipients']; } catch (\Throwable $e) {}
+            $u = !empty($_SESSION['user_id']) ? (new User())->findById((int)$_SESSION['user_id']) : null;
+            if ($u) $me = ['name' => (string)$u['name'], 'email' => $u['email'] ?? null, 'phone' => $u['phone'] ?? null];
+        }
         $this->view('videocall/watch', [
             'rec' => $rec,
+            'minutesRecipients' => $minutesRecipients,
+            'me' => $me,
             'room' => $room,
             'isPublic' => $isPublic,
             'segmentCount' => $segmentCount,

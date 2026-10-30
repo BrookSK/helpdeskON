@@ -55,6 +55,23 @@ final class MeetingMinutesDeliveryTest extends TestCase
         $this->assertCount(2, $r);
     }
 
+    public function testChosenRecipientsUsaOsEscolhidosNaTela(): void
+    {
+        // Marcados da reunião + adicionados na hora; mesma limpeza da lista da reunião.
+        $r = MeetingMinutesDelivery::chosenRecipients([
+            ['name' => 'Cliente X', 'email' => 'cliente@x.com', 'phone' => '', 'role' => 'client'],
+            ['name' => 'Lucas', 'phone' => '+55 (17) 99119-0528', 'role' => 'admin'], // papel desconhecido -> team
+            ['name' => 'Repetido', 'phone' => '5517991190528'],                       // mesmo telefone -> dedup
+            ['name' => 'Sem canal', 'phone' => '', 'email' => 'invalido'],            // descartado
+            'lixo',
+        ]);
+        $this->assertCount(2, $r);
+        $this->assertSame('client', $r[0]['role']);
+        $this->assertSame('team', $r[1]['role']);
+        $this->assertSame('5517991190528', $r[1]['phone']);
+        $this->assertSame([], MeetingMinutesDelivery::chosenRecipients([]));
+    }
+
     public function testBuildRecipientsSemNadaRetornaVazio(): void
     {
         $this->assertSame([], MeetingMinutesDelivery::buildRecipients([], []));
