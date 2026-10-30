@@ -7,7 +7,7 @@ $status = $rec['transcribe_status'] ?? 'none';
 $durationSec = (int)($rec['duration_sec'] ?? 0);
 $rawSummary = (string)($rec['summary'] ?? '');
 $shareUrl = $base . '/videocall/share/' . $recToken;
-$segJson = json_encode($segments ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+$segJson = json_encode($segments ?? [], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
 
 // Tenta decodificar o summary como JSON estruturado de ata.
 // Retrocompatível: se não for JSON válido, encapsula o texto legado em resumo.
@@ -22,7 +22,7 @@ $canManage = empty($isPublic);
 $minutesSentAt = $rec['minutes_sent_at'] ?? null;
 // Link público: a minuta só aparece depois de revisada e enviada ao cliente.
 if (!$canManage && empty($minutesSentAt)) $minutesDecoded = null;
-$minutesJson = json_encode($minutesDecoded, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+$minutesJson = json_encode($minutesDecoded, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
 $recInfo = [
     'canManage' => $canManage,
     'segmentCount' => (int)($segmentCount ?? 0),
@@ -226,7 +226,7 @@ let segments = <?= $segJson ?: '[]' ?>;
 // null quando ainda não gerado. summary (legado) mantido apenas para retrocompat.
 let minutes = <?= $minutesJson ?: 'null' ?>;
 let status = '<?= $status ?>';
-const INFO = <?= json_encode($recInfo, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+const INFO = <?= json_encode($recInfo, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 const player = document.getElementById('player');
 
 // POST com o token CSRF (os endpoints de transcrição e minuta exigem login).
