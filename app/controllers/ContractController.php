@@ -174,14 +174,28 @@ class ContractController extends Controller
         if ($name === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
             $this->json(['error' => 'Informe nome e um e-mail válido.'], 400);
         }
-        $id = (new ContractSigner())->create([
-            'name' => $name, 'email' => $email,
-            'phone' => $_POST['phone'] ?? null,
-            'role_label' => $_POST['role_label'] ?? null,
-            'is_default' => !empty($_POST['is_default']),
-            'created_by' => $user['id'],
-        ]);
+        try {
+            $id = (new ContractSigner())->create([
+                'name' => $name, 'email' => $email,
+                'phone' => $_POST['phone'] ?? null,
+                'role_label' => $_POST['role_label'] ?? null,
+                'is_default' => !empty($_POST['is_default']),
+                'created_by' => $user['id'],
+            ]);
+        } catch (\Throwable $e) {
+            $this->signerSaveError($e);
+        }
         $this->json(['success' => true, 'id' => $id]);
+    }
+
+    /** Erro ao gravar signatário em JSON, para a tela não mostrar "Falha de rede". */
+    private function signerSaveError(\Throwable $e)
+    {
+        $msg = $e->getMessage();
+        if (stripos($msg, "doesn't exist") !== false || stripos($msg, '42S02') !== false) {
+            $this->json(['error' => 'A tabela de signatários ainda não foi criada neste ambiente. Rode as migrations da esteira (migrate_esteira.php) e tente de novo.'], 503);
+        }
+        $this->json(['error' => 'Não foi possível salvar o signatário. Tente novamente.'], 500);
     }
 
     /** Atualiza um signatário da empresa (POST). */
@@ -194,12 +208,16 @@ class ContractController extends Controller
         if ($name === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
             $this->json(['error' => 'Informe nome e um e-mail válido.'], 400);
         }
-        (new ContractSigner())->update((int)$id, [
-            'name' => $name, 'email' => $email,
-            'phone' => $_POST['phone'] ?? null,
-            'role_label' => $_POST['role_label'] ?? null,
-            'is_default' => !empty($_POST['is_default']),
-        ]);
+        try {
+            (new ContractSigner())->update((int)$id, [
+                'name' => $name, 'email' => $email,
+                'phone' => $_POST['phone'] ?? null,
+                'role_label' => $_POST['role_label'] ?? null,
+                'is_default' => !empty($_POST['is_default']),
+            ]);
+        } catch (\Throwable $e) {
+            $this->signerSaveError($e);
+        }
         $this->json(['success' => true]);
     }
 

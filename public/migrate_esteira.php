@@ -50,6 +50,7 @@ $migrations = [
     '152_ticket_scope_homologacao.sql',
     '153_ticket_support_fields.sql',
     '154_ticket_relations.sql',
+    '155_contract_signers.sql',
     '161_commercial_presentations.sql',
     '162_proposal_document.sql',
     '165_meeting_transcription_queue.sql',
