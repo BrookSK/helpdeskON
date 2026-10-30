@@ -97,14 +97,17 @@ class TranscriptionQueueRules
 
     /**
      * Limpa os trechos da transcrição: remove vazios e só pontuação (silêncio
-     * vira "..." no Whisper), ordena por início e tira repetições consecutivas.
+     * vira "..." no Whisper), descarta o que o Whisper marca como silêncio,
+     * encolhe loops dentro do trecho ("tal, tal, tal, tal") e junta a mesma
+     * frase repetida em sequência (alucinação comum em reunião longa).
      */
     public static function cleanSegments($segments): array
     {
         if (!is_array($segments)) return [];
         $clean = [];
         foreach ($segments as $s) {
-            $text = trim((string)($s['text'] ?? ''));
+            if (!is_array($s) || self::isSilence($s)) continue;
+            $text = self::collapseLoops(trim((string)($s['text'] ?? '')));
             // remove segmentos vazios ou compostos só de pontuação/reticências
             $stripped = preg_replace('/[\p{P}\p{Z}\s]+/u', '', $text);
             if ($stripped === '' || $stripped === null) continue;
@@ -118,14 +121,45 @@ class TranscriptionQueueRules
             if ($a['start'] === $b['start']) return $a['end'] <=> $b['end'];
             return $a['start'] <=> $b['start'];
         });
-        // remove repetições consecutivas do mesmo texto no ~mesmo tempo
+        // a mesma frase em sequência vira um trecho só, que vai até o fim da última
         $out = [];
         foreach ($clean as $seg) {
-            $prev = end($out);
-            if ($prev !== false && $prev['text'] === $seg['text'] && abs($prev['start'] - $seg['start']) < 1.0) continue;
+            $last = count($out) - 1;
+            if ($last >= 0 && self::sameText($out[$last]['text'], $seg['text'])) {
+                $out[$last]['end'] = max($out[$last]['end'], $seg['end']);
+                continue;
+            }
             $out[] = $seg;
         }
         return $out;
+    }
+
+    /** Limites do próprio Whisper para silêncio: alta chance de não haver fala e baixa confiança. */
+    public const NO_SPEECH_PROB = 0.6;
+    public const MIN_AVG_LOGPROB = -1.0;
+
+    /** Trecho que o Whisper inventou num silêncio (só quando a API manda os sinais). */
+    public static function isSilence(array $s): bool
+    {
+        if (!isset($s['no_speech_prob'], $s['avg_logprob'])) return false;
+        return (float)$s['no_speech_prob'] >= self::NO_SPEECH_PROB && (float)$s['avg_logprob'] <= self::MIN_AVG_LOGPROB;
+    }
+
+    /**
+     * Palavra ou expressão curta (até 4 palavras) repetida 4 vezes ou mais em
+     * seguida fica uma vez só. "não, não, não" (3 vezes) continua igual.
+     */
+    public static function collapseLoops(string $text): string
+    {
+        $out = preg_replace('/(?<![\p{L}\p{N}])((?:[\p{L}\p{N}\']+[\s,.;:!?…-]+){0,3}?[\p{L}\p{N}\']+)(?:[\s,.;:!?…-]+\1(?![\p{L}\p{N}])){3,}/iu', '$1', $text);
+        return $out === null ? $text : $out;
+    }
+
+    /** Mesmo texto ignorando caixa, espaços e pontuação. */
+    private static function sameText(string $a, string $b): bool
+    {
+        $norm = static function ($t) { return mb_strtolower((string)preg_replace('/[\p{P}\p{Z}\s]+/u', '', $t)); };
+        return $norm($a) === $norm($b);
     }
 
     /** Texto plano com marca de tempo [mm:ss] ou [h:mm:ss], um trecho por linha. */

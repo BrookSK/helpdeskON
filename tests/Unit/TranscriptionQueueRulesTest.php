@@ -62,6 +62,34 @@ final class TranscriptionQueueRulesTest extends TestCase
         $this->assertSame([['start' => 2.0, 'end' => 3.0, 'text' => 'oi']], $out);
     }
 
+    public function testLimpezaTiraAlucinacaoDeReuniaoLonga(): void
+    {
+        $out = TranscriptionQueueRules::cleanSegments([
+            // Silêncio que o Whisper preencheu: alta chance de não haver fala e baixa confiança.
+            ['start' => 0, 'end' => 1, 'text' => 'E aí', 'no_speech_prob' => 0.8, 'avg_logprob' => -1.2],
+            // Fala real com baixa confiança continua.
+            ['start' => 1, 'end' => 2, 'text' => 'Bom dia', 'no_speech_prob' => 0.2, 'avg_logprob' => -1.3],
+            // A mesma frase em sequência vira um trecho só, até o fim da última.
+            ['start' => 10, 'end' => 11, 'text' => 'Eu peguei.'],
+            ['start' => 15, 'end' => 16, 'text' => 'eu peguei'],
+            ['start' => 20, 'end' => 21, 'text' => 'Eu peguei.'],
+            ['start' => 30, 'end' => 35, 'text' => 'Então, dia tal, dia tal, dia tal, dia tal, dia tal'],
+        ]);
+        $this->assertSame([
+            ['start' => 1.0, 'end' => 2.0, 'text' => 'Bom dia'],
+            ['start' => 10.0, 'end' => 21.0, 'text' => 'Eu peguei.'],
+            ['start' => 30.0, 'end' => 35.0, 'text' => 'Então, dia tal'],
+        ], $out);
+    }
+
+    public function testLoopEncolheMasRepeticaoNaturalFica(): void
+    {
+        $this->assertSame('Tal.', TranscriptionQueueRules::collapseLoops('Tal, tal, tal, tal, tal, tal, tal, tal.'));
+        $this->assertSame('eu acho que vai', TranscriptionQueueRules::collapseLoops('eu acho que eu acho que eu acho que eu acho que vai'));
+        $this->assertSame('não, não, não', TranscriptionQueueRules::collapseLoops('não, não, não'));
+        $this->assertSame('talvez tal', TranscriptionQueueRules::collapseLoops('talvez tal tal tal tal'));
+    }
+
     public function testErroTruncadoEm500(): void
     {
         $this->assertSame(500, mb_strlen(TranscriptionQueueRules::truncateError(str_repeat('é', 600))));
