@@ -119,11 +119,7 @@ class FinancialController extends Controller
         try {
             $id = $this->transactions->createWithInstallments($data);
         } catch (\Throwable $e) {
-            $msg = $e->getMessage();
-            if (stripos($msg, "doesn't exist") !== false || stripos($msg, '42S02') !== false) {
-                $this->json(['error' => 'As tabelas do Controle Financeiro ainda não foram criadas. Rode a migration 155 e tente de novo.'], 503);
-            }
-            $this->json(['error' => 'Não foi possível salvar o lançamento.'], 500);
+            $this->json(['error' => $this->schemaErrorHint($e, 'o lançamento', 167)], 500);
         }
         $this->json(['success' => true, 'id' => $id]);
     }
@@ -185,7 +181,7 @@ class FinancialController extends Controller
                 'created_by'  => $user['id'],
             ]);
         } catch (\Throwable $e) {
-            $this->json(['error' => 'Não foi possível salvar o cartão. Rode a migration 155.'], 500);
+            $this->json(['error' => $this->schemaErrorHint($e, 'o cartão', 167)], 500);
         }
         $this->json(['success' => true, 'id' => $id]);
     }
@@ -262,7 +258,7 @@ class FinancialController extends Controller
         try {
             $id = $this->bankAccounts->create($data);
         } catch (\Throwable $e) {
-            $this->json(['error' => 'Não foi possível salvar a conta. Rode a migration 167.'], 500);
+            $this->json(['error' => $this->schemaErrorHint($e, 'a conta', 167)], 500);
         }
         $this->json(['success' => true, 'id' => $id]);
     }
@@ -303,7 +299,7 @@ class FinancialController extends Controller
             if (stripos($msg, 'Duplicate') !== false || stripos($msg, '23000') !== false) {
                 $this->json(['error' => 'Já existe uma categoria com esse nome e tipo.'], 409);
             }
-            $this->json(['error' => 'Não foi possível salvar a categoria. Rode a migration 167.'], 500);
+            $this->json(['error' => $this->schemaErrorHint($e, 'a categoria', 167)], 500);
         }
         $this->json(['success' => true, 'id' => $id]);
     }
@@ -376,5 +372,32 @@ class FinancialController extends Controller
             'accounts'  => count($accounts),
             'failed'    => $failed,
         ]);
+    }
+
+    // ================= Helpers =================
+
+    /**
+     * Mensagem de erro útil a partir de uma exceção de banco ao salvar.
+     * Em vez de mascarar tudo como "rode a migration X", identifica a causa
+     * provável (tabela ausente, coluna ausente, FK inválida) e inclui o
+     * detalhe do driver para facilitar o diagnóstico em produção.
+     *
+     * @param string $what rótulo do que se tentava salvar (ex.: 'o cartão')
+     * @param int    $mig  nº da migration que cria/ajusta o schema relacionado
+     */
+    private function schemaErrorHint(\Throwable $e, string $what, int $mig): string
+    {
+        $msg = $e->getMessage();
+
+        if (stripos($msg, "doesn't exist") !== false || stripos($msg, '42S02') !== false) {
+            return "Não foi possível salvar {$what}: uma tabela do Controle Financeiro não existe neste banco. Rode a migration {$mig}. (Detalhe: {$msg})";
+        }
+        if (stripos($msg, 'Unknown column') !== false || stripos($msg, '42S22') !== false) {
+            return "Não foi possível salvar {$what}: uma coluna nova não existe neste banco (migration {$mig} aplicada só pela metade). Rode a 167b (idempotente). (Detalhe: {$msg})";
+        }
+        if (stripos($msg, 'foreign key') !== false || stripos($msg, '1452') !== false) {
+            return "Não foi possível salvar {$what}: referência inválida (conta/categoria inexistente). (Detalhe: {$msg})";
+        }
+        return "Não foi possível salvar {$what}. (Detalhe: {$msg})";
     }
 }
