@@ -215,6 +215,59 @@ class FinancialRules
         return $fields;
     }
 
+    /**
+     * Resumo do mês em regime de caixa, a partir de movimentos no nível de
+     * parcela (compra à vista = 1 linha; parcelada = 1 linha por parcela).
+     *
+     *  - Recebido / Pago: o que foi quitado DENTRO do mês, pela data do
+     *    pagamento (paid_at). Sem paid_at, usa o vencimento.
+     *  - A receber / A pagar: o que está pendente e vence ATÉ o fim do mês,
+     *    incluindo o que ficou atrasado de meses anteriores.
+     *  - Atrasado: parte do "a pagar"/"a receber" que venceu antes do mês.
+     *  - Saldo em contas: soma dos saldos atuais das contas bancárias.
+     *  - Projetado: saldo em contas + a receber − a pagar.
+     *
+     * Cada linha: direction, kind, amount, status, due_date, paid_at.
+     */
+    public static function cashSummary(array $rows, string $ym, float $accountsBalance): array
+    {
+        $start = $ym . '-01';
+        $end = date('Y-m-t', strtotime($start));
+        $s = [
+            'received' => 0.0, 'paid' => 0.0, 'to_receive' => 0.0, 'to_pay' => 0.0,
+            'overdue_receive' => 0.0, 'overdue_pay' => 0.0,
+            'loans_out' => 0.0, 'loans_in' => 0.0,
+        ];
+        foreach ($rows as $r) {
+            $status = $r['status'] ?? 'pending';
+            if ($status === 'cancelled') continue;
+            $amt = (float)($r['amount'] ?? 0);
+            $in = ($r['direction'] ?? 'out') === 'in';
+            $due = !empty($r['due_date']) ? substr((string)$r['due_date'], 0, 10) : null;
+
+            if ($status === 'paid') {
+                $when = !empty($r['paid_at']) ? substr((string)$r['paid_at'], 0, 10) : $due;
+                if ($when === null || $when < $start || $when > $end) continue;
+                if ($in) $s['received'] += $amt; else $s['paid'] += $amt;
+                continue;
+            }
+
+            // Pendente: entra se vence até o fim do mês (atrasado incluso).
+            if ($due === null || $due > $end) continue;
+            if ($in) $s['to_receive'] += $amt; else $s['to_pay'] += $amt;
+            if ($due < $start) {
+                if ($in) $s['overdue_receive'] += $amt; else $s['overdue_pay'] += $amt;
+            }
+            if (($r['kind'] ?? '') === 'emprestimo') {
+                if ($in) $s['loans_in'] += $amt; else $s['loans_out'] += $amt;
+            }
+        }
+        foreach ($s as $k => $v) $s[$k] = round($v, 2);
+        $s['accounts_balance'] = round($accountsBalance, 2);
+        $s['projected'] = round($accountsBalance + $s['to_receive'] - $s['to_pay'], 2);
+        return $s;
+    }
+
     /** Status Asaas -> status interno do lançamento. */
     public static function asaasStatusToInternal(?string $status): string
     {

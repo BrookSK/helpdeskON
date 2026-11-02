@@ -350,6 +350,29 @@ class FinancialTransaction
         return $out;
     }
 
+    /**
+     * Movimentos no nível de parcela para o resumo de caixa: lançamento à
+     * vista = 1 linha; parcelado = 1 linha por parcela (valor, vencimento e
+     * pagamento da própria parcela). Cancelados ficam de fora.
+     */
+    public function cashMovements(): array
+    {
+        try {
+            return $this->db->fetchAll(
+                "SELECT t.kind, t.direction, t.amount, t.status, t.due_date, t.paid_at
+                 FROM fin_transactions t
+                 WHERE t.installments <= 1 AND t.status <> 'cancelled'
+                 UNION ALL
+                 SELECT t.kind, t.direction, i.amount, i.status, i.due_date, i.paid_at
+                 FROM fin_installments i
+                 JOIN fin_transactions t ON t.id = i.transaction_id
+                 WHERE t.installments > 1 AND t.status <> 'cancelled'"
+            );
+        } catch (\Throwable $e) {
+            return [];
+        }
+    }
+
     /** Já existe lançamento importado com este ID do Asaas? (dedupe) */
     public function existsByAsaasId(string $asaasPaymentId): bool
     {

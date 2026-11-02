@@ -32,8 +32,11 @@ class FinancialAccountRules
         $bank = mb_substr(trim((string)($in['bank'] ?? '')), 0, 120) ?: null;
 
         // Saldo inicial pode ser negativo (conta já no vermelho). money() aceita
-        // formatos "R$ 1.234,56"; preservamos o sinal.
-        $opening = FinanceRules::money($in['opening_balance'] ?? 0);
+        // "R$ 1.234,56" mas zera negativos, então tratamos o sinal aqui.
+        $raw = $in['opening_balance'] ?? 0;
+        $negative = is_numeric($raw) ? ((float)$raw < 0) : (preg_match('/^\s*(R\$\s*)?-/', (string)$raw) === 1);
+        $abs = is_numeric($raw) ? abs((float)$raw) : FinanceRules::money(preg_replace('/-/', '', (string)$raw, 1));
+        $opening = round($negative ? -$abs : $abs, 2);
 
         if (!empty($errors)) return ['ok' => false, 'errors' => $errors, 'data' => null];
 

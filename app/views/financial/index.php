@@ -33,7 +33,7 @@ foreach (($bankAccounts ?? []) as $ba) $bankById[(int)$ba['id']] = $ba;
         <div class="col-6 col-md-4 col-xl-2">
             <div class="card h-100 border-0 bg-success bg-opacity-10">
                 <div class="card-body py-2">
-                    <div class="text-muted small"><i class="bi bi-check-circle"></i> Recebido</div>
+                    <div class="text-muted small"><i class="bi bi-check-circle"></i> Recebido no mês</div>
                     <div class="fw-bold text-success"><?= finMoney($summary['received']) ?></div>
                 </div>
             </div>
@@ -43,13 +43,14 @@ foreach (($bankAccounts ?? []) as $ba) $bankById[(int)$ba['id']] = $ba;
                 <div class="card-body py-2">
                     <div class="text-muted small"><i class="bi bi-hourglass-split"></i> A Receber</div>
                     <div class="fw-bold text-success-emphasis"><?= finMoney($summary['to_receive']) ?></div>
+                    <?php if ($summary['overdue_receive'] > 0): ?><div class="small text-danger" style="font-size:0.65rem;">atrasado: <?= finMoney($summary['overdue_receive']) ?></div><?php endif; ?>
                 </div>
             </div>
         </div>
         <div class="col-6 col-md-4 col-xl-2">
             <div class="card h-100 border-0 bg-danger bg-opacity-10">
                 <div class="card-body py-2">
-                    <div class="text-muted small"><i class="bi bi-check2"></i> Pago</div>
+                    <div class="text-muted small"><i class="bi bi-check2"></i> Pago no mês</div>
                     <div class="fw-bold text-danger"><?= finMoney($summary['paid']) ?></div>
                 </div>
             </div>
@@ -59,22 +60,23 @@ foreach (($bankAccounts ?? []) as $ba) $bankById[(int)$ba['id']] = $ba;
                 <div class="card-body py-2">
                     <div class="text-muted small"><i class="bi bi-hourglass-top"></i> A Pagar</div>
                     <div class="fw-bold text-danger-emphasis"><?= finMoney($summary['to_pay']) ?></div>
+                    <?php if ($summary['overdue_pay'] > 0): ?><div class="small text-danger" style="font-size:0.65rem;">atrasado: <?= finMoney($summary['overdue_pay']) ?></div><?php endif; ?>
                 </div>
             </div>
         </div>
         <div class="col-6 col-md-4 col-xl-2">
             <div class="card h-100 border-0 bg-secondary bg-opacity-10">
                 <div class="card-body py-2">
-                    <div class="text-muted small"><i class="bi bi-wallet2"></i> Saldo (<?= escape($filters['month']) ?>)</div>
-                    <div class="fw-bold <?= $summary['balance'] >= 0 ? 'text-success' : 'text-danger' ?>"><?= finMoney($summary['balance']) ?></div>
+                    <div class="text-muted small" title="Soma do saldo atual das contas bancárias ativas"><i class="bi bi-wallet2"></i> Saldo em contas (hoje)</div>
+                    <div class="fw-bold <?= $summary['accounts_balance'] >= 0 ? 'text-success' : 'text-danger' ?>"><?= finMoney($summary['accounts_balance']) ?></div>
                 </div>
             </div>
         </div>
         <div class="col-6 col-md-4 col-xl-2">
             <div class="card h-100 border-0 bg-secondary bg-opacity-10">
                 <div class="card-body py-2">
-                    <div class="text-muted small"><i class="bi bi-calendar-check"></i> Projetado</div>
-                    <div class="fw-bold"><?= finMoney($summary['projected']) ?></div>
+                    <div class="text-muted small" title="Saldo em contas + a receber − a pagar até o fim do mês"><i class="bi bi-calendar-check"></i> Projetado (fim de <?= escape(date('m/Y', strtotime($filters['month'] . '-01'))) ?>)</div>
+                    <div class="fw-bold <?= $summary['projected'] >= 0 ? '' : 'text-danger' ?>"><?= finMoney($summary['projected']) ?></div>
                     <div class="small text-muted" style="font-size:0.65rem;">
                         Empréstimos: tomado <?= finMoney($summary['loans_out']) ?> · a receber <?= finMoney($summary['loans_in']) ?><br>
                         Comissões: a pagar <?= finMoney($commissionsSummary['to_pay']) ?> · já pago <?= finMoney($commissionsSummary['paid']) ?>
@@ -309,6 +311,7 @@ foreach (($bankAccounts ?? []) as $ba) $bankById[(int)$ba['id']] = $ba;
                                 <td class="text-end <?= (float)$ba['projected'] >= 0 ? 'text-muted' : 'text-danger' ?>"><?= finMoney($ba['projected']) ?></td>
                                 <td><?= ((int)$ba['active'] === 1) ? '<span class="badge bg-success">Ativa</span>' : '<span class="badge bg-secondary">Inativa</span>' ?></td>
                                 <td class="text-nowrap">
+                                    <button class="btn btn-sm btn-outline-primary py-0 px-1" title="Editar (nome, banco, saldo inicial)" data-acc="<?= escape(json_encode(['id' => (int)$ba['id'], 'name' => $ba['name'], 'bank' => $ba['bank'], 'opening_balance' => (float)$ba['opening_balance']])) ?>" onclick="openEditAccount(this)"><i class="bi bi-pencil"></i></button>
                                     <button class="btn btn-sm btn-outline-secondary py-0 px-1" title="Ativar/Inativar" onclick="toggleAccount(<?= (int)$ba['id'] ?>)"><i class="bi bi-power"></i></button>
                                     <button class="btn btn-sm btn-outline-danger py-0 px-1" title="Excluir (desvincula lançamentos)" onclick="removeAccount(<?= (int)$ba['id'] ?>)"><i class="bi bi-trash"></i></button>
                                 </td>
@@ -586,6 +589,31 @@ foreach (($bankAccounts ?? []) as $ba) $bankById[(int)$ba['id']] = $ba;
                         </tbody>
                     </table>
                 </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<?php // ================= MODAL: EDITAR CONTA ================= ?>
+<div class="modal fade" id="editAccModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title"><i class="bi bi-bank"></i> Editar conta</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body">
+                <label class="form-label small">Nome *</label>
+                <input id="ea-name" class="form-control form-control-sm mb-2">
+                <label class="form-label small">Banco</label>
+                <input id="ea-bank" class="form-control form-control-sm mb-2">
+                <label class="form-label small">Saldo inicial (R$)</label>
+                <input id="ea-opening" class="form-control form-control-sm" inputmode="decimal">
+                <div class="small text-muted mt-1" style="font-size:0.7rem;">Valor que a conta tinha antes do primeiro lançamento registrado aqui. Pode ser negativo.</div>
+            </div>
+            <div class="modal-footer py-2">
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-sm btn-primary" onclick="saveEditAccount()"><i class="bi bi-check-lg"></i> Salvar</button>
             </div>
         </div>
     </div>
@@ -889,6 +917,24 @@ async function saveAccount() {
     fd.append('bank', document.getElementById('ba-bank').value.trim());
     fd.append('opening_balance', document.getElementById('ba-opening').value);
     const r = await post('financial/storeAccount', fd);
+    if (r) location.reload();
+}
+let editAccId = null;
+function openEditAccount(btn) {
+    const a = JSON.parse(btn.dataset.acc);
+    editAccId = a.id;
+    document.getElementById('ea-name').value = a.name || '';
+    document.getElementById('ea-bank').value = a.bank || '';
+    document.getElementById('ea-opening').value = Number(a.opening_balance).toFixed(2).replace('.', ',');
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('editAccModal')).show();
+}
+async function saveEditAccount() {
+    if (!editAccId) return;
+    const fd = new FormData();
+    fd.append('name', document.getElementById('ea-name').value.trim());
+    fd.append('bank', document.getElementById('ea-bank').value.trim());
+    fd.append('opening_balance', document.getElementById('ea-opening').value);
+    const r = await post('financial/accountUpdate/' + editAccId, fd);
     if (r) location.reload();
 }
 async function toggleAccount(id) { const r = await post('financial/accountToggle/' + id, new FormData()); if (r) location.reload(); }

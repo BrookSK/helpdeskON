@@ -42,13 +42,12 @@ class FinancialController extends Controller
             'month'  => $_GET['month'] ?? date('Y-m'),
         ];
 
+        if (!FinancialRules::validMonth($filters['month'])) $filters['month'] = date('Y-m');
+
         try {
             $transactions = $this->transactions->getAll($filters);
-            $allForSummary = $this->transactions->getAll(['month' => $filters['month']]);
-            $summary = FinancialRules::summary($allForSummary);
         } catch (\Throwable $e) {
             $transactions = [];
-            $summary = FinancialRules::summary([]);
         }
 
         try {
@@ -91,6 +90,15 @@ class FinancialController extends Controller
         } catch (\Throwable $e) {
             $categories = [];
         }
+
+        // Resumo do topo em regime de caixa: pago/recebido pela data do
+        // pagamento, pendências até o fim do mês (atrasadas inclusas), e saldo
+        // real das contas ativas.
+        $accountsBalance = 0.0;
+        foreach ($bankAccounts as $ba) {
+            if ((int)($ba['active'] ?? 1) === 1) $accountsBalance += (float)($ba['balance'] ?? 0);
+        }
+        $summary = FinancialRules::cashSummary($this->transactions->cashMovements(), $filters['month'], $accountsBalance);
 
         $this->view('financial/index', [
             'user'         => $user,
@@ -371,6 +379,26 @@ class FinancialController extends Controller
             $this->json(['error' => $this->schemaErrorHint($e, 'a conta', 167)], 500);
         }
         $this->json(['success' => true, 'id' => $id]);
+    }
+
+    /** Edita nome, banco e saldo inicial de uma conta bancária. */
+    public function accountUpdate($id = null)
+    {
+        $this->requireSuperAdmin();
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+        if (!$this->bankAccounts->findById((int)$id)) $this->json(['error' => 'Conta não encontrada.'], 404);
+
+        $validation = FinancialAccountRules::validateBankAccount($_POST);
+        if (!$validation['ok']) $this->json(['error' => implode(' ', $validation['errors'])], 400);
+        $data = $validation['data'];
+        unset($data['active']); // editar não reativa/inativa a conta
+
+        try {
+            $this->bankAccounts->update((int)$id, $data);
+        } catch (\Throwable $e) {
+            $this->json(['error' => $this->schemaErrorHint($e, 'a conta', 167)], 500);
+        }
+        $this->json(['success' => true]);
     }
 
     public function accountToggle($id = null)
