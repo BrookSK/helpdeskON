@@ -68,7 +68,9 @@ class Database
     public function insert($table, $data)
     {
         $keys = array_keys($data);
-        $fields = implode(', ', $keys);
+        // Protege os nomes de coluna com crases: evita erro de sintaxe quando
+        // a coluna usa uma palavra reservada do MySQL/MariaDB (ex.: `limit`).
+        $fields = implode(', ', array_map([$this, 'quoteIdentifier'], $keys));
         $placeholders = implode(', ', array_fill(0, count($keys), '?'));
         $sql = "INSERT INTO {$table} ({$fields}) VALUES ({$placeholders})";
         $this->query($sql, array_values($data));
@@ -77,10 +79,24 @@ class Database
 
     public function update($table, $data, $where, $whereParams = [])
     {
-        $set = implode(', ', array_map(fn($k) => "{$k} = ?", array_keys($data)));
+        $set = implode(', ', array_map(fn($k) => $this->quoteIdentifier($k) . ' = ?', array_keys($data)));
         $sql = "UPDATE {$table} SET {$set} WHERE {$where}";
         $params = array_merge(array_values($data), $whereParams);
         return $this->query($sql, $params)->rowCount();
+    }
+
+    /**
+     * Protege um identificador (nome de coluna) com crases, escapando crases
+     * internas. Só aceita o nome de uma coluna simples (sem ponto/função); se
+     * vier algo fora do padrão de identificador, devolve como está para não
+     * mascarar um uso intencional.
+     */
+    private function quoteIdentifier(string $name): string
+    {
+        if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $name) !== 1) {
+            return $name;
+        }
+        return '`' . str_replace('`', '``', $name) . '`';
     }
 
     public function delete($table, $where, $params = [])
