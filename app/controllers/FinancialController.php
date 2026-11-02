@@ -132,6 +132,11 @@ class FinancialController extends Controller
         $data['source'] = 'manual';
         $data['created_by'] = $user['id'];
         if ($data['status'] === 'paid') $data['paid_at'] = date('Y-m-d H:i:s');
+        if ($data['user_id'] !== null && !$this->isTeamUser((int)$data['user_id'])) {
+            $this->json(['error' => 'A pessoa escolhida não é da equipe.'], 400);
+        }
+        // Sem pessoa escolhida, não grava a coluna: funciona mesmo antes da migration 169.
+        if ($data['user_id'] === null) unset($data['user_id']);
 
         // Compra no cartão: a data informada é a da compra; o vencimento é o
         // da fatura em que ela cai. Sem conta escolhida, usa a conta do cartão
@@ -191,6 +196,15 @@ class FinancialController extends Controller
         }
         if (in_array('account_id', $allowed, true) && array_key_exists('account_id', $_POST)) {
             $data['account_id'] = $_POST['account_id'] !== '' ? (int)$_POST['account_id'] : null;
+        }
+        if (in_array('user_id', $allowed, true) && array_key_exists('user_id', $_POST)) {
+            $newUser = $_POST['user_id'] !== '' ? (int)$_POST['user_id'] : null;
+            if ($newUser !== null && !$this->isTeamUser($newUser)) {
+                $this->json(['error' => 'A pessoa escolhida não é da equipe.'], 400);
+            }
+            // Só grava se mudou (evita tocar a coluna quando a 169 está pendente).
+            $current = isset($tx['user_id']) ? (int)$tx['user_id'] : null;
+            if ($newUser !== $current) $data['user_id'] = $newUser;
         }
         if (in_array('description', $allowed, true) && array_key_exists('description', $_POST)) {
             $data['description'] = mb_substr(trim((string)$_POST['description']), 0, 255) ?: null;
@@ -252,6 +266,24 @@ class FinancialController extends Controller
         if (!$this->cards->findById((int)$cardId)) $this->json(['error' => 'Cartão não encontrado.'], 404);
         $paid = $this->transactions->payInvoice((int)$cardId, (string)$ym);
         $this->json(['success' => true, 'paid' => $paid]);
+    }
+
+    /** Quita uma parcela específica: POST financial/payInstallment/{installmentId}. */
+    public function payInstallment($id = null)
+    {
+        $this->requireSuperAdmin();
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+        $done = $this->transactions->payInstallment((int)$id);
+        $this->json(['success' => true, 'fully_paid' => $done]);
+    }
+
+    /** Estorna uma parcela específica: POST financial/unpayInstallment/{installmentId}. */
+    public function unpayInstallment($id = null)
+    {
+        $this->requireSuperAdmin();
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+        $this->transactions->unpayInstallment((int)$id);
+        $this->json(['success' => true]);
     }
 
     /** Estorna: transação (e parcelas) voltam a pendentes. */
@@ -514,6 +546,17 @@ class FinancialController extends Controller
 
     // ================= Helpers =================
 
+    /** Usuário existe e é da equipe (não é cliente)? */
+    private function isTeamUser(int $userId): bool
+    {
+        try {
+            $u = Database::getInstance()->fetch("SELECT role FROM users WHERE id = ?", [$userId]);
+        } catch (\Throwable $e) {
+            return false;
+        }
+        return $u && ($u['role'] ?? '') !== 'client';
+    }
+
     /** Dia do cartão (fechamento/vencimento) como int ou null. */
     private function cardDay($v): ?int
     {
@@ -556,7 +599,7 @@ class FinancialController extends Controller
             return "Não foi possível salvar {$what}: uma tabela do Controle Financeiro não existe neste banco. Rode a migration {$mig}. (Detalhe: {$msg})";
         }
         if (stripos($msg, 'Unknown column') !== false || stripos($msg, '42S22') !== false) {
-            return "Não foi possível salvar {$what}: uma coluna nova não existe neste banco. Rode as migrations pendentes do financeiro (167b e 168). (Detalhe: {$msg})";
+            return "Não foi possível salvar {$what}: uma coluna nova não existe neste banco. Rode as migrations pendentes do financeiro (167b, 168 e 169). (Detalhe: {$msg})";
         }
         if (stripos($msg, 'foreign key') !== false || stripos($msg, '1452') !== false) {
             return "Não foi possível salvar {$what}: referência inválida (conta/categoria inexistente). (Detalhe: {$msg})";

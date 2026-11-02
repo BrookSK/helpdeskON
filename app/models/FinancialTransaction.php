@@ -22,41 +22,134 @@ class FinancialTransaction
 
     /**
      * Lista lançamentos (mais recentes primeiro). Filtros opcionais:
-     * kind, status, month (YYYY-MM sobre due_date), source.
+     * kind, status, month (YYYY-MM), source.
+     *
+     * Com filtro de mês, lançamento parcelado aparece UMA VEZ POR PARCELA, no
+     * mês do vencimento de cada parcela: due_date, amount, status e paid_at da
+     * linha passam a ser os da parcela; total_amount guarda o valor total e
+     * installment_id/installment_no identificam a parcela. Sem filtro de mês,
+     * cada lançamento aparece uma vez (como antes).
      */
     public function getAll(array $filters = []): array
     {
-        $sql = "SELECT t.*, c.name AS card_name, a.name AS asaas_account_name,
-                       b.name AS bank_account_name, cat.name AS category_name
-                FROM fin_transactions t
+        $select = "SELECT t.*, c.name AS card_name, a.name AS asaas_account_name,
+                       b.name AS bank_account_name, cat.name AS category_name,
+                       pu.name AS person_name";
+        $joins = " LEFT JOIN users pu ON pu.id = t.user_id
                 LEFT JOIN fin_credit_cards c ON c.id = t.card_id
                 LEFT JOIN finance_accounts a ON a.id = t.asaas_account_id
                 LEFT JOIN fin_bank_accounts b ON b.id = t.account_id
-                LEFT JOIN fin_categories cat ON cat.id = t.category_id
-                WHERE 1=1";
-        $params = [];
-        if (!empty($filters['kind'])) {
-            $sql .= " AND t.kind = ?";
-            $params[] = $filters['kind'];
+                LEFT JOIN fin_categories cat ON cat.id = t.category_id";
+
+        // Filtros comuns (sobre o lançamento). Status é aplicado à linha.
+        $common = '';
+        $commonParams = [];
+        if (!empty($filters['kind'])) { $common .= " AND t.kind = ?"; $commonParams[] = $filters['kind']; }
+        if (!empty($filters['source'])) { $common .= " AND t.source = ?"; $commonParams[] = $filters['source']; }
+
+        $month = (!empty($filters['month']) && FinancialRules::validMonth($filters['month'])) ? $filters['month'] : null;
+
+        if ($month === null) {
+            $sql = $select . ", t.due_date AS row_due, t.amount AS row_amount, t.status AS row_status,
+                       t.paid_at AS row_paid_at, NULL AS installment_id, NULL AS installment_no
+                FROM fin_transactions t" . $joins . " WHERE 1=1" . $common;
+            $params = $commonParams;
+            if (!empty($filters['status'])) { $sql .= " AND t.status = ?"; $params[] = $filters['status']; }
+            $sql .= " ORDER BY row_due DESC, id DESC LIMIT 500";
+        } else {
+            // À vista: pelo vencimento do lançamento.
+            $single = $select . ", t.due_date AS row_due, t.amount AS row_amount, t.status AS row_status,
+                       t.paid_at AS row_paid_at, NULL AS installment_id, NULL AS installment_no
+                FROM fin_transactions t" . $joins . "
+                WHERE t.installments <= 1 AND DATE_FORMAT(t.due_date, '%Y-%m') = ?" . $common;
+            $p1 = array_merge([$month], $commonParams);
+            if (!empty($filters['status'])) { $single .= " AND t.status = ?"; $p1[] = $filters['status']; }
+
+            // Parcelado: cada parcela no mês do vencimento dela.
+            $parcel = $select . ", i.due_date AS row_due, i.amount AS row_amount,
+                       CASE WHEN t.status = 'cancelled' THEN 'cancelled' ELSE i.status END AS row_status,
+                       i.paid_at AS row_paid_at, i.id AS installment_id, i.installment_no AS installment_no
+                FROM fin_installments i
+                JOIN fin_transactions t ON t.id = i.transaction_id" . $joins . "
+                WHERE t.installments > 1 AND DATE_FORMAT(i.due_date, '%Y-%m') = ?" . $common;
+            $p2 = array_merge([$month], $commonParams);
+            if (!empty($filters['status'])) { $parcel .= " AND i.status = ?"; $p2[] = $filters['status']; }
+
+            $sql = "(" . $single . ") UNION ALL (" . $parcel . ") ORDER BY row_due DESC, id DESC LIMIT 500";
+            $params = array_merge($p1, $p2);
         }
-        if (!empty($filters['status'])) {
-            $sql .= " AND t.status = ?";
-            $params[] = $filters['status'];
-        }
-        if (!empty($filters['source'])) {
-            $sql .= " AND t.source = ?";
-            $params[] = $filters['source'];
-        }
-        if (!empty($filters['month']) && FinancialRules::validMonth($filters['month'])) {
-            $sql .= " AND DATE_FORMAT(t.due_date, '%Y-%m') = ?";
-            $params[] = $filters['month'];
-        }
-        $sql .= " ORDER BY t.due_date DESC, t.id DESC LIMIT 500";
+
         try {
-            return $this->db->fetchAll($sql, $params);
+            return $this->mapRows($this->db->fetchAll($sql, $params));
         } catch (\Throwable $e) {
-            return [];
+            // Banco sem a coluna user_id (migration 169 pendente): lista sem a
+            // pessoa em vez de esconder todos os lançamentos.
+            if (stripos($e->getMessage(), 'user_id') === false) return [];
+            $fallback = str_replace(
+                ["pu.name AS person_name", "LEFT JOIN users pu ON pu.id = t.user_id"],
+                ["NULL AS person_name", ""],
+                $sql
+            );
+            try {
+                return $this->mapRows($this->db->fetchAll($fallback, $params));
+            } catch (\Throwable $e2) {
+                return [];
+            }
         }
+    }
+
+    /**
+     * Converte as colunas row_* na visão da linha (parcela ou lançamento):
+     * due_date/amount/status/paid_at da linha; total_amount e tx_status
+     * guardam os valores do lançamento inteiro.
+     */
+    private function mapRows(array $rows): array
+    {
+        foreach ($rows as &$r) {
+            $r['total_amount'] = $r['amount'];
+            $r['tx_status'] = $r['status'];
+            $r['due_date'] = $r['row_due'];
+            $r['amount'] = $r['row_amount'];
+            $r['status'] = $r['row_status'];
+            $r['paid_at'] = $r['row_paid_at'];
+            $r['installment_id'] = $r['installment_id'] !== null ? (int)$r['installment_id'] : null;
+            $r['installment_no'] = $r['installment_no'] !== null ? (int)$r['installment_no'] : null;
+            unset($r['row_due'], $r['row_amount'], $r['row_status'], $r['row_paid_at']);
+        }
+        unset($r);
+        return $rows;
+    }
+
+    /**
+     * Quita UMA parcela específica. Fecha o lançamento quando não sobra
+     * parcela pendente. Retorna true quando o lançamento ficou todo pago.
+     */
+    public function payInstallment(int $installmentId): bool
+    {
+        $i = $this->db->fetch("SELECT id, transaction_id, status FROM fin_installments WHERE id = ?", [$installmentId]);
+        if (!$i) return false;
+        $now = date('Y-m-d H:i:s');
+        if ($i['status'] !== 'paid') {
+            $this->db->update('fin_installments', ['status' => 'paid', 'paid_at' => $now], 'id = ?', [$installmentId]);
+        }
+        $left = $this->db->fetch(
+            "SELECT COUNT(*) AS c FROM fin_installments WHERE transaction_id = ? AND status = 'pending'",
+            [(int)$i['transaction_id']]
+        );
+        $done = (int)($left['c'] ?? 0) === 0;
+        if ($done) {
+            $this->db->update('fin_transactions', ['status' => 'paid', 'paid_at' => $now], 'id = ?', [(int)$i['transaction_id']]);
+        }
+        return $done;
+    }
+
+    /** Estorna UMA parcela; o lançamento volta a pendente. */
+    public function unpayInstallment(int $installmentId): void
+    {
+        $i = $this->db->fetch("SELECT transaction_id FROM fin_installments WHERE id = ?", [$installmentId]);
+        if (!$i) return;
+        $this->db->update('fin_installments', ['status' => 'pending', 'paid_at' => null], 'id = ?', [$installmentId]);
+        $this->db->update('fin_transactions', ['status' => 'pending', 'paid_at' => null], 'id = ?', [(int)$i['transaction_id']]);
     }
 
     /** Progresso das parcelas: '2/5' e próxima vencendo. */
@@ -186,6 +279,7 @@ class FinancialTransaction
                     'source'          => $t['source'],
                     'created_by'      => $t['created_by'],
                 ];
+                if (array_key_exists('user_id', $t)) $clone['user_id'] = $t['user_id'];
                 // Compra recorrente no cartão: a próxima compra também anda um ciclo.
                 if (array_key_exists('purchase_date', $t)) {
                     $clone['purchase_date'] = !empty($t['purchase_date'])

@@ -143,6 +143,15 @@ foreach (($bankAccounts ?? []) as $ba) $bankById[(int)$ba['id']] = $ba;
                                 <?php endforeach; ?>
                             </select>
                         </div>
+                        <div class="col-md-2">
+                            <label class="form-label small">Pessoa (equipe)</label>
+                            <select id="f-user" class="form-select form-select-sm">
+                                <option value="">— Ninguém —</option>
+                                <?php foreach ($users as $u): ?>
+                                <option value="<?= (int)$u['id'] ?>"><?= escape($u['name']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
                         <div class="col-md-3">
                             <label class="form-label small">Descrição</label>
                             <input id="f-description" class="form-control form-control-sm" placeholder="Ex.: Servidor AWS">
@@ -226,7 +235,12 @@ foreach (($bankAccounts ?? []) as $ba) $bankById[(int)$ba['id']] = $ba;
                                 </td>
                                 <td><span class="badge bg-<?= $meta['cls'] ?>"><i class="bi <?= $meta['icon'] ?>"></i> <?= $meta['label'] ?></span></td>
                                 <td><?= escape($t['category_name'] ?? $t['category'] ?? '—') ?></td>
-                                <td><?= escape($t['description'] ?? '—') ?></td>
+                                <td>
+                                    <?= escape($t['description'] ?? '—') ?>
+                                    <?php if (!empty($t['person_name'])): ?>
+                                    <div class="small text-muted" style="font-size:0.7rem;"><i class="bi bi-person"></i> <?= escape($t['person_name']) ?></div>
+                                    <?php endif; ?>
+                                </td>
                                 <td class="small text-muted">
                                     <?php if (!empty($t['bank_account_name'])): ?>
                                         <i class="bi bi-bank"></i> <?= escape($t['bank_account_name']) ?>
@@ -242,12 +256,16 @@ foreach (($bankAccounts ?? []) as $ba) $bankById[(int)$ba['id']] = $ba;
                                     <?php endif; ?>
                                 </td>
                                 <td class="text-nowrap">
-                                    <?php if ((int)$t['installments'] > 1): ?><?= (int)$t['installments'] ?>x
+                                    <?php if (!empty($t['installment_no'])): ?><span class="badge bg-secondary" title="Parcela <?= (int)$t['installment_no'] ?> de <?= (int)$t['installments'] ?>"><?= (int)$t['installment_no'] ?>/<?= (int)$t['installments'] ?></span>
+                                    <?php elseif ((int)$t['installments'] > 1): ?><?= (int)$t['installments'] ?>x
                                     <?php elseif (!empty($t['recurring_cycle'])): ?><span class="badge bg-info" title="Recorrente (<?= $t['recurring_cycle'] === 'yearly' ? 'anual' : 'mensal' ?><?= $t['recurring_until'] ? ' até ' . escape($t['recurring_until']) : '' ?>)"><i class="bi bi-arrow-repeat"></i> rec.</span>
                                     <?php else: ?>—<?php endif; ?>
                                 </td>
                                 <td class="text-end fw-bold text-nowrap <?= $t['direction'] === 'in' ? 'text-success' : 'text-danger' ?>">
                                     <?= $t['direction'] === 'in' ? '+' : '−' ?> <?= finMoney($t['amount']) ?>
+                                    <?php if (!empty($t['installment_no'])): ?>
+                                    <div class="small text-muted fw-normal" style="font-size:0.65rem;">de <?= finMoney($t['total_amount']) ?></div>
+                                    <?php endif; ?>
                                 </td>
                                 <td><span class="badge bg-<?= $st[1] ?>"><?= $st[0] ?></span></td>
                                 <td class="text-nowrap">
@@ -259,6 +277,7 @@ foreach (($bankAccounts ?? []) as $ba) $bankById[(int)$ba['id']] = $ba;
                                         'amount'        => (float)$t['amount'],
                                         'category_id'   => $t['category_id'] ?? null,
                                         'account_id'    => $t['account_id'] ?? null,
+                                        'user_id'       => $t['user_id'] ?? null,
                                         'card_id'       => $t['card_id'] ?? null,
                                         'due_date'      => $t['due_date'],
                                         'purchase_date' => $t['purchase_date'] ?? null,
@@ -266,13 +285,19 @@ foreach (($bankAccounts ?? []) as $ba) $bankById[(int)$ba['id']] = $ba;
                                     ];
                                     ?>
                                     <button class="btn btn-sm btn-outline-primary py-0 px-1" title="Editar" data-tx="<?= escape(json_encode($editPayload)) ?>" onclick="openEditTx(this)"><i class="bi bi-pencil"></i></button>
-                                    <?php if ($t['status'] === 'pending'): ?>
-                                    <button class="btn btn-sm btn-outline-success py-0 px-1" title="Pagar (parcelado: quita a próxima parcela)" onclick="payTx(<?= (int)$t['id'] ?>)"><i class="bi bi-check-lg"></i></button>
+                                    <?php if (!empty($t['installment_id'])): // linha de parcela ?>
+                                        <?php if ($t['status'] === 'pending'): ?>
+                                        <button class="btn btn-sm btn-outline-success py-0 px-1" title="Pagar esta parcela" onclick="payInstallment(<?= (int)$t['installment_id'] ?>)"><i class="bi bi-check-lg"></i></button>
+                                        <?php elseif ($t['status'] === 'paid' && $t['source'] !== 'asaas'): ?>
+                                        <button class="btn btn-sm btn-outline-warning py-0 px-1" title="Estornar esta parcela" onclick="unpayInstallment(<?= (int)$t['installment_id'] ?>)"><i class="bi bi-arrow-counterclockwise"></i></button>
+                                        <?php endif; ?>
+                                    <?php elseif ($t['status'] === 'pending'): ?>
+                                    <button class="btn btn-sm btn-outline-success py-0 px-1" title="Pagar" onclick="payTx(<?= (int)$t['id'] ?>)"><i class="bi bi-check-lg"></i></button>
                                     <?php elseif ($t['source'] !== 'asaas'): ?>
                                     <button class="btn btn-sm btn-outline-warning py-0 px-1" title="Estornar" onclick="unpayTx(<?= (int)$t['id'] ?>)"><i class="bi bi-arrow-counterclockwise"></i></button>
                                     <?php endif; ?>
                                     <?php if ($t['source'] !== 'asaas'): ?>
-                                    <button class="btn btn-sm btn-outline-danger py-0 px-1" title="Excluir" onclick="removeTx(<?= (int)$t['id'] ?>)"><i class="bi bi-trash"></i></button>
+                                    <button class="btn btn-sm btn-outline-danger py-0 px-1" title="Excluir" onclick="removeTx(<?= (int)$t['id'] ?>, <?= (int)$t['installments'] ?>)"><i class="bi bi-trash"></i></button>
                                     <?php endif; ?>
                                 </td>
                             </tr>
@@ -652,6 +677,15 @@ foreach (($bankAccounts ?? []) as $ba) $bankById[(int)$ba['id']] = $ba;
                             <?php endforeach; ?>
                         </select>
                     </div>
+                    <div class="col-12">
+                        <label class="form-label small">Pessoa (equipe)</label>
+                        <select id="e-user" class="form-select form-select-sm">
+                            <option value="">— Ninguém —</option>
+                            <?php foreach ($users as $u): ?>
+                            <option value="<?= (int)$u['id'] ?>"><?= escape($u['name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
                     <div class="col-6">
                         <label class="form-label small">Valor (R$)</label>
                         <input id="e-amount" class="form-control form-control-sm" inputmode="decimal">
@@ -688,6 +722,7 @@ const CSRF = '<?= csrf_token() ?>';
 // canParcel: tipos que aceitam parcelamento; canRecur: aceitam recorrência.
 const KIND_DIRECTIONS = { ganho: null, gasto: null, salario: null, emprestimo: 'both', transferencia: 'both' };
 const KIND_PARCEL = { ganho: true, gasto: true, salario: false, emprestimo: true, transferencia: false };
+const RECURRING_KINDS = <?= json_encode(FinancialRules::RECURRING_KINDS) ?>;
 function refreshKindFields() {
     const kind = document.getElementById('f-kind').value;
     const dirWrap = document.getElementById('f-direction-wrap');
@@ -696,7 +731,7 @@ function refreshKindFields() {
     const canParcel = KIND_PARCEL[kind] === true;
     document.getElementById('f-card-wrap').style.display = kind === 'gasto' ? '' : 'none';
     document.getElementById('f-loandate-wrap').style.display = kind === 'emprestimo' ? '' : 'none';
-    document.getElementById('f-recurring-wrap').style.display = (kind === 'ganho' || kind === 'gasto') ? '' : 'none';
+    document.getElementById('f-recurring-wrap').style.display = RECURRING_KINDS.includes(kind) ? '' : 'none';
     const d = KIND_DIRECTIONS[kind];
     dirWrap.style.display = d === 'both' ? '' : 'none';
     if (d === 'both') {
@@ -772,13 +807,14 @@ async function saveTransaction() {
     if (KIND_DIRECTIONS[kind] === 'both') fd.append('direction', document.getElementById('f-direction').value);
     fd.append('category_id', document.getElementById('f-category').value);
     fd.append('account_id', document.getElementById('f-account').value);
+    fd.append('user_id', document.getElementById('f-user').value);
     fd.append('description', document.getElementById('f-description').value);
     fd.append('amount', document.getElementById('f-amount').value);
     fd.append('installments', document.getElementById('f-installments').value || '1');
     if (kind === 'gasto') fd.append('card_id', document.getElementById('f-card').value);
     fd.append('due_date', document.getElementById('f-due').value);
     if (kind === 'emprestimo') fd.append('loan_date', document.getElementById('f-loandate').value);
-    if (kind === 'ganho' || kind === 'gasto') {
+    if (RECURRING_KINDS.includes(kind)) {
         if (document.getElementById('f-recurring-chk') && document.getElementById('f-recurring-chk').checked) {
             fd.append('recurring_cycle', document.getElementById('f-cycle').value);
             fd.append('recurring_until', document.getElementById('f-recurring-until').value);
@@ -836,6 +872,8 @@ function openEditTx(btn) {
     document.getElementById('e-description').value = editTx.description || '';
     document.getElementById('e-category').value = editTx.category_id ? String(editTx.category_id) : '';
     document.getElementById('e-account').value = editTx.account_id ? String(editTx.account_id) : '';
+    document.getElementById('e-user').value = editTx.user_id ? String(editTx.user_id) : '';
+    document.getElementById('e-user').disabled = !can('user_id');
     document.getElementById('e-amount').value = String(editTx.amount).replace('.', ',');
     document.getElementById('e-card').value = editTx.card_id ? String(editTx.card_id) : '';
     // No cartão, a data editável é a da COMPRA. Lançamento antigo sem data de
@@ -877,6 +915,7 @@ async function saveEditTx() {
     if (can('description')) fd.append('description', document.getElementById('e-description').value);
     if (can('category_id')) fd.append('category_id', document.getElementById('e-category').value);
     if (can('account_id')) fd.append('account_id', document.getElementById('e-account').value);
+    if (can('user_id')) fd.append('user_id', document.getElementById('e-user').value);
     if (can('amount')) fd.append('amount', document.getElementById('e-amount').value);
     if (can('card_id')) fd.append('card_id', document.getElementById('e-card').value);
     if (can('date') && document.getElementById('e-date').value) fd.append('date', document.getElementById('e-date').value);
@@ -893,8 +932,13 @@ async function payInvoice(cardId, ym, label) {
 
 async function payTx(id) { const r = await post('financial/pay/' + id, new FormData()); if (r) location.reload(); }
 async function unpayTx(id) { const r = await post('financial/unpay/' + id, new FormData()); if (r) location.reload(); }
-async function removeTx(id) {
-    if (!confirm('Excluir este lançamento?')) return;
+async function payInstallment(id) { const r = await post('financial/payInstallment/' + id, new FormData()); if (r) location.reload(); }
+async function unpayInstallment(id) { const r = await post('financial/unpayInstallment/' + id, new FormData()); if (r) location.reload(); }
+async function removeTx(id, installments) {
+    const msg = installments > 1
+        ? `Excluir este lançamento? Ele é parcelado: TODAS as ${installments} parcelas serão excluídas.`
+        : 'Excluir este lançamento?';
+    if (!confirm(msg)) return;
     const r = await post('financial/remove/' + id, new FormData());
     if (r) location.reload();
 }

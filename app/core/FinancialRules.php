@@ -29,7 +29,7 @@ class FinancialRules
     public const INSTALLABLE_KINDS = ['ganho', 'gasto', 'emprestimo'];
 
     /** Tipos que permitem recorrência (mensal/anual que se repetem). */
-    public const RECURRING_KINDS = ['ganho', 'gasto'];
+    public const RECURRING_KINDS = ['ganho', 'gasto', 'salario'];
 
     /** Direção válida para o tipo informado. */
     public static function directionFor(string $kind, ?string $direction): string
@@ -60,6 +60,7 @@ class FinancialRules
         $cardId = !empty($in['card_id']) ? (int)$in['card_id'] : null;
         $accountId = !empty($in['account_id']) ? (int)$in['account_id'] : null;
         $categoryId = !empty($in['category_id']) ? (int)$in['category_id'] : null;
+        $userId = !empty($in['user_id']) ? (int)$in['user_id'] : null;
         if ($installments > 1 && !in_array($kind, self::INSTALLABLE_KINDS, true)) {
             $errors[] = 'Parcelamento não é permitido para este tipo.';
         }
@@ -71,7 +72,7 @@ class FinancialRules
         $cycle = strtolower(trim((string)($in['recurring_cycle'] ?? '')));
         $recurringCycle = in_array($cycle, ['monthly', 'yearly'], true) ? $cycle : null;
         if ($recurringCycle !== null && !in_array($kind, self::RECURRING_KINDS, true)) {
-            $errors[] = 'Recorrência só é permitida em ganhos e gastos.';
+            $errors[] = 'Recorrência só é permitida em ganhos, gastos e salários.';
         }
         if ($recurringCycle !== null && $installments > 1) {
             $errors[] = 'Lançamento recorrente não pode ser parcelado.';
@@ -121,6 +122,7 @@ class FinancialRules
                 'installments'    => $installments,
                 'card_id'         => $cardId,
                 'account_id'      => $accountId,
+                'user_id'         => $userId,
                 'due_date'        => $dueDate ?: date('Y-m-d'),
                 'recurring_cycle' => $recurringCycle,
                 'recurring_until' => $recurringUntil,
@@ -194,23 +196,23 @@ class FinancialRules
 
     /**
      * Campos que podem ser editados num lançamento já gravado.
-     *  - Importado do Asaas: só categoria e conta (o resto vem da integração).
-     *  - Parcelado: categoria, conta e descrição (mudar valor/data exigiria
+     *  - Importado do Asaas: só categoria, conta e pessoa (o resto vem da integração).
+     *  - Parcelado: categoria, conta, pessoa e descrição (mudar valor/data exigiria
      *    refazer parcelas, inclusive as já pagas; nesse caso, exclua e recrie).
-     *  - Já pago: categoria, conta e descrição (valor e data ficam travados).
-     *  - Demais: categoria, conta, descrição, valor, data e cartão.
+     *  - Já pago: categoria, conta, pessoa e descrição (valor e data travados).
+     *  - Demais: categoria, conta, pessoa, descrição, valor, data e cartão.
      *
      * @return string[]
      */
     public static function editableFields(array $tx): array
     {
         if (($tx['source'] ?? 'manual') === 'asaas') {
-            return ['category_id', 'account_id'];
+            return ['category_id', 'account_id', 'user_id'];
         }
         if ((int)($tx['installments'] ?? 1) > 1 || ($tx['status'] ?? 'pending') !== 'pending') {
-            return ['category_id', 'account_id', 'description'];
+            return ['category_id', 'account_id', 'user_id', 'description'];
         }
-        $fields = ['category_id', 'account_id', 'description', 'amount', 'date'];
+        $fields = ['category_id', 'account_id', 'user_id', 'description', 'amount', 'date'];
         if (($tx['kind'] ?? '') === 'gasto') $fields[] = 'card_id';
         return $fields;
     }
