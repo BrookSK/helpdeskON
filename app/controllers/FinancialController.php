@@ -71,6 +71,14 @@ class FinancialController extends Controller
             $users = [];
         }
 
+        // Faturas por cartão (compras à vista + parcelas) e total pendente de
+        // cada cartão (uso do limite).
+        $invoices = $this->transactions->invoicesByCard();
+        $cardPending = [];
+        foreach ($invoices as $cid => $months) {
+            $cardPending[$cid] = round(array_sum(array_column($months, 'pending')), 2);
+        }
+
         // Contas bancárias + saldo calculado, categorias cadastradas.
         try {
             $bankAccounts = $this->bankAccounts->getAll(false);
@@ -90,7 +98,8 @@ class FinancialController extends Controller
             'transactions' => $transactions,
             'summary'      => $summary,
             'cards'        => $this->cards->getAll(false),
-            'cardPending'  => $this->transactions->pendingInstallmentsByCard(),
+            'cardPending'  => $cardPending,
+            'invoices'     => $invoices,
             'accounts'     => $this->asaasAccounts->getAll(false),
             'bankAccounts' => $bankAccounts,
             'categories'   => $categories,
@@ -116,10 +125,28 @@ class FinancialController extends Controller
         $data['created_by'] = $user['id'];
         if ($data['status'] === 'paid') $data['paid_at'] = date('Y-m-d H:i:s');
 
+        // Compra no cartão: a data informada é a da compra; o vencimento é o
+        // da fatura em que ela cai. Sem conta escolhida, usa a conta do cartão
+        // (de onde a fatura é paga).
+        $dueDates = null;
+        if (!empty($data['card_id'])) {
+            $card = $this->cards->findById((int)$data['card_id']);
+            if (!$card) $this->json(['error' => 'Cartão não encontrado.'], 400);
+            $this->applyCardCycle($data, $card, (string)$data['due_date']);
+            if ((int)$data['installments'] > 1) {
+                $dueDates = CardInvoiceRules::installmentDueDates(
+                    (string)$data['purchase_date'],
+                    $this->cardDay($card['closing_day'] ?? null),
+                    $this->cardDay($card['due_day'] ?? null),
+                    (int)$data['installments']
+                );
+            }
+        }
+
         try {
-            $id = $this->transactions->createWithInstallments($data);
+            $id = $this->transactions->createWithInstallments($data, $dueDates);
         } catch (\Throwable $e) {
-            $this->json(['error' => $this->schemaErrorHint($e, 'o lançamento', 167)], 500);
+            $this->json(['error' => $this->schemaErrorHint($e, 'o lançamento', 168)], 500);
         }
         $this->json(['success' => true, 'id' => $id]);
     }
@@ -134,6 +161,89 @@ class FinancialController extends Controller
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
         $done = $this->transactions->markPaid((int)$id);
         $this->json(['success' => true, 'fully_paid' => $done]);
+    }
+
+    /**
+     * Edita um lançamento. Só grava os campos liberados por
+     * FinancialRules::editableFields (Asaas, parcelado e pago têm restrições).
+     * Mudar data ou cartão de uma compra no cartão recalcula a fatura.
+     */
+    public function update($id = null)
+    {
+        $this->requireSuperAdmin();
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+        $tx = $this->transactions->findById((int)$id);
+        if (!$tx) $this->json(['error' => 'Lançamento não encontrado.'], 404);
+
+        $allowed = FinancialRules::editableFields($tx);
+        $data = [];
+
+        if (in_array('category_id', $allowed, true) && array_key_exists('category_id', $_POST)) {
+            $data['category_id'] = $_POST['category_id'] !== '' ? (int)$_POST['category_id'] : null;
+        }
+        if (in_array('account_id', $allowed, true) && array_key_exists('account_id', $_POST)) {
+            $data['account_id'] = $_POST['account_id'] !== '' ? (int)$_POST['account_id'] : null;
+        }
+        if (in_array('description', $allowed, true) && array_key_exists('description', $_POST)) {
+            $data['description'] = mb_substr(trim((string)$_POST['description']), 0, 255) ?: null;
+        }
+        if (in_array('amount', $allowed, true) && array_key_exists('amount', $_POST)) {
+            $amount = FinanceRules::money($_POST['amount']);
+            if ($amount <= 0) $this->json(['error' => 'Informe um valor maior que zero.'], 400);
+            $data['amount'] = $amount;
+        }
+
+        // Data de referência atual: no cartão é a data da compra (pode estar
+        // vazia em lançamentos antigos); fora do cartão é o vencimento.
+        $currentCard = !empty($tx['card_id']) ? (int)$tx['card_id'] : null;
+        $currentRef = $currentCard !== null ? ($tx['purchase_date'] ?? null) : ($tx['due_date'] ?? null);
+
+        $postedDate = trim((string)($_POST['date'] ?? ''));
+        if ($postedDate !== '') {
+            if (strtotime($postedDate) === false) $this->json(['error' => 'Data inválida.'], 400);
+            $postedDate = date('Y-m-d', strtotime($postedDate));
+        }
+        $postedCard = (array_key_exists('card_id', $_POST) && $_POST['card_id'] !== '') ? (int)$_POST['card_id'] : null;
+
+        $dateChanged = in_array('date', $allowed, true) && $postedDate !== '' && $postedDate !== $currentRef;
+        $cardChanged = in_array('card_id', $allowed, true) && array_key_exists('card_id', $_POST) && $postedCard !== $currentCard;
+        if ($dateChanged || $cardChanged) {
+            $cardId = $cardChanged ? $postedCard : $currentCard;
+            $baseDate = $dateChanged
+                ? $postedDate
+                : (string)($tx['purchase_date'] ?? $tx['due_date'] ?? date('Y-m-d'));
+
+            $data['card_id'] = $cardId;
+            if ($cardId !== null) {
+                $card = $this->cards->findById($cardId);
+                if (!$card) $this->json(['error' => 'Cartão não encontrado.'], 400);
+                $keepAccount = array_key_exists('account_id', $data) ? $data['account_id'] : ($tx['account_id'] ?? null);
+                $data['account_id'] = $keepAccount;
+                $this->applyCardCycle($data, $card, $baseDate);
+            } else {
+                $data['due_date'] = $baseDate;
+                if (array_key_exists('purchase_date', $tx)) $data['purchase_date'] = null;
+            }
+        }
+
+        try {
+            $this->transactions->update((int)$id, $data);
+        } catch (\Throwable $e) {
+            $this->json(['error' => $this->schemaErrorHint($e, 'o lançamento', 168)], 500);
+        }
+        $this->json(['success' => true, 'due_date' => $data['due_date'] ?? $tx['due_date']]);
+    }
+
+    /** Paga a fatura de um cartão num mês: POST financial/payInvoice/{cardId}/{YYYY-MM}. */
+    public function payInvoice($cardId = null, $ym = null)
+    {
+        $this->requireSuperAdmin();
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$cardId || !FinancialRules::validMonth($ym)) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+        if (!$this->cards->findById((int)$cardId)) $this->json(['error' => 'Cartão não encontrado.'], 404);
+        $paid = $this->transactions->payInvoice((int)$cardId, (string)$ym);
+        $this->json(['success' => true, 'paid' => $paid]);
     }
 
     /** Estorna: transação (e parcelas) voltam a pendentes. */
@@ -376,6 +486,31 @@ class FinancialController extends Controller
 
     // ================= Helpers =================
 
+    /** Dia do cartão (fechamento/vencimento) como int ou null. */
+    private function cardDay($v): ?int
+    {
+        return ($v === null || $v === '') ? null : (int)$v;
+    }
+
+    /**
+     * Aplica o ciclo da fatura num lançamento de cartão: purchase_date = data
+     * da compra; due_date = vencimento da fatura. Sem conta definida, usa a
+     * conta do cartão.
+     */
+    private function applyCardCycle(array &$data, array $card, string $purchaseDate): void
+    {
+        $inv = CardInvoiceRules::invoiceFor(
+            $purchaseDate,
+            $this->cardDay($card['closing_day'] ?? null),
+            $this->cardDay($card['due_day'] ?? null)
+        );
+        $data['purchase_date'] = date('Y-m-d', strtotime($purchaseDate));
+        $data['due_date'] = $inv['due_date'];
+        if (empty($data['account_id']) && !empty($card['account_id'])) {
+            $data['account_id'] = (int)$card['account_id'];
+        }
+    }
+
     /**
      * Mensagem de erro útil a partir de uma exceção de banco ao salvar.
      * Em vez de mascarar tudo como "rode a migration X", identifica a causa
@@ -393,7 +528,7 @@ class FinancialController extends Controller
             return "Não foi possível salvar {$what}: uma tabela do Controle Financeiro não existe neste banco. Rode a migration {$mig}. (Detalhe: {$msg})";
         }
         if (stripos($msg, 'Unknown column') !== false || stripos($msg, '42S22') !== false) {
-            return "Não foi possível salvar {$what}: uma coluna nova não existe neste banco (migration {$mig} aplicada só pela metade). Rode a 167b (idempotente). (Detalhe: {$msg})";
+            return "Não foi possível salvar {$what}: uma coluna nova não existe neste banco. Rode as migrations pendentes do financeiro (167b e 168). (Detalhe: {$msg})";
         }
         if (stripos($msg, 'foreign key') !== false || stripos($msg, '1452') !== false) {
             return "Não foi possível salvar {$what}: referência inválida (conta/categoria inexistente). (Detalhe: {$msg})";

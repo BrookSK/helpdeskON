@@ -101,12 +101,20 @@ class FinancialTransaction
         return (int)$id;
     }
 
-    /** Cria o lançamento + parcelas (quando installments > 1) numa tacada. */
-    public function createWithInstallments(array $data): int
+    /**
+     * Cria o lançamento + parcelas (quando installments > 1) numa tacada.
+     * $dueDates (opcional): vencimento de cada parcela já calculado (ex.: as
+     * faturas do cartão, via CardInvoiceRules). Sem ele, as parcelas vencem
+     * mensalmente a partir de due_date.
+     */
+    public function createWithInstallments(array $data, ?array $dueDates = null): int
     {
         $id = $this->create($data);
         if ((int)$data['installments'] > 1) {
             $plan = FinancialRules::buildInstallments((float)$data['amount'], (int)$data['installments'], (string)$data['due_date']);
+            if ($dueDates !== null && count($dueDates) === count($plan)) {
+                foreach ($plan as $i => $p) $plan[$i]['due_date'] = $dueDates[$i];
+            }
             foreach ($plan as $p) {
                 $this->db->insert('fin_installments', [
                     'transaction_id'  => $id,
@@ -159,7 +167,7 @@ class FinancialTransaction
         if (!empty($t['recurring_cycle'])) {
             $nextDue = FinancialRules::recurringNextDate((string)$t['due_date'], (string)$t['recurring_cycle']);
             if (FinancialRules::recurringContinues($nextDue, $t['recurring_until'] ?? null)) {
-                $this->db->insert('fin_transactions', [
+                $clone = [
                     'kind'            => $t['kind'],
                     'direction'       => $t['direction'],
                     'category'        => $t['category'],
@@ -177,10 +185,122 @@ class FinancialTransaction
                     'asaas_payment_id' => null,
                     'source'          => $t['source'],
                     'created_by'      => $t['created_by'],
-                ]);
+                ];
+                // Compra recorrente no cartão: a próxima compra também anda um ciclo.
+                if (array_key_exists('purchase_date', $t)) {
+                    $clone['purchase_date'] = !empty($t['purchase_date'])
+                        ? FinancialRules::recurringNextDate((string)$t['purchase_date'], (string)$t['recurring_cycle'])
+                        : null;
+                }
+                $this->db->insert('fin_transactions', $clone);
             }
         }
         return true;
+    }
+
+    /** Atualiza campos de um lançamento (o controller filtra o que é editável). */
+    public function update(int $id, array $data): void
+    {
+        if (empty($data)) return;
+        $this->db->update('fin_transactions', $data, 'id = ?', [$id]);
+    }
+
+    /**
+     * Faturas por cartão: total e total pendente por mês de vencimento.
+     * Junta as parcelas (compras parceladas) e as compras à vista no cartão.
+     *
+     * @return array<int,array<string,array>> card_id => [ 'YYYY-MM' => [total, pending, items] ]
+     */
+    public function invoicesByCard(): array
+    {
+        try {
+            $rows = $this->db->fetchAll(
+                "SELECT t.card_id, DATE_FORMAT(i.due_date, '%Y-%m') AS ym,
+                        SUM(i.amount) AS total,
+                        SUM(CASE WHEN i.status = 'pending' THEN i.amount ELSE 0 END) AS pending,
+                        COUNT(*) AS items
+                 FROM fin_installments i
+                 JOIN fin_transactions t ON t.id = i.transaction_id
+                 WHERE t.card_id IS NOT NULL AND t.status <> 'cancelled' AND i.due_date IS NOT NULL
+                 GROUP BY t.card_id, ym
+                 UNION ALL
+                 SELECT t.card_id, DATE_FORMAT(t.due_date, '%Y-%m') AS ym,
+                        SUM(t.amount) AS total,
+                        SUM(CASE WHEN t.status = 'pending' THEN t.amount ELSE 0 END) AS pending,
+                        COUNT(*) AS items
+                 FROM fin_transactions t
+                 WHERE t.card_id IS NOT NULL AND t.installments <= 1
+                   AND t.status <> 'cancelled' AND t.due_date IS NOT NULL
+                 GROUP BY t.card_id, ym"
+            );
+        } catch (\Throwable $e) {
+            return [];
+        }
+        $out = [];
+        foreach ($rows as $r) {
+            $card = (int)$r['card_id'];
+            $ym = (string)$r['ym'];
+            if (!isset($out[$card][$ym])) $out[$card][$ym] = ['total' => 0.0, 'pending' => 0.0, 'items' => 0];
+            $out[$card][$ym]['total']   = round($out[$card][$ym]['total'] + (float)$r['total'], 2);
+            $out[$card][$ym]['pending'] = round($out[$card][$ym]['pending'] + (float)$r['pending'], 2);
+            $out[$card][$ym]['items']  += (int)$r['items'];
+        }
+        foreach ($out as $card => $months) {
+            ksort($months);
+            $out[$card] = $months;
+        }
+        return $out;
+    }
+
+    /**
+     * Paga a fatura de um cartão num mês (YYYY-MM de vencimento): quita as
+     * parcelas e as compras à vista desse cartão que vencem no mês. Compras
+     * parceladas só fecham quando a última parcela é quitada.
+     *
+     * @return int quantidade de itens quitados
+     */
+    public function payInvoice(int $cardId, string $ym): int
+    {
+        if (!FinancialRules::validMonth($ym)) return 0;
+        $now = date('Y-m-d H:i:s');
+        $count = 0;
+
+        $insts = $this->db->fetchAll(
+            "SELECT i.id, i.transaction_id
+             FROM fin_installments i
+             JOIN fin_transactions t ON t.id = i.transaction_id
+             WHERE t.card_id = ? AND i.status = 'pending' AND t.status <> 'cancelled'
+               AND DATE_FORMAT(i.due_date, '%Y-%m') = ?",
+            [$cardId, $ym]
+        );
+        $touched = [];
+        foreach ($insts as $i) {
+            $this->db->update('fin_installments', ['status' => 'paid', 'paid_at' => $now], 'id = ?', [(int)$i['id']]);
+            $touched[(int)$i['transaction_id']] = true;
+            $count++;
+        }
+        foreach (array_keys($touched) as $txId) {
+            $left = $this->db->fetch(
+                "SELECT COUNT(*) AS c FROM fin_installments WHERE transaction_id = ? AND status = 'pending'",
+                [$txId]
+            );
+            if ((int)($left['c'] ?? 0) === 0) {
+                $this->db->update('fin_transactions', ['status' => 'paid', 'paid_at' => $now], 'id = ?', [$txId]);
+            }
+        }
+
+        $singles = $this->db->fetchAll(
+            "SELECT id FROM fin_transactions
+             WHERE card_id = ? AND installments <= 1 AND status = 'pending'
+               AND DATE_FORMAT(due_date, '%Y-%m') = ?",
+            [$cardId, $ym]
+        );
+        foreach ($singles as $s) {
+            // markPaid também gera a próxima ocorrência quando é recorrente.
+            $this->markPaid((int)$s['id']);
+            $count++;
+        }
+        return $count;
     }
 
     /** Estorna o pagamento: transação e parcelas voltam a pendentes. */
@@ -206,11 +326,19 @@ class FinancialTransaction
      */
     public function movementsByAccount(): array
     {
+        // À vista: a linha do lançamento. Parcelado: cada parcela conta
+        // sozinha (parcela paga sai da conta; as pendentes ainda não).
         try {
             $rows = $this->db->fetchAll(
                 "SELECT account_id, direction, amount, status
                  FROM fin_transactions
-                 WHERE account_id IS NOT NULL"
+                 WHERE account_id IS NOT NULL AND installments <= 1
+                 UNION ALL
+                 SELECT t.account_id, t.direction, i.amount,
+                        CASE WHEN t.status = 'cancelled' THEN 'cancelled' ELSE i.status END AS status
+                 FROM fin_installments i
+                 JOIN fin_transactions t ON t.id = i.transaction_id
+                 WHERE t.account_id IS NOT NULL AND t.installments > 1"
             );
         } catch (\Throwable $e) {
             return [];

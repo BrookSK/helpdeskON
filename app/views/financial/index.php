@@ -154,11 +154,11 @@ foreach (($bankAccounts ?? []) as $ba) $bankById[(int)$ba['id']] = $ba;
                             <input id="f-installments" type="number" class="form-control form-control-sm" value="1" min="1" max="48">
                         </div>
                         <div class="col-md-2" id="f-card-wrap" style="display:none;">
-                            <label class="form-label small">Cartão *</label>
+                            <label class="form-label small">Cartão</label>
                             <select id="f-card" class="form-select form-select-sm">
-                                <option value="">Selecione...</option>
+                                <option value="">Sem cartão (débito/pix)</option>
                                 <?php foreach ($cards as $c): if ((int)$c['active'] !== 1) continue; ?>
-                                <option value="<?= (int)$c['id'] ?>"><?= escape($c['name']) ?></option>
+                                <option value="<?= (int)$c['id'] ?>" data-closing="<?= (int)($c['closing_day'] ?? 0) ?>" data-due="<?= (int)($c['due_day'] ?? 0) ?>"><?= escape($c['name']) ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
@@ -182,8 +182,9 @@ foreach (($bankAccounts ?? []) as $ba) $bankById[(int)$ba['id']] = $ba;
                             <div class="small text-muted" style="font-size:0.65rem;">Ao pagar, a próxima ocorrência nasce automaticamente.</div>
                         </div>
                         <div class="col-md-2">
-                            <label class="form-label small">Data *</label>
+                            <label class="form-label small" id="f-due-label">Data *</label>
                             <input id="f-due" type="date" class="form-control form-control-sm" value="<?= date('Y-m-d') ?>">
+                            <div class="small text-primary" style="font-size:0.7rem;" id="f-invoice-hint"></div>
                         </div>
                         <div class="col-md-2 col-xl-1 d-flex align-items-end">
                             <div class="form-check">
@@ -215,7 +216,12 @@ foreach (($bankAccounts ?? []) as $ba) $bankById[(int)$ba['id']] = $ba;
                                 $st = $statusLabel[$t['status']] ?? $statusLabel['pending'];
                             ?>
                             <tr>
-                                <td class="text-nowrap"><?= escape($t['due_date'] ?? '—') ?></td>
+                                <td class="text-nowrap">
+                                    <?= escape($t['due_date'] ?? '—') ?>
+                                    <?php if (!empty($t['purchase_date']) && $t['purchase_date'] !== $t['due_date']): ?>
+                                    <div class="text-muted" style="font-size:0.65rem;" title="Data da compra no cartão">compra <?= escape($t['purchase_date']) ?></div>
+                                    <?php endif; ?>
+                                </td>
                                 <td><span class="badge bg-<?= $meta['cls'] ?>"><i class="bi <?= $meta['icon'] ?>"></i> <?= $meta['label'] ?></span></td>
                                 <td><?= escape($t['category_name'] ?? $t['category'] ?? '—') ?></td>
                                 <td><?= escape($t['description'] ?? '—') ?></td>
@@ -243,6 +249,21 @@ foreach (($bankAccounts ?? []) as $ba) $bankById[(int)$ba['id']] = $ba;
                                 </td>
                                 <td><span class="badge bg-<?= $st[1] ?>"><?= $st[0] ?></span></td>
                                 <td class="text-nowrap">
+                                    <?php
+                                    $editPayload = [
+                                        'id'            => (int)$t['id'],
+                                        'kind'          => $t['kind'],
+                                        'description'   => $t['description'],
+                                        'amount'        => (float)$t['amount'],
+                                        'category_id'   => $t['category_id'] ?? null,
+                                        'account_id'    => $t['account_id'] ?? null,
+                                        'card_id'       => $t['card_id'] ?? null,
+                                        'due_date'      => $t['due_date'],
+                                        'purchase_date' => $t['purchase_date'] ?? null,
+                                        'editable'      => FinancialRules::editableFields($t),
+                                    ];
+                                    ?>
+                                    <button class="btn btn-sm btn-outline-primary py-0 px-1" title="Editar" data-tx="<?= escape(json_encode($editPayload)) ?>" onclick="openEditTx(this)"><i class="bi bi-pencil"></i></button>
                                     <?php if ($t['status'] === 'pending'): ?>
                                     <button class="btn btn-sm btn-outline-success py-0 px-1" title="Pagar (parcelado: quita a próxima parcela)" onclick="payTx(<?= (int)$t['id'] ?>)"><i class="bi bi-check-lg"></i></button>
                                     <?php elseif ($t['source'] !== 'asaas'): ?>
@@ -369,7 +390,7 @@ foreach (($bankAccounts ?? []) as $ba) $bankById[(int)$ba['id']] = $ba;
             <div class="card">
                 <div class="card-body p-0">
                     <table class="table table-hover mb-0 align-middle">
-                        <thead class="table-light"><tr><th>Nome</th><th>Conta vinculada</th><th class="text-end">Limite</th><th class="text-end">Fatura prevista (parcelas pendentes)</th><th>Fechamento</th><th>Vencimento</th><th>Status</th><th></th></tr></thead>
+                        <thead class="table-light"><tr><th>Nome</th><th>Conta vinculada</th><th class="text-end">Limite</th><th class="text-end">Em aberto (todas as faturas)</th><th>Fechamento</th><th>Vencimento</th><th>Status</th><th></th></tr></thead>
                         <tbody>
                             <?php if (empty($cards)): ?><tr><td colspan="8" class="text-center text-muted py-4">Nenhum cartão.</td></tr>
                             <?php else: foreach ($cards as $c):
@@ -392,6 +413,44 @@ foreach (($bankAccounts ?? []) as $ba) $bankById[(int)$ba['id']] = $ba;
                                 <td><button class="btn btn-sm btn-outline-secondary py-0 px-1" onclick="toggleCard(<?= (int)$c['id'] ?>)"><i class="bi bi-power"></i></button></td>
                             </tr>
                             <?php endforeach; endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <?php
+            // Faturas: compras à vista + parcelas, agrupadas pelo mês de vencimento.
+            $monthNames = [1=>'jan',2=>'fev',3=>'mar',4=>'abr',5=>'mai',6=>'jun',7=>'jul',8=>'ago',9=>'set',10=>'out',11=>'nov',12=>'dez'];
+            $fmtYm = function ($ym) use ($monthNames) { return ($monthNames[(int)substr($ym, 5, 2)] ?? '') . '/' . substr($ym, 0, 4); };
+            ?>
+            <div class="card mt-3">
+                <div class="card-header py-2"><strong><i class="bi bi-receipt"></i> Faturas</strong> <span class="small text-muted">— cada compra entra na fatura conforme o dia de fechamento; o mês é o do vencimento (quando o dinheiro sai da conta)</span></div>
+                <div class="card-body p-0">
+                    <table class="table table-hover mb-0 align-middle">
+                        <thead class="table-light"><tr><th>Cartão</th><th>Fatura (vencimento)</th><th class="text-center">Itens</th><th class="text-end">Total</th><th class="text-end">Em aberto</th><th>Status</th><th></th></tr></thead>
+                        <tbody>
+                            <?php $anyInvoice = false; foreach ($cards as $c):
+                                foreach (($invoices[(int)$c['id']] ?? []) as $ym => $inv): $anyInvoice = true;
+                                    $open = (float)$inv['pending'] > 0;
+                                    $dueDay = (int)($c['due_day'] ?? 0);
+                                    $isCurrent = ($ym === date('Y-m'));
+                            ?>
+                            <tr class="<?= $isCurrent ? 'table-warning' : '' ?>">
+                                <td class="fw-medium"><i class="bi bi-credit-card"></i> <?= escape($c['name']) ?></td>
+                                <td class="text-nowrap"><?= escape($fmtYm($ym)) ?><?= $dueDay ? ' <span class="small text-muted">(vence dia ' . $dueDay . ')</span>' : '' ?></td>
+                                <td class="text-center"><?= (int)$inv['items'] ?></td>
+                                <td class="text-end"><?= finMoney($inv['total']) ?></td>
+                                <td class="text-end fw-bold <?= $open ? 'text-danger' : 'text-muted' ?>"><?= finMoney($inv['pending']) ?></td>
+                                <td><?= $open ? '<span class="badge bg-warning">Em aberto</span>' : '<span class="badge bg-success">Paga</span>' ?></td>
+                                <td class="text-nowrap">
+                                    <a class="btn btn-sm btn-outline-secondary py-0 px-1" title="Ver lançamentos deste mês" href="<?= baseUrl('financial?month=' . urlencode($ym)) ?>"><i class="bi bi-list-ul"></i></a>
+                                    <?php if ($open): ?>
+                                    <button class="btn btn-sm btn-outline-success py-0 px-1" title="Pagar a fatura inteira" onclick="payInvoice(<?= (int)$c['id'] ?>, '<?= escape($ym) ?>', '<?= escape($c['name'] . ' ' . $fmtYm($ym)) ?>')"><i class="bi bi-check2-all"></i> Pagar</button>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                            <?php endforeach; endforeach; ?>
+                            <?php if (!$anyInvoice): ?><tr><td colspan="7" class="text-center text-muted py-4">Nenhuma compra no cartão ainda.</td></tr><?php endif; ?>
                         </tbody>
                     </table>
                 </div>
@@ -532,6 +591,67 @@ foreach (($bankAccounts ?? []) as $ba) $bankById[(int)$ba['id']] = $ba;
     </div>
 </div>
 
+<?php // ================= MODAL: EDITAR LANÇAMENTO ================= ?>
+<div class="modal fade" id="editTxModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title"><i class="bi bi-pencil"></i> Editar lançamento <span id="e-id" class="text-muted"></span></h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body">
+                <div class="small text-muted mb-2" id="e-restriction"></div>
+                <div class="row g-2">
+                    <div class="col-12">
+                        <label class="form-label small">Descrição</label>
+                        <input id="e-description" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small">Categoria</label>
+                        <select id="e-category" class="form-select form-select-sm">
+                            <option value="">— Sem categoria —</option>
+                            <?php foreach ($categories as $cat): if ((int)$cat['active'] !== 1) continue; ?>
+                            <option value="<?= (int)$cat['id'] ?>"><?= escape($cat['name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small">Conta</label>
+                        <select id="e-account" class="form-select form-select-sm">
+                            <option value="">— Sem conta —</option>
+                            <?php foreach ($bankAccounts as $ba): if ((int)$ba['active'] !== 1) continue; ?>
+                            <option value="<?= (int)$ba['id'] ?>"><?= escape($ba['name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small">Valor (R$)</label>
+                        <input id="e-amount" class="form-control form-control-sm" inputmode="decimal">
+                    </div>
+                    <div class="col-6" id="e-card-wrap">
+                        <label class="form-label small">Cartão</label>
+                        <select id="e-card" class="form-select form-select-sm">
+                            <option value="">Sem cartão (débito/pix)</option>
+                            <?php foreach ($cards as $c): ?>
+                            <option value="<?= (int)$c['id'] ?>" data-closing="<?= (int)($c['closing_day'] ?? 0) ?>" data-due="<?= (int)($c['due_day'] ?? 0) ?>"><?= escape($c['name']) ?><?= ((int)$c['active'] !== 1) ? ' (inativo)' : '' ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small" id="e-date-label">Data</label>
+                        <input id="e-date" type="date" class="form-control form-control-sm">
+                        <div class="small text-primary" style="font-size:0.7rem;" id="e-invoice-hint"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer py-2">
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-sm btn-primary" onclick="saveEditTx()"><i class="bi bi-check-lg"></i> Salvar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
 const BASE = '<?= baseUrl("") ?>';
 const CSRF = '<?= csrf_token() ?>';
@@ -638,6 +758,108 @@ async function saveTransaction() {
     }
     fd.append('status', document.getElementById('f-paid').checked ? 'paid' : 'pending');
     const r = await post('financial/store', fd);
+    if (r) location.reload();
+}
+
+// ===== Ciclo da fatura do cartão (mesma regra de CardInvoiceRules.php) =====
+const MONTHS = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+function lastDay(y, m) { return new Date(y, m, 0).getDate(); } // m = 1..12
+function clampDay(y, m, d) { return Math.max(1, Math.min(d, lastDay(y, m))); }
+function addMonths(y, m, n) { const idx = y * 12 + (m - 1) + n; return [Math.floor(idx / 12), (idx % 12) + 1]; }
+function pad(n) { return String(n).padStart(2, '0'); }
+// Retorna {due:'YYYY-MM-DD', label:'out/2026'} ou null quando o cartão não tem ciclo.
+function invoiceFor(purchase, closing, due) {
+    if (!purchase || !(closing >= 1 && closing <= 31) || !(due >= 1 && due <= 31)) return null;
+    const [y, m, d] = purchase.split('-').map(Number);
+    const closeThis = clampDay(y, m, closing);
+    const [cy, cm] = d < closeThis ? [y, m] : addMonths(y, m, 1);
+    const [dy, dm] = due > closing ? [cy, cm] : addMonths(cy, cm, 1);
+    const dd = clampDay(dy, dm, due);
+    return { due: `${dy}-${pad(dm)}-${pad(dd)}`, label: `${MONTHS[dm - 1]}/${dy}`, dueDay: `${pad(dd)}/${pad(dm)}` };
+}
+function cardCycle(selectEl) {
+    const opt = selectEl.options[selectEl.selectedIndex];
+    if (!opt || !opt.value) return null;
+    return { closing: Number(opt.dataset.closing || 0), due: Number(opt.dataset.due || 0) };
+}
+function renderInvoiceHint(selectId, dateId, labelId, hintId, dateLabel) {
+    const sel = document.getElementById(selectId);
+    const label = document.getElementById(labelId);
+    const hint = document.getElementById(hintId);
+    const wrapVisible = sel && sel.offsetParent !== null;
+    const cyc = (sel && wrapVisible) ? cardCycle(sel) : null;
+    if (!cyc) { label.textContent = dateLabel; hint.textContent = ''; return; }
+    label.textContent = 'Data da compra' + (dateLabel.endsWith('*') ? ' *' : '');
+    const inv = invoiceFor(document.getElementById(dateId).value, cyc.closing, cyc.due);
+    hint.textContent = inv
+        ? `Cai na fatura de ${inv.label} (vence ${inv.dueDay})`
+        : 'Cartão sem dia de fechamento/vencimento: vence na data da compra.';
+}
+function refreshNewInvoiceHint() { renderInvoiceHint('f-card', 'f-due', 'f-due-label', 'f-invoice-hint', 'Data *'); }
+['f-card', 'f-due', 'f-kind'].forEach(id => document.getElementById(id).addEventListener('change', refreshNewInvoiceHint));
+refreshNewInvoiceHint();
+
+// ===== Editar lançamento =====
+let editTx = null;
+function openEditTx(btn) {
+    editTx = JSON.parse(btn.dataset.tx);
+    const can = f => editTx.editable.includes(f);
+    document.getElementById('e-id').textContent = '#' + editTx.id;
+    document.getElementById('e-description').value = editTx.description || '';
+    document.getElementById('e-category').value = editTx.category_id ? String(editTx.category_id) : '';
+    document.getElementById('e-account').value = editTx.account_id ? String(editTx.account_id) : '';
+    document.getElementById('e-amount').value = String(editTx.amount).replace('.', ',');
+    document.getElementById('e-card').value = editTx.card_id ? String(editTx.card_id) : '';
+    // No cartão, a data editável é a da COMPRA. Lançamento antigo sem data de
+    // compra fica vazio: só recalcula a fatura se você preencher.
+    document.getElementById('e-date').value = editTx.card_id ? (editTx.purchase_date || '') : (editTx.due_date || '');
+
+    document.getElementById('e-description').disabled = !can('description');
+    document.getElementById('e-category').disabled = !can('category_id');
+    document.getElementById('e-account').disabled = !can('account_id');
+    document.getElementById('e-amount').disabled = !can('amount');
+    document.getElementById('e-date').disabled = !can('date');
+    document.getElementById('e-card').disabled = !can('card_id');
+    document.getElementById('e-card-wrap').style.display = editTx.kind === 'gasto' ? '' : 'none';
+
+    let msg = '';
+    if (!can('amount')) msg = 'Lançamento importado, parcelado ou já pago: valor, data e cartão ficam travados. Para mudar, exclua e lance de novo.';
+    else if (editTx.card_id && !editTx.purchase_date) msg = 'Lançamento antigo no cartão: informe a data da compra para o sistema colocar na fatura certa.';
+    document.getElementById('e-restriction').textContent = msg;
+
+    refreshEditInvoiceHint();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('editTxModal')).show();
+}
+function refreshEditInvoiceHint() {
+    const label = document.getElementById('e-date-label');
+    const hint = document.getElementById('e-invoice-hint');
+    const cyc = (editTx && editTx.kind === 'gasto') ? cardCycle(document.getElementById('e-card')) : null;
+    if (!cyc) { label.textContent = 'Data'; hint.textContent = ''; return; }
+    label.textContent = 'Data da compra';
+    const inv = invoiceFor(document.getElementById('e-date').value, cyc.closing, cyc.due);
+    hint.textContent = inv ? `Cai na fatura de ${inv.label} (vence ${inv.dueDay})`
+        : (document.getElementById('e-date').value ? 'Cartão sem dia de fechamento/vencimento: vence na data da compra.' : '');
+}
+['e-card', 'e-date'].forEach(id => document.getElementById(id).addEventListener('change', refreshEditInvoiceHint));
+
+async function saveEditTx() {
+    if (!editTx) return;
+    const can = f => editTx.editable.includes(f);
+    const fd = new FormData();
+    if (can('description')) fd.append('description', document.getElementById('e-description').value);
+    if (can('category_id')) fd.append('category_id', document.getElementById('e-category').value);
+    if (can('account_id')) fd.append('account_id', document.getElementById('e-account').value);
+    if (can('amount')) fd.append('amount', document.getElementById('e-amount').value);
+    if (can('card_id')) fd.append('card_id', document.getElementById('e-card').value);
+    if (can('date') && document.getElementById('e-date').value) fd.append('date', document.getElementById('e-date').value);
+    const r = await post('financial/update/' + editTx.id, fd);
+    if (r) location.reload();
+}
+
+// ===== Pagar fatura do cartão =====
+async function payInvoice(cardId, ym, label) {
+    if (!confirm(`Pagar a fatura ${label}? Todas as compras e parcelas dessa fatura serão marcadas como pagas.`)) return;
+    const r = await post('financial/payInvoice/' + cardId + '/' + ym, new FormData());
     if (r) location.reload();
 }
 

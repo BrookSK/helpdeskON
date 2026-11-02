@@ -192,6 +192,29 @@ class FinancialRules
         return $s;
     }
 
+    /**
+     * Campos que podem ser editados num lançamento já gravado.
+     *  - Importado do Asaas: só categoria e conta (o resto vem da integração).
+     *  - Parcelado: categoria, conta e descrição (mudar valor/data exigiria
+     *    refazer parcelas, inclusive as já pagas; nesse caso, exclua e recrie).
+     *  - Já pago: categoria, conta e descrição (valor e data ficam travados).
+     *  - Demais: categoria, conta, descrição, valor, data e cartão.
+     *
+     * @return string[]
+     */
+    public static function editableFields(array $tx): array
+    {
+        if (($tx['source'] ?? 'manual') === 'asaas') {
+            return ['category_id', 'account_id'];
+        }
+        if ((int)($tx['installments'] ?? 1) > 1 || ($tx['status'] ?? 'pending') !== 'pending') {
+            return ['category_id', 'account_id', 'description'];
+        }
+        $fields = ['category_id', 'account_id', 'description', 'amount', 'date'];
+        if (($tx['kind'] ?? '') === 'gasto') $fields[] = 'card_id';
+        return $fields;
+    }
+
     /** Status Asaas -> status interno do lançamento. */
     public static function asaasStatusToInternal(?string $status): string
     {
