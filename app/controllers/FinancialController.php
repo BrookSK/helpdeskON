@@ -16,6 +16,8 @@ class FinancialController extends Controller
     private $cards;
     private $asaasAccounts;
     private $commissions;
+    private $bankAccounts;
+    private $categories;
 
     public function __construct()
     {
@@ -23,6 +25,8 @@ class FinancialController extends Controller
         $this->cards = new FinancialCard();
         $this->asaasAccounts = new FinanceAccount();
         $this->commissions = new FinancialCommission();
+        $this->bankAccounts = new FinancialBankAccount();
+        $this->categories = new FinancialCategory();
     }
 
     /** Painel principal (resumo + lançamentos + cartões + contas Asaas). */
@@ -67,6 +71,19 @@ class FinancialController extends Controller
             $users = [];
         }
 
+        // Contas bancárias + saldo calculado, categorias cadastradas.
+        try {
+            $bankAccounts = $this->bankAccounts->getAll(false);
+            $bankAccounts = FinancialAccountRules::summarizeAccounts($bankAccounts, $this->transactions->movementsByAccount());
+        } catch (\Throwable $e) {
+            $bankAccounts = [];
+        }
+        try {
+            $categories = $this->categories->getAll(false);
+        } catch (\Throwable $e) {
+            $categories = [];
+        }
+
         $this->view('financial/index', [
             'user'         => $user,
             'currentPage'  => 'financial_admin',
@@ -75,6 +92,8 @@ class FinancialController extends Controller
             'cards'        => $this->cards->getAll(false),
             'cardPending'  => $this->transactions->pendingInstallmentsByCard(),
             'accounts'     => $this->asaasAccounts->getAll(false),
+            'bankAccounts' => $bankAccounts,
+            'categories'   => $categories,
             'filters'      => $filters,
             'commissions'  => $commissions,
             'commissionsSummary' => $commissionsSummary,
@@ -153,6 +172,7 @@ class FinancialController extends Controller
         $limit = FinanceRules::money($_POST['limit'] ?? 0);
         $closing = (int)($_POST['closing_day'] ?? 0);
         $due = (int)($_POST['due_day'] ?? 0);
+        $accountId = !empty($_POST['account_id']) ? (int)$_POST['account_id'] : null;
 
         try {
             $id = $this->cards->create([
@@ -160,6 +180,7 @@ class FinancialController extends Controller
                 'limit'       => $limit,
                 'closing_day' => ($closing >= 1 && $closing <= 31) ? $closing : null,
                 'due_day'     => ($due >= 1 && $due <= 31) ? $due : null,
+                'account_id'  => $accountId,
                 'active'      => 1,
                 'created_by'  => $user['id'],
             ]);
@@ -222,6 +243,84 @@ class FinancialController extends Controller
         $this->requireSuperAdmin();
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
         $this->commissions->remove((int)$id);
+        $this->json(['success' => true]);
+    }
+
+    // ================= Contas bancárias =================
+
+    public function storeAccount()
+    {
+        $this->requireSuperAdmin();
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $user = $this->currentUser();
+
+        $validation = FinancialAccountRules::validateBankAccount($_POST);
+        if (!$validation['ok']) $this->json(['error' => implode(' ', $validation['errors'])], 400);
+        $data = $validation['data'];
+        $data['created_by'] = $user['id'];
+
+        try {
+            $id = $this->bankAccounts->create($data);
+        } catch (\Throwable $e) {
+            $this->json(['error' => 'Não foi possível salvar a conta. Rode a migration 167.'], 500);
+        }
+        $this->json(['success' => true, 'id' => $id]);
+    }
+
+    public function accountToggle($id = null)
+    {
+        $this->requireSuperAdmin();
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+        $active = $this->bankAccounts->toggleActive((int)$id);
+        $this->json(['success' => true, 'active' => $active]);
+    }
+
+    public function accountRemove($id = null)
+    {
+        $this->requireSuperAdmin();
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+        $this->bankAccounts->remove((int)$id);
+        $this->json(['success' => true]);
+    }
+
+    // ================= Categorias =================
+
+    public function storeCategory()
+    {
+        $this->requireSuperAdmin();
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $user = $this->currentUser();
+
+        $validation = FinancialAccountRules::validateCategory($_POST);
+        if (!$validation['ok']) $this->json(['error' => implode(' ', $validation['errors'])], 400);
+        $data = $validation['data'];
+        $data['created_by'] = $user['id'];
+
+        try {
+            $id = $this->categories->create($data);
+        } catch (\Throwable $e) {
+            $msg = $e->getMessage();
+            if (stripos($msg, 'Duplicate') !== false || stripos($msg, '23000') !== false) {
+                $this->json(['error' => 'Já existe uma categoria com esse nome e tipo.'], 409);
+            }
+            $this->json(['error' => 'Não foi possível salvar a categoria. Rode a migration 167.'], 500);
+        }
+        $this->json(['success' => true, 'id' => $id]);
+    }
+
+    public function categoryToggle($id = null)
+    {
+        $this->requireSuperAdmin();
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+        $active = $this->categories->toggleActive((int)$id);
+        $this->json(['success' => true, 'active' => $active]);
+    }
+
+    public function categoryRemove($id = null)
+    {
+        $this->requireSuperAdmin();
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+        $this->categories->remove((int)$id);
         $this->json(['success' => true]);
     }
 

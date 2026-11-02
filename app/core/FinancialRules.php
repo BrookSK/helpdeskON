@@ -58,6 +58,8 @@ class FinancialRules
         $installments = (int)($in['installments'] ?? 1);
         $installments = max(1, min(48, $installments));
         $cardId = !empty($in['card_id']) ? (int)$in['card_id'] : null;
+        $accountId = !empty($in['account_id']) ? (int)$in['account_id'] : null;
+        $categoryId = !empty($in['category_id']) ? (int)$in['category_id'] : null;
         if ($installments > 1 && !in_array($kind, self::INSTALLABLE_KINDS, true)) {
             $errors[] = 'Parcelamento não é permitido para este tipo.';
         }
@@ -113,10 +115,12 @@ class FinancialRules
                 'kind'            => $kind,
                 'direction'       => self::directionFor($kind, $in['direction'] ?? null),
                 'category'        => mb_substr(trim((string)($in['category'] ?? '')), 0, 80) ?: null,
+                'category_id'     => $categoryId,
                 'description'     => mb_substr(trim((string)($in['description'] ?? '')), 0, 255) ?: null,
                 'amount'          => $amount,
                 'installments'    => $installments,
                 'card_id'         => $cardId,
+                'account_id'      => $accountId,
                 'due_date'        => $dueDate ?: date('Y-m-d'),
                 'recurring_cycle' => $recurringCycle,
                 'recurring_until' => $recurringUntil,

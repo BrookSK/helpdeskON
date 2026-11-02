@@ -26,10 +26,13 @@ class FinancialTransaction
      */
     public function getAll(array $filters = []): array
     {
-        $sql = "SELECT t.*, c.name AS card_name, a.name AS asaas_account_name
+        $sql = "SELECT t.*, c.name AS card_name, a.name AS asaas_account_name,
+                       b.name AS bank_account_name, cat.name AS category_name
                 FROM fin_transactions t
                 LEFT JOIN fin_credit_cards c ON c.id = t.card_id
                 LEFT JOIN finance_accounts a ON a.id = t.asaas_account_id
+                LEFT JOIN fin_bank_accounts b ON b.id = t.account_id
+                LEFT JOIN fin_categories cat ON cat.id = t.category_id
                 WHERE 1=1";
         $params = [];
         if (!empty($filters['kind'])) {
@@ -160,6 +163,7 @@ class FinancialTransaction
                     'kind'            => $t['kind'],
                     'direction'       => $t['direction'],
                     'category'        => $t['category'],
+                    'category_id'     => $t['category_id'] ?? null,
                     'description'     => $t['description'],
                     'amount'          => $t['amount'],
                     'installments'    => 1,
@@ -168,6 +172,7 @@ class FinancialTransaction
                     'due_date'        => $nextDue,
                     'status'          => 'pending',
                     'card_id'         => $t['card_id'],
+                    'account_id'      => $t['account_id'] ?? null,
                     'asaas_account_id' => $t['asaas_account_id'],
                     'asaas_payment_id' => null,
                     'source'          => $t['source'],
@@ -190,6 +195,31 @@ class FinancialTransaction
     {
         // fin_installments tem ON DELETE CASCADE.
         $this->db->delete('fin_transactions', 'id = ?', [$id]);
+    }
+
+    /**
+     * Lançamentos vinculados a contas bancárias, agrupados por account_id.
+     * Usado para calcular o saldo de cada conta (FinancialAccountRules).
+     * Traz apenas as colunas necessárias (direction, amount, status).
+     *
+     * @return array<int,array<int,array>> account_id => [ linhas ]
+     */
+    public function movementsByAccount(): array
+    {
+        try {
+            $rows = $this->db->fetchAll(
+                "SELECT account_id, direction, amount, status
+                 FROM fin_transactions
+                 WHERE account_id IS NOT NULL"
+            );
+        } catch (\Throwable $e) {
+            return [];
+        }
+        $out = [];
+        foreach ($rows as $r) {
+            $out[(int)$r['account_id']][] = $r;
+        }
+        return $out;
     }
 
     /** Já existe lançamento importado com este ID do Asaas? (dedupe) */

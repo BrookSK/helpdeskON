@@ -17,6 +17,8 @@ $statusLabel = [
 function finMoney($v) { return 'R$ ' . number_format((float)$v, 2, ',', '.'); }
 $cardsById = [];
 foreach ($cards as $c) $cardsById[(int)$c['id']] = $c;
+$bankById = [];
+foreach (($bankAccounts ?? []) as $ba) $bankById[(int)$ba['id']] = $ba;
 ?>
 <div class="main-content">
     <div class="top-bar">
@@ -85,6 +87,8 @@ foreach ($cards as $c) $cardsById[(int)$c['id']] = $c;
     <?php // ===== Abas ===== ?>
     <ul class="nav nav-tabs mb-3" role="tablist">
         <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-lancamentos" type="button"><i class="bi bi-list-ul"></i> Lançamentos</button></li>
+        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-contas" type="button"><i class="bi bi-bank"></i> Contas (<?= count($bankAccounts) ?>)</button></li>
+        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-categorias" type="button"><i class="bi bi-tags"></i> Categorias (<?= count($categories) ?>)</button></li>
         <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-cartoes" type="button"><i class="bi bi-credit-card"></i> Cartões (<?= count($cards) ?>)</button></li>
         <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-comissoes" type="button"><i class="bi bi-hand-coins"></i> Comissões (<?= count($commissions) ?>)</button></li>
         <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-asaas" type="button"><i class="bi bi-cloud-arrow-down"></i> Asaas (<?= count($accounts) ?>)</button></li>
@@ -120,7 +124,22 @@ foreach ($cards as $c) $cardsById[(int)$c['id']] = $c;
                         </div>
                         <div class="col-md-2">
                             <label class="form-label small">Categoria</label>
-                            <input id="f-category" class="form-control form-control-sm" placeholder="Ex.: Infra, Ferramentas">
+                            <select id="f-category" class="form-select form-select-sm">
+                                <option value="">— Sem categoria —</option>
+                                <?php foreach ($categories as $cat): if ((int)$cat['active'] !== 1) continue; ?>
+                                <option value="<?= (int)$cat['id'] ?>" data-kind="<?= escape($cat['kind']) ?>"><?= escape($cat['name']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <div class="small text-muted" style="font-size:0.65rem;">Cadastre em <i class="bi bi-tags"></i> Categorias.</div>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small">Conta</label>
+                            <select id="f-account" class="form-select form-select-sm">
+                                <option value="">— Sem conta —</option>
+                                <?php foreach ($bankAccounts as $ba): if ((int)$ba['active'] !== 1) continue; ?>
+                                <option value="<?= (int)$ba['id'] ?>"><?= escape($ba['name']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
                         </div>
                         <div class="col-md-3">
                             <label class="form-label small">Descrição</label>
@@ -185,12 +204,12 @@ foreach ($cards as $c) $cardsById[(int)$c['id']] = $c;
                         <thead class="table-light">
                             <tr>
                                 <th>Vencimento</th><th>Tipo</th><th>Categoria</th><th>Descrição</th>
-                                <th>Origem</th><th>Parcelas</th><th class="text-end">Valor</th><th>Status</th><th></th>
+                                <th>Conta</th><th>Origem</th><th>Parcelas</th><th class="text-end">Valor</th><th>Status</th><th></th>
                             </tr>
                         </thead>
                         <tbody>
                             <?php if (empty($transactions)): ?>
-                            <tr><td colspan="9" class="text-center text-muted py-4">Nenhum lançamento neste filtro.</td></tr>
+                            <tr><td colspan="10" class="text-center text-muted py-4">Nenhum lançamento neste filtro.</td></tr>
                             <?php else: foreach ($transactions as $t):
                                 $meta = $kindLabel[$t['kind']] ?? $kindLabel['gasto'];
                                 $st = $statusLabel[$t['status']] ?? $statusLabel['pending'];
@@ -198,8 +217,13 @@ foreach ($cards as $c) $cardsById[(int)$c['id']] = $c;
                             <tr>
                                 <td class="text-nowrap"><?= escape($t['due_date'] ?? '—') ?></td>
                                 <td><span class="badge bg-<?= $meta['cls'] ?>"><i class="bi <?= $meta['icon'] ?>"></i> <?= $meta['label'] ?></span></td>
-                                <td><?= escape($t['category'] ?? '—') ?></td>
+                                <td><?= escape($t['category_name'] ?? $t['category'] ?? '—') ?></td>
                                 <td><?= escape($t['description'] ?? '—') ?></td>
+                                <td class="small text-muted">
+                                    <?php if (!empty($t['bank_account_name'])): ?>
+                                        <i class="bi bi-bank"></i> <?= escape($t['bank_account_name']) ?>
+                                    <?php else: ?>—<?php endif; ?>
+                                </td>
                                 <td class="small text-muted">
                                     <?php if ($t['source'] === 'asaas'): ?>
                                         <i class="bi bi-cloud-arrow-down"></i> <?= escape($t['asaas_account_name'] ?? 'Asaas') ?>
@@ -236,6 +260,89 @@ foreach ($cards as $c) $cardsById[(int)$c['id']] = $c;
             </div>
         </div>
 
+        <?php // ================= CONTAS BANCÁRIAS ================= ?>
+        <div class="tab-pane fade" id="tab-contas">
+            <div class="card mb-3">
+                <div class="card-header py-2"><strong>Nova conta bancária</strong> <span class="small text-muted">— saldo inicial + entradas pagas − saídas pagas = saldo atual</span></div>
+                <div class="card-body">
+                    <div class="row g-2">
+                        <div class="col-md-3"><label class="form-label small">Nome *</label><input id="ba-name" class="form-control form-control-sm" placeholder="Ex.: Nubank PJ"></div>
+                        <div class="col-md-3"><label class="form-label small">Banco</label><input id="ba-bank" class="form-control form-control-sm" placeholder="Ex.: Nubank, Inter"></div>
+                        <div class="col-md-3"><label class="form-label small">Saldo inicial (R$)</label><input id="ba-opening" class="form-control form-control-sm" placeholder="0,00" inputmode="decimal"></div>
+                        <div class="col-md-3 d-flex align-items-end"><button class="btn btn-sm btn-primary" onclick="saveAccount()"><i class="bi bi-plus-lg"></i> Salvar conta</button></div>
+                    </div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-body p-0">
+                    <table class="table table-hover mb-0 align-middle">
+                        <thead class="table-light"><tr><th>Nome</th><th>Banco</th><th class="text-end">Saldo inicial</th><th class="text-end">Saldo atual</th><th class="text-end">Previsto</th><th>Status</th><th></th></tr></thead>
+                        <tbody>
+                            <?php if (empty($bankAccounts)): ?><tr><td colspan="7" class="text-center text-muted py-4">Nenhuma conta bancária. Cadastre acima.</td></tr>
+                            <?php else: foreach ($bankAccounts as $ba): ?>
+                            <tr>
+                                <td class="fw-medium"><i class="bi bi-bank"></i> <?= escape($ba['name']) ?></td>
+                                <td class="small text-muted"><?= escape($ba['bank'] ?? '—') ?></td>
+                                <td class="text-end"><?= finMoney($ba['opening_balance']) ?></td>
+                                <td class="text-end fw-bold <?= (float)$ba['balance'] >= 0 ? 'text-success' : 'text-danger' ?>"><?= finMoney($ba['balance']) ?></td>
+                                <td class="text-end <?= (float)$ba['projected'] >= 0 ? 'text-muted' : 'text-danger' ?>"><?= finMoney($ba['projected']) ?></td>
+                                <td><?= ((int)$ba['active'] === 1) ? '<span class="badge bg-success">Ativa</span>' : '<span class="badge bg-secondary">Inativa</span>' ?></td>
+                                <td class="text-nowrap">
+                                    <button class="btn btn-sm btn-outline-secondary py-0 px-1" title="Ativar/Inativar" onclick="toggleAccount(<?= (int)$ba['id'] ?>)"><i class="bi bi-power"></i></button>
+                                    <button class="btn btn-sm btn-outline-danger py-0 px-1" title="Excluir (desvincula lançamentos)" onclick="removeAccount(<?= (int)$ba['id'] ?>)"><i class="bi bi-trash"></i></button>
+                                </td>
+                            </tr>
+                            <?php endforeach; endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <?php // ================= CATEGORIAS ================= ?>
+        <div class="tab-pane fade" id="tab-categorias">
+            <div class="card mb-3">
+                <div class="card-header py-2"><strong>Nova categoria</strong> <span class="small text-muted">— depois selecionável no lançamento</span></div>
+                <div class="card-body">
+                    <div class="row g-2">
+                        <div class="col-md-4"><label class="form-label small">Nome *</label><input id="cat-name" class="form-control form-control-sm" placeholder="Ex.: Infra, Vendas, Ferramentas"></div>
+                        <div class="col-md-3">
+                            <label class="form-label small">Aparece em</label>
+                            <select id="cat-kind" class="form-select form-select-sm">
+                                <option value="ambos">Ganhos e gastos</option>
+                                <option value="ganho">Só ganhos</option>
+                                <option value="gasto">Só gastos</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3 d-flex align-items-end"><button class="btn btn-sm btn-primary" onclick="saveCategory()"><i class="bi bi-plus-lg"></i> Salvar categoria</button></div>
+                    </div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-body p-0">
+                    <table class="table table-hover mb-0 align-middle">
+                        <thead class="table-light"><tr><th>Nome</th><th>Aparece em</th><th>Status</th><th></th></tr></thead>
+                        <tbody>
+                            <?php if (empty($categories)): ?><tr><td colspan="4" class="text-center text-muted py-4">Nenhuma categoria. Cadastre acima.</td></tr>
+                            <?php else:
+                                $catKindLabel = ['ambos' => 'Ganhos e gastos', 'ganho' => 'Só ganhos', 'gasto' => 'Só gastos'];
+                                foreach ($categories as $cat): ?>
+                            <tr>
+                                <td class="fw-medium"><i class="bi bi-tag"></i> <?= escape($cat['name']) ?></td>
+                                <td class="small text-muted"><?= escape($catKindLabel[$cat['kind']] ?? $cat['kind']) ?></td>
+                                <td><?= ((int)$cat['active'] === 1) ? '<span class="badge bg-success">Ativa</span>' : '<span class="badge bg-secondary">Inativa</span>' ?></td>
+                                <td class="text-nowrap">
+                                    <button class="btn btn-sm btn-outline-secondary py-0 px-1" title="Ativar/Inativar" onclick="toggleCategory(<?= (int)$cat['id'] ?>)"><i class="bi bi-power"></i></button>
+                                    <button class="btn btn-sm btn-outline-danger py-0 px-1" title="Excluir (desvincula lançamentos)" onclick="removeCategory(<?= (int)$cat['id'] ?>)"><i class="bi bi-trash"></i></button>
+                                </td>
+                            </tr>
+                            <?php endforeach; endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
         <?php // ================= CARTÕES ================= ?>
         <div class="tab-pane fade" id="tab-cartoes">
             <div class="card mb-3">
@@ -246,6 +353,15 @@ foreach ($cards as $c) $cardsById[(int)$c['id']] = $c;
                         <div class="col-md-2"><label class="form-label small">Limite (R$)</label><input id="c-limit" class="form-control form-control-sm" placeholder="0,00" inputmode="decimal"></div>
                         <div class="col-md-2"><label class="form-label small">Dia fechamento</label><input id="c-closing" type="number" min="1" max="31" class="form-control form-control-sm"></div>
                         <div class="col-md-2"><label class="form-label small">Dia vencimento</label><input id="c-due" type="number" min="1" max="31" class="form-control form-control-sm"></div>
+                        <div class="col-md-3">
+                            <label class="form-label small">Conta p/ pagar a fatura</label>
+                            <select id="c-account" class="form-select form-select-sm">
+                                <option value="">— Sem conta —</option>
+                                <?php foreach ($bankAccounts as $ba): if ((int)$ba['active'] !== 1) continue; ?>
+                                <option value="<?= (int)$ba['id'] ?>"><?= escape($ba['name']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
                         <div class="col-md-3 d-flex align-items-end"><button class="btn btn-sm btn-primary" onclick="saveCard()"><i class="bi bi-plus-lg"></i> Salvar cartão</button></div>
                     </div>
                 </div>
@@ -253,15 +369,19 @@ foreach ($cards as $c) $cardsById[(int)$c['id']] = $c;
             <div class="card">
                 <div class="card-body p-0">
                     <table class="table table-hover mb-0 align-middle">
-                        <thead class="table-light"><tr><th>Nome</th><th class="text-end">Limite</th><th class="text-end">Fatura prevista (parcelas pendentes)</th><th>Fechamento</th><th>Vencimento</th><th>Status</th><th></th></tr></thead>
+                        <thead class="table-light"><tr><th>Nome</th><th>Conta vinculada</th><th class="text-end">Limite</th><th class="text-end">Fatura prevista (parcelas pendentes)</th><th>Fechamento</th><th>Vencimento</th><th>Status</th><th></th></tr></thead>
                         <tbody>
-                            <?php if (empty($cards)): ?><tr><td colspan="7" class="text-center text-muted py-4">Nenhum cartão.</td></tr>
+                            <?php if (empty($cards)): ?><tr><td colspan="8" class="text-center text-muted py-4">Nenhum cartão.</td></tr>
                             <?php else: foreach ($cards as $c):
                                 $pend = $cardPending[(int)$c['id']] ?? 0.0;
                                 $usage = ((float)$c['limit'] > 0) ? round($pend / (float)$c['limit'] * 100, 1) : null;
                             ?>
                             <tr>
                                 <td class="fw-medium"><i class="bi bi-credit-card"></i> <?= escape($c['name']) ?></td>
+                                <td class="small text-muted">
+                                    <?php $cAcc = isset($c['account_id']) ? ($bankById[(int)$c['account_id']] ?? null) : null; ?>
+                                    <?php if ($cAcc): ?><i class="bi bi-bank"></i> <?= escape($cAcc['name']) ?><?php else: ?>—<?php endif; ?>
+                                </td>
                                 <td class="text-end"><?= finMoney($c['limit']) ?></td>
                                 <td class="text-end fw-bold <?= $pend > 0 ? 'text-danger' : 'text-muted' ?>">
                                     <?= finMoney($pend) ?><?= $usage !== null ? ' <span class="small text-muted">(' . $usage . '% do limite)</span>' : '' ?>
@@ -435,6 +555,24 @@ function refreshKindFields() {
         dirOut.textContent = (kind === 'emprestimo') ? 'Tomado (saída)' : 'Enviada (saída)';
         dirIn.textContent  = (kind === 'emprestimo') ? 'Concedido (entrada)' : 'Recebida (entrada)';
     }
+    filterCategoriesByKind(kind);
+}
+
+// Mostra só as categorias compatíveis com o tipo: 'ambos' sempre; 'ganho'/'gasto'
+// apenas quando o lançamento é do mesmo tipo. Tipos sem categoria dedicada
+// (salario/emprestimo/transferencia) veem apenas as 'ambos'.
+function filterCategoriesByKind(kind) {
+    const sel = document.getElementById('f-category');
+    if (!sel) return;
+    let resetNeeded = false;
+    Array.from(sel.options).forEach(opt => {
+        if (!opt.value) return; // "— Sem categoria —" sempre visível
+        const catKind = opt.getAttribute('data-kind') || 'ambos';
+        const show = (catKind === 'ambos') || (catKind === kind);
+        opt.hidden = !show;
+        if (!show && opt.selected) resetNeeded = true;
+    });
+    if (resetNeeded) sel.value = '';
 }
 document.getElementById('f-kind').addEventListener('change', refreshKindFields);
 refreshKindFields();
@@ -484,7 +622,8 @@ async function saveTransaction() {
     const kind = document.getElementById('f-kind').value;
     fd.append('kind', kind);
     if (KIND_DIRECTIONS[kind] === 'both') fd.append('direction', document.getElementById('f-direction').value);
-    fd.append('category', document.getElementById('f-category').value);
+    fd.append('category_id', document.getElementById('f-category').value);
+    fd.append('account_id', document.getElementById('f-account').value);
     fd.append('description', document.getElementById('f-description').value);
     fd.append('amount', document.getElementById('f-amount').value);
     fd.append('installments', document.getElementById('f-installments').value || '1');
@@ -515,10 +654,42 @@ async function saveCard() {
     fd.append('limit', document.getElementById('c-limit').value);
     fd.append('closing_day', document.getElementById('c-closing').value);
     fd.append('due_day', document.getElementById('c-due').value);
+    fd.append('account_id', document.getElementById('c-account').value);
     const r = await post('financial/storeCard', fd);
     if (r) location.reload();
 }
 async function toggleCard(id) { const r = await post('financial/cardToggle/' + id, new FormData()); if (r) location.reload(); }
+
+// ===== Contas bancárias =====
+async function saveAccount() {
+    const fd = new FormData();
+    fd.append('name', document.getElementById('ba-name').value.trim());
+    fd.append('bank', document.getElementById('ba-bank').value.trim());
+    fd.append('opening_balance', document.getElementById('ba-opening').value);
+    const r = await post('financial/storeAccount', fd);
+    if (r) location.reload();
+}
+async function toggleAccount(id) { const r = await post('financial/accountToggle/' + id, new FormData()); if (r) location.reload(); }
+async function removeAccount(id) {
+    if (!confirm('Excluir esta conta? Os lançamentos ligados a ela ficam sem conta (não são apagados).')) return;
+    const r = await post('financial/accountRemove/' + id, new FormData());
+    if (r) location.reload();
+}
+
+// ===== Categorias =====
+async function saveCategory() {
+    const fd = new FormData();
+    fd.append('name', document.getElementById('cat-name').value.trim());
+    fd.append('kind', document.getElementById('cat-kind').value);
+    const r = await post('financial/storeCategory', fd);
+    if (r) location.reload();
+}
+async function toggleCategory(id) { const r = await post('financial/categoryToggle/' + id, new FormData()); if (r) location.reload(); }
+async function removeCategory(id) {
+    if (!confirm('Excluir esta categoria? Os lançamentos ligados a ela ficam sem categoria (não são apagados).')) return;
+    const r = await post('financial/categoryRemove/' + id, new FormData());
+    if (r) location.reload();
+}
 
 async function syncAsaas() {
     const btn = document.getElementById('btn-sync');
