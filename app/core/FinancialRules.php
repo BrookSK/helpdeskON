@@ -80,9 +80,16 @@ class FinancialRules
         $recurringUntil = null;
         $ru = trim((string)($in['recurring_until'] ?? ''));
         if ($ru !== '') {
-            $t2 = strtotime($ru);
-            if ($t2 === false) $errors[] = 'Data final da recorrência inválida.';
-            else $recurringUntil = date('Y-m-d', $t2);
+            if (self::validMonth($ru)) {
+                // A tela manda só o mês ("repetir até março/2027"): vale o mês
+                // inteiro, então o fim é o último dia dele. Antes virava dia 1º
+                // e a ocorrência do próprio mês final ficava de fora.
+                $recurringUntil = date('Y-m-t', strtotime($ru . '-01'));
+            } else {
+                $t2 = strtotime($ru);
+                if ($t2 === false) $errors[] = 'Data final da recorrência inválida.';
+                else $recurringUntil = date('Y-m-d', $t2);
+            }
         }
 
         // Data do empréstimo (quando pegou/concedeu) — opcional.

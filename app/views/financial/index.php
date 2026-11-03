@@ -191,9 +191,10 @@ foreach (($bankAccounts ?? []) as $ba) $bankById[(int)$ba['id']] = $ba;
                                     <option value="monthly">Mensal</option>
                                     <option value="yearly">Anual</option>
                                 </select>
-                                <input id="f-recurring-until" type="month" class="form-control form-control-sm" title="Até quando (vazio = para sempre)">
+                                <span class="small text-muted text-nowrap">até</span>
+                                <input id="f-recurring-until" type="month" class="form-control form-control-sm" title="Último mês da repetição (incluído). Vazio = para sempre.">
                             </div>
-                            <div class="small text-muted" style="font-size:0.65rem;">Ao pagar, a próxima ocorrência nasce automaticamente.</div>
+                            <div class="small text-muted" style="font-size:0.65rem;" id="f-recurring-hint">Último mês incluído. Vazio = repete para sempre. Os próximos meses aparecem como "Previsto".</div>
                         </div>
                         <div class="col-md-2">
                             <label class="form-label small" id="f-due-label">Vencimento *</label>
@@ -963,6 +964,27 @@ function filterCategoriesByKind(kind) {
 }
 document.getElementById('f-kind').addEventListener('change', refreshKindFields);
 refreshKindFields();
+// Mostra quantas vezes vai repetir com o mês final escolhido.
+function refreshRecurringHint() {
+    const hint = document.getElementById('f-recurring-hint');
+    const until = document.getElementById('f-recurring-until').value; // YYYY-MM
+    const due = document.getElementById('f-due').value;              // YYYY-MM-DD
+    const yearly = document.getElementById('f-cycle').value === 'yearly';
+    if (!until || !due) {
+        hint.textContent = 'Último mês incluído. Vazio = repete para sempre. Os próximos meses aparecem como "Previsto".';
+        return;
+    }
+    const [dy, dm] = due.split('-').map(Number);
+    const [uy, um] = until.split('-').map(Number);
+    const months = (uy * 12 + um) - (dy * 12 + dm);
+    if (months < 0) { hint.textContent = 'O mês final é antes do vencimento: só este lançamento será criado.'; return; }
+    const times = (yearly ? Math.floor(months / 12) : months) + 1;
+    hint.textContent = `Repete ${times}x no total (de ${String(dm).padStart(2, '0')}/${dy} até ${String(um).padStart(2, '0')}/${uy}, incluído).`;
+}
+['f-recurring-until', 'f-cycle', 'f-due'].forEach(id => {
+    document.getElementById(id).addEventListener('change', refreshRecurringHint);
+    document.getElementById(id).addEventListener('input', refreshRecurringHint);
+});
 document.getElementById('f-recurring-chk').addEventListener('change', function() {
     document.getElementById('f-recurring-fields').style.display = this.checked ? '' : 'none';
 });

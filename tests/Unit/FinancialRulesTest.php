@@ -191,6 +191,31 @@ final class FinancialRulesTest extends TestCase
         $this->assertNull(FinancialRules::loanInitialMovement($gasto, '', '2026-11-02'));
     }
 
+    public function testRepetirAteUmMesIncluiOMesInteiro(): void
+    {
+        // Tela manda só o mês: "repetir até março/2027".
+        $r = FinancialRules::validateTransaction([
+            'kind' => 'ganho', 'amount' => 15454.55, 'due_date' => '2026-11-02',
+            'recurring_cycle' => 'monthly', 'recurring_until' => '2027-03',
+        ]);
+        $this->assertTrue($r['ok']);
+        $this->assertSame('2027-03-31', $r['data']['recurring_until']);
+        // Março (02/03) entra; abril não.
+        $this->assertSame(
+            ['2026-12-02', '2027-01-02', '2027-02-02', '2027-03-02'],
+            FinancialRules::recurringOccurrences('2026-11-02', 'monthly', $r['data']['recurring_until'], '2027-12-31')
+        );
+        // Fevereiro: último dia 28.
+        $this->assertSame('2027-02-28', FinancialRules::validateTransaction([
+            'kind' => 'ganho', 'amount' => 1, 'due_date' => '2026-11-02',
+            'recurring_cycle' => 'monthly', 'recurring_until' => '2027-02',
+        ])['data']['recurring_until']);
+        // Vazio = sem fim.
+        $this->assertNull(FinancialRules::validateTransaction([
+            'kind' => 'ganho', 'amount' => 1, 'due_date' => '2026-11-02', 'recurring_cycle' => 'monthly',
+        ])['data']['recurring_until']);
+    }
+
     public function testRecurringOccurrencesRespeitaLimiteEFim(): void
     {
         $this->assertSame(
