@@ -100,7 +100,14 @@ test.describe.serial('fluxo comercial: reunião até proposta', () => {
     await page.click('#tab-sm-btn');
     await expect(page.locator('#rs-body')).toHaveText('Resumo revisado pelo comercial.', { useInnerText: true });
 
+    // Envio: a lista traz o cliente da reunião marcado e aceita um número na hora.
     await page.click('#min-send-btn');
+    await expect(page.locator('#rcpt-list')).toContainText('acme-e2e@example.test');
+    await page.fill('#rcpt-name', 'Comercial E2E');
+    await page.fill('#rcpt-phone', '11 99999-0000');
+    await page.click('#sm-send button:has-text("Adicionar")');
+    await expect(page.locator('#rcpt-list')).toContainText('Comercial E2E');
+    await page.click('#rcpt-send-btn');
     await expect(page.locator('#sm-state')).toContainText('Enviada');
     state = fixture('state', recs.draft).rec;
     expect(state.minutes_sent_at).not.toBeNull();
