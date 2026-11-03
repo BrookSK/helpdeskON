@@ -518,9 +518,10 @@ class ProposalRules
 
         $hasMonthly = $comm['monthly']['gross'] > 0;
         $hasOnce = $comm['once']['gross'] > 0;
+        $projectionMonths = self::projectionMonths($content);
 
         // Planos 3/6/12 só quando há mensalidade (há mais de uma opção para o cliente).
-        $plans = $hasMonthly ? self::plans($items, $content['discount_6'] ?? 20, $content['discount_12'] ?? 30) : null;
+        $plans = $hasMonthly ? self::plans($items, $content['discount_6'] ?? 20, $content['discount_12'] ?? 30, $projectionMonths) : null;
 
         // Opções selecionáveis no aceite: só existem quando há mais de um plano.
         $planOptions = [];
@@ -543,7 +544,8 @@ class ProposalRules
             $timeline['start'],
             $timeline['end'],
             $content['expected_return'] ?? null,
-            $comm['has_schedule'] ? $comm['monthly_by_month'] : null
+            $comm['has_schedule'] ? $comm['monthly_by_month'] : null,
+            $projectionMonths
         );
 
         // Recorrência/renovação estruturada por item (para PDF e online).
@@ -590,6 +592,9 @@ class ProposalRules
             'plans' => $plans,
             'plan_options' => $planOptions, // vazio => aceite simples
             'projection' => $projection,
+            'projection_months' => $projectionMonths,
+            // Só pontual e sem retorno estimado: a projeção não diz nada (valor no mês 1 e zeros).
+            'show_projection' => $hasMonthly || self::num($content['expected_return'] ?? 0) > 0,
             'vars' => $vars,
         ];
     }
@@ -619,13 +624,16 @@ class ProposalRules
     /**
      * Três planos de compromisso (3, 6 e 12 meses) a partir da mensalidade cheia.
      * O desconto incide só na mensalidade; a implantação é igual nos três.
-     * Índice do gráfico: custo em 12 meses do plano 3 meses = 100.
+     * year/avg/save_year/index12 são sempre de 12 meses (resumo e aceite);
+     * cum/index/period_* seguem o prazo da projeção ($months).
+     * Índice do gráfico: custo do plano 3 meses no último mês do prazo = 100.
      *
      * @param array<int,array> $items
-     * @return array{once:float,list:float,items:array<int,array>}
+     * @return array{once:float,list:float,months:int,items:array<int,array>}
      */
-    public static function plans(array $items, $discount6 = 20, $discount12 = 30): array
+    public static function plans(array $items, $discount6 = 20, $discount12 = 30, int $months = 12): array
     {
+        $n = max(1, $months);
         $t = self::totals($items);
         $list = $t['monthly'];
         $once = $t['once'];
@@ -638,7 +646,8 @@ class ProposalRules
             $monthly = round($list * (1 - $def['discount'] / 100), 2);
             $year = round($once + $monthly * 12, 2);
             $cum = [];
-            for ($m = 1; $m <= 12; $m++) $cum[] = round($once + $monthly * $m, 2);
+            for ($m = 1; $m <= $n; $m++) $cum[] = round($once + $monthly * $m, 2);
+            $period = round($once + $monthly * $n, 2);
             $out[] = [
                 'label' => $def['label'],
                 'months' => $def['months'],
@@ -649,16 +658,20 @@ class ProposalRules
                 'avg' => round($year / 12, 2),
                 'save_month' => round($list - $monthly, 2),
                 'save_year' => round(($list - $monthly) * 12, 2),
+                'period_total' => $period,
+                'period_avg' => round($period / $n, 2),
+                'save_period' => round(($list - $monthly) * $n, 2),
                 'cum' => $cum,
             ];
         }
         $base = $out[0]['year'] > 0 ? $out[0]['year'] : 1.0;
+        $periodBase = $out[0]['period_total'] > 0 ? $out[0]['period_total'] : 1.0;
         foreach ($out as &$p) {
-            $p['index'] = array_map(fn($v) => round($v / $base * 100, 1), $p['cum']);
+            $p['index'] = array_map(fn($v) => round($v / $periodBase * 100, 1), $p['cum']);
             $p['index12'] = (int)round($p['year'] / $base * 100);
         }
         unset($p);
-        return ['once' => $once, 'list' => $list, 'items' => $out];
+        return ['once' => $once, 'list' => $list, 'months' => $n, 'items' => $out];
     }
 
     /**
@@ -697,23 +710,25 @@ class ProposalRules
     }
 
     /**
-     * Projeção de 12 meses a partir do início do desenvolvimento.
+     * Projeção de $months meses (3, 6 ou 12) a partir do início do desenvolvimento.
      * Item pontual entra no mês em que começa no cronograma; item mensal entra
      * todo mês a partir do seu início. O retorno estimado começa no mês
-     * seguinte ao fim do desenvolvimento.
+     * seguinte ao fim do desenvolvimento. O que começa depois do prazo fica fora.
      *
      * @param array<int,array> $items
      * @return array{months:array<int,array>,invest:float,return:float,payback:?int,roi:?float}
      */
-    public static function projection(array $items, $devStart = null, $devEnd = null, $monthlyReturn = null, ?array $monthlyNetByMonth = null): array
+    public static function projection(array $items, $devStart = null, $devEnd = null, $monthlyReturn = null, ?array $monthlyNetByMonth = null, int $months = 12): array
     {
+        $n = max(1, $months);
         $start = self::normalizeDate($devStart) ?: date('Y-m-01');
         $base = (int)date('Y', strtotime($start)) * 12 + (int)date('n', strtotime($start)) - 1;
+        // Mês relativo ao início (0 = primeiro); sem teto, para o chamador saber se passou do prazo.
         $offset = function (?string $d) use ($base): int {
             if (!$d) return 0;
             $t = strtotime($d);
             $o = (int)date('Y', $t) * 12 + (int)date('n', $t) - 1 - $base;
-            return max(0, min(11, $o));
+            return max(0, $o);
         };
 
         // Mensalidade cheia total (para ratear o desconto temporal por mês).
@@ -725,13 +740,13 @@ class ProposalRules
         }
         $useNet = is_array($monthlyNetByMonth) && $monthlyGrossTotal > 0;
 
-        $invest = array_fill(0, 12, 0.0);
+        $invest = array_fill(0, $n, 0.0);
         $lastEnd = self::normalizeDate($devEnd);
         foreach ($items as $it) {
             $amount = self::num($it['amount'] ?? 0);
             $from = $offset(self::normalizeDate($it['schedule_start'] ?? null));
             if (self::normalizeBilling($it['billing'] ?? null) === self::BILLING_MONTHLY) {
-                for ($m = $from; $m < 12; $m++) {
+                for ($m = $from; $m < $n; $m++) {
                     // Com desconto temporal: substitui o valor cheio pela fração
                     // líquida daquele mês (líquido do mês / cheio total × amount do item).
                     if ($useNet) {
@@ -741,7 +756,7 @@ class ProposalRules
                         $invest[$m] += $amount;
                     }
                 }
-            } else {
+            } elseif ($from < $n) {
                 $invest[$from] += $amount;
             }
             $end = self::normalizeDate($it['schedule_end'] ?? null);
@@ -749,13 +764,13 @@ class ProposalRules
         }
 
         $ret = self::num($monthlyReturn);
-        $returnFrom = $lastEnd ? min(12, $offset($lastEnd) + 1) : 1;
+        $returnFrom = $lastEnd ? $offset($lastEnd) + 1 : 1;
         $months = [];
         $cumInvest = 0.0;
         $cumReturn = 0.0;
         $payback = null;
         $names = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
-        for ($m = 0; $m < 12; $m++) {
+        for ($m = 0; $m < $n; $m++) {
             $abs = $base + $m;
             $r = ($ret > 0 && $m >= $returnFrom) ? $ret : 0.0;
             $cumInvest += $invest[$m];
@@ -793,7 +808,18 @@ class ProposalRules
         'renewal_text'          => 4000, // Renovação de serviços pontuais
         'summary_text'          => 4000, // Resumo final
         'payment_method'        => 500,  // Condição de pagamento desta proposta
+        'projection_months'     => 2,    // Prazo da projeção no PDF: 3, 6 ou 12 meses
     ];
+
+    /** Prazos aceitos para a projeção do PDF; o último é o padrão. */
+    public const PROJECTION_MONTHS = [3, 6, 12];
+
+    /** Prazo da projeção (3, 6 ou 12); vazio ou inválido => 12. */
+    public static function projectionMonths(array $content): int
+    {
+        $m = (int)($content['projection_months'] ?? 0);
+        return in_array($m, self::PROJECTION_MONTHS, true) ? $m : 12;
+    }
 
     /** Texto inicial dos campos variáveis de uma proposta nova. */
     public static function defaultContent(): array
@@ -823,6 +849,10 @@ class ProposalRules
             if ($key === 'discount_6' || $key === 'discount_12') {
                 if ($v === '') { $out[$key] = ''; continue; }
                 $out[$key] = (string)self::pct($v, 0);
+                continue;
+            }
+            if ($key === 'projection_months') {
+                $out[$key] = in_array((int)$v, self::PROJECTION_MONTHS, true) ? (string)(int)$v : '';
                 continue;
             }
             $out[$key] = mb_strlen($v) > $max ? mb_substr($v, 0, $max) : $v;

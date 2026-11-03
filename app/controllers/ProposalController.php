@@ -597,6 +597,8 @@ class ProposalController extends Controller
             'discounts' => $data['discounts'],
             'hasDiscount' => $data['has_discount'],
             'projection' => $data['projection'],
+            'projectionMonths' => $data['projection_months'],
+            'showProjection' => $data['show_projection'],
             'vars' => $data['vars'],
             'acceptLink' => $this->publicBase() . '/proposal/show/' . $proposal['public_token'],
         ], $public);
