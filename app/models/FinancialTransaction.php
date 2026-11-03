@@ -259,7 +259,20 @@ class FinancialTransaction
         // visível; a próxima aparece como pendente no mês seguinte.
         if (!empty($t['recurring_cycle'])) {
             $nextDue = FinancialRules::recurringNextDate((string)$t['due_date'], (string)$t['recurring_cycle']);
-            if (FinancialRules::recurringContinues($nextDue, $t['recurring_until'] ?? null)) {
+            // Não duplica se a próxima ocorrência já foi gravada (ex.: paga
+            // antecipadamente a partir da previsão).
+            $exists = $this->db->fetch(
+                "SELECT id FROM fin_transactions
+                 WHERE kind = ? AND direction = ? AND recurring_cycle = ? AND due_date = ?
+                   AND status <> 'cancelled' AND installments <= 1
+                   AND LOWER(TRIM(COALESCE(description, ''))) = ?
+                   AND COALESCE(card_id, 0) = ?",
+                [
+                    $t['kind'], $t['direction'], $t['recurring_cycle'], $nextDue,
+                    mb_strtolower(trim((string)($t['description'] ?? ''))), (int)($t['card_id'] ?? 0),
+                ]
+            );
+            if (!$exists && FinancialRules::recurringContinues($nextDue, $t['recurring_until'] ?? null)) {
                 $clone = [
                     'kind'            => $t['kind'],
                     'direction'       => $t['direction'],
@@ -465,6 +478,77 @@ class FinancialTransaction
         } catch (\Throwable $e) {
             return [];
         }
+    }
+
+    /**
+     * Lançamentos recorrentes à vista (base para projetar os meses futuros),
+     * com os nomes de categoria, conta e pessoa que a lista exibe.
+     */
+    public function recurringRows(): array
+    {
+        try {
+            $rows = $this->db->fetchAll(
+                "SELECT t.*, cat.name AS category_name, b.name AS bank_account_name, c.name AS card_name
+                 FROM fin_transactions t
+                 LEFT JOIN fin_categories cat ON cat.id = t.category_id
+                 LEFT JOIN fin_bank_accounts b ON b.id = t.account_id
+                 LEFT JOIN fin_credit_cards c ON c.id = t.card_id
+                 WHERE t.recurring_cycle IS NOT NULL AND t.installments <= 1 AND t.status <> 'cancelled'"
+            );
+        } catch (\Throwable $e) {
+            return [];
+        }
+        // Nome da pessoa (coluna user_id só existe após a migration 169).
+        $ids = [];
+        foreach ($rows as $r) if (!empty($r['user_id'])) $ids[(int)$r['user_id']] = true;
+        $names = [];
+        if ($ids) {
+            $in = implode(',', array_fill(0, count($ids), '?'));
+            try {
+                foreach ($this->db->fetchAll("SELECT id, name FROM users WHERE id IN ($in)", array_keys($ids)) as $u) {
+                    $names[(int)$u['id']] = $u['name'];
+                }
+            } catch (\Throwable $e) {}
+        }
+        foreach ($rows as &$r) {
+            $r['person_name'] = !empty($r['user_id']) ? ($names[(int)$r['user_id']] ?? null) : null;
+        }
+        unset($r);
+        return $rows;
+    }
+
+    /**
+     * Grava como PAGA uma ocorrência prevista de um recorrente, na data
+     * informada. Não cria a seguinte: a projeção continua a partir dela.
+     * Retorna o id criado, ou null se a data não é uma ocorrência válida da
+     * série ou se essa ocorrência já existe.
+     */
+    public function payProjected(int $fromId, string $date): ?int
+    {
+        $base = $this->findById($fromId);
+        if (!$base || empty($base['recurring_cycle']) || (int)$base['installments'] > 1) return null;
+
+        $key = FinancialRules::recurringChainKey($base);
+        $chain = array_values(array_filter($this->recurringRows(), fn($r) => FinancialRules::recurringChainKey($r) === $key));
+        foreach ($chain as $r) {
+            if (substr((string)$r['due_date'], 0, 10) === $date) return null; // já existe
+        }
+        $valid = array_column(FinancialRules::projectRecurring($chain, $date), 'due_date');
+        if (!in_array($date, $valid, true)) return null;
+
+        $row = [
+            'kind' => $base['kind'], 'direction' => $base['direction'],
+            'category' => $base['category'], 'category_id' => $base['category_id'] ?? null,
+            'description' => $base['description'], 'amount' => $base['amount'],
+            'installments' => 1, 'recurring_cycle' => $base['recurring_cycle'],
+            'recurring_until' => $base['recurring_until'], 'due_date' => $date,
+            'status' => 'paid', 'paid_at' => date('Y-m-d H:i:s'),
+            'card_id' => $base['card_id'], 'account_id' => $base['account_id'] ?? null,
+            'asaas_account_id' => $base['asaas_account_id'], 'asaas_payment_id' => null,
+            'source' => $base['source'], 'created_by' => $base['created_by'],
+        ];
+        if (array_key_exists('user_id', $base)) $row['user_id'] = $base['user_id'];
+        return $this->create($row);
     }
 
     /** Já existe lançamento importado com este ID do Asaas? (dedupe) */

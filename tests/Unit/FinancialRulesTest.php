@@ -77,12 +77,22 @@ final class FinancialRulesTest extends TestCase
         $this->assertSame('monthly', $ok['data']['recurring_cycle']);
         $this->assertSame('2027-12-31', $ok['data']['recurring_until']);
 
-        // Recorrente não pode ser parcelado nem em salário.
+        // Recorrente não pode ser parcelado.
         $this->assertFalse(FinancialRules::validateTransaction([
             'kind' => 'gasto', 'amount' => 10, 'recurring_cycle' => 'monthly', 'installments' => 3,
         ])['ok']);
+        // Salário pode ser recorrente (pedido do usuário: salário mensal).
+        $sal = FinancialRules::validateTransaction([
+            'kind' => 'salario', 'amount' => 10, 'recurring_cycle' => 'monthly', 'due_date' => '2026-11-05',
+        ]);
+        $this->assertTrue($sal['ok']);
+        $this->assertSame('monthly', $sal['data']['recurring_cycle']);
+        // Empréstimo e transferência continuam sem recorrência.
         $this->assertFalse(FinancialRules::validateTransaction([
-            'kind' => 'salario', 'amount' => 10, 'recurring_cycle' => 'monthly',
+            'kind' => 'emprestimo', 'amount' => 10, 'recurring_cycle' => 'monthly',
+        ])['ok']);
+        $this->assertFalse(FinancialRules::validateTransaction([
+            'kind' => 'transferencia', 'amount' => 10, 'recurring_cycle' => 'monthly',
         ])['ok']);
 
         $this->assertSame('2026-11-10', FinancialRules::recurringNextDate('2026-10-10', 'monthly'));
@@ -133,6 +143,121 @@ final class FinancialRulesTest extends TestCase
         ]);
         $this->assertSame(750.0, $s['to_pay']);
         $this->assertSame(750.0, $s['paid']);
+    }
+
+    public function testEmprestimoTomadoGeraEntradaNaDataDoEmprestimo(): void
+    {
+        $loan = FinancialRules::validateTransaction([
+            'kind' => 'emprestimo', 'direction' => 'out', 'amount' => 4600, 'installments' => 3,
+            'due_date' => '2026-11-02', 'loan_date' => '2026-10-20', 'description' => 'Empréstimo banco',
+            'account_id' => 2, 'user_id' => 5,
+        ])['data'];
+        $m = FinancialRules::loanInitialMovement($loan, '', '2026-11-02');
+        $this->assertSame('in', $m['direction']);          // parcelas saem, valor entra
+        $this->assertSame(4600.0, $m['amount']);           // vazio = total
+        $this->assertSame('2026-10-20', $m['due_date']);
+        $this->assertSame('paid', $m['status']);           // data já passou
+        $this->assertSame('2026-10-20 00:00:00', $m['paid_at']);
+        $this->assertSame(1, $m['installments']);
+        $this->assertSame(2, $m['account_id']);
+        $this->assertSame(5, $m['user_id']);
+        $this->assertStringContainsString('valor recebido', $m['description']);
+    }
+
+    public function testEmprestimoConcedidoGeraSaidaEUsaValorInformado(): void
+    {
+        $loan = FinancialRules::validateTransaction([
+            'kind' => 'emprestimo', 'direction' => 'in', 'amount' => 4600, 'installments' => 3,
+            'due_date' => '2026-12-02', 'loan_date' => '2026-11-20',
+        ])['data'];
+        $m = FinancialRules::loanInitialMovement($loan, '4.000,00', '2026-11-02');
+        $this->assertSame('out', $m['direction']);          // parcelas entram, valor sai
+        $this->assertSame(4000.0, $m['amount']);            // sem os juros
+        $this->assertSame('pending', $m['status']);         // data futura
+        $this->assertNull($m['paid_at']);
+        $this->assertStringContainsString('valor emprestado', $m['description']);
+    }
+
+    public function testMovimentoInicialSoParaEmprestimoComData(): void
+    {
+        $semData = FinancialRules::validateTransaction([
+            'kind' => 'emprestimo', 'amount' => 100, 'due_date' => '2026-11-02',
+        ])['data'];
+        $this->assertNull(FinancialRules::loanInitialMovement($semData, '', '2026-11-02'));
+
+        $gasto = FinancialRules::validateTransaction([
+            'kind' => 'gasto', 'amount' => 100, 'due_date' => '2026-11-02', 'loan_date' => '2026-11-01',
+        ])['data'];
+        $this->assertNull(FinancialRules::loanInitialMovement($gasto, '', '2026-11-02'));
+    }
+
+    public function testRecurringOccurrencesRespeitaLimiteEFim(): void
+    {
+        $this->assertSame(
+            ['2026-12-05', '2027-01-05', '2027-02-05'],
+            FinancialRules::recurringOccurrences('2026-11-05', 'monthly', null, '2027-02-28')
+        );
+        // Fim da recorrência em jan/2027.
+        $this->assertSame(
+            ['2026-12-05', '2027-01-05'],
+            FinancialRules::recurringOccurrences('2026-11-05', 'monthly', '2027-01-31', '2027-06-30')
+        );
+        $this->assertSame([], FinancialRules::recurringOccurrences('2026-11-05', 'monthly', null, '2026-11-30'));
+        $this->assertSame(['2027-11-05'], FinancialRules::recurringOccurrences('2026-11-05', 'yearly', null, '2027-12-31'));
+    }
+
+    public function testProjetaSalarioRecorrenteNosMesesSeguintes(): void
+    {
+        $sal = [
+            'id' => 10, 'kind' => 'salario', 'direction' => 'out', 'description' => 'Salário Isaac',
+            'amount' => 3000, 'installments' => 1, 'status' => 'pending', 'due_date' => '2026-11-05',
+            'recurring_cycle' => 'monthly', 'recurring_until' => null, 'card_id' => null, 'account_id' => 3,
+        ];
+        $p = FinancialRules::projectRecurring([$sal], '2027-01-31');
+        $this->assertSame(['2026-12-05', '2027-01-05'], array_column($p, 'due_date'));
+        $this->assertTrue($p[0]['is_projected']);
+        $this->assertSame(10, $p[0]['projected_from']);
+        $this->assertSame('pending', $p[0]['status']);
+        $this->assertSame(3, $p[0]['account_id']);
+        $this->assertSame(3000, $p[0]['amount']);
+    }
+
+    public function testProjecaoPartedaOcorrenciaMaisRecenteDaSerie(): void
+    {
+        // Nov pago gerou Dez pendente (mesma série): projeta a partir de Dez.
+        $base = [
+            'kind' => 'salario', 'direction' => 'out', 'description' => 'Salário Isaac', 'amount' => 3000,
+            'installments' => 1, 'recurring_cycle' => 'monthly', 'recurring_until' => null, 'card_id' => null,
+        ];
+        $rows = [
+            ['id' => 10, 'status' => 'paid', 'due_date' => '2026-11-05'] + $base,
+            ['id' => 11, 'status' => 'pending', 'due_date' => '2026-12-05'] + $base,
+            // Outra série (outra pessoa/descrição) é independente.
+            ['id' => 12, 'status' => 'pending', 'due_date' => '2026-11-10', 'description' => 'Salário Ruan'] + $base,
+            // Cancelado e parcelado não projetam.
+            ['id' => 13, 'status' => 'cancelled', 'due_date' => '2026-11-01', 'description' => 'X'] + $base,
+            ['id' => 14, 'status' => 'pending', 'due_date' => '2026-11-01', 'description' => 'Y', 'installments' => 3] + $base,
+        ];
+        $p = FinancialRules::projectRecurring($rows, '2027-01-31');
+        $isaac = array_values(array_filter($p, fn($r) => $r['description'] === 'Salário Isaac'));
+        $ruan = array_values(array_filter($p, fn($r) => $r['description'] === 'Salário Ruan'));
+        $this->assertSame(['2027-01-05'], array_column($isaac, 'due_date'));
+        $this->assertSame(11, $isaac[0]['projected_from']);
+        $this->assertSame(['2026-12-10', '2027-01-10'], array_column($ruan, 'due_date'));
+        $this->assertCount(3, $p);
+    }
+
+    public function testResumoDeMesFuturoNaoChamaDeAtrasado(): void
+    {
+        $rows = [
+            ['direction' => 'out', 'kind' => 'salario', 'amount' => 3000, 'status' => 'pending', 'due_date' => '2026-12-05'],
+            ['direction' => 'out', 'kind' => 'salario', 'amount' => 3000, 'status' => 'pending', 'due_date' => '2027-01-05'],
+            ['direction' => 'out', 'kind' => 'gasto', 'amount' => 100, 'status' => 'pending', 'due_date' => '2026-10-30'],
+        ];
+        // Visto em 02/11/2026, olhando janeiro/2027.
+        $s = FinancialRules::cashSummary($rows, '2027-01', 0.0, '2026-11-02');
+        $this->assertSame(6100.0, $s['to_pay']);
+        $this->assertSame(100.0, $s['overdue_pay']); // só o de outubro já venceu
     }
 
     public function testValorZeroOuTipoInvalidoRejeita(): void

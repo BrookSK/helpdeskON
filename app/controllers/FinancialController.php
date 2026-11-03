@@ -50,6 +50,20 @@ class FinancialController extends Controller
             $transactions = [];
         }
 
+        // Recorrentes (salário, assinaturas...): ocorrências futuras ainda não
+        // gravadas aparecem como PREVISTAS no mês delas.
+        $monthEnd = date('Y-m-t', strtotime($filters['month'] . '-01'));
+        $projected = FinancialRules::projectRecurring($this->transactions->recurringRows(), $monthEnd);
+        $statusFilter = $filters['status'] ?? '';
+        foreach ($projected as $p) {
+            if (substr($p['due_date'], 0, 7) !== $filters['month']) continue;
+            if (!empty($filters['kind']) && $p['kind'] !== $filters['kind']) continue;
+            if (!empty($filters['source']) && $p['source'] !== $filters['source']) continue;
+            if ($statusFilter !== '' && $statusFilter !== 'pending') continue;
+            $transactions[] = $p;
+        }
+        usort($transactions, fn($a, $b) => strcmp((string)$b['due_date'], (string)$a['due_date']) ?: ((int)$b['id'] <=> (int)$a['id']));
+
         try {
             $commissions = $this->commissions->getAll();
             $commissionsSummary = FinancialRules::summaryCommissions($commissions);
@@ -98,7 +112,12 @@ class FinancialController extends Controller
         foreach ($bankAccounts as $ba) {
             if ((int)($ba['active'] ?? 1) === 1) $accountsBalance += (float)($ba['balance'] ?? 0);
         }
-        $summary = FinancialRules::cashSummary($this->transactions->cashMovements(), $filters['month'], $accountsBalance);
+        // O previsto dos recorrentes também entra no "a pagar/a receber" do mês.
+        $summary = FinancialRules::cashSummary(
+            array_merge($this->transactions->cashMovements(), $projected),
+            $filters['month'],
+            $accountsBalance
+        );
 
         $this->view('financial/index', [
             'user'         => $user,
@@ -156,12 +175,27 @@ class FinancialController extends Controller
             }
         }
 
+        // Empréstimo com data: gera também o movimento inicial (o dinheiro que
+        // entrou ou saiu no dia do empréstimo), no sentido contrário das parcelas.
+        $initial = FinancialRules::loanInitialMovement($data, $_POST['loan_principal'] ?? '', date('Y-m-d'));
+        if ($initial !== null) {
+            if (!array_key_exists('user_id', $data)) unset($initial['user_id']);
+            $initial['source'] = 'manual';
+            $initial['created_by'] = $user['id'];
+        }
+
+        $pdo = Database::getInstance()->getConnection();
+        $initialId = null;
         try {
+            $pdo->beginTransaction();
             $id = $this->transactions->createWithInstallments($data, $dueDates);
+            if ($initial !== null) $initialId = $this->transactions->create($initial);
+            $pdo->commit();
         } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
             $this->json(['error' => $this->schemaErrorHint($e, 'o lançamento', 168)], 500);
         }
-        $this->json(['success' => true, 'id' => $id]);
+        $this->json(['success' => true, 'id' => $id, 'initial_id' => $initialId]);
     }
 
     /**
@@ -266,6 +300,26 @@ class FinancialController extends Controller
         if (!$this->cards->findById((int)$cardId)) $this->json(['error' => 'Cartão não encontrado.'], 404);
         $paid = $this->transactions->payInvoice((int)$cardId, (string)$ym);
         $this->json(['success' => true, 'paid' => $paid]);
+    }
+
+    /**
+     * Paga uma ocorrência prevista de um recorrente:
+     * POST financial/payProjected/{idDaOcorrenciaBase}/{YYYY-MM-DD}.
+     */
+    public function payProjected($fromId = null, $date = null)
+    {
+        $this->requireSuperAdmin();
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$fromId || !is_string($date)
+            || preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) !== 1) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+        try {
+            $id = $this->transactions->payProjected((int)$fromId, $date);
+        } catch (\Throwable $e) {
+            $this->json(['error' => $this->schemaErrorHint($e, 'o pagamento', 169)], 500);
+        }
+        if ($id === null) $this->json(['error' => 'Essa ocorrência não é válida ou já foi lançada. Recarregue a página.'], 409);
+        $this->json(['success' => true, 'id' => $id]);
     }
 
     /** Quita uma parcela específica: POST financial/payInstallment/{installmentId}. */

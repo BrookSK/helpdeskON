@@ -174,8 +174,15 @@ foreach (($bankAccounts ?? []) as $ba) $bankById[(int)$ba['id']] = $ba;
                             </select>
                         </div>
                         <div class="col-md-2" id="f-loandate-wrap" style="display:none;">
-                            <label class="form-label small">Data do empréstimo</label>
-                            <input id="f-loandate" type="date" class="form-control form-control-sm" title="Quando pegou/concedeu o empréstimo">
+                            <label class="form-label small" id="f-loandate-label">Data do empréstimo</label>
+                            <input id="f-loandate" type="date" class="form-control form-control-sm" title="Dia em que o dinheiro entrou ou saiu">
+                        </div>
+                        <div class="col-md-2" id="f-principal-wrap" style="display:none;">
+                            <label class="form-label small" id="f-principal-label">Valor recebido (R$)</label>
+                            <input id="f-principal" class="form-control form-control-sm" placeholder="Vazio = mesmo valor" inputmode="decimal" title="Quanto entrou ou saiu no dia (sem juros). Vazio = o valor total do empréstimo.">
+                        </div>
+                        <div class="col-12" id="f-loan-hint-wrap" style="display:none;">
+                            <div class="small text-primary" style="font-size:0.75rem;" id="f-loan-hint"></div>
                         </div>
                         <div class="col-md-3" id="f-recurring-wrap" style="display:none;">
                             <label class="form-label small mb-0">Recorrência</label>
@@ -193,7 +200,7 @@ foreach (($bankAccounts ?? []) as $ba) $bankById[(int)$ba['id']] = $ba;
                             <div class="small text-muted" style="font-size:0.65rem;">Ao pagar, a próxima ocorrência nasce automaticamente.</div>
                         </div>
                         <div class="col-md-2">
-                            <label class="form-label small" id="f-due-label">Data *</label>
+                            <label class="form-label small" id="f-due-label">Vencimento *</label>
                             <input id="f-due" type="date" class="form-control form-control-sm" value="<?= date('Y-m-d') ?>">
                             <div class="small text-primary" style="font-size:0.7rem;" id="f-invoice-hint"></div>
                         </div>
@@ -267,8 +274,18 @@ foreach (($bankAccounts ?? []) as $ba) $bankById[(int)$ba['id']] = $ba;
                                     <div class="small text-muted fw-normal" style="font-size:0.65rem;">de <?= finMoney($t['total_amount']) ?></div>
                                     <?php endif; ?>
                                 </td>
-                                <td><span class="badge bg-<?= $st[1] ?>"><?= $st[0] ?></span></td>
+                                <td>
+                                    <?php if (!empty($t['is_projected'])): ?>
+                                    <span class="badge bg-light text-dark border" title="Ocorrência futura de um lançamento recorrente. Ainda não foi gravada.">Previsto</span>
+                                    <?php else: ?>
+                                    <span class="badge bg-<?= $st[1] ?>"><?= $st[0] ?></span>
+                                    <?php endif; ?>
+                                </td>
                                 <td class="text-nowrap">
+                                    <?php if (!empty($t['is_projected'])): ?>
+                                    <button class="btn btn-sm btn-outline-success py-0 px-1" title="Pagar esta ocorrência" onclick="payProjected(<?= (int)$t['projected_from'] ?>, '<?= escape($t['due_date']) ?>')"><i class="bi bi-check-lg"></i></button>
+                                    <span class="small text-muted" style="font-size:0.65rem;" title="Para mudar valor ou conta, edite a ocorrência mais recente: as próximas seguem ela.">recorrente</span>
+                                    <?php else: ?>
                                     <?php
                                     $editPayload = [
                                         'id'            => (int)$t['id'],
@@ -299,6 +316,7 @@ foreach (($bankAccounts ?? []) as $ba) $bankById[(int)$ba['id']] = $ba;
                                     <?php if ($t['source'] !== 'asaas'): ?>
                                     <button class="btn btn-sm btn-outline-danger py-0 px-1" title="Excluir" onclick="removeTx(<?= (int)$t['id'] ?>, <?= (int)$t['installments'] ?>)"><i class="bi bi-trash"></i></button>
                                     <?php endif; ?>
+                                    <?php endif; // is_projected ?>
                                 </td>
                             </tr>
                             <?php endforeach; endif; ?>
@@ -700,7 +718,7 @@ foreach (($bankAccounts ?? []) as $ba) $bankById[(int)$ba['id']] = $ba;
                         </select>
                     </div>
                     <div class="col-6">
-                        <label class="form-label small" id="e-date-label">Data</label>
+                        <label class="form-label small" id="e-date-label">Vencimento</label>
                         <input id="e-date" type="date" class="form-control form-control-sm">
                         <div class="small text-primary" style="font-size:0.7rem;" id="e-invoice-hint"></div>
                     </div>
@@ -813,7 +831,10 @@ async function saveTransaction() {
     fd.append('installments', document.getElementById('f-installments').value || '1');
     if (kind === 'gasto') fd.append('card_id', document.getElementById('f-card').value);
     fd.append('due_date', document.getElementById('f-due').value);
-    if (kind === 'emprestimo') fd.append('loan_date', document.getElementById('f-loandate').value);
+    if (kind === 'emprestimo') {
+        fd.append('loan_date', document.getElementById('f-loandate').value);
+        fd.append('loan_principal', document.getElementById('f-principal').value);
+    }
     if (RECURRING_KINDS.includes(kind)) {
         if (document.getElementById('f-recurring-chk') && document.getElementById('f-recurring-chk').checked) {
             fd.append('recurring_cycle', document.getElementById('f-cycle').value);
@@ -853,14 +874,46 @@ function renderInvoiceHint(selectId, dateId, labelId, hintId, dateLabel) {
     const wrapVisible = sel && sel.offsetParent !== null;
     const cyc = (sel && wrapVisible) ? cardCycle(sel) : null;
     if (!cyc) { label.textContent = dateLabel; hint.textContent = ''; return; }
-    label.textContent = 'Data da compra' + (dateLabel.endsWith('*') ? ' *' : '');
+    label.textContent = 'Data da compra *';
     const inv = invoiceFor(document.getElementById(dateId).value, cyc.closing, cyc.due);
     hint.textContent = inv
         ? `Cai na fatura de ${inv.label} (vence ${inv.dueDay})`
         : 'Cartão sem dia de fechamento/vencimento: vence na data da compra.';
 }
-function refreshNewInvoiceHint() { renderInvoiceHint('f-card', 'f-due', 'f-due-label', 'f-invoice-hint', 'Data *'); }
-['f-card', 'f-due', 'f-kind'].forEach(id => document.getElementById(id).addEventListener('change', refreshNewInvoiceHint));
+// Rótulo da data principal: vencimento (à vista) ou vencimento da 1ª parcela.
+function dueLabel() {
+    const n = parseInt(document.getElementById('f-installments').value || '1', 10);
+    return n > 1 ? 'Vencimento da 1ª parcela *' : 'Vencimento *';
+}
+function refreshNewInvoiceHint() {
+    renderInvoiceHint('f-card', 'f-due', 'f-due-label', 'f-invoice-hint', dueLabel());
+    refreshLoanHint();
+}
+// Empréstimo: explica o movimento inicial e as parcelas no sentido de cada um.
+function refreshLoanHint() {
+    const kind = document.getElementById('f-kind').value;
+    const isLoan = kind === 'emprestimo';
+    document.getElementById('f-principal-wrap').style.display = isLoan ? '' : 'none';
+    document.getElementById('f-loan-hint-wrap').style.display = isLoan ? '' : 'none';
+    if (!isLoan) return;
+    const concedido = document.getElementById('f-direction').value === 'in';
+    document.getElementById('f-loandate-label').textContent = concedido ? 'Data do empréstimo (dinheiro sai)' : 'Data do empréstimo (dinheiro entra)';
+    document.getElementById('f-principal-label').textContent = concedido ? 'Valor emprestado (R$)' : 'Valor recebido (R$)';
+    const loanDate = document.getElementById('f-loandate').value;
+    const n = parseInt(document.getElementById('f-installments').value || '1', 10);
+    const parcelas = n > 1 ? `${n} parcelas` : 'o pagamento';
+    let msg = concedido
+        ? `A empresa emprestou: ${parcelas} serão ENTRADAS (a pessoa devolvendo).`
+        : `A empresa pegou emprestado: ${parcelas} serão SAÍDAS (a empresa pagando).`;
+    msg += loanDate
+        ? (concedido ? ' No dia do empréstimo, o valor emprestado SAI da conta.' : ' No dia do empréstimo, o valor recebido ENTRA na conta.')
+        : ' Preencha a data do empréstimo para registrar também o dinheiro que entrou/saiu no dia.';
+    document.getElementById('f-loan-hint').textContent = msg;
+}
+['f-card', 'f-due', 'f-kind', 'f-installments', 'f-direction', 'f-loandate'].forEach(id => {
+    document.getElementById(id).addEventListener('change', refreshNewInvoiceHint);
+    document.getElementById(id).addEventListener('input', refreshNewInvoiceHint);
+});
 refreshNewInvoiceHint();
 
 // ===== Editar lançamento =====
@@ -900,7 +953,7 @@ function refreshEditInvoiceHint() {
     const label = document.getElementById('e-date-label');
     const hint = document.getElementById('e-invoice-hint');
     const cyc = (editTx && editTx.kind === 'gasto') ? cardCycle(document.getElementById('e-card')) : null;
-    if (!cyc) { label.textContent = 'Data'; hint.textContent = ''; return; }
+    if (!cyc) { label.textContent = 'Vencimento'; hint.textContent = ''; return; }
     label.textContent = 'Data da compra';
     const inv = invoiceFor(document.getElementById('e-date').value, cyc.closing, cyc.due);
     hint.textContent = inv ? `Cai na fatura de ${inv.label} (vence ${inv.dueDay})`
@@ -932,6 +985,11 @@ async function payInvoice(cardId, ym, label) {
 
 async function payTx(id) { const r = await post('financial/pay/' + id, new FormData()); if (r) location.reload(); }
 async function unpayTx(id) { const r = await post('financial/unpay/' + id, new FormData()); if (r) location.reload(); }
+async function payProjected(fromId, date) {
+    if (!confirm('Marcar esta ocorrência prevista como paga?')) return;
+    const r = await post('financial/payProjected/' + fromId + '/' + date, new FormData());
+    if (r) location.reload();
+}
 async function payInstallment(id) { const r = await post('financial/payInstallment/' + id, new FormData()); if (r) location.reload(); }
 async function unpayInstallment(id) { const r = await post('financial/unpayInstallment/' + id, new FormData()); if (r) location.reload(); }
 async function removeTx(id, installments) {
