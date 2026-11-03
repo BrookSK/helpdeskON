@@ -73,12 +73,15 @@ class PlanningController extends Controller
             $teamMembers = $userModel->getByRoles(['super_admin', 'attendant', 'whatsapp_agent', 'analyst', 'developer']);
         }
 
-        // Listas específicas por papel para os seletores do card.
-        // "Atendente" é o DONO do card (assigned_to): inclui developer para que um
-        // desenvolvedor também possa ser dono, não só técnico responsável.
-        $attendantsList = $userModel->getByRoles(['super_admin', 'attendant', 'whatsapp_agent', 'analyst', 'developer']);
-        $techniciansList = $userModel->getByRoles(['developer']);
-        $analystsList = $userModel->getByRoles(['analyst']);
+        // Listas específicas por papel para os seletores do card. A elegibilidade
+        // de cada campo (Atendente/Técnico/Analista) vem de AssignmentRules —
+        // fonte única usada também na validação do servidor (store/update), para
+        // que dropdown e persistência nunca divirjam.
+        // Regra: atendente e analista PODEM ser técnico; developer (técnico) NÃO
+        // pode ser analista.
+        $attendantsList = $userModel->getByRoles(AssignmentRules::rolesForField(AssignmentRules::FIELD_ATTENDANT));
+        $techniciansList = $userModel->getByRoles(AssignmentRules::rolesForField(AssignmentRules::FIELD_TECHNICAL));
+        $analystsList = $userModel->getByRoles(AssignmentRules::rolesForField(AssignmentRules::FIELD_ANALYST));
 
         // Lista de solicitantes (criadores dos cards) para o filtro
         $requesters = $this->cardModel->getRequesters($allowedCompanies);
@@ -452,6 +455,22 @@ class PlanningController extends Controller
             'position' => 0,
         ];
 
+        // Valida a elegibilidade dos responsáveis informados (Atendente/Técnico/
+        // Analista) contra AssignmentRules. Na criação todos os três campos são
+        // "novos", então todos os que vierem preenchidos são validados.
+        $assignError = $this->validateAssignments([
+            AssignmentRules::FIELD_ATTENDANT => $data['assigned_to'],
+            AssignmentRules::FIELD_TECHNICAL => $data['technical_responsible_id'],
+            AssignmentRules::FIELD_ANALYST   => $data['analyst_id'],
+        ]);
+        if ($assignError !== null) {
+            if ($this->isAjax()) {
+                $this->json(['error' => $assignError], 422);
+            }
+            flash('error', $assignError);
+            $this->redirect('planning');
+        }
+
         $cardId = $this->cardModel->create($data);
 
         // Se o card nasce com predecessor e ainda não tem datas próprias, já as
@@ -610,6 +629,24 @@ class PlanningController extends Controller
 
         if (empty($data)) {
             $this->json(['error' => 'Nenhum campo para atualizar'], 400);
+        }
+
+        // Valida a elegibilidade APENAS dos campos de responsável que vieram
+        // nesta requisição (edição valida só o que mudou — preserva cards antigos
+        // que porventura tenham um valor fora da regra atual).
+        $toValidate = [];
+        if (array_key_exists('assigned_to', $data)) {
+            $toValidate[AssignmentRules::FIELD_ATTENDANT] = $data['assigned_to'];
+        }
+        if (array_key_exists('technical_responsible_id', $data)) {
+            $toValidate[AssignmentRules::FIELD_TECHNICAL] = $data['technical_responsible_id'];
+        }
+        if (array_key_exists('analyst_id', $data)) {
+            $toValidate[AssignmentRules::FIELD_ANALYST] = $data['analyst_id'];
+        }
+        $assignError = $this->validateAssignments($toValidate);
+        if ($assignError !== null) {
+            $this->json(['error' => $assignError], 422);
         }
 
         // Se o prazo (due_date) mudou, zera o carimbo do lembrete de vencimento
@@ -1436,6 +1473,44 @@ class PlanningController extends Controller
                 WhatsappNotifier::sendToGroup($company['whatsapp_group_jid'], $baseMsg);
             }
         }
+    }
+
+    /**
+     * Valida os responsáveis informados para um card contra AssignmentRules.
+     *
+     * $assignments: mapa campo (AssignmentRules::FIELD_*) => id do usuário (ou
+     * null/'' = sem atribuição, que é sempre permitido). Para cada id não-vazio,
+     * busca o papel real do usuário e checa se ele pode ocupar aquele campo.
+     *
+     * Retorna null quando tudo é válido, ou uma mensagem de erro (string) com o
+     * primeiro problema encontrado — para o controller responder ao cliente.
+     */
+    private function validateAssignments(array $assignments): ?string
+    {
+        $labels = [
+            AssignmentRules::FIELD_ATTENDANT => 'Atendente',
+            AssignmentRules::FIELD_TECHNICAL => 'Técnico',
+            AssignmentRules::FIELD_ANALYST   => 'Analista',
+        ];
+        $userModel = new User();
+
+        foreach ($assignments as $field => $userId) {
+            // Sem atribuição (vazio/null) é permitido: significa "não atribuído".
+            if (empty($userId)) {
+                continue;
+            }
+            $assignee = $userModel->findById((int) $userId);
+            if (!$assignee) {
+                return 'Usuário selecionado para ' . ($labels[$field] ?? $field) . ' não existe.';
+            }
+            if (!AssignmentRules::canAssign($field, $assignee['role'] ?? null)) {
+                return 'O usuário "' . ($assignee['name'] ?? '')
+                    . '" (' . roleLabel($assignee['role'] ?? '')
+                    . ') não pode ser vinculado como ' . ($labels[$field] ?? $field) . '.';
+            }
+        }
+
+        return null;
     }
 
     // Notificação de atribuição (sistema + email + webhook)

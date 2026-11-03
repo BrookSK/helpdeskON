@@ -122,11 +122,14 @@ function teamRoles()
 }
 
 /**
- * Papéis que podem ser responsável técnico de uma demanda
+ * Papéis que podem ser responsável técnico de uma demanda.
+ *
+ * Fonte única: AssignmentRules (campo Técnico). Mantido como helper por
+ * compatibilidade com chamadas existentes.
  */
 function technicalRoles()
 {
-    return ['developer', 'analyst', 'attendant'];
+    return AssignmentRules::rolesForField(AssignmentRules::FIELD_TECHNICAL);
 }
 
 /**
