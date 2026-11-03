@@ -899,8 +899,14 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                                         <label class="form-label small fw-medium text-muted"><i class="bi bi-diagram-3"></i> Atividade predecessora</label>
                                         <div class="pred-autocomplete" data-pred-root>
                                             <input type="hidden" id="detail-predecessor" class="pred-input-id" value="">
-                                            <input type="text" id="detail-predecessor-search" class="form-control form-control-sm pred-input-search" autocomplete="off"
-                                                   placeholder="Buscar card por nº, título ou empresa...">
+                                            <div class="input-group input-group-sm">
+                                                <input type="text" id="detail-predecessor-search" class="form-control form-control-sm pred-input-search" autocomplete="off"
+                                                       placeholder="Buscar card por nº, título ou empresa...">
+                                                <!-- Botão explícito para REMOVER o predecessor (zera hidden + texto). -->
+                                                <button type="button" class="btn btn-outline-secondary pred-clear" title="Remover atividade predecessora" tabindex="-1">
+                                                    <i class="bi bi-x-lg"></i>
+                                                </button>
+                                            </div>
                                             <div class="pred-results" style="display:none;"></div>
                                         </div>
                                     </div>
@@ -1510,6 +1516,8 @@ function initPredecessorAutocomplete(root) {
     const results = root.querySelector('.pred-results');
     if (!idInput || !search || !results) return;
 
+    const clearBtn = root.querySelector('.pred-clear');
+
     let timer = null;
     let lastQuery = '';
 
@@ -1563,6 +1571,18 @@ function initPredecessorAutocomplete(root) {
         if (search.value.trim() !== '' && results.innerHTML !== '') results.style.display = '';
         else if (search.value.trim() === '') { doSearch(); } // mostra os mais recentes
     });
+    // Botão "remover predecessor": zera o hidden E o texto de forma garantida.
+    // Resolve o caso de "não consigo tirar a predecessora" — independe de como o
+    // navegador dispara o evento input ao apagar o texto manualmente.
+    if (clearBtn) {
+        clearBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            idInput.value = '';
+            search.value = '';
+            close();
+            search.focus();
+        });
+    }
     // Fecha ao clicar fora.
     document.addEventListener('click', function(e) {
         if (!root.contains(e.target)) close();
