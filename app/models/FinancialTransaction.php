@@ -46,24 +46,44 @@ class FinancialTransaction
         $commonParams = [];
         if (!empty($filters['kind'])) { $common .= " AND t.kind = ?"; $commonParams[] = $filters['kind']; }
         if (!empty($filters['source'])) { $common .= " AND t.source = ?"; $commonParams[] = $filters['source']; }
+        if (!empty($filters['direction'])) { $common .= " AND t.direction = ?"; $commonParams[] = $filters['direction']; }
+        foreach (['category_id', 'account_id', 'card_id', 'user_id'] as $col) {
+            if (!empty($filters[$col])) { $common .= " AND t.{$col} = ?"; $commonParams[] = (int)$filters[$col]; }
+        }
+        // Situação: só paid/pending vão para o SQL; "atrasado" e "previsto"
+        // são refinados por FinancialReportRules::matches no controller.
+        $sqlStatus = in_array(($filters['status'] ?? ''), ['paid', 'pending'], true) ? $filters['status']
+            : (($filters['status'] ?? '') === 'overdue' ? 'pending' : '');
 
-        $month = (!empty($filters['month']) && FinancialRules::validMonth($filters['month'])) ? $filters['month'] : null;
+        // Período: from/to (intervalo) ou month (mês inteiro).
+        $from = $filters['from'] ?? null;
+        $to = $filters['to'] ?? null;
+        if (empty($from) || empty($to)) {
+            $month = (!empty($filters['month']) && FinancialRules::validMonth($filters['month'])) ? $filters['month'] : null;
+            if ($month !== null) {
+                $from = $month . '-01';
+                $to = date('Y-m-t', strtotime($from));
+            } else {
+                $from = $to = null;
+            }
+        }
+        $limit = ($from !== null && substr($from, 0, 7) !== substr((string)$to, 0, 7)) ? 3000 : 500;
 
-        if ($month === null) {
+        if ($from === null) {
             $sql = $select . ", t.due_date AS row_due, t.amount AS row_amount, t.status AS row_status,
                        t.paid_at AS row_paid_at, NULL AS installment_id, NULL AS installment_no
                 FROM fin_transactions t" . $joins . " WHERE 1=1" . $common;
             $params = $commonParams;
-            if (!empty($filters['status'])) { $sql .= " AND t.status = ?"; $params[] = $filters['status']; }
+            if ($sqlStatus !== '') { $sql .= " AND t.status = ?"; $params[] = $sqlStatus; }
             $sql .= " ORDER BY row_due DESC, id DESC LIMIT 500";
         } else {
             // À vista: pelo vencimento do lançamento.
             $single = $select . ", t.due_date AS row_due, t.amount AS row_amount, t.status AS row_status,
                        t.paid_at AS row_paid_at, NULL AS installment_id, NULL AS installment_no
                 FROM fin_transactions t" . $joins . "
-                WHERE t.installments <= 1 AND DATE_FORMAT(t.due_date, '%Y-%m') = ?" . $common;
-            $p1 = array_merge([$month], $commonParams);
-            if (!empty($filters['status'])) { $single .= " AND t.status = ?"; $p1[] = $filters['status']; }
+                WHERE t.installments <= 1 AND t.due_date BETWEEN ? AND ?" . $common;
+            $p1 = array_merge([$from, $to], $commonParams);
+            if ($sqlStatus !== '') { $single .= " AND t.status = ?"; $p1[] = $sqlStatus; }
 
             // Parcelado: cada parcela no mês do vencimento dela.
             $parcel = $select . ", i.due_date AS row_due, i.amount AS row_amount,
@@ -71,11 +91,11 @@ class FinancialTransaction
                        i.paid_at AS row_paid_at, i.id AS installment_id, i.installment_no AS installment_no
                 FROM fin_installments i
                 JOIN fin_transactions t ON t.id = i.transaction_id" . $joins . "
-                WHERE t.installments > 1 AND DATE_FORMAT(i.due_date, '%Y-%m') = ?" . $common;
-            $p2 = array_merge([$month], $commonParams);
-            if (!empty($filters['status'])) { $parcel .= " AND i.status = ?"; $p2[] = $filters['status']; }
+                WHERE t.installments > 1 AND i.due_date BETWEEN ? AND ?" . $common;
+            $p2 = array_merge([$from, $to], $commonParams);
+            if ($sqlStatus !== '') { $parcel .= " AND i.status = ?"; $p2[] = $sqlStatus; }
 
-            $sql = "(" . $single . ") UNION ALL (" . $parcel . ") ORDER BY row_due DESC, id DESC LIMIT 500";
+            $sql = "(" . $single . ") UNION ALL (" . $parcel . ") ORDER BY row_due DESC, id DESC LIMIT " . $limit;
             $params = array_merge($p1, $p2);
         }
 
@@ -85,6 +105,7 @@ class FinancialTransaction
             // Banco sem a coluna user_id (migration 169 pendente): lista sem a
             // pessoa em vez de esconder todos os lançamentos.
             if (stripos($e->getMessage(), 'user_id') === false) return [];
+            if (!empty($filters['user_id'])) return []; // filtro por pessoa sem a coluna
             $fallback = str_replace(
                 ["pu.name AS person_name", "LEFT JOIN users pu ON pu.id = t.user_id"],
                 ["NULL AS person_name", ""],

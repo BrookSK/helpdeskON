@@ -35,34 +35,10 @@ class FinancialController extends Controller
         $this->requireSuperAdmin();
         $user = $this->currentUser();
 
-        $filters = [
-            'kind'   => $_GET['kind'] ?? '',
-            'status' => $_GET['status'] ?? '',
-            'source' => $_GET['source'] ?? '',
-            'month'  => $_GET['month'] ?? date('Y-m'),
-        ];
-
-        if (!FinancialRules::validMonth($filters['month'])) $filters['month'] = date('Y-m');
-
-        try {
-            $transactions = $this->transactions->getAll($filters);
-        } catch (\Throwable $e) {
-            $transactions = [];
-        }
-
-        // Recorrentes (salário, assinaturas...): ocorrências futuras ainda não
-        // gravadas aparecem como PREVISTAS no mês delas.
-        $monthEnd = date('Y-m-t', strtotime($filters['month'] . '-01'));
-        $projected = FinancialRules::projectRecurring($this->transactions->recurringRows(), $monthEnd);
-        $statusFilter = $filters['status'] ?? '';
-        foreach ($projected as $p) {
-            if (substr($p['due_date'], 0, 7) !== $filters['month']) continue;
-            if (!empty($filters['kind']) && $p['kind'] !== $filters['kind']) continue;
-            if (!empty($filters['source']) && $p['source'] !== $filters['source']) continue;
-            if ($statusFilter !== '' && $statusFilter !== 'pending') continue;
-            $transactions[] = $p;
-        }
-        usort($transactions, fn($a, $b) => strcmp((string)$b['due_date'], (string)$a['due_date']) ?: ((int)$b['id'] <=> (int)$a['id']));
+        $filters = FinancialReportRules::normalizeFilters($_GET, date('Y-m-d'));
+        [$transactions, $projected] = $this->filteredRows($filters);
+        $listTotals = FinancialReportRules::totals($transactions);
+        $report = $filters['group'] !== '' ? FinancialReportRules::groupTotals($transactions, $filters['group']) : [];
 
         try {
             $commissions = $this->commissions->getAll();
@@ -131,11 +107,80 @@ class FinancialController extends Controller
             'bankAccounts' => $bankAccounts,
             'categories'   => $categories,
             'filters'      => $filters,
+            'listTotals'   => $listTotals,
+            'report'       => $report,
+            'hasFilters'   => FinancialReportRules::hasActiveFilters($filters),
             'commissions'  => $commissions,
             'commissionsSummary' => $commissionsSummary,
             'gainOptions'  => $gainOptions,
             'users'        => $users,
         ]);
+    }
+
+    /**
+     * Lançamentos do período com os filtros aplicados, incluindo as
+     * ocorrências previstas dos recorrentes. Retorna [linhas filtradas,
+     * todas as previstas até o fim do período] (as previstas também entram
+     * no resumo do topo).
+     */
+    private function filteredRows(array $f): array
+    {
+        $today = date('Y-m-d');
+        $rows = [];
+        if ($f['status'] !== 'projected') {
+            try {
+                $rows = $this->transactions->getAll($f);
+            } catch (\Throwable $e) {
+                $rows = [];
+            }
+        }
+
+        // Recorrentes (salário, assinaturas...): ocorrências futuras ainda não
+        // gravadas aparecem como PREVISTAS no mês delas.
+        $upTo = max($f['to'], date('Y-m-t', strtotime($f['month'] . '-01')));
+        $projected = FinancialRules::projectRecurring($this->transactions->recurringRows(), $upTo);
+        foreach ($projected as $p) $rows[] = $p;
+
+        $rows = array_values(array_filter($rows, fn($r) => FinancialReportRules::matches($r, $f, $today)));
+        usort($rows, fn($a, $b) => strcmp((string)$b['due_date'], (string)$a['due_date']) ?: ((int)$b['id'] <=> (int)$a['id']));
+        return [$rows, $projected];
+    }
+
+    /** Exporta a lista filtrada para planilha (.xlsx; .csv se faltar ext-zip). */
+    public function export()
+    {
+        $this->requireSuperAdmin();
+        $f = FinancialReportRules::normalizeFilters($_GET, date('Y-m-d'));
+        [$rows] = $this->filteredRows($f);
+        $data = FinancialReportRules::exportRows($rows);
+
+        // Relatório agrupado vira um bloco no fim da planilha.
+        if ($f['group'] !== '') {
+            $money = fn($v) => number_format((float)$v, 2, ',', '.');
+            $data['rows'][] = array_fill(0, count($data['headers']), '');
+            $data['rows'][] = ['Resumo por grupo', 'Qtd.', 'Entradas', 'Saídas', 'Saldo', 'Pago (saídas)', 'Em aberto (saídas)'];
+            foreach (FinancialReportRules::groupTotals($rows, $f['group']) as $g) {
+                $data['rows'][] = [$g['label'], (string)$g['count'], $money($g['in']), $money($g['out']), $money($g['net']), $money($g['paid_out']), $money($g['open_out'])];
+            }
+        }
+
+        header('Cache-Control: no-store');
+        if (SimpleXlsxWriter::isSupported()) {
+            $bin = SimpleXlsxWriter::build($data['headers'], $data['rows'], 'Financeiro');
+            header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            header('Content-Disposition: attachment; filename="' . FinancialReportRules::fileName($f, 'xlsx') . '"');
+            header('Content-Length: ' . strlen($bin));
+            echo $bin;
+            exit;
+        }
+        header('Content-Type: text/csv; charset=UTF-8');
+        header('Content-Disposition: attachment; filename="' . FinancialReportRules::fileName($f, 'csv') . '"');
+        $out = fopen('php://output', 'w');
+        fwrite($out, "\xEF\xBB\xBF"); // BOM para o Excel abrir com acentos
+        fputcsv($out, $data['headers'], ';');
+        foreach ($data['rows'] as $r) fputcsv($out, $r, ';');
+        fclose($out);
+        exit;
     }
 
     /** Cria um lançamento manual (gera parcelas quando parcelado no cartão). */

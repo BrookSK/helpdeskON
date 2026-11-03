@@ -102,10 +102,6 @@ foreach (($bankAccounts ?? []) as $ba) $bankById[(int)$ba['id']] = $ba;
             <div class="card mb-3">
                 <div class="card-header py-2 d-flex align-items-center justify-content-between">
                     <strong>Novo lançamento</strong>
-                    <form class="d-flex gap-2 align-items-center" method="get" action="<?= baseUrl('financial') ?>">
-                        <label class="small text-muted mb-0">Mês</label>
-                        <input type="month" class="form-control form-control-sm" name="month" value="<?= escape($filters['month']) ?>" onchange="this.form.submit()">
-                    </form>
                 </div>
                 <div class="card-body">
                     <div class="row g-2">
@@ -214,6 +210,196 @@ foreach (($bankAccounts ?? []) as $ba) $bankById[(int)$ba['id']] = $ba;
                             <button class="btn btn-sm btn-primary" onclick="saveTransaction()"><i class="bi bi-plus-lg"></i> Lançar</button>
                         </div>
                     </div>
+                </div>
+            </div>
+
+            <?php
+            // ===== Filtros e relatório =====
+            $qs = function (array $override = []) use ($filters) {
+                $base = $filters['mode'] === 'range'
+                    ? ['from' => $filters['from'], 'to' => $filters['to']]
+                    : ['month' => $filters['month']];
+                foreach (['kind', 'direction', 'status', 'source', 'q', 'group'] as $k) if ($filters[$k] !== '') $base[$k] = $filters[$k];
+                foreach (['category_id', 'account_id', 'card_id', 'user_id'] as $k) if (!empty($filters[$k])) $base[$k] = $filters[$k];
+                return http_build_query(array_merge($base, $override));
+            };
+            $sel = fn($a, $b) => ((string)$a === (string)$b) ? 'selected' : '';
+            $groupLabels = ['category' => 'Categoria', 'kind' => 'Tipo', 'account' => 'Conta', 'card' => 'Cartão',
+                            'person' => 'Pessoa', 'month' => 'Mês', 'status' => 'Situação'];
+            ?>
+            <div class="card mb-3">
+                <div class="card-header py-2 d-flex align-items-center justify-content-between flex-wrap gap-2">
+                    <strong><i class="bi bi-funnel"></i> Filtros e relatório</strong>
+                    <div class="d-flex gap-1">
+                        <?php if ($filters['mode'] === 'month'):
+                            $prev = date('Y-m', strtotime($filters['month'] . '-01 -1 month'));
+                            $next = date('Y-m', strtotime($filters['month'] . '-01 +1 month')); ?>
+                        <a class="btn btn-sm btn-outline-secondary py-0" href="<?= baseUrl('financial?' . $qs(['month' => $prev])) ?>" title="Mês anterior"><i class="bi bi-chevron-left"></i></a>
+                        <a class="btn btn-sm btn-outline-secondary py-0" href="<?= baseUrl('financial?' . $qs(['month' => $next])) ?>" title="Próximo mês"><i class="bi bi-chevron-right"></i></a>
+                        <?php endif; ?>
+                        <a class="btn btn-sm btn-outline-success py-0" href="<?= baseUrl('financial/export?' . $qs()) ?>"><i class="bi bi-file-earmark-spreadsheet"></i> Exportar planilha</a>
+                    </div>
+                </div>
+                <div class="card-body py-2">
+                    <form method="get" action="<?= baseUrl('financial') ?>" id="filter-form" class="row g-2 align-items-end">
+                        <div class="col-md-2">
+                            <label class="form-label small mb-0">Período</label>
+                            <select class="form-select form-select-sm" id="flt-mode" onchange="toggleFilterMode()">
+                                <option value="month" <?= $sel($filters['mode'], 'month') ?>>Um mês</option>
+                                <option value="range" <?= $sel($filters['mode'], 'range') ?>>Intervalo de datas</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2" id="flt-month-wrap">
+                            <label class="form-label small mb-0">Mês</label>
+                            <input type="month" class="form-control form-control-sm" name="month" value="<?= escape($filters['month']) ?>">
+                        </div>
+                        <div class="col-md-2 flt-range-wrap">
+                            <label class="form-label small mb-0">De</label>
+                            <input type="date" class="form-control form-control-sm" name="from" value="<?= escape($filters['from']) ?>">
+                        </div>
+                        <div class="col-md-2 flt-range-wrap">
+                            <label class="form-label small mb-0">Até</label>
+                            <input type="date" class="form-control form-control-sm" name="to" value="<?= escape($filters['to']) ?>">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small mb-0">Tipo</label>
+                            <select class="form-select form-select-sm" name="kind">
+                                <option value="">Todos</option>
+                                <?php foreach ($kindLabel as $k => $meta): ?>
+                                <option value="<?= $k ?>" <?= $sel($filters['kind'], $k) ?>><?= $meta['label'] ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small mb-0">Entrada/saída</label>
+                            <select class="form-select form-select-sm" name="direction">
+                                <option value="">Ambas</option>
+                                <option value="in" <?= $sel($filters['direction'], 'in') ?>>Só entradas</option>
+                                <option value="out" <?= $sel($filters['direction'], 'out') ?>>Só saídas</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small mb-0">Situação</label>
+                            <select class="form-select form-select-sm" name="status">
+                                <option value="">Todas</option>
+                                <option value="paid" <?= $sel($filters['status'], 'paid') ?>>Pagos</option>
+                                <option value="pending" <?= $sel($filters['status'], 'pending') ?>>Em aberto</option>
+                                <option value="overdue" <?= $sel($filters['status'], 'overdue') ?>>Atrasados</option>
+                                <option value="projected" <?= $sel($filters['status'], 'projected') ?>>Previstos (recorrentes)</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small mb-0">Categoria</label>
+                            <select class="form-select form-select-sm" name="category_id">
+                                <option value="">Todas</option>
+                                <?php foreach ($categories as $cat): ?>
+                                <option value="<?= (int)$cat['id'] ?>" <?= $sel($filters['category_id'], $cat['id']) ?>><?= escape($cat['name']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small mb-0">Conta</label>
+                            <select class="form-select form-select-sm" name="account_id">
+                                <option value="">Todas</option>
+                                <?php foreach ($bankAccounts as $ba): ?>
+                                <option value="<?= (int)$ba['id'] ?>" <?= $sel($filters['account_id'], $ba['id']) ?>><?= escape($ba['name']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small mb-0">Cartão</label>
+                            <select class="form-select form-select-sm" name="card_id">
+                                <option value="">Todos</option>
+                                <?php foreach ($cards as $c): ?>
+                                <option value="<?= (int)$c['id'] ?>" <?= $sel($filters['card_id'], $c['id']) ?>><?= escape($c['name']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small mb-0">Pessoa</label>
+                            <select class="form-select form-select-sm" name="user_id">
+                                <option value="">Todas</option>
+                                <?php foreach ($users as $u): ?>
+                                <option value="<?= (int)$u['id'] ?>" <?= $sel($filters['user_id'], $u['id']) ?>><?= escape($u['name']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small mb-0">Buscar</label>
+                            <input class="form-control form-control-sm" name="q" value="<?= escape($filters['q']) ?>" placeholder="Descrição, categoria...">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small mb-0">Agrupar relatório por</label>
+                            <select class="form-select form-select-sm" name="group">
+                                <option value="">Sem relatório</option>
+                                <?php foreach ($groupLabels as $g => $gl): ?>
+                                <option value="<?= $g ?>" <?= $sel($filters['group'], $g) ?>><?= $gl ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-2 d-flex gap-1">
+                            <button class="btn btn-sm btn-primary" type="submit"><i class="bi bi-search"></i> Filtrar</button>
+                            <a class="btn btn-sm btn-outline-secondary" href="<?= baseUrl('financial?month=' . urlencode($filters['month'])) ?>" title="Limpar filtros">Limpar</a>
+                        </div>
+                    </form>
+
+                    <?php // Totais da lista filtrada ?>
+                    <div class="d-flex flex-wrap gap-3 small mt-2 pt-2 border-top">
+                        <span class="text-muted">
+                            <?= $filters['mode'] === 'range'
+                                ? escape(date('d/m/Y', strtotime($filters['from'])) . ' a ' . date('d/m/Y', strtotime($filters['to'])))
+                                : escape(date('m/Y', strtotime($filters['month'] . '-01'))) ?>
+                            · <?= (int)$listTotals['count'] ?> lançamento(s)<?= $hasFilters ? ' com filtro' : '' ?>
+                        </span>
+                        <span>Entradas: <strong class="text-success"><?= finMoney($listTotals['in']) ?></strong></span>
+                        <span>Saídas: <strong class="text-danger"><?= finMoney($listTotals['out']) ?></strong></span>
+                        <span>Saldo: <strong class="<?= $listTotals['net'] >= 0 ? 'text-success' : 'text-danger' ?>"><?= finMoney($listTotals['net']) ?></strong></span>
+                        <span class="text-muted">Pago: <?= finMoney($listTotals['paid_out']) ?> saídas / <?= finMoney($listTotals['paid_in']) ?> entradas</span>
+                        <span class="text-muted">Em aberto: <?= finMoney($listTotals['open_out']) ?> saídas / <?= finMoney($listTotals['open_in']) ?> entradas</span>
+                    </div>
+
+                    <?php if (!empty($report)): ?>
+                    <div class="table-responsive mt-2">
+                        <table class="table table-sm table-bordered mb-0 align-middle">
+                            <thead class="table-light">
+                                <tr>
+                                    <th><?= escape($groupLabels[$filters['group']] ?? 'Grupo') ?></th>
+                                    <th class="text-center">Qtd.</th>
+                                    <th class="text-end">Entradas</th><th class="text-end">Saídas</th><th class="text-end">Saldo</th>
+                                    <th class="text-end">Pago</th><th class="text-end">Em aberto</th><th class="text-end">% das saídas</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($report as $g): $pct = $listTotals['out'] > 0 ? round($g['out'] / $listTotals['out'] * 100, 1) : 0; ?>
+                                <tr>
+                                    <td class="fw-medium"><?= escape($g['label']) ?></td>
+                                    <td class="text-center"><?= (int)$g['count'] ?></td>
+                                    <td class="text-end text-success"><?= finMoney($g['in']) ?></td>
+                                    <td class="text-end text-danger"><?= finMoney($g['out']) ?></td>
+                                    <td class="text-end fw-bold <?= $g['net'] >= 0 ? 'text-success' : 'text-danger' ?>"><?= finMoney($g['net']) ?></td>
+                                    <td class="text-end"><?= finMoney($g['paid_in'] + $g['paid_out']) ?></td>
+                                    <td class="text-end"><?= finMoney($g['open_in'] + $g['open_out']) ?></td>
+                                    <td class="text-end">
+                                        <?= $pct ?>%
+                                        <div class="progress" style="height:3px;"><div class="progress-bar bg-danger" style="width:<?= min(100, $pct) ?>%"></div></div>
+                                    </td>
+                                </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                            <tfoot class="table-light fw-bold">
+                                <tr>
+                                    <td>Total</td><td class="text-center"><?= (int)$listTotals['count'] ?></td>
+                                    <td class="text-end text-success"><?= finMoney($listTotals['in']) ?></td>
+                                    <td class="text-end text-danger"><?= finMoney($listTotals['out']) ?></td>
+                                    <td class="text-end"><?= finMoney($listTotals['net']) ?></td>
+                                    <td class="text-end"><?= finMoney($listTotals['paid_in'] + $listTotals['paid_out']) ?></td>
+                                    <td class="text-end"><?= finMoney($listTotals['open_in'] + $listTotals['open_out']) ?></td>
+                                    <td class="text-end">100%</td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                    <?php endif; ?>
                 </div>
             </div>
 
@@ -489,7 +675,7 @@ foreach (($bankAccounts ?? []) as $ba) $bankById[(int)$ba['id']] = $ba;
                                 <td class="text-end fw-bold <?= $open ? 'text-danger' : 'text-muted' ?>"><?= finMoney($inv['pending']) ?></td>
                                 <td><?= $open ? '<span class="badge bg-warning">Em aberto</span>' : '<span class="badge bg-success">Paga</span>' ?></td>
                                 <td class="text-nowrap">
-                                    <a class="btn btn-sm btn-outline-secondary py-0 px-1" title="Ver lançamentos deste mês" href="<?= baseUrl('financial?month=' . urlencode($ym)) ?>"><i class="bi bi-list-ul"></i></a>
+                                    <a class="btn btn-sm btn-outline-secondary py-0 px-1" title="Ver lançamentos deste mês" href="<?= baseUrl('financial?month=' . urlencode($ym) . '&card_id=' . (int)$c['id']) ?>"><i class="bi bi-list-ul"></i></a>
                                     <?php if ($open): ?>
                                     <button class="btn btn-sm btn-outline-success py-0 px-1" title="Pagar a fatura inteira" onclick="payInvoice(<?= (int)$c['id'] ?>, '<?= escape($ym) ?>', '<?= escape($c['name'] . ' ' . $fmtYm($ym)) ?>')"><i class="bi bi-check2-all"></i> Pagar</button>
                                     <?php endif; ?>
@@ -985,6 +1171,21 @@ async function payInvoice(cardId, ym, label) {
 
 async function payTx(id) { const r = await post('financial/pay/' + id, new FormData()); if (r) location.reload(); }
 async function unpayTx(id) { const r = await post('financial/unpay/' + id, new FormData()); if (r) location.reload(); }
+// ===== Filtros: alterna entre "um mês" e "intervalo de datas" =====
+function toggleFilterMode() {
+    const range = document.getElementById('flt-mode').value === 'range';
+    document.getElementById('flt-month-wrap').style.display = range ? 'none' : '';
+    document.querySelectorAll('.flt-range-wrap').forEach(el => el.style.display = range ? '' : 'none');
+    // Campo escondido não vai na URL (senão o intervalo "ganha" do mês).
+    document.querySelector('#filter-form [name=month]').disabled = range;
+    document.querySelectorAll('#filter-form [name=from], #filter-form [name=to]').forEach(el => el.disabled = !range);
+}
+toggleFilterMode();
+// Não manda campos vazios na URL.
+document.getElementById('filter-form').addEventListener('submit', function () {
+    this.querySelectorAll('select, input').forEach(el => { if (!el.disabled && el.name && el.value === '') el.disabled = true; });
+});
+
 async function payProjected(fromId, date) {
     if (!confirm('Marcar esta ocorrência prevista como paga?')) return;
     const r = await post('financial/payProjected/' + fromId + '/' + date, new FormData());
