@@ -710,7 +710,7 @@ if ($hasMonthly && $plans):
         </tr>
     </table>
     <?php endif; ?>
-    <?php foreach ($paras($c('summary_text')) as $p): ?><p style="margin-top:3mm;font-size:8pt;"><?= nl2br($e($p)) ?></p><?php endforeach; ?>
+    <?php foreach ($paras(ProposalRules::summaryText($content, (bool)$hasMonthly)) as $p): ?><p style="margin-top:3mm;font-size:8pt;"><?= nl2br($e($p)) ?></p><?php endforeach; ?>
     <?php if ($hasMonthly): ?><p class="note">A média mensal considera a implantação e as 12 primeiras mensalidades.</p><?php endif; ?>
 </div>
 

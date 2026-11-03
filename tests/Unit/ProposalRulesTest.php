@@ -526,4 +526,12 @@ final class ProposalRulesTest extends TestCase
         $mensal = ProposalRules::buildPresentationData(['content' => null], [['amount' => 500, 'billing' => 'monthly', 'description' => 'Gestão']]);
         $this->assertTrue($mensal['show_projection']);
     }
+
+    public function testResumoFinalSemFraseDePlanosEmPropostaSoPontual(): void
+    {
+        $content = ProposalRules::defaultContent();
+        $this->assertStringStartsWith('A implantação é cobrada uma só vez.', ProposalRules::summaryText($content, false));
+        $this->assertSame($content['summary_text'], ProposalRules::summaryText($content, true));
+        $this->assertSame('Texto livre.', ProposalRules::summaryText(['summary_text' => 'Texto livre.'], false));
+    }
 }

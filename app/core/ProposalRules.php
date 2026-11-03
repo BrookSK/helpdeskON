@@ -821,6 +821,17 @@ class ProposalRules
         return in_array($m, self::PROJECTION_MONTHS, true) ? $m : 12;
     }
 
+    /** Frase do resumo final que só faz sentido quando há planos com mensalidade. */
+    public const PLANS_SUMMARY_SENTENCE = 'O Plano 12 meses tem a menor mensalidade e o menor custo médio por mês.';
+
+    /** Resumo final da proposta; sem mensalidade, retira a frase sobre os planos. */
+    public static function summaryText(array $content, bool $hasMonthly): string
+    {
+        $text = trim((string)($content['summary_text'] ?? ''));
+        if ($hasMonthly) return $text;
+        return trim(preg_replace('/[ \t]{2,}/', ' ', str_replace(self::PLANS_SUMMARY_SENTENCE, '', $text)));
+    }
+
     /** Texto inicial dos campos variáveis de uma proposta nova. */
     public static function defaultContent(): array
     {
