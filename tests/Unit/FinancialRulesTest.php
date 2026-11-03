@@ -247,6 +247,36 @@ final class FinancialRulesTest extends TestCase
         $this->assertCount(3, $p);
     }
 
+    public function testSalariosComMesmaDescricaoParaPessoasDiferentesSaoSeriesSeparadas(): void
+    {
+        // Cenário relatado: Amanda e Júlia, ambos "Salário", set e out pagos,
+        // nov pendente. Dezembro tem que aparecer previsto para as DUAS.
+        $base = [
+            'kind' => 'salario', 'direction' => 'out', 'description' => 'Salário', 'amount' => 2000,
+            'installments' => 1, 'recurring_cycle' => 'monthly', 'recurring_until' => null, 'card_id' => null,
+        ];
+        $amanda = ['user_id' => 7] + $base;
+        $julia = ['user_id' => 8] + $base;
+        $rows = [
+            ['id' => 1, 'status' => 'paid',    'due_date' => '2026-09-05'] + $amanda,
+            ['id' => 2, 'status' => 'paid',    'due_date' => '2026-10-05'] + $amanda,
+            ['id' => 3, 'status' => 'pending', 'due_date' => '2026-11-05'] + $amanda,
+            ['id' => 4, 'status' => 'paid',    'due_date' => '2026-09-05'] + $julia,
+            ['id' => 5, 'status' => 'paid',    'due_date' => '2026-10-05'] + $julia,
+            ['id' => 6, 'status' => 'pending', 'due_date' => '2026-11-05'] + $julia,
+        ];
+        $p = FinancialRules::projectRecurring($rows, '2026-12-31');
+        $this->assertCount(2, $p);
+        $porPessoa = [];
+        foreach ($p as $r) $porPessoa[$r['user_id']] = [$r['due_date'], $r['projected_from']];
+        $this->assertSame(['2026-12-05', 3], $porPessoa[7]);
+        $this->assertSame(['2026-12-05', 6], $porPessoa[8]);
+
+        $this->assertNotSame(FinancialRules::recurringChainKey($amanda), FinancialRules::recurringChainKey($julia));
+        // Sem pessoa (banco antes da migration 169) continua funcionando.
+        $this->assertSame(FinancialRules::recurringChainKey($base), FinancialRules::recurringChainKey(['user_id' => null] + $base));
+    }
+
     public function testResumoDeMesFuturoNaoChamaDeAtrasado(): void
     {
         $rows = [

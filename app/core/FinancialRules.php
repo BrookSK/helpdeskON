@@ -390,7 +390,9 @@ class FinancialRules
 
     /**
      * Chave que identifica uma série recorrente (as ocorrências criadas ao
-     * pagar copiam tipo, direção, descrição, ciclo e cartão).
+     * pagar copiam tipo, direção, descrição, ciclo, cartão e pessoa).
+     * A pessoa faz parte da chave: dois salários com a mesma descrição
+     * ("Salário") para pessoas diferentes são séries diferentes.
      */
     public static function recurringChainKey(array $r): string
     {
@@ -400,6 +402,7 @@ class FinancialRules
             mb_strtolower(trim((string)($r['description'] ?? ''))),
             $r['recurring_cycle'] ?? '',
             (string)($r['card_id'] ?? ''),
+            (string)($r['user_id'] ?? ''),
         ]);
     }
 

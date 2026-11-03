@@ -261,17 +261,21 @@ class FinancialTransaction
             $nextDue = FinancialRules::recurringNextDate((string)$t['due_date'], (string)$t['recurring_cycle']);
             // Não duplica se a próxima ocorrência já foi gravada (ex.: paga
             // antecipadamente a partir da previsão).
-            $exists = $this->db->fetch(
-                "SELECT id FROM fin_transactions
-                 WHERE kind = ? AND direction = ? AND recurring_cycle = ? AND due_date = ?
+            // A pessoa entra na comparação: o mês seguinte de OUTRA pessoa com
+            // a mesma descrição não pode bloquear o desta.
+            $sameSeries = "kind = ? AND direction = ? AND recurring_cycle = ? AND due_date = ?
                    AND status <> 'cancelled' AND installments <= 1
                    AND LOWER(TRIM(COALESCE(description, ''))) = ?
-                   AND COALESCE(card_id, 0) = ?",
-                [
-                    $t['kind'], $t['direction'], $t['recurring_cycle'], $nextDue,
-                    mb_strtolower(trim((string)($t['description'] ?? ''))), (int)($t['card_id'] ?? 0),
-                ]
-            );
+                   AND COALESCE(card_id, 0) = ?";
+            $seriesParams = [
+                $t['kind'], $t['direction'], $t['recurring_cycle'], $nextDue,
+                mb_strtolower(trim((string)($t['description'] ?? ''))), (int)($t['card_id'] ?? 0),
+            ];
+            if (array_key_exists('user_id', $t)) {
+                $sameSeries .= " AND COALESCE(user_id, 0) = ?";
+                $seriesParams[] = (int)($t['user_id'] ?? 0);
+            }
+            $exists = $this->db->fetch("SELECT id FROM fin_transactions WHERE {$sameSeries}", $seriesParams);
             if (!$exists && FinancialRules::recurringContinues($nextDue, $t['recurring_until'] ?? null)) {
                 $clone = [
                     'kind'            => $t['kind'],
