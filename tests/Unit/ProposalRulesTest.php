@@ -470,4 +470,60 @@ final class ProposalRulesTest extends TestCase
         // A variável {total_pontual} reflete o líquido.
         $this->assertSame('R$ 900,00', $data['vars']['total_pontual']);
     }
+
+    // ---- prazo da projeção ----
+
+    public function testPrazoDaProjecaoAceitaSo3_6Ou12(): void
+    {
+        $this->assertSame(12, ProposalRules::projectionMonths([]));
+        $this->assertSame(6, ProposalRules::projectionMonths(['projection_months' => '6']));
+        $this->assertSame(12, ProposalRules::projectionMonths(['projection_months' => '9']));
+        $this->assertSame('3', ProposalRules::normalizeContent(['projection_months' => '3'])['projection_months']);
+        $this->assertSame('', ProposalRules::normalizeContent(['projection_months' => '24'])['projection_months']);
+    }
+
+    public function testProjecaoNoPrazoIgnoraPontualDepoisDoFim(): void
+    {
+        $items = [
+            ['amount' => 6000, 'billing' => 'once', 'schedule_start' => '2026-11-02'],
+            ['amount' => 900, 'billing' => 'once', 'schedule_start' => '2027-03-10'], // 5º mês
+            ['amount' => 500, 'billing' => 'monthly', 'schedule_start' => '2026-12-01'],
+        ];
+        $p = ProposalRules::projection($items, '2026-11-01', null, null, null, 3);
+        $this->assertCount(3, $p['months']);
+        $this->assertSame('jan/27', $p['months'][2]['label']);
+        $this->assertSame(500.0, $p['months'][2]['invest']);
+        $this->assertSame(7000.0, $p['invest']); // 6000 + 2 mensalidades, sem o pontual do 5º mês
+    }
+
+    public function testPlanosNoPrazoMantemValoresDe12Meses(): void
+    {
+        $items = [['amount' => 15000, 'billing' => 'once'], ['amount' => 13600, 'billing' => 'monthly']];
+        $plans = ProposalRules::plans($items, 20, 30, 6);
+        $p3 = $plans['items'][0];
+        $p12 = $plans['items'][2];
+        $this->assertCount(6, $p3['cum']);
+        $this->assertSame(100.0, end($p3['index'])); // plano 3 meses no mês 6 = 100
+        $this->assertSame(15000.0 + 13600.0 * 6, $p3['period_total']);
+        $this->assertSame(4080.0 * 6, $p12['save_period']);
+        // Resumo e aceite continuam no ano.
+        $this->assertSame(15000.0 + 13600.0 * 12, $p3['year']);
+        $this->assertSame(100, $p3['index12']);
+    }
+
+    public function testProjecaoSomeEmPropostaSoPontualSemRetorno(): void
+    {
+        $items = [['amount' => 7200, 'billing' => 'once', 'description' => 'Site']];
+        $sem = ProposalRules::buildPresentationData(['content' => json_encode(['projection_months' => '6'])], $items);
+        $this->assertFalse($sem['show_projection']);
+        $this->assertSame(6, $sem['projection_months']);
+        $this->assertCount(6, $sem['projection']['months']);
+
+        $com = ProposalRules::buildPresentationData(['content' => json_encode(['expected_return' => '2000'])], $items);
+        $this->assertTrue($com['show_projection']);
+        $this->assertSame(12, $com['projection_months']);
+
+        $mensal = ProposalRules::buildPresentationData(['content' => null], [['amount' => 500, 'billing' => 'monthly', 'description' => 'Gestão']]);
+        $this->assertTrue($mensal['show_projection']);
+    }
 }
