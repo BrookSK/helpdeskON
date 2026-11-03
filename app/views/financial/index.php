@@ -201,11 +201,14 @@ foreach (($bankAccounts ?? []) as $ba) $bankById[(int)$ba['id']] = $ba;
                             <input id="f-due" type="date" class="form-control form-control-sm" value="<?= date('Y-m-d') ?>">
                             <div class="small text-primary" style="font-size:0.7rem;" id="f-invoice-hint"></div>
                         </div>
-                        <div class="col-md-2 col-xl-1 d-flex align-items-end">
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" id="f-paid">
-                                <label class="form-check-label small" for="f-paid">Já pago</label>
-                            </div>
+                        <div class="col-md-3">
+                            <label class="form-label small">Situação</label>
+                            <select id="f-paid" class="form-select form-select-sm">
+                                <option value="pending">Em aberto</option>
+                                <option value="paid_no_balance">Já pago, sem mexer no saldo</option>
+                                <option value="paid_balance">Já pago e mexe no saldo</option>
+                            </select>
+                            <div class="small text-muted" style="font-size:0.65rem;" id="f-paid-hint">Use "sem mexer no saldo" quando o valor já está no saldo inicial da conta.</div>
                         </div>
                         <div class="col-12">
                             <button class="btn btn-sm btn-primary" onclick="saveTransaction()"><i class="bi bi-plus-lg"></i> Lançar</button>
@@ -495,10 +498,16 @@ foreach (($bankAccounts ?? []) as $ba) $bankById[(int)$ba['id']] = $ba;
                                         <?php elseif ($t['status'] === 'paid' && $t['source'] !== 'asaas'): ?>
                                         <button class="btn btn-sm btn-outline-warning py-0 px-1" title="Estornar esta parcela" onclick="unpayInstallment(<?= (int)$t['installment_id'] ?>)"><i class="bi bi-arrow-counterclockwise"></i></button>
                                         <?php endif; ?>
+                                        <?php if ($t['status'] === 'paid' && !empty($t['account_id'])): $on = (int)($t['affects_balance'] ?? 1) === 1; ?>
+                                        <button class="btn btn-sm <?= $on ? 'btn-outline-secondary' : 'btn-outline-info' ?> py-0 px-1" title="<?= $on ? 'Mexe no saldo da conta. Clique para tirar do saldo.' : 'Não mexe no saldo (já estava no saldo inicial). Clique para passar a mexer.' ?>" onclick="toggleBalance(<?= (int)$t['id'] ?>, <?= (int)$t['installment_id'] ?>)"><i class="bi <?= $on ? 'bi-wallet2' : 'bi-wallet' ?>"></i></button>
+                                        <?php endif; ?>
                                     <?php elseif ($t['status'] === 'pending'): ?>
                                     <button class="btn btn-sm btn-outline-success py-0 px-1" title="Pagar" onclick="payTx(<?= (int)$t['id'] ?>)"><i class="bi bi-check-lg"></i></button>
                                     <?php elseif ($t['source'] !== 'asaas'): ?>
                                     <button class="btn btn-sm btn-outline-warning py-0 px-1" title="Estornar" onclick="unpayTx(<?= (int)$t['id'] ?>)"><i class="bi bi-arrow-counterclockwise"></i></button>
+                                    <?php endif; ?>
+                                    <?php if ($t['status'] === 'paid' && !empty($t['account_id']) && (int)$t['installments'] <= 1): $on = (int)($t['affects_balance'] ?? 1) === 1; ?>
+                                    <button class="btn btn-sm <?= $on ? 'btn-outline-secondary' : 'btn-outline-info' ?> py-0 px-1" title="<?= $on ? 'Mexe no saldo da conta. Clique para tirar do saldo.' : 'Não mexe no saldo (já estava no saldo inicial). Clique para passar a mexer.' ?>" onclick="toggleBalance(<?= (int)$t['id'] ?>, 0)"><i class="bi <?= $on ? 'bi-wallet2' : 'bi-wallet' ?>"></i></button>
                                     <?php endif; ?>
                                     <?php if ($t['source'] !== 'asaas'): ?>
                                     <button class="btn btn-sm btn-outline-danger py-0 px-1" title="Excluir" onclick="removeTx(<?= (int)$t['id'] ?>, <?= (int)$t['installments'] ?>)"><i class="bi bi-trash"></i></button>
@@ -1049,7 +1058,9 @@ async function saveTransaction() {
             fd.append('recurring_until', document.getElementById('f-recurring-until').value);
         }
     }
-    fd.append('status', document.getElementById('f-paid').checked ? 'paid' : 'pending');
+    const paidOpt = document.getElementById('f-paid').value;
+    fd.append('status', paidOpt === 'pending' ? 'pending' : 'paid');
+    fd.append('paid_affects_balance', paidOpt === 'paid_balance' ? '1' : '0');
     const r = await post('financial/store', fd);
     if (r) location.reload();
 }
@@ -1211,6 +1222,11 @@ document.getElementById('filter-form').addEventListener('submit', function () {
 async function payProjected(fromId, date) {
     if (!confirm('Marcar esta ocorrência prevista como paga?')) return;
     const r = await post('financial/payProjected/' + fromId + '/' + date, new FormData());
+    if (r) location.reload();
+}
+async function toggleBalance(txId, installmentId) {
+    const url = 'financial/toggleBalance/' + txId + (installmentId ? '/' + installmentId : '');
+    const r = await post(url, new FormData());
     if (r) location.reload();
 }
 async function payInstallment(id) { const r = await post('financial/payInstallment/' + id, new FormData()); if (r) location.reload(); }

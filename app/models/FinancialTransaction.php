@@ -71,7 +71,8 @@ class FinancialTransaction
 
         if ($from === null) {
             $sql = $select . ", t.due_date AS row_due, t.amount AS row_amount, t.status AS row_status,
-                       t.paid_at AS row_paid_at, NULL AS installment_id, NULL AS installment_no
+                       t.paid_at AS row_paid_at, NULL AS installment_id, NULL AS installment_no,
+                       t.affects_balance AS row_affects
                 FROM fin_transactions t" . $joins . " WHERE 1=1" . $common;
             $params = $commonParams;
             if ($sqlStatus !== '') { $sql .= " AND t.status = ?"; $params[] = $sqlStatus; }
@@ -79,7 +80,8 @@ class FinancialTransaction
         } else {
             // À vista: pelo vencimento do lançamento.
             $single = $select . ", t.due_date AS row_due, t.amount AS row_amount, t.status AS row_status,
-                       t.paid_at AS row_paid_at, NULL AS installment_id, NULL AS installment_no
+                       t.paid_at AS row_paid_at, NULL AS installment_id, NULL AS installment_no,
+                       t.affects_balance AS row_affects
                 FROM fin_transactions t" . $joins . "
                 WHERE t.installments <= 1 AND t.due_date BETWEEN ? AND ?" . $common;
             $p1 = array_merge([$from, $to], $commonParams);
@@ -88,7 +90,8 @@ class FinancialTransaction
             // Parcelado: cada parcela no mês do vencimento dela.
             $parcel = $select . ", i.due_date AS row_due, i.amount AS row_amount,
                        CASE WHEN t.status = 'cancelled' THEN 'cancelled' ELSE i.status END AS row_status,
-                       i.paid_at AS row_paid_at, i.id AS installment_id, i.installment_no AS installment_no
+                       i.paid_at AS row_paid_at, i.id AS installment_id, i.installment_no AS installment_no,
+                       i.affects_balance AS row_affects
                 FROM fin_installments i
                 JOIN fin_transactions t ON t.id = i.transaction_id" . $joins . "
                 WHERE t.installments > 1 AND i.due_date BETWEEN ? AND ?" . $common;
@@ -99,24 +102,31 @@ class FinancialTransaction
             $params = array_merge($p1, $p2);
         }
 
-        try {
-            return $this->mapRows($this->db->fetchAll($sql, $params));
-        } catch (\Throwable $e) {
-            // Banco sem a coluna user_id (migration 169 pendente): lista sem a
-            // pessoa em vez de esconder todos os lançamentos.
-            if (stripos($e->getMessage(), 'user_id') === false) return [];
-            if (!empty($filters['user_id'])) return []; // filtro por pessoa sem a coluna
-            $fallback = str_replace(
-                ["pu.name AS person_name", "LEFT JOIN users pu ON pu.id = t.user_id"],
-                ["NULL AS person_name", ""],
-                $sql
-            );
+        // Banco sem colunas novas (migrations 169/171 pendentes): lista sem
+        // elas em vez de esconder todos os lançamentos.
+        $fallbacks = [
+            'affects_balance' => [["t.affects_balance AS row_affects", "i.affects_balance AS row_affects"], ["1 AS row_affects", "1 AS row_affects"]],
+            'user_id'         => [["pu.name AS person_name", "LEFT JOIN users pu ON pu.id = t.user_id"], ["NULL AS person_name", ""]],
+        ];
+        for ($try = 0; $try < 3; $try++) {
             try {
-                return $this->mapRows($this->db->fetchAll($fallback, $params));
-            } catch (\Throwable $e2) {
-                return [];
+                return $this->mapRows($this->db->fetchAll($sql, $params));
+            } catch (\Throwable $e) {
+                $msg = $e->getMessage();
+                $fixed = false;
+                foreach ($fallbacks as $col => [$search, $replace]) {
+                    if (stripos($msg, $col) !== false) {
+                        if ($col === 'user_id' && !empty($filters['user_id'])) return [];
+                        $sql = str_replace($search, $replace, $sql);
+                        unset($fallbacks[$col]);
+                        $fixed = true;
+                        break;
+                    }
+                }
+                if (!$fixed) return [];
             }
         }
+        return [];
     }
 
     /**
@@ -135,7 +145,8 @@ class FinancialTransaction
             $r['paid_at'] = $r['row_paid_at'];
             $r['installment_id'] = $r['installment_id'] !== null ? (int)$r['installment_id'] : null;
             $r['installment_no'] = $r['installment_no'] !== null ? (int)$r['installment_no'] : null;
-            unset($r['row_due'], $r['row_amount'], $r['row_status'], $r['row_paid_at']);
+            $r['affects_balance'] = isset($r['row_affects']) ? (int)$r['row_affects'] : 1;
+            unset($r['row_due'], $r['row_amount'], $r['row_status'], $r['row_paid_at'], $r['row_affects']);
         }
         unset($r);
         return $rows;
@@ -151,7 +162,7 @@ class FinancialTransaction
         if (!$i) return false;
         $now = date('Y-m-d H:i:s');
         if ($i['status'] !== 'paid') {
-            $this->db->update('fin_installments', ['status' => 'paid', 'paid_at' => $now], 'id = ?', [$installmentId]);
+            $this->db->update('fin_installments', ['status' => 'paid', 'paid_at' => $now, 'affects_balance' => 1], 'id = ?', [$installmentId]);
         }
         $left = $this->db->fetch(
             "SELECT COUNT(*) AS c FROM fin_installments WHERE transaction_id = ? AND status = 'pending'",
@@ -159,7 +170,7 @@ class FinancialTransaction
         );
         $done = (int)($left['c'] ?? 0) === 0;
         if ($done) {
-            $this->db->update('fin_transactions', ['status' => 'paid', 'paid_at' => $now], 'id = ?', [(int)$i['transaction_id']]);
+            $this->db->update('fin_transactions', ['status' => 'paid', 'paid_at' => $now, 'affects_balance' => 1], 'id = ?', [(int)$i['transaction_id']]);
         }
         return $done;
     }
@@ -221,8 +232,10 @@ class FinancialTransaction
      * faturas do cartão, via CardInvoiceRules). Sem ele, as parcelas vencem
      * mensalmente a partir de due_date.
      */
-    public function createWithInstallments(array $data, ?array $dueDates = null): int
+    public function createWithInstallments(array $data, ?array $dueDates = null, ?int $firstPaidAffectsBalance = null): int
     {
+        // $firstPaidAffectsBalance (só parcelado): null = nenhuma parcela paga;
+        // 0/1 = a 1ª parcela já nasce paga, sem/com efeito no saldo da conta.
         $id = $this->create($data);
         if ((int)$data['installments'] > 1) {
             $plan = FinancialRules::buildInstallments((float)$data['amount'], (int)$data['installments'], (string)$data['due_date']);
@@ -230,17 +243,44 @@ class FinancialTransaction
                 foreach ($plan as $i => $p) $plan[$i]['due_date'] = $dueDates[$i];
             }
             foreach ($plan as $p) {
-                $this->db->insert('fin_installments', [
+                $row = [
                     'transaction_id'  => $id,
                     'installment_no'  => $p['installment_no'],
                     'installment_total' => $p['installment_total'],
                     'amount'           => $p['amount'],
                     'due_date'         => $p['due_date'],
                     'status'           => 'pending',
-                ]);
+                ];
+                if ($firstPaidAffectsBalance !== null && (int)$p['installment_no'] === 1) {
+                    $row['status'] = 'paid';
+                    $row['paid_at'] = date('Y-m-d H:i:s');
+                    $row['affects_balance'] = $firstPaidAffectsBalance ? 1 : 0;
+                }
+                $this->db->insert('fin_installments', $row);
             }
         }
         return $id;
+    }
+
+    /**
+     * Liga/desliga o efeito de um pagamento no saldo da conta.
+     * $installmentId informado = parcela; senão, o lançamento à vista.
+     * Retorna o novo valor (true = mexe no saldo).
+     */
+    public function toggleAffectsBalance(int $txId, ?int $installmentId = null): bool
+    {
+        if ($installmentId !== null) {
+            $r = $this->db->fetch("SELECT affects_balance FROM fin_installments WHERE id = ? AND transaction_id = ?", [$installmentId, $txId]);
+            if (!$r) return false;
+            $new = ((int)$r['affects_balance'] === 1) ? 0 : 1;
+            $this->db->update('fin_installments', ['affects_balance' => $new], 'id = ?', [$installmentId]);
+            return $new === 1;
+        }
+        $r = $this->db->fetch("SELECT affects_balance FROM fin_transactions WHERE id = ?", [$txId]);
+        if (!$r) return false;
+        $new = ((int)$r['affects_balance'] === 1) ? 0 : 1;
+        $this->db->update('fin_transactions', ['affects_balance' => $new], 'id = ?', [$txId]);
+        return $new === 1;
     }
 
     /**
@@ -259,20 +299,20 @@ class FinancialTransaction
             [$id]
         );
         if ($pending) {
-            $this->db->update('fin_installments', ['status' => 'paid', 'paid_at' => $now], 'id = ?', [(int)$pending['id']]);
+            $this->db->update('fin_installments', ['status' => 'paid', 'paid_at' => $now, 'affects_balance' => 1], 'id = ?', [(int)$pending['id']]);
             $left = $this->db->fetch(
                 "SELECT COUNT(*) AS c FROM fin_installments WHERE transaction_id = ? AND status = 'pending'",
                 [$id]
             );
             $done = (int)($left['c'] ?? 0) === 0;
             if ($done) {
-                $this->db->update('fin_transactions', ['status' => 'paid', 'paid_at' => $now], 'id = ?', [$id]);
+                $this->db->update('fin_transactions', ['status' => 'paid', 'paid_at' => $now, 'affects_balance' => 1], 'id = ?', [$id]);
             }
             return $done;
         }
 
         if ($t['status'] !== 'paid') {
-            $this->db->update('fin_transactions', ['status' => 'paid', 'paid_at' => $now], 'id = ?', [$id]);
+            $this->db->update('fin_transactions', ['status' => 'paid', 'paid_at' => $now, 'affects_balance' => 1], 'id = ?', [$id]);
         }
 
         // Recorrente: ao pagar, nasce a PRÓXIMA ocorrência (mesma configuração,
@@ -407,7 +447,7 @@ class FinancialTransaction
         );
         $touched = [];
         foreach ($insts as $i) {
-            $this->db->update('fin_installments', ['status' => 'paid', 'paid_at' => $now], 'id = ?', [(int)$i['id']]);
+            $this->db->update('fin_installments', ['status' => 'paid', 'paid_at' => $now, 'affects_balance' => 1], 'id = ?', [(int)$i['id']]);
             $touched[(int)$i['transaction_id']] = true;
             $count++;
         }
@@ -417,7 +457,7 @@ class FinancialTransaction
                 [$txId]
             );
             if ((int)($left['c'] ?? 0) === 0) {
-                $this->db->update('fin_transactions', ['status' => 'paid', 'paid_at' => $now], 'id = ?', [$txId]);
+                $this->db->update('fin_transactions', ['status' => 'paid', 'paid_at' => $now, 'affects_balance' => 1], 'id = ?', [$txId]);
             }
         }
 
@@ -462,18 +502,36 @@ class FinancialTransaction
         // sozinha (parcela paga sai da conta; as pendentes ainda não).
         try {
             $rows = $this->db->fetchAll(
+                // Pago "sem mexer no saldo" (affects_balance = 0) fica de fora:
+                // o valor já estava dentro do saldo inicial da conta.
                 "SELECT account_id, direction, amount, status
                  FROM fin_transactions
                  WHERE account_id IS NOT NULL AND installments <= 1
+                   AND NOT (status = 'paid' AND affects_balance = 0)
                  UNION ALL
                  SELECT t.account_id, t.direction, i.amount,
                         CASE WHEN t.status = 'cancelled' THEN 'cancelled' ELSE i.status END AS status
                  FROM fin_installments i
                  JOIN fin_transactions t ON t.id = i.transaction_id
-                 WHERE t.account_id IS NOT NULL AND t.installments > 1"
+                 WHERE t.account_id IS NOT NULL AND t.installments > 1
+                   AND NOT (i.status = 'paid' AND i.affects_balance = 0)"
             );
         } catch (\Throwable $e) {
-            return [];
+            if (stripos($e->getMessage(), 'affects_balance') === false) return [];
+            // Migration 171 pendente: calcula como antes (tudo pago mexe).
+            try {
+                $rows = $this->db->fetchAll(
+                    "SELECT account_id, direction, amount, status FROM fin_transactions
+                     WHERE account_id IS NOT NULL AND installments <= 1
+                     UNION ALL
+                     SELECT t.account_id, t.direction, i.amount,
+                            CASE WHEN t.status = 'cancelled' THEN 'cancelled' ELSE i.status END
+                     FROM fin_installments i JOIN fin_transactions t ON t.id = i.transaction_id
+                     WHERE t.account_id IS NOT NULL AND t.installments > 1"
+                );
+            } catch (\Throwable $e2) {
+                return [];
+            }
         }
         $out = [];
         foreach ($rows as $r) {
@@ -567,7 +625,7 @@ class FinancialTransaction
             'description' => $base['description'], 'amount' => $base['amount'],
             'installments' => 1, 'recurring_cycle' => $base['recurring_cycle'],
             'recurring_until' => $base['recurring_until'], 'due_date' => $date,
-            'status' => 'paid', 'paid_at' => date('Y-m-d H:i:s'),
+            'status' => 'paid', 'paid_at' => date('Y-m-d H:i:s'), 'affects_balance' => 1,
             'card_id' => $base['card_id'], 'account_id' => $base['account_id'] ?? null,
             'asaas_account_id' => $base['asaas_account_id'], 'asaas_payment_id' => null,
             'source' => $base['source'], 'created_by' => $base['created_by'],

@@ -195,7 +195,20 @@ class FinancialController extends Controller
         $data = $validation['data'];
         $data['source'] = 'manual';
         $data['created_by'] = $user['id'];
-        if ($data['status'] === 'paid') $data['paid_at'] = date('Y-m-d H:i:s');
+        // "Já pago" na hora do lançamento: por padrão NÃO mexe no saldo (o
+        // valor já está no saldo inicial). Só mexe se escolher explicitamente.
+        $affects = (($_POST['paid_affects_balance'] ?? '0') === '1') ? 1 : 0;
+        $firstPaid = null;
+        if ($data['status'] === 'paid') {
+            if ((int)$data['installments'] > 1) {
+                // Parcelado: só a 1ª parcela nasce paga; o lançamento segue em aberto.
+                $data['status'] = 'pending';
+                $firstPaid = $affects;
+            } else {
+                $data['paid_at'] = date('Y-m-d H:i:s');
+                $data['affects_balance'] = $affects;
+            }
+        }
         if ($data['user_id'] !== null && !$this->isTeamUser((int)$data['user_id'])) {
             $this->json(['error' => 'A pessoa escolhida não é da equipe.'], 400);
         }
@@ -225,6 +238,9 @@ class FinancialController extends Controller
         $initial = FinancialRules::loanInitialMovement($data, $_POST['loan_principal'] ?? '', date('Y-m-d'));
         if ($initial !== null) {
             if (!array_key_exists('user_id', $data)) unset($initial['user_id']);
+            // Movimento que já aconteceu nasce pago no lançamento: segue a mesma
+            // escolha de mexer ou não no saldo.
+            if ($initial['status'] === 'paid') $initial['affects_balance'] = $affects;
             $initial['source'] = 'manual';
             $initial['created_by'] = $user['id'];
         }
@@ -233,7 +249,7 @@ class FinancialController extends Controller
         $initialId = null;
         try {
             $pdo->beginTransaction();
-            $id = $this->transactions->createWithInstallments($data, $dueDates);
+            $id = $this->transactions->createWithInstallments($data, $dueDates, $firstPaid);
             if ($initial !== null) $initialId = $this->transactions->create($initial);
             $pdo->commit();
         } catch (\Throwable $e) {
@@ -365,6 +381,22 @@ class FinancialController extends Controller
         }
         if ($id === null) $this->json(['error' => 'Essa ocorrência não é válida ou já foi lançada. Recarregue a página.'], 409);
         $this->json(['success' => true, 'id' => $id]);
+    }
+
+    /**
+     * Liga/desliga se um pagamento mexe no saldo da conta:
+     * POST financial/toggleBalance/{txId} ou financial/toggleBalance/{txId}/{installmentId}.
+     */
+    public function toggleBalance($txId = null, $installmentId = null)
+    {
+        $this->requireSuperAdmin();
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$txId) $this->json(['error' => 'Requisição inválida'], 400);
+        try {
+            $on = $this->transactions->toggleAffectsBalance((int)$txId, $installmentId ? (int)$installmentId : null);
+        } catch (\Throwable $e) {
+            $this->json(['error' => $this->schemaErrorHint($e, 'o ajuste', 171)], 500);
+        }
+        $this->json(['success' => true, 'affects_balance' => $on]);
     }
 
     /** Quita uma parcela específica: POST financial/payInstallment/{installmentId}. */
@@ -698,7 +730,7 @@ class FinancialController extends Controller
             return "Não foi possível salvar {$what}: uma tabela do Controle Financeiro não existe neste banco. Rode a migration {$mig}. (Detalhe: {$msg})";
         }
         if (stripos($msg, 'Unknown column') !== false || stripos($msg, '42S22') !== false) {
-            return "Não foi possível salvar {$what}: uma coluna nova não existe neste banco. Rode as migrations pendentes do financeiro (167b, 168 e 169). (Detalhe: {$msg})";
+            return "Não foi possível salvar {$what}: uma coluna nova não existe neste banco. Rode as migrations pendentes do financeiro (167b, 168, 169, 170 e 171). (Detalhe: {$msg})";
         }
         if (stripos($msg, 'foreign key') !== false || stripos($msg, '1452') !== false) {
             return "Não foi possível salvar {$what}: referência inválida (conta/categoria inexistente). (Detalhe: {$msg})";
