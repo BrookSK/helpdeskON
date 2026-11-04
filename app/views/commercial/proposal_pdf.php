@@ -69,7 +69,9 @@ $expectedReturn = (float)($content['expected_return'] ?? 0);
 $productPrice = (float)($content['product_price'] ?? 0);
 $hasMonthly = $monthItems && (float)$totals['monthly'] > 0;
 $hasOnce = $onceItems && (float)$totals['once'] > 0;
-$plans = $hasMonthly ? ProposalRules::plans($items, $content['discount_6'] ?? 20, $content['discount_12'] ?? 30) : null;
+$pm = (int)($projectionMonths ?? ProposalRules::projectionMonths($content)); // prazo da projeção: 3, 6 ou 12
+$showProjection = $showProjection ?? ($hasMonthly || $expectedReturn > 0);
+$plans = $hasMonthly ? ProposalRules::plans($items, $content['discount_6'] ?? 20, $content['discount_12'] ?? 30, $pm) : null;
 $plan12 = $plans['items'][2] ?? null;
 $extras = ($hasMonthly && $productPrice > 0 && $plan12) ? ProposalRules::extraProducts($plan12['year'], $productPrice) : [];
 $hasReturn = $expectedReturn > 0 || $c('return_text') !== '' || $extras;
@@ -325,7 +327,7 @@ foreach ($scopePages as [$title, $tag, $list, $foot]):
 <div class="page">
     <table class="head"><tr>
         <td><h2>Cronograma de etapas</h2></td>
-        <td class="aside">Projeção de 12 meses</td>
+        <td class="aside">Primeiros 12 meses</td>
     </tr></table>
     <?php if (!$timeline['rows'] || !$originMonth): ?>
         <p class="muted">O cronograma é definido pelas datas de cada serviço.</p>
@@ -464,13 +466,13 @@ if ($hasMonthly && $plans):
     }
     $planChart = ProposalChart::line($planSeries, [
         'fontDir' => $fontDir, 'width' => 1500, 'height' => 1130,
-        'xTitle' => 'Mês', 'yTitle' => 'Custo acumulado (índice plano 3 meses no mês 12 = 100)',
+        'xTitle' => 'Mês', 'yTitle' => 'Custo acumulado (índice plano 3 meses no mês ' . $pm . ' = 100)',
         'format' => [ProposalChart::class, 'index'], 'endLabels' => true,
     ]);
 ?>
 <div class="page">
     <table class="head"><tr>
-        <td><h2>Projeção de 12 meses</h2></td>
+        <td><h2>Projeção de <?= $pm ?> meses</h2></td>
         <td class="aside">Comparativo entre os planos</td>
     </tr></table>
     <table width="100%" cellspacing="0" cellpadding="0"><tr>
@@ -496,18 +498,18 @@ if ($hasMonthly && $plans):
                 </tr>
                 <tr>
                     <td>Custo médio por mês, com a implantação diluída</td>
-                    <?php foreach ($plans['items'] as $p): ?><td class="r"><?= $brl($p['avg']) ?></td><?php endforeach; ?>
+                    <?php foreach ($plans['items'] as $p): ?><td class="r"><?= $brl($p['period_avg']) ?></td><?php endforeach; ?>
                 </tr>
                 <tr class="alt">
-                    <td>Economia no ano</td>
-                    <?php foreach ($plans['items'] as $k => $p): ?><td class="r<?= $p['save_year'] > 0 ? ' mint' : '' ?>"><?= $p['save_year'] > 0 ? $brl($p['save_year']) . ' (' . number_format($p['discount'], 0, ',', '.') . '%)' : '-' ?></td><?php endforeach; ?>
+                    <td><?= $pm === 12 ? 'Economia no ano' : 'Economia em ' . $pm . ' meses' ?></td>
+                    <?php foreach ($plans['items'] as $k => $p): ?><td class="r<?= $p['save_period'] > 0 ? ' mint' : '' ?>"><?= $p['save_period'] > 0 ? $brl($p['save_period']) . ' (' . number_format($p['discount'], 0, ',', '.') . '%)' : '-' ?></td><?php endforeach; ?>
                 </tr>
             </table>
-            <p style="margin-top:4mm;font-size:8pt;">O pagamento único de implantação é cobrado uma só vez, no primeiro mês, e é igual em todos os planos. A diferença está na mensalidade: quanto maior o compromisso, menor o custo ao longo do ano.</p>
+            <p style="margin-top:4mm;font-size:8pt;">O pagamento único de implantação é cobrado uma só vez, no primeiro mês, e é igual em todos os planos. A diferença está na mensalidade: quanto maior o compromisso, menor o custo ao longo <?= $pm === 12 ? 'do ano' : 'dos ' . $pm . ' meses' ?>.</p>
         </td>
     </tr></table>
 </div>
-<?php else:
+<?php elseif ($showProjection):
     $maxCum = 0.0;
     foreach ($projection['months'] as $m) $maxCum = max($maxCum, $m['cum_invest'], $m['cum_return']);
     $costSeries = [['label' => 'Investido acumulado', 'color' => ProposalChart::BLACK, 'values' => array_column($projection['months'], 'cum_invest')]];
@@ -520,7 +522,7 @@ if ($hasMonthly && $plans):
 ?>
 <div class="page">
     <table class="head"><tr>
-        <td><h2>Projeção de 12 meses</h2></td>
+        <td><h2>Projeção de <?= $pm ?> meses</h2></td>
         <td class="aside"><?= $expectedReturn > 0 ? 'Investimento e retorno estimado' : 'Investimento mês a mês' ?></td>
     </tr></table>
     <table width="100%" cellspacing="0" cellpadding="0"><tr>
@@ -545,7 +547,7 @@ if ($hasMonthly && $plans):
                 </tr>
                 <?php endforeach; ?>
                 <tr class="total">
-                    <td class="lbl">12 meses</td><td class="r"><?= $brl($projection['invest']) ?></td><td class="r"><?= $brl($projection['invest']) ?></td>
+                    <td class="lbl"><?= $pm ?> meses</td><td class="r"><?= $brl($projection['invest']) ?></td><td class="r"><?= $brl($projection['invest']) ?></td>
                     <?php if ($expectedReturn > 0): ?><td class="r"><?= $brl($projection['return']) ?></td><?php endif; ?>
                 </tr>
             </table>
@@ -629,10 +631,10 @@ if ($hasMonthly && $plans):
     <p class="sub">Premissa: retorno de <?= $brl($expectedReturn) ?> por mês</p>
     <table class="grid">
         <tr><th>Indicador</th><th class="r">Valor</th></tr>
-        <tr><td>Investimento em 12 meses</td><td class="r"><?= $brl($projection['invest']) ?></td></tr>
-        <tr class="alt"><td>Retorno estimado em 12 meses</td><td class="r"><?= $brl($projection['return']) ?></td></tr>
-        <tr><td>Mês em que o retorno cobre o investimento</td><td class="r"><?= $projection['payback'] ? 'Mês ' . (int)$projection['payback'] : 'Após 12 meses' ?></td></tr>
-        <tr class="hi"><td>Resultado em 12 meses</td><td class="r"><?= $brl($projection['return'] - $projection['invest']) ?><?= $projection['roi'] !== null ? ' (' . number_format($projection['roi'], 1, ',', '.') . '%)' : '' ?></td></tr>
+        <tr><td>Investimento em <?= $pm ?> meses</td><td class="r"><?= $brl($projection['invest']) ?></td></tr>
+        <tr class="alt"><td>Retorno estimado em <?= $pm ?> meses</td><td class="r"><?= $brl($projection['return']) ?></td></tr>
+        <tr><td>Mês em que o retorno cobre o investimento</td><td class="r"><?= $projection['payback'] ? 'Mês ' . (int)$projection['payback'] : 'Após ' . $pm . ' meses' ?></td></tr>
+        <tr class="hi"><td>Resultado em <?= $pm ?> meses</td><td class="r"><?= $brl($projection['return'] - $projection['invest']) ?><?= $projection['roi'] !== null ? ' (' . number_format($projection['roi'], 1, ',', '.') . '%)' : '' ?></td></tr>
     </table>
     <?php foreach ($paras($c('return_text')) as $p): ?><p style="margin-top:3mm;font-size:8pt;"><?= nl2br($e($p)) ?></p><?php endforeach; ?>
     <p class="note">O cálculo considera apenas o investimento desta proposta. Premissas de retorno são ilustrativas e serão ajustadas com os números reais da empresa. Não representam promessa de resultado.</p>
@@ -708,7 +710,7 @@ if ($hasMonthly && $plans):
         </tr>
     </table>
     <?php endif; ?>
-    <?php foreach ($paras($c('summary_text')) as $p): ?><p style="margin-top:3mm;font-size:8pt;"><?= nl2br($e($p)) ?></p><?php endforeach; ?>
+    <?php foreach ($paras(ProposalRules::summaryText($content, (bool)$hasMonthly)) as $p): ?><p style="margin-top:3mm;font-size:8pt;"><?= nl2br($e($p)) ?></p><?php endforeach; ?>
     <?php if ($hasMonthly): ?><p class="note">A média mensal considera a implantação e as 12 primeiras mensalidades.</p><?php endif; ?>
 </div>
 
