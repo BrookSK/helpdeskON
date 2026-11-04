@@ -102,7 +102,11 @@ class DocumentsController extends Controller
         $fullUser = (new User())->findById($user['id']);
         $title = trim($_POST['title'] ?? '');
         $description = trim($_POST['description'] ?? '');
-        $visibility = $_POST['visibility'] ?? 'all';
+
+        // Visibilidade: só 'company' (apenas para a empresa) ou 'team' (apenas
+        // equipe interna). Removemos "Todos" (all). Qualquer valor inesperado
+        // cai no padrão seguro 'company' (restrito à empresa, nunca global).
+        $visibility = DocumentRules::normalizeVisibility($_POST['visibility'] ?? null);
 
         if (empty($title)) {
             flash('error', 'Título é obrigatório.');
@@ -114,11 +118,40 @@ class DocumentsController extends Controller
             $this->redirect('documents');
         }
 
+        $isTeam = in_array($user['role'], ['super_admin', 'attendant']);
+
+        // Empresa de destino.
+        //  - Cliente: sempre a própria empresa da conta (não pode escolher).
+        //  - Equipe: a empresa enviada pelo formulário (o front trava a troca
+        //    quando se está dentro de uma empresa). Validamos no backend:
+        //    a empresa precisa existir e o atendente precisa ter acesso a ela.
         $companyId = $fullUser['company_id'] ?? null;
 
-        // Se for atendente/admin e enviar para empresa específica
-        if (in_array($user['role'], ['super_admin', 'attendant']) && !empty($_POST['company_id'])) {
-            $companyId = (int)$_POST['company_id'];
+        if ($isTeam) {
+            $postedCompany = $_POST['company_id'] ?? '';
+            if ($postedCompany === '' || $postedCompany === null) {
+                // Documento geral (sem empresa) — só faz sentido no balde "Geral".
+                $companyId = null;
+            } else {
+                $companyId = (int)$postedCompany;
+
+                // A empresa precisa existir.
+                if (!(new Company())->findById($companyId)) {
+                    flash('error', 'Empresa de destino inválida.');
+                    $this->redirect('documents');
+                }
+
+                // Atendente só pode vincular a documentos de empresas às quais
+                // tem acesso (super_admin não tem restrição).
+                $allowedCompanies = PlanningCard::getUserAllowedCompanies($user['id'], $user['role']);
+                if ($allowedCompanies !== null) {
+                    $realIds = array_filter($allowedCompanies, fn($id) => $id > 0);
+                    if (!in_array($companyId, array_map('intval', $realIds), true)) {
+                        flash('error', 'Sem acesso a esta empresa.');
+                        $this->redirect('documents');
+                    }
+                }
+            }
         }
 
         $result = $this->docModel->upload(

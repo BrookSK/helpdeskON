@@ -51,6 +51,42 @@ class Project
         return $this->db->insert('projects', $data);
     }
 
+    /**
+     * Projeto do onboarding concluído (change 02, D7): ligado à empresa, ao
+     * contrato e à proposta aceita. Idempotente: devolve o que já existe.
+     *
+     * @return array{id:int,created:bool}
+     */
+    public function ensureForOnboarding(array $onboarding, $userId = null): array
+    {
+        $lock = 'hd-project-onb-' . (int)$onboarding['id'];
+        $this->db->fetch("SELECT GET_LOCK(?, 10) AS l", [$lock]);
+        try {
+            $existing = $this->db->fetch("SELECT id FROM projects WHERE onboarding_id = ? ORDER BY id ASC LIMIT 1", [(int)$onboarding['id']]);
+            if ($existing) return ['id' => (int)$existing['id'], 'created' => false];
+
+            $contract = !empty($onboarding['contract_id']) ? $this->db->fetch("SELECT id, proposal_id, company_id FROM contracts WHERE id = ?", [(int)$onboarding['contract_id']]) : null;
+            $proposal = !empty($contract['proposal_id']) ? $this->db->fetch("SELECT id, title, contract_type FROM proposals WHERE id = ?", [(int)$contract['proposal_id']]) : null;
+            $type = ProjectRules::fromProposalContractType($proposal['contract_type'] ?? null, $onboarding['project_type'] ?? null);
+            $name = $proposal['title'] ?? preg_replace('/^Onboarding — /u', '', (string)$onboarding['title']);
+            $id = (int)$this->create([
+                'company_id' => $onboarding['company_id'] ?: ($contract['company_id'] ?? null),
+                'onboarding_id' => (int)$onboarding['id'],
+                'contract_id' => $contract['id'] ?? null,
+                'proposal_id' => $proposal['id'] ?? null,
+                'name' => mb_substr($name ?: 'Projeto', 0, 200),
+                'contract_type' => $type['contract_type'],
+                'support_contract' => $type['support_contract'],
+                'status' => ProjectRules::STATUS_PLANNING,
+                'created_by' => $userId,
+            ]);
+            $this->addEvent($id, $userId, 'created', 'Projeto criado ao concluir o onboarding #' . (int)$onboarding['id']);
+            return ['id' => $id, 'created' => true];
+        } finally {
+            $this->db->query("SELECT RELEASE_LOCK(?)", [$lock]);
+        }
+    }
+
     public function update($id, $data)
     {
         if (isset($data['contract_type'])) $data['contract_type'] = ProjectRules::normalizeContractType($data['contract_type']);

@@ -110,24 +110,20 @@ class Contract
 
     /**
      * Cria um contrato a partir de uma proposta aceita, aplicando o corpo do
-     * modelo escolhido. Copia os dados do cliente da proposta.
+     * modelo escolhido. Copia os dados do cliente da proposta e o CPF/CNPJ do
+     * cadastro da empresa, quando houver.
      */
     public function createFromProposal(array $proposal, ?array $template, $userId): int
     {
+        $company = null;
+        if (!empty($proposal['company_id'])) {
+            $company = $this->db->fetch("SELECT name, document FROM companies WHERE id = ?", [(int)$proposal['company_id']]);
+        }
+        $document = trim((string)($company['document'] ?? '')) ?: null;
         $body = $template['body'] ?? '';
         // Substitui as variáveis {{...}} do modelo pelos dados da proposta.
         if ($body !== '' && class_exists('ContractTemplateVars')) {
-            $prestador = class_exists('Config') ? (string) Config::get('app_name') : null;
-            $empresaCliente = null;
-            if (!empty($proposal['company_id'])) {
-                $co = $this->db->fetch("SELECT name FROM companies WHERE id = ?", [(int)$proposal['company_id']]);
-                $empresaCliente = $co['name'] ?? null;
-            }
-            $items = [];
-            if (!empty($proposal['id'])) {
-                try { $items = (new Proposal())->getItems((int)$proposal['id']); } catch (\Throwable $e) { $items = []; }
-            }
-            $values = ContractTemplateVars::valuesFromProposal($proposal, $prestador, $empresaCliente, $items);
+            $values = $this->templateValues($proposal + ['client_document' => $document], $proposal, $company['name'] ?? null);
             $body = ContractTemplateVars::render($body, $values);
         }
         return $this->create([
@@ -140,9 +136,47 @@ class Contract
             'client_name'  => $proposal['client_name'] ?? null,
             'client_email' => $proposal['client_email'] ?? null,
             'client_phone' => $proposal['client_phone'] ?? null,
+            'client_document' => $document,
             'body'         => $body,
             'status'       => ContractRules::STATUS_DRAFT,
             'created_by'   => $userId,
         ]);
+    }
+
+    /**
+     * Valores das variáveis do modelo para um contrato já existente: dados do
+     * cliente do contrato e totais, itens e condição da proposta vinculada.
+     */
+    public function valuesForContract(array $contract): array
+    {
+        $proposal = null;
+        if (!empty($contract['proposal_id'])) {
+            $proposal = (new Proposal())->findById((int)$contract['proposal_id']) ?: null;
+        }
+        $company = null;
+        if (!empty($contract['company_id'])) {
+            $company = $this->db->fetch("SELECT name FROM companies WHERE id = ?", [(int)$contract['company_id']]);
+        }
+        $client = [
+            'client_name'     => $contract['client_name'] ?? '',
+            'client_email'    => $contract['client_email'] ?? '',
+            'client_phone'    => $contract['client_phone'] ?? '',
+            'client_document' => $contract['client_document'] ?? '',
+            'client_address'  => $contract['client_address'] ?? '',
+        ];
+        $base = $proposal ? array_merge($proposal, $client) : $client + ['title' => $contract['title'] ?? ''];
+        return $this->templateValues($base, $proposal, $company['name'] ?? null);
+    }
+
+    /** Monta os valores das variáveis com os itens da proposta e as configurações. */
+    private function templateValues(array $data, ?array $proposal, ?string $companyName): array
+    {
+        $items = [];
+        if (!empty($proposal['id'])) {
+            try { $items = (new Proposal())->getItems((int)$proposal['id']); } catch (\Throwable $e) { $items = []; }
+        }
+        $prestador = class_exists('Config') ? (string) Config::get('app_name') : null;
+        $paymentDefault = class_exists('Config') ? (string) Config::get('payment_condition_default') : null;
+        return ContractTemplateVars::valuesFromProposal($data, $prestador, $companyName, $items, $paymentDefault);
     }
 }

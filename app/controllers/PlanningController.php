@@ -87,12 +87,15 @@ class PlanningController extends Controller
             $teamMembers = $userModel->getByRoles(['super_admin', 'attendant', 'whatsapp_agent', 'analyst', 'developer']);
         }
 
-        // Listas específicas por papel para os seletores do card.
-        // "Atendente" é o DONO do card (assigned_to): inclui developer para que um
-        // desenvolvedor também possa ser dono, não só técnico responsável.
-        $attendantsList = $userModel->getByRoles(['super_admin', 'attendant', 'whatsapp_agent', 'analyst', 'developer']);
-        $techniciansList = $userModel->getByRoles(['developer']);
-        $analystsList = $userModel->getByRoles(['analyst']);
+        // Listas específicas por papel para os seletores do card. A elegibilidade
+        // de cada campo (Atendente/Técnico/Analista) vem de AssignmentRules —
+        // fonte única usada também na validação do servidor (store/update), para
+        // que dropdown e persistência nunca divirjam.
+        // Regra: atendente e analista PODEM ser técnico; developer (técnico) NÃO
+        // pode ser analista.
+        $attendantsList = $userModel->getByRoles(AssignmentRules::rolesForField(AssignmentRules::FIELD_ATTENDANT));
+        $techniciansList = $userModel->getByRoles(AssignmentRules::rolesForField(AssignmentRules::FIELD_TECHNICAL));
+        $analystsList = $userModel->getByRoles(AssignmentRules::rolesForField(AssignmentRules::FIELD_ANALYST));
 
         // Lista de solicitantes (criadores dos cards) para o filtro
         $requesters = $this->cardModel->getRequesters($allowedCompanies);
@@ -115,6 +118,228 @@ class PlanningController extends Controller
             // Qual visão abrir (kanban|calendar) — preserva a aba ao filtrar.
             'activeView' => (($_GET['view'] ?? '') === 'calendar') ? 'calendar' : 'kanban',
         ]);
+    }
+
+    /**
+     * Exporta, em PDF, o cronograma consolidado das atividades do Planejamento
+     * agrupadas pela empresa responsável.
+     *
+     * Reaproveita os MESMOS filtros da tela (empresa, responsável, solicitante,
+     * status, busca) e o controle de acesso por empresa do Kanban — ou seja, o
+     * PDF reflete exatamente o recorte que o usuário está vendo.
+     *
+     * Por padrão mostra só as atividades ativas (próximas etapas), ocultando
+     * concluídas/negadas/arquivadas; o usuário escolhe na hora incluir todas
+     * passando ?all=1 (checkbox "Incluir concluídas/arquivadas" na tela).
+     *
+     * A montagem/ordenação/agrupamento fica em PlanningScheduleRules (regra pura
+     * testável), que é a fonte única de verdade com os testes.
+     */
+    public function exportSchedulePdf()
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']);
+        $user = $this->currentUser();
+
+        // O cronograma em PDF agora é um CALENDÁRIO mensal visual (uma página
+        // por mês), fiel ao calendário da tela. O único filtro oferecido na
+        // exportação é a empresa (uma ou várias); "geral" = todas as que o
+        // usuário pode ver. As cores saem da mesma regra de prazo/status do
+        // calendário (PlanningScheduleRules::deadlineCategory).
+        $filters = [];
+        if (!empty($_GET['company_id'])) {
+            $filters['company_id'] = array_filter((array)$_GET['company_id'], fn($v) => $v !== '');
+        }
+
+        // whatsapp_agent/developer/analyst/comercial só exportam os próprios cards.
+        if (in_array($user['role'], ['whatsapp_agent', 'developer', 'analyst', 'comercial'])) {
+            $filters['assigned_to'] = [$user['id']];
+        }
+
+        // Controle de acesso por empresa (igual ao Kanban/calendário). Vale
+        // sempre, independente dos filtros: nunca exporta empresa sem acesso.
+        $allowedCompanies = PlanningCard::getUserAllowedCompanies($user['id'], $user['role']);
+        if ($allowedCompanies !== null) {
+            $filters['allowed_companies'] = $allowedCompanies;
+        }
+
+        // Só demandas ATIVAS entram no calendário (espelha o calendário da tela,
+        // que oculta concluídas/negadas/arquivadas do fluxo visual de datas).
+        $filters['statuses'] = array_values(array_filter(
+            array_keys(PlanningScheduleRules::STATUS_LABELS),
+            fn($s) => PlanningScheduleRules::isActive($s)
+        ));
+
+        // Busca todas as demandas (dentro do escopo/empresa). O recorte por mês
+        // é feito depois, a partir das datas reais das demandas.
+        $cards = $this->cardModel->getForSchedule($filters);
+
+        // Mantém apenas as demandas que têm pelo menos uma data (as sem data não
+        // aparecem no calendário) e descobre os meses a renderizar: um por mês
+        // tocado, do primeiro ao último (intervalo contíguo).
+        $dated = array_values(array_filter(
+            $cards,
+            fn($c) => !empty(PlanningScheduleRules::cardDays($c))
+        ));
+        $months = PlanningScheduleRules::monthsForCards($dated);
+        $total = count($dated);
+
+        if (!PdfGenerator::isAvailable()) {
+            $this->renderSchedulePdfUnavailable();
+            return;
+        }
+
+        // Pré-monta, para cada mês, as semanas do grid já com os SEGMENTOS
+        // contínuos (uma faixa por demanda ao longo dos dias, em vez de repetir
+        // a demanda em cada célula). A view só desenha o que vem pronto daqui.
+        $today = date('Y-m-d');
+        $viewMonths = [];
+        foreach ($months as $ym) {
+            $y = (int) substr($ym, 0, 4);
+            $m = (int) substr($ym, 5, 2);
+            $grid = PlanningScheduleRules::monthGrid($y, $m);
+            $weeks = [];
+            foreach ($grid as $weekDays) {
+                // Recorta as faixas ao mês da página: nada aparece sobre dias de
+                // outro mês; faixas que atravessam a virada continuam do dia 1.
+                $seg = PlanningScheduleRules::weekSegments($dated, $weekDays, $today, $ym);
+                $weeks[] = [
+                    'days'     => $weekDays,
+                    'segments' => $seg['segments'],
+                    'lanes'    => $seg['lanes'],
+                ];
+            }
+            $viewMonths[] = [
+                'ym'    => $ym,
+                'label' => PlanningScheduleRules::monthLabel($ym),
+                'weeks' => $weeks,
+            ];
+        }
+
+        // Monta o HTML do documento a partir da view dedicada.
+        ob_start();
+        $viewTotal = $total;
+        $viewWeekdays = PlanningScheduleRules::WEEKDAY_LABELS;
+        $viewLegend = PlanningScheduleRules::DEADLINE_COLORS;
+        $viewGeneratedAt = date('d/m/Y H:i');
+        // O único filtro escolhido pelo usuário na exportação é a empresa; o
+        // 'statuses' acima é regra fixa (só ativas), não entra no resumo.
+        $labelFilters = [];
+        if (!empty($filters['company_id'])) $labelFilters['company_id'] = $filters['company_id'];
+        $resolvedLabels = $this->scheduleFilterLabels($labelFilters, $allowedCompanies);
+        $viewFiltersLabel = PlanningScheduleRules::filtersSummary($resolvedLabels);
+
+        // ----- Dados da CAPA (1ª página) -----
+        // Empresa: nomes selecionados, ou "Todas as empresas" quando "Geral".
+        $viewCompanyLabel = trim((string) ($resolvedLabels['company'] ?? ''));
+        if ($viewCompanyLabel === '') {
+            $viewCompanyLabel = 'Todas as empresas';
+        }
+        // Período derivado dos meses com demanda (ex.: "Agosto 2026 – Setembro 2026").
+        $viewPeriodLabel = PlanningScheduleRules::periodLabel($months);
+
+        require APP_PATH . '/views/planning/schedule_pdf.php';
+        $html = ob_get_clean();
+
+        try {
+            // Documento HTML completo (com @page e CSS próprios): usamos
+            // fromDocument para o dompdf NÃO injetar o CSS genérico de tabela
+            // do wrap() (que quebrava a largura/bordas do calendário).
+            $pdf = PdfGenerator::fromDocument($html, APP_PATH, null, 'A4', 'landscape');
+        } catch (\Throwable $e) {
+            $this->renderSchedulePdfUnavailable($e->getMessage());
+            return;
+        }
+
+        $name = 'cronograma-planejamento-' . date('Y-m-d') . '.pdf';
+        header('Content-Type: application/pdf');
+        header('Content-Disposition: attachment; filename="' . $name . '"');
+        header('Content-Length: ' . strlen($pdf));
+        header('Cache-Control: private, no-store');
+        echo $pdf;
+        exit;
+    }
+
+    /**
+     * Resolve os nomes legíveis dos filtros aplicados, para o resumo no
+     * cabeçalho do PDF. Retorna o mapa esperado por
+     * PlanningScheduleRules::filtersSummary (chaves company/assigned/requester/
+     * statuses/q). Não expõe o escopo de empresas (allowed_companies), que é
+     * controle de acesso, não um filtro escolhido pelo usuário.
+     */
+    private function scheduleFilterLabels(array $filters, $allowedCompanies = null): array
+    {
+        $labels = [];
+
+        // Empresas.
+        if (!empty($filters['company_id'])) {
+            $ids = array_values(array_unique(array_filter(array_map('intval', (array)$filters['company_id']))));
+            if (!empty($ids)) {
+                $companyModel = new Company();
+                $names = [];
+                foreach ($companyModel->getAll() as $c) {
+                    if (in_array((int)$c['id'], $ids, true)) $names[] = $c['name'];
+                }
+                if (!empty($names)) $labels['company'] = implode(', ', $names);
+            }
+        }
+
+        // Responsáveis (com 'none' = sem responsável).
+        if (!empty($filters['assigned_to'])) {
+            $raw = (array)$filters['assigned_to'];
+            $ids = array_values(array_unique(array_filter(array_map('intval', $raw))));
+            $names = [];
+            if (!empty($ids)) {
+                $userModel = new User();
+                foreach ($userModel->getByRoles(['super_admin', 'attendant', 'whatsapp_agent', 'analyst', 'developer', 'comercial']) as $u) {
+                    if (in_array((int)$u['id'], $ids, true)) $names[] = $u['name'];
+                }
+            }
+            if (in_array('none', $raw, true)) $names[] = 'Sem responsável';
+            if (!empty($names)) $labels['assigned'] = implode(', ', $names);
+        }
+
+        // Solicitantes.
+        if (!empty($filters['created_by'])) {
+            $ids = array_values(array_unique(array_filter(array_map('intval', (array)$filters['created_by']))));
+            if (!empty($ids)) {
+                $names = [];
+                foreach ($this->cardModel->getRequesters($allowedCompanies) as $r) {
+                    if (in_array((int)$r['id'], $ids, true)) $names[] = $r['name'];
+                }
+                if (!empty($names)) $labels['requester'] = implode(', ', $names);
+            }
+        }
+
+        // Status.
+        if (!empty($filters['statuses'])) {
+            $sts = array_values(array_filter((array)$filters['statuses'], fn($v) => $v !== ''));
+            if (!empty($sts)) {
+                $labels['statuses'] = implode(', ', array_map(
+                    fn($s) => PlanningScheduleRules::statusLabel($s),
+                    $sts
+                ));
+            }
+        }
+
+        // Busca livre.
+        if (isset($filters['q']) && trim((string)$filters['q']) !== '') {
+            $labels['q'] = '"' . trim((string)$filters['q']) . '"';
+        }
+
+        return $labels;
+    }
+
+    /** Mensagem amigável quando o gerador de PDF não está disponível. */
+    private function renderSchedulePdfUnavailable(string $detail = ''): void
+    {
+        http_response_code(503);
+        $msg = 'Não foi possível gerar o PDF do cronograma.';
+        if ($detail !== '') {
+            $msg .= ' ' . $detail;
+        }
+        header('Content-Type: text/plain; charset=UTF-8');
+        echo $msg;
+        exit;
     }
 
     /**
@@ -400,6 +625,22 @@ class PlanningController extends Controller
             'position' => 0,
         ];
 
+        // Valida a elegibilidade dos responsáveis informados (Atendente/Técnico/
+        // Analista) contra AssignmentRules. Na criação todos os três campos são
+        // "novos", então todos os que vierem preenchidos são validados.
+        $assignError = $this->validateAssignments([
+            AssignmentRules::FIELD_ATTENDANT => $data['assigned_to'],
+            AssignmentRules::FIELD_TECHNICAL => $data['technical_responsible_id'],
+            AssignmentRules::FIELD_ANALYST   => $data['analyst_id'],
+        ]);
+        if ($assignError !== null) {
+            if ($this->isAjax()) {
+                $this->json(['error' => $assignError], 422);
+            }
+            flash('error', $assignError);
+            $this->redirect('planning');
+        }
+
         $cardId = $this->cardModel->create($data);
 
         // Se o card nasce com predecessor e ainda não tem datas próprias, já as
@@ -574,6 +815,24 @@ class PlanningController extends Controller
 
         if (empty($data)) {
             $this->json(['error' => 'Nenhum campo para atualizar'], 400);
+        }
+
+        // Valida a elegibilidade APENAS dos campos de responsável que vieram
+        // nesta requisição (edição valida só o que mudou — preserva cards antigos
+        // que porventura tenham um valor fora da regra atual).
+        $toValidate = [];
+        if (array_key_exists('assigned_to', $data)) {
+            $toValidate[AssignmentRules::FIELD_ATTENDANT] = $data['assigned_to'];
+        }
+        if (array_key_exists('technical_responsible_id', $data)) {
+            $toValidate[AssignmentRules::FIELD_TECHNICAL] = $data['technical_responsible_id'];
+        }
+        if (array_key_exists('analyst_id', $data)) {
+            $toValidate[AssignmentRules::FIELD_ANALYST] = $data['analyst_id'];
+        }
+        $assignError = $this->validateAssignments($toValidate);
+        if ($assignError !== null) {
+            $this->json(['error' => $assignError], 422);
         }
 
         // Se o prazo (due_date) mudou, zera o carimbo do lembrete de vencimento
@@ -1432,6 +1691,44 @@ class PlanningController extends Controller
                 WhatsappNotifier::sendToGroup($company['whatsapp_group_jid'], $baseMsg);
             }
         }
+    }
+
+    /**
+     * Valida os responsáveis informados para um card contra AssignmentRules.
+     *
+     * $assignments: mapa campo (AssignmentRules::FIELD_*) => id do usuário (ou
+     * null/'' = sem atribuição, que é sempre permitido). Para cada id não-vazio,
+     * busca o papel real do usuário e checa se ele pode ocupar aquele campo.
+     *
+     * Retorna null quando tudo é válido, ou uma mensagem de erro (string) com o
+     * primeiro problema encontrado — para o controller responder ao cliente.
+     */
+    private function validateAssignments(array $assignments): ?string
+    {
+        $labels = [
+            AssignmentRules::FIELD_ATTENDANT => 'Atendente',
+            AssignmentRules::FIELD_TECHNICAL => 'Técnico',
+            AssignmentRules::FIELD_ANALYST   => 'Analista',
+        ];
+        $userModel = new User();
+
+        foreach ($assignments as $field => $userId) {
+            // Sem atribuição (vazio/null) é permitido: significa "não atribuído".
+            if (empty($userId)) {
+                continue;
+            }
+            $assignee = $userModel->findById((int) $userId);
+            if (!$assignee) {
+                return 'Usuário selecionado para ' . ($labels[$field] ?? $field) . ' não existe.';
+            }
+            if (!AssignmentRules::canAssign($field, $assignee['role'] ?? null)) {
+                return 'O usuário "' . ($assignee['name'] ?? '')
+                    . '" (' . roleLabel($assignee['role'] ?? '')
+                    . ') não pode ser vinculado como ' . ($labels[$field] ?? $field) . '.';
+            }
+        }
+
+        return null;
     }
 
     // Notificação de atribuição (sistema + email + webhook)

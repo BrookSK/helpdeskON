@@ -58,6 +58,30 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                 <button type="button" class="btn btn-outline-primary active" data-view="kanban"><i class="bi bi-kanban"></i> Kanban</button>
                 <button type="button" class="btn btn-outline-primary" data-view="calendar"><i class="bi bi-calendar3"></i> Calendário</button>
             </div>
+            <div class="btn-group btn-group-sm" role="group">
+                <a id="export-schedule-btn" href="<?= baseUrl('planning/exportSchedulePdf') ?>" target="_blank"
+                   class="btn btn-outline-primary" title="Exportar o cronograma em calendário (PDF)">
+                    <i class="bi bi-file-earmark-pdf"></i> Exportar PDF
+                </a>
+                <button type="button" class="btn btn-outline-primary dropdown-toggle dropdown-toggle-split"
+                        data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                    <span class="visually-hidden">Opções de exportação</span>
+                </button>
+                <div class="dropdown-menu dropdown-menu-end p-2" style="min-width:240px;max-height:320px;overflow-y:auto;">
+                    <div class="small text-muted px-2 pb-1">Empresa do calendário</div>
+                    <label class="dropdown-item d-flex align-items-center gap-2 px-2 py-1 fw-medium" style="cursor:pointer;">
+                        <input class="form-check-input mt-0" type="radio" name="export-company-mode" value="all" id="export-company-all" checked>
+                        <span class="small">Geral (todas as empresas)</span>
+                    </label>
+                    <div class="dropdown-divider my-1"></div>
+                    <?php foreach ($companies as $c): ?>
+                    <label class="dropdown-item d-flex align-items-center gap-2 px-2 py-1" style="cursor:pointer;">
+                        <input class="form-check-input mt-0 export-company-check" type="checkbox" value="<?= (int)$c['id'] ?>">
+                        <span class="small"><?= escape($c['name']) ?></span>
+                    </label>
+                    <?php endforeach; ?>
+                </div>
+            </div>
             <button class="btn btn-primary btn-sm" onclick="openCreateModal()"><i class="bi bi-plus-lg"></i> Novo Card</button>
         </div>
     </div>
@@ -1200,6 +1224,41 @@ const statusColors = {open:'#1565c0',in_progress:'#e65100',em_revisao_interna:'#
 // === FILTER FORM ===
 // show_all fica sempre em 1: sem responsáveis marcados = ver todos os cards
 // (o pré-filtro pelo usuário logado só ocorre no primeiro acesso, sem parâmetros).
+
+// === EXPORTAR PDF (cronograma em calendário) ===
+// O único filtro da exportação é a empresa: "Geral" (todas as visíveis) ou uma
+// ou várias empresas marcadas. Monta o link do botão com company_id[] a partir
+// dessa seleção dedicada (independente dos filtros da tela).
+(function() {
+    const btn = document.getElementById('export-schedule-btn');
+    const allRadio = document.getElementById('export-company-all');
+    if (!btn) return;
+
+    const checks = Array.from(document.querySelectorAll('.export-company-check'));
+
+    // Marcar uma empresa desliga o "Geral"; desmarcar todas religa "Geral".
+    checks.forEach(chk => chk.addEventListener('change', function() {
+        if (allRadio) allRadio.checked = !checks.some(c => c.checked);
+    }));
+    if (allRadio) allRadio.addEventListener('change', function() {
+        if (allRadio.checked) checks.forEach(c => { c.checked = false; });
+    });
+
+    function buildUrl() {
+        const params = new URLSearchParams();
+        const selected = checks.filter(c => c.checked).map(c => c.value);
+        // "Geral" = nenhuma empresa específica => sem company_id (o controller
+        // aplica o escopo de acesso do usuário). Caso contrário, só as marcadas.
+        if (selected.length > 0) {
+            selected.forEach(id => params.append('company_id[]', id));
+        }
+        const qs = params.toString();
+        return BASE + 'planning/exportSchedulePdf' + (qs ? ('?' + qs) : '');
+    }
+
+    // Atualiza o href no momento do clique (pega a seleção mais recente).
+    btn.addEventListener('click', function() { btn.href = buildUrl(); });
+})();
 
 // === VIEW TOGGLE ===
 // Aplica uma visão (kanban|calendar): alterna os painéis, marca o botão ativo,

@@ -143,6 +143,8 @@ class LeadConversion
             'converted_by' => $userId,
         ]);
 
+        $this->propagateCompany($companyId, $lead);
+
         return [
             'company_id' => $companyId,
             'user_id' => $ownerId,
@@ -150,5 +152,37 @@ class LeadConversion
             'created_company' => $createdCompany,
             'created_user' => $createdUser,
         ];
+    }
+
+    /**
+     * Grava a empresa do cliente na cadeia da conversão (onboarding, contrato,
+     * proposta com as versões, financeiro e projeto). Só preenche o que está
+     * sem empresa: um vínculo feito à mão não é trocado.
+     */
+    public function propagateCompany(int $companyId, array $refs): void
+    {
+        $onbId = (int)($refs['onboarding_id'] ?? 0);
+        $contractId = (int)($refs['contract_id'] ?? 0);
+        $proposalId = (int)($refs['proposal_id'] ?? 0);
+
+        if ($onbId) {
+            $onb = $this->db->fetch("SELECT contract_id FROM onboardings WHERE id = ?", [$onbId]);
+            if (!$contractId && !empty($onb['contract_id'])) $contractId = (int)$onb['contract_id'];
+            $this->db->query("UPDATE onboardings SET company_id = ? WHERE id = ? AND company_id IS NULL", [$companyId, $onbId]);
+            $this->db->query("UPDATE projects SET company_id = ? WHERE onboarding_id = ? AND company_id IS NULL", [$companyId, $onbId]);
+        }
+        if ($contractId) {
+            $c = $this->db->fetch("SELECT proposal_id FROM contracts WHERE id = ?", [$contractId]);
+            if (!$proposalId && !empty($c['proposal_id'])) $proposalId = (int)$c['proposal_id'];
+            $this->db->query("UPDATE contracts SET company_id = ? WHERE id = ? AND company_id IS NULL", [$companyId, $contractId]);
+            $this->db->query("UPDATE finance_projects SET company_id = ? WHERE contract_id = ? AND company_id IS NULL", [$companyId, $contractId]);
+            $this->db->query("UPDATE onboardings SET company_id = ? WHERE contract_id = ? AND company_id IS NULL", [$companyId, $contractId]);
+            $this->db->query("UPDATE projects SET company_id = ? WHERE contract_id = ? AND company_id IS NULL", [$companyId, $contractId]);
+        }
+        if ($proposalId) {
+            $p = $this->db->fetch("SELECT id, root_proposal_id FROM proposals WHERE id = ?", [$proposalId]);
+            $root = (int)($p['root_proposal_id'] ?? 0) ?: $proposalId;
+            $this->db->query("UPDATE proposals SET company_id = ? WHERE (id = ? OR root_proposal_id = ?) AND company_id IS NULL", [$companyId, $root, $root]);
+        }
     }
 }

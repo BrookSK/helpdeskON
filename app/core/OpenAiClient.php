@@ -157,11 +157,16 @@ class OpenAiClient
         $segments = [];
         if (!empty($data['segments']) && is_array($data['segments'])) {
             foreach ($data['segments'] as $s) {
-                $segments[] = [
+                $seg = [
                     'start' => (float) ($s['start'] ?? 0),
                     'end' => (float) ($s['end'] ?? 0),
                     'text' => trim((string) ($s['text'] ?? '')),
                 ];
+                // Sinais de alucinação do Whisper (silêncio e repetição), usados na limpeza.
+                foreach (['no_speech_prob', 'avg_logprob', 'compression_ratio'] as $k) {
+                    if (isset($s[$k])) $seg[$k] = (float) $s[$k];
+                }
+                $segments[] = $seg;
             }
         }
         return ['success' => true, 'text' => trim((string) ($data['text'] ?? '')), 'segments' => $segments, 'error' => null];

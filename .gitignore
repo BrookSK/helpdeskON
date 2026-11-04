@@ -56,3 +56,9 @@ tests-e2e/.artifacts/
 test-results/
 playwright-report/
 csrf_result.txt
+
+# Documentação de trabalho (orçamentos e rascunhos); não versionar
+.outbox/
+
+# PDFs de contratos assinados (fora de public/). Não versionar.
+storage/contracts/*

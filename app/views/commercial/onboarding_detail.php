@@ -113,6 +113,29 @@ $st = $onboarding['status'];
                     <?php endforeach; endif; ?>
                 </div>
             </div>
+            <div class="card mb-3" id="credential-links-card">
+                <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                    <strong>Link para o cliente enviar credenciais</strong>
+                    <?php if ($vaultReady): ?>
+                    <button class="btn btn-sm btn-outline-primary py-0" id="btn-cred-link" onclick="genCredLink()"><i class="bi bi-link-45deg"></i> Gerar link</button>
+                    <?php endif; ?>
+                </div>
+                <div class="card-body small">
+                    <?php if (!$vaultReady): ?>
+                    <p class="text-warning mb-0" id="cred-link-blocked"><i class="bi bi-shield-exclamation"></i> Bloqueado: defina a chave do cofre (credentials_key) em Configurações. Sem ela, os dados do cliente ficariam com a chave fixa de reserva.</p>
+                    <?php else: ?>
+                    <p class="text-muted mb-2">O cliente preenche serviço, usuário e senha. Tudo vai criptografado para o cofre. O link vale 7 dias.</p>
+                    <div id="cred-link-new" class="alert alert-success py-2 d-none"><div class="mb-1">Link gerado (copie agora, ele não aparece de novo):</div><input id="cred-link-url" class="form-control form-control-sm" readonly onclick="this.select()"></div>
+                    <?php endif; ?>
+                    <?php foreach ($credentialLinks as $l):
+                        $state = $l['revoked_at'] ? 'revogado' : (strtotime($l['expires_at']) < time() ? 'vencido' : 'válido'); ?>
+                    <div class="border-top py-1 d-flex justify-content-between align-items-center cred-link-row">
+                        <span>#<?= (int)$l['id'] ?> · <?= $state ?> até <?= date('d/m/Y H:i', strtotime($l['expires_at'])) ?> · <?= (int)$l['use_count'] ?> envio(s)<?= $l['last_used_at'] ? ' · último ' . date('d/m H:i', strtotime($l['last_used_at'])) . ' (IP ' . escape($l['last_used_ip']) . ')' : '' ?></span>
+                        <?php if ($state === 'válido'): ?><button class="btn btn-sm btn-outline-danger py-0" onclick="revokeCredLink(<?= (int)$l['id'] ?>)">Revogar</button><?php endif; ?>
+                    </div>
+                    <?php endforeach; ?>
+                </div>
+            </div>
             <div class="card">
                 <div class="card-header py-2"><strong>Histórico</strong></div>
                 <div class="card-body" style="max-height:260px;overflow:auto;">
@@ -176,6 +199,18 @@ async function addContact() {
 async function finishOnb() {
     const r = await post(`onboarding/finish/${OID}`, {});
     if (r.error) { alert(r.error + (r.pending ? '\n' + r.pending.join(', ') : '')); return; } location.reload();
+}
+async function genCredLink() {
+    const r = await post(`onboarding/credentialLink/${OID}`, {});
+    if (r.error) { alert(r.error); return; }
+    document.getElementById('cred-link-new').classList.remove('d-none');
+    const input = document.getElementById('cred-link-url');
+    input.value = r.url; input.select();
+}
+async function revokeCredLink(linkId) {
+    if (!confirm('Revogar este link? O cliente não poderá mais usá-lo.')) return;
+    const r = await post(`onboarding/revokeCredentialLink/${linkId}`, {});
+    if (r.error) { alert(r.error); return; } location.reload();
 }
 async function startProvisioning() {
     const r = await post('provisioning/fromOnboarding', { onboarding_id: OID });

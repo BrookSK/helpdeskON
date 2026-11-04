@@ -103,6 +103,18 @@ if (!function_exists('scopeRejectedBadge')) {
                 </div>
                 <?php endif; ?>
                 <div class="col-6 col-md-auto">
+                    <div class="input-group input-group-sm" title="Previsão de término (a partir de)">
+                        <span class="input-group-text">Prev. de</span>
+                        <input type="date" name="prev_from" class="form-control form-control-sm" value="<?= escape($_GET['prev_from'] ?? '') ?>">
+                    </div>
+                </div>
+                <div class="col-6 col-md-auto">
+                    <div class="input-group input-group-sm" title="Previsão de término (até)">
+                        <span class="input-group-text">até</span>
+                        <input type="date" name="prev_until" class="form-control form-control-sm" value="<?= escape($_GET['prev_until'] ?? '') ?>">
+                    </div>
+                </div>
+                <div class="col-6 col-md-auto">
                     <div class="form-check form-check-inline mb-0">
                         <input class="form-check-input" type="checkbox" name="hide_completed" value="1" id="hideCompleted" <?= !empty($_GET['hide_completed']) ? 'checked' : '' ?>>
                         <label class="form-check-label small" for="hideCompleted">Ocultar concluídas</label>
@@ -136,6 +148,7 @@ if (!function_exists('scopeRejectedBadge')) {
                             <th>Atendente</th>
                             <th>Status</th>
                             <th>Prioridade</th>
+                            <th>Previsão de término</th>
                             <th>Atualizado</th>
                             <th></th>
                         </tr>
@@ -156,6 +169,7 @@ if (!function_exists('scopeRejectedBadge')) {
                             <td><?= escape($c['assigned_name'] ?? 'Não atribuído') ?></td>
                             <td><span class="badge-status badge-<?= $c['status'] ?>"><?= statusLabel($c['status']) ?></span><?= scopeRejectedBadge($c['scope_rejected_reason'] ?? null) ?></td>
                             <td><span class="priority-<?= $c['priority'] ?>"><?= priorityLabel($c['priority']) ?></span></td>
+                            <td><?= !empty($c['data_prevista_entrega']) ? date('d/m/Y', strtotime($c['data_prevista_entrega'])) : '<span class="text-muted">-</span>' ?></td>
                             <td><?= !empty($c['updated_at']) ? timeAgo($c['updated_at']) : (!empty($c['created_at']) ? timeAgo($c['created_at']) : '-') ?></td>
                             <td>
                                 <a href="<?= baseUrl('tickets/showCard/' . $c['id']) ?>" class="btn btn-sm btn-outline-primary">Ver</a>
@@ -168,7 +182,7 @@ if (!function_exists('scopeRejectedBadge')) {
                         </tr>
                         <?php endforeach; ?>
                         <?php if (empty($cards)): ?>
-                        <tr><td colspan="9" class="text-center text-muted py-4">Nenhuma demanda encontrada.</td></tr>
+                        <tr><td colspan="10" class="text-center text-muted py-4">Nenhuma demanda encontrada.</td></tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
@@ -188,6 +202,9 @@ if (!function_exists('scopeRejectedBadge')) {
                         <span class="text-muted"><i class="bi bi-building"></i> <?= escape($c['company_name'] ?? '-') ?></span>
                         <span class="text-muted"><i class="bi bi-person"></i> <?= escape($c['assigned_name'] ?? 'Não atribuído') ?></span>
                         <span class="priority-<?= $c['priority'] ?>"><?= priorityLabel($c['priority']) ?></span>
+                        <?php if (!empty($c['data_prevista_entrega'])): ?>
+                        <span class="text-muted"><i class="bi bi-calendar-check"></i> Prev.: <?= date('d/m/Y', strtotime($c['data_prevista_entrega'])) ?></span>
+                        <?php endif; ?>
                     </div>
                 </a>
                 <?php endforeach; ?>

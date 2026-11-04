@@ -28,29 +28,51 @@ class MeetingMinutesDelivery
      */
     public static function buildRecipients(array $participants, array $client = []): array
     {
+        $items = [];
+        // Cliente primeiro (prioridade de identidade), depois a equipe.
+        if (!empty($client)) $items[] = ['role' => 'client'] + $client;
+        foreach ($participants as $p) $items[] = ['role' => 'team'] + $p;
+        return self::collect($items);
+    }
+
+    /**
+     * Destinatários escolhidos na tela de envio: os da reunião que ficaram
+     * marcados e os adicionados na hora. Mesma limpeza de buildRecipients;
+     * papel desconhecido vira 'team'.
+     *
+     * @param array $list Lista de ['name','email','phone','role'?].
+     */
+    public static function chosenRecipients(array $list): array
+    {
+        $items = [];
+        foreach ($list as $r) {
+            if (!is_array($r)) continue;
+            $r['role'] = ($r['role'] ?? '') === 'client' ? 'client' : 'team';
+            $items[] = $r;
+        }
+        return self::collect($items);
+    }
+
+    /** Normaliza, descarta quem não tem canal e deduplica por e-mail ou telefone. */
+    private static function collect(array $items): array
+    {
         $out = [];
         $seenEmail = [];
         $seenPhone = [];
-
-        $add = function (array $r, string $role) use (&$out, &$seenEmail, &$seenPhone) {
+        foreach ($items as $r) {
             $name = trim((string)($r['name'] ?? '')) ?: 'Participante';
             $email = self::normalizeEmail($r['email'] ?? null);
             $phone = self::normalizePhone($r['phone'] ?? null);
-            if ($email === null && $phone === null) return; // sem canal: ignora
+            if ($email === null && $phone === null) continue; // sem canal: ignora
 
             // Dedup: se o e-mail OU o telefone já apareceu, não duplica.
-            if ($email !== null && isset($seenEmail[$email])) return;
-            if ($phone !== null && isset($seenPhone[$phone])) return;
+            if ($email !== null && isset($seenEmail[$email])) continue;
+            if ($phone !== null && isset($seenPhone[$phone])) continue;
 
             if ($email !== null) $seenEmail[$email] = true;
             if ($phone !== null) $seenPhone[$phone] = true;
-            $out[] = ['name' => $name, 'email' => $email, 'phone' => $phone, 'role' => $role];
-        };
-
-        // Cliente primeiro (prioridade de identidade), depois a equipe.
-        if (!empty($client)) $add($client, 'client');
-        foreach ($participants as $p) $add($p, 'team');
-
+            $out[] = ['name' => $name, 'email' => $email, 'phone' => $phone, 'role' => $r['role']];
+        }
         return $out;
     }
 

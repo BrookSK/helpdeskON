@@ -60,4 +60,11 @@ final class AsaasRulesTest extends TestCase
         $this->assertFalse(AsaasRules::isConfigured(''));
         $this->assertFalse(AsaasRules::isConfigured(null));
     }
+
+    public function testHeadersTrazemUserAgent(): void
+    {
+        $h = AsaasRules::headers('tok');
+        $this->assertContains('access_token: tok', $h);
+        $this->assertNotEmpty(preg_grep('/^User-Agent: \S+/', $h), 'o Asaas recusa requisição sem User-Agent');
+    }
 }

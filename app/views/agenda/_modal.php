@@ -798,6 +798,9 @@ function fillMeeting(m) {
         if (modeRadio && !modeRadio.disabled) modeRadio.checked = true;
         const roomOpts = document.getElementById('mt-room-options');
         if (roomOpts) roomOpts.style.display = isSystemRoom ? '' : 'none';
+        // Na edição, "Gravar automaticamente" reflete o que está salvo na reunião.
+        const autoRec = document.getElementById('mt-room-auto-record');
+        if (autoRec && isSystemRoom) autoRec.checked = String(m.auto_record ?? '1') === '1';
         showMeetLink(link);
     })();
     // Preenche participantes selecionados (select fonte de verdade + checkboxes do dropdown)
@@ -1243,10 +1246,11 @@ function collectPayload() {
     }
     // Briefing
     BF_FIELDS.forEach(k => fd.append('bf_' + k, document.getElementById('bf-' + k).value));
-    // A gravação automática por tipo de reunião foi removida (ver sala de vídeo
-    // do sistema). Mantém o campo no payload, sempre '0', para não alterar o
-    // contrato que o backend já espera.
-    fd.append('auto_record', '0');
+    // Gravação automática: vale o "Gravar automaticamente" da sala de vídeo do
+    // sistema. Sem sala do sistema, envia '0' (não há o que gravar).
+    const roomMode = document.getElementById('mt-mode-room');
+    const roomAutoRec = document.getElementById('mt-room-auto-record');
+    fd.append('auto_record', (roomMode && roomMode.checked && roomAutoRec && roomAutoRec.checked) ? '1' : '0');
     return fd;
 }
 

@@ -14,6 +14,9 @@
                 <button type="button" class="btn btn-outline-primary" data-view="kanban"><i class="bi bi-kanban"></i> Kanban</button>
                 <button type="button" class="btn btn-outline-primary" data-view="list"><i class="bi bi-list-ul"></i> Lista</button>
             </div>
+            <?php if (!empty($canExport)): ?>
+            <button class="btn btn-outline-dark btn-sm" onclick="openExportModal()"><i class="bi bi-file-earmark-pdf"></i> Exportar relatório</button>
+            <?php endif; ?>
             <button class="btn btn-primary btn-sm" onclick="openRdoModal()"><i class="bi bi-plus-lg"></i> Novo relatório</button>
         </div>
     </div>
@@ -397,6 +400,38 @@
     </div>
   </div>
 </div>
+
+<!-- ===== Modal: Exportar relatório consolidado (PDF) — só super_admin ($canExport) ===== -->
+<?php if (!empty($canExport)): ?>
+<div class="modal fade" id="rdoExportModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title"><i class="bi bi-file-earmark-pdf"></i> Exportar relatório consolidado</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small">Selecione o período para consolidar os RDOs num PDF com resumo executivo, detalhamento das atividades e fotografias.</p>
+        <div class="row g-2">
+            <div class="col-6">
+                <label class="form-label small mb-1">Data inicial *</label>
+                <input type="date" id="export-date-from" class="form-control form-control-sm">
+            </div>
+            <div class="col-6">
+                <label class="form-label small mb-1">Data final *</label>
+                <input type="date" id="export-date-to" class="form-control form-control-sm">
+            </div>
+        </div>
+        <div id="export-error" class="text-danger small mt-2" style="display:none"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" onclick="submitExport()"><i class="bi bi-download"></i> Gerar PDF</button>
+      </div>
+    </div>
+  </div>
+</div>
+<?php endif; ?>
 
 <!-- ===== Modal de revisão (diff) — só o revisor designado ($isReviewer) ===== -->
 <?php if ($isReviewer): ?>
@@ -854,6 +889,35 @@ function clearFilters() {
     });
     const u = document.getElementById('f-user'); if (u) u.value = '';
     loadRdos();
+}
+
+// =========================================================================
+// Exportação do relatório consolidado em PDF (só super_admin)
+// =========================================================================
+let rdoExportModal;
+function openExportModal() {
+    const err = document.getElementById('export-error');
+    if (err) { err.style.display = 'none'; err.textContent = ''; }
+    // Pré-preenche com o período já filtrado na tela, se houver.
+    const f = document.getElementById('f-date-from');
+    const t = document.getElementById('f-date-to');
+    const ef = document.getElementById('export-date-from');
+    const et = document.getElementById('export-date-to');
+    if (ef && f && f.value) ef.value = f.value;
+    if (et && t && t.value) et.value = t.value;
+    rdoExportModal = rdoExportModal || new bootstrap.Modal(document.getElementById('rdoExportModal'));
+    rdoExportModal.show();
+}
+function submitExport() {
+    const from = document.getElementById('export-date-from').value;
+    const to   = document.getElementById('export-date-to').value;
+    const err  = document.getElementById('export-error');
+    const showErr = (m) => { err.textContent = m; err.style.display = ''; };
+    if (!from || !to) { showErr('Informe a data inicial e a data final.'); return; }
+    if (from > to)    { showErr('A data inicial não pode ser posterior à data final.'); return; }
+    err.style.display = 'none';
+    const params = new URLSearchParams({ date_from: from, date_to: to });
+    window.open(RDO.base + '/exportPdf?' + params.toString(), '_blank');
 }
 
 ['f-search','f-date-from','f-date-to','f-status','f-occ','f-company','f-user'].forEach(id => {
