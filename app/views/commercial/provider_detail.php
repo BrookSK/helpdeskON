@@ -129,20 +129,22 @@ $st = $provider['status'];
                 <div class="card-header py-2"><strong>Documentos (<?= $engage[$provider['engagement_type']] ?? $provider['engagement_type'] ?>)</strong></div>
                 <div class="card-body">
                     <?php if (!empty($docChecklist)): ?>
+                    <div class="small fw-semibold mb-1">Documentos pedidos</div>
                     <ul class="list-unstyled small mb-3">
                         <?php foreach ($docChecklist as $d): ?>
-                        <li>
-                            <?php if ($d['present']): ?><i class="bi bi-check-circle-fill text-success"></i>
-                            <?php else: ?><i class="bi bi-circle text-muted"></i><?php endif; ?>
-                            <?= escape($d['label']) ?>
+                        <li class="d-flex justify-content-between align-items-center border-bottom py-1">
+                            <span><?= escape($d['label']) ?></span>
+                            <?php if ($d['present']): ?><span class="badge bg-success">Registrado</span>
+                            <?php else: ?><span class="badge bg-light text-dark border">Pendente</span><?php endif; ?>
                         </li>
                         <?php endforeach; ?>
                     </ul>
                     <?php endif; ?>
+                    <div class="small fw-semibold mb-1">Registrar documento</div>
                     <div class="row g-2">
                         <div class="col-5">
-                            <select id="d-type" class="form-select form-select-sm">
-                                <option value="">Tipo…</option>
+                            <select id="d-type" class="form-select form-select-sm" onchange="suggestDocumentLabel()">
+                                <option value="">Selecione o tipo…</option>
                                 <?php foreach (($docChecklist ?? []) as $d): ?><option value="<?= escape($d['key']) ?>"><?= escape($d['label']) ?></option><?php endforeach; ?>
                                 <option value="outro">Outro</option>
                             </select>
@@ -154,7 +156,8 @@ $st = $provider['status'];
                     <?php if (!empty($documents)): ?>
                     <hr class="my-2">
                     <?php foreach ($documents as $doc): ?>
-                    <div class="small border-bottom py-1"><i class="bi bi-file-earmark-text"></i> <?= escape($doc['doc_label']) ?><?php if (!empty($doc['doc_type'])): ?> <span class="badge bg-light text-dark"><?= escape($doc['doc_type']) ?></span><?php endif; ?></div>
+                    <?php $docTypeLabel = ProviderProposalRules::documentTypeLabel($doc['doc_type'] ?? null, $provider['engagement_type'] ?? null); ?>
+                    <div class="small border-bottom py-1"><i class="bi bi-file-earmark-text"></i> <?= escape($doc['doc_label']) ?><?php if ($docTypeLabel !== null && $docTypeLabel !== $doc['doc_label']): ?> <span class="badge bg-light text-dark"><?= escape($docTypeLabel) ?></span><?php endif; ?></div>
                     <?php endforeach; ?>
                     <?php endif; ?>
                 </div>
@@ -335,9 +338,19 @@ async function sendForSignature() {
     alert('Enviado para assinatura.');
     location.reload();
 }
+function suggestDocumentLabel() {
+    const type = document.getElementById('d-type');
+    const label = document.getElementById('d-label');
+    const isOther = type.value === 'outro';
+    const suggestion = type.value && !isOther ? type.options[type.selectedIndex].text : '';
+    if (label.value.trim() === '' || label.value === label.dataset.suggested) label.value = suggestion;
+    label.dataset.suggested = suggestion;
+    label.placeholder = isOther ? 'Descreva o documento' : 'Nome do documento';
+}
 async function addDocument() {
     const label = val('d-label').trim();
     const type = val('d-type');
+    if (!type) { alert('Selecione o tipo do documento.'); return; }
     if (!label) { alert('Informe o nome do documento.'); return; }
     const r = await post(`provider/addDocument/${PRID}`, { doc_label: label, doc_type: type, file_path: val('d-file') });
     if (r.error) { alert(r.error); return; } location.reload();

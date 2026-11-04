@@ -68,6 +68,40 @@ class ProviderProposalRules
         return $out;
     }
 
+    /**
+     * Valida o registro de um documento. O tipo é obrigatório (checklist ou
+     * 'outro'); nome vazio assume o nome do tipo, exceto em 'outro'.
+     *
+     * @return array{doc_type:string,doc_label:string}|array{error:string}
+     */
+    public static function normalizeDocumentEntry(?string $engagementType, $docType, $label): array
+    {
+        $type = trim((string)$docType);
+        $label = trim((string)$label);
+        if ($type === '') return ['error' => 'Selecione o tipo do documento.'];
+        $byKey = array_column(self::requiredDocuments($engagementType), 'label', 'key');
+        if ($type !== 'outro' && !isset($byKey[$type])) return ['error' => 'Tipo de documento inválido.'];
+        if ($label === '') $label = $byKey[$type] ?? '';
+        if ($label === '') return ['error' => 'Informe o nome do documento.'];
+        return ['doc_type' => $type, 'doc_label' => $label];
+    }
+
+    /**
+     * Nome legível de um tipo de documento. Procura também nos outros tipos de
+     * contratação, pois o prestador pode ter mudado depois do registro.
+     */
+    public static function documentTypeLabel(?string $docType, ?string $engagementType = null): ?string
+    {
+        $type = trim((string)$docType);
+        if ($type === '') return null;
+        if ($type === 'outro') return 'Outro';
+        foreach ([$engagementType, 'clt', 'pj', 'freelancer'] as $engagement) {
+            $byKey = array_column(self::requiredDocuments($engagement), 'label', 'key');
+            if (isset($byKey[$type])) return $byKey[$type];
+        }
+        return $type;
+    }
+
     /** Chaves de documentos ainda ausentes (bloqueiam a conclusão da admissão). */
     public static function missingDocuments(?string $engagementType, array $documents): array
     {

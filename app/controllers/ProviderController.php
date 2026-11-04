@@ -193,23 +193,24 @@ class ProviderController extends Controller
 
     // ================= Documentos (com tipo CLT/PJ) =================
 
-    /** Registra um documento do prestador (opcionalmente com doc_type do checklist). */
+    /** Registra um documento do prestador (tipo do checklist ou 'outro'). */
     public function addDocument($id = null)
     {
         $this->requireModule('providers');
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
         $user = $this->currentUser();
-        if (!$this->providers->findById($id)) $this->json(['error' => 'Prestador não encontrado.'], 404);
-        $label = trim($_POST['doc_label'] ?? '');
-        if ($label === '') $this->json(['error' => 'Informe o documento.'], 400);
+        $provider = $this->providers->findById($id);
+        if (!$provider) $this->json(['error' => 'Prestador não encontrado.'], 404);
+        $entry = ProviderProposalRules::normalizeDocumentEntry($provider['engagement_type'] ?? null, $_POST['doc_type'] ?? '', $_POST['doc_label'] ?? '');
+        if (isset($entry['error'])) $this->json(['error' => $entry['error']], 400);
         $docId = $this->providers->addDocument(
             (int)$id,
-            $label,
+            $entry['doc_label'],
             trim($_POST['file_path'] ?? '') ?: null,
             trim($_POST['notes'] ?? '') ?: null,
-            trim($_POST['doc_type'] ?? '') ?: null
+            $entry['doc_type']
         );
-        $this->providers->addEvent((int)$id, $user['id'], 'document_added', 'Documento: ' . $label);
+        $this->providers->addEvent((int)$id, $user['id'], 'document_added', 'Documento: ' . $entry['doc_label']);
         $this->json(['success' => true, 'id' => $docId]);
     }
 
