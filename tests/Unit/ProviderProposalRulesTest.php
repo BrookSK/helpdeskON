@@ -59,6 +59,27 @@ final class ProviderProposalRulesTest extends TestCase
         $this->assertSame([], ProviderProposalRules::missingDocuments('pj', $all));
     }
 
+    public function testRegistroDeDocumentoExigeTipoEUsaNomeDoTipo(): void
+    {
+        $this->assertArrayHasKey('error', ProviderProposalRules::normalizeDocumentEntry('freelancer', '', 'RG'));
+        $this->assertArrayHasKey('error', ProviderProposalRules::normalizeDocumentEntry('freelancer', 'cnpj', 'Cartão'));
+        $this->assertArrayHasKey('error', ProviderProposalRules::normalizeDocumentEntry('freelancer', 'outro', ' '));
+
+        $this->assertSame(['doc_type' => 'rg_cpf', 'doc_label' => 'RG e CPF'], ProviderProposalRules::normalizeDocumentEntry('freelancer', 'rg_cpf', ''));
+        $this->assertSame(['doc_type' => 'rg_cpf', 'doc_label' => 'RG João'], ProviderProposalRules::normalizeDocumentEntry('freelancer', 'rg_cpf', ' RG João '));
+        $this->assertSame(['doc_type' => 'outro', 'doc_label' => 'Certificado'], ProviderProposalRules::normalizeDocumentEntry('freelancer', 'outro', 'Certificado'));
+    }
+
+    public function testNomeLegivelDoTipoDeDocumento(): void
+    {
+        $this->assertSame('RG e CPF', ProviderProposalRules::documentTypeLabel('rg_cpf', 'freelancer'));
+        $this->assertSame('Dados bancários (PJ)', ProviderProposalRules::documentTypeLabel('dados_bancarios', 'pj'));
+        $this->assertSame('Cartão CNPJ ativo', ProviderProposalRules::documentTypeLabel('cnpj', 'freelancer')); // contratação mudou
+        $this->assertSame('Outro', ProviderProposalRules::documentTypeLabel('outro'));
+        $this->assertSame('legado_x', ProviderProposalRules::documentTypeLabel('legado_x'));
+        $this->assertNull(ProviderProposalRules::documentTypeLabel(null));
+    }
+
     public function testSanitizeRejectReason(): void
     {
         $this->assertNull(ProviderProposalRules::sanitizeRejectReason('   '));
