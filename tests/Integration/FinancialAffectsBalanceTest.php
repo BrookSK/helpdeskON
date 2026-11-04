@@ -53,11 +53,11 @@ final class FinancialAffectsBalanceTest extends TestCase
 
     private function lanca(array $extra, ?int $firstPaid = null): int
     {
-        return $this->tx->createWithInstallments([
+        return $this->tx->createWithInstallments($extra + [
             'kind' => 'ganho', 'direction' => 'in', 'amount' => 300, 'installments' => 1,
             'status' => 'pending', 'due_date' => '2026-11-02', 'account_id' => $this->accountId,
             'source' => 'manual', 'created_by' => $this->userId,
-        ] + $extra, null, $firstPaid);
+        ], null, $firstPaid);
     }
 
     public function testJaPagoSemMexerNoSaldo(): void

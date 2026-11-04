@@ -165,4 +165,18 @@ final class MinutesAckTest extends TestCase
     {
         $this->assertFalse($this->model->acknowledgeMinutes('token-que-nao-existe', $this->clientId, null));
     }
+
+    public function testReconheceMinutaRevisadaEEnviadaPelaTela(): void
+    {
+        $recToken = $this->novaGravacao('done');
+        // Estado depois da revisão e do envio pela tela da gravação.
+        $this->model->updateRecording($recToken, [
+            'minutes_edited_by' => $this->ownerId, 'minutes_edited_at' => date('Y-m-d H:i:s'),
+            'minutes_sent_at' => date('Y-m-d H:i:s'), 'minutes_sent_by' => $this->ownerId,
+        ]);
+        $this->assertTrue($this->model->acknowledgeMinutes($recToken, $this->clientId, '198.51.100.7'));
+        $rec = $this->model->findRecordingByToken($recToken);
+        $this->assertSame(MinutesAckRules::STATUS_ACK, $rec['minutes_ack_status']);
+        $this->assertSame($this->ownerId, (int) $rec['minutes_sent_by']);
+    }
 }

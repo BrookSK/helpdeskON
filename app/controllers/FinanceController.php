@@ -79,14 +79,10 @@ class FinanceController extends Controller
             $this->json(['error' => 'O financeiro só inicia após o contrato ser assinado.'], 409);
         }
 
-        // Valor total: da proposta vinculada, se houver.
-        $total = 0.0;
-        if (!empty($contract['proposal_id'])) {
-            $p = (new Proposal())->findById((int)$contract['proposal_id']);
-            if ($p) $total = (float)$p['total'];
-        }
-        $id = $this->projects->createFromContract($contract, $total, $user['id']);
-        $this->json(['success' => true, 'id' => $id]);
+        // Mesmo caminho da assinatura: devolve o projeto que já existe.
+        $r = (new ContractSigning())->onContractSigned($contractId, (string)($contract['signed_via'] ?: ContractSigning::ORIGIN_CLICKSIGN), (int)$user['id']);
+        if (!$r['ok'] || !$r['finance_id']) $this->json(['error' => $r['error'] ?? 'Não foi possível abrir o financeiro.'], $r['code'] ?: 500);
+        $this->json(['success' => true, 'id' => $r['finance_id']]);
     }
 
     public function edit($id = null)
@@ -96,12 +92,16 @@ class FinanceController extends Controller
         $project = $this->projects->findById($id);
         if (!$project) $this->redirect('finance');
         $user = $this->currentUser();
+        $onboarding = Database::getInstance()->fetch("SELECT id FROM onboardings WHERE project_id = ? ORDER BY id ASC LIMIT 1", [(int)$id]);
         $this->view('commercial/finance_project', [
             'user' => $user,
             'project' => $project,
             'charges' => $this->projects->getCharges($id),
             'accounts' => $this->accounts->getAll(true),
             'canOnboard' => $this->projects->canStartOnboarding($id),
+            'onboardingId' => $onboarding ? (int)$onboarding['id'] : null,
+            'suggestion' => !empty($project['proposal_id']) ? $this->projects->suggestionForProposal((int)$project['proposal_id']) : null,
+            'events' => $this->projects->getEvents($id),
         ]);
     }
 
@@ -129,20 +129,24 @@ class FinanceController extends Controller
             'first_installment_due' => $body['first_installment_due'] ?? null,
             'installment_interval_days' => $body['installment_interval_days'] ?? 30,
             'installment_method' => $body['installment_method'] ?? null,
+            'recurring_amount' => $body['recurring_amount'] ?? 0,
+            'recurring_start' => $body['recurring_start'] ?? null,
+            'recurring_method' => $body['recurring_method'] ?? null,
+            'recurring_cycle' => 'monthly',
         ]);
 
-        // Seleciona a conta Asaas por finalidade.
+        // Conta Asaas escolhida na tela; sem escolha válida, a conta da finalidade.
         $accs = $this->accounts->getAll(true);
         $accountByKind = [
-            'entry' => FinanceRules::pickAccount($accs, 'parcela'),
-            'installment' => FinanceRules::pickAccount($accs, 'parcela'),
-            'recurring' => FinanceRules::pickAccount($accs, 'recorrente'),
+            'entry' => FinanceRules::resolveAccount($accs, $body['account_entry'] ?? null, 'parcela'),
+            'installment' => FinanceRules::resolveAccount($accs, $body['account_installment'] ?? null, 'parcela'),
+            'recurring' => FinanceRules::resolveAccount($accs, $body['account_recurring'] ?? null, 'recorrente'),
         ];
-        // Override manual por conta, se enviado.
-        if (!empty($body['account_entry'])) $accountByKind['entry'] = (int)$body['account_entry'];
-        if (!empty($body['account_installment'])) $accountByKind['installment'] = (int)$body['account_installment'];
 
-        $this->projects->replaceCharges($id, $plan, $accountByKind);
+        $user = $this->currentUser();
+        $merge = $this->projects->replaceCharges($id, $plan, $accountByKind);
+        $this->projects->addEvent((int)$id, null, (int)$user['id'], 'plan',
+            "Plano salvo: {$merge['added']} cobrança(s) nova(s), {$merge['removed']} substituída(s), {$merge['kept']} mantida(s) (pagas ou emitidas)");
         if (isset($body['total'])) $this->projects->update($id, ['total_value' => FinanceRules::money($body['total'])]);
 
         $charges = $this->projects->getCharges($id);
@@ -192,8 +196,23 @@ class FinanceController extends Controller
     {
         $this->requireModule('finance');
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$chargeId) $this->json(['error' => 'Requisição inválida'], 400);
-        $destravou = $this->projects->markChargePaid((int)$chargeId);
-        $this->json(['success' => true, 'onboarding_unlocked' => $destravou]);
+        $user = $this->currentUser();
+        $charge = $this->projects->findChargeById((int)$chargeId);
+        if (!$charge) $this->json(['error' => 'Cobrança não encontrada.'], 404);
+        $destravou = $this->projects->markChargePaid((int)$chargeId, (int)$user['id']);
+        $onb = $destravou ? (new OnboardingStarter($this->projects))->ensureForFinanceProject((int)$charge['project_id'], (int)$user['id']) : null;
+        $this->json(['success' => true, 'onboarding_unlocked' => $destravou, 'onboarding_id' => $onb['id'] ?? null]);
+    }
+
+    /** Emite a cobrança (ou a assinatura da mensalidade) no Asaas. Sempre um clique humano. */
+    public function issue($chargeId = null)
+    {
+        $this->requireModule('finance');
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$chargeId) $this->json(['error' => 'Requisição inválida'], 400);
+        $user = $this->currentUser();
+        $r = (new FinanceBilling($this->projects))->issue((int)$chargeId, (int)$user['id']);
+        if (!$r['ok']) $this->json(['error' => $r['error']], $r['code']);
+        $this->json(['success' => true, 'charge' => $r['charge']]);
     }
 
     // ================= Webhook Asaas (sem login) =================
@@ -205,33 +224,18 @@ class FinanceController extends Controller
      */
     public function asaasWebhook()
     {
-        // Validação leve por token (Asaas permite header/secret; aqui query token).
+        // Token obrigatório: sem asaas_webhook_token configurado, recusa tudo.
         $expected = (string) Config::get('asaas_webhook_token');
-        $got = $_GET['token'] ?? ($_SERVER['HTTP_ASAAS_ACCESS_TOKEN'] ?? '');
-        if ($expected !== '' && !hash_equals($expected, (string)$got)) {
+        $got = (string)($_GET['token'] ?? ($_SERVER['HTTP_ASAAS_ACCESS_TOKEN'] ?? ''));
+        if ($expected === '' || !hash_equals($expected, $got)) {
             http_response_code(401);
-            echo json_encode(['error' => 'token inválido']);
+            echo json_encode(['error' => $expected === '' ? 'webhook não configurado' : 'token inválido']);
             return;
         }
 
-        $raw = file_get_contents('php://input');
-        $payload = json_decode($raw, true);
-        $event = $payload['event'] ?? null;
-        $asaasChargeId = $payload['payment']['id'] ?? ($payload['payment_id'] ?? null);
-        $action = AsaasRules::interpretEvent(is_string($event) ? $event : null);
-
-        if ($asaasChargeId && $action === 'paid') {
-            $charge = $this->projects->findChargeByAsaasId($asaasChargeId);
-            if ($charge && $charge['status'] !== 'paid') {
-                $this->projects->markChargePaid((int)$charge['id']);
-            }
-        } elseif ($asaasChargeId && $action === 'overdue') {
-            $charge = $this->projects->findChargeByAsaasId($asaasChargeId);
-            if ($charge && $charge['status'] === 'pending') {
-                Database::getInstance()->update('finance_charges', ['status' => 'overdue'], 'id = ?', [(int)$charge['id']]);
-            }
-        }
+        $payload = json_decode((string)file_get_contents('php://input'), true);
+        $result = is_array($payload) ? (new FinanceBilling($this->projects))->handleWebhook($payload) : ['action' => 'ignore'];
         http_response_code(200);
-        echo json_encode(['ok' => true]);
+        echo json_encode(['ok' => true, 'action' => $result['action']]);
     }
 }

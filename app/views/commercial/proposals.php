@@ -52,7 +52,7 @@ $statusBadge = [
                         <tr><td colspan="7" class="text-center text-muted py-4">Nenhuma proposta.</td></tr>
                         <?php else: foreach ($proposals as $p): ?>
                         <tr style="cursor:pointer;" onclick="location.href='<?= baseUrl('proposal/edit/' . (int)$p['id']) ?>'">
-                            <td><?= (int)$p['id'] ?></td>
+                            <td><?= (int)$p['id'] ?> <small class="text-muted"><?= escape(ProposalRules::revisionLabel($p['revision_no'] ?? 1)) ?><?= !empty($p['superseded_by']) ? ' substituída' : '' ?></small></td>
                             <td class="fw-medium"><?= escape($p['title']) ?></td>
                             <td><?= escape($p['client_name'] ?: ($p['crm_contact_name'] ?? '—')) ?></td>
                             <td><span class="badge bg-<?= $statusBadge[$p['status']] ?? 'secondary' ?>"><?= $statusLabels[$p['status']] ?? $p['status'] ?></span></td>

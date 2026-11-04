@@ -141,4 +141,52 @@ final class MeetingMinutesRulesTest extends TestCase
             'resumo' => '', 'topicos' => [], 'topicos_nao_resolvidos' => [], 'decisoes' => [], 'proximos_passos' => [],
         ]));
     }
+
+    public function testNormalizeStructuredCompletoMantemCamposComerciais(): void
+    {
+        $d = MeetingMinutesRules::normalizeStructured(json_encode([
+            'resumo' => ' Reunião de descoberta ', 'topicos' => ['a', ' ', 'b'],
+            'necessidades' => ['CRM integrado'], 'escopo' => ['App'], 'prazos' => ['Dezembro'],
+            'orcamento' => ['R$ 10 mil'], 'decisores' => ['Lucas'],
+        ]));
+        $this->assertSame('Reunião de descoberta', $d['resumo']);
+        $this->assertSame(['a', 'b'], $d['topicos']);
+        $this->assertSame(['R$ 10 mil'], $d['orcamento']);
+        $this->assertSame(['Lucas'], $d['decisores']);
+    }
+
+    public function testNormalizeStructuredParcialDeixaCamposVazios(): void
+    {
+        $d = MeetingMinutesRules::normalizeStructured(['resumo' => 'x', 'orcamento' => '', 'escopo' => 'Site novo', 'prazos' => [['obj']]]);
+        $this->assertSame([], $d['orcamento']);
+        $this->assertSame(['Site novo'], $d['escopo']);
+        $this->assertSame([], $d['prazos']);
+        $this->assertSame([], $d['decisores']);
+        $this->assertSame([], $d['proximos_passos']);
+    }
+
+    public function testNormalizeStructuredInvalidoDevolveNull(): void
+    {
+        $this->assertNull(MeetingMinutesRules::normalizeStructured('não é json'));
+        $this->assertNull(MeetingMinutesRules::normalizeStructured(null));
+    }
+
+    public function testTextoMostraSecaoComercialSoQuandoPreenchida(): void
+    {
+        $t = MeetingMinutesRules::textFromStructured(['resumo' => 'r', 'necessidades' => ['CRM'], 'orcamento' => []]);
+        $this->assertStringContainsString("## Necessidades do cliente\n- CRM", $t);
+        $this->assertStringNotContainsString('Orçamento citado', $t);
+    }
+
+    public function testDivisaoDaTranscricaoSemCortarLinhas(): void
+    {
+        $this->assertSame(['curta'], MeetingMinutesRules::splitTranscript('curta', 100));
+        $linhas = [];
+        for ($i = 0; $i < 30; $i++) $linhas[] = sprintf('[%02d:00] linha %02d', $i, $i);
+        $texto = implode("\n", $linhas);
+        $partes = MeetingMinutesRules::splitTranscript($texto, 100);
+        $this->assertGreaterThan(1, count($partes));
+        foreach ($partes as $p) $this->assertLessThanOrEqual(100, mb_strlen($p));
+        $this->assertSame($texto, implode("\n", $partes));
+    }
 }

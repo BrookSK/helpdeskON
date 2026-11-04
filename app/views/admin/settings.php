@@ -1042,6 +1042,32 @@
                     </div>
                 </div>
 
+                <!-- Condição de pagamento e cofre (change 02) -->
+                <div class="border rounded p-3 mb-3" id="commercial-flow-settings">
+                    <strong class="small d-block mb-2"><i class="bi bi-file-earmark-text"></i> Contrato, plano de pagamento e cofre de credenciais</strong>
+                    <div class="row g-2">
+                        <div class="col-md-8">
+                            <label class="form-label small">Condição de pagamento padrão do contrato</label>
+                            <input type="text" name="payment_condition_default" maxlength="500" class="form-control form-control-sm" value="<?= escape($settings['payment_condition_default'] ?? '') ?>" placeholder="usada quando a proposta não traz a condição">
+                            <small class="text-muted">Vazio: o contrato usa a condição escrita na proposta ou "a combinar".</small>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small">Entrada sugerida no plano (%)</label>
+                            <input type="number" name="finance_entry_percent" min="0" max="100" step="0.01" class="form-control form-control-sm" value="<?= escape($settings['finance_entry_percent'] ?? '') ?>" placeholder="50">
+                            <small class="text-muted">Vazio: 50% de entrada e 50% na entrega.</small>
+                        </div>
+                        <div class="col-md-8">
+                            <label class="form-label small">Chave do cofre de credenciais (credentials_key)</label>
+                            <?php if (($settings['credentials_key'] ?? '') !== ''): ?>
+                            <div class="small text-success" id="credentials-key-status"><i class="bi bi-shield-check"></i> Chave definida. Não pode ser trocada pela tela, para não perder o que já está no cofre.</div>
+                            <?php else: ?>
+                            <input type="password" name="credentials_key" minlength="32" autocomplete="new-password" class="form-control form-control-sm" placeholder="no mínimo 32 caracteres aleatórios">
+                            <small class="text-warning" id="credentials-key-status">Não definida: o link para o cliente enviar credenciais fica bloqueado.</small>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- LRV Cloud -->
                 <div class="border rounded p-3">
                     <div class="d-flex align-items-center justify-content-between mb-2">

@@ -58,6 +58,9 @@ if (!function_exists('categoryLabel')) {
     <?php if ($msg = flash('success')): ?>
         <div class="alert alert-success alert-dismissible fade show"><?= escape($msg) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
     <?php endif; ?>
+    <?php if ($msg = flash('warning')): ?>
+        <div class="alert alert-warning alert-dismissible fade show" id="ticket-project-warning"><?= escape($msg) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+    <?php endif; ?>
     <?php if ($msg = flash('error')): ?>
         <div class="alert alert-danger alert-dismissible fade show"><?= escape($msg) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
     <?php endif; ?>
@@ -376,6 +379,24 @@ if (!function_exists('categoryLabel')) {
                     </form>
                 </div>
             </div>
+
+            <!-- ===== Datas da demanda (informadas pelo cliente no cadastro) ===== -->
+            <?php if (!empty($ticket['data_inicio']) || !empty($ticket['data_termino']) || !empty($ticket['data_prevista_entrega'])): ?>
+            <div class="card mb-3">
+                <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.88rem"><i class="bi bi-calendar-range"></i> Datas da demanda</h6></div>
+                <div class="card-body">
+                    <?php if (!empty($ticket['data_inicio'])): ?>
+                    <p class="small mb-1"><strong>Início:</strong> <?= date('d/m/Y', strtotime($ticket['data_inicio'])) ?></p>
+                    <?php endif; ?>
+                    <?php if (!empty($ticket['data_termino'])): ?>
+                    <p class="small mb-1"><strong>Término:</strong> <?= date('d/m/Y', strtotime($ticket['data_termino'])) ?></p>
+                    <?php endif; ?>
+                    <?php if (!empty($ticket['data_prevista_entrega'])): ?>
+                    <p class="small mb-0"><strong>Previsão de término:</strong> <?= date('d/m/Y', strtotime($ticket['data_prevista_entrega'])) ?></p>
+                    <?php endif; ?>
+                </div>
+            </div>
+            <?php endif; ?>
 
             <!-- ===== Previsão de publicação (EQUIPE) ===== -->
             <div class="card mb-3">

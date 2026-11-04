@@ -65,6 +65,39 @@ class ClickSignApi
         return $this->request('POST', '/api/v1/lists', ClickSignRules::listPayload($documentKey, $signerKey, $signAs));
     }
 
+    /**
+     * Dados do documento. O link do PDF assinado fica em
+     * data['document']['downloads']['signed_file_url'] (link temporário).
+     */
+    public function getDocument(string $documentKey): array
+    {
+        return $this->request('GET', '/api/v1/documents/' . rawurlencode($documentKey));
+    }
+
+    /**
+     * Baixa um arquivo pelo link temporário que a ClickSign devolve (sem o
+     * token na URL). Devolve ['success', 'body', 'error'].
+     */
+    public function downloadFile(string $url): array
+    {
+        if (!preg_match('#^https://#i', $url)) {
+            return ['success' => false, 'body' => null, 'error' => 'Link de download inválido.'];
+        }
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true, CURLOPT_FOLLOWLOCATION => true, CURLOPT_MAXREDIRS => 3,
+            CURLOPT_TIMEOUT => 60, CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,
+        ]);
+        $raw = curl_exec($ch);
+        $http = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err = curl_error($ch);
+        curl_close($ch);
+        if ($raw === false || $http < 200 || $http >= 300) {
+            return ['success' => false, 'body' => null, 'error' => 'Download HTTP ' . $http . ($err !== '' ? ': ' . $err : '')];
+        }
+        return ['success' => true, 'body' => $raw, 'error' => null];
+    }
+
     /** Cancela um documento na ClickSign. */
     public function cancelDocument(string $documentKey): array
     {

@@ -31,6 +31,26 @@ class ProjectRules
         return in_array($v, self::STATUSES, true) ? $v : self::STATUS_PLANNING;
     }
 
+    /**
+     * Tipo de contrato do projeto a partir da contratação da proposta e, sem
+     * ela, do tipo definido no onboarding. "suporte" e "dev + suporte" já
+     * nascem com contrato de suporte ativo.
+     *
+     * @return array{contract_type:string,support_contract:int}
+     */
+    public static function fromProposalContractType(?string $proposalType, ?string $onboardingType = null): array
+    {
+        $map = [
+            'dev_zero' => ['zero', 0], 'dev_manutencao' => ['manutencao', 0],
+            'suporte' => ['suporte', 1], 'dev_suporte' => ['zero', 1],
+        ];
+        if ($proposalType && isset($map[$proposalType])) {
+            return ['contract_type' => $map[$proposalType][0], 'support_contract' => $map[$proposalType][1]];
+        }
+        $type = in_array($onboardingType, ['zero', 'manutencao'], true) ? $onboardingType : 'outro';
+        return ['contract_type' => $type, 'support_contract' => 0];
+    }
+
     public static function normalizeContractType($v): string
     {
         return in_array($v, self::CONTRACT_TYPES, true) ? $v : 'outro';

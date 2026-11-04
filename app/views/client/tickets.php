@@ -73,6 +73,7 @@ if (!function_exists('scopeRejectedBadge')) {
                             <th>Categoria</th>
                             <th>Status</th>
                             <th>Prioridade</th>
+                            <th>Previsão de término</th>
                             <th>Atendente</th>
                             <th>Criado</th>
                             <th></th>
@@ -87,13 +88,14 @@ if (!function_exists('scopeRejectedBadge')) {
                             <td><?php if (!empty($t['category'])): ?><span class="badge <?= categoryBadgeClass($t['category']) ?>" style="<?= categoryBadgeStyle($t['category']) ?>"><?= escape(categoryLabel($t['category'])) ?></span><?php else: ?>-<?php endif; ?></td>
                             <td><span class="badge-status badge-<?= $t['status'] ?>"><?= statusLabel($t['status']) ?></span><?= scopeRejectedBadge($t['scope_rejected_reason'] ?? null) ?></td>
                             <td><span class="priority-<?= $t['priority'] ?>"><?= priorityLabel($t['priority']) ?></span></td>
+                            <td><?= !empty($t['data_prevista_entrega']) ? date('d/m/Y', strtotime($t['data_prevista_entrega'])) : '<span class="text-muted">-</span>' ?></td>
                             <td><?= escape($t['attendant_name'] ?? 'Aguardando') ?></td>
                             <td><?= date('d/m/Y', strtotime($t['created_at'])) ?></td>
                             <td><a href="<?= baseUrl('tickets/show/' . $t['id']) ?>" class="btn btn-sm btn-outline-primary">Ver</a></td>
                         </tr>
                         <?php endforeach; ?>
                         <?php if (empty($tickets)): ?>
-                        <tr><td colspan="<?= !empty($isOwner) ? 9 : 8 ?>" class="text-center text-muted py-4">Nenhuma demanda encontrada.</td></tr>
+                        <tr><td colspan="<?= !empty($isOwner) ? 10 : 9 ?>" class="text-center text-muted py-4">Nenhuma demanda encontrada.</td></tr>
                         <?php endif; ?>
                     </tbody>
                 </table>

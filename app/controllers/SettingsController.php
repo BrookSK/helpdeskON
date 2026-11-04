@@ -120,6 +120,8 @@ class SettingsController extends Controller
             'whatsapp_number', 'whatsapp_message', 'whatsapp_enabled',
             'whatsapp_default_group_jid', 'whatsapp_group_notify_enabled',
             'cron_token',
+            // Esteira comercial: condição de pagamento padrão do contrato e % de entrada do plano
+            'payment_condition_default', 'finance_entry_percent',
             'linkedin_client_id', 'linkedin_client_secret', 'linkedin_scopes',
             // Nvoip (telefonia) — campos não-secretos
             'nvoip_auth_base_url', 'nvoip_base_url', 'nvoip_oauth_client_id',
@@ -152,6 +154,13 @@ class SettingsController extends Controller
             if (isset($_POST[$sf]) && trim($_POST[$sf]) !== '') {
                 Config::set($sf, trim($_POST[$sf]));
             }
+        }
+
+        // Chave do cofre de credenciais: só pode ser definida uma vez pela tela.
+        // Trocar depois deixaria ilegível o que já foi gravado no cofre.
+        $credKey = trim((string)($_POST['credentials_key'] ?? ''));
+        if ($credKey !== '' && (string)Config::get('credentials_key') === '' && strlen($credKey) >= 32) {
+            Config::set('credentials_key', $credKey);
         }
 
 

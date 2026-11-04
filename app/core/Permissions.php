@@ -15,7 +15,8 @@
  *                 MÓDULO rdo é liberado; o escopo "só o meu" é aplicado no
  *                 model/controller via RdoRules::canViewReportOf().
  *  - marketing/comercial/analyst/attendant/whatsapp_agent: acesso segmentado.
- *  - client: apenas a área do cliente.
+ *  - client: a área do cliente + RDO em modo SOMENTE LEITURA, restrito aos
+ *            relatórios da empresa vinculada (escopo aplicado em RdoController).
  *  - whatsapp (Chat) é liberado para TODOS os papéis (inclusive client).
  */
 class Permissions
@@ -76,6 +77,7 @@ class Permissions
         // Área do cliente
         'client_tickets',
         'client_schedule',
+        'client_portal',        // Contratos, cobranças e projetos da empresa do cliente
         'subusers',
     ];
 
@@ -112,7 +114,11 @@ class Permissions
         ],
         'client' => [
             'dashboard', 'account', 'notifications', 'whatsapp',
-            'client_tickets', 'client_schedule', 'documents', 'subusers',
+            'client_tickets', 'client_schedule', 'client_portal', 'documents', 'subusers',
+            // RDO em modo SOMENTE LEITURA: o cliente vê apenas os relatórios da
+            // empresa vinculada ao seu cadastro (escopo aplicado em RdoController
+            // via RdoRules). Ações de escrita continuam negadas ao cliente.
+            'rdo',
         ],
     ];
 

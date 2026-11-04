@@ -124,6 +124,15 @@ class ProvisioningRules
     }
 
     /**
+     * Pipeline do provisionamento aberto a partir do onboarding: o definido no
+     * onboarding vale; sem ele, o enviado pela tela; sem os dois, fora da esteira.
+     */
+    public static function pipelineFor(?string $onboardingPipeline, $posted = null): string
+    {
+        return self::normalizePipeline($onboardingPipeline) ?? self::normalizePipeline($posted) ?? self::PIPELINE_OUT;
+    }
+
+    /**
      * Uma etapa 'auto' só pode ser concluída pelo retorno da API (apiOk=true).
      * Uma etapa 'manual' é concluída pela ação do responsável (sempre permitida).
      */

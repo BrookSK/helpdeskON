@@ -79,6 +79,8 @@ class TicketsController extends Controller
             if (!empty($_GET['priority'])) $planningFilters['priority'] = $_GET['priority'];
             if (!empty($_GET['company'])) $planningFilters['company_id'] = $_GET['company'];
             if (!empty($_GET['hide_completed'])) $planningFilters['hide_completed'] = true;
+            if (!empty($_GET['prev_from'])) $planningFilters['data_prevista_from'] = $_GET['prev_from'];
+            if (!empty($_GET['prev_until'])) $planningFilters['data_prevista_until'] = $_GET['prev_until'];
 
             $cards = $cardModel->getAll($planningFilters);
 
@@ -133,6 +135,8 @@ class TicketsController extends Controller
             if (!empty($_GET['company'])) $planningFilters['company_id'] = $_GET['company'];
             if (!empty($filters['attendant_id'])) $planningFilters['assigned_to'] = $filters['attendant_id'];
             if (!empty($filters['hide_completed'])) $planningFilters['hide_completed'] = true;
+            if (!empty($_GET['prev_from'])) $planningFilters['data_prevista_from'] = $_GET['prev_from'];
+            if (!empty($_GET['prev_until'])) $planningFilters['data_prevista_until'] = $_GET['prev_until'];
             if (!empty($filters['allowed_companies'])) $planningFilters['allowed_companies'] = $filters['allowed_companies'];
 
             $cards = $cardModel->getAll($planningFilters);
@@ -220,6 +224,11 @@ class TicketsController extends Controller
             $data['technicalGrouped'] = $userModel->getGroupedByRole(['developer', 'analyst', 'attendant', 'super_admin']);
         }
 
+        // Projetos e serviços contratados por empresa (o cliente vê só os da empresa ativa).
+        $companyIds = $isAdminCreator ? array_column($data['companies'] ?? [], 'id') : [$this->activeCompanyId()];
+        $data['ticketProjects'] = (new TicketProjectScope())->formOptions($companyIds);
+        $data['ticketCompanyId'] = $isAdminCreator ? null : $this->activeCompanyId();
+
         $this->view('client/ticket_create', $data);
     }
 
@@ -237,9 +246,27 @@ class TicketsController extends Controller
         $transcription = trim($_POST['transcription'] ?? '');
         $category = trim($_POST['category'] ?? '');
         $priority = $_POST['priority'] ?? 'medium';
+        $dataInicio = trim($_POST['data_inicio'] ?? '');
+        $dataTermino = trim($_POST['data_termino'] ?? '');
+        $dataPrevista = trim($_POST['data_prevista_entrega'] ?? '');
 
         if (empty($title) || empty($description)) {
             flash('error', 'Título e descrição são obrigatórios.');
+            $this->redirect('tickets/create');
+        }
+
+        // As três datas da demanda são obrigatórias e preenchidas pelo cliente.
+        // Validação server-side no mesmo padrão de savePrevisao (formato Y-m-d).
+        $isValidDate = static function ($v) {
+            $d = \DateTime::createFromFormat('Y-m-d', $v);
+            return $d !== false && $d->format('Y-m-d') === $v;
+        };
+        if ($dataInicio === '' || $dataTermino === '' || $dataPrevista === '') {
+            flash('error', 'Informe a data de início, a data de término e a previsão de término.');
+            $this->redirect('tickets/create');
+        }
+        if (!$isValidDate($dataInicio) || !$isValidDate($dataTermino) || !$isValidDate($dataPrevista)) {
+            flash('error', 'Datas inválidas. Verifique a data de início, de término e a previsão de término.');
             $this->redirect('tickets/create');
         }
 
@@ -266,6 +293,20 @@ class TicketsController extends Controller
             $technicalId = !empty($_POST['technical_responsible_id']) ? (int)$_POST['technical_responsible_id'] : null;
         }
 
+        // Projeto e serviço contratado. Para o cliente, a garantia vencida sem
+        // suporte bloqueia; para a equipe, só avisa.
+        $isClient = ($user['role'] ?? '') === 'client';
+        $ticketCompanyId = $isClient ? $this->activeCompanyId() : null;
+        if (!$isClient && $clientId !== (int)$user['id']) {
+            $cu = Database::getInstance()->fetch("SELECT company_id FROM users WHERE id = ?", [$clientId]);
+            $ticketCompanyId = !empty($cu['company_id']) ? (int)$cu['company_id'] : null;
+        }
+        $scope = (new TicketProjectScope())->resolve($isClient, $ticketCompanyId, $_POST['project_id'] ?? null, $_POST['proposal_item_id'] ?? null);
+        if (!$scope['ok']) {
+            flash('error', $scope['error']);
+            $this->redirect('tickets/create');
+        }
+
         $ticketData = [
             'client_id' => $clientId,
             'title' => $title,
@@ -273,6 +314,9 @@ class TicketsController extends Controller
             'category' => $category,
             'priority' => $priority,
             'status' => 'open',
+            'data_inicio' => $dataInicio,
+            'data_termino' => $dataTermino,
+            'data_prevista_entrega' => $dataPrevista,
         ];
 
         if ($attendantId) {
@@ -285,6 +329,8 @@ class TicketsController extends Controller
         if (!empty($transcription)) {
             $ticketData['transcription'] = $transcription;
         }
+        if ($scope['project_id']) $ticketData['project_id'] = $scope['project_id'];
+        if ($scope['proposal_item_id']) $ticketData['proposal_item_id'] = $scope['proposal_item_id'];
 
         // Calcular número sequencial do cliente
         $db = Database::getInstance();
@@ -362,6 +408,7 @@ class TicketsController extends Controller
         }
 
         flash('success', 'Demanda criada com sucesso!');
+        if ($scope['warning']) flash('warning', $scope['warning']);
         $this->redirect('tickets/show/' . $ticketId);
     }
 
