@@ -246,27 +246,18 @@ class TicketsController extends Controller
         $transcription = trim($_POST['transcription'] ?? '');
         $category = trim($_POST['category'] ?? '');
         $priority = $_POST['priority'] ?? 'medium';
-        $dataInicio = trim($_POST['data_inicio'] ?? '');
-        $dataTermino = trim($_POST['data_termino'] ?? '');
-        $dataPrevista = trim($_POST['data_prevista_entrega'] ?? '');
 
         if (empty($title) || empty($description)) {
             flash('error', 'Título e descrição são obrigatórios.');
             $this->redirect('tickets/create');
         }
 
-        // As três datas da demanda são obrigatórias e preenchidas pelo cliente.
-        // Validação server-side no mesmo padrão de savePrevisao (formato Y-m-d).
-        $isValidDate = static function ($v) {
-            $d = \DateTime::createFromFormat('Y-m-d', $v);
-            return $d !== false && $d->format('Y-m-d') === $v;
-        };
-        if ($dataInicio === '' || $dataTermino === '' || $dataPrevista === '') {
-            flash('error', 'Informe a data de início, a data de término e a previsão de término.');
-            $this->redirect('tickets/create');
-        }
-        if (!$isValidDate($dataInicio) || !$isValidDate($dataTermino) || !$isValidDate($dataPrevista)) {
-            flash('error', 'Datas inválidas. Verifique a data de início, de término e a previsão de término.');
+        // Datas da demanda: definidas pela EQUIPE. O cliente não vê os campos e
+        // qualquer valor que ele envie é ignorado; a equipe criando a demanda
+        // continua obrigada a informar as três (ver DemandDateRules).
+        $demandDates = DemandDateRules::forCreate($user['role'] ?? null, $_POST);
+        if (!$demandDates['ok']) {
+            flash('error', $demandDates['error']);
             $this->redirect('tickets/create');
         }
 
@@ -314,10 +305,7 @@ class TicketsController extends Controller
             'category' => $category,
             'priority' => $priority,
             'status' => 'open',
-            'data_inicio' => $dataInicio,
-            'data_termino' => $dataTermino,
-            'data_prevista_entrega' => $dataPrevista,
-        ];
+        ] + $demandDates['data'];
 
         if ($attendantId) {
             $ticketData['attendant_id'] = $attendantId;
@@ -821,6 +809,32 @@ class TicketsController extends Controller
             $this->json(['success' => true]);
         }
         flash('success', 'Previsão de publicação atualizada.');
+        $this->redirect('tickets/show/' . $id);
+    }
+
+    /**
+     * Define as datas da demanda (início, término e previsão de término).
+     * Apenas equipe: o cliente não define essas datas. Vazio limpa a data.
+     */
+    public function saveDates($id = null)
+    {
+        $this->requireRole(DemandDateRules::TEAM_ROLES);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
+            $this->redirect('tickets');
+        }
+        $parsed = DemandDateRules::parse($_POST, false);
+        if (!$parsed['ok']) {
+            if ($this->isAjax()) {
+                $this->json(['success' => false, 'error' => $parsed['error']], 422);
+            }
+            flash('error', $parsed['error']);
+            $this->redirect('tickets/show/' . $id);
+        }
+        $this->ticketModel->update($id, $parsed['data']);
+        if ($this->isAjax()) {
+            $this->json(['success' => true]);
+        }
+        flash('success', 'Datas da demanda atualizadas.');
         $this->redirect('tickets/show/' . $id);
     }
 

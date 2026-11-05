@@ -286,6 +286,8 @@
                             </select>
                         </div>
                     </div>
+                    <?php // Datas da demanda: definidas pela equipe, nunca exibidas ao cliente. ?>
+                    <?php if (DemandDateRules::canSetDates($user['role'] ?? null)): ?>
                     <div class="col-sm-4">
                         <div class="form-field">
                             <label class="form-label fw-medium">Data de início *</label>
@@ -307,6 +309,7 @@
                             <small class="field-help field-help-bottom">Data prevista para a entrega</small>
                         </div>
                     </div>
+                    <?php endif; ?>
                     <div class="col-sm-6" id="project-field" style="display:none">
                         <div class="form-field">
                             <label class="form-label fw-medium" for="field-project">Projeto</label>
