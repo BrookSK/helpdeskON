@@ -817,20 +817,11 @@ class PlanningController extends Controller
             $this->json(['error' => 'Nenhum campo para atualizar'], 400);
         }
 
-        // Valida a elegibilidade APENAS dos campos de responsável que vieram
-        // nesta requisição (edição valida só o que mudou — preserva cards antigos
-        // que porventura tenham um valor fora da regra atual).
-        $toValidate = [];
-        if (array_key_exists('assigned_to', $data)) {
-            $toValidate[AssignmentRules::FIELD_ATTENDANT] = $data['assigned_to'];
-        }
-        if (array_key_exists('technical_responsible_id', $data)) {
-            $toValidate[AssignmentRules::FIELD_TECHNICAL] = $data['technical_responsible_id'];
-        }
-        if (array_key_exists('analyst_id', $data)) {
-            $toValidate[AssignmentRules::FIELD_ANALYST] = $data['analyst_id'];
-        }
-        $assignError = $this->validateAssignments($toValidate);
+        // Valida a elegibilidade APENAS dos responsáveis que mudaram nesta
+        // requisição (o modal envia os três sempre). Preserva cards antigos com
+        // um valor fora da regra atual: sem isso, trocar só o Atendente falhava
+        // por causa do Técnico/Analista que já estava gravado.
+        $assignError = $this->validateAssignments(AssignmentRules::changedForValidation($card, $data));
         if ($assignError !== null) {
             $this->json(['error' => $assignError], 422);
         }
