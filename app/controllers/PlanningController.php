@@ -219,7 +219,7 @@ class PlanningController extends Controller
         ob_start();
         $viewTotal = $total;
         $viewWeekdays = PlanningScheduleRules::WEEKDAY_LABELS;
-        $viewLegend = PlanningScheduleRules::DEADLINE_COLORS;
+        $viewLegend = PlanningScheduleRules::legendForCards($dated, $today);
         $viewGeneratedAt = date('d/m/Y H:i');
         // O único filtro escolhido pelo usuário na exportação é a empresa; o
         // 'statuses' acima é regra fixa (só ativas), não entra no resumo.
