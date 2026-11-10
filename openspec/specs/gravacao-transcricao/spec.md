@@ -1,7 +1,7 @@
 # gravacao-transcricao Specification
 
 ## Purpose
-TBD - created by archiving change rodar-fila-transcricao-sem-token. Update Purpose after archive.
+Transcrição no servidor das gravações de reunião: a fila de segmentos de áudio é processada pelos crons agendados, sem depender de configuração extra.
 
 ## Requirements
 
