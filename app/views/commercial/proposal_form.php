@@ -17,13 +17,32 @@ $statusLabels = [
     'awaiting' => 'Aguardando', 'accepted' => 'Aceita', 'rejected' => 'Recusada', 'cancelled' => 'Cancelada',
 ];
 ?>
+<style>
+@media (max-width: 767.98px) {
+    /* Ações do topo: grade de 2 colunas ocupando a largura toda */
+    .proposal-actions { width: 100%; display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .proposal-actions .btn { width: 100%; white-space: normal; }
+    /* Serviços: cada item vira um bloco, com o rótulo ao lado do valor */
+    .items-table thead { display: none; }
+    .items-table, .items-table tbody, .items-table tfoot { display: block; }
+    .items-table tr { display: block; padding: 10px 12px; border-bottom: 1px solid var(--bs-border-color); }
+    .items-table td { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 0; border: 0; }
+    .items-table td.it-main { display: block; padding-bottom: 8px; }
+    .items-table td[data-label]::before { content: attr(data-label); font-size: .8rem; font-weight: 600; color: var(--bs-secondary-color); text-transform: uppercase; }
+    .items-table td[data-label] .form-control { max-width: 140px; }
+    .items-table td.it-actions { justify-content: flex-end; }
+    .items-table .it-meta { flex-wrap: wrap; }
+    .items-table .it-meta > div { flex: 1 1 120px !important; }
+    .items-table tfoot td:empty { display: none; }
+}
+</style>
 <div class="main-content">
     <div class="top-bar">
         <div>
             <h5 class="mb-0">Proposta #<?= (int)$proposal['id'] ?> <span class="badge bg-secondary" id="p-revision"><?= escape($revLabel) ?></span></h5>
             <small class="text-muted"><?= escape($proposal['title']) ?> · <span id="p-status-label"><?= escape($statusLabels[$proposal['status']] ?? $proposal['status']) ?></span></small>
         </div>
-        <div class="d-flex gap-2 flex-wrap justify-content-end">
+        <div class="d-flex gap-2 flex-wrap justify-content-end proposal-actions">
             <a href="<?= baseUrl('proposal') ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> Voltar</a>
             <button type="button" class="btn btn-sm btn-outline-primary" onclick="openPdf()"><i class="bi bi-file-earmark-pdf"></i> Ver PDF</button>
             <button type="button" class="btn btn-sm btn-outline-info" onclick="openOnline()"><i class="bi bi-globe"></i> Ver proposta online</button>
@@ -165,7 +184,7 @@ $statusLabels = [
                 </div>
                 <div class="card-body p-0">
                     <div class="table-responsive">
-                    <table class="table table-sm mb-0 align-middle">
+                    <table class="table table-sm mb-0 align-middle items-table">
                         <thead class="table-light">
                             <tr>
                                 <th>Serviço, descrição e cronograma</th>
@@ -177,7 +196,7 @@ $statusLabels = [
                             </tr>
                         </thead>
                         <tbody id="items-body"></tbody>
-                        <tfoot><tr class="table-light"><td colspan="4" class="text-end fw-bold">Total</td><td class="fw-bold" id="grand-total">R$ 0,00</td><td></td></tr></tfoot>
+                        <tfoot><tr class="table-light"><td colspan="4" class="text-end fw-bold d-none d-md-table-cell">Total</td><td class="fw-bold" id="grand-total" data-label="Total">R$ 0,00</td><td></td></tr></tfoot>
                     </table>
                     </div>
                 </div>
@@ -276,15 +295,15 @@ function addRow(data) {
     const tb = document.getElementById('items-body');
     const tr = document.createElement('tr');
     tr.innerHTML = `
-        <td>
+        <td class="it-main">
             <input class="form-control form-control-sm it-desc" placeholder="Nome do serviço">
             <textarea class="form-control form-control-sm mt-1 it-scope" rows="2" placeholder="Descrição"></textarea>
-            <div class="d-flex gap-2 mt-1">
+            <div class="d-flex gap-2 mt-1 it-meta">
                 <div style="flex:1"><label class="form-label small mb-0 text-muted">Cobrança</label><select class="form-select form-select-sm it-billing"><option value="once">Pontual</option><option value="monthly">Mensal</option></select></div>
                 <div style="flex:1"><label class="form-label small mb-0 text-muted">Início</label><input type="date" class="form-control form-control-sm it-start"></div>
                 <div style="flex:1"><label class="form-label small mb-0 text-muted">Fim</label><input type="date" class="form-control form-control-sm it-end"></div>
             </div>
-            <div class="d-flex gap-2 mt-1 it-recurrence-wrap" style="display:none !important;">
+            <div class="d-flex gap-2 mt-1 it-meta it-recurrence-wrap" style="display:none !important;">
                 <div style="flex:1"><label class="form-label small mb-0 text-muted">Renovação</label><select class="form-select form-select-sm it-renewal"><option value="none">Sem renovação</option><option value="auto">Automática</option><option value="manual">Manual</option></select></div>
                 <div style="flex:1"><label class="form-label small mb-0 text-muted">Periodicidade</label><select class="form-select form-select-sm it-recurrence"><option value="monthly">Mensal</option><option value="yearly">Anual</option></select></div>
             </div>
@@ -292,11 +311,11 @@ function addRow(data) {
             <input type="hidden" class="it-service">
             <input type="hidden" class="it-hosting">
         </td>
-        <td><input type="number" step="0.01" min="0" class="form-control form-control-sm it-qty"></td>
-        <td><input type="number" step="0.01" min="0" class="form-control form-control-sm it-hours"></td>
-        <td><input type="number" step="0.01" min="0" class="form-control form-control-sm it-rate" title="Com horas, valor por hora. Sem horas, valor do item."></td>
-        <td class="it-total text-nowrap"></td>
-        <td><button type="button" class="btn btn-sm btn-outline-danger it-remove"><i class="bi bi-x"></i></button></td>`;
+        <td data-label="Qtd"><input type="number" step="0.01" min="0" class="form-control form-control-sm it-qty"></td>
+        <td data-label="Horas"><input type="number" step="0.01" min="0" class="form-control form-control-sm it-hours"></td>
+        <td data-label="Valor"><input type="number" step="0.01" min="0" class="form-control form-control-sm it-rate" title="Com horas, valor por hora. Sem horas, valor do item."></td>
+        <td class="it-total text-nowrap" data-label="Total"></td>
+        <td class="it-actions"><button type="button" class="btn btn-sm btn-outline-danger it-remove"><i class="bi bi-x"></i></button></td>`;
     const hours = (data.hours === null || data.hours === undefined) ? '' : data.hours;
     const rate = (data.hourly_rate === null || data.hourly_rate === undefined) ? '' : data.hourly_rate;
     const qty = (data.quantity === null || data.quantity === undefined || data.quantity === '') ? 1 : data.quantity;
