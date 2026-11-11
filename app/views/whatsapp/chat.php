@@ -90,6 +90,7 @@
                 </button>
                 <button class="wpp-tab" data-tab="groups" onclick="switchTab('groups')">
                     <i class="bi bi-people"></i> Grupos <span class="wpp-tab-count" id="count-groups">0</span>
+                    <span class="wpp-mention-badge wpp-tab-mention" id="groups-mention-flag" title="Você foi mencionado em um grupo" style="display:none;">@</span>
                 </button>
                 <!-- Botão que liga/desliga o modo de seleção múltipla -->
                 <button class="wpp-select-toggle" id="wpp-select-toggle" onclick="toggleSelectMode()" title="Selecionar vários">
@@ -189,6 +190,8 @@
                 <div id="emoji-picker" class="wpp-emoji-picker" style="display:none;"></div>
                 <!-- Autocomplete de respostas rápidas (/atalho) -->
                 <div id="quick-reply-suggest" class="wpp-quick-suggest" style="display:none;"></div>
+                <!-- Autocomplete de menções (@pessoa) — só em grupos -->
+                <div id="mention-suggest" class="wpp-quick-suggest wpp-mention-suggest" style="display:none;"></div>
                 <button class="btn btn-sm btn-outline-secondary" id="btn-emoji" onclick="toggleEmojiPicker()" title="Emojis">
                     <i class="bi bi-emoji-smile"></i>
                 </button>
@@ -616,6 +619,9 @@ body { overflow: hidden !important; margin: 0; padding: 0; }
 .wpp-contact-meta { text-align: right; flex-shrink: 0; }
 .wpp-contact-time { font-size: 0.62rem; color: #999; }
 .wpp-unread { background: var(--primary); color: #fff; font-size: 0.6rem; padding: 2px 6px; border-radius: 10px; display: inline-block; margin-top: 2px; }
+/* "@" de menção ao nosso número (igual ao WhatsApp) */
+.wpp-mention-badge { background: var(--primary); color: #fff; font-size: 0.66rem; font-weight: 700; width: 17px; height: 17px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; margin-top: 2px; margin-right: 3px; vertical-align: top; line-height: 1; }
+.wpp-tab-mention { margin: 0 0 0 3px; vertical-align: middle; }
 .wpp-status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }
 .wpp-status-dot.em_atendimento { background: #ff9800; }
 .wpp-status-dot.aguardando { background: #f44336; }
@@ -1031,6 +1037,17 @@ body { overflow: hidden !important; margin: 0; padding: 0; }
 .wpp-emoji-grid button:hover { background: #f0f0f0; }
 .wpp-msg-media img { max-width: 220px; border-radius: 6px; cursor: pointer; }
 .wpp-mention { color: #075e54; font-weight: 600; background: rgba(7,94,84,0.08); padding: 1px 4px; border-radius: 4px; cursor: default; }
+.wpp-mention.wpp-mention-me { color: #fff; background: #00a884; }
+/* Mensagem que marcou o nosso número */
+.wpp-msg.other.mentions-me { box-shadow: inset 3px 0 0 #00a884, 0 1px 2px rgba(0,0,0,0.06); }
+/* Autocomplete de menções */
+.wpp-mention-item { display: flex; align-items: center; gap: 8px; padding: 7px 12px; cursor: pointer; border-bottom: 1px solid #f0f0f0; }
+.wpp-mention-item:last-child { border-bottom: none; }
+.wpp-mention-item.active, .wpp-mention-item:hover { background: #e0f7f4; }
+.wpp-mention-item .mi-avatar { width: 28px; height: 28px; border-radius: 50%; background: #c8e6c9; color: #2e7d32; font-size: 0.68rem; font-weight: 600; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.wpp-mention-item .mi-name { font-size: 0.82rem; font-weight: 500; color: #1f2937; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wpp-mention-item .mi-phone { font-size: 0.7rem; color: #888; }
+.wpp-mention-empty { padding: 8px 12px; font-size: 0.78rem; color: #888; }
 .wpp-label-badge { font-size: 0.65rem; padding: 2px 8px; border-radius: 10px; color: #fff; display: inline-block; cursor: default; }
 .cursor-pointer { cursor: pointer; }
 /* Elementos mobile ocultos no desktop */
@@ -1242,7 +1259,9 @@ function formatWhatsApp(text) {
     html = html.replace(/@(\d{10,15})/g, function(match, number) {
         // Tentar resolver o nome a partir dos contatos carregados
         const resolved = resolveMention(number);
-        return `<span class="wpp-mention">@${resolved}</span>`;
+        const meCls = selfMentionTokens.has(number) ? ' wpp-mention-me' : '';
+        // data-token permite trocar o número pelo nome quando os participantes carregarem
+        return `<span class="wpp-mention${meCls}" data-token="${number}">@${escapeHtml(resolved)}</span>`;
     });
     // Newlines
     html = html.replace(/\n/g, '<br>');
@@ -1253,6 +1272,10 @@ function formatWhatsApp(text) {
  * Tenta resolver um número de menção para o nome do contato
  */
 function resolveMention(number) {
+    // Nosso próprio número (telefone ou LID da instância) aparece como "Você"
+    if (selfMentionTokens.has(number)) return 'Você';
+    // Participantes do grupo aberto (nome já resolvido pelo servidor)
+    if (groupMentionNames[number]) return groupMentionNames[number];
     // Buscar nos contatos carregados
     const allItems = [...allContacts, ...allGroups];
     for (const c of allItems) {
@@ -1270,6 +1293,12 @@ function resolveMention(number) {
 
 // Cache para menções resolvidas (preenchido ao abrir grupo)
 let mentionCache = {};
+// Menções do grupo aberto (carregadas de whatsapp/groupParticipants)
+let groupMentionCandidates = [];     // [{jid, token, name, phone, has_name}]
+let groupMentionNames = {};          // token -> nome
+let selfMentionTokens = new Set();   // tokens do nosso número (vira "Você")
+let pendingMentions = new Map();     // '@Nome' digitado -> {jid, token}
+let mentionSuggestIndex = -1;
 
 // =========================================
 // TABS
@@ -1306,6 +1335,9 @@ function loadContacts(silent = false) {
         allGroups = data.groups || [];
         document.getElementById('count-contacts').textContent = allContacts.length;
         document.getElementById('count-groups').textContent = allGroups.length;
+        // "@" na aba Grupos quando algum grupo marcou o nosso número
+        const mentionFlag = document.getElementById('groups-mention-flag');
+        if (mentionFlag) mentionFlag.style.display = allGroups.some(g => Number(g.mention_count) > 0) ? '' : 'none';
         renderContactsList();
     })
     .catch(() => {});
@@ -1544,6 +1576,9 @@ function renderContactItem(c, isGroup) {
     const time = c.last_message_at ? formatTime(c.last_message_at) : '';
     const isActive = activeContactId == c.id ? 'active' : '';
     const unread = c.unread_count > 0 ? `<span class="wpp-unread">${c.unread_count}</span>` : '';
+    // "@" quando alguém do grupo marcou o nosso número (some ao abrir a conversa)
+    const mentionBadge = (isGroup && Number(c.mention_count) > 0)
+        ? `<span class="wpp-mention-badge" title="Você foi mencionado">@</span>` : '';
     const avatarColorIdx = (name.charCodeAt(0) + (name.charCodeAt(1) || 0)) % 5 + 1;
     const avatarClass = isGroup ? `wpp-avatar-sm group-avatar group-avatar-${avatarColorIdx}` : 'wpp-avatar-sm';
     let icon = isGroup ? name.substring(0, 2).toUpperCase() : initials;
@@ -1599,7 +1634,7 @@ function renderContactItem(c, isGroup) {
         </div>
         <div class="wpp-contact-meta">
             <div class="wpp-contact-time">${time}</div>
-            ${unread}
+            ${mentionBadge}${unread}
             ${archiveBtn}
         </div>
     </div>`;
@@ -1791,6 +1826,21 @@ function openChat(contactId, isGroup = false) {
     activeContactId = contactId;
     activeContactIsGroup = isGroup;
 
+    // Menções: limpa o estado do grupo anterior e carrega os participantes deste
+    resetMentionState();
+    if (isGroup) {
+        loadGroupParticipants(contactId);
+        // Abrir o grupo "lê" as menções: tira o "@" da lista na hora
+        const g = allGroups.find(x => x.id == contactId);
+        if (g && Number(g.mention_count) > 0) {
+            g.mention_count = 0;
+            const flag = document.getElementById('groups-mention-flag');
+            if (flag) flag.style.display = allGroups.some(x => Number(x.mention_count) > 0) ? '' : 'none';
+            const badge = document.querySelector(`.wpp-contact-item[data-id="${contactId}"] .wpp-mention-badge`);
+            if (badge) badge.remove();
+        }
+    }
+
     // Mobile: alternar para painel de chat
     if (window.innerWidth <= 768) {
         document.getElementById('contacts-panel').classList.add('mobile-hidden');
@@ -1828,6 +1878,12 @@ function openChat(contactId, isGroup = false) {
     fetch(BASE + 'whatsapp/contactDetail/' + contactId, { headers: {'X-Requested-With': 'XMLHttpRequest'} })
     .then(r => r.json())
     .then(contact => {
+        // Aberto por link direto (ex.: aviso de menção) sem saber que era grupo:
+        // reabre como grupo para mostrar remetentes e carregar o autocomplete do @.
+        if (contact && contact.is_group == 1 && !activeContactIsGroup && activeContactId == contactId) {
+            openChat(contactId, true);
+            return;
+        }
         // Grupo usa o nome real do grupo (contact_name), nunca o push_name do remetente
         const name = (contact.is_group == 1)
             ? (contact.contact_name || contact.phone || 'Grupo')
@@ -2002,7 +2058,9 @@ function renderSingleMessage(m) {
         ack = ` <span class="wpp-msg-ack-holder" data-ack="${initAck}">${renderAckIcon(initAck)}</span>`;
     }
     const waId = m.message_id ? ` data-wa-id="${escapeHtml(m.message_id)}"` : '';
-    return `<div class="wpp-msg ${cls}" data-msg-id="${m.id}"${waId}><div class="wpp-msg-body">${content}</div><div class="wpp-msg-time">${time}${ack}</div></div>`;
+    // Mensagem que marcou o nosso número ganha um destaque lateral
+    const mentionCls = m.mentions_me == 1 ? ' mentions-me' : '';
+    return `<div class="wpp-msg ${cls}${mentionCls}" data-msg-id="${m.id}"${waId}><div class="wpp-msg-body">${content}</div><div class="wpp-msg-time">${time}${ack}</div></div>`;
 }
 
 // === LIGHTBOX DE IMAGEM ===
@@ -2734,8 +2792,12 @@ function sendMessage() {
     const text = input.value.trim();
     if (!text || !activeContactId) return;
 
+    // Menções: "@Nome" escolhido no autocomplete vira "@<número>" + lista de JIDs
+    const withMentions = applyMentionsForSend(text);
+    hideMentionSuggest();
+
     // Aplica a assinatura (nome do atendente) no topo, se ativada
-    const finalText = applySignature(text);
+    const finalText = applySignature(withMentions.text);
 
     input.value = '';
     input.style.height = '34px';
@@ -2755,6 +2817,7 @@ function sendMessage() {
     const fd = new FormData();
     fd.append('contact_id', activeContactId);
     fd.append('message', finalText);
+    if (withMentions.mentions.length) fd.append('mentions', JSON.stringify(withMentions.mentions));
 
     fetch(BASE + 'whatsapp/send', { method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'} })
     .then(r => r.json())
@@ -2798,7 +2861,10 @@ function sendStagedMedia() {
     isSending = true;
 
     const input = document.getElementById('message-input');
-    const caption = applySignature(input.value.trim());
+    // Menções também valem na legenda
+    const captionMentions = applyMentionsForSend(input.value.trim());
+    hideMentionSuggest();
+    const caption = applySignature(captionMentions.text);
     const fileObj = stagedFile;
     const ext = (fileObj.name.split('.').pop() || '').toLowerCase();
     const isImg = ['jpg','jpeg','png','gif','webp'].includes(ext);
@@ -2836,6 +2902,7 @@ function sendStagedMedia() {
     fd.append('contact_id', activeContactId);
     fd.append('file', fileObj);
     fd.append('caption', caption);
+    if (captionMentions.mentions.length) fd.append('mentions', JSON.stringify(captionMentions.mentions));
 
     fetch(BASE + 'whatsapp/sendMedia', { method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'} })
     .then(r => r.json())
@@ -3454,6 +3521,10 @@ function setupTextarea() {
     if (!textarea) return;
 
     textarea.addEventListener('keydown', function(e) {
+        // Autocomplete de menções (@) aberto: ele trata setas/Enter/Tab/Esc
+        if (['ArrowDown','ArrowUp','Enter','Tab','Escape'].includes(e.key)) {
+            if (handleMentionKeydown(e)) return;
+        }
         // Se o autocomplete de respostas rápidas estiver aberto, ele trata as setas/Enter/Esc
         if (['ArrowDown','ArrowUp','Enter','Escape'].includes(e.key)) {
             if (handleQuickReplyKeydown(e)) return;
@@ -3469,7 +3540,189 @@ function setupTextarea() {
         this.style.height = '34px';
         this.style.height = Math.min(this.scrollHeight, 120) + 'px';
         handleQuickReplyInput();
+        handleMentionInput();
     });
+    // Mover o cursor (clique/setas laterais) também reavalia o "@" sob o cursor
+    textarea.addEventListener('click', handleMentionInput);
+    textarea.addEventListener('keyup', function(e) {
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Home' || e.key === 'End') handleMentionInput();
+    });
+    textarea.addEventListener('blur', function() { setTimeout(hideMentionSuggest, 150); });
+}
+
+// =========================================
+// MENÇÕES (@) EM GRUPOS
+// =========================================
+function resetMentionState() {
+    groupMentionCandidates = [];
+    groupMentionNames = {};
+    selfMentionTokens = new Set();
+    pendingMentions = new Map();
+    hideMentionSuggest();
+}
+
+// Busca os participantes do grupo (Evolution; histórico local como reserva)
+function loadGroupParticipants(contactId) {
+    fetch(BASE + 'whatsapp/groupParticipants/' + contactId, { headers: {'X-Requested-With': 'XMLHttpRequest'} })
+    .then(r => r.json())
+    .then(data => {
+        if (activeContactId != contactId || !data || !data.success) return;
+        groupMentionCandidates = data.participants || [];
+        groupMentionNames = {};
+        groupMentionCandidates.forEach(p => { if (p.has_name) groupMentionNames[p.token] = p.name; });
+        selfMentionTokens = new Set((data.self_tokens || []).map(String));
+        refreshMentionLabels();
+        handleMentionInput();
+    })
+    .catch(() => {});
+}
+
+// Troca "@<número>" pelos nomes nas bolhas já desenhadas
+function refreshMentionLabels() {
+    document.querySelectorAll('#messages-area .wpp-mention[data-token]').forEach(el => {
+        const token = el.dataset.token;
+        el.textContent = '@' + resolveMention(token);
+        el.classList.toggle('wpp-mention-me', selfMentionTokens.has(token));
+    });
+}
+
+// Minúsculas e sem acento, para filtrar nomes
+function foldText(s) {
+    return String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+// "@termo" logo antes do cursor? Retorna {term, start, end} ou null
+function getMentionQuery(input) {
+    if (!activeContactIsGroup || input.selectionStart !== input.selectionEnd) return null;
+    const pos = input.selectionStart;
+    const before = input.value.slice(0, pos);
+    const m = before.match(/(^|[\s(])@([^\s@]{0,40})$/);
+    if (!m) return null;
+    return { term: m[2], start: pos - m[2].length - 1, end: pos };
+}
+
+function hideMentionSuggest() {
+    const box = document.getElementById('mention-suggest');
+    if (box) { box.style.display = 'none'; box._matches = null; }
+    mentionSuggestIndex = -1;
+}
+
+function handleMentionInput() {
+    const input = document.getElementById('message-input');
+    const box = document.getElementById('mention-suggest');
+    if (!input || !box) return;
+    const q = getMentionQuery(input);
+    if (!q || !groupMentionCandidates.length) { hideMentionSuggest(); return; }
+
+    const term = foldText(q.term);
+    const digits = q.term.replace(/\D/g, '');
+    const matches = groupMentionCandidates.filter(p =>
+        !term
+        || foldText(p.name).includes(term)
+        || (digits.length >= 3 && ((p.phone || '').replace(/\D/g, '').includes(digits) || p.token.includes(digits)))
+    ).slice(0, 8);
+
+    if (!matches.length) {
+        box.innerHTML = '<div class="wpp-mention-empty">Nenhum participante encontrado</div>';
+        box._matches = null;
+        mentionSuggestIndex = -1;
+        box.style.display = 'block';
+        return;
+    }
+
+    box.innerHTML = matches.map((p, i) => {
+        const initials = (p.has_name ? p.name : '#').replace(/[^\p{L}\p{N}# ]/gu, '').trim().substring(0, 2).toUpperCase() || '#';
+        const phone = p.phone && p.phone !== p.name ? `<div class="mi-phone">${escapeHtml(p.phone)}</div>` : '';
+        return `<div class="wpp-mention-item ${i === 0 ? 'active' : ''}" data-idx="${i}" onmousedown="event.preventDefault(); applyMention(${i})">
+            <div class="mi-avatar">${escapeHtml(initials)}</div>
+            <div style="min-width:0;"><div class="mi-name">${escapeHtml(p.name)}</div>${phone}</div>
+        </div>`;
+    }).join('');
+    box._matches = matches;
+    box._query = q;
+    mentionSuggestIndex = 0;
+    box.style.display = 'block';
+}
+
+function handleMentionKeydown(e) {
+    const box = document.getElementById('mention-suggest');
+    if (!box || box.style.display !== 'block') return false;
+    if (e.key === 'Escape') { e.preventDefault(); hideMentionSuggest(); return true; }
+    if (!box._matches) {
+        // Lista vazia ("nenhum participante"): Enter segue o fluxo normal (envia)
+        return false;
+    }
+    const items = box.querySelectorAll('.wpp-mention-item');
+    if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        mentionSuggestIndex = Math.min(mentionSuggestIndex + 1, items.length - 1);
+    } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        mentionSuggestIndex = Math.max(mentionSuggestIndex - 1, 0);
+    } else if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        applyMention(mentionSuggestIndex >= 0 ? mentionSuggestIndex : 0);
+        return true;
+    } else {
+        return false;
+    }
+    items.forEach((el, i) => el.classList.toggle('active', i === mentionSuggestIndex));
+    if (items[mentionSuggestIndex]) items[mentionSuggestIndex].scrollIntoView({ block: 'nearest' });
+    return true;
+}
+
+// Troca o "@termo" pelo "@Nome" escolhido e guarda quem é (JID) para o envio
+function applyMention(idx) {
+    const box = document.getElementById('mention-suggest');
+    const input = document.getElementById('message-input');
+    const p = box && box._matches ? box._matches[idx] : null;
+    if (!p || !input) return;
+    const q = getMentionQuery(input) || box._query;
+    if (!q) return;
+
+    let label = '@' + p.name;
+    // Mesmo nome já usado para OUTRA pessoa nesta mensagem: diferencia pelo final do número
+    const other = pendingMentions.get(label);
+    if (other && other.jid !== p.jid) {
+        label += ' (' + (p.phone || p.token).replace(/\D/g, '').slice(-4) + ')';
+    }
+    pendingMentions.set(label, { jid: p.jid, token: p.token });
+
+    const before = input.value.slice(0, q.start);
+    const after = input.value.slice(q.end);
+    const insert = label + ' ';
+    input.value = before + insert + after.replace(/^ /, '');
+    const caret = before.length + insert.length;
+    input.focus();
+    input.setSelectionRange(caret, caret);
+    hideMentionSuggest();
+    if (typeof autoGrowMessageInput === 'function') autoGrowMessageInput();
+}
+
+function escapeRegExp(s) {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// No envio: "@Nome" (escolhido no autocomplete) -> "@<número>", que é o que o
+// WhatsApp transforma em menção; devolve também os JIDs marcados.
+function applyMentionsForSend(text) {
+    const mentions = [];
+    if (!activeContactIsGroup || !pendingMentions.size || !text) {
+        pendingMentions = new Map();
+        return { text, mentions };
+    }
+    // Rótulos mais longos primeiro: "@Ana Paula" antes de "@Ana"
+    const labels = [...pendingMentions.keys()].sort((a, b) => b.length - a.length);
+    let out = text;
+    labels.forEach(label => {
+        const m = pendingMentions.get(label);
+        const re = new RegExp(escapeRegExp(label) + '(?![\\p{L}\\p{N}])', 'gu');
+        if (!re.test(out)) return;
+        out = out.replace(re, '@' + m.token);
+        if (!mentions.includes(m.jid)) mentions.push(m.jid);
+    });
+    pendingMentions = new Map();
+    return { text: out, mentions };
 }
 
 // =========================================

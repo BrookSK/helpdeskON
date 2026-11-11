@@ -786,6 +786,14 @@ class WhatsappController extends Controller
         $afterId = $_GET['after_id'] ?? 0;
         $messages = $this->messageModel->getNewMessages($contactId, $afterId);
 
+        // Menção chegou com o grupo aberto na tela: já foi vista, apaga o "@".
+        foreach ($messages as $m) {
+            if (!empty($m['mentions_me'])) {
+                $this->contactModel->clearMentions($contactId);
+                break;
+            }
+        }
+
         // Verificar mensagens deletadas recentemente neste contato
         $db = Database::getInstance();
         $deletedIds = $db->fetchAll(
@@ -874,8 +882,14 @@ class WhatsappController extends Controller
             $this->json(['error' => 'Nenhuma instância disponível para enviar. Conecte uma instância em /whatsapp.'], 400);
         }
 
+        // Menções (@) só valem em grupo; o navegador manda os JIDs e o servidor
+        // aceita apenas pessoas que aparecem no texto como "@<token>".
+        $mentions = !empty($contact['is_group'])
+            ? WhatsappMentionRules::sanitizeOutgoingMentions($text, $_POST['mentions'] ?? [])
+            : [];
+
         // Enviar via Evolution API
-        $result = $api->sendText($contact['remote_jid'], $text);
+        $result = $api->sendText($contact['remote_jid'], $text, $mentions);
 
         // Se a Evolution recusou o envio, gravamos a mensagem como FALHA (não some
         // mais da conversa) e retornamos um erro claro com o motivo real.
@@ -960,6 +974,7 @@ class WhatsappController extends Controller
             'contact_id' => $contactId,
             'message_id' => $sentMsgId,
             'instance_id' => $sendInstanceId,
+            'mentions' => count($mentions),
         ]);
 
         $this->json([
@@ -1044,6 +1059,10 @@ class WhatsappController extends Controller
         move_uploaded_file($file['tmp_name'], PUBLIC_PATH . '/' . $filePath);
 
         $caption = $_POST['caption'] ?? '';
+        // Menções na legenda (só grupo; mesma validação do texto)
+        $captionMentions = !empty($contact['is_group'])
+            ? WhatsappMentionRules::sanitizeOutgoingMentions((string) $caption, $_POST['mentions'] ?? [])
+            : [];
         $publicUrl = baseUrl($filePath);
         $msgType = $mediaType === 'image' ? 'image' : ($mediaType === 'video' ? 'video' : ($mediaType === 'audio' ? 'audio' : 'document'));
 
@@ -1086,11 +1105,11 @@ class WhatsappController extends Controller
                 $base64 = base64_encode(file_get_contents(PUBLIC_PATH . '/' . $filePath));
                 $result = $api->sendAudio($contact['remote_jid'], "data:{$mime};base64,{$base64}");
             } else {
-                $result = $api->sendMedia($contact['remote_jid'], $mediaType, $publicUrl, $caption, $file['name']);
+                $result = $api->sendMedia($contact['remote_jid'], $mediaType, $publicUrl, $caption, $file['name'], $captionMentions);
                 if (is_array($result) && isset($result['error']) && $result['error']) {
                     @file_put_contents(PUBLIC_PATH . '/uploads/sendmedia_error.log', '[' . date('Y-m-d H:i:s') . '] URL FAIL, tentando base64: ' . json_encode($result) . "\n", FILE_APPEND);
                     $base64 = base64_encode(file_get_contents(PUBLIC_PATH . '/' . $filePath));
-                    $result = $api->sendMedia($contact['remote_jid'], $mediaType, "data:{$mime};base64,{$base64}", $caption, $file['name']);
+                    $result = $api->sendMedia($contact['remote_jid'], $mediaType, "data:{$mime};base64,{$base64}", $caption, $file['name'], $captionMentions);
                 }
             }
         } catch (\Throwable $e) {
@@ -2164,6 +2183,16 @@ class WhatsappController extends Controller
         if (!$fromMe) {
             $this->contactModel->incrementUnread($contactId);
 
+            // Grupo: alguém marcou o NOSSO número com @? Liga o indicador "@" da
+            // conversa e o aviso. Best-effort: nunca quebra o recebimento.
+            if ($isGroup && !empty($newMessageId)) {
+                try {
+                    $this->detectOwnerMention($instance, $normalizedJid, $msg, (string) $msgText, (int) $newMessageId, (int) $contactId);
+                } catch (\Throwable $e) {
+                    Logger::error('[Whatsapp/mention] falha ao verificar menção', ['erro' => $e->getMessage()]);
+                }
+            }
+
             // Se contato está "concluido" e recebeu nova mensagem, voltar para "novo"
             $contact = $this->contactModel->findById($contactId);
             if ($contact && $contact['service_status'] === 'concluido') {
@@ -2190,6 +2219,145 @@ class WhatsappController extends Controller
                 }
             } catch (\Throwable $e) { /* nunca quebra o recebimento */ }
         }
+    }
+
+    // =========================================
+    // MENÇÕES (@) EM GRUPOS
+    // =========================================
+
+    /**
+     * Mensagem recebida num grupo: se marcou o NOSSO número (contextInfo.
+     * mentionedJid, ou "@<nosso número/LID>" no texto como reserva), grava
+     * mentions_me na mensagem e soma em mention_count da conversa.
+     */
+    private function detectOwnerMention(array $instance, string $groupJid, array $msg, string $text, int $messageId, int $contactId): void
+    {
+        $jids = WhatsappMentionRules::extractMentionedJids($msg);
+        if (empty($jids) && strpos($text, '@') === false) return;
+
+        // Só consulta a Evolution quando há marcação de fato (mentionedJid).
+        $identity = $this->instanceOwnerIdentity($instance, $groupJid, $jids, !empty($jids));
+
+        $mentioned = WhatsappMentionRules::mentionsOwner($jids, $identity['phone'], $identity['lid'])
+            || WhatsappMentionRules::textMentionsOwner($text, $identity['phone'], $identity['lid']);
+
+        if ($mentioned) {
+            $this->messageModel->flagOwnerMention($messageId, $contactId);
+        }
+    }
+
+    /**
+     * Telefone e LID do número conectado na instância. Usa o que já está
+     * salvo (owner_phone / owner_lid) e só busca na Evolution o que faltar,
+     * guardando para as próximas mensagens:
+     *  - telefone: /instance/fetchInstances (ownerJid);
+     *  - LID: participantes do grupo (o membro com o nosso telefone).
+     *
+     * @return array ['phone' => dígitos|'' , 'lid' => '<lid>@lid'|'']
+     */
+    private function instanceOwnerIdentity(array $instance, string $groupJid, array $mentionedJids, bool $allowFetch, $participantsResponse = null): array
+    {
+        $db = Database::getInstance();
+        $phone = WhatsappMentionRules::phoneDigits((string) ($instance['owner_phone'] ?? ''));
+        $lid = trim((string) ($instance['owner_lid'] ?? ''));
+        $hasLidColumn = array_key_exists('owner_lid', $instance);
+
+        if (!$allowFetch || empty($instance['api_url']) || empty($instance['instance_name'])) {
+            return ['phone' => $phone, 'lid' => $lid];
+        }
+        $api = new EvolutionApi($instance['api_url'], $instance['api_key'], $instance['instance_name']);
+
+        if ($phone === '') {
+            $phone = WhatsappMentionRules::ownerPhoneFromInstanceInfo($api->fetchInstanceInfo(), (string) $instance['instance_name']);
+            if ($phone !== '') {
+                $db->update('whatsapp_instances', ['owner_phone' => $phone], 'id = ?', [$instance['id']]);
+            }
+        }
+
+        // Lista de participantes já em mãos (autocomplete): aproveita para
+        // (re)descobrir o LID. Senão, só consulta o grupo se a menção veio por LID
+        // e ainda não sabemos o nosso.
+        if ($hasLidColumn && $phone !== '') {
+            if ($participantsResponse === null && WhatsappMentionRules::needsOwnerLid($mentionedJids, $lid)) {
+                $participantsResponse = $api->findGroupParticipants($groupJid);
+            }
+            if ($participantsResponse !== null) {
+                $found = WhatsappMentionRules::findOwnLidInParticipants($participantsResponse, $phone);
+                if ($found !== '' && $found !== $lid) {
+                    $lid = $found;
+                    $db->update('whatsapp_instances', ['owner_lid' => $lid], 'id = ?', [$instance['id']]);
+                }
+            }
+        }
+
+        return ['phone' => $phone, 'lid' => $lid];
+    }
+
+    /**
+     * API: participantes de um grupo para o autocomplete do @.
+     * GET whatsapp/groupParticipants/{contactId}
+     *
+     * Fonte: Evolution (/group/participants). Se a API não responder, usa o
+     * histórico local (quem já mandou mensagem no grupo). O nosso próprio
+     * número não entra na lista; vem em self_tokens (para exibir "Você").
+     */
+    public function groupParticipants($contactId = null)
+    {
+        $this->requireRole(['super_admin', 'developer', 'attendant', 'analyst', 'comercial', 'marketing', 'whatsapp_agent']);
+        if (!$contactId) $this->json(['error' => 'ID obrigatório'], 400);
+
+        $contact = $this->contactModel->findById($contactId);
+        if (!$contact) $this->json(['error' => 'Contato não encontrado'], 404);
+        if (empty($contact['is_group'])) $this->json(['error' => 'A conversa não é um grupo'], 400);
+
+        $db = Database::getInstance();
+        $instance = null;
+        if (!empty($contact['instance_id'])) {
+            $instance = $db->fetch("SELECT * FROM whatsapp_instances WHERE id = ?", [$contact['instance_id']]);
+        }
+        if (!$instance) $instance = $this->getUserInstance();
+
+        $response = null;
+        $source = 'api';
+        if ($instance && !empty($instance['api_url'])) {
+            $api = new EvolutionApi($instance['api_url'], $instance['api_key'], $instance['instance_name']);
+            $response = $api->findGroupParticipants($contact['remote_jid']);
+        }
+        if (empty(WhatsappMentionRules::participantsList($response))) {
+            $source = 'local';
+            $response = $this->contactModel->getLocalGroupParticipants((int) $contact['id']);
+        }
+
+        $identity = ['phone' => '', 'lid' => ''];
+        if ($instance) {
+            try {
+                // Com a API fora do ar não insiste em novas chamadas (usa o salvo).
+                $identity = $this->instanceOwnerIdentity(
+                    $instance, (string) $contact['remote_jid'], [], $source === 'api',
+                    $source === 'api' ? $response : null
+                );
+            } catch (\Throwable $e) { /* sem identidade: só não marca "Você" */ }
+        }
+
+        $phones = [];
+        foreach (WhatsappMentionRules::participantsList($response) as $p) {
+            foreach ([$p['phoneNumber'] ?? null, $p['id'] ?? null] as $cand) {
+                $d = is_string($cand) ? WhatsappMentionRules::phoneDigits($cand) : '';
+                if ($d !== '') $phones[] = $d;
+            }
+        }
+        $names = $this->contactModel->getMentionNameMaps((int) $contact['id'], $phones);
+
+        $result = WhatsappMentionRules::buildMentionCandidates(
+            $response, $names['by_jid'], $names['by_phone_key'], $identity['phone'], $identity['lid']
+        );
+
+        $this->json([
+            'success' => true,
+            'source' => $source,
+            'participants' => $result['participants'],
+            'self_tokens' => $result['self_tokens'],
+        ]);
     }
 
     /**
@@ -3305,6 +3473,20 @@ class WhatsappController extends Controller
 
         $db = Database::getInstance();
         $db->update('whatsapp_instances', ['connection_status' => $state], 'instance_name = ?', [$instanceName]);
+
+        // (Re)conectou: o número pode ter mudado. Atualiza o telefone pelo wuid
+        // (quando vier) e esquece o LID, que é redescoberto na próxima menção.
+        if ($state === 'open') {
+            try {
+                $data = ['owner_phone' => WhatsappMentionRules::phoneDigits((string) ($payload['data']['wuid'] ?? '')) ?: null];
+                $hasLid = $db->fetch(
+                    "SELECT 1 FROM information_schema.COLUMNS
+                     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'whatsapp_instances' AND COLUMN_NAME = 'owner_lid'"
+                );
+                if ($hasLid) $data['owner_lid'] = null;
+                $db->update('whatsapp_instances', $data, 'instance_name = ?', [$instanceName]);
+            } catch (\Throwable $e) { /* nunca quebra o webhook */ }
+        }
     }
 
     /**
@@ -3540,9 +3722,37 @@ class WhatsappController extends Controller
         $user = $this->currentUser();
 
         $db = Database::getInstance();
+
+        // Menções ao nosso número em grupos ("@"). Grupos não têm dono, então o
+        // aviso vai para quem usa a instância: a vinculada ao usuário ou as
+        // compartilhadas (sem usuário vinculado).
+        $notifications = [];
+        $mentionContactIds = [];
+        try {
+            $mentionInstances = array_column($db->fetchAll(
+                "SELECT id FROM whatsapp_instances WHERE user_id = ? OR user_id IS NULL",
+                [$user['id']]
+            ), 'id');
+            foreach ($this->contactModel->getUnreadMentionNotifications($mentionInstances, 5) as $row) {
+                $preview = $row['message_text'] ?: ('[' . $row['message_type'] . ']');
+                if (mb_strlen($preview) > 60) $preview = mb_substr($preview, 0, 60) . '...';
+                $mentionContactIds[(int) $row['contact_id']] = true;
+                $notifications[] = [
+                    'contact_id' => $row['contact_id'],
+                    'contact_name' => $row['contact_name'] ?: ($row['phone'] ?: 'Grupo'),
+                    'message' => $preview,
+                    'sender_name' => $row['sender_name'],
+                    'timestamp' => $row['timestamp'],
+                    'unread_count' => $row['unread_count'],
+                    'mention_count' => (int) $row['mention_count'],
+                    'is_mention' => true,
+                ];
+            }
+        } catch (\Throwable $e) { /* sem menções: segue com as não lidas */ }
+
         $instance = $this->getUserInstance();
         if (!$instance) {
-            $this->json([]);
+            $this->json($notifications);
             return;
         }
 
@@ -3557,8 +3767,10 @@ class WhatsappController extends Controller
             [$instance['id'], $user['id']]
         );
 
-        $notifications = [];
         foreach ($contacts as $contact) {
+            // A conversa já saiu como menção: não repete o mesmo aviso.
+            if (isset($mentionContactIds[(int) $contact['id']])) continue;
+
             // Pegar última mensagem não lida
             $lastMsg = $db->fetch(
                 "SELECT message_text, message_type, sender_name, timestamp 

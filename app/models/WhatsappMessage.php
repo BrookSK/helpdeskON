@@ -133,6 +133,33 @@ class WhatsappMessage
     }
 
     /**
+     * Marca que a mensagem mencionou o NOSSO número e soma 1 em
+     * whatsapp_contacts.mention_count (indicador "@" da conversa).
+     *
+     * Idempotente: o webhook pode reenviar a mesma mensagem (create() devolve o
+     * id existente); só conta na primeira vez que a mensagem é marcada.
+     * Retorna true quando contou. Sem a migration 172, não faz nada.
+     */
+    public function flagOwnerMention($messageId, $contactId): bool
+    {
+        if (!$this->hasColumn('whatsapp_messages', 'mentions_me')
+            || !$this->hasColumn('whatsapp_contacts', 'mention_count')) {
+            return false;
+        }
+        $changed = $this->db->query(
+            "UPDATE whatsapp_messages SET mentions_me = 1 WHERE id = ? AND contact_id = ? AND mentions_me = 0",
+            [$messageId, $contactId]
+        )->rowCount();
+        if ($changed < 1) return false;
+
+        $this->db->query(
+            "UPDATE whatsapp_contacts SET mention_count = mention_count + 1 WHERE id = ?",
+            [$contactId]
+        );
+        return true;
+    }
+
+    /**
      * Conta total de mensagens de um contato
      */
     public function countByContact($contactId)
