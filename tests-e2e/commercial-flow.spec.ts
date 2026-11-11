@@ -299,7 +299,8 @@ test.describe.serial('fluxo aceite até atendimento', () => {
 
     await page.fill('#field-title', 'Chamado E2E fora da garantia');
     await page.fill('#field-description', 'Teste do bloqueio de garantia.');
-    for (const field of ['#field-data-inicio', '#field-data-termino', '#field-data-prevista']) await page.fill(field, '2026-12-01');
+    // Datas da demanda são da equipe: o cliente não vê esses campos.
+    await expect(page.locator('#field-data-inicio')).toHaveCount(0);
     await Promise.all([page.waitForURL(/\/tickets\/create/), page.click('form[action$="tickets/store"] button[type="submit"]')]);
     await expect(page.locator('.alert-danger')).toContainText('contratar o suporte');
   });

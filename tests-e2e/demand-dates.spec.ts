@@ -138,8 +138,10 @@ test.describe('Datas da demanda — definidas pela equipe', () => {
     await page.goto(`/tickets/show/${ticketId}`);
     await expect(page.locator('#demand-dates-card')).toHaveCount(0);
 
-    // POST direto com o token CSRF da própria página.
-    const token = await page.locator('input[name="csrf_token"]').first().inputValue();
+    // POST direto com o token CSRF da própria página (meta do layout; a tela
+    // do cliente pode não ter nenhum formulário com o campo).
+    const token = (await page.locator('meta[name="csrf-token"]').getAttribute('content')) ?? '';
+    expect(token).not.toBe('');
     await page.request.post(`/tickets/saveDates/${ticketId}`, {
       form: { csrf_token: token, data_inicio: '2030-01-01', data_termino: '2030-01-02', data_prevista_entrega: '2030-01-03' },
       maxRedirects: 0,
