@@ -521,7 +521,7 @@ $bgJson = json_encode($backgrounds ?? [], JSON_UNESCAPED_SLASHES);
 <!-- MediaPipe Selfie Segmentation (planos de fundo) -->
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/selfie_segmentation.js" crossorigin="anonymous"></script>
 <!-- Transportador de gravação v2 (chunks verificados + IndexedDB + manifesto) -->
-<script src="<?= $base ?>/assets/js/recording-upload.js"></script>
+<script src="<?= $base ?>/assets/js/recording-upload.js?v=<?= (int)@filemtime(PUBLIC_PATH . '/assets/js/recording-upload.js') ?>"></script>
 
 <script>
 const BASE = '<?= $base ?>';
@@ -2828,11 +2828,14 @@ function stopComposite() {
 let recElapsedMs = 0, recResumeTs = 0; // controle de tempo com pausa
 
 function toggleRecording() { if (mediaRecorder && mediaRecorder.state !== 'inactive') { stopRecording(); return; } startRecording(); }
+// Taxa do vídeo da gravação. Sem teto o Chrome usa ~2,5 Mbps e uma reunião de
+// ~2h passava do limite de 2 GB do servidor; com 1 Mbps cabem ~4h.
+const REC_VIDEO_BPS = 1000000;
 function startRecording() {
     let mime = 'video/webm;codecs=vp9,opus';
     if (!MediaRecorder.isTypeSupported(mime)) mime = 'video/webm;codecs=vp8,opus';
     if (!MediaRecorder.isTypeSupported(mime)) mime = 'video/webm';
-    try { recordedChunks = []; mediaRecorder = new MediaRecorder(buildRecordingStream(), { mimeType: mime }); }
+    try { recordedChunks = []; mediaRecorder = new MediaRecorder(buildRecordingStream(), { mimeType: mime, videoBitsPerSecond: REC_VIDEO_BPS }); }
     catch (e) { toast('Este navegador não suporta gravação.'); return; }
 
     // Protocolo v2: cada pedaço é persistido em IndexedDB e enviado com
@@ -2845,7 +2848,7 @@ function startRecording() {
     recUploader = null;
     if (recUseV2) {
         try {
-            recUploader = new RecordingUploader({ base: BASE, roomToken: ROOM_TOKEN, sess: recSessId, recordedByName: myName });
+            recUploader = new RecordingUploader({ base: BASE, roomToken: ROOM_TOKEN, sess: recSessId, recordedByName: myName, onLimit: showRecLimitWarning });
             recUploader.open().then(() => recUploader.start()).catch(() => { /* start sob demanda no 1º chunk */ });
         } catch (e) { recUseV2 = false; }
     }
@@ -2932,6 +2935,13 @@ function stopRecording() {
 }
 
 // Indicador global de gravação (mostra pra todos que a reunião está sendo gravada).
+// O vídeo passou do limite do servidor: avisa quem grava. A gravação continua
+// no computador e o áudio continua subindo para a transcrição.
+function showRecLimitWarning() {
+    const label = document.getElementById('rec-label');
+    if (label) label.textContent = 'Gravando (limite do vídeo no servidor atingido)';
+    toast('O vídeo atingiu o limite do servidor. A gravação continua no seu computador e o áudio segue para a transcrição. Ao parar, a cópia completa será baixada.');
+}
 function setRecIndicator(state) {
     const ind = document.getElementById('rec-indicator');
     if (!ind) return;
@@ -3060,6 +3070,11 @@ async function uploadRecording() {
             currentRecToken = res.token || null;
             document.getElementById('rec-url').value = res.url; document.getElementById('rec-open').href = res.url;
             document.getElementById('rec-modal').style.display = 'flex';
+            if (res.partial) {
+                // O sistema tem o vídeo até o limite; a cópia completa fica com quem gravou.
+                try { await recUploader.downloadLocal(); } catch (e) {}
+                toast('O vídeo no sistema vai até o limite do servidor. A cópia completa foi baixada no seu computador. A transcrição cobre a reunião toda.');
+            }
             await recUploader.destroy(); // publicado: limpa a cópia local
             recUploader = null; recChunksSent = 0; recordedChunks = [];
             return;

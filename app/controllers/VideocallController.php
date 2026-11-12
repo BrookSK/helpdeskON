@@ -783,6 +783,8 @@ class VideocallController extends Controller
         $count = (int)($_POST['count'] ?? 0);
         $bytes = (int)($_POST['bytes'] ?? 0);
         $manifest = (string)($_POST['manifest'] ?? '');
+        // Parcial: o vídeo parou no teto do servidor; publica o que subiu como incompleto.
+        $partial = (string)($_POST['partial'] ?? '') === '1';
 
         try {
             $store = new RecordingSessionStore($this->recordingSessionsDir(), (int)$room['id'], $sess, $this->recordingMaxBytes());
@@ -800,7 +802,7 @@ class VideocallController extends Controller
             [$recToken, $shareUrl, $duration] = $this->publishRecordingFile(
                 (int)$room['id'], $assembled, $recToken,
                 $meta['recorded_by'] ?? null, $meta['recorded_by_name'] ?? null,
-                (int)($_POST['duration_sec'] ?? 0) ?: null
+                (int)($_POST['duration_sec'] ?? 0) ?: null, $partial
             );
 
             // Só depois de arquivo + banco confirmados: marca finalizado e limpa chunks.
@@ -808,7 +810,7 @@ class VideocallController extends Controller
             $store->cleanupChunks();
             $this->attachAudioSegments($store, $recToken);
 
-            $this->json(['success' => true, 'token' => $recToken, 'url' => $shareUrl, 'duration_sec' => $duration]);
+            $this->json(['success' => true, 'token' => $recToken, 'url' => $shareUrl, 'duration_sec' => $duration, 'partial' => $partial]);
         } catch (\DomainException $e) {
             // manifest_mismatch | count_mismatch | bytes_mismatch | non_contiguous
             $this->json(['error' => 'Verificação de integridade falhou.', 'reason' => $e->getMessage()], 422);
@@ -2162,6 +2164,9 @@ class VideocallController extends Controller
      */
     private function injectWebmDuration($path)
     {
+        // Arquivo grande não cabe na memória do PHP: o erro fatal derrubava o cron
+        // antes de gravar a gravação no banco, e ela nunca era publicada.
+        if (!RecordingMedia::canInjectDuration((int)@filesize($path))) return null;
         $data = @file_get_contents($path);
         if ($data === false || strlen($data) < 64) return null;
         $len = strlen($data);
