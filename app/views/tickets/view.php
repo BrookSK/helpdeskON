@@ -80,9 +80,28 @@ if (!function_exists('categoryLabel')) {
     <div class="alert alert-danger"><i class="bi bi-x-circle"></i> <strong>Homologação recusada:</strong> <?= nl2br(escape($ticket['homolog_denied_reason'])) ?></div>
     <?php endif; ?>
 
-    <div class="row g-4">
+    <?php if ($isTeam): ?>
+    <style>
+        /* Layout da EQUIPE (desktop >= lg): Obs. Internas + Chat à direita (fixos ao rolar),
+           Detalhes/Anexos e cards de gestão à esquerda, em colunas. Cliente e mobile: inalterados. */
+        @media (min-width: 992px) {
+            .ticket-team-layout { display: grid; grid-template-columns: minmax(0, 1fr) 380px; column-gap: 1.5rem; margin: 0; align-items: start; }
+            .ticket-team-layout > .col-lg-8,
+            .ticket-team-layout > .col-lg-4 { display: contents; }
+            .ticket-team-layout .tt-main { grid-column: 1; grid-row: 1; min-width: 0; }
+            .ticket-team-layout .tt-manage { grid-column: 1; grid-row: 2; min-width: 0; columns: 2 300px; column-gap: 1rem; }
+            .ticket-team-layout .tt-manage > .card { break-inside: avoid; }
+            .ticket-team-layout .tt-side { grid-column: 2; grid-row: 1 / span 2; min-width: 0; position: sticky; top: 12px; align-self: start; max-height: calc(100vh - 24px); overflow-y: auto; }
+            .ticket-team-layout .tt-side #internal-notes-container { max-height: 180px !important; }
+            .ticket-team-layout .tt-side .chat-container { height: 320px; }
+        }
+    </style>
+    <?php endif; ?>
+
+    <div class="row g-4 <?= $isTeam ? 'ticket-team-layout' : '' ?>">
         <!-- Detalhes + Chat -->
         <div class="col-lg-8">
+            <div class="<?= $isTeam ? 'tt-main' : '' ?>">
             <!-- Detalhes -->
             <div class="card mb-4">
                 <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
@@ -217,7 +236,9 @@ if (!function_exists('categoryLabel')) {
                 </div>
             </div>
             <?php endif; ?>
+            </div><!-- /tt-main -->
 
+            <div class="<?= $isTeam ? 'tt-side' : '' ?>">
             <?php if (in_array($user['role'], ['super_admin', 'attendant'])): ?>
             <!-- Observações Internas -->
             <div class="card mb-4">
@@ -283,10 +304,12 @@ if (!function_exists('categoryLabel')) {
                     </div>
                 </div>
             </div>
+            </div><!-- /tt-side -->
         </div>
 
         <!-- Sidebar de ações -->
         <div class="col-lg-4">
+            <div class="<?= $isTeam ? 'tt-manage' : '' ?>">
             <?php
             $fullUserView = (new User())->findById($user['id']);
             $isCompanyOwner = ($user['role'] === 'client' && $fullUserView && $fullUserView['is_company_owner']);
@@ -612,6 +635,7 @@ if (!function_exists('categoryLabel')) {
                     <div id="upload-result" class="mt-2"></div>
                 </div>
             </div>
+            </div><!-- /tt-manage -->
         </div>
     </div>
 </div>
