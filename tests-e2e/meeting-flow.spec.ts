@@ -76,6 +76,23 @@ test.describe.serial('fluxo comercial: reunião até proposta', () => {
     await expect(page.locator('#tr-btn')).toBeVisible();
   });
 
+  test('link público sai de "Na fila" sozinho quando a transcrição termina', async ({ page, request }) => {
+    // Sem login: é a página que o botão da sala abre e que vai para terceiros.
+    await page.goto(`/videocall/share/${recs.queued}`);
+    await expect(page.locator('#tr-empty')).toContainText('Na fila de transcrição');
+
+    fixture('transcribe-done', recs.queued);
+    await expect(page.locator('#tr-list')).toContainText('Transcrição pronta pelo cron', { timeout: 15000 });
+    await expect(page.locator('#tr-empty')).toBeHidden();
+
+    // O status público não entrega o rascunho da minuta.
+    const draft = await (await request.get(`/videocall/shareStatus/${recs.draft}`)).json();
+    expect(draft.status).toBe('done');
+    expect(draft.transcript_json.length).toBeGreaterThan(0);
+    expect(draft.minutes_structured).toBeNull();
+    expect(draft.summary).toBeUndefined();
+  });
+
   test('revisão da minuta: editar, salvar e enviar', async ({ page }) => {
     page.on('dialog', (d) => d.accept());
     await login(page);

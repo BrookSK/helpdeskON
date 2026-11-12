@@ -1750,6 +1750,20 @@ class VideocallController extends Controller
         $this->renderPlayer($rec, true);
     }
 
+    /**
+     * Status PÚBLICO da transcrição pelo token (sem login), para a página do
+     * link público sair de "Na fila" sozinha quando a transcrição termina.
+     * Devolve só o que a página pública já mostra (ver RecordingShareRules).
+     */
+    public function shareStatus($recToken = null)
+    {
+        $recToken = $this->tokenFromUrl($recToken, 2);
+        $rec = $recToken ? $this->model->findRecordingByToken($recToken) : null;
+        if (!$rec) $this->json(['error' => 'Gravação não encontrada'], 404);
+        header('Cache-Control: no-store');
+        $this->json(RecordingShareRules::publicStatus($rec));
+    }
+
     /** Renderiza a view do player com os dados da gravação. */
     private function renderPlayer($rec, $isPublic)
     {
