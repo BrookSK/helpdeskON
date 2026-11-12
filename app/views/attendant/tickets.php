@@ -164,6 +164,8 @@ if (!function_exists('scopeRejectedBadge')) {
                             <th>Responsável</th>
                             <th>Status</th>
                             <th>Prioridade</th>
+                            <th>Data de início</th>
+                            <th>Data de término</th>
                             <th>Previsão de término</th>
                             <th>Atualizado</th>
                             <th></th>
@@ -213,6 +215,8 @@ if (!function_exists('scopeRejectedBadge')) {
                             </td>
                             <td><span class="badge-status badge-<?= $c['status'] ?>"><?= statusLabel($c['status']) ?></span><?= scopeRejectedBadge($c['scope_rejected_reason'] ?? null) ?></td>
                             <td><span class="priority-<?= $c['priority'] ?>"><?= priorityLabel($c['priority']) ?></span></td>
+                            <td class="small text-nowrap"><?= !empty($c['data_inicio']) ? date('d/m/Y', strtotime($c['data_inicio'])) : '<span class="text-muted">-</span>' ?></td>
+                            <td class="small text-nowrap"><?= !empty($c['data_termino']) ? date('d/m/Y', strtotime($c['data_termino'])) : '<span class="text-muted">-</span>' ?></td>
                             <td>
                                 <?php if ($prevTs): ?>
                                 <div class="dm-prev <?= $prevClass ?>"><i class="bi bi-calendar-check"></i> <?= date('d/m/Y', $prevTs) ?></div>
@@ -233,7 +237,7 @@ if (!function_exists('scopeRejectedBadge')) {
                         </tr>
                         <?php endforeach; ?>
                         <?php if (empty($cards)): ?>
-                        <tr><td colspan="10" class="text-center text-muted py-4">Nenhuma demanda encontrada.</td></tr>
+                        <tr><td colspan="12" class="text-center text-muted py-4">Nenhuma demanda encontrada.</td></tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
@@ -257,6 +261,12 @@ if (!function_exists('scopeRejectedBadge')) {
                         <span class="text-muted"><i class="bi bi-person-check"></i> <?= escape($c['assigned_name'] ?? '-') ?></span>
                         <?php endif; ?>
                         <span class="priority-<?= $c['priority'] ?>"><?= priorityLabel($c['priority']) ?></span>
+                        <?php if (!empty($c['data_inicio'])): ?>
+                        <span class="text-muted"><i class="bi bi-play-circle"></i> Início: <?= date('d/m/Y', strtotime($c['data_inicio'])) ?></span>
+                        <?php endif; ?>
+                        <?php if (!empty($c['data_termino'])): ?>
+                        <span class="text-muted"><i class="bi bi-flag"></i> Término: <?= date('d/m/Y', strtotime($c['data_termino'])) ?></span>
+                        <?php endif; ?>
                         <?php if (!empty($c['data_prevista_entrega'])): ?>
                         <span class="text-muted"><i class="bi bi-calendar-check"></i> Prev.: <?= date('d/m/Y', strtotime($c['data_prevista_entrega'])) ?></span>
                         <?php endif; ?>
