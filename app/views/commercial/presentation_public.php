@@ -137,7 +137,7 @@ foreach ($sections as $idx => $s) {
         /* Clientes */
         .cards { display:grid; grid-template-columns:repeat(4, 1fr); gap:18px; }
         .card { padding:26px 22px 24px; border:1px solid var(--line); border-radius:18px; background:var(--panel); transition:transform .2s, border-color .2s, box-shadow .2s; }
-        .card .logo { width:96px; height:96px; object-fit:contain; object-position:center; background:transparent; border:none; border-radius:0; margin-bottom:16px; display:block; padding:0; }
+        .card .logo { width:96px; height:96px; object-fit:cover; object-position:center; background:#fff; border:1px solid var(--line); border-radius:50%; margin-bottom:16px; display:block; padding:0; }
         .card strong { display:block; color:var(--white); font-size:1.12rem; font-weight:700; margin-bottom:10px; letter-spacing:-.015em; }
         .card p { margin:0; color:var(--text); font-size:.95rem; line-height:1.65; }
         .sec.light .card:hover { transform:translateY(-3px); border-color:var(--line-t); box-shadow:0 12px 28px rgba(10,143,125,.08); }
@@ -210,7 +210,7 @@ foreach ($sections as $idx => $s) {
             .wrap { padding:0 28px; }
             .sec { padding:90px 0; }
             .sec-head { flex-direction:column; align-items:flex-start; gap:10px; }
-            .cards, .steps-line, .steps-rail, ul.list, .stats, .toc ol { grid-template-columns:minmax(0,1fr); }
+            .cards, .steps-line, .steps-rail, ul.list, ul.list.tight, .stats, .toc ol { grid-template-columns:minmax(0,1fr); }
             .stat + .stat { border-left:none; border-top:1px solid rgba(255,255,255,.18); }
             .steps-line::before { display:none; }
             .hero-brand { flex-direction:column; gap:20px; }
@@ -309,7 +309,7 @@ foreach ($sections as $idx => $s) {
                         <div class="cards"><?php foreach ($s['items'] as $it):
                             $img = PresentationRules::safeImage($it['image'] ?? '');
                             $more = $it['title'] === '50+';
-                            $imgSrc = $img !== '' ? preg_replace('#(?<!:)/{2,}#', '/', str_replace('\\', '/', baseUrl($img))) . '?v=5' : '';
+                            $imgSrc = $img !== '' ? preg_replace('#(?<!:)/{2,}#', '/', str_replace('\\', '/', baseUrl($img))) . '?v=6' : '';
                         ?><div class="card<?= $more ? ' more' : '' ?>"><?php if ($imgSrc !== ''): ?><img class="logo" src="<?= htmlspecialchars($imgSrc, ENT_QUOTES) ?>" alt=""><?php endif; ?><?php if ($it['title'] !== ''): ?><strong><?= $t($it['title']) ?></strong><?php endif; ?><p><?= $p($it['text']) ?></p></div><?php endforeach; ?></div>
                         <?php elseif ($s['type'] === 'table'): ?>
                         <?php $rows = array_map(fn($it) => array_merge([$it['title']], $it['text'] !== '' ? array_map('trim', explode('|', $it['text'])) : []), $s['items']); $head = array_shift($rows); ?>

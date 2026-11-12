@@ -4,6 +4,14 @@ class PlanningController extends Controller
 {
     private $cardModel;
 
+    /**
+     * Quantos cards renderizar por coluna no 1º carregamento do Kanban. O
+     * excedente vem por "Carregar mais" (columnCards). Valor alto o bastante
+     * para o uso diário caber de primeira, mas que evita pintar centenas de
+     * cards de uma vez (lag/altura gigante) em colunas como "Concluído".
+     */
+    private const KANBAN_PAGE_SIZE = 50;
+
     public function __construct()
     {
         $this->cardModel = new PlanningCard();
@@ -51,7 +59,13 @@ class PlanningController extends Controller
             $filters['allowed_companies'] = $allowedCompanies;
         }
 
-        $grouped = $this->cardModel->getGroupedByStatus($filters);
+        // Kanban paginado: renderiza só o 1º lote por coluna (evita página gigante
+        // e lag quando uma coluna tem centenas de cards). O resto vem via
+        // columnCards() sob demanda ("Carregar mais"). As contagens totais
+        // alimentam o botão. KANBAN_PAGE_SIZE é grande o bastante para o uso
+        // normal caber de primeira, mas limita colunas enormes (ex.: Concluído).
+        $grouped = $this->cardModel->getGroupedByStatus($filters, self::KANBAN_PAGE_SIZE);
+        $columnCounts = $this->cardModel->getColumnCounts($filters);
 
         $companyModel = new Company();
         // Atendente/agent só vê empresas que tem acesso
@@ -86,9 +100,8 @@ class PlanningController extends Controller
         // Lista de solicitantes (criadores dos cards) para o filtro
         $requesters = $this->cardModel->getRequesters($allowedCompanies);
 
-        // Cards que podem ser escolhidos como atividade predecessora (exclui
-        // concluídos/arquivados; respeita o escopo de empresas do usuário).
-        $selectableCards = $this->cardModel->getSelectableCards(null, $allowedCompanies);
+        // (Atividade predecessora agora usa autocomplete via planning/searchCards,
+        // em vez de um <select> com todos os cards — inviável com muitos cards.)
 
         $this->view('planning/index', [
             'user' => $user,
@@ -99,8 +112,11 @@ class PlanningController extends Controller
             'techniciansList' => $techniciansList,
             'analystsList' => $analystsList,
             'requesters' => $requesters,
-            'selectableCards' => $selectableCards,
+            'columnCounts' => $columnCounts,
+            'kanbanPageSize' => self::KANBAN_PAGE_SIZE,
             'filters' => $filters,
+            // Qual visão abrir (kanban|calendar) — preserva a aba ao filtrar.
+            'activeView' => (($_GET['view'] ?? '') === 'calendar') ? 'calendar' : 'kanban',
         ]);
     }
 
@@ -203,7 +219,7 @@ class PlanningController extends Controller
         ob_start();
         $viewTotal = $total;
         $viewWeekdays = PlanningScheduleRules::WEEKDAY_LABELS;
-        $viewLegend = PlanningScheduleRules::DEADLINE_COLORS;
+        $viewLegend = PlanningScheduleRules::legendForCards($dated, $today);
         $viewGeneratedAt = date('d/m/Y H:i');
         // O único filtro escolhido pelo usuário na exportação é a empresa; o
         // 'statuses' acima é regra fixa (só ativas), não entra no resumo.
@@ -386,7 +402,25 @@ class PlanningController extends Controller
         // Alimenta o aviso "X demandas sem data" + botão Revisar.
         $undatedCount = count($this->cardModel->getUndated($filters));
 
-        $this->json(['events' => $events, 'undated_count' => $undatedCount]);
+        // Períodos de recesso visíveis na faixa, para o calendário pintar as
+        // faixas de "ninguém trabalha". Tolerante a ambiente sem a tabela.
+        $recess = [];
+        try {
+            $recessModel = new RecessPeriod();
+            foreach ($recessModel->getForRange($start, $end) as $rp) {
+                $recess[] = [
+                    'id'         => (int) $rp['id'],
+                    'title'      => $rp['title'],
+                    'start_date' => $rp['start_date'],
+                    'end_date'   => $rp['end_date'],
+                    'company_id' => $rp['company_id'] !== null ? (int) $rp['company_id'] : null,
+                ];
+            }
+        } catch (\Throwable $e) {
+            $recess = [];
+        }
+
+        $this->json(['events' => $events, 'undated_count' => $undatedCount, 'recess' => $recess]);
     }
 
     /**
@@ -414,6 +448,142 @@ class PlanningController extends Controller
         }
 
         $this->json(['cards' => $out]);
+    }
+
+    /**
+     * API: busca de cards para o autocomplete de "atividade predecessora".
+     * ?q=termo&exclude=cardId — retorna até 30 cards (id, título, empresa, status).
+     * Respeita o escopo de empresas do usuário.
+     */
+    public function searchCards()
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']);
+        $user = $this->currentUser();
+
+        $q = trim((string) ($_GET['q'] ?? ''));
+        $exclude = !empty($_GET['exclude']) ? (int) $_GET['exclude'] : null;
+
+        $allowedCompanies = PlanningCard::getUserAllowedCompanies($user['id'], $user['role']);
+        $cards = $this->cardModel->getSelectableCards($exclude, $allowedCompanies, $q, 30);
+
+        $out = [];
+        foreach ($cards as $c) {
+            $out[] = [
+                'id' => (int) $c['id'],
+                'title' => $c['title'],
+                'company_name' => $c['company_name'] ?? '',
+                'status' => $c['status'],
+            ];
+        }
+        $this->json(['cards' => $out]);
+    }
+
+    /**
+     * Períodos de recesso (datas em que ninguém trabalha). Cadastro usado pela
+     * cascata de atividade predecessora para deslocar automaticamente cards que
+     * cairiam dentro do recesso.
+     *
+     * - GET  planning/recessPeriods        -> lista todos (JSON).
+     * - POST planning/recessPeriods        -> cria (title, start_date, end_date,
+     *                                          company_id opcional).
+     * Apenas super_admin gerencia (regra global que afeta todo o cronograma).
+     */
+    public function recessPeriods()
+    {
+        $this->requireRole(['super_admin']);
+        $recessModel = new RecessPeriod();
+
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            $title = trim((string) ($_POST['title'] ?? ''));
+            $start = trim((string) ($_POST['start_date'] ?? ''));
+            $end = trim((string) ($_POST['end_date'] ?? ''));
+            $companyId = !empty($_POST['company_id']) ? (int) $_POST['company_id'] : null;
+
+            if ($title === '' || $start === '' || $end === '') {
+                $this->json(['error' => 'Título, início e fim são obrigatórios.'], 400);
+            }
+            $startTs = strtotime($start);
+            $endTs = strtotime($end);
+            if ($startTs === false || $endTs === false) {
+                $this->json(['error' => 'Datas inválidas.'], 400);
+            }
+            if ($endTs < $startTs) {
+                $this->json(['error' => 'O fim do recesso não pode ser antes do início.'], 400);
+            }
+
+            $user = $this->currentUser();
+            $id = $recessModel->create([
+                'title'      => $title,
+                'start_date' => date('Y-m-d', $startTs),
+                'end_date'   => date('Y-m-d', $endTs),
+                'company_id' => $companyId,
+                'created_by' => $user['id'] ?? null,
+            ]);
+            $this->json(['success' => true, 'recess' => $recessModel->findById($id)]);
+        }
+
+        // GET: lista todos.
+        $this->json(['recess' => $recessModel->all()]);
+    }
+
+    /**
+     * Exclui um período de recesso. POST planning/deleteRecess/{id}.
+     * Só super_admin. Excluir um recesso NÃO recalcula cards já gravados —
+     * o deslocamento só reage a mudanças de data em cascata.
+     */
+    public function deleteRecess($id = null)
+    {
+        $this->requireRole(['super_admin']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
+            $this->json(['error' => 'Requisição inválida'], 400);
+        }
+        $recessModel = new RecessPeriod();
+        $recessModel->delete((int) $id);
+        $this->json(['success' => true]);
+    }
+
+    /**
+     * API: próximo lote de cards de UMA coluna do Kanban (paginação por coluna).
+     * Recebe ?status=&offset= e os mesmos filtros do Kanban. Devolve os cards já
+     * com os campos usados pelo card do board, para o front injetar sem reload.
+     */
+    public function columnCards()
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']);
+        $user = $this->currentUser();
+
+        $status = $_GET['status'] ?? '';
+        $validStatuses = ['open', 'in_progress', 'em_revisao_interna', 'waiting_client', 'em_homologacao', 'aprovado_producao', 'completed', 'denied', 'archived'];
+        if (!in_array($status, $validStatuses, true)) {
+            $this->json(['error' => 'Status inválido'], 400);
+        }
+        $offset = max(0, (int) ($_GET['offset'] ?? 0));
+
+        // Reconstrói os mesmos filtros do Kanban (index), para o lote bater com o
+        // que já está na tela.
+        $filters = [];
+        if (!empty($_GET['company_id'])) $filters['company_id'] = array_filter((array)$_GET['company_id'], fn($v) => $v !== '');
+        if (!empty($_GET['assigned_to'])) $filters['assigned_to'] = array_filter((array)$_GET['assigned_to'], fn($v) => $v !== '');
+        if (!empty($_GET['created_by'])) $filters['created_by'] = array_filter((array)$_GET['created_by'], fn($v) => $v !== '');
+        if (!empty($_GET['order'])) $filters['order'] = $_GET['order'];
+        if (isset($_GET['q']) && trim((string)$_GET['q']) !== '') $filters['q'] = trim((string)$_GET['q']);
+
+        if (in_array($user['role'], ['whatsapp_agent', 'developer', 'analyst', 'comercial'])) {
+            $filters['assigned_to'] = [$user['id']];
+        } elseif (in_array($user['role'], ['super_admin', 'attendant'])) {
+            if (empty($_GET['show_all']) && empty($_GET['assigned_to'])) {
+                $filters['assigned_to'] = [$user['id']];
+            }
+        }
+
+        $allowedCompanies = PlanningCard::getUserAllowedCompanies($user['id'], $user['role']);
+        if ($allowedCompanies !== null) {
+            $filters['allowed_companies'] = $allowedCompanies;
+        }
+
+        $cards = $this->cardModel->getColumnCards($status, $filters, $offset, self::KANBAN_PAGE_SIZE);
+
+        $this->json(['cards' => $cards, 'status' => $status, 'offset' => $offset, 'page_size' => self::KANBAN_PAGE_SIZE]);
     }
 
     // Criar card
@@ -479,15 +649,30 @@ class PlanningController extends Controller
         if ($data['predecessor_id']) {
             $predecessor = $this->cardModel->findById($data['predecessor_id']);
             if ($predecessor && !empty($predecessor['end_date'])) {
-                $newDates = PlanningRules::recalcDependentDates(
+                // Recessos aplicáveis à empresa do card (globais + da empresa),
+                // para o cálculo automático já nascer pulando o recesso.
+                $recess = [];
+                try {
+                    $recessModel = new RecessPeriod();
+                    $recess = $recessModel->getApplicable(
+                        !empty($data['company_id']) ? (int) $data['company_id'] : null
+                    );
+                } catch (\Throwable $e) {
+                    $recess = [];
+                }
+                $newDates = PlanningRules::recalcDependentDatesWithRecess(
                     $predecessor['end_date'],
                     $data['start_date'],
                     $data['end_date'],
                     $data['due_date'],
-                    $data['predecessor_lag_days']
+                    $data['predecessor_lag_days'],
+                    $recess
                 );
                 if ($newDates !== null) {
-                    $this->cardModel->update($cardId, $newDates);
+                    $this->cardModel->update($cardId, [
+                        'start_date' => $newDates['start_date'],
+                        'end_date'   => $newDates['end_date'],
+                    ]);
                 }
             }
         }
@@ -544,6 +729,7 @@ class PlanningController extends Controller
             'comments' => $comments,
             'attachments' => $attachments,
             'tasks' => $this->cardModel->getTasks($id),
+            'history' => $this->cardModel->getHistory($id),
         ];
 
         // Se o card está vinculado a uma demanda, buscar dados da demanda
@@ -631,20 +817,11 @@ class PlanningController extends Controller
             $this->json(['error' => 'Nenhum campo para atualizar'], 400);
         }
 
-        // Valida a elegibilidade APENAS dos campos de responsável que vieram
-        // nesta requisição (edição valida só o que mudou — preserva cards antigos
-        // que porventura tenham um valor fora da regra atual).
-        $toValidate = [];
-        if (array_key_exists('assigned_to', $data)) {
-            $toValidate[AssignmentRules::FIELD_ATTENDANT] = $data['assigned_to'];
-        }
-        if (array_key_exists('technical_responsible_id', $data)) {
-            $toValidate[AssignmentRules::FIELD_TECHNICAL] = $data['technical_responsible_id'];
-        }
-        if (array_key_exists('analyst_id', $data)) {
-            $toValidate[AssignmentRules::FIELD_ANALYST] = $data['analyst_id'];
-        }
-        $assignError = $this->validateAssignments($toValidate);
+        // Valida a elegibilidade APENAS dos responsáveis que mudaram nesta
+        // requisição (o modal envia os três sempre). Preserva cards antigos com
+        // um valor fora da regra atual: sem isso, trocar só o Atendente falhava
+        // por causa do Técnico/Analista que já estava gravado.
+        $assignError = $this->validateAssignments(AssignmentRules::changedForValidation($card, $data));
         if ($assignError !== null) {
             $this->json(['error' => $assignError], 422);
         }
@@ -655,7 +832,24 @@ class PlanningController extends Controller
             $data['due_reminder_sent_at'] = null;
         }
 
+        // Snapshot das datas ANTES da cascata, para registrar no histórico dos
+        // dependentes o que o recálculo automático mudou (ver abaixo).
+        $dependentsBefore = [];
+        if (PlanningRules::scheduleChanged($card, $data)) {
+            foreach ($this->cardModel->getDependentsDeep((int) $id) as $dep) {
+                $dependentsBefore[(int) $dep['id']] = $dep;
+            }
+        }
+
         $this->cardModel->update($id, $data);
+
+        // Histórico: registra a edição MANUAL (diff entre o card antigo e os
+        // campos gravados), com quem alterou. Antes da resposta, para garantir
+        // que fica persistido mesmo que as notificações (lentas) falhem.
+        $manualChanges = PlanningRules::diffCardChanges($card, $data);
+        if (!empty($manualChanges)) {
+            $this->cardModel->logHistory((int) $id, $user['id'] ?? null, $manualChanges, 'manual');
+        }
 
         // Atividade predecessora: se a data de término (ou o prazo) deste card
         // mudou, recalcula em cascata as datas dos cards que dependem dele —
@@ -664,6 +858,21 @@ class PlanningController extends Controller
         $affectedCards = [];
         if (PlanningRules::scheduleChanged($card, $data)) {
             $affectedCards = $this->cardModel->cascadeRecalcDependents((int) $id);
+
+            // Histórico dos dependentes: registra o deslocamento AUTOMÁTICO
+            // (source=cascade), comparando as datas de cada dependente antes e
+            // depois do recálculo, para o histórico explicar a mudança "sozinha".
+            foreach ($affectedCards as $aff) {
+                $before = $dependentsBefore[(int) $aff['id']] ?? null;
+                if (!$before) continue;
+                $cascadeChanges = PlanningRules::diffCardChanges($before, [
+                    'start_date' => $aff['start_date'] ?? null,
+                    'end_date'   => $aff['end_date'] ?? null,
+                ]);
+                if (!empty($cascadeChanges)) {
+                    $this->cardModel->logHistory((int) $aff['id'], $user['id'] ?? null, $cascadeChanges, 'cascade');
+                }
+            }
         }
 
         // Resposta IMEDIATA ao navegador: devolve o card já atualizado e encerra

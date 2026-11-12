@@ -382,10 +382,43 @@ final class PlanningScheduleRulesTest extends TestCase
         $this->assertSame('overdue', $vencido['key']);
 
         $hoje = PlanningScheduleRules::deadlineCategory(
-            ['status' => 'em_homologacao', 'due_date' => '2026-10-28'],
+            ['status' => 'in_progress', 'due_date' => '2026-10-28'],
             '2026-10-28'
         );
         $this->assertSame('due_today', $hoje['key']);
+    }
+
+    public function testEtapasAvancadasTemCorPropriaMesmoVencidas(): void
+    {
+        // Igual ao calendário da tela: homologação/aguardando/revisão não viram
+        // o vermelho de atraso — o card já saiu do desenvolvimento.
+        $esperado = [
+            'em_homologacao'     => 'homolog',
+            'aprovado_producao'  => 'homolog',
+            'waiting_client'     => 'waiting',
+            'em_revisao_interna' => 'revisao',
+        ];
+        foreach ($esperado as $status => $key) {
+            foreach (['2026-10-20', '2026-10-28', '2026-11-30', null] as $due) {
+                $cat = PlanningScheduleRules::deadlineCategory(['status' => $status, 'due_date' => $due], '2026-10-28');
+                $this->assertSame($key, $cat['key'], "{$status} / " . var_export($due, true));
+            }
+        }
+        $this->assertSame('Em homologação', PlanningScheduleRules::DEADLINE_COLORS['homolog']['label']);
+        $this->assertSame('Aguardando cliente', PlanningScheduleRules::DEADLINE_COLORS['waiting']['label']);
+    }
+
+    public function testLegendaTrazSoCategoriasUsadasNaOrdemDaPaleta(): void
+    {
+        $cards = [
+            ['status' => 'em_homologacao', 'due_date' => '2026-10-01'],
+            ['status' => 'open', 'due_date' => '2026-10-01'],
+            ['status' => 'waiting_client', 'due_date' => null],
+            ['status' => 'em_homologacao', 'due_date' => '2026-12-01'],
+        ];
+        $keys = array_column(PlanningScheduleRules::legendForCards($cards, '2026-10-28'), 'key');
+        $this->assertSame(['overdue', 'waiting', 'homolog'], $keys);
+        $this->assertSame([], PlanningScheduleRules::legendForCards([], '2026-10-28'));
     }
 
     public function testCategoriaEmAndamentoFuturoEhRoxo(): void
@@ -429,7 +462,7 @@ final class PlanningScheduleRulesTest extends TestCase
     public function testCategoriaSemPrazoEmAndamentoEhRoxo(): void
     {
         $cat = PlanningScheduleRules::deadlineCategory(
-            ['status' => 'waiting_client', 'due_date' => null],
+            ['status' => 'in_progress', 'due_date' => null],
             '2026-10-28'
         );
         $this->assertSame('in_progress', $cat['key']);

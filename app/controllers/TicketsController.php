@@ -219,8 +219,9 @@ class TicketsController extends Controller
             $data['clients'] = $clients;
             // Empresas para o primeiro nível da seleção
             $data['companies'] = (new Company())->getAll();
-            // Atendentes (quem comunica no ticket) — inclui super_admin/admin
-            $data['attendants'] = $userModel->getByRoles(['super_admin', 'attendant', 'whatsapp_agent']);
+            // Atendentes: mesma regra do Planejamento (AssignmentRules), que inclui
+            // analista e developer — eles também atendem demandas.
+            $data['attendants'] = $userModel->getByRoles(AssignmentRules::rolesForField(AssignmentRules::FIELD_ATTENDANT));
             $data['technicalGrouped'] = $userModel->getGroupedByRole(['developer', 'analyst', 'attendant', 'super_admin']);
         }
 
@@ -246,27 +247,18 @@ class TicketsController extends Controller
         $transcription = trim($_POST['transcription'] ?? '');
         $category = trim($_POST['category'] ?? '');
         $priority = $_POST['priority'] ?? 'medium';
-        $dataInicio = trim($_POST['data_inicio'] ?? '');
-        $dataTermino = trim($_POST['data_termino'] ?? '');
-        $dataPrevista = trim($_POST['data_prevista_entrega'] ?? '');
 
         if (empty($title) || empty($description)) {
             flash('error', 'Título e descrição são obrigatórios.');
             $this->redirect('tickets/create');
         }
 
-        // As três datas da demanda são obrigatórias e preenchidas pelo cliente.
-        // Validação server-side no mesmo padrão de savePrevisao (formato Y-m-d).
-        $isValidDate = static function ($v) {
-            $d = \DateTime::createFromFormat('Y-m-d', $v);
-            return $d !== false && $d->format('Y-m-d') === $v;
-        };
-        if ($dataInicio === '' || $dataTermino === '' || $dataPrevista === '') {
-            flash('error', 'Informe a data de início, a data de término e a previsão de término.');
-            $this->redirect('tickets/create');
-        }
-        if (!$isValidDate($dataInicio) || !$isValidDate($dataTermino) || !$isValidDate($dataPrevista)) {
-            flash('error', 'Datas inválidas. Verifique a data de início, de término e a previsão de término.');
+        // Datas da demanda: definidas pela EQUIPE. O cliente não vê os campos e
+        // qualquer valor que ele envie é ignorado; a equipe criando a demanda
+        // continua obrigada a informar as três (ver DemandDateRules).
+        $demandDates = DemandDateRules::forCreate($user['role'] ?? null, $_POST);
+        if (!$demandDates['ok']) {
+            flash('error', $demandDates['error']);
             $this->redirect('tickets/create');
         }
 
@@ -288,6 +280,11 @@ class TicketsController extends Controller
                 'intval',
                 (array)($_POST['attendant_ids'] ?? [])
             ))));
+            $attError = $this->ineligibleAttendantError($attendantIds);
+            if ($attError !== null) {
+                flash('error', $attError);
+                $this->redirect('tickets/create');
+            }
             // O primeiro marcado é o atendente principal (compatibilidade)
             $attendantId = $attendantIds[0] ?? null;
             $technicalId = !empty($_POST['technical_responsible_id']) ? (int)$_POST['technical_responsible_id'] : null;
@@ -314,10 +311,7 @@ class TicketsController extends Controller
             'category' => $category,
             'priority' => $priority,
             'status' => 'open',
-            'data_inicio' => $dataInicio,
-            'data_termino' => $dataTermino,
-            'data_prevista_entrega' => $dataPrevista,
-        ];
+        ] + $demandDates['data'];
 
         if ($attendantId) {
             $ticketData['attendant_id'] = $attendantId;
@@ -484,8 +478,9 @@ class TicketsController extends Controller
         $this->messageModel->markAsRead($id, $user['id']);
 
         $userModel = new User();
-        // Atendentes incluem super_admin/admin para atribuição
-        $attendants = $userModel->getByRoles(['super_admin', 'attendant', 'whatsapp_agent']);
+        // Atendentes: mesma regra do card de Planejamento (AssignmentRules),
+        // incluindo analista e developer.
+        $attendants = $userModel->getByRoles(AssignmentRules::rolesForField(AssignmentRules::FIELD_ATTENDANT));
         // Candidatos a responsável técnico, agrupados por papel (Papel > Usuários)
         $technicalGrouped = $userModel->getGroupedByRole(['developer', 'analyst', 'attendant', 'super_admin']);
 
@@ -825,6 +820,32 @@ class TicketsController extends Controller
     }
 
     /**
+     * Define as datas da demanda (início, término e previsão de término).
+     * Apenas equipe: o cliente não define essas datas. Vazio limpa a data.
+     */
+    public function saveDates($id = null)
+    {
+        $this->requireRole(DemandDateRules::TEAM_ROLES);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) {
+            $this->redirect('tickets');
+        }
+        $parsed = DemandDateRules::parse($_POST, false);
+        if (!$parsed['ok']) {
+            if ($this->isAjax()) {
+                $this->json(['success' => false, 'error' => $parsed['error']], 422);
+            }
+            flash('error', $parsed['error']);
+            $this->redirect('tickets/show/' . $id);
+        }
+        $this->ticketModel->update($id, $parsed['data']);
+        if ($this->isAjax()) {
+            $this->json(['success' => true]);
+        }
+        flash('success', 'Datas da demanda atualizadas.');
+        $this->redirect('tickets/show/' . $id);
+    }
+
+    /**
      * Relaciona esta demanda a outra (Suporte -> Incidente -> Correção).
      * Cria a aresta direcionada em ticket_relations. Apenas equipe.
      */
@@ -952,6 +973,14 @@ class TicketsController extends Controller
         // Atendentes que já estavam atribuídos (para notificar apenas os novos)
         $previousIds = array_map(function ($a) { return (int)$a['id']; }, $this->ticketModel->getAttendants($id));
 
+        // Valida só os recém-adicionados (quem já estava continua, mesmo que
+        // o papel dele tenha mudado depois).
+        $attError = $this->ineligibleAttendantError(array_diff($attendantIds, $previousIds));
+        if ($attError !== null) {
+            flash('error', $attError);
+            $this->redirect('tickets/show/' . $id);
+        }
+
         // Persiste o conjunto de atendentes e sincroniza o principal
         $this->ticketModel->setAttendants($id, $attendantIds);
 
@@ -981,6 +1010,25 @@ class TicketsController extends Controller
 
         flash('success', 'Atendentes atualizados com sucesso!');
         $this->redirect('tickets/show/' . $id);
+    }
+
+    /**
+     * Confere se todos os ids podem ser Atendente (AssignmentRules, mesma regra
+     * do Planejamento). Retorna null se ok, ou a mensagem de erro.
+     */
+    private function ineligibleAttendantError(array $userIds): ?string
+    {
+        $userModel = new User();
+        foreach ($userIds as $uid) {
+            $u = $userModel->findById((int)$uid);
+            if (!$u) {
+                return 'Usuário selecionado como atendente não existe.';
+            }
+            if (!AssignmentRules::canAssign(AssignmentRules::FIELD_ATTENDANT, $u['role'] ?? null)) {
+                return 'O usuário "' . ($u['name'] ?? '') . '" (' . roleLabel($u['role'] ?? '') . ') não pode ser atendente.';
+            }
+        }
+        return null;
     }
 
     // Atribuir responsável técnico (segue hierarquia Papel > Usuários)

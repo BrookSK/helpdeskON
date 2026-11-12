@@ -192,7 +192,8 @@
             .then(notifications => {
                 if (!notifications || !notifications.length) return;
                 notifications.forEach(n => {
-                    const key = n.contact_id + '-' + n.timestamp;
+                    // Menção usa chave própria: não se confunde com o aviso de não lidas.
+                    const key = (n.is_mention ? 'm' : '') + n.contact_id + '-' + n.timestamp;
                     // Já exibida nesta sessão de página, ou dispensada pelo usuário anteriormente.
                     if (wppLastNotifIds.has(key) || wppDismissed.has(key)) return;
                     wppLastNotifIds.add(key);
@@ -225,15 +226,28 @@
 
             const header = document.createElement('div');
             header.className = 'wpp-push-header';
-            header.innerHTML = `<i class="bi bi-whatsapp text-success"></i><strong>${escapeH(n.contact_name)}</strong>`;
+            const headIcon = n.is_mention
+                ? '<span class="wpp-push-mention" title="Você foi mencionado">@</span>'
+                : '<i class="bi bi-whatsapp text-success"></i>';
+            header.innerHTML = `${headIcon}<strong>${escapeH(n.contact_name)}</strong>`;
             header.appendChild(closeBtn);
 
             const body = document.createElement('div');
             body.className = 'wpp-push-body';
-            body.innerHTML = `
-                <span class="wpp-push-msg">${escapeH(n.message)}</span>
-                <small class="wpp-push-time">${n.unread_count} não lida${n.unread_count > 1 ? 's' : ''}</small>
-            `;
+            if (n.is_mention) {
+                // Menção no grupo: quem marcou + trecho da mensagem
+                const who = n.sender_name ? `<strong>${escapeH(n.sender_name)}</strong> te mencionou: ` : 'Você foi mencionado: ';
+                const mc = Number(n.mention_count) || 1;
+                body.innerHTML = `
+                    <span class="wpp-push-msg">${who}${escapeH(n.message)}</span>
+                    <small class="wpp-push-time">${mc} menç${mc > 1 ? 'ões' : 'ão'} no grupo</small>
+                `;
+            } else {
+                body.innerHTML = `
+                    <span class="wpp-push-msg">${escapeH(n.message)}</span>
+                    <small class="wpp-push-time">${n.unread_count} não lida${n.unread_count > 1 ? 's' : ''}</small>
+                `;
+            }
             body.addEventListener('click', function() {
                 window.location = WPP_BASE + 'whatsapp/chat/' + n.contact_id;
             });
@@ -346,6 +360,13 @@
     .wpp-push-time {
         font-size: 0.68rem;
         color: #999;
+    }
+    /* "@" do aviso de menção em grupo (igual ao indicador da lista do chat) */
+    .wpp-push-mention {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 18px; height: 18px; border-radius: 50%;
+        background: #25D366; color: #fff; font-size: 0.72rem; font-weight: 700; line-height: 1;
+        flex-shrink: 0;
     }
     @keyframes wppSlideIn {
         from { transform: translateX(100%); opacity: 0; }

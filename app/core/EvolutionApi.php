@@ -107,19 +107,43 @@ class EvolutionApi
         return $this->request('GET', '/instance/fetchInstances');
     }
 
+    /**
+     * Dados só desta instância (inclui ownerJid = número conectado).
+     */
+    public function fetchInstanceInfo()
+    {
+        return $this->request('GET', '/instance/fetchInstances', ['instanceName' => $this->instanceName]);
+    }
+
+    /**
+     * Participantes de um grupo: {"participants":[{"id","phoneNumber","admin","name"}]}.
+     * Nos grupos com LID, "id" é "<lid>@lid" e o telefone vem em phoneNumber.
+     */
+    public function findGroupParticipants($groupJid)
+    {
+        return $this->request('GET', "/group/participants/{$this->instanceName}", ['groupJid' => $groupJid]);
+    }
+
     // =========================================
     // ENVIO DE MENSAGENS
     // =========================================
 
     /**
-     * Enviar mensagem de texto
+     * Enviar mensagem de texto.
+     *
+     * @param array $mentioned JIDs marcados com @ (só em grupo). O texto precisa
+     *        conter "@<parte do JID antes do @>" para a menção aparecer. Nunca
+     *        enviamos "mentionsEveryOne": na Evolution 2.3.x a simples presença
+     *        do campo (mesmo false) marca o grupo inteiro (issue #2431).
      */
-    public function sendText($number, $text)
+    public function sendText($number, $text, array $mentioned = [])
     {
-        return $this->request('POST', "/message/sendText/{$this->instanceName}", [
+        $payload = [
             'number' => $this->normalizeNumber($number),
             'text' => $text,
-        ]);
+        ];
+        if (!empty($mentioned)) $payload['mentioned'] = array_values($mentioned);
+        return $this->request('POST', "/message/sendText/{$this->instanceName}", $payload);
     }
 
     /**
@@ -148,7 +172,7 @@ class EvolutionApi
     /**
      * Enviar mídia (imagem, vídeo, documento)
      */
-    public function sendMedia($number, $mediaType, $url, $caption = '', $fileName = '')
+    public function sendMedia($number, $mediaType, $url, $caption = '', $fileName = '', array $mentioned = [])
     {
         $payload = [
             'number' => $this->normalizeNumber($number),
@@ -158,6 +182,8 @@ class EvolutionApi
 
         if ($caption) $payload['caption'] = $caption;
         if ($fileName) $payload['fileName'] = $fileName;
+        // Menções na legenda (mesma regra do sendText: nunca mentionsEveryOne)
+        if (!empty($mentioned)) $payload['mentioned'] = array_values($mentioned);
 
         return $this->request('POST', "/message/sendMedia/{$this->instanceName}", $payload);
     }

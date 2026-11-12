@@ -7,6 +7,7 @@
  *   php tests-e2e/meeting-flow-fixture.php recordings <userId>
  *   php tests-e2e/meeting-flow-fixture.php room <userId>
  *   php tests-e2e/meeting-flow-fixture.php state <recToken>
+ *   php tests-e2e/meeting-flow-fixture.php transcribe-done <recToken>
  *   php tests-e2e/meeting-flow-fixture.php room-recording <roomId>
  *   php tests-e2e/meeting-flow-fixture.php meeting-room <título>
  *   php tests-e2e/meeting-flow-fixture.php cleanup <userId>
@@ -102,6 +103,16 @@ switch ($cmd) {
         $rec = $rooms->findRecordingByToken($arg);
         $segs = $rec ? (new RecordingSegment())->listByRecording((int)$rec['id']) : [];
         out(['rec' => $rec ?: null, 'segments' => count($segs)]);
+        break;
+
+    case 'transcribe-done':
+        // Simula o cron terminando a transcrição da gravação.
+        $rooms->updateRecording($arg, [
+            'transcribe_status' => 'done', 'transcribed_at' => date('Y-m-d H:i:s'),
+            'transcript' => '[00:00] Transcrição pronta pelo cron',
+            'transcript_json' => json_encode([['start' => 0, 'end' => 2, 'text' => 'Transcrição pronta pelo cron']], JSON_UNESCAPED_UNICODE),
+        ]);
+        out(['ok' => true]);
         break;
 
     case 'room-recording':

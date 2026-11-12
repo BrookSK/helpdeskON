@@ -41,12 +41,13 @@ final class PermissionsTest extends TestCase
 
     // ---- RDO ----
 
-    public function testRdoLiberadoParaEquipeInternaMasNaoParaClient(): void
+    public function testRdoLiberadoParaEquipeInternaEParaClientSomenteLeitura(): void
     {
         foreach (['super_admin', 'developer', 'marketing', 'comercial', 'attendant', 'analyst', 'whatsapp_agent'] as $role) {
             $this->assertTrue(Permissions::canAccess($role, 'rdo'), "{$role} deveria acessar rdo");
         }
-        $this->assertFalse(Permissions::canAccess('client', 'rdo'), 'client NÃO deveria acessar rdo');
+        // Cliente entra no módulo; a escrita é negada em RdoController::denyClientWrite().
+        $this->assertTrue(Permissions::canAccess('client', 'rdo'), 'client deveria acessar rdo');
     }
 
     // ---- Marketing segmentado ----

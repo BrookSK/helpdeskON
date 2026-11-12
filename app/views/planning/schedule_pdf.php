@@ -19,7 +19,8 @@
  *   - Título da demanda em UMA linha, truncado com reticências quando não cabe
  *     (white-space:nowrap; overflow:hidden; text-overflow:ellipsis).
  *
- * As CORES DAS DEMANDAS NÃO são alteradas — vêm de $seg['_cat'].
+ * As cores das demandas vêm de $seg['_cat'] (PlanningScheduleRules::deadlineCategory),
+ * e a legenda ($viewLegend) traz só as categorias presentes no PDF.
  *
  * Variáveis esperadas:
  *   $viewMonths, $viewWeekdays, $viewLegend, $viewTotal, $viewGeneratedAt,
@@ -167,6 +168,11 @@ $renderLane = function (array $laneSegments) use ($esc): string {
 
     .week-pad { height: 3pt; font-size: 0; line-height: 0; }
 
+    /* Legenda compacta em cada página de mês (o cliente lê os meses, não só a capa). */
+    .month-legend { margin: 0 0 5pt; font-size: 6.8pt; color: #4a5a6a; }
+    .month-legend .item { display: inline-block; margin: 0 10pt 2pt 0; }
+    .month-legend .swatch { display: inline-block; width: 8pt; height: 8pt; border-radius: 2pt; vertical-align: middle; margin-right: 3pt; }
+
     .empty { color: #94a3b8; font-style: italic; padding: 16pt; background: #f8fafc; border: 1pt solid #e8ebf0; border-radius: 8pt; text-align: center; }
 </style>
 </head>
@@ -225,6 +231,14 @@ $renderLane = function (array $laneSegments) use ($esc): string {
                     <td class="m-brand">ON <span class="soft">Solutions</span></td>
                 </tr>
             </table>
+
+            <?php if (!empty($viewLegend)): ?>
+                <div class="month-legend">
+                    <?php foreach ($viewLegend as $cat): ?>
+                        <span class="item"><span class="swatch" style="background:<?= $esc($cat['bg']) ?>;border:0.75pt solid <?= $esc($cat['border']) ?>;"></span><?= $esc($cat['label']) ?></span>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
 
             <table class="weekhead">
                 <tr>

@@ -279,4 +279,205 @@ final class PlanningRulesTest extends TestCase
         $map = [3 => 2, 2 => 1];
         $this->assertFalse(PlanningRules::wouldCreateCycle(4, 3, $map));
     }
+
+    // ---- shiftOutOfRecess / recesso ----
+
+    /** Recesso de fim de ano usado nos cenários (21/12/2026 a 04/01/2027). */
+    private const RECESS_FDA = [
+        ['start_date' => '2026-12-21', 'end_date' => '2027-01-04'],
+    ];
+
+    public function testRecessoSemPeriodosNaoDesloca(): void
+    {
+        $r = PlanningRules::shiftOutOfRecess('2026-12-17 09:00:00', '2026-12-20 18:00:00', []);
+        $this->assertSame('2026-12-17 09:00:00', $r['start_date']);
+        $this->assertSame('2026-12-20 18:00:00', $r['end_date']);
+        $this->assertFalse($r['shifted']);
+    }
+
+    public function testRecessoCardTotalmenteForaNaoDesloca(): void
+    {
+        // 17–20/12 termina antes do recesso (21/12). Não encosta.
+        $r = PlanningRules::shiftOutOfRecess('2026-12-17 09:00:00', '2026-12-20 18:00:00', self::RECESS_FDA);
+        $this->assertSame('2026-12-17 09:00:00', $r['start_date']);
+        $this->assertSame('2026-12-20 18:00:00', $r['end_date']);
+        $this->assertFalse($r['shifted']);
+    }
+
+    public function testRecessoInicioDentroEmpurraParaDepois(): void
+    {
+        // Começa 22/12 (dentro do recesso): bloco inteiro pula para 05/01.
+        // Duração original: 22→28 = 6 dias. Deve virar 05/01 -> 11/01.
+        $r = PlanningRules::shiftOutOfRecess('2026-12-22 09:00:00', '2026-12-28 09:00:00', self::RECESS_FDA);
+        $this->assertTrue($r['shifted']);
+        $this->assertStringStartsWith('2027-01-05', $r['start_date']);
+        $this->assertStringStartsWith('2027-01-11', $r['end_date']);
+    }
+
+    public function testRecessoBlocoAtravessaEstendeDuracao(): void
+    {
+        // Começa ANTES (19/12) e invade o recesso. O fim é estendido pelos dias
+        // de recesso engolidos — o card "pausa" no recesso e retoma depois.
+        // Começa 19/12, duração 4 dias cairia até 23/12 (dentro do recesso).
+        $r = PlanningRules::shiftOutOfRecess('2026-12-19 09:00:00', '2026-12-23 09:00:00', self::RECESS_FDA);
+        $this->assertTrue($r['shifted']);
+        // Início preservado (começou antes do recesso).
+        $this->assertStringStartsWith('2026-12-19', $r['start_date']);
+        // Fim empurrado para depois do recesso (passa de 04/01).
+        $this->assertGreaterThan(strtotime('2027-01-04 23:59:59'), strtotime($r['end_date']));
+    }
+
+    public function testRecessoDataInvalidaRetornaNull(): void
+    {
+        $this->assertNull(PlanningRules::shiftOutOfRecess(null, '2026-12-20 18:00:00', self::RECESS_FDA));
+        $this->assertNull(PlanningRules::shiftOutOfRecess('2026-12-20 18:00:00', '', self::RECESS_FDA));
+    }
+
+    public function testNormalizeRecessDescartaInvalidosEOrdena(): void
+    {
+        $periods = PlanningRules::normalizeRecessPeriods([
+            ['start_date' => '2027-02-01', 'end_date' => '2027-02-03'],
+            ['start_date' => 'xxx', 'end_date' => '2026-12-25'],     // inválido
+            ['start_date' => '2026-12-21', 'end_date' => '2027-01-04'],
+            ['start_date' => '2026-05-10', 'end_date' => '2026-05-01'], // fim < início
+        ]);
+        // Fica com 2 válidos, ordenados por início.
+        $this->assertCount(2, $periods);
+        $this->assertLessThan($periods[1]['start'], $periods[0]['start']);
+    }
+
+    // ---- recalcDependentDatesWithRecess ----
+
+    public function testRecalcComRecessoPulaOPeriodo(): void
+    {
+        // Predecessor termina 18/12 18:00. Duração de 4 dias cairia até 22/12
+        // 18:00 — dentro do recesso (21/12→04/01). Prazo folgado. O fim deve ser
+        // estendido para além do recesso (card pausa e retoma depois).
+        $r = PlanningRules::recalcDependentDatesWithRecess(
+            '2026-12-18 18:00:00',
+            '2026-12-18 09:00:00',
+            '2026-12-22 09:00:00', // duração 4 dias
+            '2027-02-28 23:59:00',
+            0,
+            self::RECESS_FDA
+        );
+        $this->assertNotNull($r);
+        $this->assertTrue($r['shifted']);
+        // Início preservado (começou antes do recesso), fim além do recesso.
+        $this->assertStringStartsWith('2026-12-18', $r['start_date']);
+        $this->assertGreaterThan(strtotime('2027-01-04 23:59:59'), strtotime($r['end_date']));
+    }
+
+    public function testRecalcRecessoTemPrioridadeSobreDueESinaliza(): void
+    {
+        // Dependente com prazo DENTRO/pouco além do recesso: o deslocamento por
+        // recesso ultrapassa o due_date. Recesso vence e 'exceeds_due' = true.
+        $r = PlanningRules::recalcDependentDatesWithRecess(
+            '2026-12-20 18:00:00',   // predecessor termina na véspera do recesso
+            '2026-12-21 09:00:00',
+            '2026-12-24 09:00:00',   // começaria dentro do recesso
+            '2026-12-31 23:59:00',   // prazo DENTRO do recesso
+            0,
+            self::RECESS_FDA
+        );
+        $this->assertNotNull($r);
+        $this->assertTrue($r['shifted']);
+        $this->assertTrue($r['exceeds_due'], 'Recesso deve ter prioridade e sinalizar estouro do prazo.');
+        // Início = fim do predecessor (20/12, véspera do recesso); fim empurrado
+        // para depois do recesso, passando do prazo (31/12) — por isso exceeds_due.
+        $this->assertStringStartsWith('2026-12-20', $r['start_date']);
+        $this->assertGreaterThan(strtotime('2027-01-04 23:59:59'), strtotime($r['end_date']));
+    }
+
+    public function testRecalcComRecessoSemPredecessorRetornaNull(): void
+    {
+        $this->assertNull(PlanningRules::recalcDependentDatesWithRecess(
+            null, '2026-12-17 09:00:00', '2026-12-20 18:00:00', null, 0, self::RECESS_FDA
+        ));
+    }
+
+    public function testRecalcSemRecessoIgualAoBase(): void
+    {
+        // Lista de recesso vazia: resultado idêntico ao recalcDependentDates.
+        $base = PlanningRules::recalcDependentDates(
+            '2026-01-10 12:00:00', '2026-01-12 12:00:00', '2026-01-14 12:00:00', '2026-01-31 23:59:00', 0
+        );
+        $r = PlanningRules::recalcDependentDatesWithRecess(
+            '2026-01-10 12:00:00', '2026-01-12 12:00:00', '2026-01-14 12:00:00', '2026-01-31 23:59:00', 0, []
+        );
+        $this->assertSame($base['start_date'], $r['start_date']);
+        $this->assertSame($base['end_date'], $r['end_date']);
+        $this->assertFalse($r['shifted']);
+        $this->assertFalse($r['exceeds_due']);
+    }
+
+    // ---- diffCardChanges (histórico de alterações) ----
+
+    public function testDiffDetectaMudancaDeDataFormatada(): void
+    {
+        $old = ['due_date' => '2026-01-10 18:00:00', 'start_date' => '2026-01-05 09:00:00'];
+        $changes = PlanningRules::diffCardChanges($old, ['due_date' => '2026-01-15 18:00:00']);
+        $this->assertCount(1, $changes);
+        $this->assertSame('due_date', $changes[0]['field']);
+        $this->assertSame('Prazo de entrega', $changes[0]['label']);
+        $this->assertSame('10/01/2026 18:00', $changes[0]['old']);
+        $this->assertSame('15/01/2026 18:00', $changes[0]['new']);
+    }
+
+    public function testDiffIgnoraCamposAusentesEIguais(): void
+    {
+        $old = ['due_date' => '2026-01-10 18:00:00', 'status' => 'open', 'title' => 'X'];
+        // Só title presente e igual => nenhuma mudança.
+        $this->assertSame([], PlanningRules::diffCardChanges($old, ['title' => 'X']));
+        // due_date presente mas igual (formato diferente) => nenhuma mudança.
+        $this->assertSame([], PlanningRules::diffCardChanges($old, ['due_date' => '2026-01-10T18:00']));
+    }
+
+    public function testDiffTraduzStatusEPrioridade(): void
+    {
+        $old = ['status' => 'open', 'priority' => 'medium'];
+        $changes = PlanningRules::diffCardChanges($old, ['status' => 'in_progress', 'priority' => 'urgent']);
+        $this->assertCount(2, $changes);
+        $byField = [];
+        foreach ($changes as $c) { $byField[$c['field']] = $c; }
+        $this->assertSame('Aberto', $byField['status']['old']);
+        $this->assertSame('Em andamento', $byField['status']['new']);
+        $this->assertSame('Média', $byField['priority']['old']);
+        $this->assertSame('Urgente', $byField['priority']['new']);
+    }
+
+    public function testDiffValorVazioViraNaoDefinido(): void
+    {
+        $old = ['end_date' => null];
+        $changes = PlanningRules::diffCardChanges($old, ['end_date' => '2026-02-01 18:00:00']);
+        $this->assertCount(1, $changes);
+        $this->assertSame('Não definido', $changes[0]['old']);
+        $this->assertSame('01/02/2026 18:00', $changes[0]['new']);
+    }
+
+    public function testDiffRemoverDataRegistraComoNaoDefinido(): void
+    {
+        $old = ['due_date' => '2026-01-10 18:00:00'];
+        $changes = PlanningRules::diffCardChanges($old, ['due_date' => null]);
+        $this->assertCount(1, $changes);
+        $this->assertSame('10/01/2026 18:00', $changes[0]['old']);
+        $this->assertSame('Não definido', $changes[0]['new']);
+    }
+
+    public function testDiffVariosCamposDeUmaVez(): void
+    {
+        $old = [
+            'status' => 'open', 'priority' => 'low',
+            'predecessor_lag_days' => 0, 'title' => 'Antigo',
+        ];
+        $changes = PlanningRules::diffCardChanges($old, [
+            'status' => 'completed', 'priority' => 'low', // priority igual: não entra
+            'predecessor_lag_days' => 1, 'title' => 'Novo',
+        ]);
+        $fields = array_column($changes, 'field');
+        $this->assertContains('status', $fields);
+        $this->assertContains('predecessor_lag_days', $fields);
+        $this->assertContains('title', $fields);
+        $this->assertNotContains('priority', $fields, 'priority igual não deve gerar mudança.');
+    }
 }

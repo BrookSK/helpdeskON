@@ -523,4 +523,70 @@ final class PlanningCardTest extends TestCase
         $this->assertContains($semDono, $ids);
         $this->assertNotContains($comDono, $ids);
     }
+
+    // ================= Paginação por coluna do Kanban =================
+
+    public function testColumnCountsEContaTotalPorStatus(): void
+    {
+        // Cria 3 cards "open" desta empresa; conta deve refletir pelo menos eles.
+        $a = $this->novoCard(['status' => 'open', 'company_id' => $this->companyId]);
+        $b = $this->novoCard(['status' => 'open', 'company_id' => $this->companyId]);
+        $c = $this->novoCard(['status' => 'open', 'company_id' => $this->companyId]);
+
+        $counts = $this->cards->getColumnCounts(['company_id' => [$this->companyId]]);
+        $this->assertArrayHasKey('open', $counts);
+        $this->assertSame(3, (int) $counts['open'], 'Deve contar os 3 cards open da empresa.');
+    }
+
+    public function testGetColumnCardsPaginaComOffsetELimit(): void
+    {
+        // 5 cards open na empresa; pagina de 2 em 2.
+        for ($i = 0; $i < 5; $i++) {
+            $this->novoCard(['status' => 'open', 'company_id' => $this->companyId, 'title' => 'Pag ' . $i]);
+        }
+        $filtro = ['company_id' => [$this->companyId]];
+
+        $pag1 = $this->cards->getColumnCards('open', $filtro, 0, 2);
+        $pag2 = $this->cards->getColumnCards('open', $filtro, 2, 2);
+        $pag3 = $this->cards->getColumnCards('open', $filtro, 4, 2);
+
+        $this->assertCount(2, $pag1);
+        $this->assertCount(2, $pag2);
+        $this->assertCount(1, $pag3, 'A última página traz o card restante.');
+
+        // Sem sobreposição entre as páginas (offsets distintos).
+        $ids = array_merge(
+            array_column($pag1, 'id'),
+            array_column($pag2, 'id'),
+            array_column($pag3, 'id')
+        );
+        $this->assertSame(count($ids), count(array_unique($ids)), 'Páginas não devem repetir cards.');
+    }
+
+    // ================= Busca de cards (autocomplete predecessor) =================
+
+    public function testGetSelectableCardsBuscaPorTituloEExcluiProprio(): void
+    {
+        $alvo  = $this->novoCard(['title' => 'Construir muro ZZZ', 'status' => 'open', 'company_id' => $this->companyId]);
+        $outro = $this->novoCard(['title' => 'Pintar portão', 'status' => 'open', 'company_id' => $this->companyId]);
+
+        // Busca por "muro" acha o alvo e não o outro.
+        $r = $this->cards->getSelectableCards(null, null, 'muro ZZZ', 30);
+        $ids = array_map(fn($x) => (int) $x['id'], $r);
+        $this->assertContains($alvo, $ids);
+        $this->assertNotContains($outro, $ids);
+
+        // Excluir o próprio card: não volta nos resultados.
+        $r2 = $this->cards->getSelectableCards($alvo, null, 'muro ZZZ', 30);
+        $ids2 = array_map(fn($x) => (int) $x['id'], $r2);
+        $this->assertNotContains($alvo, $ids2, 'O card excluído não pode aparecer na busca.');
+    }
+
+    public function testGetSelectableCardsBuscaPorNumero(): void
+    {
+        $alvo = $this->novoCard(['title' => 'Qualquer', 'status' => 'open', 'company_id' => $this->companyId]);
+        $r = $this->cards->getSelectableCards(null, null, '#' . $alvo, 30);
+        $ids = array_map(fn($x) => (int) $x['id'], $r);
+        $this->assertContains($alvo, $ids, 'Busca por #id deve achar o card.');
+    }
 }

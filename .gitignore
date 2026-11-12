@@ -57,8 +57,7 @@ test-results/
 playwright-report/
 csrf_result.txt
 
-# Documentação de trabalho (OpenSpec, orçamentos e rascunhos); não versionar
-openspec/
+# Documentação de trabalho (orçamentos e rascunhos); não versionar
 .outbox/
 
 # PDFs de contratos assinados (fora de public/). Não versionar.

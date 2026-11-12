@@ -65,6 +65,42 @@ class AssignmentRules
         return in_array($role, self::rolesForField($field), true);
     }
 
+    /** Coluna do card de Planejamento correspondente a cada campo. */
+    public const CARD_COLUMNS = [
+        self::FIELD_ATTENDANT => 'assigned_to',
+        self::FIELD_TECHNICAL => 'technical_responsible_id',
+        self::FIELD_ANALYST   => 'analyst_id',
+    ];
+
+    /**
+     * Na EDIÇÃO de um card, quais responsáveis precisam ser validados: só os
+     * que vieram na requisição E mudaram em relação ao card gravado.
+     *
+     * O modal do Planejamento envia sempre os três campos. Validar também os
+     * que não mudaram fazia um card antigo, com um valor fora da regra atual
+     * (ex.: developer como Analista), bloquear qualquer edição — inclusive a
+     * troca do Atendente. Um valor NOVO continua sempre validado.
+     *
+     * @param array $card Card atual (colunas assigned_to, technical_responsible_id, analyst_id).
+     * @param array $data Campos recebidos para gravação.
+     * @return array<string,int|string|null> campo (FIELD_*) => id a validar.
+     */
+    public static function changedForValidation(array $card, array $data): array
+    {
+        $out = [];
+        foreach (self::CARD_COLUMNS as $field => $col) {
+            if (!array_key_exists($col, $data)) {
+                continue;
+            }
+            $new = (int) ($data[$col] ?? 0);
+            $old = (int) ($card[$col] ?? 0);
+            if ($new !== $old) {
+                $out[$field] = $data[$col];
+            }
+        }
+        return $out;
+    }
+
     /** Todos os campos suportados (útil para iterar na validação). */
     public static function fields(): array
     {

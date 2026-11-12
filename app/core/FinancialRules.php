@@ -29,7 +29,7 @@ class FinancialRules
     public const INSTALLABLE_KINDS = ['ganho', 'gasto', 'emprestimo'];
 
     /** Tipos que permitem recorrência (mensal/anual que se repetem). */
-    public const RECURRING_KINDS = ['ganho', 'gasto'];
+    public const RECURRING_KINDS = ['ganho', 'gasto', 'salario'];
 
     /** Direção válida para o tipo informado. */
     public static function directionFor(string $kind, ?string $direction): string
@@ -58,6 +58,9 @@ class FinancialRules
         $installments = (int)($in['installments'] ?? 1);
         $installments = max(1, min(48, $installments));
         $cardId = !empty($in['card_id']) ? (int)$in['card_id'] : null;
+        $accountId = !empty($in['account_id']) ? (int)$in['account_id'] : null;
+        $categoryId = !empty($in['category_id']) ? (int)$in['category_id'] : null;
+        $userId = !empty($in['user_id']) ? (int)$in['user_id'] : null;
         if ($installments > 1 && !in_array($kind, self::INSTALLABLE_KINDS, true)) {
             $errors[] = 'Parcelamento não é permitido para este tipo.';
         }
@@ -69,7 +72,7 @@ class FinancialRules
         $cycle = strtolower(trim((string)($in['recurring_cycle'] ?? '')));
         $recurringCycle = in_array($cycle, ['monthly', 'yearly'], true) ? $cycle : null;
         if ($recurringCycle !== null && !in_array($kind, self::RECURRING_KINDS, true)) {
-            $errors[] = 'Recorrência só é permitida em ganhos e gastos.';
+            $errors[] = 'Recorrência só é permitida em ganhos, gastos e salários.';
         }
         if ($recurringCycle !== null && $installments > 1) {
             $errors[] = 'Lançamento recorrente não pode ser parcelado.';
@@ -77,9 +80,16 @@ class FinancialRules
         $recurringUntil = null;
         $ru = trim((string)($in['recurring_until'] ?? ''));
         if ($ru !== '') {
-            $t2 = strtotime($ru);
-            if ($t2 === false) $errors[] = 'Data final da recorrência inválida.';
-            else $recurringUntil = date('Y-m-d', $t2);
+            if (self::validMonth($ru)) {
+                // A tela manda só o mês ("repetir até março/2027"): vale o mês
+                // inteiro, então o fim é o último dia dele. Antes virava dia 1º
+                // e a ocorrência do próprio mês final ficava de fora.
+                $recurringUntil = date('Y-m-t', strtotime($ru . '-01'));
+            } else {
+                $t2 = strtotime($ru);
+                if ($t2 === false) $errors[] = 'Data final da recorrência inválida.';
+                else $recurringUntil = date('Y-m-d', $t2);
+            }
         }
 
         // Data do empréstimo (quando pegou/concedeu) — opcional.
@@ -113,10 +123,13 @@ class FinancialRules
                 'kind'            => $kind,
                 'direction'       => self::directionFor($kind, $in['direction'] ?? null),
                 'category'        => mb_substr(trim((string)($in['category'] ?? '')), 0, 80) ?: null,
+                'category_id'     => $categoryId,
                 'description'     => mb_substr(trim((string)($in['description'] ?? '')), 0, 255) ?: null,
                 'amount'          => $amount,
                 'installments'    => $installments,
                 'card_id'         => $cardId,
+                'account_id'      => $accountId,
+                'user_id'         => $userId,
                 'due_date'        => $dueDate ?: date('Y-m-d'),
                 'recurring_cycle' => $recurringCycle,
                 'recurring_until' => $recurringUntil,
@@ -188,6 +201,128 @@ class FinancialRules
         return $s;
     }
 
+    /**
+     * Campos que podem ser editados num lançamento já gravado.
+     *  - Importado do Asaas: só categoria, conta e pessoa (o resto vem da integração).
+     *  - Parcelado: categoria, conta, pessoa e descrição (mudar valor/data exigiria
+     *    refazer parcelas, inclusive as já pagas; nesse caso, exclua e recrie).
+     *  - Já pago: categoria, conta, pessoa e descrição (valor e data travados).
+     *  - Demais: categoria, conta, pessoa, descrição, valor, data e cartão.
+     *
+     * @return string[]
+     */
+    public static function editableFields(array $tx): array
+    {
+        if (($tx['source'] ?? 'manual') === 'asaas') {
+            return ['category_id', 'account_id', 'user_id'];
+        }
+        if ((int)($tx['installments'] ?? 1) > 1 || ($tx['status'] ?? 'pending') !== 'pending') {
+            return ['category_id', 'account_id', 'user_id', 'description'];
+        }
+        $fields = ['category_id', 'account_id', 'user_id', 'description', 'amount', 'date'];
+        if (($tx['kind'] ?? '') === 'gasto') $fields[] = 'card_id';
+        return $fields;
+    }
+
+    /**
+     * Resumo do mês em regime de caixa, a partir de movimentos no nível de
+     * parcela (compra à vista = 1 linha; parcelada = 1 linha por parcela).
+     *
+     *  - Recebido / Pago: o que foi quitado DENTRO do mês, pela data do
+     *    pagamento (paid_at). Sem paid_at, usa o vencimento.
+     *  - A receber / A pagar: o que está pendente e vence ATÉ o fim do mês,
+     *    incluindo o que ficou atrasado de meses anteriores.
+     *  - Atrasado: parte do "a pagar"/"a receber" que venceu antes do mês.
+     *  - Saldo em contas: soma dos saldos atuais das contas bancárias.
+     *  - Projetado: saldo em contas + a receber − a pagar.
+     *
+     * Cada linha: direction, kind, amount, status, due_date, paid_at.
+     */
+    public static function cashSummary(array $rows, string $ym, float $accountsBalance, ?string $today = null): array
+    {
+        $start = $ym . '-01';
+        $end = date('Y-m-t', strtotime($start));
+        // Atrasado = venceu antes do mês filtrado E antes de hoje (num mês
+        // futuro, o que vence até lá não está atrasado, só a pagar).
+        $overdueBefore = min($start, $today ?? date('Y-m-d'));
+        $s = [
+            'received' => 0.0, 'paid' => 0.0, 'to_receive' => 0.0, 'to_pay' => 0.0,
+            'overdue_receive' => 0.0, 'overdue_pay' => 0.0,
+            'loans_out' => 0.0, 'loans_in' => 0.0,
+        ];
+        foreach ($rows as $r) {
+            $status = $r['status'] ?? 'pending';
+            if ($status === 'cancelled') continue;
+            $amt = (float)($r['amount'] ?? 0);
+            $in = ($r['direction'] ?? 'out') === 'in';
+            $due = !empty($r['due_date']) ? substr((string)$r['due_date'], 0, 10) : null;
+
+            if ($status === 'paid') {
+                $when = !empty($r['paid_at']) ? substr((string)$r['paid_at'], 0, 10) : $due;
+                if ($when === null || $when < $start || $when > $end) continue;
+                if ($in) $s['received'] += $amt; else $s['paid'] += $amt;
+                continue;
+            }
+
+            // Pendente: entra se vence até o fim do mês (atrasado incluso).
+            if ($due === null || $due > $end) continue;
+            if ($in) $s['to_receive'] += $amt; else $s['to_pay'] += $amt;
+            if ($due < $overdueBefore) {
+                if ($in) $s['overdue_receive'] += $amt; else $s['overdue_pay'] += $amt;
+            }
+            if (($r['kind'] ?? '') === 'emprestimo') {
+                if ($in) $s['loans_in'] += $amt; else $s['loans_out'] += $amt;
+            }
+        }
+        foreach ($s as $k => $v) $s[$k] = round($v, 2);
+        $s['accounts_balance'] = round($accountsBalance, 2);
+        $s['projected'] = round($accountsBalance + $s['to_receive'] - $s['to_pay'], 2);
+        return $s;
+    }
+
+    /**
+     * Movimento inicial de um empréstimo: o dinheiro que entra (tomado) ou
+     * sai (concedido) na data do empréstimo. As parcelas vão no sentido
+     * contrário (tomado: parcelas saem; concedido: parcelas entram).
+     *
+     * $loan = dados validados do lançamento (validateTransaction).
+     * $principalRaw = valor recebido/emprestado; vazio = usa o total.
+     * Retorna o lançamento a gravar, ou null quando não se aplica (não é
+     * empréstimo ou não tem data do empréstimo).
+     * Data do empréstimo até hoje = já aconteceu (pago); futura = pendente.
+     */
+    public static function loanInitialMovement(array $loan, $principalRaw, string $today): ?array
+    {
+        if (($loan['kind'] ?? '') !== 'emprestimo' || empty($loan['loan_date'])) return null;
+
+        $principal = FinanceRules::money($principalRaw);
+        if ($principal <= 0) $principal = (float)($loan['amount'] ?? 0);
+        if ($principal <= 0) return null;
+
+        $parcelsIn = ($loan['direction'] ?? 'out') === 'in';
+        $date = (string)$loan['loan_date'];
+        $happened = $date <= $today;
+        $desc = trim((string)($loan['description'] ?? '')) ?: 'Empréstimo';
+        $label = $parcelsIn ? 'valor emprestado' : 'valor recebido';
+
+        return [
+            'kind'         => 'emprestimo',
+            'direction'    => $parcelsIn ? 'out' : 'in',
+            'category'     => $loan['category'] ?? null,
+            'category_id'  => $loan['category_id'] ?? null,
+            'description'  => mb_substr($desc . ' (' . $label . ')', 0, 255),
+            'amount'       => round($principal, 2),
+            'installments' => 1,
+            'card_id'      => null,
+            'account_id'   => $loan['account_id'] ?? null,
+            'user_id'      => $loan['user_id'] ?? null,
+            'due_date'     => $date,
+            'loan_date'    => $date,
+            'status'       => $happened ? 'paid' : 'pending',
+            'paid_at'      => $happened ? $date . ' 00:00:00' : null,
+        ];
+    }
+
     /** Status Asaas -> status interno do lançamento. */
     public static function asaasStatusToInternal(?string $status): string
     {
@@ -239,6 +374,91 @@ class FinancialRules
     public static function recurringNextDate(string $dueDate, string $cycle): string
     {
         return date('Y-m-d', strtotime($dueDate . ' +' . ($cycle === 'yearly' ? 12 : 1) . ' month'));
+    }
+
+    /**
+     * Datas das próximas ocorrências de um recorrente, depois de $fromDue
+     * (exclusiva) e até $upTo (inclusiva), respeitando o fim da recorrência.
+     * $max limita o tamanho (proteção para recorrência sem fim).
+     *
+     * @return string[] datas Y-m-d
+     */
+    public static function recurringOccurrences(string $fromDue, string $cycle, ?string $until, string $upTo, int $max = 120): array
+    {
+        $out = [];
+        $d = $fromDue;
+        for ($i = 0; $i < $max; $i++) {
+            $d = self::recurringNextDate($d, $cycle);
+            if ($d > $upTo || !self::recurringContinues($d, $until)) break;
+            $out[] = $d;
+        }
+        return $out;
+    }
+
+    /**
+     * Chave que identifica uma série recorrente (as ocorrências criadas ao
+     * pagar copiam tipo, direção, descrição, ciclo, cartão e pessoa).
+     * A pessoa faz parte da chave: dois salários com a mesma descrição
+     * ("Salário") para pessoas diferentes são séries diferentes.
+     */
+    public static function recurringChainKey(array $r): string
+    {
+        return implode('|', [
+            $r['kind'] ?? '',
+            $r['direction'] ?? '',
+            mb_strtolower(trim((string)($r['description'] ?? ''))),
+            $r['recurring_cycle'] ?? '',
+            (string)($r['card_id'] ?? ''),
+            (string)($r['user_id'] ?? ''),
+        ]);
+    }
+
+    /**
+     * Ocorrências PREVISTAS (ainda não gravadas) dos recorrentes até $upTo.
+     * Para cada série, parte da ocorrência mais recente (maior vencimento),
+     * esteja paga ou pendente, e projeta as seguintes. Cada linha prevista é
+     * uma cópia da mais recente com: due_date da ocorrência, status pending,
+     * is_projected = true e projected_from = id da mais recente.
+     *
+     * @param array $rows lançamentos recorrentes à vista, não cancelados
+     */
+    public static function projectRecurring(array $rows, string $upTo): array
+    {
+        $latest = [];
+        foreach ($rows as $r) {
+            if (empty($r['recurring_cycle']) || empty($r['due_date'])) continue;
+            if (($r['status'] ?? '') === 'cancelled' || (int)($r['installments'] ?? 1) > 1) continue;
+            $k = self::recurringChainKey($r);
+            $cur = $latest[$k] ?? null;
+            if ($cur === null || $r['due_date'] > $cur['due_date']
+                || ($r['due_date'] === $cur['due_date'] && (int)$r['id'] > (int)$cur['id'])) {
+                $latest[$k] = $r;
+            }
+        }
+
+        $out = [];
+        foreach ($latest as $head) {
+            $dates = self::recurringOccurrences(
+                substr((string)$head['due_date'], 0, 10),
+                (string)$head['recurring_cycle'],
+                !empty($head['recurring_until']) ? (string)$head['recurring_until'] : null,
+                $upTo
+            );
+            foreach ($dates as $d) {
+                $row = $head;
+                $row['due_date'] = $d;
+                $row['status'] = 'pending';
+                $row['paid_at'] = null;
+                $row['purchase_date'] = null;
+                $row['is_projected'] = true;
+                $row['projected_from'] = (int)$head['id'];
+                $row['installment_id'] = null;
+                $row['installment_no'] = null;
+                $row['total_amount'] = $head['amount'];
+                $out[] = $row;
+            }
+        }
+        return $out;
     }
 
     /** A recorrência continua após a data-base? (sem fim = sempre) */

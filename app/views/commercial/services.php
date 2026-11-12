@@ -67,20 +67,20 @@
                     <textarea id="svc-description" class="form-control form-control-sm" rows="3"></textarea>
                 </div>
                 <div class="row g-2">
-                    <div class="col-4">
-                        <label class="form-label small fw-medium">Horas estimadas</label>
+                    <div class="col-4 d-flex flex-column">
+                        <label class="form-label small fw-medium flex-grow-1 d-flex align-items-end">Horas estimadas</label>
                         <input type="number" step="0.01" min="0" id="svc-hours" class="form-control form-control-sm">
                     </div>
-                    <div class="col-4">
-                        <label class="form-label small fw-medium">Valor/hora (R$)</label>
+                    <div class="col-4 d-flex flex-column">
+                        <label class="form-label small fw-medium flex-grow-1 d-flex align-items-end">Valor/hora (R$)</label>
                         <input type="number" step="0.01" min="0" id="svc-rate" class="form-control form-control-sm">
                     </div>
-                    <div class="col-4">
-                        <label class="form-label small fw-medium">Custo/hora (R$)</label>
+                    <div class="col-4 d-flex flex-column">
+                        <label class="form-label small fw-medium flex-grow-1 d-flex align-items-end">Custo/hora (R$)</label>
                         <input type="number" step="0.01" min="0" id="svc-cost" class="form-control form-control-sm">
-                        <small class="text-muted" style="font-size:0.68rem">Interno. Não aparece na proposta.</small>
                     </div>
                 </div>
+                <small class="text-muted d-block mt-1" style="font-size:0.72rem">Custo/hora é interno e não aparece na proposta.</small>
                 <div class="mt-2">
                     <label class="form-label small fw-medium">Cobrança</label>
                     <select id="svc-billing" class="form-select form-select-sm" onchange="svcToggleRecurrence()">

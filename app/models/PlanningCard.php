@@ -19,7 +19,8 @@ class PlanningCard
                     cb.name as created_by_name,
                     co.name as company_name,
                     t.title as ticket_title,
-                    t.category as category
+                    t.category as category,
+                    pred.title as predecessor_title
              FROM planning_cards pc
              LEFT JOIN users u ON pc.assigned_to = u.id
              LEFT JOIN users tr ON pc.technical_responsible_id = tr.id
@@ -27,6 +28,7 @@ class PlanningCard
              LEFT JOIN users cb ON pc.created_by = cb.id
              LEFT JOIN companies co ON pc.company_id = co.id
              LEFT JOIN tickets t ON pc.ticket_id = t.id
+             LEFT JOIN planning_cards pred ON pc.predecessor_id = pred.id
              WHERE pc.id = ?",
             [$id]
         );
@@ -94,7 +96,16 @@ class PlanningCard
         return $this->db->fetchAll($sql, $params);
     }
 
-    public function getGroupedByStatus($filters = [])
+    /**
+     * Cards agrupados por status (colunas do Kanban).
+     *
+     * @param array $filters Filtros (status, assigned_to, company_id, created_by, q, order, allowed_companies).
+     * @param int   $perColumn Limite de cards por coluna (0 = sem limite). Quando > 0,
+     *              cada coluna traz no máximo esse tanto; a contagem TOTAL fica em
+     *              getColumnCounts() (para o botão "carregar mais" do Kanban). Evita
+     *              renderizar centenas de cards de uma vez (lag/altura gigante).
+     */
+    public function getGroupedByStatus($filters = [], $perColumn = 0)
     {
         $allStatuses = ['open', 'in_progress', 'em_revisao_interna', 'waiting_client', 'em_homologacao', 'aprovado_producao', 'completed', 'denied', 'archived'];
 
@@ -186,16 +197,11 @@ class PlanningCard
                 $params = array_merge($params, $filters['allowed_companies']);
             }
 
-            $sql .= " ORDER BY ";
-            if (!empty($filters['order']) && $filters['order'] === 'overdue') {
-                // Vencidos primeiro (prazo no passado), ordenados do mais antigo
-                $sql .= "CASE WHEN pc.due_date IS NOT NULL AND pc.due_date < NOW() THEN 0 ELSE 1 END, pc.due_date ASC, FIELD(pc.priority, 'urgent', 'high', 'medium', 'low'), pc.position ASC, pc.id ASC";
-            } elseif (!empty($filters['order']) && $filters['order'] === 'priority') {
-                $sql .= "FIELD(pc.priority, 'urgent', 'high', 'medium', 'low'), pc.due_date IS NULL, pc.due_date ASC, pc.position ASC, pc.id ASC";
-            } elseif (!empty($filters['order']) && $filters['order'] === 'newest') {
-                $sql .= "pc.id DESC";
-            } else {
-                $sql .= "FIELD(pc.priority, 'urgent', 'high', 'medium', 'low'), pc.due_date IS NULL, pc.due_date ASC, pc.position ASC, pc.id ASC";
+            $sql .= " ORDER BY " . $this->kanbanOrderBy($filters['order'] ?? null);
+
+            // Limite por coluna (paginação do Kanban): só o 1º lote vem aqui.
+            if ($perColumn > 0) {
+                $sql .= " LIMIT " . ((int) $perColumn);
             }
             $result[$status] = $this->db->fetchAll($sql, $params);
         }
@@ -329,6 +335,149 @@ class PlanningCard
         $sql .= " ORDER BY (co.name IS NULL), co.name ASC,
                            (pc.start_date IS NULL), pc.start_date ASC,
                            (pc.due_date IS NULL), pc.due_date ASC, pc.id ASC";
+
+        return $this->db->fetchAll($sql, $params);
+    }
+
+    /**
+     * Cláusula ORDER BY do Kanban conforme a opção de ordenação escolhida.
+     * Centralizada para que getGroupedByStatus e getColumnCards ordenem igual.
+     */
+    private function kanbanOrderBy(?string $order): string
+    {
+        if ($order === 'overdue') {
+            return "CASE WHEN pc.due_date IS NOT NULL AND pc.due_date < NOW() THEN 0 ELSE 1 END, pc.due_date ASC, FIELD(pc.priority, 'urgent', 'high', 'medium', 'low'), pc.position ASC, pc.id ASC";
+        }
+        if ($order === 'newest') {
+            return "pc.id DESC";
+        }
+        // priority (default)
+        return "FIELD(pc.priority, 'urgent', 'high', 'medium', 'low'), pc.due_date IS NULL, pc.due_date ASC, pc.position ASC, pc.id ASC";
+    }
+
+    /**
+     * Monta o trecho WHERE (após "pc.status = ?") + os params dos filtros do
+     * Kanban, para reaproveitar entre getGroupedByStatus, getColumnCounts e
+     * getColumnCards. Recebe os filtros já normalizados pelo chamador.
+     *
+     * @return array{0:string,1:array} [sqlWhere, params] — params NÃO incluem o status.
+     */
+    private function kanbanFilterWhere(array $filters): array
+    {
+        $sql = '';
+        $params = [];
+
+        $assignedIds = [];
+        $assignedNone = false;
+        if (!empty($filters['assigned_to'])) {
+            $rawAssigned = (array) $filters['assigned_to'];
+            $assignedNone = in_array('none', $rawAssigned, true);
+            $assignedIds = array_values(array_unique(array_filter(array_map('intval', $rawAssigned))));
+        }
+        if (!empty($filters['assigned_none'])) {
+            $assignedNone = true;
+        }
+
+        $companyIds = [];
+        if (!empty($filters['company_id'])) {
+            $companyIds = array_values(array_unique(array_filter(array_map('intval', (array) $filters['company_id']))));
+        }
+        $createdByIds = [];
+        if (!empty($filters['created_by'])) {
+            $createdByIds = array_values(array_unique(array_filter(array_map('intval', (array) $filters['created_by']))));
+        }
+
+        if (!empty($companyIds)) {
+            $ph = implode(',', array_fill(0, count($companyIds), '?'));
+            $sql .= " AND pc.company_id IN ($ph)";
+            $params = array_merge($params, $companyIds);
+        }
+        if (!empty($assignedIds) && $assignedNone) {
+            $ph = implode(',', array_fill(0, count($assignedIds), '?'));
+            $sql .= " AND (pc.assigned_to IN ($ph) OR pc.assigned_to IS NULL)";
+            $params = array_merge($params, $assignedIds);
+        } elseif (!empty($assignedIds)) {
+            $ph = implode(',', array_fill(0, count($assignedIds), '?'));
+            $sql .= " AND pc.assigned_to IN ($ph)";
+            $params = array_merge($params, $assignedIds);
+        } elseif ($assignedNone) {
+            $sql .= " AND pc.assigned_to IS NULL";
+        }
+        if (!empty($createdByIds)) {
+            $ph = implode(',', array_fill(0, count($createdByIds), '?'));
+            $sql .= " AND pc.created_by IN ($ph)";
+            $params = array_merge($params, $createdByIds);
+        }
+        if (isset($filters['q']) && trim((string) $filters['q']) !== '') {
+            $term = '%' . trim((string) $filters['q']) . '%';
+            $sql .= " AND (pc.title LIKE ? OR pc.description LIKE ?)";
+            $params[] = $term;
+            $params[] = $term;
+        }
+        if (!empty($filters['allowed_companies'])) {
+            $ph = implode(',', array_fill(0, count($filters['allowed_companies']), '?'));
+            $sql .= " AND (pc.company_id IS NULL OR pc.company_id IN ($ph))";
+            $params = array_merge($params, $filters['allowed_companies']);
+        }
+
+        return [$sql, $params];
+    }
+
+    /**
+     * Total de cards por status (respeitando os filtros), para o Kanban saber
+     * quantos cards existem além do 1º lote renderizado (botão "carregar mais").
+     *
+     * @return array<string,int> status => total
+     */
+    public function getColumnCounts($filters = [])
+    {
+        $allStatuses = ['open', 'in_progress', 'em_revisao_interna', 'waiting_client', 'em_homologacao', 'aprovado_producao', 'completed', 'denied', 'archived'];
+        $statuses = $allStatuses;
+        if (!empty($filters['statuses'])) {
+            $selected = array_values(array_intersect($allStatuses, (array) $filters['statuses']));
+            if (!empty($selected)) {
+                $statuses = $selected;
+            }
+        }
+
+        [$where, $baseParams] = $this->kanbanFilterWhere($filters);
+
+        $counts = [];
+        foreach ($statuses as $status) {
+            $params = array_merge([$status], $baseParams);
+            $row = $this->db->fetch(
+                "SELECT COUNT(*) AS cnt FROM planning_cards pc WHERE pc.status = ?" . $where,
+                $params
+            );
+            $counts[$status] = (int) ($row['cnt'] ?? 0);
+        }
+        return $counts;
+    }
+
+    /**
+     * Um lote de cards de UMA coluna (status), com offset/limit — alimenta o
+     * botão "Carregar mais" do Kanban sem recarregar a página.
+     */
+    public function getColumnCards($status, $filters = [], $offset = 0, $limit = 50)
+    {
+        [$where, $baseParams] = $this->kanbanFilterWhere($filters);
+        $params = array_merge([$status], $baseParams);
+
+        $sql = "SELECT pc.*,
+                       u.name as assigned_name,
+                       co.name as company_name,
+                       cb.name as created_by_name,
+                       t.category as category,
+                       t.scope_rejected_reason as scope_rejected_reason,
+                       t.scope_approved_at as scope_approved_at
+                FROM planning_cards pc
+                LEFT JOIN users u ON pc.assigned_to = u.id
+                LEFT JOIN companies co ON pc.company_id = co.id
+                LEFT JOIN users cb ON pc.created_by = cb.id
+                LEFT JOIN tickets t ON pc.ticket_id = t.id
+                WHERE pc.status = ?" . $where;
+        $sql .= " ORDER BY " . $this->kanbanOrderBy($filters['order'] ?? null);
+        $sql .= " LIMIT " . ((int) $limit) . " OFFSET " . ((int) $offset);
 
         return $this->db->fetchAll($sql, $params);
     }
@@ -568,26 +717,40 @@ class PlanningCard
      * @param int|null   $excludeId         Card a excluir da lista (o próprio).
      * @param array|null $allowedCompanies  IDs de empresas permitidas (ou null).
      */
-    public function getSelectableCards($excludeId = null, $allowedCompanies = null)
+    public function getSelectableCards($excludeId = null, $allowedCompanies = null, $search = null, $limit = 30)
     {
-        $sql = "SELECT id, title, status, due_date, company_id
-                FROM planning_cards
-                WHERE status NOT IN ('completed', 'denied', 'archived')";
+        $sql = "SELECT pc.id, pc.title, pc.status, pc.due_date, pc.company_id, co.name AS company_name
+                FROM planning_cards pc
+                LEFT JOIN companies co ON pc.company_id = co.id
+                WHERE pc.status NOT IN ('completed', 'denied', 'archived')";
         $params = [];
         if ($excludeId) {
-            $sql .= " AND id <> ?";
+            $sql .= " AND pc.id <> ?";
             $params[] = $excludeId;
+        }
+        // Busca por título, nº do card (#123) ou empresa — alimenta o autocomplete.
+        if ($search !== null && trim((string) $search) !== '') {
+            $term = trim((string) $search);
+            $sql .= " AND (pc.title LIKE ? OR co.name LIKE ?";
+            $params[] = '%' . $term . '%';
+            $params[] = '%' . $term . '%';
+            if (ctype_digit(ltrim($term, '#'))) {
+                $sql .= " OR pc.id = ?";
+                $params[] = (int) ltrim($term, '#');
+            }
+            $sql .= ")";
         }
         if (is_array($allowedCompanies) && !in_array(0, $allowedCompanies, true)) {
             if (empty($allowedCompanies)) {
-                $sql .= " AND company_id IS NULL";
+                $sql .= " AND pc.company_id IS NULL";
             } else {
                 $ph = implode(',', array_fill(0, count($allowedCompanies), '?'));
-                $sql .= " AND (company_id IS NULL OR company_id IN ($ph))";
+                $sql .= " AND (pc.company_id IS NULL OR pc.company_id IN ($ph))";
                 $params = array_merge($params, $allowedCompanies);
             }
         }
-        $sql .= " ORDER BY title ASC";
+        $sql .= " ORDER BY pc.id DESC";
+        $sql .= " LIMIT " . ((int) $limit);
         return $this->db->fetchAll($sql, $params);
     }
 
@@ -601,6 +764,29 @@ class PlanningCard
             "SELECT * FROM planning_cards WHERE predecessor_id = ?",
             [$cardId]
         );
+    }
+
+    /**
+     * Todos os dependentes de $cardId em cascata (dependentes diretos + os
+     * deles, recursivamente), como mapa id => linha do card. Usado para
+     * capturar o estado ANTES do recálculo em cascata e depois registrar no
+     * histórico de cada card afetado o que mudou. Protegido contra ciclos.
+     */
+    public function getDependentsDeep($cardId, array &$seen = [])
+    {
+        $result = [];
+        foreach ($this->getDependents($cardId) as $dep) {
+            $depId = (int) $dep['id'];
+            if (isset($seen[$depId])) {
+                continue;
+            }
+            $seen[$depId] = true;
+            $result[$depId] = $dep;
+            foreach ($this->getDependentsDeep($depId, $seen) as $k => $v) {
+                $result[$k] = $v;
+            }
+        }
+        return $result;
     }
 
     /**
@@ -633,6 +819,36 @@ class PlanningCard
      * @return array Lista de cards afetados já atualizados (via findById), para
      *               o front refletir no board sem reload.
      */
+    /**
+     * Cache em memória (por requisição) dos recessos aplicáveis a cada empresa,
+     * para a cascata não repetir a mesma query a cada dependente. Chave:
+     * company_id ('global' quando null). Valor: lista de períodos.
+     */
+    private $recessCache = [];
+
+    /**
+     * Recessos aplicáveis a um card da empresa $companyId: globais + da empresa.
+     * Tolerante a ambientes antigos sem a tabela recess_periods (retorna []).
+     */
+    private function recessPeriodsFor($companyId)
+    {
+        $key = $companyId === null ? 'global' : (string) (int) $companyId;
+        if (array_key_exists($key, $this->recessCache)) {
+            return $this->recessCache[$key];
+        }
+        $periods = [];
+        try {
+            $model = new RecessPeriod();
+            $periods = $model->getApplicable($companyId !== null ? (int) $companyId : null);
+        } catch (\Throwable $e) {
+            // Tabela ainda não existe (migration 165 não aplicada) ou erro de
+            // consulta: sem recesso, a cascata segue com o comportamento antigo.
+            $periods = [];
+        }
+        $this->recessCache[$key] = $periods;
+        return $periods;
+    }
+
     public function cascadeRecalcDependents($cardId, array &$visited = [])
     {
         $affected = [];
@@ -653,12 +869,15 @@ class PlanningCard
 
         foreach ($this->getDependents($cardId) as $dep) {
             $lag = (int) ($dep['predecessor_lag_days'] ?? 0);
-            $newDates = PlanningRules::recalcDependentDates(
+            // Recessos aplicáveis à empresa do dependente (globais + da empresa).
+            $recess = $this->recessPeriodsFor($dep['company_id'] ?? null);
+            $newDates = PlanningRules::recalcDependentDatesWithRecess(
                 $predEnd,
                 $dep['start_date'] ?? null,
                 $dep['end_date'] ?? null,
                 $dep['due_date'] ?? null,
-                $lag
+                $lag,
+                $recess
             );
             if ($newDates === null) {
                 continue;
@@ -820,6 +1039,59 @@ class PlanningCard
             'user_id' => $userId,
             'message' => $message,
         ]);
+    }
+
+    // Histórico de alterações do card ---------------------------------------
+
+    /**
+     * Lista o histórico de alterações de um card, do mais recente ao mais
+     * antigo, com o nome de quem alterou. Tolerante a ambiente sem a tabela
+     * (migration 166 não aplicada): retorna [] em vez de quebrar.
+     */
+    public function getHistory($cardId)
+    {
+        try {
+            return $this->db->fetchAll(
+                "SELECT h.*, u.name AS user_name
+                 FROM planning_card_history h
+                 LEFT JOIN users u ON h.user_id = u.id
+                 WHERE h.card_id = ?
+                 ORDER BY h.created_at DESC, h.id DESC",
+                [$cardId]
+            );
+        } catch (\Throwable $e) {
+            return [];
+        }
+    }
+
+    /**
+     * Grava um lote de alterações no histórico. $changes é a saída de
+     * PlanningRules::diffCardChanges (cada item com field/label/old/new).
+     * $source = 'manual' (edição) ou 'cascade' (recálculo automático).
+     * Silencioso se a tabela não existir (não bloqueia o salvamento do card).
+     *
+     * @param array $changes Lista de mudanças já formatadas para exibição.
+     */
+    public function logHistory($cardId, $userId, array $changes, $source = 'manual')
+    {
+        if (empty($changes)) {
+            return;
+        }
+        foreach ($changes as $c) {
+            try {
+                $this->db->insert('planning_card_history', [
+                    'card_id'   => $cardId,
+                    'user_id'   => $userId,
+                    'field'     => substr((string) ($c['label'] ?? $c['field'] ?? ''), 0, 64),
+                    'old_value' => $c['old'] ?? null,
+                    'new_value' => $c['new'] ?? null,
+                    'source'    => $source === 'cascade' ? 'cascade' : 'manual',
+                ]);
+            } catch (\Throwable $e) {
+                // Tabela ausente ou erro pontual: não impede o fluxo do card.
+                return;
+            }
+        }
     }
 
     // Anexos

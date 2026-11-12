@@ -70,7 +70,9 @@ class CronController extends Controller
 
     /**
      * Gravações no servidor penduradas em crons já agendados: publica sessões
-     * abandonadas e, com cron_token configurado, roda um lote da transcrição.
+     * abandonadas e roda um lote da transcrição. Não depende de cron_token: só
+     * transcreve segmentos já na fila (reserva atômica, tentativas limitadas),
+     * então chamar o cron mais vezes não aumenta o gasto com a OpenAI.
      */
     private function processRecordingQueues()
     {
@@ -78,10 +80,8 @@ class CronController extends Controller
         try { $out['abandoned'] = (new VideocallController())->finalizeAbandonedSessions(); } catch (\Throwable $e) {
             Logger::error('Falha ao publicar sessões de gravação abandonadas', ['error' => $e->getMessage()]);
         }
-        if ((string)Config::get('cron_token') !== '') {
-            try { $out['transcription'] = $this->runTranscriptionQueue(); } catch (\Throwable $e) {
-                Logger::error('Falha na fila de transcrição', ['error' => $e->getMessage()]);
-            }
+        try { $out['transcription'] = $this->runTranscriptionQueue(); } catch (\Throwable $e) {
+            Logger::error('Falha na fila de transcrição', ['error' => $e->getMessage()]);
         }
         return $out;
     }
@@ -1238,7 +1238,7 @@ class CronController extends Controller
                 'GET /cron/checkMissingReports?token=XXX' => 'Verifica profissionais sem Relatório Diário e notifica via WhatsApp/e-mail',
                 'GET /cron/homologacaoRegua?token=XXX' => 'Régua de homologação (48h): 3 contatos + liberação automática para produção',
                 'GET /cron/warrantyWarnings?token=XXX' => 'Aviso 15 dias antes do fim da garantia do projeto (cliente + gestor)',
-                'GET /cron/finalizeRecordings?token=XXX' => 'Publica gravações órfãs e sessões abandonadas; com token, roda um lote da transcrição',
+                'GET /cron/finalizeRecordings?token=XXX' => 'Publica gravações órfãs e sessões abandonadas e roda um lote da transcrição',
                 'GET /cron/transcribeRecordings?token=XXX' => 'Transcrição no servidor dos segmentos de áudio (a cada 5 min; token obrigatório)',
             ],
             'tip' => 'Configure cron_token em Configurações para proteger este endpoint.',

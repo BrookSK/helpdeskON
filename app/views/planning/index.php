@@ -100,6 +100,8 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
             ?>
             <form method="GET" class="row g-2 align-items-center" id="filters-form">
                 <input type="hidden" name="show_all" id="show_all_input" value="1">
+                <!-- Visão atual (kanban|calendar): preserva a aba ao aplicar o filtro. -->
+                <input type="hidden" name="view" id="view_input" value="<?= escape($activeView ?? 'kanban') ?>">
 
                 <!-- Busca por nome/descrição do card -->
                 <div class="col-12 col-md-auto">
@@ -268,7 +270,11 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                             <h6 class="mb-0 fw-bold" style="color:<?= $info[1] ?>;font-size:0.85rem;"><?= $info[0] ?></h6>
                             <span class="badge rounded-pill" style="background:<?= $info[1] ?>;color:#fff;font-size:0.7rem"><?= count($grouped[$status] ?? []) ?></span>
                         </div>
-                        <div class="kanban-list" data-status="<?= $status ?>" style="min-height:60px;">
+                        <?php
+                        $colTotal = $columnCounts[$status] ?? count($grouped[$status] ?? []);
+                        $colShown = count($grouped[$status] ?? []);
+                        ?>
+                        <div class="kanban-list" data-status="<?= $status ?>" data-total="<?= (int) $colTotal ?>" data-shown="<?= (int) $colShown ?>" style="min-height:60px;">
                             <?php foreach (($grouped[$status] ?? []) as $card): ?>
                             <?php
                             // Card em atraso: tem prazo no passado e não está concluído/arquivado
@@ -321,6 +327,14 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                             </div>
                             <?php endforeach; ?>
                         </div>
+                        <?php if ($colTotal > $colShown): ?>
+                        <div class="kanban-loadmore" data-status="<?= $status ?>">
+                            <button type="button" class="btn btn-sm btn-outline-secondary w-100" onclick="loadMoreColumn('<?= $status ?>', this)">
+                                <i class="bi bi-chevron-down"></i> Carregar mais
+                                <span class="kanban-loadmore-count">(<?= (int) ($colTotal - $colShown) ?> restantes)</span>
+                            </button>
+                        </div>
+                        <?php endif; ?>
                     </div>
                 </div>
                 <?php endforeach; ?>
@@ -343,6 +357,11 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                         <span class="fw-medium" id="cal-title" style="font-size:0.9rem;min-width:140px;text-align:center;"></span>
                         <button class="btn btn-sm btn-outline-secondary" id="cal-next"><i class="bi bi-chevron-right"></i></button>
                         <button class="btn btn-sm btn-outline-primary" id="cal-today">Hoje</button>
+                        <?php if (($user['role'] ?? '') === 'super_admin'): ?>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="openRecessModal()" title="Gerenciar períodos de recesso">
+                            <i class="bi bi-calendar-x"></i> Recessos
+                        </button>
+                        <?php endif; ?>
                     </div>
                 </div>
                 <!-- Legenda de cores por prazo/status -->
@@ -353,7 +372,11 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                     <span class="cal-legend-item"><span class="cal-legend-swatch cat-near_due"></span>Próximo do vencimento</span>
                     <span class="cal-legend-item"><span class="cal-legend-swatch cat-due_today"></span>Na data de vencimento</span>
                     <span class="cal-legend-item"><span class="cal-legend-swatch cat-in_progress"></span>Em andamento</span>
+                    <span class="cal-legend-item"><span class="cal-legend-swatch cat-revisao"></span>Em revisão interna</span>
+                    <span class="cal-legend-item"><span class="cal-legend-swatch cat-waiting"></span>Aguardando cliente</span>
+                    <span class="cal-legend-item"><span class="cal-legend-swatch cat-homolog"></span>Em homologação</span>
                     <span class="cal-legend-item"><span class="cal-legend-swatch cat-denied"></span>Negada</span>
+                    <span class="cal-legend-item"><span class="cal-legend-swatch legend-recess"></span>Recesso (ninguém trabalha)</span>
                 </div>
                 <!-- Aviso de demandas sem data: aparece só quando há cards ativos
                      sem prazo/janela. O botão "Revisar" abre o modal de revisão. -->
@@ -384,6 +407,48 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                     <p class="text-muted small mb-2">Estas demandas ativas não têm prazo nem janela de desenvolvimento, por isso não aparecem no calendário. Clique para abrir e definir uma data.</p>
                     <div id="undated-list">
                         <div class="text-center py-4 text-muted small"><span class="spinner-border spinner-border-sm"></span> Carregando...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL GERENCIAR RECESSOS (super_admin) -->
+    <div class="modal fade" id="recessModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header py-2">
+                    <h6 class="modal-title mb-0 fw-bold"><i class="bi bi-calendar-x text-secondary"></i> Períodos de recesso</h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small mb-3">Datas em que ninguém trabalha. Ao recalcular um cronograma (atividade predecessora), os cards que cairiam dentro de um recesso são deslocados automaticamente para depois dele.</p>
+
+                    <!-- Formulário de novo recesso -->
+                    <form id="recessForm" class="border rounded p-2 mb-3">
+                        <div class="row g-2 align-items-end">
+                            <div class="col-12">
+                                <label class="form-label small mb-1">Título</label>
+                                <input type="text" class="form-control form-control-sm" name="title" placeholder="Ex.: Recesso de fim de ano" required>
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small mb-1">Início</label>
+                                <input type="date" class="form-control form-control-sm" name="start_date" required>
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small mb-1">Fim</label>
+                                <input type="date" class="form-control form-control-sm" name="end_date" required>
+                            </div>
+                            <div class="col-12 d-grid">
+                                <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-plus-lg"></i> Adicionar recesso</button>
+                            </div>
+                        </div>
+                        <div id="recess-form-error" class="text-danger small mt-2" style="display:none;"></div>
+                    </form>
+
+                    <!-- Lista de recessos cadastrados -->
+                    <div id="recess-list">
+                        <div class="text-center py-3 text-muted small"><span class="spinner-border spinner-border-sm"></span> Carregando...</div>
                     </div>
                 </div>
             </div>
@@ -497,13 +562,14 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                                 <label class="form-label small fw-medium">
                                     <i class="bi bi-diagram-3 text-primary"></i> Atividade predecessora
                                 </label>
-                                <select name="predecessor_id" class="form-select form-select-sm">
-                                    <option value="">Nenhuma (independente)</option>
-                                    <?php foreach (($selectableCards ?? []) as $sc): ?>
-                                    <option value="<?= $sc['id'] ?>">#<?= $sc['id'] ?> — <?= escape($sc['title']) ?></option>
-                                    <?php endforeach; ?>
-                                </select>
-                                <small class="text-muted" style="font-size:0.68rem;">Só inicia após o término da atividade escolhida.</small>
+                                <!-- Autocomplete: digite para buscar o card predecessor -->
+                                <div class="pred-autocomplete" data-pred-root>
+                                    <input type="hidden" name="predecessor_id" class="pred-input-id" value="">
+                                    <input type="text" class="form-control form-control-sm pred-input-search" autocomplete="off"
+                                           placeholder="Buscar card por nº, título ou empresa...">
+                                    <div class="pred-results" style="display:none;"></div>
+                                </div>
+                                <small class="text-muted" style="font-size:0.68rem;">Digite para buscar. Só inicia após o término da atividade escolhida.</small>
                             </div>
                             <div class="col-sm-4 mb-3">
                                 <label class="form-label small fw-medium">Folga (dias)</label>
@@ -581,6 +647,11 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                                 <li class="nav-item" role="presentation">
                                     <button class="nav-link small py-2" id="tab-comentarios" data-bs-toggle="tab" data-bs-target="#pane-comentarios" type="button" role="tab">
                                         <i class="bi bi-chat-dots"></i> Comentários <span class="badge bg-secondary ms-1" id="tab-comentarios-badge" style="font-size:0.6rem;">0</span>
+                                    </button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link small py-2" id="tab-historico" data-bs-toggle="tab" data-bs-target="#pane-historico" type="button" role="tab">
+                                        <i class="bi bi-clock-history"></i> Histórico <span class="badge bg-secondary ms-1" id="tab-historico-badge" style="font-size:0.6rem;">0</span>
                                     </button>
                                 </li>
                                 <!-- Aba Escopo: escopo técnico, previsão e suporte da demanda vinculada.
@@ -691,6 +762,12 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                                         <textarea id="comment-input" class="form-control form-control-sm" placeholder="Escreva um comentário..." rows="2" style="resize:vertical;" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();addComment();}"></textarea>
                                         <button class="btn btn-sm btn-primary" onclick="addComment()" style="height:fit-content;"><i class="bi bi-send"></i></button>
                                     </div>
+                                </div>
+
+                                <!-- ABA HISTÓRICO (alterações do card: datas, status, responsável...) -->
+                                <div class="tab-pane fade" id="pane-historico" role="tabpanel">
+                                    <p class="text-muted small mb-2"><i class="bi bi-clock-history"></i> Todas as alterações do card (datas, cronograma, status, responsável, etc.), da mais recente para a mais antiga.</p>
+                                    <div id="detail-history" style="max-height:440px;overflow-y:auto;"></div>
                                 </div>
 
                                 <!-- ABA ESCOPO (escopo técnico / previsão / suporte da demanda) -->
@@ -840,16 +917,22 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                                     </div>
                                 </div>
 
-                                <!-- Atividade predecessora -->
+                                <!-- Atividade predecessora (autocomplete) -->
                                 <div class="row g-2 mb-3">
                                     <div class="col-8">
                                         <label class="form-label small fw-medium text-muted"><i class="bi bi-diagram-3"></i> Atividade predecessora</label>
-                                        <select id="detail-predecessor" class="form-select form-select-sm">
-                                            <option value="">Nenhuma (independente)</option>
-                                            <?php foreach (($selectableCards ?? []) as $sc): ?>
-                                            <option value="<?= $sc['id'] ?>">#<?= $sc['id'] ?> — <?= escape($sc['title']) ?></option>
-                                            <?php endforeach; ?>
-                                        </select>
+                                        <div class="pred-autocomplete" data-pred-root>
+                                            <input type="hidden" id="detail-predecessor" class="pred-input-id" value="">
+                                            <div class="input-group input-group-sm">
+                                                <input type="text" id="detail-predecessor-search" class="form-control form-control-sm pred-input-search" autocomplete="off"
+                                                       placeholder="Buscar card por nº, título ou empresa...">
+                                                <!-- Botão explícito para REMOVER o predecessor (zera hidden + texto). -->
+                                                <button type="button" class="btn btn-outline-secondary pred-clear" title="Remover atividade predecessora" tabindex="-1">
+                                                    <i class="bi bi-x-lg"></i>
+                                                </button>
+                                            </div>
+                                            <div class="pred-results" style="display:none;"></div>
+                                        </div>
                                     </div>
                                     <div class="col-4">
                                         <label class="form-label small fw-medium text-muted">Folga (dias)</label>
@@ -953,6 +1036,19 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
 .planning-card.overdue { border: 1.5px solid #dc3545 !important; box-shadow: 0 0 0 1px rgba(220,53,69,0.15); }
 .kanban-ghost { opacity: 0.4; background: var(--primary-50) !important; border: 2px dashed var(--primary) !important; }
 .kanban-drag { box-shadow: 0 8px 25px rgba(0,0,0,0.15) !important; transform: rotate(1deg); }
+/* Botão "Carregar mais" por coluna (paginação do Kanban) */
+.kanban-loadmore { margin-top: 8px; }
+.kanban-loadmore .btn { font-size: 0.72rem; }
+.kanban-loadmore-count { opacity: 0.7; font-size: 0.68rem; }
+/* Autocomplete de atividade predecessora */
+.pred-autocomplete { position: relative; }
+.pred-results { position: absolute; top: 100%; left: 0; right: 0; z-index: 1080; background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,0.12); max-height: 240px; overflow-y: auto; margin-top: 2px; }
+.pred-result-item { display: block; width: 100%; text-align: left; border: none; background: none; padding: 7px 10px; cursor: pointer; border-bottom: 1px solid #f1f1f4; }
+.pred-result-item:last-child { border-bottom: none; }
+.pred-result-item:hover { background: #f0faf8; }
+.pred-result-title { display: block; font-size: 0.78rem; font-weight: 600; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pred-result-company { display: block; font-size: 0.68rem; color: #888; }
+.pred-result-empty { padding: 8px 10px; font-size: 0.74rem; color: #999; }
 
 /* Modal card detail styles */
 #cardDetailModal .modal-content { border-radius: 12px; overflow: hidden; }
@@ -997,10 +1093,23 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
 .cal-month-header-cell:last-child { border-right: none; }
 .cal-month-week { border-bottom: 1px solid #e9ecef; }
 .cal-month-days-row { display: grid; grid-template-columns: repeat(7, 1fr); border-bottom: 1px solid #f0f0f0; }
-.cal-month-day-num { padding: 6px 8px 4px; font-size: 0.78rem; font-weight: 600; color: #555; border-right: 1px solid #f0f0f0; min-height: 28px; }
+.cal-month-day-num { padding: 6px 8px 4px; font-size: 0.78rem; font-weight: 600; color: #555; border-right: 1px solid #f0f0f0; min-height: 28px; display: flex; align-items: center; justify-content: space-between; gap: 4px; }
 .cal-month-day-num:last-child { border-right: none; }
 .cal-month-day-num.other-month { opacity: 0.3; }
+/* Dia em recesso: fundo listrado discreto (ninguém trabalha). O "+" some para
+   não sugerir criação automática ali (criação manual ainda é possível pelo modal). */
+.cal-month-day-num.is-recess { background: repeating-linear-gradient(45deg, #f1f5f9, #f1f5f9 6px, #e2e8f0 6px, #e2e8f0 12px); color: #64748b; }
+.cal-month-day-num.is-recess .cal-day-add { display: none; }
+.cal-legend-swatch.legend-recess { background: repeating-linear-gradient(45deg, #f1f5f9, #f1f5f9 4px, #e2e8f0 4px, #e2e8f0 8px); border-left-color: #94a3b8; }
 .cal-month-day-num.today .day-number { background: var(--primary, #00BFA6); color: #fff; border-radius: 50%; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.75rem; }
+/* Botão "+" para criar card com prazo no dia (aparece no hover do dia) */
+.cal-day-add { border: none; background: transparent; color: var(--primary, #00BFA6); cursor: pointer; padding: 0; width: 20px; height: 20px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.72rem; line-height: 1; opacity: 0; transition: opacity 0.12s, background 0.12s; flex-shrink: 0; }
+.cal-month-days-row .cal-month-day-num:hover .cal-day-add { opacity: 1; }
+.cal-day-add:hover { background: var(--primary, #00BFA6); color: #fff; }
+/* Em telas touch não há hover: deixa o "+" sempre visível, discreto */
+@media (hover: none) {
+    .cal-day-add { opacity: 0.5; }
+}
 .cal-month-events { position: relative; min-height: 30px; padding: 2px 0; overflow: visible; }
 /* Barra de evento com extensão multi-dia (estilo Google Agenda) */
 .cal-span-event { position: absolute; height: 22px; display: flex; align-items: center; gap: 5px; padding: 2px 8px; cursor: pointer; overflow: hidden; white-space: nowrap; transition: filter 0.15s, box-shadow 0.15s; z-index: 1; }
@@ -1029,6 +1138,9 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
 .cat-near_due    { --cat-bg:#fef7d6; --cat-border:#f59e0b; }
 .cat-due_today   { --cat-bg:#fde8e8; --cat-border:#dc2626; }
 .cat-in_progress { --cat-bg:#ede9fe; --cat-border:#7c3aed; }
+.cat-revisao     { --cat-bg:#ffedd5; --cat-border:#ea580c; }
+.cat-waiting     { --cat-bg:#f3e5f5; --cat-border:#7b1fa2; }
+.cat-homolog     { --cat-bg:#d7f3f7; --cat-border:#0097a7; }
 .cat-denied      { --cat-bg:#f1f1f3; --cat-border:#9ca3af; }
 .cat-none        { --cat-bg:#eef1f4; --cat-border:#94a3b8; }
 .cal-legend-swatch.cat-overdue,
@@ -1037,6 +1149,9 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
 .cal-legend-swatch.cat-near_due,
 .cal-legend-swatch.cat-due_today,
 .cal-legend-swatch.cat-in_progress,
+.cal-legend-swatch.cat-revisao,
+.cal-legend-swatch.cat-waiting,
+.cal-legend-swatch.cat-homolog,
 .cal-legend-swatch.cat-denied { background: var(--cat-bg); border-left-color: var(--cat-border); }
 /* Aviso de demandas sem data (acima do calendário) */
 .cal-undated-banner { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; background: #fff8e6; border: 1px solid #fde68a; border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; }
@@ -1069,8 +1184,39 @@ let currentCardId = null;
 let currentTicket = null;
 let quill = null;
 let calendarEvents = [];
+// Períodos de recesso (ninguém trabalha) para pintar faixas no calendário.
+let recessPeriods = [];
 let calDate = new Date();
 let calMode = 'month';
+
+// Filtros EFETIVOS aplicados pelo servidor (inclui o pré-filtro implícito do
+// usuário, ex.: "meus cards", que pode não estar na query string). O calendário
+// usa estes filtros para mostrar exatamente o mesmo recorte do Kanban.
+const EFFECTIVE_FILTERS = <?= json_encode([
+    'company_id'  => array_values(array_map('strval', (array)($filters['company_id'] ?? []))),
+    'assigned_to' => array_values(array_map('strval', (array)($filters['assigned_to'] ?? []))),
+    'created_by'  => array_values(array_map('strval', (array)($filters['created_by'] ?? []))),
+    'statuses'    => array_values((array)($filters['statuses'] ?? [])),
+    'order'       => $filters['order'] ?? '',
+    'q'           => $filters['q'] ?? '',
+], JSON_UNESCAPED_UNICODE) ?>;
+
+// Visão com que a página deve abrir (preserva a aba ao aplicar filtro).
+const ACTIVE_VIEW = '<?= escape($activeView ?? 'kanban') ?>';
+
+// Monta os params de filtro do calendário a partir dos filtros EFETIVOS
+// (não da query string), para refletir o mesmo recorte do Kanban.
+function calendarFilterParams() {
+    const p = new URLSearchParams();
+    p.set('show_all', '1');
+    (EFFECTIVE_FILTERS.company_id  || []).forEach(v => p.append('company_id[]', v));
+    (EFFECTIVE_FILTERS.assigned_to || []).forEach(v => p.append('assigned_to[]', v));
+    (EFFECTIVE_FILTERS.created_by  || []).forEach(v => p.append('created_by[]', v));
+    (EFFECTIVE_FILTERS.statuses    || []).forEach(v => p.append('statuses[]', v));
+    if (EFFECTIVE_FILTERS.order) p.set('order', EFFECTIVE_FILTERS.order);
+    if (EFFECTIVE_FILTERS.q)     p.set('q', EFFECTIVE_FILTERS.q);
+    return p;
+}
 
 const priorityColors = {low:'#6b7280',medium:'#f59e0b',high:'#ef4444',urgent:'#dc2626'};
 const statusColors = {open:'#1565c0',in_progress:'#e65100',em_revisao_interna:'#5c6bc0',waiting_client:'#7b1fa2',em_homologacao:'#0097a7',aprovado_producao:'#8bc34a',completed:'#2e7d32',denied:'#d84315',archived:'#546e7a'};
@@ -1115,16 +1261,38 @@ const statusColors = {open:'#1565c0',in_progress:'#e65100',em_revisao_interna:'#
 })();
 
 // === VIEW TOGGLE ===
+// Aplica uma visão (kanban|calendar): alterna os painéis, marca o botão ativo,
+// guarda a escolha no hidden do form (para o filtro preservar a aba) e reflete
+// na URL sem recarregar (para F5/compartilhar manter a visão).
+function applyView(view, pushUrl) {
+    view = (view === 'calendar') ? 'calendar' : 'kanban';
+    document.querySelectorAll('#view-toggle button').forEach(b => {
+        b.classList.toggle('active', b.dataset.view === view);
+    });
+    const kv = document.getElementById('kanban-view');
+    const cv = document.getElementById('calendar-view');
+    if (kv) kv.style.display = view === 'kanban' ? '' : 'none';
+    if (cv) cv.style.display = view === 'calendar' ? '' : 'none';
+    const viewInput = document.getElementById('view_input');
+    if (viewInput) viewInput.value = view;
+    if (pushUrl) {
+        const u = new URL(window.location.href);
+        u.searchParams.set('view', view);
+        history.replaceState(null, '', u.toString());
+    }
+    if (view === 'calendar') loadCalendar();
+}
+
 document.querySelectorAll('#view-toggle button').forEach(btn => {
     btn.addEventListener('click', function() {
-        document.querySelectorAll('#view-toggle button').forEach(b => b.classList.remove('active'));
-        this.classList.add('active');
-        const view = this.dataset.view;
-        document.getElementById('kanban-view').style.display = view === 'kanban' ? '' : 'none';
-        document.getElementById('calendar-view').style.display = view === 'calendar' ? '' : 'none';
-        if (view === 'calendar') loadCalendar();
+        applyView(this.dataset.view, true);
     });
 });
+
+// Abre a página na visão que veio do servidor (preserva a aba ao filtrar).
+if (ACTIVE_VIEW === 'calendar') {
+    applyView('calendar', false);
+}
 
 // === BARRA DE ROLAGEM HORIZONTAL FIXA (sincronizada com o Kanban) ===
 (function() {
@@ -1228,12 +1396,54 @@ function updateKanbanCounts() {
     document.querySelectorAll('.kanban-column').forEach(col => {
         const list = col.querySelector('.kanban-list');
         const badge = col.querySelector('.badge');
-        if (list && badge) badge.textContent = list.querySelectorAll('.planning-card').length;
+        if (!list || !badge) return;
+        // O badge mostra o TOTAL da coluna (data-total), não só os cards já
+        // carregados — senão numa coluna paginada ficaria "50" em vez de "297".
+        const loaded = list.querySelectorAll('.planning-card').length;
+        const total = parseInt(list.dataset.total || '0', 10);
+        badge.textContent = total > loaded ? total : loaded;
+        // Mantém o data-shown coerente com o que está no DOM (drag/drop, criação).
+        list.dataset.shown = String(loaded);
     });
 }
 
 // === MODALS ===
+// Formata uma data LOCAL como YYYY-MM-DD (sem o deslocamento de fuso que o
+// toISOString causaria perto da meia-noite).
+function calYmd(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+// Reseta o autocomplete de predecessor do form de criar (sem resíduo do uso
+// anterior). O form de criação não exclui nenhum card (card ainda não existe).
+function resetCreatePredecessor() {
+    const form = document.getElementById('createCardForm');
+    if (!form) return;
+    const root = form.querySelector('[data-pred-root]');
+    if (!root) return;
+    const idEl = root.querySelector('.pred-input-id');
+    const searchEl = root.querySelector('.pred-input-search');
+    const resEl = root.querySelector('.pred-results');
+    if (idEl) idEl.value = '';
+    if (searchEl) searchEl.value = '';
+    if (resEl) { resEl.style.display = 'none'; resEl.innerHTML = ''; }
+    delete root.dataset.excludeId;
+}
+
 function openCreateModal() {
+    resetCreatePredecessor();
+    // Garante que o prazo não fica preso de uma abertura anterior pelo atalho do dia.
+    const dueEl = document.querySelector('#createCardForm [name="due_date"]');
+    if (dueEl) dueEl.value = '';
+    new bootstrap.Modal(document.getElementById('createCardModal')).show();
+}
+
+// Atalho do calendário: abre o modal de criar card já com o PRAZO DE ENTREGA
+// (due_date) preenchido no dia clicado. Hora padrão 18:00 (fim do dia útil).
+function openCreateForDate(ymd) {
+    resetCreatePredecessor();
+    const dueEl = document.querySelector('#createCardForm [name="due_date"]');
+    if (dueEl) dueEl.value = ymd + 'T18:00';
     new bootstrap.Modal(document.getElementById('createCardModal')).show();
 }
 
@@ -1261,12 +1471,24 @@ function openCreateModal() {
                 alert(data.error || 'Erro ao criar o card.');
                 return;
             }
-            addCardToBoard(data.card);
+            // Reflete o novo card na visão ATIVA, sem F5:
+            // - Calendário: recarrega os eventos (o card novo aparece se tiver data).
+            // - Kanban: insere o card na coluna correspondente.
+            const calView = document.getElementById('calendar-view');
+            const isCalendar = calView && calView.style.display !== 'none';
+            if (isCalendar) {
+                loadCalendar();
+            } else {
+                addCardToBoard(data.card);
+            }
             // Fecha o modal e limpa o formulário para o próximo card.
             const modalEl = document.getElementById('createCardModal');
             const modal = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
             modal.hide();
             form.reset();
+            // O form.reset() não limpa o hidden do predecessor nem o due_date do
+            // atalho do dia — garante estado limpo para a próxima criação.
+            resetCreatePredecessor();
         })
         .catch(() => {
             // Fallback: se o AJAX falhar, faz o envio tradicional (recarrega a página).
@@ -1284,6 +1506,150 @@ function cardIsOverdue(card) {
         && (new Date(String(card.due_date).replace(' ', 'T')).getTime() < Date.now())
         && card.status !== 'completed' && card.status !== 'archived';
 }
+
+// Carrega o próximo lote de cards de uma coluna do Kanban (paginação por coluna).
+// Os cards vêm do backend (columnCards) e são anexados ao FIM da coluna, sem
+// recarregar a página. Mantém o drag & drop (os cards novos entram na mesma
+// lista Sortable). Atualiza o offset (data-shown) e o contador do botão.
+const KANBAN_PAGE_SIZE = <?= (int) ($kanbanPageSize ?? 50) ?>;
+function loadMoreColumn(status, btn) {
+    const list = document.querySelector('.kanban-list[data-status="' + status + '"]');
+    if (!list) return;
+    const total = parseInt(list.dataset.total || '0', 10);
+    const shown = parseInt(list.dataset.shown || '0', 10);
+    if (shown >= total) { const w = btn.closest('.kanban-loadmore'); if (w) w.remove(); return; }
+
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:0.8rem;height:0.8rem;"></span> Carregando...';
+
+    // Usa os filtros EFETIVOS (mesmo recorte do Kanban, incluindo pré-filtro
+    // implícito do usuário), não só a query string.
+    const params = calendarFilterParams();
+    params.set('status', status);
+    params.set('offset', String(shown));
+
+    fetch(BASE + 'planning/columnCards?' + params.toString(), { headers: {'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json())
+        .then(data => {
+            const cards = (data && data.cards) ? data.cards : [];
+            cards.forEach(card => {
+                const div = document.createElement('div');
+                div.className = 'kanban-card planning-card' + (cardIsOverdue(card) ? ' overdue' : '');
+                div.dataset.id = card.id;
+                div.setAttribute('onclick', 'openCardModal(' + card.id + ')');
+                div.innerHTML = buildCardInner(card);
+                list.appendChild(div);
+            });
+            const newShown = shown + cards.length;
+            list.dataset.shown = String(newShown);
+            updateKanbanCounts();
+            if (typeof refreshKanbanTopScroll === 'function') refreshKanbanTopScroll();
+
+            const wrapper = btn.closest('.kanban-loadmore');
+            const remaining = total - newShown;
+            if (remaining > 0 && cards.length > 0) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-chevron-down"></i> Carregar mais <span class="kanban-loadmore-count">(' + remaining + ' restantes)</span>';
+            } else if (wrapper) {
+                wrapper.remove();
+            }
+        })
+        .catch(() => {
+            btn.disabled = false;
+            btn.innerHTML = original;
+            if (typeof showToast === 'function') showToast('Falha ao carregar mais cards.');
+        });
+}
+
+// ====== Autocomplete de "atividade predecessora" ======
+// Cada bloco [data-pred-root] tem: hidden (.pred-input-id), input de texto
+// (.pred-input-search) e um container de resultados (.pred-results). Digitar
+// busca cards via planning/searchCards (debounce) e clicar seleciona (preenche
+// o hidden com o id e o texto com "#id — título"). Limpar o texto zera o id.
+function initPredecessorAutocomplete(root) {
+    if (!root || root.dataset.predInit === '1') return;
+    root.dataset.predInit = '1';
+    const idInput = root.querySelector('.pred-input-id');
+    const search  = root.querySelector('.pred-input-search');
+    const results = root.querySelector('.pred-results');
+    if (!idInput || !search || !results) return;
+
+    const clearBtn = root.querySelector('.pred-clear');
+
+    let timer = null;
+    let lastQuery = '';
+
+    function close() { results.style.display = 'none'; results.innerHTML = ''; }
+    function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+
+    function render(cards) {
+        if (!cards.length) {
+            results.innerHTML = '<div class="pred-result-empty">Nenhum card encontrado</div>';
+            results.style.display = '';
+            return;
+        }
+        results.innerHTML = cards.map(c =>
+            '<button type="button" class="pred-result-item" data-id="' + c.id + '" data-label="#' + c.id + ' — ' + esc(c.title) + '">' +
+                '<span class="pred-result-title">#' + c.id + ' — ' + esc(c.title) + '</span>' +
+                (c.company_name ? '<span class="pred-result-company"><i class="bi bi-building"></i> ' + esc(c.company_name) + '</span>' : '') +
+            '</button>'
+        ).join('');
+        results.style.display = '';
+        results.querySelectorAll('.pred-result-item').forEach(btn => {
+            btn.addEventListener('click', function() {
+                idInput.value = this.dataset.id;
+                search.value = this.dataset.label;
+                close();
+            });
+        });
+    }
+
+    function doSearch() {
+        const q = search.value.trim();
+        lastQuery = q;
+        const exclude = root.dataset.excludeId || '';
+        const params = new URLSearchParams();
+        params.set('q', q);
+        if (exclude) params.set('exclude', exclude);
+        fetch(BASE + 'planning/searchCards?' + params.toString(), { headers: {'X-Requested-With':'XMLHttpRequest'} })
+            .then(r => r.json())
+            .then(data => { if (search.value.trim() === lastQuery) render((data && data.cards) || []); })
+            .catch(() => close());
+    }
+
+    search.addEventListener('input', function() {
+        // Digitar invalida a seleção anterior até escolher um item da lista.
+        idInput.value = '';
+        clearTimeout(timer);
+        const q = search.value.trim();
+        if (q === '') { close(); return; }
+        timer = setTimeout(doSearch, 250);
+    });
+    search.addEventListener('focus', function() {
+        if (search.value.trim() !== '' && results.innerHTML !== '') results.style.display = '';
+        else if (search.value.trim() === '') { doSearch(); } // mostra os mais recentes
+    });
+    // Botão "remover predecessor": zera o hidden E o texto de forma garantida.
+    // Resolve o caso de "não consigo tirar a predecessora" — independe de como o
+    // navegador dispara o evento input ao apagar o texto manualmente.
+    if (clearBtn) {
+        clearBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            idInput.value = '';
+            search.value = '';
+            close();
+            search.focus();
+        });
+    }
+    // Fecha ao clicar fora.
+    document.addEventListener('click', function(e) {
+        if (!root.contains(e.target)) close();
+    });
+}
+
+// Inicializa todos os autocompletes de predecessor presentes na página.
+document.querySelectorAll('[data-pred-root]').forEach(initPredecessorAutocomplete);
 
 // Monta o HTML INTERNO de um card do Kanban a partir do JSON do backend.
 // Espelha exatamente o markup renderizado em PHP no board (inclui tags de
@@ -1499,14 +1865,19 @@ function openCardModal(id) {
         document.getElementById('detail-client-start-date').value = c.client_start_date ? c.client_start_date.slice(0,10) : '';
         document.getElementById('detail-client-end-date').value = c.client_end_date ? c.client_end_date.slice(0,10) : '';
 
-        // Atividade predecessora: seleciona o predecessor atual e evita que o
-        // próprio card apareça como opção escolhível (não pode depender de si).
-        const predSel = document.getElementById('detail-predecessor');
-        if (predSel) {
-            Array.from(predSel.options).forEach(opt => {
-                opt.disabled = (opt.value !== '' && String(opt.value) === String(c.id));
-            });
-            predSel.value = c.predecessor_id ? String(c.predecessor_id) : '';
+        // Atividade predecessora (autocomplete): preenche o hidden com o id e o
+        // campo de busca com o título do predecessor atual. O card em edição é
+        // excluído dos resultados (não pode depender de si mesmo).
+        const predId = document.getElementById('detail-predecessor');
+        const predSearch = document.getElementById('detail-predecessor-search');
+        if (predId && predSearch) {
+            predId.value = c.predecessor_id ? String(c.predecessor_id) : '';
+            predSearch.value = c.predecessor_id
+                ? ('#' + c.predecessor_id + ' — ' + (c.predecessor_title || 'Card'))
+                : '';
+            // Guarda o id do próprio card para excluir da busca de predecessor.
+            const root = predId.closest('[data-pred-root]');
+            if (root) root.dataset.excludeId = String(c.id);
         }
         const predLag = document.getElementById('detail-predecessor-lag');
         if (predLag) predLag.value = (c.predecessor_lag_days != null ? c.predecessor_lag_days : 0);
@@ -1542,6 +1913,11 @@ function openCardModal(id) {
         // Comments do card (aba Comentários)
         renderComments(data.comments);
         document.getElementById('tab-comentarios-badge').textContent = data.comments.length;
+
+        // Histórico de alterações (aba Histórico)
+        renderHistory(data.history);
+        const histBadge = document.getElementById('tab-historico-badge');
+        if (histBadge) histBadge.textContent = (data.history || []).length;
 
         // Demanda vinculada (aba Demanda)
         renderTicketData(data);
@@ -1744,16 +2120,28 @@ function saveCard() {
         })
         .then(data => {
             if (data.success) {
-                // Fecha o modal de detalhe (se estiver aberto) e atualiza apenas
-                // o card afetado no board — sem recarregar a página inteira.
+                // Fecha o modal de detalhe (se estiver aberto).
                 const modalEl = document.getElementById('cardDetailModal');
                 if (modalEl) {
                     const modal = bootstrap.Modal.getInstance(modalEl);
                     if (modal) modal.hide();
                 }
-                // O endpoint devolve o card já atualizado (data.card). Usamos ele
-                // para refletir a mudança no DOM. Se o card não estiver visível
-                // (filtros escondendo a coluna), caímos no reload como garantia.
+
+                // Se o usuário está na visão de CALENDÁRIO, permanece nela: apenas
+                // recarrega os eventos do calendário em vez de dar reload (que
+                // voltaria para o Kanban, a view padrão). Assim o usuário continua
+                // exatamente onde estava.
+                const calView = document.getElementById('calendar-view');
+                const isCalendar = calView && calView.style.display !== 'none';
+                if (isCalendar) {
+                    loadCalendar();
+                    if (typeof showToast === 'function') showToast('Card salvo com sucesso!');
+                    return;
+                }
+
+                // Visão Kanban: reflete a mudança apenas no card afetado no board,
+                // sem recarregar a página. Se o card não está no DOM (filtro/escondido
+                // ou paginado), cai no reload como garantia.
                 const reflected = data.card ? updateCardOnBoard(data.card) : false;
                 if (!reflected) {
                     location.reload();
@@ -2027,6 +2415,39 @@ function renderComments(comments) {
     container.scrollTop = container.scrollHeight;
 }
 
+// Renderiza a aba Histórico: lista de alterações (campo: antes → depois), com
+// quem alterou, quando, e se foi edição manual ou recálculo automático.
+function renderHistory(history) {
+    const container = document.getElementById('detail-history');
+    if (!container) return;
+    history = history || [];
+    if (!history.length) {
+        container.innerHTML = '<p class="text-muted small">Nenhuma alteração registrada ainda. As mudanças de agora em diante aparecerão aqui.</p>';
+        return;
+    }
+    const esc = (str) => (str == null ? '' : String(str)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    container.innerHTML = history.map(h => {
+        const when = h.created_at ? new Date(h.created_at.replace(' ', 'T')).toLocaleString('pt-BR') : '';
+        const who = h.user_name ? esc(h.user_name) : 'Sistema';
+        const auto = (h.source === 'cascade');
+        const tag = auto
+            ? '<span class="badge bg-info-subtle text-info-emphasis border border-info-subtle" style="font-size:0.6rem;">automático</span>'
+            : '';
+        return '<div class="d-flex gap-2 mb-2 pb-2 border-bottom">' +
+            '<div class="flex-shrink-0 text-muted"><i class="bi ' + (auto ? 'bi-arrow-repeat' : 'bi-pencil-square') + '"></i></div>' +
+            '<div class="flex-grow-1 min-w-0">' +
+                '<div class="small"><strong>' + esc(h.field) + '</strong> ' + tag + '</div>' +
+                '<div class="small">' +
+                    '<span class="text-muted text-decoration-line-through">' + esc(h.old_value || 'Não definido') + '</span>' +
+                    ' <i class="bi bi-arrow-right"></i> ' +
+                    '<span class="fw-medium">' + esc(h.new_value || 'Não definido') + '</span>' +
+                '</div>' +
+                '<div class="text-muted" style="font-size:0.7rem;">' + who + ' · ' + when + '</div>' +
+            '</div>' +
+        '</div>';
+    }).join('');
+}
+
 // ====== ABA ESCOPO: escopo técnico / previsão / suporte (equipe) ======
 // Preenche a aba Escopo a partir da demanda vinculada ao card. Chamada ao abrir
 // o card (dentro de renderTicketData). Sem demanda vinculada, mostra o aviso.
@@ -2177,6 +2598,17 @@ function navCalendar(dir) {
     loadCalendar();
 }
 
+// Retorna o período de recesso que cobre a data 'YYYY-MM-DD', ou null.
+// Comparação por string de data (as faixas vêm como DATE do servidor).
+function recessForYmd(ymd) {
+    for (const r of recessPeriods) {
+        const s = (r.start_date || '').slice(0, 10);
+        const e = (r.end_date || '').slice(0, 10);
+        if (s && e && ymd >= s && ymd <= e) return r;
+    }
+    return null;
+}
+
 function loadCalendar() {
     let start, end;
     if (calMode === 'month') {
@@ -2189,7 +2621,8 @@ function loadCalendar() {
         start = new Date(calDate); start.setHours(0,0,0);
         end = new Date(calDate); end.setHours(23,59,59);
     }
-    const params = new URLSearchParams(window.location.search);
+    // Usa os filtros EFETIVOS (mesmo recorte do Kanban), não só a query string.
+    const params = calendarFilterParams();
     params.set('start', fmt(start)); params.set('end', fmt(end));
     fetch(BASE + 'planning/calendar?' + params.toString())
         .then(r => r.json()).then(resp => {
@@ -2198,6 +2631,7 @@ function loadCalendar() {
             const events = Array.isArray(resp) ? resp : (resp.events || []);
             const undatedCount = Array.isArray(resp) ? 0 : (resp.undated_count || 0);
             calendarEvents = events;
+            recessPeriods = Array.isArray(resp) ? [] : (resp.recess || []);
             updateUndatedBanner(undatedCount);
             renderCalendar(start, end);
         });
@@ -2225,7 +2659,7 @@ function openUndatedModal() {
     list.innerHTML = '<div class="text-center py-4 text-muted small"><span class="spinner-border spinner-border-sm"></span> Carregando...</div>';
     modal.show();
 
-    const params = new URLSearchParams(window.location.search);
+    const params = calendarFilterParams();
     fetch(BASE + 'planning/calendarUndated?' + params.toString())
         .then(r => r.json())
         .then(data => {
@@ -2256,6 +2690,86 @@ function openUndatedModal() {
 }
 
 // Abre o card para o usuário definir a data; fecha o modal de revisão antes.
+// === RECESSOS (gestão pelo super_admin) ===
+function openRecessModal() {
+    const modal = new bootstrap.Modal(document.getElementById('recessModal'));
+    modal.show();
+    loadRecessList();
+}
+
+function loadRecessList() {
+    const list = document.getElementById('recess-list');
+    list.innerHTML = '<div class="text-center py-3 text-muted small"><span class="spinner-border spinner-border-sm"></span> Carregando...</div>';
+    fetch(BASE + 'planning/recessPeriods')
+        .then(r => r.json())
+        .then(data => {
+            const items = (data && data.recess) ? data.recess : [];
+            if (!items.length) {
+                list.innerHTML = '<div class="text-center py-3 text-muted small">Nenhum recesso cadastrado.</div>';
+                return;
+            }
+            list.innerHTML = items.map(r => {
+                const s = (r.start_date || '').slice(0, 10).split('-').reverse().join('/');
+                const e = (r.end_date || '').slice(0, 10).split('-').reverse().join('/');
+                const company = r.company_name ? (' · ' + escHtml(r.company_name)) : ' · Global';
+                return '<div class="d-flex align-items-center gap-2 border rounded px-2 py-1 mb-1">' +
+                    '<div class="flex-grow-1 min-w-0">' +
+                        '<div class="small fw-semibold text-truncate">' + escHtml(r.title) + '</div>' +
+                        '<div class="text-muted" style="font-size:0.72rem;">' + s + ' → ' + e + company + '</div>' +
+                    '</div>' +
+                    '<button type="button" class="btn btn-sm btn-outline-danger" title="Excluir" onclick="deleteRecess(' + Number(r.id) + ')"><i class="bi bi-trash"></i></button>' +
+                '</div>';
+            }).join('');
+        })
+        .catch(() => {
+            list.innerHTML = '<div class="text-center py-3 text-danger small">Falha ao carregar.</div>';
+        });
+}
+
+function submitRecessForm(ev) {
+    ev.preventDefault();
+    const form = ev.target;
+    const err = document.getElementById('recess-form-error');
+    err.style.display = 'none';
+    const fd = new FormData(form);
+    // Validação simples no cliente: fim não pode ser antes do início.
+    const s = fd.get('start_date'), e = fd.get('end_date');
+    if (s && e && e < s) {
+        err.textContent = 'O fim do recesso não pode ser antes do início.';
+        err.style.display = '';
+        return;
+    }
+    fetch(BASE + 'planning/recessPeriods', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(data => {
+            if (data && data.error) {
+                err.textContent = data.error;
+                err.style.display = '';
+                return;
+            }
+            form.reset();
+            loadRecessList();
+            loadCalendar(); // repinta as faixas no calendário
+        })
+        .catch(() => {
+            err.textContent = 'Falha ao salvar.';
+            err.style.display = '';
+        });
+}
+
+function deleteRecess(id) {
+    if (!confirm('Excluir este período de recesso? Os cards já agendados não serão recalculados.')) return;
+    fetch(BASE + 'planning/deleteRecess/' + id, { method: 'POST' })
+        .then(r => r.json())
+        .then(() => { loadRecessList(); loadCalendar(); })
+        .catch(() => alert('Falha ao excluir.'));
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    const rf = document.getElementById('recessForm');
+    if (rf) rf.addEventListener('submit', submitRecessForm);
+});
+
 function reviewUndated(id) {
     const modalEl = document.getElementById('undatedModal');
     const modal = bootstrap.Modal.getInstance(modalEl);
@@ -2281,16 +2795,30 @@ const DEADLINE_COLORS = {
     on_track:    { key:'on_track',    bg:'#e7effd', border:'#2563eb', text:'#1e3a8a', label:'Dentro do prazo' },
     near_due:    { key:'near_due',    bg:'#fef7d6', border:'#f59e0b', text:'#7a5900', label:'Próximo do vencimento' },
     due_today:   { key:'due_today',   bg:'#fde8e8', border:'#dc2626', text:'#991b1b', label:'Na data de vencimento' },
-    // Em andamento (dentro do prazo): roxo/índigo para separar do "aberto".
+    // Em andamento / desenvolvimento (dentro do prazo): roxo para separar do "aberto".
     in_progress: { key:'in_progress', bg:'#ede9fe', border:'#7c3aed', text:'#5b21b6', label:'Em andamento' },
+    // Em revisão interna: laranja queimado — distinto do vermelho (atrasado),
+    // do amarelo claro (vai atrasar) e dos roxos (andamento/aguardando).
+    revisao:     { key:'revisao',     bg:'#ffedd5', border:'#ea580c', text:'#9a3412', label:'Em revisão interna' },
+    // Aguardando cliente: roxo (combina com a cor do status no Kanban).
+    waiting:     { key:'waiting',     bg:'#f3e5f5', border:'#7b1fa2', text:'#5a1773', label:'Aguardando cliente' },
+    // Em homologação: ciano/turquesa (combina com a cor do status no Kanban).
+    homolog:     { key:'homolog',     bg:'#d7f3f7', border:'#0097a7', text:'#065a67', label:'Em homologação' },
     // Negada: cinza neutro — não é atraso, saiu do fluxo sem conclusão.
     denied:      { key:'denied',      bg:'#f1f1f3', border:'#9ca3af', text:'#4b5563', label:'Negada' },
     none:        { key:'none',        bg:'#eef1f4', border:'#94a3b8', text:'#475569', label:'Sem prazo definido' },
 };
 
-// Status que representam "trabalho em andamento" (já saiu de aberto e ainda não
-// concluiu/negou). Usados para dar cor própria quando estão dentro do prazo.
-const IN_PROGRESS_STATUSES = ['in_progress', 'em_revisao_interna', 'waiting_client', 'em_homologacao', 'aprovado_producao'];
+// Status de "em homologação" (inclui aprovado p/ produção, etapa final) — cor própria.
+const HOMOLOG_STATUSES = ['em_homologacao', 'aprovado_producao'];
+// Status de ETAPA avançada do fluxo: já saíram do desenvolvimento e aguardam
+// outra pessoa/etapa. Mostram a cor do status MESMO vencidos (um "atraso" aqui
+// não é atraso de desenvolvimento, então não deve virar o vermelho de overdue).
+const REVISAO_STATUSES = ['em_revisao_interna'];
+const WAITING_STATUSES = ['waiting_client'];
+// "Em desenvolvimento" de fato: aberto e em andamento. SÓ estes viram vermelho
+// quando vencem — é onde o prazo realmente cobra ação.
+const IN_PROGRESS_STATUSES = ['in_progress'];
 
 // Janela (em dias) que caracteriza "próximo do vencimento".
 const NEAR_DUE_DAYS = 2;
@@ -2304,15 +2832,23 @@ function deadlineCategory(ev, todayRef) {
     const today = startOfDay(todayRef || new Date());
     const completed = isCompletedStatus(ev.status);
     const denied = ev.status === 'denied';
+    const homolog = HOMOLOG_STATUSES.indexOf(ev.status) !== -1;
+    const revisao = REVISAO_STATUSES.indexOf(ev.status) !== -1;
+    const waiting = WAITING_STATUSES.indexOf(ev.status) !== -1;
     const inProgress = IN_PROGRESS_STATUSES.indexOf(ev.status) !== -1;
 
-    // Status encerrados têm cor própria, independem de prazo:
-    // - Concluída -> verde; Negada -> cinza neutro (não é atraso).
+    // Status com COR PRÓPRIA que prevalece sobre o prazo (não viram vermelho de
+    // atraso): concluída (verde), negada (cinza), e as etapas avançadas do fluxo
+    // — revisão interna, aguardando cliente e homologação. Nessas etapas o card
+    // já saiu do desenvolvimento, então "vencido" não deve parecer atraso de dev.
     if (completed) return DEADLINE_COLORS.done;
-    if (denied) return DEADLINE_COLORS.denied;
+    if (denied)    return DEADLINE_COLORS.denied;
+    if (revisao)   return DEADLINE_COLORS.revisao;
+    if (waiting)   return DEADLINE_COLORS.waiting;
+    if (homolog)   return DEADLINE_COLORS.homolog;
 
+    // A partir daqui: open / in_progress (em desenvolvimento). O prazo cobra ação.
     if (!ev.due_date) {
-        // Sem prazo: em andamento ganha o roxo; aberto fica neutro.
         return inProgress ? DEADLINE_COLORS.in_progress : DEADLINE_COLORS.none;
     }
 
@@ -2320,13 +2856,11 @@ function deadlineCategory(ev, todayRef) {
     const isPast = due < today;
     const isToday = due.getTime() === today.getTime();
 
-    // Atraso é atraso: vencido/vence-hoje fica vermelho mesmo em andamento,
-    // para o alerta de prazo não ser mascarado pelo status.
+    // Vencido/vence-hoje em desenvolvimento → vermelho (alerta de prazo real).
     if (isPast) return DEADLINE_COLORS.overdue;
     if (isToday) return DEADLINE_COLORS.due_today;
 
-    // Futuro e dentro do prazo: em andamento (roxo) tem prioridade sobre a
-    // leitura de "aberto" (azul on_track / amarelo near_due).
+    // Futuro e dentro do prazo: em andamento (roxo) tem prioridade sobre "aberto".
     if (inProgress) return DEADLINE_COLORS.in_progress;
     const diffDays = Math.round((due - today) / 86400000);
     if (diffDays <= NEAR_DUE_DAYS) return DEADLINE_COLORS.near_due;
@@ -2553,8 +3087,18 @@ function renderCalendar(start, end) {
             weekDates.forEach((d, i) => {
                 const isOther = d.getMonth() !== calDate.getMonth();
                 const isToday = d.getTime() === today.getTime();
-                html += `<div class="cal-month-day-num ${isOther?'other-month':''} ${isToday?'today':''}">
+                const ymd = calYmd(d);
+                // Recesso: pinta o dia e mostra o nome do período no title.
+                const rec = recessForYmd(ymd);
+                const recClass = rec ? 'is-recess' : '';
+                const recTitle = rec ? ('title="Recesso: ' + escAttr(rec.title) + '"') : '';
+                // Botão "+" (aparece no hover do dia): cria um card já com o prazo
+                // de entrega preenchido com este dia. Igual ao atalho da agenda.
+                html += `<div class="cal-month-day-num ${isOther?'other-month':''} ${isToday?'today':''} ${recClass}" ${recTitle}>
                     <span class="day-number">${d.getDate()}</span>
+                    <button type="button" class="cal-day-add" title="Novo card com prazo ${d.getDate()}" onclick="openCreateForDate('${ymd}')" aria-label="Criar card neste dia">
+                        <i class="bi bi-plus-lg"></i>
+                    </button>
                 </div>`;
             });
             html += '</div>';

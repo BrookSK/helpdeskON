@@ -14,6 +14,131 @@ class WhatsappContact
         return $this->db->fetch("SELECT * FROM whatsapp_contacts WHERE id = ?", [$id]);
     }
 
+    /** Verifica (com cache) se uma coluna existe (migrations opcionais, ex.: 172). */
+    private function hasColumn(string $table, string $column): bool
+    {
+        static $cache = [];
+        $key = $table . '.' . $column;
+        if (!isset($cache[$key])) {
+            try {
+                $r = $this->db->fetch(
+                    "SELECT 1 FROM information_schema.COLUMNS
+                     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?",
+                    [$table, $column]
+                );
+                $cache[$key] = (bool) $r;
+            } catch (\Throwable $e) {
+                $cache[$key] = false;
+            }
+        }
+        return $cache[$key];
+    }
+
+    // =========================================
+    // MENÇÕES (@) EM GRUPOS
+    // =========================================
+
+    /**
+     * Nomes conhecidos para o autocomplete do @ de um grupo.
+     *  - by_jid: quem já mandou mensagem NESTE grupo (participant_jid => sender_name);
+     *  - by_phone_key: nome salvo no chat/CRM (contact_name, senão push_name) dos
+     *    telefones informados, indexado pelo phoneKey (casa com/sem 9º dígito).
+     */
+    public function getMentionNameMaps(int $groupContactId, array $phones): array
+    {
+        $byJid = [];
+        $rows = $this->db->fetchAll(
+            "SELECT participant_jid, MAX(sender_name) AS sender_name
+             FROM whatsapp_messages
+             WHERE contact_id = ? AND from_me = 0
+               AND participant_jid IS NOT NULL AND participant_jid <> ''
+               AND sender_name IS NOT NULL AND sender_name <> ''
+             GROUP BY participant_jid",
+            [$groupContactId]
+        );
+        foreach ($rows as $r) {
+            $byJid[(string) $r['participant_jid']] = (string) $r['sender_name'];
+        }
+
+        $byPhoneKey = [];
+        $last8 = [];
+        foreach ($phones as $p) {
+            $d = preg_replace('/\D/', '', (string) $p);
+            if (strlen($d) >= 8) $last8[substr($d, -8)] = true;
+        }
+        if ($last8) {
+            $keys = array_keys($last8);
+            $ph = implode(',', array_fill(0, count($keys), '?'));
+            $contacts = $this->db->fetchAll(
+                "SELECT phone, contact_name, push_name FROM whatsapp_contacts
+                 WHERE is_group = 0 AND phone IS NOT NULL AND RIGHT(phone, 8) IN ($ph)
+                 ORDER BY (contact_name IS NULL OR contact_name = '') ASC, id ASC",
+                $keys
+            );
+            foreach ($contacts as $c) {
+                $key = WhatsappMentionRules::phoneKeyOf((string) $c['phone']);
+                $name = trim((string) ($c['contact_name'] ?: $c['push_name']));
+                if ($key !== '' && $name !== '' && !isset($byPhoneKey[$key])) {
+                    $byPhoneKey[$key] = $name;
+                }
+            }
+        }
+
+        return ['by_jid' => $byJid, 'by_phone_key' => $byPhoneKey];
+    }
+
+    /**
+     * Participantes do grupo vistos no histórico local (quem já mandou
+     * mensagem), no formato de /group/participants. Usado quando a Evolution
+     * não responde.
+     */
+    public function getLocalGroupParticipants(int $groupContactId): array
+    {
+        $rows = $this->db->fetchAll(
+            "SELECT participant_jid, MAX(sender_name) AS sender_name
+             FROM whatsapp_messages
+             WHERE contact_id = ? AND from_me = 0
+               AND participant_jid IS NOT NULL AND participant_jid <> ''
+             GROUP BY participant_jid",
+            [$groupContactId]
+        );
+        return array_map(
+            fn($r) => ['id' => (string) $r['participant_jid'], 'name' => (string) $r['sender_name']],
+            $rows
+        );
+    }
+
+    /**
+     * Grupos com menção ao nosso número ainda não vista, para o aviso (toast).
+     * Traz a menção mais recente de cada grupo. [] sem a migration 172.
+     *
+     * @param int[] $instanceIds instâncias cujas menções este usuário recebe
+     */
+    public function getUnreadMentionNotifications(array $instanceIds, int $limit = 5): array
+    {
+        $instanceIds = array_values(array_filter(array_map('intval', $instanceIds)));
+        if (empty($instanceIds)
+            || !$this->hasColumn('whatsapp_contacts', 'mention_count')
+            || !$this->hasColumn('whatsapp_messages', 'mentions_me')) {
+            return [];
+        }
+        $ph = implode(',', array_fill(0, count($instanceIds), '?'));
+        $limit = max(1, min(20, $limit));
+        return $this->db->fetchAll(
+            "SELECT c.id AS contact_id, c.contact_name, c.phone, c.mention_count, c.unread_count,
+                    m.sender_name, m.message_text, m.message_type, m.timestamp
+             FROM whatsapp_contacts c
+             JOIN whatsapp_messages m ON m.id = (
+                 SELECT MAX(m2.id) FROM whatsapp_messages m2
+                 WHERE m2.contact_id = c.id AND m2.mentions_me = 1
+             )
+             WHERE c.is_group = 1 AND c.mention_count > 0 AND c.instance_id IN ($ph)
+             ORDER BY m.id DESC
+             LIMIT {$limit}",
+            $instanceIds
+        );
+    }
+
     public function findByJid($instanceId, $remoteJid)
     {
         return $this->db->fetch(
@@ -534,7 +659,22 @@ class WhatsappContact
      */
     public function clearUnread($id)
     {
-        return $this->db->update('whatsapp_contacts', ['unread_count' => 0], 'id = ?', [$id]);
+        // Abrir a conversa também "lê" as menções (some o "@" da lista).
+        $data = ['unread_count' => 0];
+        if ($this->hasColumn('whatsapp_contacts', 'mention_count')) {
+            $data['mention_count'] = 0;
+        }
+        return $this->db->update('whatsapp_contacts', $data, 'id = ?', [$id]);
+    }
+
+    /**
+     * Zera só as menções (o atendente está com o grupo aberto e a mensagem que
+     * o marcou acabou de aparecer na tela).
+     */
+    public function clearMentions($id)
+    {
+        if (!$this->hasColumn('whatsapp_contacts', 'mention_count')) return 0;
+        return $this->db->update('whatsapp_contacts', ['mention_count' => 0], 'id = ?', [$id]);
     }
 
     // =========================================

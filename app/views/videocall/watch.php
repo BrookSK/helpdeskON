@@ -261,7 +261,7 @@ function renderSegments() {
         list.innerHTML = '';
         empty.style.display = 'block';
         empty.innerHTML = transcriptionStateHtml();
-        if (INFO.canManage && (status === 'queued' || status === 'processing')) pollStatus();
+        if (status === 'queued' || status === 'processing') pollStatus();
         return;
     }
     empty.style.display = 'none';
@@ -692,20 +692,25 @@ function encodeWav(samples, sampleRate) {
     }
     return new Blob([view], { type: 'audio/wav' });
 }
-// Se outra pessoa iniciou a transcrição, acompanha o status.
+// Enquanto a transcrição está na fila, acompanha o status. A página pública
+// (sem login) usa o status público, que só traz o que ela já pode mostrar.
 let pollTimer = null;
 function pollStatus() {
     if (pollTimer) return;
+    const statusUrl = INFO.canManage
+        ? `${BASE}/videocall/recordingInfo/${REC_TOKEN}`
+        : `${BASE}/videocall/shareStatus/${REC_TOKEN}`;
     pollTimer = setInterval(async () => {
         try {
-            const r = await fetch(`${BASE}/videocall/recordingInfo/${REC_TOKEN}`).then(x => x.json());
+            const r = await fetch(statusUrl, { cache: 'no-store' }).then(x => x.json());
             if (r.status === 'done') {
                 segments = r.transcript_json || [];
                 minutes = (r.minutes_structured && typeof r.minutes_structured === 'object') ? r.minutes_structured : null;
                 status = 'done';
                 renderSegments(); renderMinutes();
                 // A minuta sai logo depois da transcrição: espera por ela também.
-                if (minutes || r.minutes_status === 'error') { clearInterval(pollTimer); pollTimer = null; }
+                // A página pública só mostra minuta já enviada: não espera por ela.
+                if (minutes || r.minutes_status === 'error' || !INFO.canManage) { clearInterval(pollTimer); pollTimer = null; }
             } else if (r.status === 'error') {
                 clearInterval(pollTimer); pollTimer = null;
                 status = 'error';

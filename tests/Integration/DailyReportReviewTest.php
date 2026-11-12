@@ -576,4 +576,45 @@ final class DailyReportReviewTest extends TestCase
         $this->assertContains($dentro, $acked, 'Data dentro da janela deve aparecer');
         $this->assertNotContains($fora, $acked, 'Data fora da janela não deve aparecer');
     }
+
+    // =========================================================================
+    // "Reprovar tudo" por pessoa (rejectAllForUser): recusa em lote
+    // =========================================================================
+
+    public function testReprovarTudoRecusaPendentesDaPessoaSemAlterarRelatorio(): void
+    {
+        // Relatório com título original e uma edit_request que PROPÕE outro título.
+        $reportId = $this->novoRdo($this->userA, [
+            'review_status' => 'pending_review',
+            'title'         => 'Título original',
+        ]);
+        $r1 = $this->criarRevisao(
+            $reportId,
+            'edit_request',
+            $this->userA,
+            json_encode(['current' => ['title' => 'Título original'], 'proposed' => ['title' => 'Título proposto']])
+        );
+        $r2 = $this->criarRevisao($reportId, 'late_fill', $this->userA);
+
+        // Simula o rejectAllForUser (o que o controller faz): recusa cada pendente.
+        $pendentes = $this->model->getPendingReviewsForUser($this->userA);
+        foreach ($pendentes as $rev) {
+            $this->model->updateReview((int) $rev['id'], [
+                'status'      => 'rejected',
+                'reviewed_by' => $this->admin,
+                'reviewed_at' => date('Y-m-d H:i:s'),
+            ]);
+        }
+
+        // Nenhuma pendência restante para a pessoa.
+        $this->assertEmpty($this->model->getPendingReviewsForUser($this->userA), 'Após reprovar tudo, não deve sobrar pendência.');
+
+        // Relatório permanece INTACTO (a proposta NÃO é aplicada na recusa).
+        $report = $this->model->findById($reportId);
+        $this->assertSame('Título original', $report['title'], 'Recusar não aplica o título proposto.');
+
+        // As duas revisões ficaram marcadas como rejected.
+        $this->assertSame('rejected', $this->model->findReview($r1)['status']);
+        $this->assertSame('rejected', $this->model->findReview($r2)['status']);
+    }
 }

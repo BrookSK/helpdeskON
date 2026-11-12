@@ -32,7 +32,7 @@ final class PayableTest extends TestCase
             'engagement_type' => 'pj',
             'pay_type' => 'projeto',
             'pay_amount' => 9000,
-            'status' => 'draft',
+            'status' => 'prospect',
         ]);
     }
 

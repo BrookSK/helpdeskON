@@ -432,9 +432,41 @@ class PlanningScheduleRules
         'near_due'    => ['key' => 'near_due',    'bg' => '#fef7d6', 'border' => '#f59e0b', 'text' => '#7a5900', 'label' => 'Próximo do vencimento'],
         'due_today'   => ['key' => 'due_today',   'bg' => '#fde8e8', 'border' => '#dc2626', 'text' => '#991b1b', 'label' => 'Na data de vencimento'],
         'in_progress' => ['key' => 'in_progress', 'bg' => '#ede9fe', 'border' => '#7c3aed', 'text' => '#5b21b6', 'label' => 'Em andamento'],
+        // Etapas avançadas do fluxo: cor própria, mesmo com prazo vencido
+        // (igual ao calendário da tela — não é atraso de desenvolvimento).
+        'revisao'     => ['key' => 'revisao',     'bg' => '#ffedd5', 'border' => '#ea580c', 'text' => '#9a3412', 'label' => 'Em revisão interna'],
+        'waiting'     => ['key' => 'waiting',     'bg' => '#f3e5f5', 'border' => '#7b1fa2', 'text' => '#5a1773', 'label' => 'Aguardando cliente'],
+        'homolog'     => ['key' => 'homolog',     'bg' => '#d7f3f7', 'border' => '#0097a7', 'text' => '#065a67', 'label' => 'Em homologação'],
         'denied'      => ['key' => 'denied',      'bg' => '#f1f1f3', 'border' => '#9ca3af', 'text' => '#4b5563', 'label' => 'Negada'],
         'none'        => ['key' => 'none',        'bg' => '#eef1f4', 'border' => '#94a3b8', 'text' => '#475569', 'label' => 'Sem prazo definido'],
     ];
+
+    /** Status de etapa avançada => categoria de cor própria (espelha o calendário da tela). */
+    public const STAGE_CATEGORY = [
+        'em_revisao_interna' => 'revisao',
+        'waiting_client'     => 'waiting',
+        'em_homologacao'     => 'homolog',
+        'aprovado_producao'  => 'homolog',
+    ];
+
+    /**
+     * Legenda do PDF: só as categorias que aparecem nos cards exportados, na
+     * ordem da paleta (evita listar cores que o cliente não vai encontrar).
+     *
+     * @return array<int,array> entradas de DEADLINE_COLORS
+     */
+    public static function legendForCards(array $cards, ?string $todayStr = null): array
+    {
+        $used = [];
+        foreach ($cards as $card) {
+            $used[self::deadlineCategory($card, $todayStr)['key']] = true;
+        }
+        $out = [];
+        foreach (self::DEADLINE_COLORS as $key => $cat) {
+            if (isset($used[$key])) $out[] = $cat;
+        }
+        return $out;
+    }
 
     /** Converte uma data (string Y-m-d...) para 'Y-m-d' (meia-noite). Null se inválida. */
     private static function dayKey($value): ?string
@@ -464,6 +496,12 @@ class PlanningScheduleRules
 
         if ($completed) return self::DEADLINE_COLORS['done'];
         if ($denied) return self::DEADLINE_COLORS['denied'];
+
+        // Etapas avançadas (revisão interna, aguardando cliente, homologação /
+        // aprovado p/ produção) mostram a cor do status mesmo vencidas, como no
+        // calendário da tela: o card já saiu do desenvolvimento.
+        $stageKey = self::STAGE_CATEGORY[$status] ?? null;
+        if ($stageKey !== null) return self::DEADLINE_COLORS[$stageKey];
 
         $due = self::dayKey($card['due_date'] ?? null);
         if ($due === null) {
