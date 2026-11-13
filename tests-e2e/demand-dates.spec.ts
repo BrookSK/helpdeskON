@@ -112,11 +112,9 @@ test.describe('Datas da demanda — definidas pela equipe', () => {
     await card.locator('input[name="data_inicio"]').fill('2026-12-01');
     await card.locator('input[name="data_termino"]').fill('2026-12-10');
     await card.locator('input[name="data_prevista_entrega"]').fill('2026-12-15');
-    await Promise.all([
-      page.waitForURL(new RegExp(`tickets/show/${ticketId}`)),
-      card.getByRole('button', { name: 'Salvar datas' }).click(),
-    ]);
-    await expect(page.getByText('Datas da demanda atualizadas.')).toBeVisible();
+    // Botão único no topo: salva as seções alteradas e recarrega a página.
+    await page.locator('#btn-save-all').click();
+    await expect(page.getByText('Alterações salvas.')).toBeVisible();
     await expect(page.locator('#demand-dates-card input[name="data_inicio"]')).toHaveValue('2026-12-01');
 
     let d = dates(ticketId);
@@ -124,10 +122,8 @@ test.describe('Datas da demanda — definidas pela equipe', () => {
 
     // Limpar a data de término.
     await page.locator('#demand-dates-card input[name="data_termino"]').fill('');
-    await Promise.all([
-      page.waitForURL(new RegExp(`tickets/show/${ticketId}`)),
-      page.locator('#demand-dates-card').getByRole('button', { name: 'Salvar datas' }).click(),
-    ]);
+    await page.locator('#btn-save-all').click();
+    await expect(page.getByText('Alterações salvas.')).toBeVisible();
     d = dates(ticketId);
     expect([d.data_inicio, d.data_termino, d.data_prevista_entrega]).toEqual(['2026-12-01', null, '2026-12-15']);
   });

@@ -45,6 +45,22 @@ if (!function_exists('scopeRejectedBadge')) {
 }
 ?>
 
+<style>
+    .dm-title-cell { min-width: 240px; max-width: 360px; }
+    .dm-title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-weight: 600; color: #1f2937; text-decoration: none; line-height: 1.25; }
+    .dm-title:hover { color: #0d9488; text-decoration: underline; }
+    .dm-company { font-size: 0.75rem; color: #6b7280; margin-top: 2px; }
+    .dm-sub { font-size: 0.72rem; }
+    .dm-unassigned { display: inline-block; font-size: 0.75rem; font-weight: 600; color: #b45309; background: #fef3c7; border: 1px solid #fcd34d; border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
+    .dm-row-unassigned { box-shadow: inset 3px 0 0 #f59e0b; }
+    .dm-prev { font-size: 0.82rem; font-weight: 600; white-space: nowrap; }
+    .dm-prev-late { color: #dc2626; }
+    .dm-prev-soon { color: #d97706; }
+    .dm-prev-ok { color: #047857; }
+    .dm-prev-done { color: #6b7280; }
+    .table td { vertical-align: middle; }
+</style>
+
 <div class="main-content">
     <div class="top-bar">
         <div>
@@ -142,12 +158,14 @@ if (!function_exists('scopeRejectedBadge')) {
                     <thead class="table-light">
                         <tr>
                             <th>#</th>
-                            <th>Título</th>
+                            <th>Demanda</th>
                             <th>Categoria</th>
-                            <th>Empresa</th>
-                            <th>Atendente</th>
+                            <th>Aberto por</th>
+                            <th>Responsável</th>
                             <th>Status</th>
                             <th>Prioridade</th>
+                            <th>Data de início</th>
+                            <th>Data de término</th>
                             <th>Previsão de término</th>
                             <th>Atualizado</th>
                             <th></th>
@@ -155,23 +173,60 @@ if (!function_exists('scopeRejectedBadge')) {
                     </thead>
                     <tbody>
                         <?php foreach ($cards ?? [] as $c): ?>
-                        <tr>
-                            <td><?= $c['id'] ?></td>
-                            <td class="text-truncate" style="max-width:220px"><?= escape($c['title']) ?></td>
+                        <?php
+                        $noAssignee = empty($c['assigned_to']) && empty($c['assigned_name']);
+                        $isClosed = in_array($c['status'] ?? '', ['completed', 'archived', 'denied'], true);
+                        $prevTs = !empty($c['data_prevista_entrega']) ? strtotime($c['data_prevista_entrega']) : null;
+                        $prevClass = 'dm-prev-none';
+                        $prevHint = '';
+                        if ($prevTs && !$isClosed) {
+                            $daysLeft = (int)floor(($prevTs - strtotime(date('Y-m-d'))) / 86400);
+                            if ($daysLeft < 0) { $prevClass = 'dm-prev-late'; $prevHint = 'Atrasada há ' . abs($daysLeft) . 'd'; }
+                            elseif ($daysLeft === 0) { $prevClass = 'dm-prev-soon'; $prevHint = 'Vence hoje'; }
+                            elseif ($daysLeft <= 3) { $prevClass = 'dm-prev-soon'; $prevHint = 'Em ' . $daysLeft . 'd'; }
+                            else { $prevClass = 'dm-prev-ok'; $prevHint = 'Em ' . $daysLeft . 'd'; }
+                        } elseif ($prevTs) {
+                            $prevClass = 'dm-prev-done';
+                        }
+                        ?>
+                        <tr class="<?= $noAssignee && !$isClosed ? 'dm-row-unassigned' : '' ?>">
+                            <td class="text-muted small">#<?= $c['id'] ?></td>
+                            <td class="dm-title-cell">
+                                <a href="<?= baseUrl('tickets/showCard/' . $c['id']) ?>" class="dm-title" title="<?= escape($c['title']) ?>"><?= escape($c['title']) ?></a>
+                                <div class="dm-company"><i class="bi bi-building"></i> <?= escape($c['company_name'] ?? '-') ?></div>
+                            </td>
                             <td>
                                 <?php if (!empty($c['category'])): ?>
-                                <span class="badge <?= categoryBadgeClass($c['category']) ?>" style="font-size:0.68rem;<?= categoryBadgeStyle($c['category']) ?>"><?= escape(categoryLabel($c['category'])) ?></span>
+                                <span class="badge <?= categoryBadgeClass($c['category']) ?>" style="font-size:0.72rem;<?= categoryBadgeStyle($c['category']) ?>"><?= escape(categoryLabel($c['category'])) ?></span>
                                 <?php else: ?>
                                 <span class="text-muted">-</span>
                                 <?php endif; ?>
                             </td>
-                            <td><?= escape($c['company_name'] ?? '-') ?></td>
-                            <td><?= escape($c['assigned_name'] ?? 'Não atribuído') ?></td>
+                            <td>
+                                <div class="small fw-medium"><?= escape($c['created_by_name'] ?? '-') ?></div>
+                                <div class="text-muted dm-sub"><?= !empty($c['created_at']) ? date('d/m/Y H:i', strtotime($c['created_at'])) : '-' ?></div>
+                            </td>
+                            <td>
+                                <?php if ($noAssignee): ?>
+                                <span class="dm-unassigned"><i class="bi bi-person-exclamation"></i> Sem responsável</span>
+                                <?php else: ?>
+                                <span class="small fw-medium"><i class="bi bi-person-check text-muted"></i> <?= escape($c['assigned_name'] ?? '-') ?></span>
+                                <?php endif; ?>
+                            </td>
                             <td><span class="badge-status badge-<?= $c['status'] ?>"><?= statusLabel($c['status']) ?></span><?= scopeRejectedBadge($c['scope_rejected_reason'] ?? null) ?></td>
                             <td><span class="priority-<?= $c['priority'] ?>"><?= priorityLabel($c['priority']) ?></span></td>
-                            <td><?= !empty($c['data_prevista_entrega']) ? date('d/m/Y', strtotime($c['data_prevista_entrega'])) : '<span class="text-muted">-</span>' ?></td>
-                            <td><?= !empty($c['updated_at']) ? timeAgo($c['updated_at']) : (!empty($c['created_at']) ? timeAgo($c['created_at']) : '-') ?></td>
+                            <td class="small text-nowrap"><?= !empty($c['data_inicio']) ? date('d/m/Y', strtotime($c['data_inicio'])) : '<span class="text-muted">-</span>' ?></td>
+                            <td class="small text-nowrap"><?= !empty($c['data_termino']) ? date('d/m/Y', strtotime($c['data_termino'])) : '<span class="text-muted">-</span>' ?></td>
                             <td>
+                                <?php if ($prevTs): ?>
+                                <div class="dm-prev <?= $prevClass ?>"><i class="bi bi-calendar-check"></i> <?= date('d/m/Y', $prevTs) ?></div>
+                                <?php if ($prevHint): ?><div class="dm-sub <?= $prevClass ?>"><?= $prevHint ?></div><?php endif; ?>
+                                <?php else: ?>
+                                <span class="text-muted">-</span>
+                                <?php endif; ?>
+                            </td>
+                            <td class="small text-muted"><?= !empty($c['updated_at']) ? timeAgo($c['updated_at']) : (!empty($c['created_at']) ? timeAgo($c['created_at']) : '-') ?></td>
+                            <td class="text-nowrap">
                                 <a href="<?= baseUrl('tickets/showCard/' . $c['id']) ?>" class="btn btn-sm btn-outline-primary">Ver</a>
                                 <?php if (($user['role'] ?? '') === 'super_admin'): ?>
                                 <form action="<?= baseUrl('planning/delete/' . $c['id']) ?>" method="POST" class="d-inline" onsubmit="return confirm('Excluir PERMANENTEMENTE o card #<?= $c['id'] ?>? Esta ação não pode ser desfeita.');">
@@ -182,7 +237,7 @@ if (!function_exists('scopeRejectedBadge')) {
                         </tr>
                         <?php endforeach; ?>
                         <?php if (empty($cards)): ?>
-                        <tr><td colspan="10" class="text-center text-muted py-4">Nenhuma demanda encontrada.</td></tr>
+                        <tr><td colspan="12" class="text-center text-muted py-4">Nenhuma demanda encontrada.</td></tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
@@ -200,11 +255,24 @@ if (!function_exists('scopeRejectedBadge')) {
                         <span class="badge <?= categoryBadgeClass($c['category']) ?>" style="font-size:0.65rem;<?= categoryBadgeStyle($c['category']) ?>"><?= escape(categoryLabel($c['category'])) ?></span>
                         <?php endif; ?>
                         <span class="text-muted"><i class="bi bi-building"></i> <?= escape($c['company_name'] ?? '-') ?></span>
-                        <span class="text-muted"><i class="bi bi-person"></i> <?= escape($c['assigned_name'] ?? 'Não atribuído') ?></span>
+                        <?php if (empty($c['assigned_to']) && empty($c['assigned_name'])): ?>
+                        <span class="dm-unassigned"><i class="bi bi-person-exclamation"></i> Sem responsável</span>
+                        <?php else: ?>
+                        <span class="text-muted"><i class="bi bi-person-check"></i> <?= escape($c['assigned_name'] ?? '-') ?></span>
+                        <?php endif; ?>
                         <span class="priority-<?= $c['priority'] ?>"><?= priorityLabel($c['priority']) ?></span>
+                        <?php if (!empty($c['data_inicio'])): ?>
+                        <span class="text-muted"><i class="bi bi-play-circle"></i> Início: <?= date('d/m/Y', strtotime($c['data_inicio'])) ?></span>
+                        <?php endif; ?>
+                        <?php if (!empty($c['data_termino'])): ?>
+                        <span class="text-muted"><i class="bi bi-flag"></i> Término: <?= date('d/m/Y', strtotime($c['data_termino'])) ?></span>
+                        <?php endif; ?>
                         <?php if (!empty($c['data_prevista_entrega'])): ?>
                         <span class="text-muted"><i class="bi bi-calendar-check"></i> Prev.: <?= date('d/m/Y', strtotime($c['data_prevista_entrega'])) ?></span>
                         <?php endif; ?>
+                    </div>
+                    <div class="text-muted mt-1" style="font-size:0.72rem">
+                        Aberto por <?= escape($c['created_by_name'] ?? '-') ?><?= !empty($c['created_at']) ? ' em ' . date('d/m/Y H:i', strtotime($c['created_at'])) : '' ?>
                     </div>
                 </a>
                 <?php endforeach; ?>
