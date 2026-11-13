@@ -5,7 +5,24 @@ class Database
     private static $instance = null;
     private $pdo;
 
+    /**
+     * Códigos do cliente/servidor MySQL/MariaDB que indicam conexão perdida:
+     * 2006 server has gone away, 2013 lost connection, 4031 desconectado por
+     * inatividade (MySQL 8), 1927 connection was killed (MariaDB).
+     */
+    private const CONNECTION_LOST_CODES = [2006, 2013, 4031, 1927];
+
     private function __construct()
+    {
+        try {
+            $this->connect();
+        } catch (PDOException $e) {
+            die('Erro de conexão com o banco: ' . $e->getMessage());
+        }
+    }
+
+    /** Abre (ou reabre) a conexão PDO. */
+    private function connect(): void
     {
         $configFile = BASE_PATH . '/config/database.php';
         if (!file_exists($configFile)) {
@@ -13,26 +30,75 @@ class Database
         }
         $config = require $configFile;
 
-        try {
-            $dsn = "mysql:host={$config['host']};port={$config['port']};dbname={$config['database']};charset=utf8mb4";
-            $this->pdo = new PDO($dsn, $config['username'], $config['password'], [
-                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-                PDO::ATTR_EMULATE_PREPARES => false,
-            ]);
+        $dsn = "mysql:host={$config['host']};port={$config['port']};dbname={$config['database']};charset=utf8mb4";
+        $this->pdo = new PDO($dsn, $config['username'], $config['password'], [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES => false,
+        ]);
 
-            // Alinha o fuso da SESSÃO MySQL ao horário do Brasil (UTC-03:00), o
-            // mesmo usado pelo PHP (date_default_timezone_set). Assim, colunas
-            // preenchidas pelo banco (ex.: CURRENT_TIMESTAMP em sequence_executions)
-            // ficam no mesmo fuso das datas geradas pelo PHP, evitando horários
-            // deslocados/"voltando no tempo" no acompanhamento. Brasil não usa mais
-            // horário de verão desde 2019, então o offset fixo é estável.
-            try {
-                $this->pdo->exec("SET time_zone = '-03:00'");
-            } catch (\Throwable $e) { /* se o servidor recusar, mantém o padrão */ }
-        } catch (PDOException $e) {
-            die('Erro de conexão com o banco: ' . $e->getMessage());
+        // Alinha o fuso da SESSÃO MySQL ao horário do Brasil (UTC-03:00), o
+        // mesmo usado pelo PHP (date_default_timezone_set). Assim, colunas
+        // preenchidas pelo banco (ex.: CURRENT_TIMESTAMP em sequence_executions)
+        // ficam no mesmo fuso das datas geradas pelo PHP, evitando horários
+        // deslocados/"voltando no tempo" no acompanhamento. Brasil não usa mais
+        // horário de verão desde 2019, então o offset fixo é estável.
+        try {
+            $this->pdo->exec("SET time_zone = '-03:00'");
+        } catch (\Throwable $e) { /* se o servidor recusar, mantém o padrão */ }
+    }
+
+    /**
+     * Fecha a conexão atual e abre outra. Quem guardou o objeto Database
+     * (models) passa a usar a nova; quem guardou o PDO de getConnection() não.
+     */
+    public function reconnect(): void
+    {
+        $this->pdo = null;
+        $this->connect();
+    }
+
+    /** A exceção indica que o servidor derrubou a conexão? */
+    public static function isConnectionLost(\Throwable $e): bool
+    {
+        $code = null;
+        if ($e instanceof PDOException && isset($e->errorInfo[1]) && is_numeric($e->errorInfo[1])) {
+            $code = (int) $e->errorInfo[1];
+        } elseif (preg_match('/General error:\s*(\d+)/', $e->getMessage(), $m)) {
+            $code = (int) $m[1];
         }
+        if ($code !== null && in_array($code, self::CONNECTION_LOST_CODES, true)) return true;
+
+        $msg = strtolower($e->getMessage());
+        return str_contains($msg, 'server has gone away') || str_contains($msg, 'lost connection to');
+    }
+
+    /**
+     * Prepara o comando. Se a conexão caiu enquanto o processo estava parado
+     * (ex.: cron montando um vídeo grande por vários minutos, além do
+     * wait_timeout do servidor), reconecta e tenta de novo uma única vez.
+     *
+     * É seguro repetir porque a falha acontece no prepare, antes de qualquer
+     * execução. Dentro de uma transação não reconecta: a transação já se
+     * perdeu no servidor e continuar numa conexão nova gravaria pela metade.
+     */
+    private function prepare(string $sql): PDOStatement
+    {
+        try {
+            return @$this->pdo->prepare($sql);
+        } catch (PDOException $e) {
+            if (!self::isConnectionLost($e) || $this->inTransactionSafe()) throw $e;
+            if (class_exists('Logger', false)) {
+                Logger::warning('Database: conexão perdida, reconectando', ['error' => $e->getMessage()]);
+            }
+            $this->reconnect();
+            return $this->pdo->prepare($sql);
+        }
+    }
+
+    private function inTransactionSafe(): bool
+    {
+        try { return $this->pdo->inTransaction(); } catch (\Throwable $e) { return true; }
     }
 
     public static function getInstance()
@@ -50,7 +116,7 @@ class Database
 
     public function query($sql, $params = [])
     {
-        $stmt = $this->pdo->prepare($sql);
+        $stmt = $this->prepare($sql);
         $stmt->execute($params);
         return $stmt;
     }

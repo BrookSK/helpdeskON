@@ -55,8 +55,29 @@ class CronController extends Controller
     {
         $this->validateStrictToken();
         @set_time_limit(900);
+        $lock = $this->recordingQueueLock();
+        if ($lock === null) {
+            $this->json(['success' => true, 'stats' => null, 'skipped' => 'outra execução em andamento']);
+        }
         $stats = $this->runTranscriptionQueue();
+        $lock->release();
         $this->json(['success' => true, 'stats' => $stats]);
+    }
+
+    /**
+     * Mesma trava do cron_transcribe.php: uma execução da fila de gravações
+     * por vez, somando CLI, tarefa agendada e rotas HTTP. Null = ocupada.
+     * Se a trava não puder ser criada, também não roda (rodar sem trava é o
+     * que acumulou processos e esgotou as conexões do banco).
+     */
+    private function recordingQueueLock(): ?CronLock
+    {
+        try {
+            return CronLock::tryAcquire(CronLock::RECORDING_QUEUE);
+        } catch (\Throwable $e) {
+            Logger::error('Fila de gravações: não foi possível criar a trava', ['error' => $e->getMessage()]);
+            return null;
+        }
     }
 
     /** Uma execução da fila de transcrição (lote limitado). */
@@ -77,12 +98,15 @@ class CronController extends Controller
     private function processRecordingQueues()
     {
         $out = ['abandoned' => 0, 'transcription' => null];
+        $lock = $this->recordingQueueLock();
+        if ($lock === null) return $out + ['skipped' => 'outra execução em andamento'];
         try { $out['abandoned'] = (new VideocallController())->finalizeAbandonedSessions(); } catch (\Throwable $e) {
             Logger::error('Falha ao publicar sessões de gravação abandonadas', ['error' => $e->getMessage()]);
         }
         try { $out['transcription'] = $this->runTranscriptionQueue(); } catch (\Throwable $e) {
             Logger::error('Falha na fila de transcrição', ['error' => $e->getMessage()]);
         }
+        $lock->release();
         return $out;
     }
 

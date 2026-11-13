@@ -61,6 +61,21 @@ require_once APP_PATH . '/core/Mailer.php';
 
 @set_time_limit(900);
 
+// Uma execução por vez. O cron roda a cada minuto e publicar uma reunião longa
+// leva vários minutos: sem a trava as execuções se acumulavam, cada uma com uma
+// conexão aberta, até o banco recusar conexões. A trava é pega ANTES de abrir
+// qualquer conexão; quem não consegue sai na hora, com sucesso (não é erro).
+try {
+    $lock = CronLock::tryAcquire(CronLock::RECORDING_QUEUE);
+} catch (\Throwable $e) {
+    fwrite(STDERR, '[' . date('Y-m-d H:i:s') . '] Não foi possível criar a trava em storage/locks: ' . $e->getMessage() . "\n");
+    exit(1);
+}
+if ($lock === null) {
+    echo '[' . date('Y-m-d H:i:s') . '] ' . json_encode(['host' => $host, 'skipped' => 'outra execução em andamento'], JSON_UNESCAPED_UNICODE) . "\n";
+    exit(0);
+}
+
 $cfg = require BASE_PATH . '/config/database.php';
 $out = ['host' => $host, 'database' => $cfg['database'] ?? '?', 'abandoned' => 0, 'transcription' => null, 'errors' => []];
 

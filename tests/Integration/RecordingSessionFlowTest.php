@@ -274,4 +274,45 @@ final class RecordingSessionFlowTest extends TestCase
         $this->assertCount(1, (new RecordingSegment())->listByRecording((int)$rec['id']));
         $this->assertTrue($store->isFinalized());
     }
+
+    /**
+     * Caso de produção (13/11/2026): o cron passou minutos montando a reunião
+     * sem falar com o banco, o servidor derrubou a conexão e a publicação
+     * falhava com "2006 MySQL server has gone away". Agora reconecta e publica.
+     */
+    public function testSessaoAbandonadaPublicaMesmoComAConexaoDerrubadaDuranteAMontagem(): void
+    {
+        if (!defined('PUBLIC_PATH')) define('PUBLIC_PATH', BASE_PATH . '/public');
+        $room = $this->novaSala();
+        $store = new RecordingSessionStore($this->sessBase, (int)$room['id'], str_repeat('d', 32));
+        $recToken = $this->model->generateToken();
+        $store->start($this->ownerId, 'Dono', $recToken);
+        $store->appendChunk(1, 'LONGA1', RecordingSessionStore::hashBytes('LONGA1'));
+        $store->appendChunk(2, 'LONGA2', RecordingSessionStore::hashBytes('LONGA2'));
+        $this->audioSeg($store, 1, 'AUDIO1', 0);
+        $journal = $store->dir() . '/journal.json';
+        $j = json_decode(file_get_contents($journal), true);
+        $j['updated_at'] = time() - 960;
+        file_put_contents($journal, json_encode($j));
+
+        $ctrl = new VideocallController();
+        // Derruba a conexão do processo, como o wait_timeout do servidor fez.
+        $id = (int) $this->db->fetch('SELECT CONNECTION_ID() AS id')['id'];
+        $cfg = require BASE_PATH . '/config/database.php';
+        $admin = new \PDO("mysql:host={$cfg['host']};port={$cfg['port']};dbname={$cfg['database']}", $cfg['username'], $cfg['password']);
+        $admin->exec('KILL ' . $id);
+        usleep(200000);
+
+        $this->assertSame(1, $ctrl->finalizeAbandonedSessions(900, $this->sessBase));
+
+        $rec = $this->model->findRecordingByToken($recToken);
+        $this->assertNotEmpty($rec, 'a gravação precisa ter sido registrada');
+        $this->assertSame('LONGA1LONGA2', file_get_contents(BASE_PATH . '/public/uploads/' . $rec['file_path']));
+        $this->assertSame('queued', $rec['transcribe_status']);
+        $this->assertCount(1, (new RecordingSegment())->listByRecording((int)$rec['id']));
+        $this->assertTrue($store->isFinalized());
+        // Rodar de novo não publica outra vez.
+        $this->assertSame(0, $ctrl->finalizeAbandonedSessions(900, $this->sessBase));
+        $this->assertCount(1, $this->model->listRecordings((int)$room['id']));
+    }
 }
