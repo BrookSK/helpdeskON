@@ -217,4 +217,39 @@ test.describe.serial('fluxo comercial: reunião até proposta', () => {
     await a.close();
     await b.close();
   });
+
+  test('sala: vídeo no limite do servidor publica gravação parcial, baixa a cópia e transcreve o áudio', async ({ browser }) => {
+    test.setTimeout(150_000);
+    const room = fixture('room', String(user.id));
+    const ctx = await browser.newContext({ acceptDownloads: true });
+    const page = await ctx.newPage();
+    // Simula o teto de 2 GB do servidor: o 1º pedaço de vídeo entra, os seguintes são recusados (413).
+    let chunks = 0;
+    await page.route('**/videocall/recChunkV2/**', (route) => {
+      chunks++;
+      if (chunks === 1) return route.continue();
+      return route.fulfill({ status: 413, contentType: 'application/json', body: JSON.stringify({ error: 'Limite da sessão atingido.', reason: 'session_limit' }) });
+    });
+
+    await page.goto(`/videocall/room/${room.token}?audio_seg_sec=5`);
+    await page.fill('#lb-name', 'Gravador');
+    await page.click('#lb-join');
+    await expect(page.locator('#call')).toBeVisible({ timeout: 15_000 });
+    const firstChunk = page.waitForResponse((r) => r.url().includes('/videocall/recChunkV2/') && r.status() === 200, { timeout: 90_000 });
+    await page.click('#btn-rec');
+    await firstChunk;
+
+    const download = page.waitForEvent('download', { timeout: 60_000 });
+    await page.click('#btn-rec');
+    await expect(page.locator('#rec-label')).toContainText('limite');
+    await expect(page.locator('#rec-modal')).toBeVisible({ timeout: 60_000 });
+    expect((await download).suggestedFilename()).toMatch(/\.webm$/);
+
+    const r = fixture('room-recording', String(room.id));
+    expect(r.rec).not.toBeNull();
+    expect(Number(r.rec.is_incomplete)).toBe(1);
+    expect(r.rec.transcribe_status).toBe('queued');
+    expect(r.segments.length).toBeGreaterThanOrEqual(1);
+    await ctx.close();
+  });
 });

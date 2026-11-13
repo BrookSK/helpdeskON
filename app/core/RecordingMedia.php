@@ -36,6 +36,12 @@ class RecordingMedia
         'invalid as first byte of an EBML number',
     ];
 
+    /**
+     * Teto para injetar a duração sem FFmpeg (o parser lê o arquivo inteiro na
+     * memória). Acima disso a gravação é publicada sem a duração no cabeçalho.
+     */
+    public const INJECT_DURATION_MAX_BYTES = 67108864; // 64 MiB
+
     // =====================================================================
     // Parte PURA (sem processo) — testável por unidade
     // =====================================================================
@@ -154,6 +160,12 @@ class RecordingMedia
      *
      * @param bool $requireAudio exige stream de áudio para considerar válido
      */
+    /** Diz se o arquivo é pequeno o bastante para injetar a duração na memória. */
+    public static function canInjectDuration(int $bytes): bool
+    {
+        return $bytes > 0 && $bytes <= self::INJECT_DURATION_MAX_BYTES;
+    }
+
     public static function remux(string $src, string $dest, bool $requireAudio = true): ?float
     {
         $ffmpeg = self::ffmpegBin();
