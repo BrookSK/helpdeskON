@@ -60,6 +60,10 @@
       this.carry = new Uint8Array(0); // bytes acumulados que ainda não fecharam 1 MiB
       this.started = false;
       this.failed = false;
+      // Teto do servidor atingido (413): o vídeo para de subir, mas a reunião
+      // continua gravando localmente e os segmentos de áudio seguem subindo.
+      this.limitHit = false;
+      this.onLimit = typeof opts.onLimit === 'function' ? opts.onLimit : null;
       this.audioPump = Promise.resolve(); // fila própria dos segmentos de áudio
     }
 
@@ -179,7 +183,14 @@
           return;
         }
         // Limite de sessão: para de forma controlada; a cópia local é preservada.
-        if (status === 413) { this.failed = true; throw new Error('limit'); }
+        if (status === 413) {
+          this.failed = true;
+          if (!this.limitHit) {
+            this.limitHit = true;
+            if (this.onLimit) { try { this.onLimit(); } catch (e) { /* aviso é opcional */ } }
+          }
+          throw new Error('limit');
+        }
         // Conflito de integridade/sequência não é recuperável por retry cego.
         if (status === 409 || status === 422) { this.failed = true; throw new Error('integrity:' + (res && res.reason || status)); }
         // Transitório (rede, 503/507): retry com backoff limitado.
@@ -249,7 +260,10 @@
      */
     async finalize(durationSec) {
       await this.flushCarry();
-      await this.pump; // propaga erro se algum pedaço falhou de forma definitiva
+      // Propaga erro se algum pedaço falhou de forma definitiva. Teto do servidor
+      // é a exceção: publica o que subiu (parcial) e o áudio da reunião toda.
+      let partial = false;
+      try { await this.pump; } catch (e) { if (!this.limitHit) throw e; partial = true; }
       await this.drainAudio(); // segmentos de áudio sobem antes da publicação
 
       const count = this.chunks.length;
@@ -264,12 +278,13 @@
       fd.append('manifest', manifest);
       fd.append('duration_sec', String(durationSec || 0));
       fd.append('recorded_by_name', this.recordedByName);
+      if (partial) fd.append('partial', '1');
 
       const res = await fetch(`${this.base}/videocall/recFinalizeV2/${this.roomToken}`, { method: 'POST', body: fd })
         .then((r) => r.json()).catch(() => ({ error: 'network' }));
       if (res && res.error) throw new Error('recFinalize: ' + (res.reason || res.error));
       await this._put('meta', { k: 'finalized', token: res.token, at: Date.now() });
-      return { ok: true, token: res.token, url: res.url, duration: res.duration_sec };
+      return { ok: true, token: res.token, url: res.url, duration: res.duration_sec, partial };
     }
 
     /** Monta um Blob local com todos os pedaços gravados (para download de cópia). */
