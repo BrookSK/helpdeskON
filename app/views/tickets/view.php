@@ -1,4 +1,4 @@
-﻿<?php $pageTitle = 'Demanda #' . $ticket['id'] . ' - ON Solutions Helpdesk'; $currentPage = 'tickets'; ?>
+<?php $pageTitle = 'Demanda #' . $ticket['id'] . ' - ON Solutions Helpdesk'; $currentPage = 'tickets'; ?>
 <?php require APP_PATH . '/views/layouts/header.php'; ?>
 <?php require APP_PATH . '/views/layouts/sidebar.php'; ?>
 
@@ -40,7 +40,8 @@ if (!function_exists('categoryLabel')) {
 }
 ?>
 <div class="main-content">
-    <div class="top-bar">
+    <?php $isTeam = ($user['role'] !== 'client'); ?>
+    <div class="top-bar <?= $isTeam ? 'ticket-team-topbar' : '' ?>">
         <div>
             <?php
             $ticketDisplayNumber = ($user['role'] === 'client' && !empty($ticket['client_ticket_number']))
@@ -50,9 +51,18 @@ if (!function_exists('categoryLabel')) {
             <h5 class="mb-0">Demanda #<?= $ticketDisplayNumber ?></h5>
             <small class="text-muted text-truncate d-block" style="max-width:250px"><?= escape($ticket['title']) ?></small>
         </div>
-        <a href="<?= baseUrl('tickets') ?>" class="btn btn-outline-secondary btn-sm">
-            <i class="bi bi-arrow-left"></i> Voltar
-        </a>
+        <div class="d-flex align-items-center gap-2">
+            <?php if ($isTeam): ?>
+            <!-- Botão único de salvar: grava só as seções alteradas (escopo, prazos, suporte, atribuição, status...) -->
+            <span id="save-all-hint" class="small text-muted d-none"><i class="bi bi-pencil"></i> Alterações não salvas</span>
+            <button type="button" id="btn-save-all" class="btn btn-primary btn-sm">
+                <i class="bi bi-check2-circle"></i> Salvar alterações
+            </button>
+            <?php endif; ?>
+            <a href="<?= baseUrl('tickets') ?>" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-arrow-left"></i> Voltar
+            </a>
+        </div>
     </div>
 
     <?php if ($msg = flash('success')): ?>
@@ -65,10 +75,6 @@ if (!function_exists('categoryLabel')) {
         <div class="alert alert-danger alert-dismissible fade show"><?= escape($msg) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
     <?php endif; ?>
 
-    <?php
-    // Papéis de equipe (tudo que não é cliente). Usado para liberar os painéis internos.
-    $isTeam = ($user['role'] !== 'client');
-    ?>
 
     <?php if (!empty($ticket['scope_rejected_reason'])): ?>
     <!-- Alerta: escopo recusado pelo cliente -->
@@ -80,9 +86,33 @@ if (!function_exists('categoryLabel')) {
     <div class="alert alert-danger"><i class="bi bi-x-circle"></i> <strong>Homologação recusada:</strong> <?= nl2br(escape($ticket['homolog_denied_reason'])) ?></div>
     <?php endif; ?>
 
-    <div class="row g-4">
+    <?php if ($isTeam): ?>
+    <style>
+        /* Layout da EQUIPE (desktop >= lg): Obs. Internas + Chat à direita (fixos ao rolar),
+           Detalhes/Anexos e seções de gestão (com título) à esquerda. Cliente e mobile: inalterados. */
+        .tt-section .form-section-title { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #e9ecef; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--primary-dark); }
+        .tt-section .form-section-title i { font-size: 0.85rem; color: var(--primary); }
+        .tt-section .form-hint { font-size: 0.7rem; color: #6c757d; margin-top: 2px; }
+        .tt-section .form-label { font-size: 0.8rem; }
+        .ticket-team-topbar .btn-primary.is-dirty { box-shadow: 0 0 0 3px rgba(13, 202, 164, .35); }
+        @media (min-width: 992px) {
+            .ticket-team-topbar { position: sticky; top: 0; z-index: 1020; box-shadow: 0 2px 8px rgba(0, 0, 0, .06); }
+            .ticket-team-layout { display: grid; grid-template-columns: minmax(0, 1fr) 380px; column-gap: 1.5rem; margin: 0; align-items: start; }
+            .ticket-team-layout > .col-lg-8,
+            .ticket-team-layout > .col-lg-4 { display: contents; }
+            .ticket-team-layout .tt-main { grid-column: 1; grid-row: 1; min-width: 0; }
+            .ticket-team-layout .tt-manage { grid-column: 1; grid-row: 2; min-width: 0; }
+            .ticket-team-layout .tt-side { grid-column: 2; grid-row: 1 / span 2; min-width: 0; position: sticky; top: 12px; align-self: start; max-height: calc(100vh - 24px); overflow-y: auto; }
+            .ticket-team-layout .tt-side #internal-notes-container { max-height: 180px !important; }
+            .ticket-team-layout .tt-side .chat-container { height: 320px; }
+        }
+    </style>
+    <?php endif; ?>
+
+    <div class="row g-4 <?= $isTeam ? 'ticket-team-layout' : '' ?>">
         <!-- Detalhes + Chat -->
         <div class="col-lg-8">
+            <div class="<?= $isTeam ? 'tt-main' : '' ?>">
             <!-- Detalhes -->
             <div class="card mb-4">
                 <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
@@ -217,7 +247,9 @@ if (!function_exists('categoryLabel')) {
                 </div>
             </div>
             <?php endif; ?>
+            </div><!-- /tt-main -->
 
+            <div class="<?= $isTeam ? 'tt-side' : '' ?>">
             <?php if (in_array($user['role'], ['super_admin', 'attendant'])): ?>
             <!-- Observações Internas -->
             <div class="card mb-4">
@@ -283,10 +315,12 @@ if (!function_exists('categoryLabel')) {
                     </div>
                 </div>
             </div>
+            </div><!-- /tt-side -->
         </div>
 
         <!-- Sidebar de ações -->
         <div class="col-lg-4">
+            <div class="<?= $isTeam ? 'tt-manage' : '' ?>">
             <?php
             $fullUserView = (new User())->findById($user['id']);
             $isCompanyOwner = ($user['role'] === 'client' && $fullUserView && $fullUserView['is_company_owner']);
@@ -294,193 +328,228 @@ if (!function_exists('categoryLabel')) {
             $canEditStatus = in_array($user['role'], ['super_admin', 'attendant']);
             ?>
 
-            <?php if ($canEditStatus): ?>
-            <!-- Alterar Status -->
-            <div class="card mb-3">
-                <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.88rem">Alterar Status</h6></div>
+            <?php if ($isTeam): ?>
+            <?php $demandDateVal = fn($k) => !empty($ticket[$k]) ? date('Y-m-d', strtotime($ticket[$k])) : ''; ?>
+
+            <?php if ($canEditStatus || $canEditPriority): ?>
+            <!-- ===== STATUS E PRIORIDADE ===== -->
+            <section class="card mb-3 tt-section" id="sec-status">
                 <div class="card-body">
-                    <form action="<?= baseUrl('tickets/updateStatus/' . $ticket['id']) ?>" method="POST">
-                        <?= csrf_field() ?>
-                        <select name="status" class="form-select form-select-sm mb-2">
-                            <option value="open" <?= $ticket['status'] === 'open' ? 'selected' : '' ?>>Aberto</option>
-                            <option value="aguardando_aprovacao_escopo" <?= $ticket['status'] === 'aguardando_aprovacao_escopo' ? 'selected' : '' ?>>Aprovação de Escopo</option>
-                            <option value="in_progress" <?= $ticket['status'] === 'in_progress' ? 'selected' : '' ?>>Em andamento</option>
-                            <option value="em_revisao_interna" <?= $ticket['status'] === 'em_revisao_interna' ? 'selected' : '' ?>>Em Revisão Interna</option>
-                            <option value="waiting_client" <?= $ticket['status'] === 'waiting_client' ? 'selected' : '' ?>>Aguardando cliente</option>
-                            <option value="em_homologacao" <?= $ticket['status'] === 'em_homologacao' ? 'selected' : '' ?>>Em Homologação</option>
-                            <option value="aprovado_producao" <?= $ticket['status'] === 'aprovado_producao' ? 'selected' : '' ?>>Aprovado para Produção</option>
-                            <option value="completed" <?= $ticket['status'] === 'completed' ? 'selected' : '' ?>>Concluído</option>
-                            <option value="denied" <?= $ticket['status'] === 'denied' ? 'selected' : '' ?>>Negado</option>
-                            <option value="archived" <?= $ticket['status'] === 'archived' ? 'selected' : '' ?>>Arquivado</option>
-                        </select>
-                        <button type="submit" class="btn btn-primary btn-sm w-100">Atualizar</button>
-                    </form>
-                </div>
-            </div>
-            <?php elseif ($user['role'] === 'client' && $ticket['status'] === 'em_homologacao'): ?>
-            <!-- Cliente pode aprovar/recusar quando está em homologação -->
-            <div class="card mb-3 border-success">
-                <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.88rem"><i class="bi bi-check-circle text-success"></i> Homologação</h6></div>
-                <div class="card-body">
-                    <p class="small text-muted mb-2">Esta demanda está em homologação. Teste e aprove ou solicite ajustes.</p>
-                    <?php if (!empty($ticket['previsao_publicacao'])): ?>
-                    <p class="small mb-2"><i class="bi bi-calendar-event"></i> <strong>Previsão de publicação:</strong> <?= date('d/m/Y', strtotime($ticket['previsao_publicacao'])) ?></p>
-                    <?php endif; ?>
-                    <!-- Aprovar para produção -->
-                    <form action="<?= baseUrl('tickets/updateStatus/' . $ticket['id']) ?>" method="POST" class="mb-2">
-                        <?= csrf_field() ?>
-                        <input type="hidden" name="status" value="aprovado_producao">
-                        <button type="submit" class="btn btn-success btn-sm w-100"><i class="bi bi-check-lg"></i> Aprovar para Produção</button>
-                    </form>
-                    <!-- Recusar homologação: motivo obrigatório -->
-                    <button type="button" class="btn btn-outline-danger btn-sm w-100" onclick="document.getElementById('homolog-reject-box').classList.toggle('d-none')">
-                        <i class="bi bi-x-lg"></i> Reprovar / Solicitar ajustes
-                    </button>
-                    <div id="homolog-reject-box" class="mt-2 d-none">
-                        <form action="<?= baseUrl('tickets/updateStatus/' . $ticket['id']) ?>" method="POST">
-                            <?= csrf_field() ?>
-                            <input type="hidden" name="status" value="denied">
-                            <label class="form-label fw-medium small">Motivo da recusa *</label>
-                            <textarea name="reason" class="form-control form-control-sm mb-2" rows="3" required placeholder="Descreva o que precisa ser ajustado"></textarea>
-                            <button type="submit" class="btn btn-danger btn-sm w-100"><i class="bi bi-send"></i> Enviar recusa</button>
-                        </form>
+                    <div class="form-section-title"><i class="bi bi-activity"></i> Status e prioridade</div>
+                    <div class="row g-3">
+                        <?php if ($canEditStatus): ?>
+                        <div class="col-sm-6">
+                            <form class="ticket-save-form" data-key="status" data-order="80" action="<?= baseUrl('tickets/updateStatus/' . $ticket['id']) ?>" method="POST">
+                                <?= csrf_field() ?>
+                                <label class="form-label fw-medium" for="f-status">Status</label>
+                                <select name="status" id="f-status" class="form-select form-select-sm">
+                                    <option value="open" <?= $ticket['status'] === 'open' ? 'selected' : '' ?>>Aberto</option>
+                                    <option value="aguardando_aprovacao_escopo" <?= $ticket['status'] === 'aguardando_aprovacao_escopo' ? 'selected' : '' ?>>Aprovação de Escopo</option>
+                                    <option value="in_progress" <?= $ticket['status'] === 'in_progress' ? 'selected' : '' ?>>Em andamento</option>
+                                    <option value="em_revisao_interna" <?= $ticket['status'] === 'em_revisao_interna' ? 'selected' : '' ?>>Em Revisão Interna</option>
+                                    <option value="waiting_client" <?= $ticket['status'] === 'waiting_client' ? 'selected' : '' ?>>Aguardando cliente</option>
+                                    <option value="em_homologacao" <?= $ticket['status'] === 'em_homologacao' ? 'selected' : '' ?>>Em Homologação</option>
+                                    <option value="aprovado_producao" <?= $ticket['status'] === 'aprovado_producao' ? 'selected' : '' ?>>Aprovado para Produção</option>
+                                    <option value="completed" <?= $ticket['status'] === 'completed' ? 'selected' : '' ?>>Concluído</option>
+                                    <option value="denied" <?= $ticket['status'] === 'denied' ? 'selected' : '' ?>>Negado</option>
+                                    <option value="archived" <?= $ticket['status'] === 'archived' ? 'selected' : '' ?>>Arquivado</option>
+                                </select>
+                            </form>
+                        </div>
+                        <?php endif; ?>
+                        <?php if ($canEditPriority): ?>
+                        <div class="col-sm-6">
+                            <form class="ticket-save-form" data-key="priority" data-order="50" action="<?= baseUrl('tickets/updatePriority/' . $ticket['id']) ?>" method="POST">
+                                <?= csrf_field() ?>
+                                <label class="form-label fw-medium" for="f-priority">Prioridade</label>
+                                <select name="priority" id="f-priority" class="form-select form-select-sm">
+                                    <option value="low" <?= $ticket['priority'] === 'low' ? 'selected' : '' ?>>Baixa</option>
+                                    <option value="medium" <?= $ticket['priority'] === 'medium' ? 'selected' : '' ?>>Média</option>
+                                    <option value="high" <?= $ticket['priority'] === 'high' ? 'selected' : '' ?>>Alta</option>
+                                    <option value="urgent" <?= $ticket['priority'] === 'urgent' ? 'selected' : '' ?>>Urgente</option>
+                                </select>
+                            </form>
+                        </div>
+                        <?php endif; ?>
                     </div>
                 </div>
-            </div>
+            </section>
             <?php endif; ?>
 
-            <?php if ($isTeam): ?>
-            <!-- ===== Escopo técnico (EQUIPE) ===== -->
-            <div class="card mb-3">
-                <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.88rem"><i class="bi bi-file-earmark-text"></i> Escopo técnico</h6></div>
+            <?php if ($canEditStatus): ?>
+            <!-- ===== ATRIBUIÇÃO ===== -->
+            <section class="card mb-3 tt-section" id="sec-assign">
                 <div class="card-body">
-                    <form action="<?= baseUrl('tickets/saveScope/' . $ticket['id']) ?>" method="POST">
-                        <?= csrf_field() ?>
-                        <div class="mb-2">
-                            <label class="form-label fw-medium small">O que será desenvolvido</label>
-                            <textarea name="escopo_incluido" class="form-control form-control-sm" rows="3"><?= escape($ticket['escopo_incluido'] ?? '') ?></textarea>
+                    <div class="form-section-title"><i class="bi bi-people"></i> Atribuição</div>
+                    <div class="row g-3">
+                        <div class="col-sm-6">
+                            <form class="ticket-save-form" data-key="assign" data-order="60" action="<?= baseUrl('tickets/assign/' . $ticket['id']) ?>" method="POST">
+                                <?= csrf_field() ?>
+                                <label class="form-label fw-medium">Atendentes (comunicação)</label>
+                                <div class="border rounded-3 p-2" style="max-height:180px;overflow-y:auto">
+                                    <?php foreach ($attendants as $att): ?>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" name="attendant_ids[]" value="<?= $att['id'] ?>" id="assign-att-<?= $att['id'] ?>" <?= in_array((int)$att['id'], $assignedAttendantIds ?? [], true) ? 'checked' : '' ?>>
+                                        <label class="form-check-label" for="assign-att-<?= $att['id'] ?>"><?= escape($att['name']) ?></label>
+                                    </div>
+                                    <?php endforeach; ?>
+                                </div>
+                                <div class="form-hint">O primeiro marcado será o atendente principal.</div>
+                            </form>
                         </div>
-                        <div class="mb-2">
-                            <label class="form-label fw-medium small">O que NÃO será desenvolvido</label>
-                            <textarea name="escopo_excluido" class="form-control form-control-sm" rows="3"><?= escape($ticket['escopo_excluido'] ?? '') ?></textarea>
+                        <div class="col-sm-6">
+                            <form class="ticket-save-form" data-key="technical" data-order="70" action="<?= baseUrl('tickets/assignTechnical/' . $ticket['id']) ?>" method="POST">
+                                <?= csrf_field() ?>
+                                <label class="form-label fw-medium" for="f-technical">Responsável Técnico</label>
+                                <select name="technical_responsible_id" id="f-technical" class="form-select form-select-sm">
+                                    <option value="">Não atribuído</option>
+                                    <?php foreach (($technicalGrouped ?? []) as $roleKey => $usersInRole): ?>
+                                    <optgroup label="<?= roleLabel($roleKey) ?>">
+                                        <?php foreach ($usersInRole as $tu): ?>
+                                        <option value="<?= $tu['id'] ?>" <?= ($ticket['technical_responsible_id'] ?? '') == $tu['id'] ? 'selected' : '' ?>><?= escape($tu['name']) ?></option>
+                                        <?php endforeach; ?>
+                                    </optgroup>
+                                    <?php endforeach; ?>
+                                </select>
+                                <div class="form-hint">Hierarquia: Papel &gt; usuários daquele papel</div>
+                            </form>
                         </div>
-                        <div class="mb-2">
-                            <label class="form-label fw-medium small">Como será executado</label>
-                            <textarea name="escopo_execucao" class="form-control form-control-sm" rows="3"><?= escape($ticket['escopo_execucao'] ?? '') ?></textarea>
-                        </div>
-                        <div class="mb-2">
-                            <label class="form-label fw-medium small">Estimativa (dias)</label>
-                            <input type="number" name="estimativa_dias" class="form-control form-control-sm" min="0" value="<?= escape((string)($ticket['estimativa_dias'] ?? '')) ?>">
-                        </div>
-                        <div class="d-flex gap-2 flex-wrap">
-                            <button type="submit" class="btn btn-outline-primary btn-sm">Salvar escopo</button>
-                            <button type="submit" name="send_to_client" value="1" class="btn btn-primary btn-sm">Enviar ao cliente para aprovação</button>
-                        </div>
-                    </form>
+                    </div>
                 </div>
-            </div>
-
-            <?php if (DemandDateRules::canSetDates($user['role'] ?? null)): ?>
-            <!-- ===== Datas da demanda (definidas pela EQUIPE) ===== -->
-            <?php $demandDateVal = fn($k) => !empty($ticket[$k]) ? date('Y-m-d', strtotime($ticket[$k])) : ''; ?>
-            <div class="card mb-3" id="demand-dates-card">
-                <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.88rem"><i class="bi bi-calendar-range"></i> Datas da demanda</h6></div>
-                <div class="card-body">
-                    <form action="<?= baseUrl('tickets/saveDates/' . $ticket['id']) ?>" method="POST">
-                        <?= csrf_field() ?>
-                        <div class="mb-2">
-                            <label class="form-label fw-medium small" for="dd-inicio">Data de início</label>
-                            <input type="date" name="data_inicio" id="dd-inicio" class="form-control form-control-sm" value="<?= escape($demandDateVal('data_inicio')) ?>">
-                        </div>
-                        <div class="mb-2">
-                            <label class="form-label fw-medium small" for="dd-termino">Data de término</label>
-                            <input type="date" name="data_termino" id="dd-termino" class="form-control form-control-sm" value="<?= escape($demandDateVal('data_termino')) ?>">
-                        </div>
-                        <div class="mb-2">
-                            <label class="form-label fw-medium small" for="dd-prevista">Previsão de término</label>
-                            <input type="date" name="data_prevista_entrega" id="dd-prevista" class="form-control form-control-sm" value="<?= escape($demandDateVal('data_prevista_entrega')) ?>">
-                        </div>
-                        <button type="submit" class="btn btn-outline-primary btn-sm">Salvar datas</button>
-                    </form>
-                </div>
-            </div>
+            </section>
             <?php endif; ?>
 
-            <!-- ===== Previsão de publicação (EQUIPE) ===== -->
-            <div class="card mb-3">
-                <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.88rem"><i class="bi bi-calendar-event"></i> Previsão de publicação</h6></div>
+            <!-- ===== ESCOPO TÉCNICO ===== -->
+            <section class="card mb-3 tt-section" id="sec-scope">
                 <div class="card-body">
-                    <?php if (!empty($ticket['previsao_publicacao'])): ?>
-                    <p class="small mb-2"><strong>Atual:</strong> <?= date('d/m/Y', strtotime($ticket['previsao_publicacao'])) ?></p>
-                    <?php endif; ?>
-                    <form action="<?= baseUrl('tickets/savePrevisao/' . $ticket['id']) ?>" method="POST" class="d-flex gap-2 align-items-end flex-wrap">
+                    <div class="form-section-title"><i class="bi bi-file-earmark-text"></i> Escopo técnico</div>
+                    <form class="ticket-save-form" data-key="scope" data-order="10" action="<?= baseUrl('tickets/saveScope/' . $ticket['id']) ?>" method="POST">
                         <?= csrf_field() ?>
-                        <div class="flex-grow-1">
-                            <label class="form-label fw-medium small">Data</label>
-                            <input type="date" name="previsao_publicacao" class="form-control form-control-sm" value="<?= escape(!empty($ticket['previsao_publicacao']) ? date('Y-m-d', strtotime($ticket['previsao_publicacao'])) : '') ?>">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label fw-medium">O que será desenvolvido</label>
+                                <textarea name="escopo_incluido" class="form-control form-control-sm" rows="3"><?= escape($ticket['escopo_incluido'] ?? '') ?></textarea>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-medium">O que NÃO será desenvolvido</label>
+                                <textarea name="escopo_excluido" class="form-control form-control-sm" rows="3"><?= escape($ticket['escopo_excluido'] ?? '') ?></textarea>
+                            </div>
+                            <div class="col-md-8">
+                                <label class="form-label fw-medium">Como será executado</label>
+                                <textarea name="escopo_execucao" class="form-control form-control-sm" rows="3"><?= escape($ticket['escopo_execucao'] ?? '') ?></textarea>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-medium">Estimativa (dias)</label>
+                                <input type="number" name="estimativa_dias" class="form-control form-control-sm" min="0" value="<?= escape((string)($ticket['estimativa_dias'] ?? '')) ?>">
+                            </div>
                         </div>
-                        <button type="submit" class="btn btn-outline-primary btn-sm">Salvar</button>
+                        <div class="mt-3">
+                            <!-- Ação de contexto próprio (muda o status para aprovação de escopo): mantida separada do salvar geral -->
+                            <button type="submit" name="send_to_client" value="1" id="btn-send-scope" class="btn btn-primary btn-sm">Enviar ao cliente para aprovação</button>
+                        </div>
                     </form>
                 </div>
-            </div>
+            </section>
 
-            <!-- ===== Suporte (EQUIPE) ===== -->
-            <div class="card mb-3 <?= SupportRules::isSupportCategory($ticket['category'] ?? null) ? 'border-danger' : '' ?>">
-                <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.88rem"><i class="bi bi-life-preserver"></i> Suporte</h6></div>
+            <!-- ===== PRAZOS ===== -->
+            <section class="card mb-3 tt-section" id="sec-dates">
                 <div class="card-body">
-                    <?php if (!empty($ticket['support_severity'])): ?>
-                    <p class="small mb-2"><strong>Gravidade atual:</strong> <?= escape(SupportRules::severityLabel($ticket['support_severity'])) ?></p>
+                    <div class="form-section-title"><i class="bi bi-calendar-range"></i> Prazos</div>
+                    <div class="row g-3">
+                        <?php if (DemandDateRules::canSetDates($user['role'] ?? null)): ?>
+                        <div class="col-12" id="demand-dates-card">
+                            <form class="ticket-save-form" data-key="dates" data-order="20" action="<?= baseUrl('tickets/saveDates/' . $ticket['id']) ?>" method="POST">
+                                <?= csrf_field() ?>
+                                <div class="row g-3">
+                                    <div class="col-md-4">
+                                        <label class="form-label fw-medium" for="dd-inicio">Data de início</label>
+                                        <input type="date" name="data_inicio" id="dd-inicio" class="form-control form-control-sm" value="<?= escape($demandDateVal('data_inicio')) ?>">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label fw-medium" for="dd-termino">Data de término</label>
+                                        <input type="date" name="data_termino" id="dd-termino" class="form-control form-control-sm" value="<?= escape($demandDateVal('data_termino')) ?>">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label fw-medium" for="dd-prevista">Previsão de término</label>
+                                        <input type="date" name="data_prevista_entrega" id="dd-prevista" class="form-control form-control-sm" value="<?= escape($demandDateVal('data_prevista_entrega')) ?>">
+                                    </div>
+                                </div>
+                            </form>
+                        </div>
+                        <?php endif; ?>
+                        <div class="col-md-4">
+                            <form class="ticket-save-form" data-key="previsao" data-order="30" action="<?= baseUrl('tickets/savePrevisao/' . $ticket['id']) ?>" method="POST">
+                                <?= csrf_field() ?>
+                                <label class="form-label fw-medium" for="f-previsao-pub">Previsão de publicação</label>
+                                <input type="date" name="previsao_publicacao" id="f-previsao-pub" class="form-control form-control-sm" value="<?= escape($demandDateVal('previsao_publicacao')) ?>">
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ===== SUPORTE ===== -->
+            <section class="card mb-3 tt-section <?= SupportRules::isSupportCategory($ticket['category'] ?? null) ? 'border-danger' : '' ?>" id="sec-support">
+                <div class="card-body">
+                    <div class="form-section-title"><i class="bi bi-life-preserver"></i> Suporte</div>
+                    <?php if (!empty($ticket['support_severity']) || !empty($ticket['support_analysis_due_at']) || !empty($ticket['support_resolution_due_at'])): ?>
+                    <div class="small mb-3 d-flex flex-wrap gap-3">
+                        <?php if (!empty($ticket['support_severity'])): ?>
+                        <span><strong>Gravidade atual:</strong> <?= escape(SupportRules::severityLabel($ticket['support_severity'])) ?></span>
+                        <?php endif; ?>
+                        <?php if (!empty($ticket['support_analysis_due_at'])): ?>
+                        <span><strong>Prazo de análise:</strong> <?= date('d/m/Y H:i', strtotime($ticket['support_analysis_due_at'])) ?></span>
+                        <?php endif; ?>
+                        <?php if (!empty($ticket['support_resolution_due_at'])): ?>
+                        <span><strong>Prazo de resolução:</strong> <?= date('d/m/Y H:i', strtotime($ticket['support_resolution_due_at'])) ?></span>
+                        <?php endif; ?>
+                    </div>
                     <?php endif; ?>
-                    <?php if (!empty($ticket['support_analysis_due_at'])): ?>
-                    <p class="small mb-1"><strong>Prazo de análise:</strong> <?= date('d/m/Y H:i', strtotime($ticket['support_analysis_due_at'])) ?></p>
-                    <?php endif; ?>
-                    <?php if (!empty($ticket['support_resolution_due_at'])): ?>
-                    <p class="small mb-2"><strong>Prazo de resolução:</strong> <?= date('d/m/Y H:i', strtotime($ticket['support_resolution_due_at'])) ?></p>
-                    <?php endif; ?>
-                    <form action="<?= baseUrl('tickets/saveSupport/' . $ticket['id']) ?>" method="POST">
+                    <form class="ticket-save-form" data-key="support" data-order="40" action="<?= baseUrl('tickets/saveSupport/' . $ticket['id']) ?>" method="POST">
                         <?= csrf_field() ?>
-                        <div class="mb-2">
-                            <label class="form-label fw-medium small">Gravidade</label>
-                            <select name="support_severity" class="form-select form-select-sm">
-                                <option value="" <?= empty($ticket['support_severity']) ? 'selected' : '' ?>>— sem gravidade —</option>
-                                <?php foreach (SupportRules::SEVERITIES as $sev): ?>
-                                <option value="<?= $sev ?>" <?= ($ticket['support_severity'] ?? '') === $sev ? 'selected' : '' ?>><?= escape(SupportRules::severityLabel($sev)) ?></option>
-                                <?php endforeach; ?>
-                            </select>
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label class="form-label fw-medium">Gravidade</label>
+                                <select name="support_severity" class="form-select form-select-sm">
+                                    <option value="" <?= empty($ticket['support_severity']) ? 'selected' : '' ?>>— sem gravidade —</option>
+                                    <?php foreach (SupportRules::SEVERITIES as $sev): ?>
+                                    <option value="<?= $sev ?>" <?= ($ticket['support_severity'] ?? '') === $sev ? 'selected' : '' ?>><?= escape(SupportRules::severityLabel($sev)) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-medium">Prazo de resolução (min, 30 a 2880)</label>
+                                <input type="number" name="support_resolution_minutes" class="form-control form-control-sm" min="30" max="2880">
+                                <div class="form-check mt-1">
+                                    <input class="form-check-input" type="checkbox" name="clear_resolution" value="1" id="support-clear-resolution">
+                                    <label class="form-check-label small" for="support-clear-resolution">Limpar prazo de resolução</label>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-medium">Terceiro responsável</label>
+                                <input type="text" name="third_party_name" class="form-control form-control-sm" value="<?= escape($ticket['third_party_name'] ?? '') ?>">
+                                <div class="form-check mt-1">
+                                    <input class="form-check-input" type="checkbox" name="is_third_party" value="1" id="support-third-party" <?= !empty($ticket['is_third_party']) ? 'checked' : '' ?>>
+                                    <label class="form-check-label small" for="support-third-party">Problema de terceiros</label>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-medium">Solução temporária</label>
+                                <textarea name="support_workaround" class="form-control form-control-sm" rows="2"><?= escape($ticket['support_workaround'] ?? '') ?></textarea>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-medium">Andamento/evidências</label>
+                                <textarea name="third_party_notes" class="form-control form-control-sm" rows="2"><?= escape($ticket['third_party_notes'] ?? '') ?></textarea>
+                            </div>
                         </div>
-                        <div class="mb-2">
-                            <label class="form-label fw-medium small">Prazo de resolução (min, 30 a 2880)</label>
-                            <input type="number" name="support_resolution_minutes" class="form-control form-control-sm" min="30" max="2880">
-                        </div>
-                        <div class="form-check mb-2">
-                            <input class="form-check-input" type="checkbox" name="clear_resolution" value="1" id="support-clear-resolution">
-                            <label class="form-check-label small" for="support-clear-resolution">Limpar prazo de resolução</label>
-                        </div>
-                        <div class="mb-2">
-                            <label class="form-label fw-medium small">Solução temporária</label>
-                            <textarea name="support_workaround" class="form-control form-control-sm" rows="2"><?= escape($ticket['support_workaround'] ?? '') ?></textarea>
-                        </div>
-                        <div class="form-check mb-2">
-                            <input class="form-check-input" type="checkbox" name="is_third_party" value="1" id="support-third-party" <?= !empty($ticket['is_third_party']) ? 'checked' : '' ?>>
-                            <label class="form-check-label small" for="support-third-party">Problema de terceiros</label>
-                        </div>
-                        <div class="mb-2">
-                            <label class="form-label fw-medium small">Terceiro responsável</label>
-                            <input type="text" name="third_party_name" class="form-control form-control-sm" value="<?= escape($ticket['third_party_name'] ?? '') ?>">
-                        </div>
-                        <div class="mb-2">
-                            <label class="form-label fw-medium small">Andamento/evidências</label>
-                            <textarea name="third_party_notes" class="form-control form-control-sm" rows="2"><?= escape($ticket['third_party_notes'] ?? '') ?></textarea>
-                        </div>
-                        <button type="submit" class="btn btn-outline-primary btn-sm w-100">Salvar suporte</button>
                     </form>
                 </div>
-            </div>
+            </section>
 
-            <!-- ===== Demandas relacionadas (EQUIPE) ===== -->
-            <div class="card mb-3">
-                <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.88rem"><i class="bi bi-diagram-3"></i> Demandas relacionadas</h6></div>
+            <!-- ===== DEMANDAS RELACIONADAS ===== -->
+            <section class="card mb-3 tt-section" id="sec-relations">
                 <div class="card-body">
+                    <div class="form-section-title"><i class="bi bi-diagram-3"></i> Demandas relacionadas</div>
                     <?php
                     // Rótulos pt-BR dos tipos de relação.
                     $relationTypeLabels = [
@@ -513,29 +582,82 @@ if (!function_exists('categoryLabel')) {
                     <?php else: ?>
                     <p class="text-muted small">Nenhuma demanda relacionada.</p>
                     <?php endif; ?>
+                    <!-- Relacionar: ação própria (cria um vínculo), fora do salvar geral -->
                     <form action="<?= baseUrl('tickets/relate/' . $ticket['id']) ?>" method="POST">
                         <?= csrf_field() ?>
-                        <div class="mb-2">
-                            <label class="form-label fw-medium small">ID da demanda</label>
-                            <input type="number" name="target_ticket_id" class="form-control form-control-sm" min="1" required>
+                        <div class="row g-3 align-items-end">
+                            <div class="col-md-4">
+                                <label class="form-label fw-medium">ID da demanda</label>
+                                <input type="number" name="target_ticket_id" class="form-control form-control-sm" min="1" required>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-medium">Tipo de relação</label>
+                                <select name="relation_type" class="form-select form-select-sm">
+                                    <option value="suporte">Suporte</option>
+                                    <option value="incidente">Incidente</option>
+                                    <option value="correcao">Correção</option>
+                                    <option value="relacionado" selected>Relacionado</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <button type="submit" class="btn btn-outline-primary btn-sm w-100">Relacionar</button>
+                            </div>
                         </div>
-                        <div class="mb-2">
-                            <label class="form-label fw-medium small">Tipo de relação</label>
-                            <select name="relation_type" class="form-select form-select-sm">
-                                <option value="suporte">Suporte</option>
-                                <option value="incidente">Incidente</option>
-                                <option value="correcao">Correção</option>
-                                <option value="relacionado" selected>Relacionado</option>
-                            </select>
-                        </div>
-                        <button type="submit" class="btn btn-outline-primary btn-sm w-100">Relacionar</button>
                     </form>
+                </div>
+            </section>
+
+            <!-- ===== ANEXOS (envio) ===== -->
+            <section class="card mb-3 tt-section">
+                <div class="card-body">
+                    <div class="form-section-title"><i class="bi bi-paperclip"></i> Anexos</div>
+                    <div class="row g-3 align-items-end">
+                        <div class="col-md-8">
+                            <input type="file" id="upload-file" class="form-control form-control-sm" accept="image/*,video/*,.pdf,.doc,.docx">
+                        </div>
+                        <div class="col-md-4">
+                            <button type="button" onclick="uploadFile()" class="btn btn-outline-primary btn-sm w-100"><i class="bi bi-upload"></i> Enviar</button>
+                        </div>
+                    </div>
+                    <div id="upload-result" class="mt-2"></div>
+                </div>
+            </section>
+
+            <?php else: ?>
+            <?php if ($user['role'] === 'client' && $ticket['status'] === 'em_homologacao'): ?>
+            <!-- Cliente pode aprovar/recusar quando está em homologação -->
+            <div class="card mb-3 border-success">
+                <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.88rem"><i class="bi bi-check-circle text-success"></i> Homologação</h6></div>
+                <div class="card-body">
+                    <p class="small text-muted mb-2">Esta demanda está em homologação. Teste e aprove ou solicite ajustes.</p>
+                    <?php if (!empty($ticket['previsao_publicacao'])): ?>
+                    <p class="small mb-2"><i class="bi bi-calendar-event"></i> <strong>Previsão de publicação:</strong> <?= date('d/m/Y', strtotime($ticket['previsao_publicacao'])) ?></p>
+                    <?php endif; ?>
+                    <!-- Aprovar para produção -->
+                    <form action="<?= baseUrl('tickets/updateStatus/' . $ticket['id']) ?>" method="POST" class="mb-2">
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="status" value="aprovado_producao">
+                        <button type="submit" class="btn btn-success btn-sm w-100"><i class="bi bi-check-lg"></i> Aprovar para Produção</button>
+                    </form>
+                    <!-- Recusar homologação: motivo obrigatório -->
+                    <button type="button" class="btn btn-outline-danger btn-sm w-100" onclick="document.getElementById('homolog-reject-box').classList.toggle('d-none')">
+                        <i class="bi bi-x-lg"></i> Reprovar / Solicitar ajustes
+                    </button>
+                    <div id="homolog-reject-box" class="mt-2 d-none">
+                        <form action="<?= baseUrl('tickets/updateStatus/' . $ticket['id']) ?>" method="POST">
+                            <?= csrf_field() ?>
+                            <input type="hidden" name="status" value="denied">
+                            <label class="form-label fw-medium small">Motivo da recusa *</label>
+                            <textarea name="reason" class="form-control form-control-sm mb-2" rows="3" required placeholder="Descreva o que precisa ser ajustado"></textarea>
+                            <button type="submit" class="btn btn-danger btn-sm w-100"><i class="bi bi-send"></i> Enviar recusa</button>
+                        </form>
+                    </div>
                 </div>
             </div>
             <?php endif; ?>
 
             <?php if ($canEditPriority): ?>
-            <!-- Alterar Prioridade -->
+            <!-- Alterar Prioridade (dono da empresa) -->
             <div class="card mb-3">
                 <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.88rem">Alterar Prioridade</h6></div>
                 <div class="card-body">
@@ -548,54 +670,6 @@ if (!function_exists('categoryLabel')) {
                             <option value="urgent" <?= $ticket['priority'] === 'urgent' ? 'selected' : '' ?>>Urgente</option>
                         </select>
                         <button type="submit" class="btn btn-primary btn-sm w-100">Atualizar</button>
-                    </form>
-                </div>
-            </div>
-
-            <?php endif; ?>
-
-            <?php if ($canEditStatus): ?>
-            <!-- Atribuir Atendente -->
-            <div class="card mb-3">
-                <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.88rem">Atribuir Atendentes</h6></div>
-                <div class="card-body">
-                    <form action="<?= baseUrl('tickets/assign/' . $ticket['id']) ?>" method="POST">
-                        <?= csrf_field() ?>
-                        <div class="border rounded-3 p-2 mb-2" style="max-height:180px;overflow-y:auto">
-                            <?php foreach ($attendants as $att): ?>
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" name="attendant_ids[]" value="<?= $att['id'] ?>" id="assign-att-<?= $att['id'] ?>" <?= in_array((int)$att['id'], $assignedAttendantIds ?? [], true) ? 'checked' : '' ?>>
-                                <label class="form-check-label" for="assign-att-<?= $att['id'] ?>">
-                                    <?= escape($att['name']) ?>
-                                </label>
-                            </div>
-                            <?php endforeach; ?>
-                        </div>
-                        <small class="text-muted d-block mb-2">O primeiro marcado será o atendente principal.</small>
-                        <button type="submit" class="btn btn-outline-primary btn-sm w-100">Atribuir</button>
-                    </form>
-                </div>
-            </div>
-
-            <!-- Atribuir Responsável Técnico (hierarquia Papel > Usuários) -->
-            <div class="card mb-3">
-                <div class="card-header bg-white"><h6 class="mb-0" style="font-size:0.88rem">Responsável Técnico</h6></div>
-                <div class="card-body">
-                    <form action="<?= baseUrl('tickets/assignTechnical/' . $ticket['id']) ?>" method="POST">
-                        <?= csrf_field() ?>
-                        <select name="technical_responsible_id" class="form-select form-select-sm mb-2">
-                            <option value="">Não atribuído</option>
-                            <?php foreach (($technicalGrouped ?? []) as $roleKey => $usersInRole): ?>
-                            <optgroup label="<?= roleLabel($roleKey) ?>">
-                                <?php foreach ($usersInRole as $tu): ?>
-                                <option value="<?= $tu['id'] ?>" <?= ($ticket['technical_responsible_id'] ?? '') == $tu['id'] ? 'selected' : '' ?>>
-                                    <?= escape($tu['name']) ?>
-                                </option>
-                                <?php endforeach; ?>
-                            </optgroup>
-                            <?php endforeach; ?>
-                        </select>
-                        <button type="submit" class="btn btn-outline-primary btn-sm w-100">Atribuir</button>
                     </form>
                 </div>
             </div>
@@ -612,6 +686,8 @@ if (!function_exists('categoryLabel')) {
                     <div id="upload-result" class="mt-2"></div>
                 </div>
             </div>
+            <?php endif; ?>
+            </div><!-- /tt-manage -->
         </div>
     </div>
 </div>
@@ -703,6 +779,115 @@ function uploadFile() {
         }
     });
 }
+
+<?php if ($isTeam): ?>
+// ===== Botão único "Salvar alterações" (equipe) =====
+// Envia, em ordem, apenas as seções (.ticket-save-form) que o usuário alterou,
+// reaproveitando os endpoints existentes (mesmas validações do servidor).
+(function () {
+    const csrfMeta = document.querySelector('meta[name="csrf-token"]');
+    const csrf = csrfMeta ? csrfMeta.content : '';
+    const btn = document.getElementById('btn-save-all');
+    const hint = document.getElementById('save-all-hint');
+    const forms = Array.from(document.querySelectorAll('.ticket-save-form'));
+    const sectionNames = { scope: 'Escopo técnico', dates: 'Prazos', previsao: 'Previsão de publicação', support: 'Suporte', priority: 'Prioridade', assign: 'Atendentes', technical: 'Responsável Técnico', status: 'Status' };
+
+    // Serialização estável (sem o token CSRF) para detectar alteração.
+    const serialize = (f) => {
+        const p = new URLSearchParams();
+        new FormData(f).forEach((v, k) => { if (k !== 'csrf_token') p.append(k, v); });
+        return p.toString();
+    };
+    forms.forEach(f => { f._snap = serialize(f); });
+    const dirtyForms = () => forms.filter(f => serialize(f) !== f._snap);
+    const refresh = () => {
+        const dirty = dirtyForms().length > 0;
+        hint.classList.toggle('d-none', !dirty);
+        btn.classList.toggle('is-dirty', dirty);
+    };
+    document.addEventListener('input', refresh);
+    document.addEventListener('change', refresh);
+
+    function showError(msg) {
+        const box = document.createElement('div');
+        box.className = 'alert alert-danger alert-dismissible fade show';
+        box.textContent = msg;
+        const close = document.createElement('button');
+        close.type = 'button'; close.className = 'btn-close'; close.setAttribute('data-bs-dismiss', 'alert');
+        box.appendChild(close);
+        document.querySelector('.ticket-team-topbar').insertAdjacentElement('afterend', box);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    // Envia um formulário; devolve null se ok ou a mensagem de erro.
+    async function postForm(f, extra) {
+        const fd = new FormData(f);
+        if (extra) Object.keys(extra).forEach(k => fd.set(k, extra[k]));
+        const res = await fetch(f.action, {
+            method: 'POST', body: fd, credentials: 'same-origin',
+            headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-Token': csrf }
+        });
+        const ct = res.headers.get('content-type') || '';
+        if (ct.includes('application/json')) {
+            const data = await res.json().catch(() => ({}));
+            return (res.ok && data.success !== false && !data.error) ? null : (data.error || 'Erro ao salvar.');
+        }
+        // Endpoints que respondem com redirect + flash: lê o aviso de erro da página resultante.
+        const html = await res.text();
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        const err = doc.querySelector('.alert-danger.alert-dismissible');
+        if (err) return err.textContent.replace(/\s+/g, ' ').trim();
+        return res.ok ? null : 'Erro ao salvar.';
+    }
+
+    async function saveSections(list) {
+        list.sort((a, b) => Number(a.dataset.order) - Number(b.dataset.order));
+        for (const f of list) {
+            const err = await postForm(f);
+            if (err) { showError((sectionNames[f.dataset.key] || 'Seção') + ': ' + err); return false; }
+            f._snap = serialize(f);
+        }
+        return true;
+    }
+
+    btn.addEventListener('click', async () => {
+        const list = dirtyForms();
+        if (!list.length) { return; }
+        btn.disabled = true;
+        const ok = await saveSections(list);
+        btn.disabled = false;
+        if (ok) { sessionStorage.setItem('ticketSaved', '1'); location.reload(); }
+        else { refresh(); }
+    });
+
+    // Enter em um campo não envia a seção isolada: aciona o salvar geral.
+    forms.forEach(f => f.addEventListener('submit', (e) => {
+        if (!e.submitter) { e.preventDefault(); btn.click(); }
+    }));
+
+    // "Enviar ao cliente": salva antes as demais seções alteradas e só então envia o escopo.
+    const sendBtn = document.getElementById('btn-send-scope');
+    if (sendBtn) {
+        let sending = false;
+        sendBtn.addEventListener('click', async (e) => {
+            if (sending) return;
+            e.preventDefault();
+            sending = true;
+            const others = dirtyForms().filter(f => f.dataset.key !== 'scope' && f.dataset.key !== 'status');
+            const ok = others.length ? await saveSections(others) : true;
+            if (ok) { sendBtn.form.requestSubmit(sendBtn); } else { sending = false; }
+        });
+    }
+
+    if (sessionStorage.getItem('ticketSaved')) {
+        sessionStorage.removeItem('ticketSaved');
+        const box = document.createElement('div');
+        box.className = 'alert alert-success alert-dismissible fade show';
+        box.innerHTML = '<i class="bi bi-check-circle"></i> Alterações salvas.<button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
+        document.querySelector('.ticket-team-topbar').insertAdjacentElement('afterend', box);
+    }
+})();
+<?php endif; ?>
 
 // Scroll chat
 document.getElementById('chat-container').scrollTop = document.getElementById('chat-container').scrollHeight;
