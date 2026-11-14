@@ -166,13 +166,18 @@ class RecordingMedia
         return $bytes > 0 && $bytes <= self::INJECT_DURATION_MAX_BYTES;
     }
 
-    public static function remux(string $src, string $dest, bool $requireAudio = true): ?float
+    /**
+     * @param string|null $ffmpeg binário a usar; null = o configurado (ffmpegBin).
+     *                            A recuperação manual passa o caminho instalado à mão.
+     */
+    public static function remux(string $src, string $dest, bool $requireAudio = true, ?string $ffmpeg = null): ?float
     {
-        $ffmpeg = self::ffmpegBin();
+        $ffmpeg = $ffmpeg ?? self::ffmpegBin();
         if ($ffmpeg === null) return null;
         if (!is_file($src) || filesize($src) < 1) return null;
 
-        $cmd = escapeshellarg($ffmpeg) . ' -y -fflags +genpts -i ' . escapeshellarg($src)
+        // -nostdin: rodando num terminal, o ffmpeg não lê o teclado.
+        $cmd = escapeshellarg($ffmpeg) . ' -nostdin -y -fflags +genpts -i ' . escapeshellarg($src)
             . ' -c copy -map 0 ' . escapeshellarg($dest);
         $out = self::runShell($cmd);
         if ($out === null || !is_file($dest) || filesize($dest) < 1) {
