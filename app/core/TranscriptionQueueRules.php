@@ -162,12 +162,18 @@ class TranscriptionQueueRules
         return $norm($a) === $norm($b);
     }
 
-    /** Texto plano com marca de tempo [mm:ss] ou [h:mm:ss], um trecho por linha. */
+    /**
+     * Texto plano com marca de tempo [mm:ss] ou [h:mm:ss], um trecho por linha.
+     * Com o nome de quem falou: "[mm:ss] Nome: texto" (SpeakerTimeline).
+     */
     public static function transcriptText(array $segments): string
     {
         $lines = [];
         foreach ($segments as $s) {
-            $lines[] = '[' . self::formatTime((float)($s['start'] ?? 0)) . '] ' . trim((string)($s['text'] ?? ''));
+            $speaker = trim((string)($s['speaker'] ?? ''));
+            $lines[] = '[' . self::formatTime((float)($s['start'] ?? 0)) . '] '
+                . ($speaker !== '' ? $speaker . ': ' : '')
+                . trim((string)($s['text'] ?? ''));
         }
         return trim(implode("\n", $lines));
     }

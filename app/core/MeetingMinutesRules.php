@@ -96,7 +96,7 @@ class MeetingMinutesRules
             . '"orcamento" (array de strings: valores, faixas de investimento e condições de pagamento citados), '
             . '"decisores" (array de strings: quem decide ou aprova do lado do cliente). '
             . 'Use somente o que foi dito na transcrição. Se uma chave não tiver conteúdo, retorne array vazio [] '
-            . 'e nunca invente valores, prazos ou nomes. Seja direto e evite repetir informações entre seções.';
+            . 'e nunca invente valores, prazos ou nomes. Quando a linha da transcrição trouxer o nome de quem falou ([mm:ss] Nome: texto), use esse nome para dizer quem pediu, decidiu ou ficou responsável. Seja direto e evite repetir informações entre seções.';
     }
 
     /** Prompt de sistema das notas de uma parte (transcrição acima de SPLIT_LIMIT). */
@@ -105,7 +105,7 @@ class MeetingMinutesRules
         return 'Você recebe UMA PARTE da transcrição de uma reunião longa, em português do Brasil. '
             . 'Escreva notas objetivas em tópicos com tudo o que importa desta parte: assuntos, decisões, '
             . 'pendências, tarefas, necessidades do cliente, escopo, prazos, valores e quem decide. '
-            . 'Mantenha as marcas de tempo [mm:ss] dos pontos principais. Não invente nada.';
+            . 'Mantenha as marcas de tempo [mm:ss] dos pontos principais e o nome de quem disse cada coisa, quando a linha trouxer "Nome: ". Não invente nada.';
     }
 
     /**
@@ -193,7 +193,7 @@ class MeetingMinutesRules
             $header .= ' Data: ' . trim($dateLabel) . '.';
         }
         $body = mb_substr($transcript, 0, self::TRANSCRIPT_LIMIT);
-        return $header . "\n\nTranscrição (formato [mm:ss] texto):\n\n" . $body;
+        return $header . "\n\nTranscrição (formato [mm:ss] texto, ou [mm:ss] Nome: texto quando se sabe quem falou):\n\n" . $body;
     }
 
     /**

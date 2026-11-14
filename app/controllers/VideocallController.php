@@ -654,7 +654,8 @@ class VideocallController extends Controller
 
         try {
             $store = new RecordingSessionStore($this->recordingSessionsDir(), (int)$room['id'], $sess, $this->recordingMaxBytes());
-            $r = $store->appendAudioSegment($seq, $bytes, (string)($_POST['sha256'] ?? ''), (float)($_POST['start_sec'] ?? 0), $mime);
+            // speakers (opcional): quem falou durante este segmento, medido pela sala.
+            $r = $store->appendAudioSegment($seq, $bytes, (string)($_POST['sha256'] ?? ''), (float)($_POST['start_sec'] ?? 0), $mime, (string)($_POST['speakers'] ?? ''));
             // Segmento que chegou depois da publicação: liga direto à gravação.
             if ($store->isFinalized() && $store->publishedToken()) {
                 $this->attachAudioSegments($store, $store->publishedToken());

@@ -2290,6 +2290,9 @@ function attachSpeaking(id, stream) {
 }
 
 function detachSpeaking(id) {
+    // Quem sai (ou troca de microfone) no meio da fala: fecha o intervalo aberto.
+    const open = speakerOpen.get(id);
+    if (open) { speakerOpen.delete(id); closeSpeaker(open, recordedMs() / 1000); }
     const m = speakingMon.get(id);
     if (m) { try { m.src.disconnect(); } catch (e) {} speakingMon.delete(id); }
     tileEl(id)?.classList.remove('speaking');
@@ -2329,8 +2332,40 @@ function speakingTick() {
             // Histerese: só apaga após alguns ciclos em silêncio (evita piscar).
             if (m.speaking && ++m.silentFrames > 6) { m.speaking = false; t.classList.remove('speaking'); }
         }
+        trackSpeaker(id, m.speaking && !muted);
     });
 }
+
+// ---- Quem falou, para a transcrição trazer o nome de cada pessoa ----
+// Só no navegador de quem grava. Usa a mesma detecção do contorno verde e
+// registra intervalos no tempo da gravação (pausas não contam), enviados
+// junto com cada segmento de áudio (SpeakerTimeline no servidor).
+const SPEAKER_OFF_DELAY = 0.6; // a histerese apaga ~0,7 s depois da última fala
+let speakerOpen = new Map(); // id -> { s, n }
+let speakerDone = [];        // intervalos fechados ainda não enviados
+function speakerLogActive() { return !!(mediaRecorder && mediaRecorder.state === 'recording' && audioSegRec); }
+function speakerNameOf(id) {
+    if (id === peerId) return myName || 'Convidado';
+    const e = peers.get(id);
+    return (e && e.name) || tileEl(id)?.querySelector('.name')?.textContent || '';
+}
+function closeSpeaker(open, endSec) {
+    const s = Math.round(open.s * 100) / 100, e = Math.round(endSec * 100) / 100;
+    if (open.n && e > s) speakerDone.push({ s, e, n: open.n });
+}
+function trackSpeaker(id, speaking) {
+    const open = speakerOpen.get(id);
+    if (!speakerLogActive()) return;
+    const now = recordedMs() / 1000;
+    if (speaking && !open) speakerOpen.set(id, { s: Math.max(0, now - 0.1), n: speakerNameOf(id) });
+    else if (!speaking && open) { speakerOpen.delete(id); closeSpeaker(open, now - SPEAKER_OFF_DELAY); }
+}
+function closeAllSpeakers() {
+    const now = recordedMs() / 1000;
+    speakerOpen.forEach(o => closeSpeaker(o, now));
+    speakerOpen.clear();
+}
+function takeSpeakers() { const out = speakerDone; speakerDone = []; return out; }
 
 // Remove um tile com animação de saída.
 function animateTileOut(id) {
@@ -2870,6 +2905,7 @@ function startRecording() {
     recStartTs = Date.now();
     recElapsedMs = 0; recResumeTs = Date.now();
     audioSegSeq = 0; audioSegDone = Promise.resolve();
+    speakerOpen = new Map(); speakerDone = [];
     startAudioSegment();
     lastRecBroadcastAt = Date.now(); lastRecHeartbeatAt = Date.now();
     document.getElementById('btn-rec').classList.add('off');
@@ -2902,6 +2938,7 @@ function togglePauseRecording() {
     if (!mediaRecorder) return;
     const btn = document.getElementById('btn-rec-pause');
     if (mediaRecorder.state === 'recording') {
+        closeAllSpeakers(); // a pausa não entra na gravação nem na linha do tempo
         mediaRecorder.pause();
         if (audioSegRec && audioSegRec.state === 'recording') { try { audioSegRec.pause(); } catch (e) {} }
         recElapsedMs += (Date.now() - recResumeTs); recResumeTs = 0;
@@ -2920,6 +2957,7 @@ function togglePauseRecording() {
     }
 }
 function stopRecording() {
+    if (mediaRecorder && mediaRecorder.state === 'recording') closeAllSpeakers(); // vai no último segmento
     stopAudioSegment(); // antes do stopComposite, que fecha o mix de áudio
     if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
     clearInterval(recTimer);
@@ -3006,7 +3044,10 @@ function startAudioSegment() {
     rec.ondataavailable = (e) => { if (e.data && e.data.size) parts.push(e.data); };
     rec.onstop = () => {
         const blob = new Blob(parts, { type: mime });
-        const p = blob.size ? up.enqueueAudio(seq, blob, startSec, mime) : Promise.resolve();
+        // Quem falou até aqui vai junto com este segmento (nomes na transcrição).
+        const spk = takeSpeakers();
+        if (!blob.size) speakerDone = spk.concat(speakerDone); // segmento vazio: segue no próximo
+        const p = blob.size ? up.enqueueAudio(seq, blob, startSec, mime, spk) : Promise.resolve();
         p.catch(() => {}).then(finish);
     };
     try { rec.start(); } catch (e) { finish(); return; }

@@ -458,8 +458,10 @@ class RecordingSessionStore
      *
      * @return array{status:string,seq:int,size:int,sha256:string}
      */
-    public function appendAudioSegment(int $seq, string $bytes, string $sha256Hex, float $startSec, string $mime): array
+    public function appendAudioSegment(int $seq, string $bytes, string $sha256Hex, float $startSec, string $mime, $speakers = null): array
     {
+        // Quem falou (SpeakerTimeline), enviado junto com o segmento. Opcional.
+        $speakers = SpeakerTimeline::sanitize($speakers);
         if ($seq < 1) throw new DomainException('invalid_seq');
         $ext = self::audioExtForMime($mime);
         if ($ext === null) throw new DomainException('invalid_mime');
@@ -469,7 +471,7 @@ class RecordingSessionStore
         $sha = strtolower(trim($sha256Hex));
         $startSec = max(0.0, $startSec);
 
-        return $this->withLock(function () use ($seq, $bytes, $sha, $startSec, $mime, $ext) {
+        return $this->withLock(function () use ($seq, $bytes, $sha, $startSec, $mime, $ext, $speakers) {
             $j = $this->readJournal();
             $audio = $j['audio'] ?? [];
             if (isset($audio[$seq])) {
@@ -500,6 +502,7 @@ class RecordingSessionStore
                 'mime' => substr(strtolower(trim(explode(';', $mime)[0])), 0, 60),
                 'file' => $file,
             ];
+            if ($speakers) $audio[$seq]['speakers'] = $speakers;
             $j['audio'] = $audio;
             $this->writeJournal($j);
             return ['status' => 'ok', 'seq' => $seq, 'size' => strlen($bytes), 'sha256' => $sha];
@@ -522,10 +525,17 @@ class RecordingSessionStore
                 'start_sec' => (float)$meta['start_sec'],
                 'mime' => (string)$meta['mime'],
                 'path' => $this->audioDir() . DIRECTORY_SEPARATOR . $meta['file'],
+                'speakers' => is_array($meta['speakers'] ?? null) ? $meta['speakers'] : [],
             ];
         }
         usort($out, static function ($a, $b) { return $a['seq'] <=> $b['seq']; });
         return $out;
+    }
+
+    /** Linha do tempo de quem falou, juntando o que veio com todos os segmentos de áudio. */
+    public function speakerTimeline(): array
+    {
+        return SpeakerTimeline::combine(array_column($this->audioSegments(), 'speakers'));
     }
 
     /**

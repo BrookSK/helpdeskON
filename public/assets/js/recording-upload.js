@@ -204,17 +204,22 @@
      * Grava no IndexedDB antes de enviar e entra numa fila separada do vídeo:
      * falha no áudio nunca impede a publicação do vídeo.
      */
-    async enqueueAudio(seq, blob, startSec, mime) {
+    /**
+     * speakers (opcional): quem falou, [{s, e, n}] em segundos da gravação, para
+     * a transcrição trazer o nome de cada pessoa.
+     */
+    async enqueueAudio(seq, blob, startSec, mime, speakers) {
       if (!this.started) await this.start();
       const bytes = new Uint8Array(await blob.arrayBuffer());
       const sha = await sha256Hex(bytes.buffer);
-      await this._put('audio', { seq, bytes, startSec, mime, sha256: sha, acked: false });
+      const spk = Array.isArray(speakers) ? speakers : [];
+      await this._put('audio', { seq, bytes, startSec, mime, sha256: sha, speakers: spk, acked: false });
       this.audioPump = this.audioPump
-        .then(() => this._sendAudio(seq, bytes, sha, startSec, mime))
+        .then(() => this._sendAudio(seq, bytes, sha, startSec, mime, spk))
         .catch(() => { /* segmento fica no IndexedDB; a gravação segue */ });
     }
 
-    async _sendAudio(seq, bytes, sha, startSec, mime) {
+    async _sendAudio(seq, bytes, sha, startSec, mime, speakers) {
       for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         const fd = new FormData();
         fd.append('sess', this.sess);
@@ -222,6 +227,7 @@
         fd.append('sha256', sha);
         fd.append('start_sec', String(startSec));
         fd.append('mime', mime);
+        if (speakers && speakers.length) fd.append('speakers', JSON.stringify(speakers));
         fd.append('audio', new Blob([bytes], { type: mime }), 'a.bin');
         let status = 0, res = null;
         try {
@@ -230,7 +236,7 @@
           res = await r.json().catch(() => null);
         } catch (e) { res = null; }
         if (res && res.success) {
-          await this._put('audio', { seq, bytes, startSec, mime, sha256: sha, acked: true });
+          await this._put('audio', { seq, bytes, startSec, mime, sha256: sha, speakers: speakers || [], acked: true });
           return;
         }
         // Recusa de conteúdo (hash, tipo, tamanho) não se resolve tentando de novo.

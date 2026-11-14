@@ -21,9 +21,29 @@ class RecordingSegment
         $this->storageRoot = rtrim($storageRoot ?? BASE_PATH . '/storage', '/\\');
     }
 
+    /** Arquivo com quem falou (SpeakerTimeline), na pasta dos segmentos da gravação. */
+    public const SPEAKERS_FILE = 'speakers.json';
+
     public function absolutePath(string $relative): string
     {
         return $this->storageRoot . DIRECTORY_SEPARATOR . ltrim($relative, '/\\');
+    }
+
+    /**
+     * Linha do tempo de quem falou na gravação, lida da pasta dos segmentos
+     * (a mesma do file_path de qualquer segmento). Vazia quando não existe:
+     * gravação anterior ao recurso, navegador sem detecção ou recuperação manual.
+     */
+    public function speakerTimeline(array $segmentRows): array
+    {
+        foreach ($segmentRows as $row) {
+            $rel = (string)($row['file_path'] ?? '');
+            if ($rel === '') continue;
+            $file = $this->absolutePath(dirname(str_replace('\\', '/', $rel)) . '/' . self::SPEAKERS_FILE);
+            if (!is_file($file)) return [];
+            return SpeakerTimeline::combine([json_decode((string)@file_get_contents($file), true) ?: []]);
+        }
+        return [];
     }
 
     /**
@@ -63,6 +83,17 @@ class RecordingSegment
                 [$recordingId, $seg['seq'], $seg['start_sec'], $rel, $seg['size'], $seg['mime'], $seg['sha256']]
             );
             if ($stmt->rowCount() > 0) $attached++;
+        }
+
+        // Quem falou: a linha do tempo inteira vai para um arquivo ao lado dos
+        // segmentos (reescrito a cada ligação; segmento atrasado traz mais nomes).
+        $timeline = $store->speakerTimeline();
+        if ($timeline && is_dir($absDir)) {
+            $json = json_encode($timeline, JSON_UNESCAPED_UNICODE);
+            $tmp = $absDir . '/' . self::SPEAKERS_FILE . '.tmp';
+            if ($json !== false && @file_put_contents($tmp, $json) !== false) {
+                @rename($tmp, $absDir . '/' . self::SPEAKERS_FILE);
+            }
         }
 
         if ($attached > 0) {

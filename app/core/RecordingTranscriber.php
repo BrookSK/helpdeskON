@@ -73,6 +73,16 @@ class RecordingTranscriber
         return $stats;
     }
 
+    /**
+     * Conclui uma gravação cujos segmentos já estão todos transcritos (mesma
+     * junção do run). Usado por quem marca os segmentos por fora (testes E2E).
+     */
+    public function finish(int $recId): bool
+    {
+        if ($this->segments->recordingStatus($recId) !== 'done') return false;
+        return $this->complete($recId);
+    }
+
     /** Junta os segmentos e grava a transcrição. Só uma execução conclui a gravação. */
     private function complete(int $recId): bool
     {
@@ -87,6 +97,8 @@ class RecordingTranscriber
         }, $rows);
         $merged = TranscriptionQueueRules::merge($parts);
         $segments = TranscriptionQueueRules::cleanSegments($merged['segments']);
+        // Nome de quem falou em cada trecho, quando a sala registrou (SpeakerTimeline).
+        $segments = SpeakerTimeline::assign($segments, $this->segments->speakerTimeline($rows));
         $transcript = TranscriptionQueueRules::transcriptText($segments);
 
         $ok = $this->db->query(

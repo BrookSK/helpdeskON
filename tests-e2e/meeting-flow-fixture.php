@@ -9,6 +9,8 @@
  *   php tests-e2e/meeting-flow-fixture.php state <recToken>
  *   php tests-e2e/meeting-flow-fixture.php transcribe-done <recToken>
  *   php tests-e2e/meeting-flow-fixture.php room-recording <roomId>
+ *   php tests-e2e/meeting-flow-fixture.php room-speakers <roomId>
+ *   php tests-e2e/meeting-flow-fixture.php transcribe-fake <recToken>
  *   php tests-e2e/meeting-flow-fixture.php meeting-room <título>
  *   php tests-e2e/meeting-flow-fixture.php cleanup <userId>
  *
@@ -128,6 +130,32 @@ switch ($cmd) {
         ]);
         break;
 
+    case 'room-speakers':
+        // Linha do tempo de quem falou gravada com a última gravação da sala.
+        $rec = $db->fetch('SELECT * FROM video_recordings WHERE room_id = ? ORDER BY id DESC LIMIT 1', [(int)$arg]);
+        $segModel = new RecordingSegment();
+        $segs = $rec ? $segModel->listByRecording((int)$rec['id']) : [];
+        out(['token' => $rec['token'] ?? null, 'speakers' => $segModel->speakerTimeline($segs)]);
+        break;
+
+    case 'transcribe-fake':
+        // Simula o cron com uma OpenAI falsa: cada segmento vira "Fala do trecho N"
+        // de 0 s a 4 s, e a gravação é concluída pela mesma junção do cron.
+        $rec = $rooms->findRecordingByToken($arg);
+        $segModel = new RecordingSegment();
+        foreach ($segModel->listByRecording((int)$rec['id']) as $s) {
+            $txt = 'Fala do trecho ' . $s['seq'];
+            $segModel->markDone((int)$s['id'], $txt, [['start' => 0, 'end' => 4, 'text' => $txt]]);
+        }
+        $ai = new class {
+            public function isConfigured(): bool { return true; }
+            public function transcribe($p, array $o = []): array { return ['success' => false, 'error' => 'não usado']; }
+        };
+        (new RecordingTranscriber($segModel, $ai))->finish((int)$rec['id']);
+        $after = $rooms->findRecordingByToken($arg);
+        out(['status' => $after['transcribe_status'], 'transcript' => $after['transcript'], 'segments' => json_decode((string)$after['transcript_json'], true)]);
+        break;
+
     case 'meeting-room':
         $m = $db->fetch('SELECT id FROM agenda_meetings WHERE title = ? ORDER BY id DESC LIMIT 1', [$arg]);
         $room = $m ? $db->fetch('SELECT auto_record FROM video_rooms WHERE meeting_id = ? ORDER BY id DESC LIMIT 1', [$m['id']]) : null;
@@ -142,6 +170,8 @@ switch ($cmd) {
                 $db->delete('video_recording_segments', 'recording_id = ?', [$rec['id']]);
                 foreach (glob(BASE_PATH . '/storage/recording-audio/' . $rec['token'] . '/*') ?: [] as $f) @unlink($f);
                 @rmdir(BASE_PATH . '/storage/recording-audio/' . $rec['token']);
+                @unlink(BASE_PATH . '/storage/remux-pending/' . $rec['token']);
+                @unlink(BASE_PATH . '/storage/remux-pending/' . $rec['token'] . '.failed');
                 @unlink(PUBLIC_PATH . '/uploads/' . $rec['file_path']);
                 foreach ($db->fetchAll('SELECT id FROM proposals WHERE recording_id = ?', [$rec['id']]) as $p) {
                     $db->delete('proposal_items', 'proposal_id = ?', [$p['id']]);

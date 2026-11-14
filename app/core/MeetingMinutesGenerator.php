@@ -25,7 +25,7 @@ class MeetingMinutesGenerator
         if (!$this->ai->isConfigured() || trim($transcript) === '') return '';
 
         $parts = MeetingMinutesRules::splitTranscript($transcript);
-        $label = 'Transcrição da reunião (formato [mm:ss] texto)';
+        $label = 'Transcrição da reunião (formato [mm:ss] texto, ou [mm:ss] Nome: texto quando se sabe quem falou)';
         $body = $transcript;
         if (count($parts) > 1) {
             $notes = [];

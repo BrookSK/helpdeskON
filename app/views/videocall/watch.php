@@ -74,6 +74,7 @@ $recInfo = [
         .seg:hover { background:var(--panel2); }
         .seg.active { background:rgba(0,191,166,.16); }
         .seg .t { color:var(--brand); font-variant-numeric:tabular-nums; flex:0 0 auto; font-size:.78rem; padding-top:1px; }
+        .seg .who { font-weight:600; margin-right:4px; }
         .summary-body { white-space:pre-wrap; font-size:.88rem; line-height:1.6; }
         .muted { color:#9aa2c0; }
         .toolbar { display:flex; gap:8px; padding:10px 14px; border-top:1px solid #2a2d44; }
@@ -266,7 +267,7 @@ function renderSegments() {
     }
     empty.style.display = 'none';
     list.innerHTML = segments.map((s, i) =>
-        `<div class="seg" id="seg-${i}" onclick="seek(${s.start})"><span class="t">${fmt(s.start)}</span><span>${esc(s.text)}</span></div>`
+        `<div class="seg" id="seg-${i}" onclick="seek(${s.start})"><span class="t">${fmt(s.start)}</span><span>${s.speaker ? `<span class="who">${esc(s.speaker)}:</span>` : ''}${esc(s.text)}</span></div>`
     ).join('');
 }
 // Estado da transcrição quando ainda não há texto: na fila, transcrevendo, falhou ou manual.
@@ -508,7 +509,7 @@ async function generateProposal(confirmed) {
 }
 
 function copyTranscript() {
-    const txt = (segments && segments.length) ? segments.map(s => '[' + fmt(s.start) + '] ' + s.text).join('\n') : '';
+    const txt = (segments && segments.length) ? segments.map(s => '[' + fmt(s.start) + '] ' + (s.speaker ? s.speaker + ': ' : '') + s.text).join('\n') : '';
     if (!txt) { alert('Sem transcrição para copiar.'); return; }
     navigator.clipboard?.writeText(txt).then(()=>alert('Transcrição copiada! Cole no GPT para gerar as tarefas.'));
 }
