@@ -65,3 +65,12 @@ storage/contracts/*
 
 # Travas das rotinas agendadas (CronLock). Não versionar.
 storage/locks/
+
+# FFmpeg estático baixado no servidor (RecordingMedia::BUNDLED_FFMPEG). Não versionar.
+storage/ffmpeg/
+
+# Cópias originais guardadas pela recuperação de gravação. Não versionar.
+storage/recovery-backup/
+
+# Marcas de vídeo à espera de remux pelo cron. Não versionar.
+storage/remux-pending/

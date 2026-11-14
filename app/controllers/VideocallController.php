@@ -24,7 +24,7 @@ class VideocallController extends Controller
      * Métodos públicos chamados só pelo cron (e pelos testes), nunca pela URL.
      * O Router recusa estes nomes.
      */
-    public const INTERNAL_METHODS = ['finalizeAbandonedSessions', 'completeTranscription'];
+    public const INTERNAL_METHODS = ['finalizeAbandonedSessions', 'completeTranscription', 'remuxPendingRecordings'];
 
     /** Papéis que podem CRIAR salas (qualquer usuário interno da equipe). */
     private $creatorRoles = ['super_admin', 'attendant', 'developer', 'analyst', 'comercial', 'marketing', 'whatsapp_agent'];
@@ -519,18 +519,27 @@ class VideocallController extends Controller
         // Remuxa para normalizar a timeline (seek/transcrição veem a reunião toda).
         // Sem FFmpeg, mantém o arquivo e injeta Duration via parser EBML (fallback).
         $duration = $clientDuration ? (int)$clientDuration : null;
-        $remuxDur = RecordingMedia::remux($dest, $dest . '.remux.webm');
+        $fixed = false;
+        $remuxDur = RecordingMedia::canRemuxInline((int)@filesize($dest))
+            ? RecordingMedia::remux($dest, $dest . '.remux.webm')
+            : null;
         if ($remuxDur !== null && is_file($dest . '.remux.webm')) {
             if (@rename($dest . '.remux.webm', $dest)) {
                 $duration = (int) round($remuxDur);
+                $fixed = true;
             } else {
                 @unlink($dest . '.remux.webm');
             }
         } else {
             @unlink($dest . '.remux.webm');
             $calcDur = $this->injectWebmDuration($dest);
-            if ($calcDur !== null && !$duration) $duration = (int) round($calcDur);
+            if ($calcDur !== null) {
+                $fixed = true;
+                if (!$duration) $duration = (int) round($calcDur);
+            }
         }
+        // Sem duração no arquivo o player não avança: o cron remuxa depois.
+        if (!$fixed) $this->markRemuxPending($recToken);
 
         $this->model->addRecording([
             'room_id' => $roomId,
@@ -726,6 +735,75 @@ class VideocallController extends Controller
             }
         }
         return $published;
+    }
+
+    /** Pasta das marcas de remux pendente (uma por gravação, nome = token). */
+    private function remuxPendingDir($dir = null)
+    {
+        return rtrim($dir ?: BASE_PATH . '/storage/remux-pending', '/\\');
+    }
+
+    /** Marca a gravação para o cron remuxar (vídeo publicado sem duração). */
+    private function markRemuxPending($recToken, $dir = null)
+    {
+        if (!preg_match('/^[A-Za-z0-9]{8,64}$/', (string)$recToken)) return;
+        $dir = $this->remuxPendingDir($dir);
+        if (!is_dir($dir)) @mkdir($dir, 0775, true);
+        $marker = $dir . '/' . $recToken;
+        if (!is_file($marker)) @file_put_contents($marker, '0');
+    }
+
+    /**
+     * Remuxa as gravações publicadas sem duração (arquivo grande na requisição
+     * web, ou publicadas antes de haver FFmpeg). Uma por execução: uma reunião
+     * de horas leva alguns minutos. Sem FFmpeg as marcas ficam para depois.
+     * Arquivo que o FFmpeg recusa PENDING_REMUX_MAX_ATTEMPTS vezes sai da fila
+     * (marca renomeada para .failed) e fica como está. Chamado pelo cron.
+     *
+     * @return int gravações arrumadas nesta execução
+     */
+    public function remuxPendingRecordings($max = 1, $dir = null)
+    {
+        $dir = $this->remuxPendingDir($dir);
+        $markers = array_filter(glob($dir . '/*') ?: [], function ($p) {
+            return preg_match('/^[A-Za-z0-9]{8,64}$/', basename($p)) && is_file($p);
+        });
+        if (!$markers) return 0;
+        $ffmpeg = RecordingMedia::ffmpegBin();
+        if ($ffmpeg === null) return 0;
+
+        $fixed = 0;
+        $baseReal = realpath(PUBLIC_PATH . '/uploads/recordings');
+        foreach ($markers as $marker) {
+            if ($fixed >= max(1, (int)$max)) break;
+            $tok = basename($marker);
+            $rec = $this->model->findRecordingByToken($tok);
+            $real = $rec ? realpath(PUBLIC_PATH . '/uploads/' . ltrim((string)$rec['file_path'], '/')) : false;
+            if (!$rec || !$real || !$baseReal || strpos($real, $baseReal . DIRECTORY_SEPARATOR) !== 0) {
+                @unlink($marker); // gravação apagada ou arquivo fora do lugar: nada a fazer
+                continue;
+            }
+
+            $tmp = $real . '.remux.webm';
+            @unlink($tmp);
+            $dur = RecordingMedia::remux($real, $tmp, true, $ffmpeg);
+            if ($dur !== null && @rename($tmp, $real)) {
+                clearstatcache();
+                $this->model->updateRecording($tok, ['duration_sec' => (int)round($dur), 'file_size' => (int)filesize($real)]);
+                @unlink($marker);
+                $fixed++;
+                continue;
+            }
+            @unlink($tmp);
+            $attempts = (int)@file_get_contents($marker) + 1;
+            if ($attempts >= RecordingMedia::PENDING_REMUX_MAX_ATTEMPTS) {
+                @rename($marker, $marker . '.failed');
+                if (class_exists('Logger')) Logger::error('remuxPendingRecordings: FFmpeg recusou o vídeo; ficou como está', ['rec' => $tok]);
+            } else {
+                @file_put_contents($marker, (string)$attempts);
+            }
+        }
+        return $fixed;
     }
 
     /** [v2] Estado da sessão: próxima sequência e bytes confirmados. */
@@ -1978,16 +2056,10 @@ class VideocallController extends Controller
         return null;
     }
 
-    /** Localiza o binário do ffmpeg (Settings.ffmpeg_path ou PATH). Null se indisponível. */
+    /** Localiza o binário do ffmpeg (mesma regra do remux: RecordingMedia::ffmpegBin). Null se indisponível. */
     private function ffmpegBin()
     {
-        // Sem função de shell habilitada, não há como usar o ffmpeg.
-        if (!$this->fnEnabled('shell_exec') && !$this->fnEnabled('exec') && !$this->fnEnabled('proc_open')) return null;
-        $cfg = trim((string) Config::get('ffmpeg_path'));
-        if ($cfg !== '' && @is_file($cfg)) return $cfg;
-        $probe = $this->runShell('ffmpeg -version');
-        if ($probe && stripos($probe, 'ffmpeg version') !== false) return 'ffmpeg';
-        return null;
+        return RecordingMedia::ffmpegBin();
     }
 
     /** Duração (segundos) de um arquivo via ffmpeg. */

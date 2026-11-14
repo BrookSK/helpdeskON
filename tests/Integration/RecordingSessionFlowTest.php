@@ -57,6 +57,7 @@ final class RecordingSessionFlowTest extends TestCase
                 try { $this->db->delete('video_recording_segments', 'recording_id = ?', [$r['id']]); } catch (\Throwable $e) {}
                 @unlink(BASE_PATH . '/public/uploads/' . $r['file_path']);
                 $this->rrmdir(BASE_PATH . '/storage/recording-audio/' . $r['token']);
+                @unlink(BASE_PATH . '/storage/remux-pending/' . $r['token']);
             }
             try { $this->db->delete('video_recordings', 'room_id = ?', [$id]); } catch (\Throwable $e) {}
             try { $this->db->delete('video_rooms', 'id = ?', [$id]); } catch (\Throwable $e) {}
@@ -314,5 +315,29 @@ final class RecordingSessionFlowTest extends TestCase
         // Rodar de novo não publica outra vez.
         $this->assertSame(0, $ctrl->finalizeAbandonedSessions(900, $this->sessBase));
         $this->assertCount(1, $this->model->listRecordings((int)$room['id']));
+    }
+
+    /**
+     * Sem FFmpeg e sem conseguir gravar a duração no arquivo, a gravação é
+     * publicada mesmo assim e fica marcada para o cron remuxar depois
+     * (remuxPendingRecordings), sem ninguém rodar comando.
+     */
+    public function testPublicacaoSemDuracaoFicaMarcadaParaORemuxDoCron(): void
+    {
+        if (\RecordingMedia::ffmpegBin() !== null) $this->markTestSkipped('Há FFmpeg nesta máquina: a publicação já remuxa.');
+        if (!defined('PUBLIC_PATH')) define('PUBLIC_PATH', BASE_PATH . '/public');
+        $room = $this->novaSala();
+        $store = new RecordingSessionStore($this->sessBase, (int)$room['id'], str_repeat('9', 32));
+        $recToken = $this->model->generateToken();
+        $store->start($this->ownerId, 'Dono', $recToken);
+        $store->appendChunk(1, 'NAOEWEBM', RecordingSessionStore::hashBytes('NAOEWEBM'));
+        $journal = $store->dir() . '/journal.json';
+        $j = json_decode(file_get_contents($journal), true);
+        $j['updated_at'] = time() - 960;
+        file_put_contents($journal, json_encode($j));
+
+        $this->assertSame(1, (new VideocallController())->finalizeAbandonedSessions(900, $this->sessBase));
+        $this->assertNotEmpty($this->model->findRecordingByToken($recToken), 'publica mesmo sem duração');
+        $this->assertFileExists(BASE_PATH . '/storage/remux-pending/' . $recToken);
     }
 }

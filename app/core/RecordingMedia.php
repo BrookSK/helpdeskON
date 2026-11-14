@@ -42,6 +42,23 @@ class RecordingMedia
      */
     public const INJECT_DURATION_MAX_BYTES = 67108864; // 64 MiB
 
+    /**
+     * Teto para remuxar durante a requisição web (quem parou a gravação fica
+     * esperando a resposta). Remux só copia os dados: 256 MiB levam segundos;
+     * uma reunião de horas (GB) levaria minutos e estouraria o tempo da
+     * requisição. Acima disso o remux fica para o cron (remuxPendingRecordings).
+     */
+    public const INLINE_REMUX_MAX_BYTES = 268435456; // 256 MiB
+
+    /** Pode remuxar agora? Linha de comando (cron) sempre; web só arquivo pequeno. */
+    public static function canRemuxInline(int $bytes, string $sapi = PHP_SAPI): bool
+    {
+        return $sapi === 'cli' || ($bytes > 0 && $bytes <= self::INLINE_REMUX_MAX_BYTES);
+    }
+
+    /** Tentativas do remux pendente antes de desistir (arquivo que o FFmpeg recusa). */
+    public const PENDING_REMUX_MAX_ATTEMPTS = 3;
+
     // =====================================================================
     // Parte PURA (sem processo) — testável por unidade
     // =====================================================================
@@ -103,16 +120,37 @@ class RecordingMedia
      * função de shell habilitada ou o binário não é encontrado. Espelha a lógica
      * de VideocallController::ffmpegBin para manter uma única fonte de verdade.
      */
-    public static function ffmpegBin(): ?string
+    /**
+     * FFmpeg estático instalado dentro do projeto (relativo à raiz). A produção
+     * não tem FFmpeg no sistema e o usuário do Plesk não pode instalar pacotes;
+     * o binário baixado para esta pasta é achado sem configurar nada.
+     */
+    public const BUNDLED_FFMPEG = 'storage/ffmpeg/ffmpeg';
+
+    /**
+     * Ordem: configuração ffmpeg_path, binário do projeto (BUNDLED_FFMPEG),
+     * ffmpeg do sistema (PATH).
+     *
+     * @param string|null $bundled caminho do binário do projeto (testes)
+     */
+    public static function ffmpegBin(?string $bundled = null): ?string
     {
         if (!self::shellEnabled()) return null;
         if (class_exists('Config')) {
             $cfg = trim((string) Config::get('ffmpeg_path'));
             if ($cfg !== '' && @is_file($cfg)) return $cfg;
         }
-        $probe = self::runShell('ffmpeg -version');
-        if ($probe !== null && stripos($probe, 'ffmpeg version') !== false) return 'ffmpeg';
+        if ($bundled === null && defined('BASE_PATH')) $bundled = BASE_PATH . '/' . self::BUNDLED_FFMPEG;
+        if ($bundled !== null && @is_file($bundled) && self::answersAsFfmpeg($bundled)) return $bundled;
+        if (self::answersAsFfmpeg('ffmpeg', false)) return 'ffmpeg';
         return null;
+    }
+
+    /** O binário roda e se identifica como FFmpeg? (arquivo baixado pela metade não passa) */
+    private static function answersAsFfmpeg(string $bin, bool $quote = true): bool
+    {
+        $out = self::runShell(($quote ? escapeshellarg($bin) : $bin) . ' -version');
+        return $out !== null && stripos($out, 'ffmpeg version') !== false;
     }
 
     public static function shellEnabled(): bool

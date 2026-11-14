@@ -79,6 +79,14 @@ if ($lock === null) {
 $cfg = require BASE_PATH . '/config/database.php';
 $out = ['host' => $host, 'database' => $cfg['database'] ?? '?', 'abandoned' => 0, 'transcription' => null, 'errors' => []];
 
+// Diagnóstico: sem FFmpeg, gravações longas são publicadas sem duração (o
+// player não avança). Visível em "Executar agora" da tarefa agendada no Plesk.
+try {
+    $out['ffmpeg'] = RecordingMedia::ffmpegBin() !== null ? 'ok' : 'indisponível';
+} catch (\Throwable $e) {
+    $out['ffmpeg'] = 'indisponível';
+}
+
 try {
     $out['abandoned'] = (new VideocallController())->finalizeAbandonedSessions();
 } catch (\Throwable $e) {
@@ -94,6 +102,15 @@ try {
 } catch (\Throwable $e) {
     $out['errors'][] = 'transcrição: ' . $e->getMessage();
     Logger::error('cron_transcribe: falha na fila de transcrição', ['error' => $e->getMessage()]);
+}
+
+// Vídeos publicados sem duração (grandes demais para remuxar na requisição
+// web): remuxa um por execução. Só aqui (linha de comando), nunca via HTTP.
+try {
+    $out['remuxed'] = (new VideocallController())->remuxPendingRecordings();
+} catch (\Throwable $e) {
+    $out['errors'][] = 'remux: ' . $e->getMessage();
+    Logger::error('cron_transcribe: falha no remux pendente', ['error' => $e->getMessage()]);
 }
 
 echo '[' . date('Y-m-d H:i:s') . '] ' . json_encode($out, JSON_UNESCAPED_UNICODE) . "\n";

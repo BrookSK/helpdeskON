@@ -10,6 +10,7 @@ final class RouterInternalMethodsTest extends TestCase
     {
         $this->assertTrue(Router::isInternal('VideocallController', 'completeTranscription'));
         $this->assertTrue(Router::isInternal('VideocallController', 'finalizeAbandonedSessions'));
+        $this->assertTrue(Router::isInternal('VideocallController', 'remuxPendingRecordings'));
     }
 
     public function testCaixaDiferenteNaoEscapaDoBloqueio(): void
