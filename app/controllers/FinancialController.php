@@ -467,6 +467,48 @@ class FinancialController extends Controller
         $this->json(['success' => true, 'id' => $id]);
     }
 
+    /**
+     * Edita o cartão. Se o fechamento ou o vencimento mudou, as compras em
+     * aberto dele são recalculadas para a fatura certa (as pagas ficam).
+     */
+    public function updateCard($id = null)
+    {
+        $this->requireSuperAdmin();
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+        $card = $this->cards->findById((int)$id);
+        if (!$card) $this->json(['error' => 'Cartão não encontrado.'], 404);
+
+        $name = trim($_POST['name'] ?? '');
+        if ($name === '') $this->json(['error' => 'Informe o nome do cartão.'], 400);
+        $closingRaw = (int)($_POST['closing_day'] ?? 0);
+        $dueRaw = (int)($_POST['due_day'] ?? 0);
+        $closing = ($closingRaw >= 1 && $closingRaw <= 31) ? $closingRaw : null;
+        $due = ($dueRaw >= 1 && $dueRaw <= 31) ? $dueRaw : null;
+
+        $data = [
+            'name'        => $name,
+            'limit'       => FinanceRules::money($_POST['limit'] ?? 0),
+            'closing_day' => $closing,
+            'due_day'     => $due,
+            'account_id'  => !empty($_POST['account_id']) ? (int)$_POST['account_id'] : null,
+        ];
+        $cycleChanged = $this->cardDay($card['closing_day'] ?? null) !== $closing
+            || $this->cardDay($card['due_day'] ?? null) !== $due;
+
+        $pdo = Database::getInstance()->getConnection();
+        $recalc = null;
+        try {
+            $pdo->beginTransaction();
+            $this->cards->update((int)$id, $data);
+            if ($cycleChanged) $recalc = $this->transactions->recalcCardDueDates((int)$id, $closing, $due);
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            $this->json(['error' => $this->schemaErrorHint($e, 'o cartão', 168)], 500);
+        }
+        $this->json(['success' => true, 'recalc' => $recalc]);
+    }
+
     public function cardToggle($id = null)
     {
         $this->requireSuperAdmin();

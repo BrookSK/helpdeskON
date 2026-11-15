@@ -608,8 +608,8 @@ foreach (($bankAccounts ?? []) as $ba) $bankById[(int)$ba['id']] = $ba;
 
         <?php // ================= CARTÕES ================= ?>
         <div class="tab-pane fade" id="tab-cartoes">
-            <div class="card mb-3">
-                <div class="card-header py-2"><strong>Novo cartão de crédito</strong></div>
+            <div class="card mb-3" id="card-form">
+                <div class="card-header py-2"><strong id="c-title">Novo cartão de crédito</strong><input type="hidden" id="c-id" value=""></div>
                 <div class="card-body">
                     <div class="row g-2">
                         <div class="col-md-3"><label class="form-label small">Nome *</label><input id="c-name" class="form-control form-control-sm" placeholder="Ex.: Nubank PJ"></div>
@@ -625,7 +625,10 @@ foreach (($bankAccounts ?? []) as $ba) $bankById[(int)$ba['id']] = $ba;
                                 <?php endforeach; ?>
                             </select>
                         </div>
-                        <div class="col-md-3 d-flex align-items-end"><button class="btn btn-sm btn-primary" onclick="saveCard()"><i class="bi bi-plus-lg"></i> Salvar cartão</button></div>
+                        <div class="col-md-3 d-flex align-items-end gap-2">
+                            <button class="btn btn-sm btn-primary" id="c-save" onclick="saveCard()"><i class="bi bi-plus-lg"></i> Salvar cartão</button>
+                            <button class="btn btn-sm btn-outline-secondary" id="c-cancel" onclick="cancelCardEdit()" style="display:none;">Cancelar</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -652,7 +655,14 @@ foreach (($bankAccounts ?? []) as $ba) $bankById[(int)$ba['id']] = $ba;
                                 <td><?= $c['closing_day'] ? 'dia ' . (int)$c['closing_day'] : '—' ?></td>
                                 <td><?= $c['due_day'] ? 'dia ' . (int)$c['due_day'] : '—' ?></td>
                                 <td><?= ((int)$c['active'] === 1) ? '<span class="badge bg-success">Ativo</span>' : '<span class="badge bg-secondary">Inativo</span>' ?></td>
-                                <td><button class="btn btn-sm btn-outline-secondary py-0 px-1" onclick="toggleCard(<?= (int)$c['id'] ?>)"><i class="bi bi-power"></i></button></td>
+                                <td class="text-nowrap">
+                                    <button class="btn btn-sm btn-outline-primary py-0 px-1" title="Editar" onclick='editCard(<?= json_encode([
+                                        'id' => (int)$c['id'], 'name' => (string)$c['name'], 'limit' => number_format((float)$c['limit'], 2, ',', '.'),
+                                        'closing' => $c['closing_day'] ? (int)$c['closing_day'] : '', 'due' => $c['due_day'] ? (int)$c['due_day'] : '',
+                                        'account' => !empty($c['account_id']) ? (int)$c['account_id'] : '',
+                                    ], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'><i class="bi bi-pencil"></i></button>
+                                    <button class="btn btn-sm btn-outline-secondary py-0 px-1" title="Ativar/desativar" onclick="toggleCard(<?= (int)$c['id'] ?>)"><i class="bi bi-power"></i></button>
+                                </td>
                             </tr>
                             <?php endforeach; endif; ?>
                         </tbody>
@@ -1239,6 +1249,7 @@ async function removeTx(id, installments) {
     const r = await post('financial/remove/' + id, new FormData());
     if (r) location.reload();
 }
+let editingCard = null; // dados originais do cartão em edição
 async function saveCard() {
     const fd = new FormData();
     fd.append('name', document.getElementById('c-name').value.trim());
@@ -1246,8 +1257,46 @@ async function saveCard() {
     fd.append('closing_day', document.getElementById('c-closing').value);
     fd.append('due_day', document.getElementById('c-due').value);
     fd.append('account_id', document.getElementById('c-account').value);
-    const r = await post('financial/storeCard', fd);
-    if (r) location.reload();
+    const id = document.getElementById('c-id').value;
+    if (!id) {
+        const r = await post('financial/storeCard', fd);
+        if (r) location.reload();
+        return;
+    }
+    const cycleChanged = String(editingCard.closing) !== document.getElementById('c-closing').value
+        || String(editingCard.due) !== document.getElementById('c-due').value;
+    if (cycleChanged && !confirm('O fechamento ou o vencimento mudou. As compras EM ABERTO deste cartão serão recalculadas para a fatura certa, pela data da compra. O que já foi pago não muda. Continuar?')) return;
+    const r = await post('financial/updateCard/' + id, fd);
+    if (!r) return;
+    if (r.recalc) {
+        let msg = r.recalc.moved
+            ? `${r.recalc.moved} compra(s)/parcela(s) em aberto mudaram de fatura.`
+            : 'Nenhuma compra em aberto precisou mudar de fatura.';
+        if (r.recalc.skipped) msg += `\n${r.recalc.skipped} compra(s) sem data da compra ficaram como estavam.`;
+        alert(msg + '\nConfira as faturas abaixo: uma fatura já paga pode passar a mostrar valor em aberto.');
+    }
+    location.reload();
+}
+function editCard(c) {
+    editingCard = c;
+    document.getElementById('c-id').value = c.id;
+    document.getElementById('c-name').value = c.name;
+    document.getElementById('c-limit').value = c.limit;
+    document.getElementById('c-closing').value = c.closing;
+    document.getElementById('c-due').value = c.due;
+    document.getElementById('c-account').value = c.account;
+    document.getElementById('c-title').textContent = 'Editar cartão: ' + c.name;
+    document.getElementById('c-save').innerHTML = '<i class="bi bi-check-lg"></i> Salvar alterações';
+    document.getElementById('c-cancel').style.display = '';
+    document.getElementById('card-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    document.getElementById('c-name').focus();
+}
+function cancelCardEdit() {
+    editingCard = null;
+    ['c-id', 'c-name', 'c-limit', 'c-closing', 'c-due', 'c-account'].forEach(i => { document.getElementById(i).value = ''; });
+    document.getElementById('c-title').textContent = 'Novo cartão de crédito';
+    document.getElementById('c-save').innerHTML = '<i class="bi bi-plus-lg"></i> Salvar cartão';
+    document.getElementById('c-cancel').style.display = 'none';
 }
 async function toggleCard(id) { const r = await post('financial/cardToggle/' + id, new FormData()); if (r) location.reload(); }
 

@@ -475,6 +475,58 @@ class FinancialTransaction
         return $count;
     }
 
+    /**
+     * O cartão mudou de fechamento ou vencimento: recalcula em que fatura cai
+     * cada compra EM ABERTO dele, a partir da data da compra. O que já foi
+     * pago fica onde está. Compra sem data da compra (anterior à migration
+     * 168) não tem como ser recalculada e fica como está.
+     *
+     * @return array{moved:int,unchanged:int,skipped:int} moved = compras/parcelas
+     *   que mudaram de fatura; skipped = compras em aberto sem data da compra
+     */
+    public function recalcCardDueDates(int $cardId, ?int $closingDay, ?int $dueDay): array
+    {
+        $out = ['moved' => 0, 'unchanged' => 0, 'skipped' => 0];
+
+        // À vista (inclui as ocorrências de recorrentes já geradas).
+        $singles = $this->db->fetchAll(
+            "SELECT id, purchase_date, due_date FROM fin_transactions
+             WHERE card_id = ? AND installments <= 1 AND status = 'pending'",
+            [$cardId]
+        );
+        foreach ($singles as $t) {
+            if (empty($t['purchase_date'])) { $out['skipped']++; continue; }
+            $due = CardInvoiceRules::invoiceFor((string)$t['purchase_date'], $closingDay, $dueDay)['due_date'];
+            if ($due === substr((string)$t['due_date'], 0, 10)) { $out['unchanged']++; continue; }
+            $this->db->update('fin_transactions', ['due_date' => $due], 'id = ?', [(int)$t['id']]);
+            $out['moved']++;
+        }
+
+        // Parceladas com alguma parcela em aberto: só as parcelas pendentes mudam.
+        $parceled = $this->db->fetchAll(
+            "SELECT id, purchase_date, installments FROM fin_transactions
+             WHERE card_id = ? AND installments > 1 AND status = 'pending'",
+            [$cardId]
+        );
+        foreach ($parceled as $t) {
+            if (empty($t['purchase_date'])) { $out['skipped']++; continue; }
+            $dates = CardInvoiceRules::installmentDueDates((string)$t['purchase_date'], $closingDay, $dueDay, (int)$t['installments']);
+            $insts = $this->db->fetchAll(
+                "SELECT id, installment_no, due_date FROM fin_installments WHERE transaction_id = ? AND status = 'pending'",
+                [(int)$t['id']]
+            );
+            foreach ($insts as $i) {
+                $new = $dates[(int)$i['installment_no'] - 1] ?? null;
+                if ($new === null || $new === substr((string)$i['due_date'], 0, 10)) { $out['unchanged']++; continue; }
+                $this->db->update('fin_installments', ['due_date' => $new], 'id = ?', [(int)$i['id']]);
+                $out['moved']++;
+            }
+            // O vencimento do lançamento é o da 1ª parcela.
+            $this->db->update('fin_transactions', ['due_date' => $dates[0]], 'id = ?', [(int)$t['id']]);
+        }
+        return $out;
+    }
+
     /** Estorna o pagamento: transação e parcelas voltam a pendentes. */
     public function markUnpaid(int $id): void
     {
