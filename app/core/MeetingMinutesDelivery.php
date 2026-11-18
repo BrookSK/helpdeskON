@@ -21,18 +21,36 @@ class MeetingMinutesDelivery
      * "cliente" da reunião. Deduplica por e-mail e por telefone (normalizados),
      * descarta entradas sem nenhum canal de contato.
      *
-     * @param array $participants  Lista de ['name','email','phone'] (equipe interna).
+     * @param array $participants  Lista de ['name','email','phone'] (equipe interna,
+     *                             incluindo o organizador da reunião).
      * @param array $client        ['name','email','phone'] do cliente (ou vazio).
+     * @param array $otherClients  Demais pessoas do lado do cliente: clientes da
+     *                             reunião (agenda_meeting_clients) e convidados
+     *                             externos (external_guests). Lista de ['name','email','phone'].
      * @return array<int,array{name:string,email:?string,phone:?string,role:string}>
      *   role: 'client' | 'team'.
      */
-    public static function buildRecipients(array $participants, array $client = []): array
+    public static function buildRecipients(array $participants, array $client = [], array $otherClients = []): array
     {
         $items = [];
-        // Cliente primeiro (prioridade de identidade), depois a equipe.
+        // Lado do cliente primeiro (prioridade de identidade), depois a equipe.
         if (!empty($client)) $items[] = ['role' => 'client'] + $client;
+        foreach ($otherClients as $c) {
+            if (is_array($c)) $items[] = ['role' => 'client'] + $c;
+        }
         foreach ($participants as $p) $items[] = ['role' => 'team'] + $p;
         return self::collect($items);
+    }
+
+    /**
+     * A minuta gerada após a transcrição sai sozinha para os destinatários?
+     * Reunião comercial nasce como rascunho (revisão antes de ir ao cliente) e
+     * sala sem reunião vinculada não tem para quem enviar; os demais tipos
+     * (externo, operacional, interno) enviam automaticamente.
+     */
+    public static function shouldAutoSend(?string $meetingType): bool
+    {
+        return in_array(strtolower(trim((string)$meetingType)), ['externo', 'operacional', 'interno'], true);
     }
 
     /**

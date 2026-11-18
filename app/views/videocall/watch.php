@@ -191,6 +191,10 @@ $recInfo = [
             <div id="sm-empty" class="muted" style="font-size:.86rem;">Sem minuta ainda. Ela é gerada automaticamente junto com a transcrição.</div>
             <div id="sm-minutes" style="display:none;">
                 <div class="minutes-section">
+                    <div class="minutes-label"><i class="bi bi-arrow-right-circle"></i> Próximos Passos (quem faz o quê e até quando)</div>
+                    <ul id="min-proximos" class="minutes-list"></ul>
+                </div>
+                <div class="minutes-section">
                     <div class="minutes-label"><i class="bi bi-list-ul"></i> Tópicos Discutidos</div>
                     <ul id="min-topicos" class="minutes-list"></ul>
                 </div>
@@ -201,10 +205,6 @@ $recInfo = [
                 <div class="minutes-section">
                     <div class="minutes-label"><i class="bi bi-check2-square"></i> Decisões Tomadas</div>
                     <ul id="min-decisoes" class="minutes-list"></ul>
-                </div>
-                <div class="minutes-section">
-                    <div class="minutes-label"><i class="bi bi-arrow-right-circle"></i> Próximos Passos</div>
-                    <ul id="min-proximos" class="minutes-list"></ul>
                 </div>
                 <div id="min-comercial"></div>
             </div>
@@ -382,10 +382,11 @@ function renderMinutes() {
     renderList('min-proximos',   minutes.proximos_passos,        'Nenhum próximo passo identificado.');
 }
 
-// Campos de lista da ata (mesma ordem de MeetingMinutesRules::LIST_FIELDS).
+// Campos de lista da ata (os mesmos de MeetingMinutesRules::LIST_FIELDS; próximos passos primeiro).
 const LIST_FIELDS = [
+    ['proximos_passos', 'Próximos passos (Responsável (Equipe ou Cliente): ação. Prazo: ...)'],
     ['topicos', 'Tópicos discutidos'], ['topicos_nao_resolvidos', 'Tópicos não resolvidos'],
-    ['decisoes', 'Decisões tomadas'], ['proximos_passos', 'Próximos passos'],
+    ['decisoes', 'Decisões tomadas'],
     ['necessidades', 'Necessidades do cliente'], ['escopo', 'Escopo desejado'], ['prazos', 'Prazos citados'],
     ['orcamento', 'Orçamento citado'], ['decisores', 'Decisores'],
 ];
@@ -523,6 +524,11 @@ function copyMinutes() {
         lines.push(minutes.resumo);
         lines.push('');
     }
+    if (minutes.proximos_passos && minutes.proximos_passos.length) {
+        lines.push('=== PRÓXIMOS PASSOS (QUEM FAZ O QUÊ E ATÉ QUANDO) ===');
+        minutes.proximos_passos.forEach(p => lines.push('• ' + p));
+        lines.push('');
+    }
     if (minutes.topicos && minutes.topicos.length) {
         lines.push('=== TÓPICOS DISCUTIDOS ===');
         minutes.topicos.forEach(t => lines.push('• ' + t));
@@ -536,11 +542,6 @@ function copyMinutes() {
     if (minutes.decisoes && minutes.decisoes.length) {
         lines.push('=== DECISÕES TOMADAS ===');
         minutes.decisoes.forEach(d => lines.push('• ' + d));
-        lines.push('');
-    }
-    if (minutes.proximos_passos && minutes.proximos_passos.length) {
-        lines.push('=== PRÓXIMOS PASSOS ===');
-        minutes.proximos_passos.forEach(p => lines.push('• ' + p));
     }
     navigator.clipboard?.writeText(lines.join('\n').trim()).then(()=>alert('Minuta copiada!'));
 }
@@ -571,10 +572,10 @@ function exportMinutePdf() {
     <h1>Minuta de Reunião</h1>
     <div class="meta">${title} · Gerada em ${new Date().toLocaleDateString('pt-BR')}</div>
     ${minutes.resumo ? `<div class="resumo">${minutes.resumo}</div>` : ''}
+    ${sec('Próximos Passos (quem faz o quê e até quando)', minutes.proximos_passos)}
     ${sec('Tópicos Discutidos', minutes.topicos)}
     ${sec('Tópicos Não Resolvidos', minutes.topicos_nao_resolvidos, '#c07a00')}
     ${sec('Decisões Tomadas', minutes.decisoes)}
-    ${sec('Próximos Passos', minutes.proximos_passos)}
     </body></html>`;
 
     const win = window.open('', '_blank');

@@ -263,4 +263,23 @@ class AgendaRules
         if ($mode !== 'meet') return false;
         return trim((string) $existingEventId) === '';
     }
+
+    /**
+     * O servidor deve garantir a sala de vídeo do sistema (e gravar o link dela
+     * em meet_link) antes de enviar os convites?
+     *
+     * Sim quando a opção é "Sala de vídeo do sistema" ('room') e a reunião ainda
+     * não tem link de entrada. Acontece quando o modal salva sem o link da sala:
+     * sala privada sem clicar em "Criar sala privada", salvar antes da criação
+     * assíncrona terminar ou falha na criação. Sem isso o convite sai sem link.
+     * Com link já definido não cria nada (evita sala duplicada).
+     *
+     * @param string      $mode     Modo normalizado (via resolveMeetingMode).
+     * @param string|null $meetLink Link de entrada já gravado/enviado, se houver.
+     */
+    public static function needsSystemRoomLink(string $mode, $meetLink): bool
+    {
+        if ($mode !== 'room') return false;
+        return trim((string) $meetLink) === '';
+    }
 }
