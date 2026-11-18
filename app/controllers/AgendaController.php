@@ -1369,8 +1369,9 @@ class AgendaController extends Controller
             // Sala privada: criador + participantes internos + administradores
             // escolhidos no modal (video_admins[]) são administradores.
             if ($visibility === 'private') {
-                // Os ids vindos do POST passam por internalUserIds: cliente nunca vira administrador.
-                $adminIds = array_merge($participantIds, $this->internalUserIds((array) ($_POST['video_admins'] ?? [])));
+                // Participantes e video_admins vêm do formulário: passam por
+                // internalUserIds, para cliente nunca virar administrador.
+                $adminIds = $this->internalUserIds(array_merge($participantIds, (array) ($_POST['video_admins'] ?? [])));
                 $adminIds[] = (int) $user['id'];
                 $adminIds = array_values(array_unique(array_filter(array_map('intval', $adminIds))));
                 $videoModel->setAdmins($room['id'], $adminIds);

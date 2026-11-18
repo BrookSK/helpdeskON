@@ -99,10 +99,11 @@ final class AgendaInviteLinkTest extends TestCase
         // Modal salvou com "Sala de vídeo do sistema" privada sem clicar em
         // "Criar sala privada": meet_link vazio no POST.
         $id = $this->reuniaoExterna();
-        // O POST traz também o id de um cliente: ele não pode virar administrador.
+        // O id de um cliente chega pelos administradores e pelos participantes:
+        // em nenhum dos dois caminhos ele pode virar administrador.
         $_POST = ['video_visibility' => 'private', 'video_admins' => [(string) $this->adminId, (string) $this->clientId]];
 
-        $room = $this->chamar('createSystemVideoRoom', $id, $this->usuario(), [], 1);
+        $room = $this->chamar('createSystemVideoRoom', $id, $this->usuario(), [$this->clientId], 1);
 
         $this->assertNotEmpty($room);
         $meeting = $this->model->findById($id);
