@@ -322,4 +322,27 @@ final class AgendaRulesTest extends TestCase
         // Meet já gerado no modal: não recria (evita duplicar).
         $this->assertFalse(AgendaRules::shouldCreateGoogleEvent('meet', 'evt_123'));
     }
+
+    // ---- convite sem link: needsSystemRoomLink ----
+
+    public function testSalaDoSistemaSemLinkExigeCriarSalaNoServidor(): void
+    {
+        // Regressão: sala privada não criada no modal (ou criação pendente/falha)
+        // salvava a reunião sem meet_link e o convite saía sem o link.
+        $this->assertTrue(AgendaRules::needsSystemRoomLink('room', ''));
+        $this->assertTrue(AgendaRules::needsSystemRoomLink('room', null));
+        $this->assertTrue(AgendaRules::needsSystemRoomLink('room', '   '));
+    }
+
+    public function testSalaDoSistemaComLinkNaoCriaOutraSala(): void
+    {
+        $link = 'https://helpdesk.exemplo.com.br/videocall/room/abc123';
+        $this->assertFalse(AgendaRules::needsSystemRoomLink('room', $link));
+    }
+
+    public function testMeetOuNenhumaNuncaCriaSalaDoSistema(): void
+    {
+        $this->assertFalse(AgendaRules::needsSystemRoomLink('meet', ''));
+        $this->assertFalse(AgendaRules::needsSystemRoomLink('', ''));
+    }
 }

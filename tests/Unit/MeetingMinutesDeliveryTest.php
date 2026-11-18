@@ -72,6 +72,36 @@ final class MeetingMinutesDeliveryTest extends TestCase
         $this->assertSame([], MeetingMinutesDelivery::chosenRecipients([]));
     }
 
+    public function testBuildRecipientsIncluiOrganizadorClientesEConvidadosExternos(): void
+    {
+        $participants = [
+            ['name' => 'Julia', 'email' => 'julia@on.com', 'phone' => '4199990001'],
+            ['name' => 'Organizador', 'email' => 'org@on.com', 'phone' => '4199990002'],
+            ['name' => 'Julia de novo', 'email' => 'JULIA@on.com', 'phone' => ''], // organizador = participante: dedup
+        ];
+        $others = [
+            ['name' => 'Cliente B', 'email' => 'b@cli.com', 'phone' => ''],          // agenda_meeting_clients
+            ['name' => 'Convidado', 'email' => '', 'phone' => '+55 41 98888-0000'],   // external_guests
+            ['name' => 'Repetido', 'email' => 'a@cli.com', 'phone' => ''],           // igual ao snapshot: dedup
+            ['name' => 'Sem canal', 'email' => '', 'phone' => ''],                   // descartado
+        ];
+        $r = MeetingMinutesDelivery::buildRecipients($participants, ['name' => 'Cliente A', 'email' => 'a@cli.com'], $others);
+
+        $this->assertSame(['Cliente A', 'Cliente B', 'Convidado', 'Julia', 'Organizador'], array_column($r, 'name'));
+        $this->assertSame(['client', 'client', 'client', 'team', 'team'], array_column($r, 'role'));
+        $this->assertSame('5541988880000', $r[2]['phone']);
+    }
+
+    public function testShouldAutoSendPorTipoDeReuniao(): void
+    {
+        foreach (['externo', 'operacional', 'interno', ' Externo '] as $t) {
+            $this->assertTrue(MeetingMinutesDelivery::shouldAutoSend($t), $t);
+        }
+        foreach (['comercial', null, '', 'outro'] as $t) {
+            $this->assertFalse(MeetingMinutesDelivery::shouldAutoSend($t), var_export($t, true));
+        }
+    }
+
     public function testBuildRecipientsSemNadaRetornaVazio(): void
     {
         $this->assertSame([], MeetingMinutesDelivery::buildRecipients([], []));
