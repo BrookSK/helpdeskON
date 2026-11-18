@@ -229,7 +229,20 @@ class AgendaController extends Controller
         // Sala de vídeo do sistema (nativa): quando o usuário escolhe usar a sala
         // de vídeo interna (video_conference=1), qualquer tipo de reunião pode ter
         // uma sala vinculada. É ortogonal ao Meet do Google.
-        $useVideoRoom = !empty($_POST['use_video_room']) || (($_POST['video_conference'] ?? '') === 'system');
+        // Opção de reunião escolhida no modal: '' (Nenhuma), 'meet' ou 'room'.
+        // A regra pura normaliza (e deduz pelo link em modais antigos).
+        $postedMeetLink = trim((string) ($_POST['meet_link'] ?? ''));
+        $meetingMode = AgendaRules::resolveMeetingMode(
+            $_POST['meeting_mode'] ?? '',
+            $postedMeetLink,
+            VideoRoomRules::isNativeRoomLink($postedMeetLink)
+        );
+        // Opção "Sala de vídeo do sistema" sem link no POST (sala privada não
+        // criada, criação ainda em andamento ou com falha): o servidor cria a
+        // sala aqui para o convite nunca sair sem o link de entrada.
+        $useVideoRoom = !empty($_POST['use_video_room'])
+            || (($_POST['video_conference'] ?? '') === 'system')
+            || AgendaRules::needsSystemRoomLink($meetingMode, $postedMeetLink);
 
         // Gravação automática: respeita a escolha do agendamento para qualquer tipo
         // (na reunião comercial o modal já vem marcado na sala do sistema).
@@ -365,11 +378,7 @@ class AgendaController extends Controller
             $this->notifyExternalGuests($id);
             $this->notifyParticipants($id);
         } elseif (!empty($data['meeting_at'])) {
-            // Opção de reunião escolhida no modal: '' (Nenhuma), 'meet' ou 'room'.
-            // A regra pura normaliza (e deduz pelo link em modais antigos).
-            $linkIsNativeRoom = VideoRoomRules::isNativeRoomLink($preMeetLink);
-            $meetingMode = AgendaRules::resolveMeetingMode($_POST['meeting_mode'] ?? '', $preMeetLink, $linkIsNativeRoom);
-
+            // $meetingMode foi resolvido no início (mesma regra, mesmo link do POST).
             // Só cria evento no Google quando a opção é "Google Meet" e ainda
             // não há evento. Para "Sala de vídeo do sistema" ou "Nenhuma" não
             // gera Meet (nem sobrescreve o link da sala). Em qualquer caso o
@@ -751,6 +760,9 @@ class AgendaController extends Controller
         $meeting = $this->model->findById($id);
         if (!$meeting) $this->json(['error' => 'Reunião não encontrada'], 404);
 
+        // Sala do sistema vinculada mas sem meet_link: recupera o link antes de reenviar.
+        $this->fillMeetLinkFromLinkedRoom($id);
+
         $type = $meeting['meeting_type'] ?? 'comercial';
         // 'interno' compartilha o mesmo fluxo de notificação de 'operacional'.
         if ($type === 'operacional' || $type === 'interno') {
@@ -946,6 +958,21 @@ class AgendaController extends Controller
         if (isset($_POST['participants'])) {
             $participantIds = array_filter(array_map('intval', $_POST['participants']));
             $this->model->setParticipants($id, $participantIds);
+        }
+
+        // Opção "Sala de vídeo do sistema" na edição: a sala criada no modal fica
+        // vinculada por meeting_id, mas o link não é salvo aqui. Garante a sala
+        // (reusa a vinculada ou cria) e o meet_link antes de qualquer reenvio.
+        $currentLink = trim((string) ($meeting['meet_link'] ?? ''));
+        $editMode = AgendaRules::resolveMeetingMode(
+            $_POST['meeting_mode'] ?? '',
+            $currentLink,
+            VideoRoomRules::isNativeRoomLink($currentLink)
+        );
+        if (AgendaRules::needsSystemRoomLink($editMode, $currentLink)) {
+            $editParticipantIds = array_map(fn($p) => (int) $p['id'], $this->model->getParticipants($id));
+            $editAutoRecord = (int) ($data['auto_record'] ?? AgendaRules::normalizeAutoRecord($meeting['auto_record'] ?? 0));
+            $this->createSystemVideoRoom($id, $user, $editParticipantIds, $editAutoRecord);
         }
 
         // Reunião comercial: atualiza os clientes múltiplos quando o modal os enviou.
@@ -1304,18 +1331,23 @@ class AgendaController extends Controller
 
             $videoModel = new VideoRoom();
 
-            // Evita duplicar: se já há sala ativa vinculada a esta reunião, reusa.
+            // Evita duplicar: se já há sala ativa vinculada a esta reunião, reusa
+            // (e garante que o link dela esteja em meet_link, se ainda vazio).
             $existing = Database::getInstance()->fetch(
                 "SELECT * FROM video_rooms WHERE meeting_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1",
                 [$meetingId]
             );
-            if ($existing) return $existing;
+            if ($existing) {
+                $this->fillMeetLinkFromRoom($meeting, $existing['token']);
+                return $existing;
+            }
 
             $visibility = AgendaRules::normalizeVideoVisibility($_POST['video_visibility'] ?? 'public');
             $max = AgendaRules::clampVideoMaxParticipants($_POST['video_max_participants'] ?? 15);
             $allowPresentation = (($_POST['video_allow_presentation'] ?? '1') === '0') ? 0 : 1;
-            // Gravação automática: vem marcada por padrão (desligável no form).
-            $autoRecord = VideoRoomRules::normalizeAutoRecord($_POST['video_auto_record'] ?? '1');
+            // Gravação automática: usa o campo da sala quando enviado; senão, a
+            // escolha da reunião recebida pelo chamador.
+            $autoRecord = VideoRoomRules::normalizeAutoRecord($_POST['video_auto_record'] ?? $autoRecord);
 
             $token = $videoModel->create([
                 'title' => $meeting['title'],
@@ -1334,22 +1366,17 @@ class AgendaController extends Controller
             $room = $videoModel->findByToken($token);
             if (!$room) return null;
 
-            // Sala privada: criador + participantes internos são administradores.
+            // Sala privada: criador + participantes internos + administradores
+            // escolhidos no modal (video_admins[]) são administradores.
             if ($visibility === 'private') {
-                $adminIds = $participantIds;
+                $adminIds = array_merge($participantIds, (array) ($_POST['video_admins'] ?? []));
                 $adminIds[] = (int) $user['id'];
                 $adminIds = array_values(array_unique(array_filter(array_map('intval', $adminIds))));
                 $videoModel->setAdmins($room['id'], $adminIds);
             }
 
             // Se a reunião ainda não tem um link de entrada (Meet), usa o link da sala.
-            if (empty($meeting['meet_link'])) {
-                $publicUrl = rtrim((string) Config::get('app_public_url'), '/') ?: rtrim(baseUrl(''), '/');
-                $roomUrl = $publicUrl . '/videocall/room/' . $token;
-                try {
-                    $this->model->update($meetingId, ['meet_link' => $roomUrl]);
-                } catch (\Throwable $e) { /* ignora */ }
-            }
+            $this->fillMeetLinkFromRoom($meeting, $token);
 
             return $room;
         } catch (\Throwable $e) {
@@ -1358,6 +1385,37 @@ class AgendaController extends Controller
             }
             return null;
         }
+    }
+
+    /**
+     * Grava em meet_link a URL pública da sala (token) quando a reunião ainda
+     * não tem link de entrada. Nunca sobrescreve um link existente.
+     */
+    private function fillMeetLinkFromRoom(array $meeting, $token)
+    {
+        if (!empty($meeting['meet_link']) || empty($token)) return;
+        $publicUrl = rtrim((string) Config::get('app_public_url'), '/') ?: rtrim(baseUrl(''), '/');
+        try {
+            $this->model->update($meeting['id'], ['meet_link' => $publicUrl . '/videocall/room/' . $token]);
+        } catch (\Throwable $e) { /* ignora */ }
+    }
+
+    /**
+     * Reunião sem link de entrada, mas com sala do sistema ativa já vinculada
+     * (meeting_id): recupera o link dessa sala para meet_link. Não cria sala.
+     * Usado antes de (re)enviar convites, para não mandá-los sem o link.
+     */
+    private function fillMeetLinkFromLinkedRoom($meetingId)
+    {
+        try {
+            $meeting = $this->model->findById($meetingId);
+            if (!$meeting || !empty($meeting['meet_link'])) return;
+            $room = Database::getInstance()->fetch(
+                "SELECT token FROM video_rooms WHERE meeting_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1",
+                [(int) $meetingId]
+            );
+            if ($room) $this->fillMeetLinkFromRoom($meeting, $room['token']);
+        } catch (\Throwable $e) { /* ignora: não interrompe o envio */ }
     }
 
     // API: cria (ou recupera) a sala de vídeo do sistema para uma reunião existente.

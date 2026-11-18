@@ -1251,6 +1251,15 @@ function collectPayload() {
     const roomMode = document.getElementById('mt-mode-room');
     const roomAutoRec = document.getElementById('mt-room-auto-record');
     fd.append('auto_record', (roomMode && roomMode.checked && roomAutoRec && roomAutoRec.checked) ? '1' : '0');
+    // Sala do sistema: envia privacidade e administradores para o servidor criar
+    // a sala com as mesmas escolhas quando o link ainda não foi gerado no modal.
+    if (roomMode && roomMode.checked) {
+        const roomVisibility = document.querySelector('input[name="mt-room-visibility"]:checked')?.value || 'public';
+        fd.append('video_visibility', roomVisibility);
+        if (roomVisibility === 'private') {
+            Array.from(document.getElementById('mt-room-admins').selectedOptions).forEach(o => fd.append('video_admins[]', o.value));
+        }
+    }
     return fd;
 }
 
@@ -1270,6 +1279,10 @@ function showMeetLink(link) {
 // se for privada, gera após escolher os administradores.
 // Como Meet e Sala compartilham o mesmo campo (mt-meet-link), trocar de opção
 // SEMPRE limpa o link anterior — garantindo que nunca existam os dois ao mesmo tempo.
+// Quantas gerações de link (Meet ou sala) ainda estão em andamento. Salvar
+// nesse intervalo enviaria o convite sem o link, então o save aguarda.
+let mtLinkPending = 0;
+
 function clearMeetingLink() {
     document.getElementById('mt-meet-link').value = '';
     document.getElementById('mt-google-event-id').value = '';
@@ -1310,6 +1323,7 @@ function generateMeet(btn) {
     const hint = document.getElementById('mt-meet-hint');
     hint.innerHTML = '<span class="text-muted"><i class="bi bi-hourglass-split"></i> Gerando link do Meet...</span>';
     if (btn) { btn.disabled = true; }
+    mtLinkPending++;
 
     const fd = new FormData();
     fd.append('title', document.getElementById('mt-title').value.trim() || 'Reunião');
@@ -1330,7 +1344,8 @@ function generateMeet(btn) {
             document.getElementById('mt-meet-link').value = d.meet_link || '';
             showMeetLink(d.meet_link);
         })
-        .catch(() => { if (btn) { btn.disabled = false; } clearMeetingLink(); alert('Erro ao gerar o link.'); });
+        .catch(() => { if (btn) { btn.disabled = false; } clearMeetingLink(); alert('Erro ao gerar o link.'); })
+        .finally(() => { mtLinkPending = Math.max(0, mtLinkPending - 1); });
 }
 
 // Mostra o seletor de administradores quando a sala de vídeo é privada.
@@ -1352,6 +1367,7 @@ function generateVideoRoom(btn) {
     const hint = document.getElementById('mt-meet-hint');
     hint.innerHTML = '<span class="text-muted"><i class="bi bi-hourglass-split"></i> Criando sala de vídeo...</span>';
     if (btn) { btn.disabled = true; }
+    mtLinkPending++;
 
     const fd = new FormData();
     fd.append('title', document.getElementById('mt-title').value.trim() || 'Videochamada');
@@ -1373,12 +1389,15 @@ function generateVideoRoom(btn) {
             document.getElementById('mt-google-event-id').value = '';
             showMeetLink(d.url);
         })
-        .catch(() => { if (btn) { btn.disabled = false; } clearMeetingLink(); alert('Erro ao criar a sala de vídeo.'); });
+        .catch(() => { if (btn) { btn.disabled = false; } clearMeetingLink(); alert('Erro ao criar a sala de vídeo.'); })
+        .finally(() => { mtLinkPending = Math.max(0, mtLinkPending - 1); });
 }
 
 function saveMeeting() {
     const title = document.getElementById('mt-title').value.trim();
     if (!title) { alert('Informe o título.'); return; }
+    // O link da reunião ainda está sendo gerado: salvar agora mandaria o convite sem ele.
+    if (mtLinkPending > 0) { alert('Aguarde: o link da reunião ainda está sendo gerado.'); return; }
 
     // Data no passado: bloqueia apenas em reunião NOVA (sem id). Ao editar uma reunião
     // já existente permitimos data anterior a agora (registro retroativo).
