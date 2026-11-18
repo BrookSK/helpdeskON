@@ -23,6 +23,7 @@ final class AgendaInviteLinkTest extends TestCase
     private AgendaController $ctrl;
     private int $ownerId;
     private int $adminId;
+    private int $clientId;
     /** @var int[] */
     private array $meetingIds = [];
 
@@ -46,6 +47,10 @@ final class AgendaInviteLinkTest extends TestCase
             'name' => "Admin {$uid}", 'email' => "adm_{$uid}@example.test",
             'password' => password_hash('x', PASSWORD_BCRYPT), 'role' => 'attendant',
         ]);
+        $this->clientId = (int) $this->db->insert('users', [
+            'name' => "Cliente {$uid}", 'email' => "cli_{$uid}@example.test",
+            'password' => password_hash('x', PASSWORD_BCRYPT), 'role' => 'client',
+        ]);
     }
 
     protected function tearDown(): void
@@ -56,7 +61,7 @@ final class AgendaInviteLinkTest extends TestCase
             try { $this->db->delete('video_rooms', 'meeting_id = ?', [$id]); } catch (\Throwable $e) {}
             try { $this->db->delete('agenda_meetings', 'id = ?', [$id]); } catch (\Throwable $e) {}
         }
-        foreach ([$this->adminId, $this->ownerId] as $id) {
+        foreach ([$this->adminId, $this->ownerId, $this->clientId] as $id) {
             try { $this->db->delete('users', 'id = ?', [$id]); } catch (\Throwable $e) {}
         }
     }
@@ -94,7 +99,8 @@ final class AgendaInviteLinkTest extends TestCase
         // Modal salvou com "Sala de vídeo do sistema" privada sem clicar em
         // "Criar sala privada": meet_link vazio no POST.
         $id = $this->reuniaoExterna();
-        $_POST = ['video_visibility' => 'private', 'video_admins' => [(string) $this->adminId]];
+        // O POST traz também o id de um cliente: ele não pode virar administrador.
+        $_POST = ['video_visibility' => 'private', 'video_admins' => [(string) $this->adminId, (string) $this->clientId]];
 
         $room = $this->chamar('createSystemVideoRoom', $id, $this->usuario(), [], 1);
 
@@ -106,6 +112,7 @@ final class AgendaInviteLinkTest extends TestCase
         $admins = array_map('intval', (new VideoRoom())->getAdminIds($room['id']));
         $this->assertContains($this->ownerId, $admins);
         $this->assertContains($this->adminId, $admins);
+        $this->assertNotContains($this->clientId, $admins);
     }
 
     public function testSalaJaVinculadaSemLinkReusaSalaEPreencheLink(): void

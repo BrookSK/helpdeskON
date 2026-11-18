@@ -1369,7 +1369,8 @@ class AgendaController extends Controller
             // Sala privada: criador + participantes internos + administradores
             // escolhidos no modal (video_admins[]) são administradores.
             if ($visibility === 'private') {
-                $adminIds = array_merge($participantIds, (array) ($_POST['video_admins'] ?? []));
+                // Os ids vindos do POST passam por internalUserIds: cliente nunca vira administrador.
+                $adminIds = array_merge($participantIds, $this->internalUserIds((array) ($_POST['video_admins'] ?? [])));
                 $adminIds[] = (int) $user['id'];
                 $adminIds = array_values(array_unique(array_filter(array_map('intval', $adminIds))));
                 $videoModel->setAdmins($room['id'], $adminIds);
@@ -1385,6 +1386,26 @@ class AgendaController extends Controller
             }
             return null;
         }
+    }
+
+    /**
+     * Filtra uma lista de ids vinda do formulário para apenas usuários internos
+     * existentes (os mesmos papéis oferecidos no modal). Ids de cliente ou
+     * inexistentes são descartados.
+     *
+     * @return int[]
+     */
+    private function internalUserIds(array $ids): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
+        if (empty($ids)) return [];
+        $roles = ['super_admin', 'attendant', 'developer', 'analyst', 'comercial', 'marketing', 'whatsapp_agent'];
+        $rows = Database::getInstance()->fetchAll(
+            'SELECT id FROM users WHERE id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')'
+            . ' AND role IN (' . implode(',', array_fill(0, count($roles), '?')) . ')',
+            array_merge($ids, $roles)
+        );
+        return array_map('intval', array_column($rows, 'id'));
     }
 
     /**
