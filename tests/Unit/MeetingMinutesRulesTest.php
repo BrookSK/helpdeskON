@@ -117,6 +117,31 @@ final class MeetingMinutesRulesTest extends TestCase
         $this->assertStringContainsString('## Próximos passos', $txt);
     }
 
+    public function testTextoDestacaProximosPassosLogoAposOResumo(): void
+    {
+        $txt = MeetingMinutesRules::textFromStructured([
+            'resumo' => 'r', 'topicos' => ['t'], 'decisoes' => ['d'],
+            'proximos_passos' => ['Ana (Equipe): enviar proposta. Prazo: 21/11.', 'Carlos (Cliente): mandar a planilha. Prazo: não definido.'],
+        ]);
+        $this->assertStringContainsString(
+            "## Resumo\nr\n\n## Próximos passos (quem faz o quê e até quando)\n"
+            . "- Ana (Equipe): enviar proposta. Prazo: 21/11.\n- Carlos (Cliente): mandar a planilha. Prazo: não definido.\n\n## Pontos discutidos",
+            $txt
+        );
+    }
+
+    public function testPromptsExigemChavesEAcoesComResponsavelEPrazo(): void
+    {
+        $p = MeetingMinutesRules::structuredSystemPrompt();
+        foreach (array_merge(['resumo'], MeetingMinutesRules::LIST_FIELDS) as $k) {
+            $this->assertStringContainsString('"' . $k . '"', $p);
+        }
+        // Ata final, notas de partes e fallback em texto pedem o mesmo formato de ação.
+        $this->assertStringContainsString(MeetingMinutesRules::ACTION_FORMAT, $p);
+        $this->assertStringContainsString(MeetingMinutesRules::ACTION_FORMAT, MeetingMinutesRules::notesSystemPrompt());
+        $this->assertStringContainsString(MeetingMinutesRules::ACTION_FORMAT, MeetingMinutesRules::systemPrompt());
+    }
+
     public function testTextFromStructuredAceitaArrayOuString(): void
     {
         $arr = ['resumo' => 'Oi', 'topicos' => [], 'decisoes' => [], 'proximos_passos' => [], 'topicos_nao_resolvidos' => []];

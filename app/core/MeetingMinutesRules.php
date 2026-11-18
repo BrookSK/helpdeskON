@@ -79,32 +79,57 @@ class MeetingMinutesRules
         return $out;
     }
 
+    /**
+     * Formato padrão de cada item de "proximos_passos" (ações pós-reunião).
+     * Fica numa string só para não mudar o formato do JSON já salvo: a tela de
+     * revisão continua editando um item por linha.
+     */
+    public const ACTION_FORMAT = 'Responsável (Equipe ou Cliente): ação concreta. Prazo: prazo citado ou "não definido".';
+
     /** Prompt de sistema da ata estruturada (JSON), com os campos comerciais. */
     public static function structuredSystemPrompt(): string
     {
-        return 'Você é um assistente especializado em gerar minutas de reunião em português do Brasil. '
-            . 'Analise a transcrição fornecida, do começo ao fim, e produza uma minuta estruturada. '
+        return 'Você é um assistente especializado em redigir atas (minutas) de reunião em português do Brasil. '
+            . 'Analise o material fornecido do começo ao fim e produza uma ata completa e acionável: quem leu a ata '
+            . 'sem ter participado precisa entender o que foi tratado, o que ficou decidido e, principalmente, '
+            . 'o que cada pessoa precisa fazer depois da reunião e até quando. '
+            . 'O cabeçalho pode separar a nossa equipe (responsável pela reunião e participantes internos) dos '
+            . 'convidados externos (cliente). Use essa separação para dizer de que lado é cada pessoa. '
             . 'Responda SOMENTE com um objeto JSON válido com estas chaves (sem nenhum texto fora do JSON): '
-            . '"resumo" (string: parágrafo geral descrevendo o contexto e objetivo da reunião), '
-            . '"topicos" (array de strings: principais tópicos discutidos e concluídos), '
-            . '"topicos_nao_resolvidos" (array de strings: tópicos citados mas sem conclusão ou deixados em aberto), '
-            . '"decisoes" (array de strings: decisões formalmente tomadas), '
-            . '"proximos_passos" (array de strings: tarefas e próximos passos, com responsável e prazo quando mencionados), '
-            . '"necessidades" (array de strings: necessidades e dores do cliente), '
+            . '"resumo" (string: um parágrafo de 4 a 8 frases com o contexto (quem participou e de que lado, assunto), '
+            . 'o objetivo da reunião, o que foi tratado de mais importante e o resultado ou encaminhamento final), '
+            . '"proximos_passos" (array de strings: TODAS as ações combinadas para depois da reunião, da nossa equipe e do cliente. '
+            . 'Uma ação por item, no formato ' . self::ACTION_FORMAT . ' '
+            . 'Exemplo: "Ana (Equipe): enviar a proposta revisada incluindo o módulo de estoque. Prazo: até sexta-feira, 21/11." '
+            . 'A ação começa com verbo no infinitivo e diz exatamente o que será feito ou entregue. '
+            . 'Se ninguém assumiu a ação, use "Responsável a definir" no lugar do nome. '
+            . 'Se não foi dito um prazo, escreva "Prazo: não definido" e nunca invente data. '
+            . 'Liste primeiro as ações da nossa equipe, depois as do cliente e por último as sem responsável), '
+            . '"topicos" (array de strings: cada assunto discutido em uma ou duas frases completas, dizendo o que foi '
+            . 'discutido e a que conclusão se chegou, com os números, valores, datas e nomes de sistemas citados; '
+            . 'nunca apenas um rótulo de poucas palavras), '
+            . '"decisoes" (array de strings: cada decisão tomada, dizendo quem decidiu ou aprovou, quando isso foi dito), '
+            . '"topicos_nao_resolvidos" (array de strings: o que ficou em aberto, por que ficou em aberto e o que falta para resolver), '
+            . '"necessidades" (array de strings: necessidades e dores do cliente, com o detalhe que ele deu), '
             . '"escopo" (array de strings: o que o cliente quer que seja feito ou entregue), '
-            . '"prazos" (array de strings: prazos e datas citados), '
+            . '"prazos" (array de strings: prazos e datas citados e a que se referem), '
             . '"orcamento" (array de strings: valores, faixas de investimento e condições de pagamento citados), '
             . '"decisores" (array de strings: quem decide ou aprova do lado do cliente). '
-            . 'Use somente o que foi dito na transcrição. Se uma chave não tiver conteúdo, retorne array vazio [] '
-            . 'e nunca invente valores, prazos ou nomes. Quando a linha da transcrição trouxer o nome de quem falou ([mm:ss] Nome: texto), use esse nome para dizer quem pediu, decidiu ou ficou responsável. Seja direto e evite repetir informações entre seções.';
+            . 'Use somente o que foi dito. Se uma chave não tiver conteúdo, retorne array vazio [] '
+            . 'e nunca invente ações, responsáveis, valores, prazos ou nomes. Quando a linha da transcrição trouxer o nome '
+            . 'de quem falou ([mm:ss] Nome: texto), use esse nome para dizer quem pediu, decidiu ou ficou responsável. '
+            . 'Seja completo e específico, sem enrolação, e não repita a mesma informação em várias chaves.';
     }
 
     /** Prompt de sistema das notas de uma parte (transcrição acima de SPLIT_LIMIT). */
     public static function notesSystemPrompt(): string
     {
         return 'Você recebe UMA PARTE da transcrição de uma reunião longa, em português do Brasil. '
-            . 'Escreva notas objetivas em tópicos com tudo o que importa desta parte: assuntos, decisões, '
-            . 'pendências, tarefas, necessidades do cliente, escopo, prazos, valores e quem decide. '
+            . 'Escreva notas objetivas em tópicos com tudo o que importa desta parte: assuntos e a que conclusão se chegou, '
+            . 'decisões e quem decidiu, pendências, necessidades do cliente, escopo, prazos, valores e quem decide. '
+            . 'Registre TODA tarefa ou compromisso assumido no formato ' . self::ACTION_FORMAT . ' '
+            . 'Use "Responsável a definir" quando ninguém assumiu e "Prazo: não definido" quando não foi dito prazo. '
+            . 'Preserve números, valores, datas e nomes de sistemas exatamente como foram ditos. '
             . 'Mantenha as marcas de tempo [mm:ss] dos pontos principais e o nome de quem disse cada coisa, quando a linha trouxer "Nome: ". Não invente nada.';
     }
 
@@ -163,16 +188,18 @@ class MeetingMinutesRules
     public static function systemPrompt(): string
     {
         return 'Você redige ATAS (minutas) de reuniões em português do Brasil, de forma objetiva, '
-            . 'profissional e fiel ao que foi dito — sem inventar informação. Produza a ata em Markdown '
+            . 'profissional, completa e fiel ao que foi dito, sem inventar informação. Produza a ata em Markdown '
             . 'com as seções, nesta ordem: '
-            . '1) **Contexto da reunião** (data/assunto, de forma breve); '
-            . '2) **Participantes** (quem falou, se identificável); '
-            . '3) **Pontos discutidos** (bullets objetivos); '
-            . '4) **Decisões tomadas** (o que ficou acordado); '
-            . '5) **Valores e condições** (preços, prazos, formas de pagamento mencionados — '
+            . '1) **Contexto da reunião** (assunto, objetivo e resultado da reunião, em um parágrafo); '
+            . '2) **Participantes** (quem falou e de que lado: nossa equipe ou cliente, se identificável); '
+            . '3) **Próximos passos** (todas as ações combinadas para depois da reunião, uma por item, no formato '
+            . self::ACTION_FORMAT . ' Use "Responsável a definir" quando ninguém assumiu e nunca invente prazo); '
+            . '4) **Pontos discutidos** (frases completas: o que foi discutido e a que conclusão se chegou, '
+            . 'com números, valores, datas e nomes de sistemas citados); '
+            . '5) **Decisões tomadas** (o que ficou acordado e quem decidiu); '
+            . '6) **Valores e condições** (preços, prazos, formas de pagamento mencionados; '
             . 'se não houver, escreva "Não foram tratados valores."); '
-            . '6) **Pendências / o que ficou em aberto**; '
-            . '7) **Próximos passos** (tarefas e responsáveis quando citados). '
+            . '7) **Pendências / o que ficou em aberto** (e o que falta para resolver). '
             . 'Não repita a transcrição literal; sintetize. Se algo não foi tratado, diga explicitamente.';
     }
 
@@ -253,11 +280,12 @@ class MeetingMinutesRules
             return implode("\n", array_map(fn($i) => '- ' . $i, $items)) . "\n";
         };
 
+        // As ações pós-reunião vêm logo depois do resumo: é o que o leitor precisa executar.
         $out  = "## Resumo\n" . ($resumo !== '' ? $resumo : 'Sem resumo.') . "\n\n";
+        $out .= "## Próximos passos (quem faz o quê e até quando)\n" . $bullets($proximos, 'Nenhum próximo passo identificado.') . "\n";
         $out .= "## Pontos discutidos\n" . $bullets($topicos, 'Nenhum ponto registrado.') . "\n";
         $out .= "## Decisões tomadas\n" . $bullets($decisoes, 'Nenhuma decisão registrada.') . "\n";
-        $out .= "## Tópicos em aberto\n" . $bullets($naoResolv, 'Nenhum tópico em aberto.') . "\n";
-        $out .= "## Próximos passos\n" . $bullets($proximos, 'Nenhum próximo passo identificado.');
+        $out .= "## Tópicos em aberto\n" . $bullets($naoResolv, 'Nenhum tópico em aberto.');
         foreach ($comercial as $label => $items) {
             $out .= "\n## {$label}\n" . $bullets($items, '');
         }

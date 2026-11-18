@@ -34,7 +34,8 @@ final class MeetingMinutesGeneratorTest extends TestCase
         $user = $ai->calls[0]['messages'][1]['content'];
         $this->assertStringContainsString('DECISÃO FINAL: fechar em dezembro', $user);
         $this->assertStringContainsString('Reunião: Descoberta', $user);
-        $this->assertSame(3000, $ai->calls[0]['options']['max_tokens']);
+        $this->assertSame(8000, $ai->calls[0]['options']['max_tokens']);
+        $this->assertSame('gpt-4o-mini', $ai->calls[0]['options']['model']);
         $this->assertSame('ok', json_decode($json, true)['resumo']);
         $this->assertSame([], json_decode($json, true)['orcamento']);
     }
@@ -50,14 +51,54 @@ final class MeetingMinutesGeneratorTest extends TestCase
         $linha = str_repeat('x', 1000) . "\n";
         $transcript = str_repeat($linha, (int) ceil(MeetingMinutesRules::SPLIT_LIMIT / 1001) + 10) . 'fim';
 
-        $json = (new MeetingMinutesGenerator($ai))->generate($transcript);
+        $json = (new MeetingMinutesGenerator($ai))->generate($transcript, ['guests' => 'Carlos']);
 
         $this->assertCount(3, $ai->calls);
         $this->assertStringContainsString('fim', $ai->calls[1]['messages'][1]['content']);
+        // As notas de cada parte também sabem quem é cliente, para atribuir as tarefas.
+        $this->assertStringContainsString('Convidados externos (cliente): Carlos', $ai->calls[0]['messages'][1]['content']);
         $final = $ai->calls[2]['messages'][1]['content'];
         $this->assertStringContainsString('notas parte 1', $final);
         $this->assertStringContainsString('notas parte 2', $final);
         $this->assertSame(['fechar'], json_decode($json, true)['decisoes']);
+    }
+
+    public function testCabecalhoSeparaNossaEquipeDoCliente(): void
+    {
+        $ai = new FakeChat();
+        (new MeetingMinutesGenerator($ai))->generate('[00:01] oi', [
+            'organizer' => 'Ana', 'participants' => 'Ana, Bruno', 'guests' => 'Carlos, Dora',
+        ]);
+        $user = $ai->calls[0]['messages'][1]['content'];
+        $this->assertStringContainsString('Responsável pela reunião (nossa equipe): Ana', $user);
+        $this->assertStringContainsString('Participantes da nossa equipe: Ana, Bruno', $user);
+        $this->assertStringContainsString('Convidados externos (cliente): Carlos, Dora', $user);
+
+        // Chaves vazias não geram linha.
+        $ai = new FakeChat();
+        (new MeetingMinutesGenerator($ai))->generate('[00:01] oi', ['title' => 'X', 'organizer' => '', 'guests' => '']);
+        $this->assertStringNotContainsString('Convidados externos', $ai->calls[0]['messages'][1]['content']);
+        $this->assertStringNotContainsString('Responsável pela reunião', $ai->calls[0]['messages'][1]['content']);
+    }
+
+    public function testJsonCortadoNoTetoDeTokensTentaDeNovoUmaVez(): void
+    {
+        $ai = new FakeChat();
+        $ai->replies = [
+            ['success' => true, 'content' => '{"resumo":"long', 'raw' => ['choices' => [['finish_reason' => 'length']]]],
+            ['success' => true, 'content' => '{"resumo":"curta","proximos_passos":["Ana (Equipe): enviar proposta. Prazo: não definido."]}'],
+        ];
+        $json = (new MeetingMinutesGenerator($ai))->generate('[00:01] oi');
+
+        $this->assertCount(2, $ai->calls);
+        $this->assertSame(['Ana (Equipe): enviar proposta. Prazo: não definido.'], json_decode($json, true)['proximos_passos']);
+
+        // Segunda resposta também cortada: desiste (sem laço) e devolve vazio.
+        $cut = ['success' => true, 'content' => '{"resumo":"x', 'raw' => ['choices' => [['finish_reason' => 'length']]]];
+        $ai = new FakeChat();
+        $ai->replies = [$cut, $cut, ['success' => true, 'content' => '{"resumo":"nunca"}']];
+        $this->assertSame('', (new MeetingMinutesGenerator($ai))->generate('[00:01] oi'));
+        $this->assertCount(2, $ai->calls);
     }
 
     public function testRespostaInvalidaOuFalhaDevolveVazio(): void
