@@ -150,7 +150,14 @@ class ProposalResponse
             if ((int)$won['id'] !== (int)$card['column_id']) {
                 $board->moveCard((int)$card['id'], (int)$won['id'], 0);
             }
-            $board->updateCard((int)$card['id'], ['lead_outcome' => 'converted', 'outcome_at' => date('Y-m-d H:i:s')]);
+            // Aceite pelo link não informa quem fechou: vale o comercial
+            // responsável pelo card (para a comissão de fechamento).
+            $outcome = ['lead_outcome' => 'converted', 'outcome_at' => date('Y-m-d H:i:s')];
+            if (!empty($card['assigned_to'])) {
+                if (empty($card['converted_by'])) $outcome['converted_by'] = (int)$card['assigned_to'];
+                if (empty($card['prospected_by'])) $outcome['prospected_by'] = (int)$card['assigned_to'];
+            }
+            $board->updateCard((int)$card['id'], $outcome);
             $board->addActivity((int)$card['id'], null, 'note', 'Proposta aceita pelo cliente (' . ProposalRules::revisionLabel($proposal['revision_no'] ?? 1) . ')');
             $this->model->addEvent($proposal['id'], null, 'crm', 'Card #' . $card['id'] . ' movido para "' . $won['name'] . '".');
             $out['moved'] = true;

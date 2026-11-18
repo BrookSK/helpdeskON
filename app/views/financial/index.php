@@ -448,6 +448,8 @@ foreach (($bankAccounts ?? []) as $ba) $bankById[(int)$ba['id']] = $ba;
                                         <i class="bi bi-cloud-arrow-down"></i> <?= escape($t['asaas_account_name'] ?? 'Asaas') ?>
                                     <?php elseif ($t['card_id'] && isset($cardsById[(int)$t['card_id']])): ?>
                                         <i class="bi bi-credit-card"></i> <?= escape($cardsById[(int)$t['card_id']]['name']) ?>
+                                    <?php elseif (!empty($t['crm_card_id']) || !empty($t['commission_role'])): ?>
+                                        <span title="Lançada automaticamente quando o card #<?= (int)($t['crm_card_id'] ?? 0) ?> foi fechado no CRM"><i class="bi bi-kanban"></i> CRM (comissão)</span>
                                     <?php else: ?>
                                         <i class="bi bi-pencil"></i> Manual
                                     <?php endif; ?>

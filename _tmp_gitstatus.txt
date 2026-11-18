@@ -1,0 +1,14 @@
+A  _cronograma_quatri_detalhamento_v1.sql
+A  _cronograma_quatri_reajuste_v11.sql
+A  _cronograma_quatri_reajuste_v12.sql
+ M app/core/ProposalResponse.php
+ M app/models/CrmBoard.php
+ M app/views/financial/index.php
+ M tests/Integration/CrmBoardTest.php
+?? _cronograma_quatri_detalhamento_v2.sql
+?? _tmp_gitstatus.txt
+?? app/core/CrmCommissionRules.php
+?? app/models/CrmCommissionSync.php
+?? migrations/173_financial_crm_commission.sql
+?? tests/Integration/CrmCommissionSyncTest.php
+?? tests/Unit/CrmCommissionRulesTest.php

@@ -83,6 +83,8 @@ class CrmBoard
             );
             $cardIds = array_column($cards, 'id');
 
+            $this->cancelCardCommissions($cardIds);
+
             // Atividades dos cards
             if (!empty($cardIds)) {
                 $cardPlaceholders = implode(',', array_fill(0, count($cardIds), '?'));
@@ -142,7 +144,25 @@ class CrmBoard
 
     public function deleteColumn($id)
     {
+        // Os cards da coluna saem junto (FK em cascata): cancela as comissões pendentes deles.
+        $this->cancelCardCommissions(array_column(
+            $this->db->fetchAll("SELECT id FROM crm_cards WHERE column_id = ?", [$id]), 'id'
+        ));
         return $this->db->delete('crm_columns', 'id = ?', [$id]);
+    }
+
+    /**
+     * Card excluído não paga comissão: as pendentes ligadas a ele viram
+     * canceladas (as já pagas ficam). Sem a migration 173, não faz nada.
+     */
+    private function cancelCardCommissions(array $cardIds): void
+    {
+        if (empty($cardIds)) return;
+        try {
+            (new CrmCommissionSync())->cancelPendingForCards($cardIds);
+        } catch (\Throwable $e) {
+            if (class_exists('Logger')) Logger::error('Falha ao cancelar comissões de cards excluídos', ['cards' => $cardIds, 'error' => $e->getMessage()]);
+        }
     }
 
     public function reorderColumns($boardId, $columnIds)
@@ -221,9 +241,36 @@ class CrmBoard
         return $cardId;
     }
 
+    /** Campos do card que mexem na comissão automática do financeiro. */
+    private const COMMISSION_FIELDS = ['lead_outcome', 'value', 'converted_by', 'prospected_by'];
+
     public function updateCard($id, $data)
     {
-        return $this->db->update('crm_cards', $data, 'id = ?', [$id]);
+        $touchesCommission = !empty(array_intersect(array_keys($data), self::COMMISSION_FIELDS));
+        $previousOutcome = null;
+        if ($touchesCommission && array_key_exists('lead_outcome', $data)) {
+            $prev = $this->db->fetch("SELECT lead_outcome FROM crm_cards WHERE id = ?", [$id]);
+            $previousOutcome = $prev['lead_outcome'] ?? null;
+        }
+
+        $result = $this->db->update('crm_cards', $data, 'id = ?', [$id]);
+
+        if ($touchesCommission) {
+            // Card fechado gera a comissão "a pagar" no Controle Financeiro;
+            // valor/responsável alterado ou card reaberto acertam a pendente.
+            try {
+                $actor = $_SESSION['user_id'] ?? null;
+                (new CrmCommissionSync())->syncCard(
+                    (int)$id,
+                    ($data['lead_outcome'] ?? null) === 'converted',
+                    $previousOutcome,
+                    $actor ? (int)$actor : null
+                );
+            } catch (\Throwable $e) {
+                if (class_exists('Logger')) Logger::error('Falha ao lançar a comissão do card no financeiro', ['card' => $id, 'error' => $e->getMessage()]);
+            }
+        }
+        return $result;
     }
 
     public function moveCard($cardId, $newColumnId, $position = 0)
@@ -241,6 +288,7 @@ class CrmBoard
 
     public function deleteCard($id)
     {
+        $this->cancelCardCommissions([(int)$id]);
         return $this->db->delete('crm_cards', 'id = ?', [$id]);
     }
 

@@ -86,6 +86,8 @@ final class CrmBoardTest extends TestCase
         // Remove cards, atividades, colunas, board e usuários criados.
         foreach ($this->cardIds as $id) {
             try { $this->db->delete('crm_card_activities', 'card_id = ?', [$id]); } catch (\Throwable $e) {}
+            // Comissões que o fechamento lança no financeiro (migration 173).
+            try { $this->db->delete('fin_transactions', 'crm_card_id = ?', [$id]); } catch (\Throwable $e) {}
         }
         try { $this->model->delete($this->boardId); } catch (\Throwable $e) {}
         // Contatos e instância (após o board, pois crm_cards.contact_id é SET NULL).
