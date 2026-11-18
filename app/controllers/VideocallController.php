@@ -1280,7 +1280,7 @@ class VideocallController extends Controller
 
         // Minuta/ata automática: logo após a transcrição+resumo, gera a ata
         // estruturada (editável depois). Não interrompe o fluxo se a IA falhar.
-        $minutes = $this->generateMinutesContent($recToken, $transcript, $ai);
+        $minutes = $this->generateMinutesContent($recToken, $transcript, $ai, true);
 
         $this->json(['success' => true, 'summary' => $summary, 'minutes' => $minutes]);
     }
@@ -1297,19 +1297,22 @@ class VideocallController extends Controller
         if (!$ai->isConfigured()) return;
         $summary = $this->generateMinutesJson((string)$rec['transcript'], $this->buildMeetingContext($rec), $ai);
         if ($summary !== '') $this->model->updateRecording($recToken, ['summary' => $summary]);
-        $this->generateMinutesContent($recToken, (string)$rec['transcript'], $ai);
+        $this->generateMinutesContent($recToken, (string)$rec['transcript'], $ai, true);
     }
 
     /**
      * Gera a MINUTA/ATA a partir da transcrição e salva em video_recordings.
      * Usada tanto no fluxo automático (após a transcrição) quanto no botão de
-     * "gerar de novo". A minuta fica como rascunho (minutes_sent_at nulo) e o
-     * organizador é avisado. Devolve o conteúdo gerado (ou '' se não foi
-     * possível). Nunca lança: em falha, marca minutes_status='error' e segue.
+     * "gerar de novo". Se a minuta ainda não foi enviada, segue a regra de
+     * dispatchNewMinutes (envio automático ou rascunho + aviso ao organizador).
+     * Devolve o conteúdo gerado (ou '' se não foi possível). Nunca lança: em
+     * falha, marca minutes_status='error' e segue.
      *
-     * @param object|null $ai  Cliente de IA já instanciado (reaproveita), ou null.
+     * @param object|null $ai       Cliente de IA já instanciado (reaproveita), ou null.
+     * @param bool        $autoSend true só no fluxo automático pós-transcrição; o
+     *                              "gerar de novo" manual passa false (o usuário está revisando).
      */
-    private function generateMinutesContent($recToken, string $transcript, $ai = null): string
+    private function generateMinutesContent($recToken, string $transcript, $ai = null, bool $autoSend = false): string
     {
         if (!MeetingMinutesRules::canGenerate($transcript)) {
             return '';
@@ -1348,7 +1351,7 @@ class VideocallController extends Controller
                 // Fallback: gera a minuta em texto por IA (quando não há ata estruturada).
                 $res = $ai->chat(
                     MeetingMinutesRules::buildMessages($transcript, $title, $dateLabel),
-                    ['model' => 'gpt-4o-mini', 'temperature' => 0.3, 'max_tokens' => 1500]
+                    ['model' => 'gpt-4o-mini', 'temperature' => 0.3, 'max_tokens' => 4000, 'timeout' => 120]
                 );
                 if (empty($res['success']) || trim((string)($res['content'] ?? '')) === '') {
                     $this->model->updateRecording($recToken, ['minutes_status' => MeetingMinutesRules::STATUS_ERROR]);
@@ -1362,9 +1365,7 @@ class VideocallController extends Controller
                 'minutes_status' => MeetingMinutesRules::STATUS_DONE,
                 'minutes_generated_at' => date('Y-m-d H:i:s'),
             ]);
-            // A minuta nasce como rascunho: nada sai para o cliente aqui. O envio é
-            // feito pela tela da gravação (sendMinutes) depois da revisão interna.
-            if (empty($rec['minutes_sent_at'])) $this->notifyMinutesReady($recToken);
+            if (empty($rec['minutes_sent_at'])) $this->dispatchNewMinutes($recToken, $rec, $autoSend);
             return $minutes;
         } catch (\Throwable $e) {
             $this->model->updateRecording($recToken, ['minutes_status' => MeetingMinutesRules::STATUS_ERROR]);
@@ -1373,6 +1374,40 @@ class VideocallController extends Controller
             }
             return '';
         }
+    }
+
+    /**
+     * Destino de uma minuta recém-gerada e ainda não enviada. No fluxo
+     * automático, reunião externa, operacional ou interna envia o link na hora
+     * (deliverMinutes, idempotente). Reunião comercial, sala avulsa, o "gerar de
+     * novo" manual ou envio sem nenhum destinatário com canal ficam como
+     * rascunho e o organizador é avisado. Falha no envio não quebra a geração.
+     */
+    private function dispatchNewMinutes($recToken, ?array $rec, bool $autoSend): void
+    {
+        $sent = false;
+        if ($autoSend && $rec) {
+            try {
+                if (MeetingMinutesDelivery::shouldAutoSend($this->recordingMeetingType($rec))) {
+                    $sent = $this->deliverMinutes($recToken)['recipients'] > 0;
+                }
+            } catch (\Throwable $e) {
+                if (class_exists('Logger')) Logger::error('envio automatico da minuta falhou', ['rec' => $recToken, 'error' => $e->getMessage()]);
+            }
+        }
+        if (!$sent) $this->notifyMinutesReady($recToken);
+    }
+
+    /** Tipo da reunião da Agenda vinculada à sala da gravação (null em sala avulsa). */
+    private function recordingMeetingType(array $rec): ?string
+    {
+        $room = $this->model->findById($rec['room_id']);
+        if (!$room || empty($room['meeting_id'])) return null;
+        $row = Database::getInstance()->fetch(
+            "SELECT meeting_type FROM agenda_meetings WHERE id = ? LIMIT 1",
+            [(int)$room['meeting_id']]
+        );
+        return $row['meeting_type'] ?? null;
     }
 
     /**
@@ -1431,7 +1466,8 @@ class VideocallController extends Controller
         $summary = $this->generateMinutesJson($transcript, $this->buildMeetingContext($rec), $ai);
         if ($summary === '') $this->json(['error' => 'Não foi possível gerar a minuta (verifique a IA).'], 502);
         $this->model->updateRecording($recToken, ['summary' => $summary, 'minutes_edited_by' => null, 'minutes_edited_at' => null]);
-        $minutes = $this->generateMinutesContent($recToken, $transcript, $ai);
+        // Manual: nunca dispara envio automático (o usuário está revisando).
+        $minutes = $this->generateMinutesContent($recToken, $transcript, $ai, false);
         if ($minutes === '') $this->json(['error' => 'Não foi possível gerar a minuta (verifique a IA).'], 502);
         $this->json(['success' => true, 'minutes' => $minutes, 'structured' => json_decode($summary, true)]);
     }
@@ -1536,6 +1572,7 @@ class VideocallController extends Controller
     {
         $participants = [];
         $client = [];
+        $otherClients = [];
         $title = null;
         $contactId = null;
         $room = $this->model->findById($rec['room_id']);
@@ -1546,6 +1583,12 @@ class VideocallController extends Controller
                 if ($meeting) {
                     $title = $meeting['title'] ?? null;
                     $participants = $agenda->getParticipantContacts((int)$room['meeting_id']) ?: [];
+                    // Organizador entra na equipe mesmo sem se marcar como participante.
+                    try {
+                        $people = $this->meetingPeople($meeting);
+                        if ($people['organizer']) $participants[] = $people['organizer'];
+                        $otherClients = $people['clients'];
+                    } catch (\Throwable $e) { /* segue com participantes e cliente do snapshot */ }
                     // Cliente: snapshot da reunião (client_*) ou dados do contato do CRM.
                     $client = [
                         'name' => $meeting['client_name'] ?? ($meeting['crm_contact_name'] ?? ''),
@@ -1558,10 +1601,44 @@ class VideocallController extends Controller
         }
         if ($title === null) $title = $room['title'] ?? null;
         return [
-            'recipients' => MeetingMinutesDelivery::buildRecipients($participants, $client),
+            'recipients' => MeetingMinutesDelivery::buildRecipients($participants, $client, $otherClients),
             'title' => $title,
             'contact_id' => $contactId,
         ];
+    }
+
+    /**
+     * Pessoas da reunião fora da lista de participantes internos: o organizador
+     * (assigned_to, senão created_by, com os dados de users) e o lado do cliente
+     * além do snapshot client_* (clientes de agenda_meeting_clients e convidados
+     * de external_guests).
+     *
+     * @param array $meeting Linha de agenda_meetings.
+     * @return array{organizer:?array,clients:array<int,array{name:string,email:?string,phone:?string}>}
+     */
+    private function meetingPeople(array $meeting): array
+    {
+        $organizer = null;
+        $orgId = (int)($meeting['assigned_to'] ?: $meeting['created_by']);
+        if ($orgId > 0) {
+            $u = Database::getInstance()->fetch("SELECT name, email, phone FROM users WHERE id = ? LIMIT 1", [$orgId]);
+            if ($u) $organizer = ['name' => (string)$u['name'], 'email' => $u['email'], 'phone' => $u['phone']];
+        }
+
+        $clients = [];
+        foreach ((new AgendaMeeting())->getClientContacts((int)$meeting['id']) as $c) {
+            $clients[] = ['name' => $c['name'], 'email' => $c['email'], 'phone' => $c['phone']];
+        }
+        $guests = json_decode((string)($meeting['external_guests'] ?? ''), true);
+        foreach (is_array($guests) ? $guests : [] as $g) {
+            if (!is_array($g)) continue;
+            $clients[] = [
+                'name' => trim((string)($g['name'] ?? '')),
+                'email' => $g['email'] ?? null,
+                'phone' => $g['phone'] ?? null,
+            ];
+        }
+        return ['organizer' => $organizer, 'clients' => $clients];
     }
 
     /**
@@ -2026,7 +2103,7 @@ class VideocallController extends Controller
         // este fluxo (transcrição no servidor) não gerava a minuta de texto nem
         // disparava o envio; a unificação cobre isso de brinde. Não interrompe.
         if ($transcript !== '') {
-            try { $this->generateMinutesContent($recToken, $transcript, $ai); }
+            try { $this->generateMinutesContent($recToken, $transcript, $ai, true); }
             catch (\Throwable $e) { if (class_exists('Logger')) Logger::error('minuta pos-transcricao falhou', ['rec' => $recToken, 'error' => $e->getMessage()]); }
         }
         // Resposta já foi enviada ao cliente; nada a retornar aqui.
@@ -2413,7 +2490,10 @@ class VideocallController extends Controller
      * Todos os campos são strings seguras para inserir no prompt.
      *
      * @param  array $rec  Linha de video_recordings
-     * @return array{title:string, meeting_type:string, meeting_at:string, participants:string}
+     * Também traz organizer (responsável pela reunião) e guests (nomes dos
+     * clientes e convidados externos, separados por vírgula).
+     *
+     * @return array{title:string, meeting_type:string, meeting_at:string, participants:string, organizer:string, guests:string}
      */
     private function buildMeetingContext(array $rec): array
     {
@@ -2422,6 +2502,8 @@ class VideocallController extends Controller
             'meeting_type' => '',
             'meeting_at'   => '',
             'participants' => '',
+            'organizer'    => '',
+            'guests'       => '',
         ];
 
         // 1) Sala de vídeo → título e meeting_id
@@ -2458,6 +2540,15 @@ class VideocallController extends Controller
                     );
                     if (!empty($parts)) {
                         $ctx['participants'] = implode(', ', array_column($parts, 'name'));
+                    }
+
+                    // Organizador e convidados (clientes e convidados externos).
+                    $full = (new AgendaMeeting())->findById($meetingId);
+                    if ($full) {
+                        $people = $this->meetingPeople($full);
+                        $ctx['organizer'] = trim((string)($people['organizer']['name'] ?? ''));
+                        $names = array_merge([trim((string)($full['client_name'] ?? ''))], array_column($people['clients'], 'name'));
+                        $ctx['guests'] = implode(', ', array_values(array_unique(array_filter($names, 'strlen'))));
                     }
                 }
             } catch (\Throwable $e) { /* ignora — usa o que já tem */ }
