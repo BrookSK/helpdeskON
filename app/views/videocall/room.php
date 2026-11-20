@@ -565,6 +565,13 @@ const browserId = (function () {
 let myName = '<?= $suggested ?>' || 'Convidado';
 let rawStream = null;        // câmera/mic crus (do getUserMedia)
 let localStream = null;      // stream publicado (pode ser o processado com fundo)
+// Rótulo fixo do stream de câmera/microfone enviado aos outros. O localStream é
+// recriado a cada troca de fundo; com um rótulo estável, áudio e vídeo chegam
+// sempre no MESMO stream do outro lado, mesmo quando publicados em momentos
+// diferentes (ex.: mídia que ficou pronta depois de entrar).
+const publishLabel = new MediaStream();
+// Resolve quando a câmera/microfone terminam de abrir (ou falham).
+let mediaReady = Promise.resolve();
 let screenStream = null;
 const peers = new Map();
 let micOn = true, camOn = true, sharing = false;
@@ -785,21 +792,39 @@ async function rebuildLocalStream() {
     // Re-pluga o detector de "quem está falando" no novo stream de áudio.
     if (audioTrack) attachSpeaking(peerId, localStream);
 
-    // Substitui a track de vídeo publicada em cada peer (sem renegociar)
-    if (joined && videoTrack) {
-        peers.forEach(entry => {
-            const sender = entry.pc.getSenders().find(s => s.track && s.track.kind === 'video' && (!screenStream || !screenStream.getTracks().includes(s.track)));
-            if (sender) sender.replaceTrack(videoTrack).then(() => tuneSender(sender, videoTrack)).catch(() => {});
-        });
+    // Publica nas conexões já abertas: troca a track de quem já envia (sem
+    // renegociar) e ADICIONA a de quem ainda não envia.
+    if (joined) {
+        peers.forEach(publishLocalTracks);
+        // Gravação iniciada antes de o microfone ficar pronto: entra no mix agora.
+        if (recordingAudioActive() && !recLocalMicAdded && audioTrack) { addAudioToRecording(rawStream, null); recLocalMicAdded = true; }
     }
     // Preview do lobby
     updateLobbyPreview();
+}
+
+// Envia minha câmera/microfone por uma conexão. Quem já envia aquele tipo só
+// troca a track; quem não envia ganha a track (o navegador renegocia sozinho).
+// Cobre quem entrou ANTES de a câmera/microfone ficarem prontos: a conexão
+// nascia sem mídia e ninguém via nem ouvia a pessoa até ela sair e entrar de novo.
+function publishLocalTracks(entry) {
+    if (!localStream || !entry || !entry.pc || entry.pc.signalingState === 'closed') return;
+    const isScreen = (t) => !!screenStream && screenStream.getTracks().includes(t);
+    const senders = entry.pc.getSenders();
+    localStream.getTracks().forEach(track => {
+        if (track.kind === 'video') track.contentHint = 'motion';
+        const sender = senders.find(s => s.track && s.track.kind === track.kind && !isScreen(s.track));
+        if (!sender) { tuneSender(entry.pc.addTrack(track, publishLabel), track); return; }
+        if (sender.track !== track) sender.replaceTrack(track).then(() => tuneSender(sender, track)).catch(() => {});
+    });
 }
 
 // ==========================================================
 // LOBBY
 // ==========================================================
 let lobbyMic = true, lobbyCam = true;
+// Tempo máximo que "Entrar na chamada" espera a câmera/microfone abrirem.
+const MEDIA_WAIT_MS = 5000;
 
 // Restrições de vídeo. No PC busca alta (1080p); no celular/4G começa leve (720/480)
 // para não travar e aguentar rede móvel.
@@ -841,14 +866,17 @@ async function initPreview() {
         await populateDevices();
         await rebuildLocalStream();
         syncLobbyButtons();
+        if (joined) { refreshMediaButtons(); broadcastMyState(); }
     } catch (e) {
         lobbyCam = false; camOn = false;
         showLobbyError(cameraErrorMessage(e));
         syncLobbyButtons();
+        // Já está na sala: o aviso do lobby não aparece mais.
+        if (joined) { refreshMediaButtons(); broadcastMyState(); toast(cameraErrorMessage(e)); }
     }
     renderBgGrids();
     loadLobbyPresence();
-    lobbyPresenceTimer = setInterval(loadLobbyPresence, 5000);
+    if (!joined) lobbyPresenceTimer = setInterval(loadLobbyPresence, 5000);
 }
 
 // Mensagem de erro específica (ajuda muito no iPhone/Safari).
@@ -1035,9 +1063,15 @@ function syncLobbyButtons() {
 async function enterRoom() {
     const nameInput = document.getElementById('lb-name').value.trim();
     if (nameInput) myName = nameInput;
-    micOn = lobbyMic; camOn = lobbyCam;
     const btn = document.getElementById('lb-join');
     btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Entrando…';
+    // Espera a câmera/microfone abrirem para as conexões já nascerem com mídia.
+    // Com limite: se a permissão ainda estiver pendente, entra assim mesmo e a
+    // mídia é publicada quando ficar pronta (publishLocalTracks).
+    micOn = lobbyMic; camOn = lobbyCam; // a mídia que abrir durante a espera já nasce neste estado
+    await Promise.race([mediaReady, sleep(MEDIA_WAIT_MS)]).catch(() => {});
+    micOn = lobbyMic; camOn = lobbyCam; // pode ter mudado durante a espera (sem câmera, clique no lobby)
+    if (rawStream) rawStream.getAudioTracks().forEach(t => t.enabled = micOn);
     try { await doJoin(false); }
     catch (e) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-box-arrow-in-right"></i> Entrar na chamada'; showLobbyError('Erro ao entrar na chamada. Tente novamente.'); }
 }
@@ -1172,7 +1206,7 @@ function makeTile(id, name, opts = {}) {
         ? `<button class="tile-mod-btn" title="Silenciar microfone deste participante" onclick="adminMute('${id}')"><i class="bi bi-mic-mute"></i></button>`
         : '';
     div.innerHTML =
-        `<div class="vwrap"><video autoplay playsinline ${opts.self ? 'muted' : ''}></video></div>
+        `<div class="vwrap"><video autoplay playsinline muted></video></div>
          <div class="avatar"><span>${initial}</span></div>
          <div class="reaction-badge"><span class="emo"></span><span class="who"></span></div>
          <div class="tile-tools">
@@ -1650,27 +1684,57 @@ function autoEnableCam() {
     toast('Sua internet melhorou: câmera religada.');
 }
 
+// Áudio remoto em elemento PRÓPRIO, só com a track de áudio. Pelo <video> do
+// tile o som só começava depois do primeiro quadro de vídeo: câmera que não
+// entregava imagem (ou participante sem câmera) deixava a pessoa muda para
+// todos, embora ela visse e ouvisse a sala normalmente.
+// 'key' separa o microfone ('audioEl') do som da tela compartilhada
+// ('screenAudioEl'): um não pode tomar o lugar do outro.
+function playPeerAudio(entry, track, key = 'audioEl') {
+    if (!entry[key]) {
+        entry[key] = document.createElement('audio');
+        entry[key].autoplay = true;
+        entry[key].style.display = 'none';
+        document.body.appendChild(entry[key]);
+    }
+    entry[key].srcObject = new MediaStream([track]);
+    const p = entry[key].play();
+    if (p && p.catch) p.catch(() => {});
+}
+function stopPeerAudio(entry, key = 'audioEl') {
+    if (!entry || !entry[key]) return;
+    try { entry[key].srcObject = null; } catch (e) {}
+    entry[key].remove();
+    entry[key] = null;
+}
+// Encerra o som da tela compartilhada de um participante (elemento e gravação).
+function stopPeerScreenAudio(id, entry) {
+    stopPeerAudio(entry, 'screenAudioEl');
+    if (typeof removeAudioFromRecording === 'function') removeAudioFromRecording(id + '-screen');
+}
+
 function ensurePeer(remoteId, name, initiator) {
     if (remoteId === peerId || peers.has(remoteId)) return peers.get(remoteId);
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-    const entry = { pc, name, polite: peerId < remoteId, makingOffer: false, tile: null, screenTile: null, pendingIce: [], hasCam: false, screenTrackIds: new Set() };
+    const entry = { pc, name, polite: peerId < remoteId, makingOffer: false, tile: null, screenTile: null, pendingIce: [], camStreamId: null, micStream: null, audioEl: null, screenAudioEl: null, screenTrackIds: new Set() };
     peers.set(remoteId, entry);
 
-    if (localStream) localStream.getTracks().forEach(t => { if (t.kind === 'video') t.contentHint = 'motion'; const s = pc.addTrack(t, localStream); tuneSender(s, t); });
+    if (localStream) localStream.getTracks().forEach(t => { if (t.kind === 'video') t.contentHint = 'motion'; const s = pc.addTrack(t, publishLabel); tuneSender(s, t); });
     if (screenStream) screenStream.getVideoTracks().forEach(t => { const s = pc.addTrack(t, screenStream); if (t) t.contentHint = 'detail'; tuneSender(s, t); });
 
     pc.onicecandidate = (e) => { if (e.candidate) sendSignal(remoteId, 'ice', e.candidate); };
     pc.ontrack = (e) => {
         const stream = e.streams[0];
         const track = e.track;
-        // A tela é identificada pelo trackId anunciado no sinal 'screen' (confiável,
-        // funciona mesmo quando a tela tem áudio). Fallback: heurística antiga.
-        const isScreen = (track && entry.screenTrackIds && entry.screenTrackIds.has(track.id))
-            || (stream && stream.getAudioTracks().length === 0 && stream.getVideoTracks().length === 1 && entry.hasCam && track && track.kind === 'video');
+        // A tela é identificada pelo trackId anunciado no sinal 'screen'. Reserva
+        // (aviso atrasado): tudo que NÃO vem no stream de câmera/microfone do
+        // participante é da tela, inclusive o som dela (compartilhar com áudio).
+        const isScreen = !!(track && entry.screenTrackIds && entry.screenTrackIds.has(track.id))
+            || !!(stream && entry.camStreamId && entry.camStreamId !== stream.id);
         if (isScreen && track.kind === 'video') {
             if (!entry.screenTile) entry.screenTile = makeTile(remoteId + '-screen', entry.name || name, { screen: true });
             entry.screenTile.querySelector('video').srcObject = stream;
-            const dropScreen = () => { removeTile(remoteId + '-screen'); entry.screenTile = null; if (entry.screenTrackIds) entry.screenTrackIds.delete(track.id); };
+            const dropScreen = () => { removeTile(remoteId + '-screen'); entry.screenTile = null; if (entry.screenTrackIds) entry.screenTrackIds.delete(track.id); stopPeerScreenAudio(remoteId, entry); };
             // 'ended' = fim definitivo da track. Remove o tile na hora.
             track.onended = () => { if (entry._screenMuteTimer) { clearTimeout(entry._screenMuteTimer); entry._screenMuteTimer = null; } dropScreen(); };
             // 'mute' = o remetente removeu a track (removeTrack dispara MUTE no
@@ -1682,25 +1746,49 @@ function ensurePeer(remoteId, name, initiator) {
                 entry._screenMuteTimer = setTimeout(() => { entry._screenMuteTimer = null; if (track.muted || track.readyState === 'ended') dropScreen(); }, 1500);
             };
             track.onunmute = () => { if (entry._screenMuteTimer) { clearTimeout(entry._screenMuteTimer); entry._screenMuteTimer = null; } };
-        } else if (track.kind === 'video') {
-            const novo = !entry.tile;
-            entry.hasCam = true;
-            if (!entry.tile) entry.tile = makeTile(remoteId, entry.name || name);
-            entry.tile.querySelector('video').srcObject = stream;
-            if (novo) sfx('join'); // som de alguém entrando (quando a câmera aparece)
+        } else if (!isScreen) {
+            // O tile nasce na PRIMEIRA track do participante, de áudio ou de
+            // vídeo. Antes só nascia com vídeo: quem entrava sem câmera (câmera
+            // em uso por outro programa, permissão negada) não era visto nem
+            // ouvido por ninguém.
+            if (stream && !entry.camStreamId) entry.camStreamId = stream.id;
+            if (!entry.tile) {
+                entry.tile = makeTile(remoteId, entry.name || name);
+                // Sem vídeo a caminho: mostra o avatar até chegar o estado dele.
+                if (!stream || stream.getVideoTracks().length === 0) entry.tile.classList.add('cam-off');
+                sfx('join'); // som de alguém entrando
+            }
+            if (track.kind === 'video') entry.tile.querySelector('video').srcObject = stream;
         }
         // Detector de "quem está falando": pluga no áudio da CÂMERA (não da tela).
         if (track.kind === 'audio' && !isScreen) {
+            entry.micStream = stream;
+            playPeerAudio(entry, track);
             attachSpeaking(remoteId, stream);
             // Se já estou gravando, adiciona o áudio deste participante ao mix
             // (quem entra DEPOIS do início da gravação também é ouvido).
             addAudioToRecording(stream, remoteId);
         }
+        // Som da tela compartilhada: elemento e fonte de gravação à parte.
+        if (track.kind === 'audio' && isScreen) {
+            playPeerAudio(entry, track, 'screenAudioEl');
+            addAudioToRecording(stream, remoteId + '-screen');
+        }
         updateCount();
     };
     pc.onnegotiationneeded = async () => {
-        try { entry.makingOffer = true; await pc.setLocalDescription(await pc.createOffer()); sendSignal(remoteId, 'offer', pc.localDescription); }
-        catch (err) { console.warn('negotiation', err); } finally { entry.makingOffer = false; }
+        // Uma oferta por vez: a chamada manual abaixo e o evento do navegador
+        // disparavam juntos e as duas ofertas se atropelavam.
+        if (entry.makingOffer) return;
+        try {
+            entry.makingOffer = true;
+            const offer = await pc.createOffer();
+            // Chegou uma oferta do outro lado enquanto esta era criada: desiste
+            // desta; o navegador pede outra negociação se ainda for preciso.
+            if (pc.signalingState !== 'stable') return;
+            await pc.setLocalDescription(offer);
+            sendSignal(remoteId, 'offer', pc.localDescription);
+        } catch (err) { console.warn('negotiation', err); } finally { entry.makingOffer = false; }
     };
     // Queda de conexão (F5, internet caiu): remove o peer QUASE INSTANTÂNEO,
     // sem esperar o timeout de presença do servidor. Dá um pequeno prazo para
@@ -1762,7 +1850,7 @@ async function handleSignal(sig) {
         const entry = peers.get(from);
         if (sig.payload && sig.payload.stop) {
             removeTile(from + '-screen');
-            if (entry) { entry.screenTile = null; if (entry.screenTrackIds) entry.screenTrackIds.clear(); }
+            if (entry) { entry.screenTile = null; if (entry.screenTrackIds) entry.screenTrackIds.clear(); stopPeerScreenAudio(from, entry); }
         } else if (sig.payload && sig.payload.start && sig.payload.trackId) {
             // Anuncia qual track é a tela, para o ontrack identificar com certeza.
             if (entry) { entry.screenTrackIds = entry.screenTrackIds || new Set(); entry.screenTrackIds.add(sig.payload.trackId); }
@@ -1842,10 +1930,11 @@ async function handleSignal(sig) {
 async function drainIce(entry) { while (entry.pendingIce.length) { try { await entry.pc.addIceCandidate(new RTCIceCandidate(entry.pendingIce.shift())); } catch (e) {} } }
 function dropPeer(id) {
     const e = peers.get(id);
-    if (e) { if (e._downTimer) clearTimeout(e._downTimer); try { e.pc.close(); } catch (x) {} }
+    if (e) { if (e._downTimer) clearTimeout(e._downTimer); stopPeerAudio(e); stopPeerScreenAudio(id, e); try { e.pc.close(); } catch (x) {} }
     if (!peers.has(id)) return; // já removido
     peers.delete(id);
     peerNames.delete(id);
+    sdpSendQueue.delete(id);
     // Tira o áudio deste participante do mix da gravação (se estiver gravando).
     if (typeof removeAudioFromRecording === 'function') removeAudioFromRecording(id);
     sfx('leave'); // som de alguém saindo
@@ -1854,8 +1943,22 @@ function dropPeer(id) {
     if (raisedHands.delete(id)) renderHands();
     updateCount();
 }
+// Oferta e resposta de uma mesma conexão saem uma de cada vez, na ordem em que
+// foram geradas. Em requisições paralelas, uma oferta enviada logo depois de uma
+// resposta podia chegar antes dela; o outro lado a descartava como colisão e a
+// conexão ficava pela metade (um vê e ouve, o outro não).
+const sdpSendQueue = new Map();
 function sendSignal(to, kind, payload) {
-    fetch(`${BASE}/videocall/signal/${ROOM_TOKEN}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ from: peerId, to: to || '', kind, payload }) }).catch(() => {});
+    // Limite de 10 s: uma requisição pendurada não pode travar a fila.
+    const post = () => {
+        const ctl = new AbortController();
+        const timer = setTimeout(() => ctl.abort(), 10000);
+        return fetch(`${BASE}/videocall/signal/${ROOM_TOKEN}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ from: peerId, to: to || '', kind, payload }), signal: ctl.signal })
+            .catch(() => {}).then(() => clearTimeout(timer));
+    };
+    if (kind !== 'offer' && kind !== 'answer') { post(); return; }
+    const next = (sdpSendQueue.get(to) || Promise.resolve()).then(post);
+    sdpSendQueue.set(to, next);
 }
 function broadcast(kind, payload) { sendSignal('', kind, payload); }
 
@@ -1865,7 +1968,11 @@ async function startPolling() {
         try {
             const res = await fetch(`${BASE}/videocall/poll/${ROOM_TOKEN}?peer_id=${peerId}`).then(r => r.json());
             if (res.error) { await sleep(1500); continue; }
-            (res.signals || []).forEach(handleSignal);
+            // Um sinal de cada vez, na ordem do servidor (oferta antes da resposta
+            // dela, resposta antes da oferta seguinte).
+            for (const sig of (res.signals || [])) {
+                try { await handleSignal(sig); } catch (e) { console.warn('signal', sig && sig.kind, e); }
+            }
             reconcilePeers(res.peers || []);
         } catch (e) { await sleep(1500); }
     }
@@ -2606,12 +2713,13 @@ function toggleHandsPanel(force) {
 let mediaRecorder = null, recordedChunks = [], recStartTs = 0, recTimer = null;
 // ---- Composição da gravação: grava a REUNIÃO TODA (todas as câmeras + telas
 // + áudios de todos) desenhando um mosaico num canvas e mixando o áudio. ----
-let compCanvas = null, compCtx = null, compRaf = null, compStream = null;
+let compCanvas = null, compCtx = null, compTimer = null, compStream = null;
 let recAudioCtx = null, audioDest = null, audioSources = [];
 // Fontes de áudio por participante remoto (chave = remoteId), para conseguir
 // ADICIONAR o áudio de quem entra DEPOIS do início da gravação e REMOVER quando
 // o participante sai. A gravação segue ativa e sempre reflete quem está na sala.
 let recRemoteAudio = new Map();
+let recLocalMicAdded = false; // meu microfone já está no mix desta gravação?
 
 // Indica se há gravação em andamento com o mix de áudio montado.
 function recordingAudioActive() { return !!(recAudioCtx && audioDest); }
@@ -2647,8 +2755,7 @@ function removeAudioFromRecording(key) {
 // Pluga no mix o áudio de todos os participantes remotos já presentes.
 function addAllRemoteAudioToRecording() {
     peers.forEach((entry, id) => {
-        const remote = entry.tile?.querySelector('video')?.srcObject;
-        if (remote) addAudioToRecording(remote, id);
+        if (entry.micStream) addAudioToRecording(entry.micStream, id);
     });
 }
 
@@ -2656,7 +2763,11 @@ function collectRecordingVideos() {
     // Coleta os elementos <video> visíveis (tiles) + a própria câmera.
     const vids = [];
     document.querySelectorAll('#stage .tile video, #grid .tile video, #filmstrip .tile video').forEach(v => {
-        if (v.srcObject && v.videoWidth > 0) vids.push(v);
+        // O navegador pode pausar um vídeo mudo fora da área visível: retoma,
+        // senão o participante sairia congelado na gravação.
+        if (v.srcObject && v.paused) { const pl = v.play(); if (pl && pl.catch) pl.catch(() => {}); }
+        // Câmera desligada ou ausente entra no mosaico como avatar.
+        if ((v.srcObject && v.videoWidth > 0) || v.closest('.tile.cam-off')) vids.push(v);
     });
     if (!vids.length) {
         const self = document.querySelector('#tile-' + peerId + ' video');
@@ -2820,10 +2931,38 @@ function drawReactionsOnCanvas(ctx, W, H) {
     }
 }
 
+// Temporizador que NÃO para com a aba oculta (outra aba, janela minimizada ou
+// coberta). Nessa situação o Chrome suspende o requestAnimationFrame e segura o
+// setInterval da página em 1 disparo por segundo; o temporizador de um Web
+// Worker segue no ritmo pedido. Sem Worker, cai para setInterval.
+function startSteadyTimer(fn, ms) {
+    let worker = null, url = null, fallback = null, last = 0;
+    const tick = () => {
+        // Página ocupada acumula disparos: ignora os atrasados em vez de enfileirar.
+        const now = performance.now();
+        if (now - last < ms * 0.6) return;
+        last = now;
+        fn();
+    };
+    const useInterval = () => { if (!fallback) fallback = setInterval(tick, ms); };
+    try {
+        url = URL.createObjectURL(new Blob(['setInterval(() => postMessage(0), ' + ms + ');'], { type: 'application/javascript' }));
+        worker = new Worker(url);
+        worker.onmessage = tick;
+        worker.onerror = useInterval; // ex.: política do site bloqueia o Worker
+    } catch (e) { useInterval(); }
+    return {
+        stop() {
+            if (worker) { worker.terminate(); worker = null; }
+            if (url) { URL.revokeObjectURL(url); url = null; }
+            if (fallback) { clearInterval(fallback); fallback = null; }
+        },
+    };
+}
+
 function drawComposite() {
     if (!compCtx) return;
     composeLayout(compCtx, compCanvas.width, compCanvas.height);
-    compRaf = requestAnimationFrame(drawComposite);
 }
 
 function buildRecordingStream() {
@@ -2832,6 +2971,10 @@ function buildRecordingStream() {
     compCanvas.width = 1920; compCanvas.height = 1080;
     compCtx = compCanvas.getContext('2d');
     drawComposite();
+    // 25 quadros por segundo, o mesmo ritmo da captura. Com requestAnimationFrame
+    // o mosaico parava de ser redesenhado quando a aba de quem grava ficava
+    // oculta e a gravação saía com a imagem congelada (o áudio seguia normal).
+    compTimer = startSteadyTimer(drawComposite, 40);
     compStream = compCanvas.captureStream(25);
 
     // Mixa TODOS os áudios (meu microfone + áudio de cada participante remoto).
@@ -2840,6 +2983,7 @@ function buildRecordingStream() {
     audioSources = [];
     recRemoteAudio = new Map();
     // Meu microfone (sem chave: não é removido durante a gravação).
+    recLocalMicAdded = !!(rawStream && rawStream.getAudioTracks().length);
     if (rawStream) addAudioToRecording(rawStream, null);
     // Áudio de quem já está na sala. Quem entrar DEPOIS é plugado no ontrack.
     addAllRemoteAudioToRecording();
@@ -2851,8 +2995,7 @@ function buildRecordingStream() {
 }
 
 function stopComposite() {
-    if (compRaf) cancelAnimationFrame(compRaf);
-    compRaf = null;
+    if (compTimer) { compTimer.stop(); compTimer = null; }
     if (compStream) { compStream.getTracks().forEach(t => t.stop()); compStream = null; }
     audioSources.forEach(s => { try { s.disconnect(); } catch (e) {} });
     audioSources = [];
@@ -3319,7 +3462,7 @@ function teardown(headline, sub) {
     stopPip();
     if (mediaRecorder && mediaRecorder.state !== 'inactive') { try { stopRecording(); } catch (e) {} }
     stopBgPipeline();
-    peers.forEach(e => { try { e.pc.close(); } catch (x) {} });
+    peers.forEach(e => { stopPeerAudio(e); stopPeerAudio(e, 'screenAudioEl'); try { e.pc.close(); } catch (x) {} });
     if (rawStream) rawStream.getTracks().forEach(t => t.stop());
     if (screenStream) screenStream.getTracks().forEach(t => t.stop());
     // Botões de saída diferentes para logado (equipe) e convidado.
@@ -3404,7 +3547,7 @@ function scrollControls() {
     setTimeout(updateControlsOverflow, 2500);
 })();
 
-initPreview();
+mediaReady = initPreview();
 
 // iOS: se a câmera não abriu (ex.: permissão concedida após um toque), um clique
 // no lobby tenta novamente. Não atrapalha os demais navegadores.
@@ -3414,7 +3557,7 @@ initPreview();
     lb.addEventListener('click', function (ev) {
         if (ev.target.closest('button') || ev.target.closest('select') || ev.target.closest('input')) return;
         const semVideo = !rawStream || rawStream.getVideoTracks().length === 0;
-        if (semVideo) initPreview();
+        if (semVideo) mediaReady = initPreview();
     }, { passive: true });
 })();
 </script>
