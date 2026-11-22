@@ -48,7 +48,12 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
 ?>
 
 <div class="main-content">
-    <div class="top-bar d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <?php
+    // Planejamento no celular/tablet (< 992px): lista vertical com abas de status,
+    // filtros em gaveta e ações rápidas. No desktop fica oculto (Kanban normal).
+    require __DIR__ . '/_mobile_markup.php';
+    ?>
+    <div class="top-bar d-flex justify-content-between align-items-center flex-wrap gap-2 pm-desktop-only">
         <div>
             <h5 class="mb-0">Planejamento</h5>
             <small class="text-muted">Gerencie cards da equipe</small>
@@ -87,7 +92,7 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
     </div>
 
     <!-- Filtros -->
-    <div class="card mb-3">
+    <div class="card mb-3 pm-desktop-only">
         <div class="card-body py-2 px-3">
             <?php
             // Valores selecionados (arrays) para marcar os checkboxes
@@ -522,9 +527,18 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                             </div>
                         </div>
                         <div class="row g-2">
-                            <div class="col-sm-4 mb-3">
+                            <div class="col-12 mb-3 d-lg-none">
+                                <span class="form-label small fw-medium d-block">Prioridade</span>
+                                <div class="pm-seg pm-seg-c4" data-target="create-priority">
+                                    <button type="button" data-v="high" style="--c:#d6293e" aria-pressed="false"><span class="dot"></span>Alta</button>
+                                    <button type="button" data-v="medium" style="--c:#f08c00" aria-pressed="true"><span class="dot"></span>Média</button>
+                                    <button type="button" data-v="low" style="--c:#3b82f6" aria-pressed="false"><span class="dot"></span>Baixa</button>
+                                    <button type="button" data-v="urgent" style="--c:#9c27b0" aria-pressed="false"><span class="dot"></span>Urgente</button>
+                                </div>
+                            </div>
+                            <div class="col-sm-4 mb-3 d-none d-lg-block">
                                 <label class="form-label small fw-medium">Prioridade</label>
-                                <select name="priority" class="form-select form-select-sm">
+                                <select name="priority" id="create-priority" class="form-select form-select-sm">
                                     <option value="low">Baixa</option>
                                     <option value="medium" selected>Média</option>
                                     <option value="high">Alta</option>
@@ -533,7 +547,7 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                             </div>
                             <div class="col-sm-4 mb-3">
                                 <label class="form-label small fw-medium">Status</label>
-                                <select name="status" class="form-select form-select-sm">
+                                <select name="status" id="create-status" class="form-select form-select-sm">
                                     <?php foreach ($statusLabels as $s => $info): ?>
                                     <option value="<?= $s ?>"><?= $info[0] ?></option>
                                     <?php endforeach; ?>
@@ -595,7 +609,7 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
-                        <button type="submit" class="btn btn-sm btn-primary">Criar Card</button>
+                        <button type="submit" class="btn btn-sm btn-primary"><span class="d-none d-lg-inline">Criar Card</span><span class="d-lg-none"><i class="bi bi-plus-lg"></i> <span id="create-submit-mobile-label">Criar card</span></span></button>
                     </div>
                 </form>
             </div>
@@ -604,24 +618,26 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
 
     <!-- MODAL DETALHE DO CARD -->
     <div class="modal fade" id="cardDetailModal" tabindex="-1">
-        <div class="modal-dialog modal-xl modal-fullscreen-sm-down">
+        <!-- Abaixo de lg (celular/tablet) as colunas empilham: o modal vira tela cheia,
+             o corpo rola inteiro e uma barra fixa no rodapé dá acesso a Status/Salvar. -->
+        <div class="modal-dialog modal-xl modal-fullscreen-lg-down">
             <div class="modal-content">
-                <div class="modal-header py-2 border-bottom">
-                    <div class="d-flex align-items-center gap-2">
+                <div class="modal-header py-2 border-bottom card-detail-header">
+                    <div class="card-detail-title-wrap d-flex align-items-center gap-2">
                         <span class="badge bg-secondary" id="detail-id-badge">#</span>
                         <h6 class="modal-title mb-0 fw-bold" id="detail-title" style="word-break:break-word;white-space:normal;">Card</h6>
                     </div>
-                    <div class="d-flex align-items-center gap-2">
+                    <div class="card-detail-badges d-flex align-items-center gap-2">
                         <span class="badge" id="detail-category-badge" style="display:none;"></span>
                         <span class="badge rounded-pill" id="detail-priority-badge"></span>
                         <span class="badge rounded-pill" id="detail-status-badge"></span>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                     </div>
+                    <button type="button" class="btn-close card-detail-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
                 </div>
-                <div class="modal-body p-0" style="max-height:80vh;overflow:hidden;">
+                <div class="modal-body p-0 card-detail-body">
                     <div class="row g-0 h-100">
                         <!-- Painel esquerdo: Info principal -->
-                        <div class="col-lg-8 border-end" style="max-height:80vh;overflow-y:auto;">
+                        <div class="col-lg-8 card-detail-main">
                             <!-- Abas de navegação -->
                             <ul class="nav nav-tabs nav-fill px-3 pt-2 border-bottom sticky-top bg-white" id="cardTabs" role="tablist" style="z-index:10;">
                                 <li class="nav-item" role="presentation">
@@ -829,16 +845,38 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                         </div>
 
                         <!-- Painel direito: Propriedades -->
-                        <div class="col-lg-4 bg-light" style="max-height:80vh;overflow-y:auto;">
+                        <div class="col-lg-4 bg-light card-detail-side" id="card-detail-props">
                             <div class="p-3">
                                 <div class="d-flex justify-content-between align-items-center mb-3">
-                                    <h6 class="fw-bold small text-muted mb-0 text-uppercase"><i class="bi bi-gear"></i> Propriedades</h6>
-                                    <button class="btn btn-sm btn-primary" onclick="saveCard()"><i class="bi bi-check-lg"></i> Salvar</button>
+                                    <h6 class="fw-bold small text-muted mb-0 text-uppercase card-detail-props-title"><i class="bi bi-gear"></i> Propriedades</h6>
+                                    <button class="btn btn-sm btn-primary d-none d-lg-inline-block" onclick="saveCard()"><i class="bi bi-check-lg"></i> Salvar</button>
                                 </div>
 
                                 <div class="mb-3">
                                     <label class="form-label small fw-medium text-muted">Título</label>
                                     <textarea id="detail-title-input" class="form-control form-control-sm" rows="2" style="resize:vertical;"></textarea>
+                                </div>
+
+                                <!-- Celular/tablet: Status e Prioridade em botões grandes (espelham os
+                                     selects #detail-status/#detail-priority, que o saveCard envia). -->
+                                <div class="d-lg-none card-detail-segs">
+                                    <div class="mb-3">
+                                        <span class="form-label small fw-medium text-muted d-block">Status</span>
+                                        <div class="pm-seg pm-seg-c2" id="detail-status-seg" data-target="detail-status">
+                                            <?php foreach ($statusLabels as $s => $info): ?>
+                                            <button type="button" data-v="<?= $s ?>" style="--c:<?= $info[1] ?>" aria-pressed="false"><span class="dot"></span><?= $info[0] ?></button>
+                                            <?php endforeach; ?>
+                                        </div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <span class="form-label small fw-medium text-muted d-block">Prioridade</span>
+                                        <div class="pm-seg pm-seg-c4" id="detail-priority-seg" data-target="detail-priority">
+                                            <button type="button" data-v="high" style="--c:#d6293e" aria-pressed="false"><span class="dot"></span>Alta</button>
+                                            <button type="button" data-v="medium" style="--c:#f08c00" aria-pressed="false"><span class="dot"></span>Média</button>
+                                            <button type="button" data-v="low" style="--c:#3b82f6" aria-pressed="false"><span class="dot"></span>Baixa</button>
+                                            <button type="button" data-v="urgent" style="--c:#9c27b0" aria-pressed="false"><span class="dot"></span>Urgente</button>
+                                        </div>
+                                    </div>
                                 </div>
 
                                 <div class="mb-3">
@@ -881,7 +919,7 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                                     </select>
                                 </div>
 
-                                <div class="row g-2 mb-3">
+                                <div class="row g-2 mb-3 d-none d-lg-flex">
                                     <div class="col-6">
                                         <label class="form-label small fw-medium text-muted">Prioridade</label>
                                         <select id="detail-priority" class="form-select form-select-sm">
@@ -907,11 +945,11 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                                 </div>
 
                                 <div class="row g-2 mb-3">
-                                    <div class="col-6">
+                                    <div class="col-12 col-sm-6">
                                         <label class="form-label small fw-medium text-muted">Início Dev</label>
                                         <input type="datetime-local" id="detail-start-date" class="form-control form-control-sm">
                                     </div>
-                                    <div class="col-6">
+                                    <div class="col-12 col-sm-6">
                                         <label class="form-label small fw-medium text-muted">Fim Dev</label>
                                         <input type="datetime-local" id="detail-end-date" class="form-control form-control-sm">
                                     </div>
@@ -1010,7 +1048,7 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
 
                                 <hr class="my-2">
                                 <div class="d-flex gap-2 flex-wrap">
-                                    <button class="btn btn-sm btn-outline-danger" onclick="deleteCard()"><i class="bi bi-trash"></i> Excluir</button>
+                                    <button class="btn btn-sm btn-outline-danger d-none d-lg-inline-block" onclick="deleteCard()"><i class="bi bi-trash"></i> Excluir</button>
                                     <?php if (($user['role'] ?? '') === 'super_admin'): ?>
                                     <button class="btn btn-sm btn-danger" onclick="deleteCardPermanent()"><i class="bi bi-trash3-fill"></i> Excluir Permanente</button>
                                     <?php endif; ?>
@@ -1018,6 +1056,11 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
                             </div>
                         </div>
                     </div>
+                </div>
+                <!-- Rodapé fixo só no celular/tablet: Excluir + Salvar sempre à mão. -->
+                <div class="modal-footer card-detail-mobilebar d-lg-none">
+                    <button type="button" class="btn pm-btn pm-btn-danger" onclick="deleteCard()" aria-label="Excluir card" title="Excluir card"><i class="bi bi-trash"></i></button>
+                    <button type="button" class="btn pm-btn pm-btn-pri" onclick="saveCard()"><i class="bi bi-check-lg"></i> Salvar</button>
                 </div>
             </div>
         </div>
@@ -1056,6 +1099,17 @@ $priorityLabels = ['low' => 'Baixa', 'medium' => 'Média', 'high' => 'Alta', 'ur
 #cardDetailModal .nav-tabs .nav-link { font-size: 0.78rem; color: #6c757d; border: none; border-bottom: 2px solid transparent; }
 #cardDetailModal .nav-tabs .nav-link.active { color: var(--primary, #00BFA6); border-bottom-color: var(--primary, #00BFA6); background: transparent; font-weight: 600; }
 #cardDetailModal .nav-tabs .nav-link:hover:not(.active) { color: #333; border-bottom-color: #dee2e6; }
+#cardDetailModal .card-detail-header { gap: 8px; }
+#cardDetailModal .card-detail-title-wrap { flex: 1 1 auto; min-width: 0; }
+#cardDetailModal .card-detail-close { margin: 0 0 0 4px; flex-shrink: 0; }
+/* Desktop: duas colunas lado a lado, cada uma com rolagem própria. */
+@media (min-width: 992px) {
+    #cardDetailModal .card-detail-body { max-height: 80vh; overflow: hidden; }
+    #cardDetailModal .card-detail-main,
+    #cardDetailModal .card-detail-side { max-height: 80vh; overflow-y: auto; }
+    #cardDetailModal .card-detail-main { border-right: 1px solid var(--bs-border-color, #dee2e6); }
+}
+/* Layout do celular/tablet (< 992px): ver app/views/planning/_mobile.php */
 .ticket-msg-bubble { padding: 8px 12px; border-radius: 10px; font-size: 0.8rem; max-width: 85%; word-wrap: break-word; }
 .ticket-msg-client { background: #e3f2fd; margin-right: auto; border-bottom-left-radius: 2px; }
 .ticket-msg-internal { background: #fff3e0; margin-left: auto; border-bottom-right-radius: 2px; }
@@ -1199,6 +1253,9 @@ const EFFECTIVE_FILTERS = <?= json_encode([
     'statuses'    => array_values((array)($filters['statuses'] ?? [])),
     'order'       => $filters['order'] ?? '',
     'q'           => $filters['q'] ?? '',
+    'priority'    => array_values((array)($filters['priority'] ?? [])),
+    'technical'   => array_values(array_map('strval', (array)($filters['technical'] ?? []))),
+    'deadline'    => $filters['deadline'] ?? '',
 ], JSON_UNESCAPED_UNICODE) ?>;
 
 // Visão com que a página deve abrir (preserva a aba ao aplicar filtro).
@@ -1215,6 +1272,9 @@ function calendarFilterParams() {
     (EFFECTIVE_FILTERS.statuses    || []).forEach(v => p.append('statuses[]', v));
     if (EFFECTIVE_FILTERS.order) p.set('order', EFFECTIVE_FILTERS.order);
     if (EFFECTIVE_FILTERS.q)     p.set('q', EFFECTIVE_FILTERS.q);
+    (EFFECTIVE_FILTERS.priority  || []).forEach(v => p.append('priority[]', v));
+    (EFFECTIVE_FILTERS.technical || []).forEach(v => p.append('technical[]', v));
+    if (EFFECTIVE_FILTERS.deadline) p.set('deadline', EFFECTIVE_FILTERS.deadline);
     return p;
 }
 
@@ -1435,6 +1495,7 @@ function openCreateModal() {
     // Garante que o prazo não fica preso de uma abertura anterior pelo atalho do dia.
     const dueEl = document.querySelector('#createCardForm [name="due_date"]');
     if (dueEl) dueEl.value = '';
+    document.querySelectorAll('#createCardModal .pm-seg[data-target]').forEach(syncSegFromSelect);
     new bootstrap.Modal(document.getElementById('createCardModal')).show();
 }
 
@@ -1478,6 +1539,8 @@ function openCreateForDate(ymd) {
             const isCalendar = calView && calView.style.display !== 'none';
             if (isCalendar) {
                 loadCalendar();
+            } else if (window.PM && PM.isActive()) {
+                PM.onCardCreated(data.card);
             } else {
                 addCardToBoard(data.card);
             }
@@ -1935,6 +1998,13 @@ function openCardModal(id) {
             tabInstance.show();
         }
 
+        // Botões de Status/Prioridade do celular refletem o card aberto.
+        document.querySelectorAll('#cardDetailModal .pm-seg[data-target]').forEach(syncSegFromSelect);
+
+        // Volta a rolagem ao topo (o corpo/colunas guardam a posição do card anterior).
+        document.querySelectorAll('#cardDetailModal .card-detail-body, #cardDetailModal .card-detail-main, #cardDetailModal .card-detail-side')
+            .forEach(el => { el.scrollTop = 0; });
+
         const modal = new bootstrap.Modal(document.getElementById('cardDetailModal'));
         modal.show();
     });
@@ -2069,6 +2139,26 @@ function renderTicketData(data) {
     }
 }
 
+// Celular: botões de Status/Prioridade (.pm-seg) espelham os selects do painel
+// (o saveCard lê só os selects). Clicar no botão muda o select; abrir o card
+// (ou mudar o select) atualiza o botão marcado.
+function syncSegFromSelect(seg) {
+    const sel = document.getElementById(seg.dataset.target);
+    if (!sel) return;
+    seg.querySelectorAll('button[data-v]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === sel.value)));
+}
+document.querySelectorAll('.pm-seg[data-target]').forEach(seg => {
+    const sel = document.getElementById(seg.dataset.target);
+    if (!sel) return;
+    seg.addEventListener('click', e => {
+        const b = e.target.closest('button[data-v]');
+        if (!b) return;
+        sel.value = b.dataset.v;
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    sel.addEventListener('change', () => syncSegFromSelect(seg));
+});
+
 function saveCard() {
     const description = quill ? quill.root.innerHTML : '';
 
@@ -2136,6 +2226,13 @@ function saveCard() {
                 if (isCalendar) {
                     loadCalendar();
                     if (typeof showToast === 'function') showToast('Card salvo com sucesso!');
+                    return;
+                }
+
+                // Celular: a lista do Planejamento mobile reflete o card salvo
+                // (e os dependentes reagendados) sem recarregar a página.
+                if (window.PM && PM.isActive()) {
+                    PM.onCardSaved(data.card, data.affected_cards || []);
                     return;
                 }
 
@@ -3293,6 +3390,13 @@ document.getElementById('cardDetailModal').addEventListener('shown.bs.modal', fu
 .multi-filter .dropdown-toggle { min-width: 160px; }
 .multi-filter .dropdown-item:active { background: #e9ecef; color: inherit; }
 .multi-filter .dropdown-menu label:hover { background: #f5f7fa; border-radius: 4px; }
+/* Celular estreito (ex.: 320px): o min-width de 160px estourava a coluna col-6 e
+   a página ganhava rolagem lateral (o navegador reduzia o zoom e o modal do card
+   ficava maior que a tela). O rótulo encolhe com reticências. */
+@media (max-width: 767.98px) {
+    .multi-filter .dropdown-toggle { min-width: 0; }
+    .multi-filter .dropdown-toggle > span { display: inline-block; max-width: calc(100% - 14px); overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
+}
 </style>
 <script>
 (function () {
@@ -3359,4 +3463,5 @@ document.getElementById('cardDetailModal').addEventListener('shown.bs.modal', fu
 })();
 </script>
 
+<?php require __DIR__ . '/_mobile_script.php'; ?>
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>

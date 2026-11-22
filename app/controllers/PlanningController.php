@@ -31,33 +31,8 @@ class PlanningController extends Controller
 
         $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']);
 
-        $filters = [];
-        // Filtros de múltipla escolha (arrays). Aceita valores únicos por compatibilidade.
-        if (!empty($_GET['company_id'])) $filters['company_id'] = array_filter((array)$_GET['company_id'], fn($v) => $v !== '');
-        if (!empty($_GET['assigned_to'])) $filters['assigned_to'] = array_filter((array)$_GET['assigned_to'], fn($v) => $v !== '');
-        if (!empty($_GET['created_by'])) $filters['created_by'] = array_filter((array)$_GET['created_by'], fn($v) => $v !== '');
-        if (!empty($_GET['statuses'])) $filters['statuses'] = array_filter((array)$_GET['statuses'], fn($v) => $v !== '');
-        if (!empty($_GET['order'])) $filters['order'] = $_GET['order'];
-        if (isset($_GET['q']) && trim((string)$_GET['q']) !== '') $filters['q'] = trim((string)$_GET['q']);
-
-        // whatsapp_agent, developer e analyst só veem cards atribuídos a eles (forçar filtro)
-        if (in_array($user['role'], ['whatsapp_agent', 'developer', 'analyst', 'comercial'])) {
-            $filters['assigned_to'] = [$user['id']];
-        }
-
-        // Para super_admin e attendant: pré-filtrar pelo usuário logado por padrão
-        // a menos que o usuário explicitamente escolha "Todos" (via parâmetro show_all=1)
-        if (in_array($user['role'], ['super_admin', 'attendant'])) {
-            if (empty($_GET['show_all']) && empty($_GET['assigned_to'])) {
-                $filters['assigned_to'] = [$user['id']];
-            }
-        }
-
-        // Controle de acesso por empresa
-        $allowedCompanies = PlanningCard::getUserAllowedCompanies($user['id'], $user['role']);
-        if ($allowedCompanies !== null) {
-            $filters['allowed_companies'] = $allowedCompanies;
-        }
+        $filters = $this->kanbanFiltersFromRequest($_GET, $user);
+        $allowedCompanies = $filters['allowed_companies'] ?? null;
 
         // Kanban paginado: renderiza só o 1º lote por coluna (evita página gigante
         // e lag quando uma coluna tem centenas de cards). O resto vem via
@@ -103,6 +78,14 @@ class PlanningController extends Controller
         // (Atividade predecessora agora usa autocomplete via planning/searchCards,
         // em vez de um <select> com todos os cards — inviável com muitos cards.)
 
+        // Contadores dos atalhos do Planejamento no celular. Cada um aplica os
+        // filtros atuais + o próprio atalho (é o número que a lista vai mostrar).
+        $quickCounts = [
+            'mine'  => $this->cardModel->countCards(array_merge(array_diff_key($filters, ['assigned_none' => 1]), ['assigned_to' => [$user['id']]])),
+            'late'  => $this->cardModel->countCards(array_merge($filters, ['deadline' => 'late'])),
+            'today' => $this->cardModel->countCards(array_merge($filters, ['deadline' => 'today'])),
+        ];
+
         $this->view('planning/index', [
             'user' => $user,
             'grouped' => $grouped,
@@ -115,9 +98,67 @@ class PlanningController extends Controller
             'columnCounts' => $columnCounts,
             'kanbanPageSize' => self::KANBAN_PAGE_SIZE,
             'filters' => $filters,
+            'quickCounts' => $quickCounts,
             // Qual visão abrir (kanban|calendar) — preserva a aba ao filtrar.
             'activeView' => (($_GET['view'] ?? '') === 'calendar') ? 'calendar' : 'kanban',
         ]);
+    }
+
+    /**
+     * Filtros do Kanban a partir da query string + escopo do usuário. Fonte
+     * única para index(), columnCards() e countCards(), para que o 1º lote, o
+     * "Carregar mais" e os contadores usem exatamente o mesmo recorte.
+     *
+     * - company_id[], assigned_to[] (com 'none'), created_by[], statuses[], order, q
+     * - priority[] (low|medium|high|urgent), technical[] (ids ou 'none'),
+     *   deadline (late|today|week) — usados pelos filtros da tela do celular.
+     * - Papéis whatsapp_agent/developer/analyst/comercial: só os próprios cards.
+     * - super_admin/attendant: sem show_all e sem responsável escolhido, pré-filtra
+     *   pelo próprio usuário.
+     */
+    private function kanbanFiltersFromRequest(array $src, array $user): array
+    {
+        $list = fn($key) => array_values(array_filter((array) ($src[$key] ?? []), fn($v) => $v !== '' && $v !== null));
+
+        $filters = [];
+        foreach (['company_id', 'assigned_to', 'created_by', 'statuses'] as $key) {
+            if (!empty($src[$key])) $filters[$key] = $list($key);
+        }
+        if (!empty($src['order'])) $filters['order'] = (string) $src['order'];
+        if (isset($src['q']) && trim((string) $src['q']) !== '') $filters['q'] = trim((string) $src['q']);
+
+        $prios = array_values(array_intersect(['low', 'medium', 'high', 'urgent'], $list('priority')));
+        if (!empty($prios)) $filters['priority'] = $prios;
+        $tech = array_values(array_filter($list('technical'), fn($v) => $v === 'none' || ctype_digit((string) $v)));
+        if (!empty($tech)) $filters['technical'] = $tech;
+        $deadline = (string) ($src['deadline'] ?? '');
+        if (in_array($deadline, ['late', 'today', 'week'], true)) $filters['deadline'] = $deadline;
+
+        if (in_array($user['role'], ['whatsapp_agent', 'developer', 'analyst', 'comercial'])) {
+            $filters['assigned_to'] = [$user['id']];
+        } elseif (in_array($user['role'], ['super_admin', 'attendant'])) {
+            if (empty($src['show_all']) && empty($src['assigned_to'])) {
+                $filters['assigned_to'] = [$user['id']];
+            }
+        }
+
+        $allowedCompanies = PlanningCard::getUserAllowedCompanies($user['id'], $user['role']);
+        if ($allowedCompanies !== null) {
+            $filters['allowed_companies'] = $allowedCompanies;
+        }
+
+        return $filters;
+    }
+
+    /**
+     * API: total de cards para um conjunto de filtros (mesmos parâmetros do
+     * Kanban). Usado pelo botão "Ver N cards" dos filtros no celular.
+     */
+    public function countCards()
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'developer', 'analyst', 'comercial']);
+        $filters = $this->kanbanFiltersFromRequest($_GET, $this->currentUser());
+        $this->json(['total' => $this->cardModel->countCards($filters)]);
     }
 
     /**
@@ -561,25 +602,7 @@ class PlanningController extends Controller
 
         // Reconstrói os mesmos filtros do Kanban (index), para o lote bater com o
         // que já está na tela.
-        $filters = [];
-        if (!empty($_GET['company_id'])) $filters['company_id'] = array_filter((array)$_GET['company_id'], fn($v) => $v !== '');
-        if (!empty($_GET['assigned_to'])) $filters['assigned_to'] = array_filter((array)$_GET['assigned_to'], fn($v) => $v !== '');
-        if (!empty($_GET['created_by'])) $filters['created_by'] = array_filter((array)$_GET['created_by'], fn($v) => $v !== '');
-        if (!empty($_GET['order'])) $filters['order'] = $_GET['order'];
-        if (isset($_GET['q']) && trim((string)$_GET['q']) !== '') $filters['q'] = trim((string)$_GET['q']);
-
-        if (in_array($user['role'], ['whatsapp_agent', 'developer', 'analyst', 'comercial'])) {
-            $filters['assigned_to'] = [$user['id']];
-        } elseif (in_array($user['role'], ['super_admin', 'attendant'])) {
-            if (empty($_GET['show_all']) && empty($_GET['assigned_to'])) {
-                $filters['assigned_to'] = [$user['id']];
-            }
-        }
-
-        $allowedCompanies = PlanningCard::getUserAllowedCompanies($user['id'], $user['role']);
-        if ($allowedCompanies !== null) {
-            $filters['allowed_companies'] = $allowedCompanies;
-        }
+        $filters = $this->kanbanFiltersFromRequest($_GET, $user);
 
         $cards = $this->cardModel->getColumnCards($status, $filters, $offset, self::KANBAN_PAGE_SIZE);
 

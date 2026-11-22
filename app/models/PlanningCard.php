@@ -118,30 +118,10 @@ class PlanningCard
             }
         }
 
-        // Filtro de responsáveis (múltipla escolha).
-        // O valor especial 'none' representa "Sem responsável" (assigned_to IS NULL).
-        $assignedIds = [];
-        $assignedNone = false;
-        if (!empty($filters['assigned_to'])) {
-            $rawAssigned = (array)$filters['assigned_to'];
-            $assignedNone = in_array('none', $rawAssigned, true);
-            $assignedIds = array_values(array_unique(array_filter(array_map('intval', $rawAssigned))));
-        }
-        if (!empty($filters['assigned_none'])) {
-            $assignedNone = true;
-        }
-
-        // Filtro de empresas (múltipla escolha).
-        $companyIds = [];
-        if (!empty($filters['company_id'])) {
-            $companyIds = array_values(array_unique(array_filter(array_map('intval', (array)$filters['company_id']))));
-        }
-
-        // Filtro de solicitantes/criadores (múltipla escolha).
-        $createdByIds = [];
-        if (!empty($filters['created_by'])) {
-            $createdByIds = array_values(array_unique(array_filter(array_map('intval', (array)$filters['created_by']))));
-        }
+        // Filtros (responsável, empresa, solicitante, busca, escopo de empresas,
+        // prioridade, técnico, prazo): mesma fonte de getColumnCounts/getColumnCards,
+        // para as contagens e o "Carregar mais" baterem com o 1º lote.
+        [$filterWhere, $filterParams] = $this->kanbanFilterWhere($filters);
 
         $result = [];
 
@@ -158,44 +138,8 @@ class PlanningCard
                     LEFT JOIN companies co ON pc.company_id = co.id
                     LEFT JOIN users cb ON pc.created_by = cb.id
                     LEFT JOIN tickets t ON pc.ticket_id = t.id
-                    WHERE pc.status = ?";
-            $params = [$status];
-
-            if (!empty($companyIds)) {
-                $ph = implode(',', array_fill(0, count($companyIds), '?'));
-                $sql .= " AND pc.company_id IN ($ph)";
-                $params = array_merge($params, $companyIds);
-            }
-            if (!empty($assignedIds) && $assignedNone) {
-                // Responsáveis selecionados OU sem responsável (assigned_to NULL).
-                $ph = implode(',', array_fill(0, count($assignedIds), '?'));
-                $sql .= " AND (pc.assigned_to IN ($ph) OR pc.assigned_to IS NULL)";
-                $params = array_merge($params, $assignedIds);
-            } elseif (!empty($assignedIds)) {
-                $ph = implode(',', array_fill(0, count($assignedIds), '?'));
-                $sql .= " AND pc.assigned_to IN ($ph)";
-                $params = array_merge($params, $assignedIds);
-            } elseif ($assignedNone) {
-                // Apenas cards sem responsável.
-                $sql .= " AND pc.assigned_to IS NULL";
-            }
-            if (!empty($createdByIds)) {
-                $ph = implode(',', array_fill(0, count($createdByIds), '?'));
-                $sql .= " AND pc.created_by IN ($ph)";
-                $params = array_merge($params, $createdByIds);
-            }
-            // Busca livre por nome/descrição do card.
-            if (isset($filters['q']) && trim((string)$filters['q']) !== '') {
-                $term = '%' . trim((string)$filters['q']) . '%';
-                $sql .= " AND (pc.title LIKE ? OR pc.description LIKE ?)";
-                $params[] = $term;
-                $params[] = $term;
-            }
-            if (!empty($filters['allowed_companies'])) {
-                $placeholders = implode(',', array_fill(0, count($filters['allowed_companies']), '?'));
-                $sql .= " AND (pc.company_id IS NULL OR pc.company_id IN ($placeholders))";
-                $params = array_merge($params, $filters['allowed_companies']);
-            }
+                    WHERE pc.status = ?" . $filterWhere;
+            $params = array_merge([$status], $filterParams);
 
             $sql .= " ORDER BY " . $this->kanbanOrderBy($filters['order'] ?? null);
 
@@ -420,7 +364,78 @@ class PlanningCard
             $params = array_merge($params, $filters['allowed_companies']);
         }
 
+        // Prioridade (múltipla escolha).
+        if (!empty($filters['priority'])) {
+            $prios = array_values(array_intersect(['low', 'medium', 'high', 'urgent'], (array) $filters['priority']));
+            if (!empty($prios)) {
+                $ph = implode(',', array_fill(0, count($prios), '?'));
+                $sql .= " AND pc.priority IN ($ph)";
+                $params = array_merge($params, $prios);
+            }
+        }
+
+        // Técnico responsável (múltipla escolha; 'none' = sem técnico).
+        if (!empty($filters['technical'])) {
+            $rawTech = (array) $filters['technical'];
+            $techNone = in_array('none', $rawTech, true);
+            $techIds = array_values(array_unique(array_filter(array_map('intval', $rawTech))));
+            if (!empty($techIds)) {
+                $ph = implode(',', array_fill(0, count($techIds), '?'));
+                $sql .= $techNone
+                    ? " AND (pc.technical_responsible_id IN ($ph) OR pc.technical_responsible_id IS NULL)"
+                    : " AND pc.technical_responsible_id IN ($ph)";
+                $params = array_merge($params, $techIds);
+            } elseif ($techNone) {
+                $sql .= " AND pc.technical_responsible_id IS NULL";
+            }
+        }
+
+        // Prazo: late = vencido e não concluído/arquivado (mesma regra da borda
+        // vermelha do card); today = vence hoje; week = vence nos próximos 7 dias.
+        // A hora de referência vem do PHP (mesmo fuso da tela), não do NOW() do banco.
+        $deadline = (string) ($filters['deadline'] ?? '');
+        if ($deadline !== '') {
+            $nowTs = isset($filters['now']) ? strtotime((string) $filters['now']) : time();
+            $now = date('Y-m-d H:i:s', $nowTs);
+            if ($deadline === 'late') {
+                $sql .= " AND pc.due_date IS NOT NULL AND pc.due_date < ? AND pc.status NOT IN ('completed', 'archived')";
+                $params[] = $now;
+            } elseif ($deadline === 'today') {
+                $sql .= " AND pc.due_date >= ? AND pc.due_date < ?";
+                $params[] = date('Y-m-d 00:00:00', $nowTs);
+                $params[] = date('Y-m-d 00:00:00', strtotime('+1 day', $nowTs));
+            } elseif ($deadline === 'week') {
+                $sql .= " AND pc.due_date >= ? AND pc.due_date < ?";
+                $params[] = $now;
+                $params[] = date('Y-m-d H:i:s', $nowTs + 7 * 86400);
+            }
+        }
+
         return [$sql, $params];
+    }
+
+    /**
+     * Total de cards que batem com os filtros do Kanban (somando os status
+     * selecionados, ou todos). Alimenta os contadores do Planejamento no
+     * celular (atalhos "Minhas/Atrasadas/Hoje" e o botão "Ver N cards").
+     */
+    public function countCards($filters = [])
+    {
+        $allStatuses = ['open', 'in_progress', 'em_revisao_interna', 'waiting_client', 'em_homologacao', 'aprovado_producao', 'completed', 'denied', 'archived'];
+        $statuses = $allStatuses;
+        if (!empty($filters['statuses'])) {
+            $selected = array_values(array_intersect($allStatuses, (array) $filters['statuses']));
+            if (!empty($selected)) {
+                $statuses = $selected;
+            }
+        }
+        [$where, $params] = $this->kanbanFilterWhere($filters);
+        $ph = implode(',', array_fill(0, count($statuses), '?'));
+        $row = $this->db->fetch(
+            "SELECT COUNT(*) AS cnt FROM planning_cards pc WHERE pc.status IN ($ph)" . $where,
+            array_merge($statuses, $params)
+        );
+        return (int) ($row['cnt'] ?? 0);
     }
 
     /**
