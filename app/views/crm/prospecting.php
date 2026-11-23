@@ -15,6 +15,34 @@
 .chips-group .chip label:hover { border-color:#00997D; }
 .chip-addbox { display:flex; gap:6px; margin-top:6px; }
 .chip-hint { font-size:0.72rem; color:#8a8f98; }
+
+/* Situação da campanha (coluna Status) e painel de acompanhamento */
+.camp-situation { display:block; border:0; background:none; padding:0; margin-top:4px; font-size:0.74rem;
+    font-weight:500; text-align:left; line-height:1.25; max-width:170px; cursor:pointer; }
+.camp-situation:hover { text-decoration:underline; }
+.cl-hero { border-radius:10px; padding:14px 16px; display:flex; gap:12px; align-items:flex-start; }
+.cl-hero > i { font-size:1.6rem; line-height:1; }
+.cl-hero h6 { margin:0 0 4px; font-weight:700; }
+.cl-hero .cl-todo { margin-top:8px; font-size:0.82rem; }
+.cl-stat { border:1px solid #e9ecef; border-radius:8px; padding:10px 12px; height:100%; }
+.cl-stat .v { font-size:1.25rem; font-weight:700; line-height:1.1; }
+.cl-stat .l { font-size:0.72rem; color:#6c757d; }
+.cl-section { font-size:0.78rem; font-weight:700; text-transform:uppercase; letter-spacing:.03em; color:#6c757d; margin:18px 0 8px; }
+.cl-filters { display:grid; grid-template-columns:max-content 1fr; gap:4px 12px; font-size:0.82rem; }
+.cl-filters dt { font-weight:500; color:#6c757d; }
+.cl-filters dd { margin:0; word-break:break-word; }
+.cl-tl { list-style:none; padding:0; margin:0; font-size:0.82rem; }
+.cl-tl li { display:flex; gap:10px; padding:7px 0; border-bottom:1px solid #f1f3f5; }
+.cl-tl li > i { flex:0 0 auto; margin-top:1px; }
+.cl-tl .when { flex:0 0 auto; width:92px; color:#6c757d; font-size:0.74rem; }
+.cl-tl .what { flex:1 1 auto; min-width:0; word-break:break-word; }
+@media (max-width: 575.98px) {
+    .cl-filters { grid-template-columns:1fr; gap:0; }
+    .cl-filters dd { margin-bottom:6px; }
+    .cl-tl li { flex-wrap:wrap; gap:4px 8px; }
+    .cl-tl .what { flex:1 1 0; }
+    .cl-tl .when { width:auto; order:3; flex-basis:100%; padding-left:24px; }
+}
 </style>
 
 <div class="main-content">
@@ -92,17 +120,22 @@
                             <td class="small"><?= escape($c['sequence_name'] ?? '—') ?></td>
                             <td class="small"><?= escape($c['board_name'] ?? '—') ?><?= $c['column_name'] ? ' / ' . escape($c['column_name']) : '' ?></td>
                             <td><?= (int)$c['daily_target'] ?></td>
-                            <td><span class="badge bg-info text-dark"><?= (int)$c['captured_today'] ?></span></td>
+                            <td class="text-nowrap" title="Leads que entraram na sequência hoje / meta do dia"><span class="badge <?= (int)$c['captured_today'] > 0 ? 'bg-success' : 'bg-light text-dark border' ?>"><?= (int)$c['captured_today'] ?> / <?= (int)$c['daily_target'] ?></span></td>
                             <td><?= (int)$c['min_score'] ?></td>
                             <td class="small"><?= $c['reveal_email'] ? '✉️' : '' ?> <?= $c['reveal_phone'] ? '📞' : '' ?></td>
                             <td>
                                 <?php if ($c['is_active']): ?><span class="badge bg-success">Ativa</span><?php else: ?><span class="badge bg-secondary">Inativa</span><?php endif; ?>
+                                <?php if (!empty($c['diagnosis']) && $c['is_active']): $dg = $c['diagnosis']; ?>
+                                <button type="button" class="camp-situation text-<?= escape($dg['tone']) ?>" onclick="showLog(<?= (int)$c['id'] ?>)" title="<?= escape($dg['title'] . ' — clique para ver o que está acontecendo') ?>">
+                                    <i class="bi bi-<?= escape($dg['icon']) ?>"></i> <?= escape($dg['short']) ?>
+                                </button>
+                                <?php endif; ?>
                             </td>
                             <td class="text-end text-nowrap">
                                 <div class="btn-group btn-group-sm">
                                     <button class="btn btn-outline-primary" title="Executar agora" onclick="runCampaign(<?= $c['id'] ?>, this)"><i class="bi bi-play-fill"></i></button>
                                     <button class="btn btn-outline-secondary" title="Editar" onclick='editCampaign(<?= json_encode($c, JSON_HEX_APOS|JSON_HEX_QUOT) ?>)'><i class="bi bi-pencil"></i></button>
-                                    <button class="btn btn-outline-info" title="Log" onclick="showLog(<?= $c['id'] ?>)"><i class="bi bi-list-ul"></i></button>
+                                    <button class="btn btn-outline-info" title="Acompanhar: ver o que está acontecendo" onclick="showLog(<?= $c['id'] ?>)"><i class="bi bi-activity"></i></button>
                                     <button class="btn btn-outline-<?= $c['is_active'] ? 'warning' : 'success' ?>" title="Ativar/Inativar" onclick="toggleCampaign(<?= $c['id'] ?>, this)"><i class="bi bi-power"></i></button>
                                     <button class="btn btn-outline-danger" title="Excluir" onclick="deleteCampaign(<?= $c['id'] ?>, this)"><i class="bi bi-trash"></i></button>
                                 </div>
@@ -600,10 +633,23 @@
 
 <!-- Modal Log -->
 <div class="modal fade" id="campLogModal" tabindex="-1">
-    <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable modal-fullscreen-sm-down">
         <div class="modal-content">
-            <div class="modal-header"><h6 class="modal-title"><i class="bi bi-list-ul"></i> Log da campanha</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-            <div class="modal-body"><div id="camp-log-body" class="small">Carregando...</div></div>
+            <div class="modal-header">
+                <div style="min-width:0;">
+                    <h6 class="modal-title mb-0"><i class="bi bi-activity"></i> Acompanhamento da campanha</h6>
+                    <small class="text-muted d-block text-truncate" id="camp-log-name"></small>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body"><div id="camp-log-body">Carregando...</div></div>
+            <div class="modal-footer justify-content-between">
+                <small class="text-muted" id="camp-log-updated"></small>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="camp-log-edit"><i class="bi bi-pencil"></i> Editar campanha</button>
+                    <button type="button" class="btn btn-sm btn-primary" id="camp-log-refresh"><i class="bi bi-arrow-clockwise"></i> Atualizar</button>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -1335,7 +1381,8 @@ function runCampaign(id, btn) {
             btn.disabled=false; btn.innerHTML='<i class="bi bi-play-fill"></i>';
             if(d.error){alert(d.error);return;}
             const r = d.result || {};
-            alert(`Busca: ${r.searched||0} | Duplicados: ${r.duplicated||0} | Fora ICP: ${r.out_of_icp||0} | Score baixo: ${r.low_score||0} | Selecionados: ${r.selected||0} | Captados: ${r.enrolled||0}`);
+            const s = d.summary || {};
+            alert((s.text || `Captados: ${r.enrolled||0}`) + '\n\nOs detalhes ficam em "Acompanhar" (ícone azul) na linha da campanha.');
             location.reload();
         })
         .catch(()=>{ btn.disabled=false; btn.innerHTML='<i class="bi bi-play-fill"></i>'; alert('Erro ao executar.'); });
@@ -1352,17 +1399,125 @@ function deleteCampaign(id, btn) {
         .then(r=>r.json()).then(d=>{ if(d.error){alert(d.error);return;} location.reload(); });
 }
 
+// ===== Acompanhamento da campanha (o que está acontecendo, em linguagem simples) =====
+const CL_TONE_BG = { success:'#e8f6f1', warning:'#fff6e0', danger:'#fdecec', info:'#e7f3fb', secondary:'#f1f3f5' };
+let clCurrentId = null;
+
 function showLog(id) {
-    if (!logModal) logModal = new bootstrap.Modal(document.getElementById('campLogModal'));
-    const body = document.getElementById('camp-log-body');
-    body.innerHTML = 'Carregando...';
+    if (!logModal) {
+        logModal = new bootstrap.Modal(document.getElementById('campLogModal'));
+        document.getElementById('camp-log-refresh').onclick = () => clLoad(clCurrentId);
+        document.getElementById('camp-log-edit').onclick = () => {
+            const btn = document.querySelector(`tr[data-id="${clCurrentId}"] button[title="Editar"]`);
+            logModal.hide();
+            if (btn) btn.click();
+        };
+    }
+    clCurrentId = id;
+    const row = document.querySelector(`tr[data-id="${id}"] td`);
+    document.getElementById('camp-log-name').textContent = row ? (row.childNodes[0].textContent || '').trim() : '';
     logModal.show();
+    clLoad(id);
+}
+
+function clFmtTime(dt) {
+    if (!dt) return '';
+    const [d, t] = String(dt).split(' ');
+    const [y, m, day] = d.split('-');
+    const today = new Date();
+    const isToday = +y === today.getFullYear() && +m === today.getMonth() + 1 && +day === today.getDate();
+    return (isToday ? '' : `${day}/${m} `) + (t || '').slice(0, 5);
+}
+
+function clLoad(id) {
+    const body = document.getElementById('camp-log-body');
+    body.innerHTML = '<div class="text-center text-muted py-4"><span class="spinner-border spinner-border-sm"></span> Carregando...</div>';
     fetch(BASE + 'crm/campaignLog/' + id, { headers:{'X-Requested-With':'XMLHttpRequest'} })
-        .then(r=>r.json()).then(d=>{
-            const rows = d.log || [];
-            if (!rows.length) { body.innerHTML = '<div class="text-muted">Sem registros ainda.</div>'; return; }
-            body.innerHTML = rows.map(l => `<div class="border-bottom py-1"><span class="badge bg-light text-dark border">${l.action}</span> <small class="text-muted">${l.created_at}</small>${l.detail ? '<div class="small">'+escapeH(l.detail)+'</div>' : ''}</div>`).join('');
-        });
+        .then(r => r.json())
+        .then(d => {
+            if (d.error) { body.innerHTML = `<div class="alert alert-danger">${escapeH(d.error)}</div>`; return; }
+            body.innerHTML = clRender(d);
+            document.getElementById('camp-log-updated').textContent = 'Atualizado às ' + new Date().toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'});
+        })
+        .catch(() => { body.innerHTML = '<div class="alert alert-danger">Não foi possível carregar o acompanhamento. Tente "Atualizar".</div>'; });
+}
+
+function clRender(d) {
+    const dg = d.diagnosis || {}, t = d.today || {}, sc = d.schedule || {};
+    const tone = dg.tone || 'secondary';
+    const pct = t.target > 0 ? Math.min(100, Math.round((t.captured / t.target) * 100)) : 0;
+    let h = '';
+
+    // 1) Situação: o que está acontecendo e o que fazer
+    h += `<div class="cl-hero" style="background:${CL_TONE_BG[tone] || CL_TONE_BG.secondary};">
+            <i class="bi bi-${escapeH(dg.icon || 'info-circle')} text-${escapeH(tone)}"></i>
+            <div style="min-width:0;">
+                <h6 class="text-${escapeH(tone)}">${escapeH(dg.title || '')}</h6>
+                <div class="small">${escapeH(dg.text || '')}</div>
+                ${dg.action ? `<div class="cl-todo"><strong>O que fazer:</strong> ${escapeH(dg.action)}</div>` : ''}
+            </div>
+          </div>`;
+
+    // 2) Números de hoje
+    const apollo = (d.campaign || {}).source !== 'my_leads';
+    h += `<div class="cl-section">Hoje</div><div class="row g-2">
+            <div class="col-6 col-md-3"><div class="cl-stat"><div class="v">${t.captured||0} <small class="text-muted fw-normal" style="font-size:.8rem;">de ${t.target||0}</small></div>
+                <div class="l">leads captados (meta do dia)</div>
+                <div class="progress mt-1" style="height:5px;"><div class="progress-bar bg-success" style="width:${pct}%"></div></div></div></div>
+            <div class="col-6 col-md-3"><div class="cl-stat"><div class="v">${t.searched||0}</div><div class="l">${apollo ? 'pessoas encontradas no Apollo' : 'leads encontrados'}</div></div></div>
+            <div class="col-6 col-md-3"><div class="cl-stat"><div class="v">${t.runs||0}</div><div class="l">execuções${d.last_run_ago ? ' · última ' + escapeH(d.last_run_ago) : ''}</div></div></div>
+            <div class="col-6 col-md-3"><div class="cl-stat"><div class="v">${t.credits||0}</div><div class="l">créditos Apollo gastos</div></div></div>
+          </div>`;
+
+    const reasons = [];
+    if (t.duplicated) reasons.push(`<li><strong>${t.duplicated}</strong> já estavam no sistema (não são captados de novo)</li>`);
+    if (t.out_of_icp) reasons.push(`<li><strong>${t.out_of_icp}</strong> fora do perfil (ICP)</li>`);
+    if (t.low_score) reasons.push(`<li><strong>${t.low_score}</strong> com score abaixo do mínimo</li>`);
+    if (t.reveal_failed) reasons.push(`<li><strong>${t.reveal_failed}</strong> sem e-mail/telefone disponível</li>`);
+    if (reasons.length) {
+        h += `<div class="small mt-2"><span class="text-muted">Das pessoas encontradas hoje, não entraram:</span><ul class="mb-0 ps-3">${reasons.join('')}</ul></div>`;
+    }
+
+    // 3) Horário
+    h += `<div class="cl-section">Horário de captação</div>
+          <div class="small"><i class="bi bi-clock"></i> Capta ${escapeH(sc.label || '')}.
+            ${sc.inside ? '<span class="badge bg-success-subtle text-success border border-success-subtle">Dentro do horário agora</span>'
+                        : `<span class="badge bg-secondary-subtle text-secondary border">Fora do horário agora</span> Próxima captação: <strong>${escapeH(sc.next || '')}</strong>.`}
+          </div>`;
+
+    // 4) O que a campanha procura
+    const f = d.filters || [];
+    h += `<div class="cl-section">O que a campanha procura</div>
+          <dl class="cl-filters mb-0">${f.map(x => `<dt>${escapeH(x.label)}</dt><dd>${escapeH(x.value)}</dd>`).join('')}</dl>`;
+
+    // 5) Leads captados
+    const leads = d.leads || [];
+    h += `<div class="cl-section">Últimos leads captados</div>`;
+    h += leads.length
+        ? `<ul class="cl-tl">${leads.map(l => `<li><i class="bi bi-person-check text-success"></i>
+                <span class="what">${escapeH(l.contact_name || 'Lead #' + (l.contact_id || ''))}${l.lead_email ? ` <span class="text-muted">· ${escapeH(l.lead_email)}</span>` : ''}</span>
+                <span class="when text-end">${escapeH(clFmtTime(l.created_at))}</span></li>`).join('')}</ul>`
+        : '<div class="small text-muted">Nenhum lead captado por esta campanha ainda.</div>';
+
+    // 6) Histórico (execuções iguais seguidas aparecem agrupadas)
+    const tl = d.timeline || [];
+    h += `<div class="cl-section">Histórico</div>`;
+    h += tl.length
+        ? `<ul class="cl-tl">${tl.map(i => {
+                const when = i.count > 1 ? `${clFmtTime(i.from)} – ${clFmtTime(i.to)}` : clFmtTime(i.to);
+                const times = i.count > 1 ? ` <span class="badge bg-light text-dark border">${i.count}x</span>` : '';
+                return `<li><i class="bi bi-${escapeH(i.icon)} text-${escapeH(i.tone)}"></i><span class="what">${escapeH(i.text)}${times}</span><span class="when text-end">${escapeH(when)}</span></li>`;
+            }).join('')}</ul>`
+        : '<div class="small text-muted">A campanha ainda não rodou nenhuma vez.</div>';
+
+    // 7) Registro técnico (para suporte)
+    const raw = d.log || [];
+    if (raw.length) {
+        h += `<details class="mt-3"><summary class="small text-muted">Detalhes técnicos (para o suporte)</summary>
+                <div class="mt-2" style="font-size:.72rem;">${raw.map(l => `<div class="border-bottom py-1"><span class="badge bg-light text-dark border">${escapeH(l.action)}</span> <span class="text-muted">${escapeH(l.created_at)}</span>${l.detail ? '<div style="word-break:break-all;">' + escapeH(l.detail) + '</div>' : ''}</div>`).join('')}</div>
+              </details>`;
+    }
+    return h;
 }
 function escapeH(s){ const d=document.createElement('div'); d.textContent=String(s??''); return d.innerHTML; }
 

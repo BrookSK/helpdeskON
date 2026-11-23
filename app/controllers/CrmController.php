@@ -1958,6 +1958,23 @@ class CrmController extends Controller
             $campaigns = null;
         }
 
+        // Situação de cada campanha em linguagem simples (coluna Status da tabela).
+        $apollo = new ApolloApi();
+        if (!empty($campaigns)) {
+            $ctx = $this->campaignContexts($db, array_column($campaigns, 'id'));
+            $now = time();
+            foreach ($campaigns as &$c) {
+                $cc = $ctx[(int) $c['id']] ?? [];
+                $c['diagnosis'] = ProspectingCampaignRules::diagnose($c, [
+                    'captured_today' => (int) $c['captured_today'],
+                    'last_run' => $cc['last_run'] ?? null,
+                    'credit_limit_today' => $cc['credit_limit_today'] ?? 0,
+                    'apollo_configured' => $apollo->isConfigured(),
+                ], $now);
+            }
+            unset($c);
+        }
+
         $boards = $this->boardModel->getAll();
         foreach ($boards as &$b) $b['columns'] = $this->boardModel->getColumns($b['id']);
         unset($b);
@@ -1965,7 +1982,6 @@ class CrmController extends Controller
         $sequences = [];
         try { $sequences = (new EmailSequence())->all(); } catch (\Throwable $e) {}
         $team = (new User())->getByRoles(['super_admin', 'comercial']);
-        $apollo = new ApolloApi();
 
         $this->view('crm/prospecting', [
             'user' => $user,
@@ -2241,7 +2257,11 @@ class CrmController extends Controller
             Logger::error('runCampaign manual', ['campaign' => $id, 'error' => $e->getMessage()]);
             $this->json(['error' => 'Erro ao executar: ' . $e->getMessage()], 500);
         }
-        $this->json(['success' => empty($result['error']), 'result' => $result]);
+        $this->json([
+            'success' => empty($result['error']),
+            'result' => $result,
+            'summary' => ProspectingCampaignRules::summarizeRun(is_array($result) ? $result : []),
+        ]);
     }
 
     /**
@@ -2320,16 +2340,121 @@ class CrmController extends Controller
         $this->json($res);
     }
 
-    /** Log recente de uma campanha (para acompanhar). GET crm/campaignLog/{id} */
+    /**
+     * Acompanhamento de uma campanha em linguagem simples: situação atual (está
+     * funcionando? o que fazer?), números de hoje, horário, filtros, leads
+     * captados e linha do tempo. O log cru segue em "log" (detalhes técnicos).
+     * GET crm/campaignLog/{id}
+     */
     public function campaignLog($id = null)
     {
         $this->requireRole(['super_admin', 'comercial']);
         if (!$id) $this->json(['error' => 'ID obrigatório'], 400);
-        $rows = Database::getInstance()->fetchAll(
-            "SELECT action, detail, credits, created_at FROM apollo_prospecting_log WHERE campaign_id = ? ORDER BY id DESC LIMIT 50",
+        $id = (int) $id;
+        $db = Database::getInstance();
+
+        $camp = $db->fetch("SELECT * FROM apollo_campaigns WHERE id = ?", [$id]);
+        if (!$camp) $this->json(['error' => 'Campanha não encontrada'], 404);
+
+        $rows = $db->fetchAll(
+            "SELECT l.action, l.detail, l.credits, l.created_at, wc.contact_name
+             FROM apollo_prospecting_log l
+             LEFT JOIN whatsapp_contacts wc ON l.contact_id = wc.id
+             WHERE l.campaign_id = ? ORDER BY l.id DESC LIMIT 300",
             [$id]
         );
-        $this->json(['success' => true, 'log' => $rows]);
+
+        $today = $db->fetch(
+            "SELECT
+                SUM(action = 'enrolled') AS captured,
+                SUM(CASE WHEN action IN ('reveal_email', 'reveal_phone') THEN credits ELSE 0 END) AS credits
+             FROM apollo_prospecting_log WHERE campaign_id = ? AND DATE(created_at) = CURDATE()",
+            [$id]
+        ) ?: [];
+        $runsToday = $db->fetchAll(
+            "SELECT detail FROM apollo_prospecting_log
+             WHERE campaign_id = ? AND action = 'done' AND DATE(created_at) = CURDATE()",
+            [$id]
+        );
+        $leads = $db->fetchAll(
+            "SELECT l.created_at, wc.id AS contact_id, wc.contact_name, wc.lead_email, wc.phone
+             FROM apollo_prospecting_log l
+             LEFT JOIN whatsapp_contacts wc ON l.contact_id = wc.id
+             WHERE l.campaign_id = ? AND l.action = 'enrolled'
+             ORDER BY l.id DESC LIMIT 20",
+            [$id]
+        );
+
+        $ctx = $this->campaignContexts($db, [$id])[$id] ?? [];
+        $now = time();
+        $captured = (int) ($today['captured'] ?? 0);
+        $sched = ProspectingCampaignRules::scheduleState($camp['days_of_week'] ?? '', $camp['window_start'] ?? null, $camp['window_end'] ?? null, $now);
+
+        $this->json([
+            'success' => true,
+            'campaign' => [
+                'id' => $id,
+                'name' => $camp['name'],
+                'is_active' => (int) $camp['is_active'],
+                'source' => ($camp['lead_source'] ?? 'apollo') === 'my_leads' ? 'my_leads' : 'apollo',
+            ],
+            'diagnosis' => ProspectingCampaignRules::diagnose($camp, [
+                'captured_today' => $captured,
+                'last_run' => $ctx['last_run'] ?? null,
+                'credit_limit_today' => $ctx['credit_limit_today'] ?? 0,
+                'apollo_configured' => (new ApolloApi())->isConfigured(),
+            ], $now),
+            'today' => array_merge(ProspectingCampaignRules::sumRuns(array_column($runsToday, 'detail')), [
+                'captured' => $captured,
+                'target' => (int) $camp['daily_target'],
+                'credits' => (int) ($today['credits'] ?? 0),
+            ]),
+            'schedule' => [
+                'label' => ProspectingCampaignRules::scheduleLabel($camp['days_of_week'] ?? '', $camp['window_start'] ?? null, $camp['window_end'] ?? null),
+                'inside' => $sched['inside'],
+                'next' => $sched['inside'] ? null : ProspectingCampaignRules::whenLabel($sched['next_ts'], $now),
+            ],
+            'last_run_ago' => !empty($ctx['last_run']) ? ProspectingCampaignRules::agoLabel($ctx['last_run']['created_at'], $now) : null,
+            'filters' => ProspectingCampaignRules::filtersSummary($camp),
+            'leads' => $leads,
+            'timeline' => ProspectingCampaignRules::timeline($rows),
+            'log' => array_slice($rows, 0, 50),
+        ]);
+    }
+
+    /**
+     * Última execução ('done') e bloqueios por crédito de hoje, por campanha.
+     * @return array<int,array{last_run:?array,credit_limit_today:int}>
+     */
+    private function campaignContexts($db, array $ids)
+    {
+        $ids = array_values(array_filter(array_map('intval', $ids)));
+        if (!$ids) return [];
+        $in = implode(',', array_fill(0, count($ids), '?'));
+        $out = [];
+        foreach ($ids as $i) $out[$i] = ['last_run' => null, 'credit_limit_today' => 0];
+        try {
+            $rows = $db->fetchAll(
+                "SELECT l.campaign_id, l.detail, l.created_at
+                 FROM apollo_prospecting_log l
+                 JOIN (SELECT campaign_id, MAX(id) AS mid FROM apollo_prospecting_log
+                       WHERE action = 'done' AND campaign_id IN ($in) GROUP BY campaign_id) x ON x.mid = l.id",
+                $ids
+            );
+            foreach ($rows as $r) {
+                $out[(int) $r['campaign_id']]['last_run'] = ['detail' => $r['detail'], 'created_at' => $r['created_at']];
+            }
+            $rows = $db->fetchAll(
+                "SELECT campaign_id, COUNT(*) AS t FROM apollo_prospecting_log
+                 WHERE action = 'credit_limit' AND DATE(created_at) = CURDATE() AND campaign_id IN ($in)
+                 GROUP BY campaign_id",
+                $ids
+            );
+            foreach ($rows as $r) $out[(int) $r['campaign_id']]['credit_limit_today'] = (int) $r['t'];
+        } catch (\Throwable $e) {
+            Logger::error('campaignContexts', ['error' => $e->getMessage()]);
+        }
+        return $out;
     }
 
     /**
