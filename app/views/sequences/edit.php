@@ -101,25 +101,59 @@
         </div>
     </div>
 
+    <?php if ($sequence && !empty($_GET['copiada'])): ?>
+    <div class="alert alert-success py-2 px-3 small mb-2 d-flex align-items-start gap-2" id="seq-copy-notice">
+        <i class="bi bi-files mt-1"></i>
+        <div>Cópia criada e já salva, com o mesmo fluxo e as mesmas configurações. Os leads da sequência original não vieram junto. Mude o que precisar e clique em <strong>Salvar</strong>.</div>
+    </div>
+    <?php endif; ?>
+
     <!-- Canvas em largura total -->
-    <div class="card position-relative">
-        <!-- Controles de zoom -->
-        <div class="seq-zoom-ctrl">
-            <button type="button" class="btn btn-sm btn-light border" onclick="zoomStep(0.1)" title="Aproximar"><i class="bi bi-zoom-in"></i></button>
-            <button type="button" class="btn btn-sm btn-light border" onclick="zoomReset()" title="Redefinir zoom"><span id="zoom-label">100%</span></button>
-            <button type="button" class="btn btn-sm btn-light border" onclick="zoomStep(-0.1)" title="Afastar"><i class="bi bi-zoom-out"></i></button>
+    <div class="card">
+        <!-- Barra de seleção: vários blocos de uma vez -->
+        <div class="seq-sel-bar" id="seq-sel-bar">
+            <span class="seq-sel-count" id="sel-count">Nenhum bloco selecionado</span>
+            <div class="d-flex flex-wrap gap-1">
+                <button type="button" class="btn btn-sm btn-light border" id="sel-all" onclick="selectAllNodes()" title="Selecionar todos os blocos (Ctrl+A)"><i class="bi bi-check2-all"></i> Todos</button>
+                <button type="button" class="btn btn-sm btn-light border" id="sel-dup" onclick="duplicateSelection()" title="Duplicar os selecionados (Ctrl+D)" disabled><i class="bi bi-files"></i> Duplicar</button>
+                <button type="button" class="btn btn-sm btn-light border" id="sel-copy" onclick="copySelection()" title="Copiar os selecionados (Ctrl+C). Dá para colar nesta ou em outra sequência." disabled><i class="bi bi-clipboard"></i> Copiar</button>
+                <button type="button" class="btn btn-sm btn-light border" id="sel-paste" onclick="pasteClipboard()" title="Colar os blocos copiados (Ctrl+V)" disabled><i class="bi bi-clipboard-check"></i> Colar</button>
+                <button type="button" class="btn btn-sm btn-light border text-danger" id="sel-del" onclick="deleteSelection()" title="Excluir os selecionados (Delete)" disabled><i class="bi bi-trash"></i> Excluir</button>
+                <button type="button" class="btn btn-sm btn-light border" id="sel-clear" onclick="clearSelection()" title="Limpar a seleção (Esc)" disabled><i class="bi bi-x-lg"></i></button>
+            </div>
+            <span class="seq-sel-tip"><i class="bi bi-mouse"></i> Arraste no fundo do quadro para selecionar vários (ou Shift+clique). Arraste um selecionado para mover todos juntos. Setas movem um pouco.</span>
         </div>
-        <div class="card-body p-0" id="canvas-wrap">
-            <div id="canvas-zoom" style="transform-origin:0 0;width:3000px;height:3000px;position:relative;">
-                <svg id="edges" style="position:absolute;top:0;left:0;width:3000px;height:3000px;pointer-events:none;"></svg>
-                <div id="canvas" style="position:relative;width:3000px;height:3000px;"></div>
+        <div class="position-relative">
+            <!-- Controles de zoom -->
+            <div class="seq-zoom-ctrl">
+                <button type="button" class="btn btn-sm btn-light border" onclick="zoomStep(0.1)" title="Aproximar"><i class="bi bi-zoom-in"></i></button>
+                <button type="button" class="btn btn-sm btn-light border" onclick="zoomReset()" title="Redefinir zoom"><span id="zoom-label">100%</span></button>
+                <button type="button" class="btn btn-sm btn-light border" onclick="zoomStep(-0.1)" title="Afastar"><i class="bi bi-zoom-out"></i></button>
+            </div>
+            <div class="card-body p-0" id="canvas-wrap">
+                <div id="canvas-zoom" style="transform-origin:0 0;width:3000px;height:3000px;position:relative;">
+                    <svg id="edges" style="position:absolute;top:0;left:0;width:3000px;height:3000px;pointer-events:none;"></svg>
+                    <div id="canvas" style="position:relative;width:3000px;height:3000px;"></div>
+                </div>
             </div>
         </div>
     </div>
+    <div id="sel-toast" role="status" aria-live="polite"></div>
     <style>
     .seq-zoom-ctrl { position:absolute; top:8px; right:8px; z-index:50; display:flex; flex-direction:column; gap:4px; }
     .seq-zoom-ctrl .btn { width:38px; padding:4px 0; }
     #zoom-label { font-size:0.7rem; }
+    .seq-sel-bar { display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; padding:6px 10px; border-bottom:1px solid #eee; background:#fff; border-radius:var(--bs-card-inner-border-radius, 6px) var(--bs-card-inner-border-radius, 6px) 0 0; }
+    .seq-sel-bar .btn { font-size:0.74rem; padding:2px 8px; }
+    .seq-sel-count { font-size:0.76rem; font-weight:600; color:#667; min-width:150px; }
+    .seq-sel-count.on { color:var(--primary); }
+    .seq-sel-tip { font-size:0.68rem; color:#8a8f98; flex:1 1 260px; }
+    #sel-toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#1a1a2e; color:#fff; padding:8px 16px;
+        border-radius:20px; font-size:0.8rem; z-index:2000; box-shadow:0 4px 12px rgba(0,0,0,.3); display:none; max-width:calc(100vw - 24px); text-align:center; }
+    @media (max-width: 575.98px) {
+        .seq-sel-count { min-width:0; width:100%; }
+        .seq-sel-tip { display:none; }
+    }
     </style>
 
     <!-- Propriedades: drawer flutuante (não ocupa espaço do canvas) -->

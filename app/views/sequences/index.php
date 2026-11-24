@@ -87,7 +87,8 @@
                     <div class="d-flex gap-2 flex-wrap">
                         <button class="btn btn-sm btn-outline-success" onclick="openProgress(<?= (int)$s['id'] ?>, <?= htmlspecialchars(json_encode($s['name']), ENT_QUOTES) ?>)" title="Acompanhar o estado de cada lead nesta sequência"><i class="bi bi-activity"></i> Acompanhar estado</button>
                         <a href="<?= baseUrl('sequences/edit/' . $s['id']) ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil"></i> Editar</a>
-                        <button class="btn btn-sm btn-outline-danger" onclick="delSeq(<?= $s['id'] ?>)"><i class="bi bi-trash"></i></button>
+                        <button class="btn btn-sm btn-outline-secondary seq-dup-btn" onclick="dupSeq(<?= (int)$s['id'] ?>, this)" title="Criar uma cópia com o mesmo fluxo e as mesmas configurações (sem os leads)"><i class="bi bi-files"></i> Duplicar</button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="delSeq(<?= $s['id'] ?>)" title="Excluir"><i class="bi bi-trash"></i></button>
                     </div>
                 </div>
             </div>
@@ -210,6 +211,20 @@ function switchSeqTab(tab) {
     document.getElementById('btn-new-seq').classList.toggle('d-none', tab !== 'sequences');
     document.getElementById('btn-new-tpl').classList.toggle('d-none', tab !== 'templates');
     if (tab === 'templates') loadTemplates();
+}
+
+// Duplica a sequência inteira (fluxo + configurações, sem os leads) e abre a cópia no editor.
+function dupSeq(id, btn) {
+    const orig = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Duplicando...';
+    fetch(BASE + 'sequences/duplicate/' + id, { method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'} })
+        .then(r => r.json())
+        .then(d => {
+            if (d.error || !d.id) { btn.disabled = false; btn.innerHTML = orig; alert(d.error || 'Não foi possível duplicar.'); return; }
+            location.href = BASE + 'sequences/edit/' + d.id + '?copiada=1';
+        })
+        .catch(() => { btn.disabled = false; btn.innerHTML = orig; alert('Não foi possível duplicar.'); });
 }
 
 function delSeq(id) {

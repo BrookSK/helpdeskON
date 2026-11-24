@@ -44,6 +44,23 @@ class EmailSequence
         return $this->db->delete('email_sequences', 'id = ?', [$id]);
     }
 
+    /**
+     * Duplica a sequência inteira (fluxo e configurações) com o nome "X (cópia)".
+     * Leads inscritos e histórico ficam só na original.
+     *
+     * @return int|null id da cópia (null se a original não existir)
+     */
+    public function duplicate($id, $userId = null)
+    {
+        $original = $this->findById($id);
+        if (!$original) return null;
+
+        $names = array_column($this->db->fetchAll("SELECT name FROM email_sequences"), 'name');
+        $name = SequenceCopyRules::copyName((string) $original['name'], $names);
+
+        return (int) $this->create(SequenceCopyRules::copyRow($original, $name, $userId ? (int) $userId : null));
+    }
+
     public function participants($sequenceId)
     {
         return $this->db->fetchAll(

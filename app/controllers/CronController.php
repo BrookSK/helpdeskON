@@ -497,6 +497,9 @@ class CronController extends Controller
                 $cursor = $hasCursor ? (int) ($acc['last_imap_uid'] ?? 0) : 0;
                 $msgs = $reader->fetchRepliesSince($cursor, 80);
                 $maxUid = $cursor;
+                // E-mails de remetentes fora das sequências ativas: se o remetente
+                // for um lead, vão só para o histórico do card (ver abaixo).
+                $outsideSequences = [];
 
                 foreach ($msgs as $m) {
                     $uid = (int) ($m['uid'] ?? 0);
@@ -514,6 +517,7 @@ class CronController extends Controller
                         // Resposta REAL casada por token. Puxa o snippet do corpo
                         // e registra (dedupe por UID dentro do service).
                         $m['snippet'] = $reader->fetchSnippet($uid, 600);
+                        $m['reply_text'] = $reader->fetchReplyText($uid);
                         if ($emailSvc->registerMatchedReply($m, $verdict['token'], (int) $acc['id'])) {
                             $processed++;
                         }
@@ -536,9 +540,38 @@ class CronController extends Controller
                         $lastSentTs = $lastSent && $lastSent['sent_at'] ? strtotime($lastSent['sent_at']) : 0;
                         $msgTs = !empty($m['date']) ? strtotime($m['date']) : 0;
                         if ($lastSentTs > 0 && $msgTs >= $lastSentTs) {
+                            // Guarda o texto no histórico do card antes de tratar a resposta.
+                            $m['reply_text'] = $reader->fetchReplyText($uid);
+                            $emailSvc->recordLeadEmail($m, $contactId, (int) $acc['id']);
                             $emailSvc->registerReply($contactId, $m['subject'] ?? null);
                             $processed++;
                         }
+                    } elseif ($fromEmail !== '') {
+                        $outsideSequences[$uid] = $m;
+                    }
+                }
+
+                // Lead que não está em sequência ativa escreveu (ex.: respondeu a
+                // uma resposta enviada pela Caixa de entrada): grava só no histórico
+                // do card. Fica fora da triagem porque esse lead não tem sequência rodando.
+                if ($outsideSequences) {
+                    $emails = array_values(array_unique(array_map(fn($x) => strtolower(trim((string) $x['from_email'])), $outsideSequences)));
+                    $leadByEmail = [];
+                    foreach (array_chunk($emails, 200) as $chunk) {
+                        $ph = implode(',', array_fill(0, count($chunk), '?'));
+                        foreach ($db->fetchAll(
+                            "SELECT id, LOWER(lead_email) AS email FROM whatsapp_contacts
+                             WHERE lead_email IN ($ph) AND COALESCE(is_group,0) = 0 ORDER BY id ASC",
+                            $chunk
+                        ) as $r) {
+                            $leadByEmail[$r['email']] = (int) $r['id']; // cadastro mais recente vence
+                        }
+                    }
+                    foreach ($outsideSequences as $uid => $m) {
+                        $cid = $leadByEmail[strtolower(trim((string) $m['from_email']))] ?? null;
+                        if (!$cid) continue; // remetente não é lead: não guarda nada
+                        $m['reply_text'] = $reader->fetchReplyText($uid);
+                        $emailSvc->recordLeadEmail($m, $cid, (int) $acc['id']);
                     }
                 }
 

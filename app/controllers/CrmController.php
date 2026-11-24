@@ -1478,7 +1478,31 @@ class CrmController extends Controller
         $profile = LeadOriginRules::profile($contactData, $apollo, $card['briefing_notes'] ?? ($briefing['notes'] ?? null));
         $origin = LeadOriginRules::originBadge($card['origin'] ?? null, $card['origin_detail'] ?? null);
 
-        $this->json(['card' => $card, 'activities' => $activities, 'briefing' => $briefing ?: null, 'profile' => $profile, 'origin' => $origin]);
+        // Contagem para a aba "E-mails" (o conteúdo carrega só ao abrir a aba).
+        $emailSummary = null;
+        if (!empty($card['contact_id'])) {
+            try { $emailSummary = (new LeadEmailHistory())->forContact((int) $card['contact_id'], false)['summary']; }
+            catch (\Throwable $e) { $emailSummary = null; }
+        }
+
+        $this->json(['card' => $card, 'activities' => $activities, 'briefing' => $briefing ?: null, 'profile' => $profile, 'origin' => $origin, 'email_summary' => $emailSummary]);
+    }
+
+    /**
+     * API: e-mails trocados com o lead do card (enviados, respostas do lead e
+     * nossas respostas), agrupados por conversa.
+     * GET crm/cardEmails/{cardId}
+     */
+    public function cardEmails($cardId = null)
+    {
+        $this->requireRole(['super_admin', 'attendant', 'whatsapp_agent', 'comercial']);
+        if (!$cardId) $this->json(['error' => 'ID obrigatório'], 400);
+        $card = $this->boardModel->findCard($cardId);
+        if (!$card) $this->json(['error' => 'Card não encontrado'], 404);
+        if (empty($card['contact_id'])) {
+            $this->json(['linked' => false] + EmailThreadRules::conversations([]));
+        }
+        $this->json(['linked' => true] + (new LeadEmailHistory())->forContact((int) $card['contact_id'], true));
     }
 
     /**

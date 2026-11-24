@@ -9,6 +9,7 @@
  *   sequences/edit/{id}          -> editor visual (novo se id ausente)
  *   sequences/save               -> POST (cria/atualiza definição + grafo)
  *   sequences/delete/{id}        -> POST
+ *   sequences/duplicate/{id}     -> POST (copia fluxo + configurações, sem os leads)
  *   sequences/detail/{id}        -> JSON (participantes/stats)
  *   sequences/progress/{id}      -> JSON (acompanhamento legível do estado de cada lead)
  *   sequences/addLeads           -> POST (inscreve leads por contact_ids[])
@@ -314,6 +315,20 @@ class SequencesController extends Controller
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
         $this->model->delete($id);
         $this->json(['success' => true]);
+    }
+
+    /**
+     * Duplica a sequência inteira (fluxo + configurações). Os leads não vão junto.
+     * POST sequences/duplicate/{id}
+     */
+    public function duplicate($id = null)
+    {
+        $this->requireRole($this->roles);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+        $newId = $this->model->duplicate((int) $id, $this->currentUser()['id'] ?? null);
+        if (!$newId) $this->json(['error' => 'Sequência não encontrada'], 404);
+        $copy = $this->model->findById($newId);
+        $this->json(['success' => true, 'id' => $newId, 'name' => $copy['name'] ?? '']);
     }
 
     public function detail($id = null)

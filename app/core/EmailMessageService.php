@@ -407,6 +407,8 @@ class EmailMessageService
                 'recipient_email' => $msg['from_email'] ?? null,
                 'subject' => $this->clip($msg['subject'] ?? null, 300),
                 'reply_snippet' => $snippet !== '' ? $snippet : null,
+                // Texto completo da resposta (aba "E-mails" do card no CRM).
+                'body' => trim((string) ($msg['reply_text'] ?? '')) !== '' ? $msg['reply_text'] : null,
                 'imap_uid' => $uid ?: null,
                 'status' => 'received',
                 'received_at' => $receivedAt,
@@ -434,6 +436,52 @@ class EmailMessageService
         (new SequenceEngine())->routeReplyToTriage($contactId, 'replied');
 
         return true;
+    }
+
+    /**
+     * Guarda no histórico do lead um e-mail que ELE mandou e que não responde a
+     * um envio rastreado (ex.: resposta a uma resposta enviada pela Caixa de
+     * entrada). É só registro para a aba "E-mails" do card no CRM: não pontua,
+     * não mexe em sequência e não grava reply_snippet, que é o texto que a
+     * triagem por IA lê.
+     *
+     * @param array $msg mensagem do IMAP (uid, from_email, subject, date, message_id, in_reply_to, references, reply_text)
+     * @return bool true se gravou; false se já existia ou falhou
+     */
+    public function recordLeadEmail(array $msg, int $contactId, $accountId = null)
+    {
+        $uid = (int) ($msg['uid'] ?? 0);
+        try {
+            if ($uid > 0 && $accountId) {
+                $dup = $this->db->fetch(
+                    "SELECT id FROM email_messages WHERE email_account_id = ? AND imap_uid = ? AND direction='inbound' LIMIT 1",
+                    [$accountId, $uid]
+                );
+                if ($dup) return false;
+            }
+            $text = trim((string) ($msg['reply_text'] ?? ''));
+            $this->db->insert('email_messages', [
+                'contact_id' => $contactId,
+                'email_account_id' => $accountId,
+                'direction' => 'inbound',
+                'origin' => 'manual',
+                'message_id' => $this->clip($msg['message_id'] ?? null, 255),
+                'in_reply_to' => $this->clip($msg['in_reply_to'] ?? null, 255),
+                'references_header' => $msg['references'] ?? null,
+                'thread_key' => $this->normalize($msg['from_email'] ?? ''),
+                'recipient_email' => $msg['from_email'] ?? null,
+                'subject' => $this->clip($msg['subject'] ?? null, 300),
+                'body' => $text !== '' ? $text : null,
+                'imap_uid' => $uid ?: null,
+                'status' => 'received',
+                'received_at' => !empty($msg['date']) ? date('Y-m-d H:i:s', strtotime($msg['date'])) : date('Y-m-d H:i:s'),
+            ]);
+            return true;
+        } catch (\Throwable $e) {
+            // Schema sem as colunas da migration 140: não quebra a detecção.
+            Logger::error('recordLeadEmail', ['error' => $e->getMessage(), 'contact' => $contactId]);
+            return false;
+        }
     }
 
     /** Corta uma string para caber numa coluna, preservando null. */

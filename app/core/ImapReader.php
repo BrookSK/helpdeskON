@@ -233,6 +233,25 @@ class ImapReader
     }
 
     /**
+     * Texto completo que o remetente escreveu (com as quebras de linha), sem a
+     * citação do e-mail anterior. Guardado no histórico de e-mails do lead.
+     * Não marca como lida.
+     */
+    public function fetchReplyText($uid, $maxLen = EmailThreadRules::REPLY_MAX)
+    {
+        if (!$this->connection) return '';
+        try {
+            $structure = @imap_fetchstructure($this->connection, $uid, FT_UID);
+            $tmp = ['body_html' => '', 'body_text' => '', 'attachments' => []];
+            if ($structure) $this->extractParts($structure, $uid, $tmp);
+            $text = trim($tmp['body_text']) !== '' ? $tmp['body_text'] : EmailThreadRules::htmlToText((string) $tmp['body_html']);
+            return EmailThreadRules::replyText((string) $text, $maxLen);
+        } catch (\Throwable $e) {
+            return '';
+        }
+    }
+
+    /**
      * Parseia cabeçalhos crus de e-mail (imap_fetchheader) num mapa
      * chave-minúscula → valor, tratando dobra de linha (folding).
      */
@@ -477,7 +496,10 @@ class ImapReader
 
     private function fetchPart($uid, $partNumber)
     {
-        return imap_fetchbody($this->connection, $uid, $partNumber, FT_UID);
+        // FT_PEEK: ler o corpo não marca como lido. A leitura automática das
+        // respostas (cron) não pode "apagar" o não lido da caixa do usuário;
+        // abrir o e-mail na Caixa de entrada marca como lido em readMessage().
+        return imap_fetchbody($this->connection, $uid, $partNumber, FT_UID | FT_PEEK);
     }
 
     private function decodePart($data, $encoding)

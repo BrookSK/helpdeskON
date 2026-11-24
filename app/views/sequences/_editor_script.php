@@ -1,5 +1,7 @@
 <style>
-#canvas-wrap { position:relative; overflow:auto; height:calc(100vh - 220px); min-height:420px; background:
+#sel-marquee { position:absolute; border:1px dashed var(--primary); background:rgba(0,191,166,.08); pointer-events:none; z-index:20; }
+#canvas.selecting, #canvas.selecting .seq-node { cursor:crosshair; }
+#canvas-wrap { position:relative; overflow:auto; height:calc(100vh - 260px); min-height:420px; background:
     linear-gradient(90deg, rgba(0,0,0,.03) 1px, transparent 1px) 0 0/24px 24px,
     linear-gradient(rgba(0,0,0,.03) 1px, transparent 1px) 0 0/24px 24px, #f8f9fb; }
 /* Drawer flutuante de Propriedades */
@@ -54,7 +56,8 @@ const SEQUENCES = <?= json_encode(array_map(fn($s) => ['id'=>$s['id'],'name'=>$s
 let EMAIL_TEMPLATES = [], WA_TEMPLATES = [], LINKEDIN_TEMPLATES = [];
 
 let nodes = [];       // {id, type, x, y, data, next, nextYes, nextNo, _el}
-let selectedId = null;
+let selectedId = null;          // bloco aberto no painel de Propriedades
+const selection = new Set();    // blocos selecionados (um ou vários)
 let linkFrom = null;
 
 <?php if ($sequence && $sequence['graph']): ?>
@@ -100,7 +103,11 @@ function applyZoom() {
 }
 function zoomStep(delta) { ZOOM = Math.min(1.6, Math.max(0.4, Math.round((ZOOM + delta) * 10) / 10)); applyZoom(); }
 function zoomReset() { ZOOM = 1; applyZoom(); }
-function uid() { return 'n' + Math.random().toString(36).slice(2, 8); }
+function uid() {
+    let id;
+    do { id = 'n' + Math.random().toString(36).slice(2, 8); } while (nodes.some(n => n.id === id));
+    return id;
+}
 
 // ================= Render (uma vez; depois updates pontuais) =================
 function buildAll() {
@@ -154,12 +161,17 @@ function buildNodeEl(n) {
     });
     // Corpo: drag OU finalizar ligação OU selecionar
     el.addEventListener('mousedown', (e)=>{
+        if (e.button !== 0) return;
         if (e.target.classList.contains('port') || e.target.classList.contains('x')) return;
         if (linkFrom) { finishLink(n.id); return; }
+        // Shift/Ctrl+clique: põe ou tira o bloco da seleção, sem abrir Propriedades
+        if (e.shiftKey || e.ctrlKey || e.metaKey) { e.preventDefault(); toggleInSelection(n.id); return; }
+        // Bloco que já faz parte de uma seleção múltipla: arrasta o grupo todo
+        if (selection.has(n.id) && selection.size > 1) { startDrag(e, n); return; }
         selectNode(n.id);
         startDrag(e, n);
     });
-    if (n.id === selectedId) el.classList.add('sel');
+    if (selection.has(n.id)) el.classList.add('sel');
     return el;
 }
 
@@ -224,28 +236,198 @@ function drawEdges() {
 }
 
 // ================= Drag fluido (sem recriar DOM) =================
+// Arrasta o bloco; se ele fizer parte de uma seleção múltipla, move o grupo
+// inteiro mantendo a distância entre os blocos.
 function startDrag(e, n) {
-    const el = n._el;
-    const startX = e.clientX, startY = e.clientY, ox = n.x, oy = n.y;
-    el.style.cursor = 'grabbing'; el.style.zIndex = 10;
+    const group = (selection.has(n.id) && selection.size > 1) ? nodes.filter(x => selection.has(x.id)) : [n];
+    const origin = group.map(g => ({ g, x: g.x, y: g.y }));
+    const minX = Math.min(...origin.map(o => o.x)), minY = Math.min(...origin.map(o => o.y));
+    const startX = e.clientX, startY = e.clientY;
+    let moved = false;
+    group.forEach(g => { if (g._el) { g._el.style.cursor = 'grabbing'; g._el.style.zIndex = 10; } });
     let raf = null;
     function move(ev) {
-        n.x = Math.max(0, ox + (ev.clientX - startX) / ZOOM);
-        n.y = Math.max(0, oy + (ev.clientY - startY) / ZOOM);
+        // Não deixa nenhum bloco do grupo sair pela esquerda/topo do quadro
+        const dx = Math.max(-minX, (ev.clientX - startX) / ZOOM);
+        const dy = Math.max(-minY, (ev.clientY - startY) / ZOOM);
+        if (!moved && Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) < 3) return;
+        moved = true;
+        origin.forEach(o => { o.g.x = o.x + dx; o.g.y = o.y + dy; });
         if (!raf) raf = requestAnimationFrame(() => {
             raf = null;
-            el.style.transform = `translate(${n.x}px, ${n.y}px)`;
+            group.forEach(g => { if (g._el) g._el.style.transform = `translate(${g.x}px, ${g.y}px)`; });
             drawEdges();
         });
     }
     function up() {
         document.removeEventListener('mousemove', move);
         document.removeEventListener('mouseup', up);
-        el.style.cursor = 'grab'; el.style.zIndex = '';
+        group.forEach(g => { if (g._el) { g._el.style.cursor = 'grab'; g._el.style.zIndex = ''; } });
+        // Clique simples (sem arrastar) num bloco do grupo: abre só esse bloco
+        if (!moved && group.length > 1) selectNode(n.id);
     }
     document.addEventListener('mousemove', move);
     document.addEventListener('mouseup', up);
     e.preventDefault();
+}
+
+// ================= Seleção por área (arrastar no fundo do quadro) =================
+function canvasPoint(ev) {
+    const r = canvas().getBoundingClientRect();
+    return { x: (ev.clientX - r.left) / ZOOM, y: (ev.clientY - r.top) / ZOOM };
+}
+function nodesInRect(x1, y1, x2, y2) {
+    const L = Math.min(x1, x2), R = Math.max(x1, x2), T = Math.min(y1, y2), B = Math.max(y1, y2);
+    return nodes.filter(n => {
+        const w = 190, h = (n._el && n._el.offsetHeight) || 70;
+        return n.x < R && n.x + w > L && n.y < B && n.y + h > T;
+    }).map(n => n.id);
+}
+function onCanvasMouseDown(e) {
+    if (e.button !== 0 || e.target !== canvas()) return;   // só no fundo vazio
+    if (linkFrom) { cancelLink(); return; }
+    e.preventDefault();
+    const additive = e.shiftKey || e.ctrlKey || e.metaKey;
+    const base = additive ? new Set(selection) : new Set();
+    const start = canvasPoint(e);
+    let box = null, moved = false;
+    function move(ev) {
+        const p = canvasPoint(ev);
+        if (!moved && Math.abs(p.x - start.x) + Math.abs(p.y - start.y) < 4) return;
+        if (!moved) {
+            moved = true;
+            hideInspector();
+            box = document.createElement('div'); box.id = 'sel-marquee';
+            canvas().appendChild(box); canvas().classList.add('selecting');
+        }
+        box.style.left = Math.min(start.x, p.x) + 'px'; box.style.top = Math.min(start.y, p.y) + 'px';
+        box.style.width = Math.abs(p.x - start.x) + 'px'; box.style.height = Math.abs(p.y - start.y) + 'px';
+        const ids = new Set(base);
+        nodesInRect(start.x, start.y, p.x, p.y).forEach(id => ids.add(id));
+        setSelection(ids);
+    }
+    function up() {
+        document.removeEventListener('mousemove', move);
+        document.removeEventListener('mouseup', up);
+        if (box) box.remove();
+        canvas().classList.remove('selecting');
+        if (!moved && !additive) clearSelection();   // clique no fundo: limpa a seleção
+    }
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+}
+
+// ================= Copiar / colar / duplicar =================
+// A área de transferência fica no navegador (localStorage): dá para copiar
+// blocos de uma sequência e colar em outra.
+const CLIP_KEY = 'helpdeskon.seqClipboard.v1';
+const LINK_PORTS = ['next', 'nextYes', 'nextNo', 'nextReply'];
+let pasteRound = 0;
+
+/**
+ * Cópia independente dos blocos, com ids novos. Ligações entre blocos copiados
+ * são refeitas entre as cópias; ligações para blocos que ficaram de fora caem
+ * (a cópia não "puxa" o fluxo original).
+ */
+function cloneNodes(list, dx, dy, takenIds) {
+    const used = new Set(takenIds || nodes.map(n => n.id));
+    const map = {};
+    list.forEach(n => {
+        let id;
+        do { id = 'n' + Math.random().toString(36).slice(2, 8); } while (used.has(id));
+        used.add(id); map[n.id] = id;
+    });
+    return list.map(n => {
+        const c = { id: map[n.id], type: n.type, x: Math.max(0, n.x + dx), y: Math.max(0, n.y + dy),
+                    data: JSON.parse(JSON.stringify(n.data || {})) };
+        LINK_PORTS.forEach(p => { if (n[p] && map[n[p]]) c[p] = map[n[p]]; });
+        return c;
+    });
+}
+function plainNode(n) {
+    const o = { id: n.id, type: n.type, x: n.x, y: n.y, data: JSON.parse(JSON.stringify(n.data || {})) };
+    LINK_PORTS.forEach(p => { if (n[p]) o[p] = n[p]; });
+    return o;
+}
+function selectedNodes() { return nodes.filter(n => selection.has(n.id)); }
+function readClipboard() {
+    try { const c = JSON.parse(localStorage.getItem(CLIP_KEY) || 'null'); return (c && Array.isArray(c.nodes) && c.nodes.length) ? c : null; }
+    catch (e) { return null; }
+}
+function blocksLabel(k) { return k === 1 ? '1 bloco' : k + ' blocos'; }
+
+function insertNodes(list) {
+    list.forEach(c => {
+        // Bloco "Conexão de sequência" colado na própria sequência de destino não pode apontar para ela mesma.
+        if (c.type === 'connect' && SEQ_ID && String((c.data || {}).sequence_id) === String(SEQ_ID)) c.data.sequence_id = '';
+        nodes.push(c);
+        c._el = buildNodeEl(c);
+        canvas().appendChild(c._el);
+    });
+    drawEdges();
+    hideInspector();
+    setSelection(list.map(c => c.id));
+}
+function duplicateSelection() {
+    const src = selectedNodes();
+    if (!src.length) return;
+    const copies = cloneNodes(src, 40, 40);
+    insertNodes(copies);
+    showSelToast(blocksLabel(copies.length) + ' duplicado' + (copies.length === 1 ? '' : 's') + '. Arraste para posicionar.');
+}
+function copySelection(cut) {
+    const src = selectedNodes();
+    if (!src.length) return;
+    try {
+        localStorage.setItem(CLIP_KEY, JSON.stringify({ seq: SEQ_ID, cut: !!cut, at: Date.now(), nodes: src.map(plainNode) }));
+    } catch (e) { alert('Não foi possível copiar (armazenamento do navegador cheio ou bloqueado).'); return; }
+    pasteRound = cut ? 0 : 1;
+    updateSelBar();
+    showSelToast(blocksLabel(src.length) + (cut ? ' recortado' : ' copiado') + (src.length === 1 ? '' : 's') + '. Cole com Ctrl+V aqui ou em outra sequência.');
+}
+function pasteClipboard() {
+    const clip = readClipboard();
+    if (!clip) { showSelToast('Nada copiado ainda. Selecione blocos e use Copiar (Ctrl+C).'); return; }
+    let dx, dy;
+    if (clip.seq === SEQ_ID) {
+        // Mesma sequência: cada colagem desloca um pouco para não ficar por cima
+        // (recortar + colar volta ao mesmo lugar na primeira colagem).
+        if (pasteRound === 0 && !clip.cut) pasteRound = 1;
+        dx = dy = 40 * pasteRound;
+        pasteRound++;
+    } else {
+        // Outra sequência: cola no canto visível do quadro
+        const wrap = document.getElementById('canvas-wrap');
+        const minX = Math.min(...clip.nodes.map(n => n.x)), minY = Math.min(...clip.nodes.map(n => n.y));
+        dx = (wrap ? wrap.scrollLeft / ZOOM : 0) + 60 - minX;
+        dy = (wrap ? wrap.scrollTop / ZOOM : 0) + 60 - minY;
+    }
+    const copies = cloneNodes(clip.nodes, dx, dy);
+    insertNodes(copies);
+    showSelToast(blocksLabel(copies.length) + ' colado' + (copies.length === 1 ? '' : 's') + '.');
+}
+function deleteSelection(skipConfirm) {
+    const ids = Array.from(selection);
+    if (!ids.length) return;
+    if (ids.length > 1 && !skipConfirm && !confirm('Excluir ' + ids.length + ' blocos selecionados?')) return;
+    ids.forEach(id => delNode(id));
+    clearSelection();
+}
+function nudgeSelection(dx, dy) {
+    const list = selectedNodes();
+    if (!list.length) return;
+    const minX = Math.min(...list.map(n => n.x)), minY = Math.min(...list.map(n => n.y));
+    dx = Math.max(-minX, dx); dy = Math.max(-minY, dy);
+    list.forEach(n => { n.x += dx; n.y += dy; if (n._el) n._el.style.transform = `translate(${n.x}px, ${n.y}px)`; });
+    drawEdges();
+}
+let selToastTimer = null;
+function showSelToast(msg) {
+    const t = document.getElementById('sel-toast');
+    if (!t) return;
+    t.textContent = msg; t.style.display = 'block';
+    clearTimeout(selToastTimer);
+    selToastTimer = setTimeout(() => { t.style.display = 'none'; }, 3200);
 }
 
 // ================= Adicionar / remover =================
@@ -283,23 +465,55 @@ function delNode(id) {
     if (n && n._el) n._el.remove();
     nodes = nodes.filter(x=>x.id!==id);
     nodes.forEach(x=>{ if(x.next===id)delete x.next; if(x.nextYes===id)delete x.nextYes; if(x.nextNo===id)delete x.nextNo; if(x.nextReply===id)delete x.nextReply; });
+    if (selection.delete(id)) updateSelBar();
     if (selectedId===id) { selectedId=null; renderInspector(); }
     drawEdges();
 }
 
 // ================= Seleção =================
+// Clique num bloco: seleciona só ele e abre Propriedades.
 function selectNode(id) {
-    if (selectedId) { const p = nodes.find(x=>x.id===selectedId); if (p && p._el) p._el.classList.remove('sel'); }
+    setSelection([id]);
     selectedId = id;
-    const n = nodes.find(x=>x.id===id); if (n && n._el) n._el.classList.add('sel');
     renderInspector();
     openInspector();
 }
+// Aplica a seleção (um ou vários blocos) e atualiza o destaque e a barra.
+function setSelection(ids) {
+    selection.clear();
+    Array.from(ids).forEach(id => { if (nodes.some(n => n.id === id)) selection.add(id); });
+    nodes.forEach(n => { if (n._el) n._el.classList.toggle('sel', selection.has(n.id)); });
+    updateSelBar();
+}
+function toggleInSelection(id) {
+    const ids = new Set(selection);
+    if (ids.has(id)) ids.delete(id); else ids.add(id);
+    hideInspector();
+    setSelection(ids);
+}
+function selectAllNodes() { hideInspector(); setSelection(nodes.map(n => n.id)); }
+function clearSelection() { hideInspector(); setSelection([]); }
+function updateSelBar() {
+    const k = selection.size;
+    const cnt = document.getElementById('sel-count');
+    if (cnt) {
+        cnt.textContent = k === 0 ? 'Nenhum bloco selecionado' : (k === 1 ? '1 bloco selecionado' : k + ' blocos selecionados');
+        cnt.classList.toggle('on', k > 0);
+    }
+    ['sel-dup', 'sel-copy', 'sel-del', 'sel-clear'].forEach(id => { const b = document.getElementById(id); if (b) b.disabled = k === 0; });
+    const paste = document.getElementById('sel-paste');
+    if (paste) paste.disabled = !readClipboard();
+}
 function openInspector() { document.getElementById('inspector-drawer').classList.add('open'); }
-function closeInspector() {
+// Fecha o painel de Propriedades sem mexer na seleção.
+function hideInspector() {
     document.getElementById('inspector-drawer').classList.remove('open');
-    if (selectedId) { const p = nodes.find(x=>x.id===selectedId); if (p && p._el) p._el.classList.remove('sel'); }
     selectedId = null;
+}
+// Botão X do painel: fecha e tira a seleção.
+function closeInspector() {
+    hideInspector();
+    setSelection([]);
 }
 
 // ================= Ligações =================
@@ -841,10 +1055,38 @@ function removePart(id) {
 function escapeHtml(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function escapeAttr(s){return escapeHtml(s);}
 
-// ESC cancela ligação
-document.addEventListener('keydown', (e)=>{ if (e.key==='Escape' && linkFrom) cancelLink(); });
+// Atalhos do quadro. Não valem enquanto se digita (campos, editor de texto) nem com janela aberta.
+function isTypingTarget(el) {
+    return !!(el && el.closest && el.closest('input, textarea, select, [contenteditable="true"], .ql-editor'));
+}
+document.addEventListener('keydown', (e)=>{
+    if (e.key === 'Escape') {
+        if (linkFrom) { cancelLink(); return; }
+        if (selection.size && !isTypingTarget(e.target) && !document.querySelector('.modal.show')) clearSelection();
+        return;
+    }
+    if (isTypingTarget(e.target) || document.querySelector('.modal.show')) return;
+    const mod = e.ctrlKey || e.metaKey;
+    const k = (e.key || '').toLowerCase();
+    if (mod && k === 'a') { e.preventDefault(); selectAllNodes(); }
+    else if (mod && k === 'c') { if (selection.size) { e.preventDefault(); copySelection(false); } }
+    else if (mod && k === 'x') { if (selection.size) { e.preventDefault(); copySelection(true); deleteSelection(true); } }
+    else if (mod && k === 'v') { if (readClipboard()) { e.preventDefault(); pasteClipboard(); } }
+    else if (mod && k === 'd') { if (selection.size) { e.preventDefault(); duplicateSelection(); } }
+    else if ((e.key === 'Delete' || e.key === 'Backspace') && selection.size) { e.preventDefault(); deleteSelection(); }
+    else if (e.key.startsWith('Arrow') && selection.size && !mod) {
+        e.preventDefault();
+        const step = e.shiftKey ? 50 : 10;
+        const d = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
+        if (d) nudgeSelection(d[0], d[1]);
+    }
+});
+// Copiou em outra aba/sequência: libera o "Colar" aqui.
+window.addEventListener('storage', (e) => { if (e.key === CLIP_KEY) updateSelBar(); });
 
 loadTemplatesForEditor();
 buildAll();
+canvas().addEventListener('mousedown', onCanvasMouseDown);
+updateSelBar();
 applyZoom();
 </script>

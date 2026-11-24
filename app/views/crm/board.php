@@ -271,6 +271,7 @@
                 <ul class="nav nav-tabs mb-3" role="tablist">
                     <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-card-details" type="button"><i class="bi bi-card-text"></i> Detalhes</button></li>
                     <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-card-briefing" type="button"><i class="bi bi-clipboard-data"></i> Briefing Comercial</button></li>
+                    <li class="nav-item"><button class="nav-link" id="tab-card-emails-btn" data-bs-toggle="tab" data-bs-target="#tab-card-emails" type="button"><i class="bi bi-envelope"></i> E-mails <span class="badge rounded-pill bg-secondary" id="card-emails-count" style="display:none;"></span></button></li>
                 </ul>
                 <div class="tab-content">
                 <div class="tab-pane fade show active" id="tab-card-details">
@@ -366,6 +367,12 @@
                         <div class="text-muted small text-center py-4">Carregando briefing...</div>
                     </div>
                 </div>
+
+                <div class="tab-pane fade" id="tab-card-emails">
+                    <div id="card-emails-content">
+                        <div class="text-muted small text-center py-4">Carregando e-mails...</div>
+                    </div>
+                </div>
                 </div><!-- /tab-content -->
             </div>
         </div>
@@ -385,6 +392,28 @@
 @media (max-width: 575.98px) {
     .clp-grid { grid-template-columns: 1fr; gap: 0; }
     .clp-grid dd { margin-bottom: 5px; }
+}
+/* Aba E-mails do card */
+.ce-summary { font-size: 0.8rem; color: #495057; background: #f8f9fb; border: 1px solid #e9ecef; border-radius: 8px; padding: 8px 10px; }
+.ce-conv { border: 1px solid #e3e8ee; border-radius: 10px; margin-top: 12px; overflow: hidden; }
+.ce-conv-hd { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; background: #f8fbff; border-bottom: 1px solid #e3e8ee; }
+.ce-conv-subject { font-weight: 600; font-size: 0.86rem; color: #333; word-break: break-word; min-width: 0; }
+.ce-conv-bd { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
+.ce-msg { border-radius: 10px; padding: 8px 10px; max-width: 92%; font-size: 0.82rem; min-width: 0; }
+.ce-msg.out { align-self: flex-end; background: #eef5ff; border: 1px solid #d6e6ff; }
+.ce-msg.in { align-self: flex-start; background: #ecfaf5; border: 1px solid #c9eee0; }
+.ce-msg.failed { background: #fff3f3; border-color: #f5c2c7; }
+.ce-msg-hd { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; font-size: 0.74rem; color: #555; margin-bottom: 4px; }
+.ce-msg-hd strong { color: #222; }
+.ce-msg-hd .badge { font-size: 0.64rem; font-weight: 500; }
+.ce-msg-preview { color: #444; word-break: break-word; }
+.ce-msg-text { white-space: pre-wrap; word-break: break-word; color: #222; }
+.ce-msg-toggle { font-size: 0.74rem; padding: 0; }
+.ce-frame { width: 100%; border: 1px solid #e3e8ee; border-radius: 6px; background: #fff; min-height: 120px; margin-top: 6px; }
+.ce-legacy { font-size: 0.76rem; color: #6c757d; align-self: flex-start; }
+@media (max-width: 575.98px) {
+    .ce-msg { max-width: 100%; }
+    .ce-conv-bd { padding: 8px; }
 }
 .briefing-view-item { padding: 8px 0; border-bottom: 1px solid #f0f0f0; }
 .briefing-view-item:last-child { border-bottom: none; }
@@ -632,9 +661,143 @@ function openCardDetail(cardId) {
 
         renderBriefing(data.briefing);
         renderLeadProfile(data.profile || {}, data.origin || null);
+        prepareCardEmails(cardId, data.email_summary || null);
 
         new bootstrap.Modal(document.getElementById('cardDetailModal')).show();
     });
+}
+
+// =========================================
+// ABA E-MAILS DO CARD: enviados, respostas do lead e nossas respostas
+// =========================================
+let cardEmailsFor = null;      // card cujos e-mails já estão na aba
+let cardEmailsItems = {};      // key -> item (para abrir o e-mail completo)
+const CE_SOURCE = { sequence: 'Sequência', manual: 'Envio manual', inbox_reply: 'Resposta pela Caixa de entrada' };
+
+function ceEsc(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function ceDate(dt) {
+    if (!dt) return '';
+    const d = new Date(String(dt).replace(' ', 'T'));
+    if (isNaN(d)) return ceEsc(dt);
+    const p = n => String(n).padStart(2, '0');
+    return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+function ceCount(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
+
+// Ao abrir o card: mostra a contagem na aba e só busca os e-mails quando a aba for aberta.
+function prepareCardEmails(cardId, summary) {
+    cardEmailsFor = null;
+    cardEmailsItems = {};
+    const badge = document.getElementById('card-emails-count');
+    if (badge) {
+        const total = summary ? (summary.total || 0) : 0;
+        badge.textContent = total;
+        badge.style.display = total ? '' : 'none';
+        badge.className = 'badge rounded-pill ' + (summary && summary.replies ? 'bg-success' : 'bg-secondary');
+        badge.title = summary && summary.replies ? 'O lead respondeu' : '';
+    }
+    document.getElementById('card-emails-content').innerHTML = '<div class="text-muted small text-center py-4">Carregando e-mails...</div>';
+    const pane = document.getElementById('tab-card-emails');
+    if (pane && pane.classList.contains('active')) loadCardEmails(cardId);
+}
+document.getElementById('tab-card-emails-btn').addEventListener('shown.bs.tab', () => { if (currentCardId) loadCardEmails(currentCardId); });
+
+function loadCardEmails(cardId) {
+    if (cardEmailsFor === cardId) return;
+    cardEmailsFor = cardId;
+    const box = document.getElementById('card-emails-content');
+    fetch(BASE + 'crm/cardEmails/' + cardId, { headers: {'X-Requested-With': 'XMLHttpRequest'} })
+        .then(r => r.json())
+        .then(d => { if (cardEmailsFor === cardId) renderCardEmails(d); })
+        .catch(() => { cardEmailsFor = null; box.innerHTML = '<div class="text-danger small text-center py-4">Não foi possível carregar os e-mails.</div>'; });
+}
+
+function renderCardEmails(d) {
+    const box = document.getElementById('card-emails-content');
+    if (d.error) { box.innerHTML = `<div class="text-danger small text-center py-4">${ceEsc(d.error)}</div>`; return; }
+    if (!d.linked) { box.innerHTML = '<div class="text-muted small text-center py-4">Este card não está ligado a um lead, então não há e-mails para mostrar.</div>'; return; }
+    const convs = d.conversations || [];
+    if (!convs.length) {
+        box.innerHTML = '<div class="text-muted small text-center py-4"><i class="bi bi-envelope" style="font-size:1.6rem;opacity:.4"></i><br>Nenhum e-mail com este lead ainda.<br>Os e-mails enviados pelas sequências e pela Prospecção E-mail, as respostas do lead e as respostas que mandarmos pela Caixa de entrada aparecem aqui.</div>';
+        return;
+    }
+    const s = d.summary || {};
+    let sum = `<i class="bi bi-envelope-paper"></i> <strong>${ceCount(s.sent || 0, 'e-mail enviado', 'e-mails enviados')}</strong> · <strong>${ceCount(s.replies || 0, 'resposta do lead', 'respostas do lead')}</strong>`;
+    if (s.last_reply_at) sum += ` · última resposta em ${ceDate(s.last_reply_at)}`;
+    if (s.failed) sum += ` · <span class="text-danger">${ceCount(s.failed, 'envio falhou', 'envios falharam')}</span>`;
+
+    cardEmailsItems = {};
+    box.innerHTML = `<div class="ce-summary" id="ce-summary">${sum}</div>` + convs.map(c => {
+        const msgs = c.items.map(ceMessage).join('');
+        const legacy = c.reply_without_text_at
+            ? `<div class="ce-legacy"><i class="bi bi-reply"></i> O lead respondeu em ${ceDate(c.reply_without_text_at)}. O texto dessa resposta não foi guardado (resposta detectada antes desta melhoria); veja na Caixa de entrada.</div>`
+            : '';
+        return `<div class="ce-conv">
+            <div class="ce-conv-hd">
+                <span class="ce-conv-subject"><i class="bi bi-chat-left-text"></i> ${ceEsc(c.subject)}</span>
+                <span class="small text-muted">${ceCount(c.count, 'e-mail', 'e-mails')}${c.has_reply ? ' <span class="badge bg-success">Lead respondeu</span>' : ''}</span>
+            </div>
+            <div class="ce-conv-bd">${msgs}${legacy}</div>
+        </div>`;
+    }).join('');
+}
+
+function ceMessage(it) {
+    cardEmailsItems[it.key] = it;
+    const hasFull = it.direction === 'in' ? !!it.body_text : !!it.body_html;
+    let hd;
+    if (it.direction === 'in') {
+        hd = `<i class="bi bi-reply-fill text-success"></i> <strong>Resposta do lead</strong>${it.from ? ' <span class="text-muted">' + ceEsc(it.from) + '</span>' : ''} · ${ceDate(it.at)}`;
+    } else {
+        const src = CE_SOURCE[it.source] || 'Envio';
+        hd = `<i class="bi bi-send-fill text-primary"></i> <strong>Enviado</strong>${it.sender ? ' por ' + ceEsc(it.sender) : ''} · ${src}${it.sequence ? ': ' + ceEsc(it.sequence) : ''} · ${ceDate(it.at)}`;
+        if (it.status === 'failed') hd += ` <span class="badge bg-danger" title="${ceEsc(it.error || '')}">Falhou</span>`;
+        else if (it.status === 'queued') hd += ' <span class="badge bg-secondary">Na fila</span>';
+        if (it.opens > 0) hd += ` <span class="badge bg-light text-dark border" title="Aberturas registradas pelo pixel (sinal aproximado)">Aberto ${it.opens}x</span>`;
+        if (it.clicks > 0) hd += ` <span class="badge bg-light text-dark border">Clicou em link</span>`;
+        if (it.replied_at) hd += ` <span class="badge bg-success">Respondido em ${ceDate(it.replied_at)}</span>`;
+    }
+    const to = (it.direction === 'out' && it.to) ? `<div class="text-muted" style="font-size:0.72rem;">Para: ${ceEsc(it.to)}</div>` : '';
+    const failed = it.status === 'failed' && it.error ? `<div class="text-danger" style="font-size:0.74rem;">Erro: ${ceEsc(it.error)}</div>` : '';
+    return `<div class="ce-msg ${it.direction}${it.status === 'failed' ? ' failed' : ''}" data-key="${ceEsc(it.key)}">
+        <div class="ce-msg-hd">${hd}</div>${to}${failed}
+        <div class="ce-msg-preview">${it.preview ? ceEsc(it.preview) : '<em class="text-muted">sem texto</em>'}</div>
+        <div class="ce-msg-full" style="display:none;"></div>
+        ${hasFull ? `<button type="button" class="btn btn-link ce-msg-toggle" onclick="toggleCardEmail(this)"><i class="bi bi-arrows-angle-expand"></i> Ver e-mail completo</button>` : ''}
+    </div>`;
+}
+
+// Abre/fecha o e-mail completo. E-mail enviado (HTML) abre num quadro isolado,
+// sem scripts; resposta do lead (texto) aparece como texto.
+function toggleCardEmail(btn) {
+    const msg = btn.closest('.ce-msg');
+    const it = cardEmailsItems[msg.dataset.key];
+    const full = msg.querySelector('.ce-msg-full');
+    const preview = msg.querySelector('.ce-msg-preview');
+    const open = full.style.display === 'none';
+    if (open && !full.dataset.ready && it) {
+        if (it.direction === 'in') {
+            full.innerHTML = `<div class="ce-msg-text">${ceEsc(it.body_text)}</div>`;
+        } else {
+            const frame = document.createElement('iframe');
+            frame.className = 'ce-frame';
+            frame.title = 'E-mail enviado';
+            frame.setAttribute('sandbox', 'allow-same-origin allow-popups allow-popups-to-escape-sandbox');
+            frame.srcdoc = '<!doctype html><html><head><meta charset="utf-8"><base target="_blank">'
+                + '<style>body{font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#333;margin:10px;word-break:break-word}img{max-width:100%;height:auto}</style>'
+                + '</head><body>' + (it.body_html || '') + '</body></html>';
+            frame.addEventListener('load', () => {
+                try { frame.style.height = Math.min(700, frame.contentDocument.documentElement.scrollHeight + 6) + 'px'; } catch (e) {}
+            });
+            full.appendChild(frame);
+        }
+        full.dataset.ready = '1';
+    }
+    full.style.display = open ? '' : 'none';
+    preview.style.display = open ? 'none' : '';
+    btn.innerHTML = open ? '<i class="bi bi-arrows-angle-contract"></i> Recolher' : '<i class="bi bi-arrows-angle-expand"></i> Ver e-mail completo';
 }
 
 // Dados do lead (e-mail, cargo, empresa, LinkedIn...) e origem, no topo do card.
