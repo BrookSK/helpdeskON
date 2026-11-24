@@ -175,12 +175,13 @@ class WhatsappContact
                        c.last_message_at, c.is_group, c.lead_source_url, c.lead_email,
                        u.name AS assigned_name,
                        b.lead_temperature, b.lead_source, b.need, b.investment_range,
-                       b.urgency, b.main_pain, b.next_step,
+                       b.urgency, b.main_pain, b.next_step, ls.score AS engagement_score,
                        crm.board_name AS crm_board_name, crm.column_name AS crm_column_name,
                        crm.card_value AS crm_value
                 FROM whatsapp_contacts c
                 LEFT JOIN users u ON c.assigned_to = u.id
                 LEFT JOIN commercial_briefings b ON b.contact_id = c.id
+                LEFT JOIN lead_score ls ON ls.contact_id = c.id
                 LEFT JOIN (
                     SELECT cc.contact_id, b2.name AS board_name, col.name AS column_name, cc.value AS card_value
                     FROM crm_cards cc

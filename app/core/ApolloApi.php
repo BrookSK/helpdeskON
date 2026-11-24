@@ -231,8 +231,18 @@ class ApolloApi
             'currently_not_using_any_of_technology_uids' => 'currently_not_using_any_of_technology_uids',
             'q_organization_job_titles' => 'q_organization_job_titles',
             'organization_job_locations' => 'organization_job_locations',
+            // Segmento (indústria) da empresa — usado pelos nichos da prospecção.
+            'organization_industries' => 'organization_industries',
+            'organization_industry_tag_ids' => 'organization_industry_tag_ids',
         ];
         foreach ($arrayMap as $in => $out) {
+            // Nomes de segmento do Apollo contêm vírgula ("health, wellness & fitness"):
+            // não podem passar pelo toArray, que quebra por vírgula.
+            if ($out === 'organization_industries') {
+                $vals = is_array($f[$in] ?? null) ? array_values(array_filter(array_map('trim', $f[$in]), fn($v) => $v !== '')) : [];
+                if (!empty($vals)) $p[$out] = $vals;
+                continue;
+            }
             $vals = $this->toArray($f[$in] ?? null);
             // Faixas de nº de funcionários exigem o formato "min,max" por item.
             // Normaliza aqui (rede de segurança) para reparar dados legados que

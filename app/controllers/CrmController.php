@@ -1985,6 +1985,8 @@ class CrmController extends Controller
             $now = time();
             foreach ($campaigns as &$c) {
                 $cc = $ctx[(int) $c['id']] ?? [];
+                // Nichos já separados (inclusive do formato antigo colado em q_keywords)
+                $c['niche_terms'] = ApolloNicheRules::nichesFromFilters(json_decode($c['search_filters'] ?? '{}', true) ?: []);
                 $c['diagnosis'] = ProspectingCampaignRules::diagnose($c, [
                     'captured_today' => (int) $c['captured_today'],
                     'last_run' => $cc['last_run'] ?? null,
@@ -2191,6 +2193,15 @@ class CrmController extends Controller
         // Qualquer outro erro é devolvido como JSON legível em vez de fatal (que a
         // tela interpretava como o genérico "Erro ao salvar").
         $optionalColumns = ['lead_source', 'global_dedupe', 'my_leads_filters', 'my_leads_ids'];
+
+        // Mudou a busca (nichos, cargos, filtros)? Recomeça da 1ª página: o cursor
+        // antigo apontava para outra busca.
+        if ($id) {
+            $old = $db->fetch("SELECT search_filters, icp_rules FROM apollo_campaigns WHERE id = ?", [$id]);
+            if ($old && (($old['search_filters'] ?? '') !== $data['search_filters'] || ($old['icp_rules'] ?? '') !== $data['icp_rules'])) {
+                $data['search_page'] = 1;
+            }
+        }
 
         $persist = function (array $payload) use ($db, $id, $user) {
             if ($id) {
@@ -2727,7 +2738,9 @@ class CrmController extends Controller
         if (!empty($_POST['f_person_locations'])) $f['person_locations'] = $toArr('f_person_locations');
         if (!empty($_POST['f_org_locations'])) $f['organization_locations'] = $toArr('f_org_locations');
         if (!empty($_POST['f_domains'])) $f['q_organization_domains_list'] = $toArr('f_domains');
-        if (!empty($_POST['f_keywords'])) $f['q_keywords'] = implode(' ', $toArr('f_keywords'));
+        // Nichos: lista (cada um vira segmento do Apollo na busca). Antes eram
+        // colados num texto só (q_keywords), o que exigia todos ao mesmo tempo.
+        if (!empty($_POST['f_keywords'])) $f['niches'] = array_values(array_unique($toArr('f_keywords')));
         // Faixas de nº de funcionários: cada faixa é um par "min,max". O separador
         // ENTRE faixas é ';' (a vírgula é usada DENTRO de cada faixa). Também aceita
         // o formato legado com vírgulas soltas, reagrupando os números em pares.

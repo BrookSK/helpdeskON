@@ -49,6 +49,9 @@ try {
             'briefing' => ['notes' => 'Cargo: Diretora Clínica | Empresa: Clínica Sorriso'],
         ], $adminId);
         if (!$contactId) throw new RuntimeException('sem instância de WhatsApp no banco local');
+        // Engajamento: 1 abertura + 1 resposta = 6 pontos => quente.
+        (new LeadScoreService())->add($contactId, LeadScoreService::W_OPEN, 'abertura de e-mail', $adminId);
+        (new LeadScoreService())->add($contactId, LeadScoreService::W_REPLY, 'resposta recebida', $adminId);
         $cardId = (int) $board->createCard([
             'column_id' => $columnId, 'title' => "Carla Auto {$u}", 'contact_id' => $contactId,
             'created_by' => $adminId, 'assigned_to' => $adminId,

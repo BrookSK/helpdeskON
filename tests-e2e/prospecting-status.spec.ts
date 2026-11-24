@@ -137,6 +137,40 @@ test.describe('desktop', () => {
   });
 });
 
+test.describe('nicho da campanha', () => {
+  test.use({ viewport: { width: 1366, height: 860 } });
+
+  test('vários nichos podem ser marcados e termo desconhecido é avisado', async ({ page }, testInfo) => {
+    await login(page);
+    await page.goto('/crm/prospecting');
+    await page.locator('button', { hasText: 'Nova campanha' }).click();
+    await expect(page.locator('#camp-name')).toBeVisible();
+
+    const box = page.locator('.chips-group[data-chipset="f-keywords"]');
+    await box.locator('label', { hasText: /^Saúde$/ }).click();
+    await box.locator('label', { hasText: /^Logística$/ }).click();
+    await expect(page.locator('#camp-f-keywords')).toHaveValue('saúde, logística');
+    await expect(page.locator('#niche-unknown')).toBeHidden();
+    await expect(page.locator('.chips-group[data-chipset="f-keywords"] + .chip-addbox + .chip-hint')).toContainText('qualquer um');
+
+    await page.locator('#add-f-keywords').fill('piscinas');
+    await page.locator('#add-f-keywords + button').click();
+    await expect(page.locator('#niche-unknown')).toBeVisible();
+    await expect(page.locator('#niche-unknown')).toContainText('piscinas');
+    await expect(page.locator('#niche-unknown')).not.toContainText('saúde');
+    await page.locator('#niche-unknown').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath('prosp-nicho.png') });
+  });
+
+  test('campanha antiga (nichos colados) aparece separada no resumo', async ({ page }) => {
+    await login(page);
+    await page.goto('/crm/prospecting');
+    const modal = await openPanel(page, fx.campaigns.noResults);
+    await expect(modal.locator('.cl-filters')).toContainText('Nicho');
+    await expect(modal.locator('.cl-filters')).toContainText('logística — qualquer um deles');
+  });
+});
+
 for (const width of [390, 320]) {
   test.describe(`celular ${width}px`, () => {
     test.use({ viewport: { width, height: 760 }, isMobile: true, hasTouch: true });

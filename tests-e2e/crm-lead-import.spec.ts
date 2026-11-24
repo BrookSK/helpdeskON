@@ -139,6 +139,20 @@ test.describe('desktop', () => {
     expect(contact(`bruno@${fx.u}.example.test`)!.cards).toBe(1);
   });
 
+  test('temperatura explica de onde vem (pontos de engajamento) em Meus Leads e no card', async ({ page }, testInfo) => {
+    await login(page);
+    await page.goto('/crm/leads?q=' + encodeURIComponent(`Carla Auto ${fx.u}`));
+    await expect(page.locator('#temp-legend')).toContainText('e-mail aberto +1, clique em link +3, resposta +5');
+    const row = page.locator('tr', { hasText: `Carla Auto ${fx.u}` });
+    await expect(row.locator('.lead-temp')).toContainText('Quente');
+    await expect(row.locator('.lead-temp')).toHaveAttribute('title', /6 pontos de engajamento/);
+    await expect(row.locator('.lead-temp-why')).toHaveText('6 pts');
+    await page.screenshot({ path: testInfo.outputPath('crm-leads-temperatura.png') });
+
+    await page.goto(`/crm/board/${fx.boardId}`);
+    await expect(cardEl(page, fx.cardId).locator('.crm-temp-dot')).toHaveAttribute('title', /Quente: 6 pontos/);
+  });
+
   test('planilha sem colunas de nome/contato é recusada com explicação', async ({ page }) => {
     await login(page);
     await page.goto('/crm/leads');

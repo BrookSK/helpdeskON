@@ -42,9 +42,8 @@ class LeadScoreService
         ], 'contact_id = ?', [$contactId]);
 
         // Sincroniza a temperatura no briefing (campo já usado pelo CRM)
-        $tempMap = ['frio' => 'frio', 'morno' => 'morno', 'engajado' => 'morno', 'quente' => 'quente'];
         try {
-            (new WhatsappContact())->saveBriefing($contactId, ['lead_temperature' => $tempMap[$classification]], $userId);
+            (new WhatsappContact())->saveBriefing($contactId, ['lead_temperature' => LeadTemperatureRules::temperature($new)], $userId);
         } catch (\Throwable $e) { /* silencioso */ }
 
         (new LeadTimelineService())->add($contactId, 'score',
@@ -62,9 +61,6 @@ class LeadScoreService
 
     private function classify($score)
     {
-        if ($score >= 5) return 'quente';
-        if ($score >= 3) return 'engajado';
-        if ($score >= 1) return 'morno';
-        return 'frio';
+        return LeadTemperatureRules::classify((int) $score);
     }
 }

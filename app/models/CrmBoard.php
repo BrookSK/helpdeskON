@@ -190,12 +190,13 @@ class CrmBoard
     {
         return $this->db->fetchAll(
             "SELECT c.*, u.name as assigned_name, wc.contact_name, wc.phone as contact_phone" . $this->contactProfileSelect() . ",
-                    cb.investment_range, cb.lead_temperature, cb.notes AS briefing_notes,
+                    cb.investment_range, cb.lead_temperature, cb.notes AS briefing_notes, ls.score AS engagement_score,
                     l.name as label_name, l.color as label_color
              FROM crm_cards c
              LEFT JOIN users u ON c.assigned_to = u.id
              LEFT JOIN whatsapp_contacts wc ON c.contact_id = wc.id
              LEFT JOIN commercial_briefings cb ON cb.contact_id = c.contact_id
+             LEFT JOIN lead_score ls ON ls.contact_id = c.contact_id
              LEFT JOIN whatsapp_labels l ON c.label_id = l.id
              WHERE c.column_id = ?
              ORDER BY c.position ASC",

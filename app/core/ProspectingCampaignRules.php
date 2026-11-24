@@ -229,7 +229,7 @@ class ProspectingCampaignRules
                 . ($ago ? " Última tentativa {$ago}." : ''),
                 $source === 'my_leads'
                     ? 'Edite a campanha e afrouxe os filtros (temperatura, fonte, responsável).'
-                    : 'Edite a campanha e afrouxe os filtros. Quanto mais cargos, palavras-chave, locais e domínios combinados, menos pessoas o Apollo encontra. Comece removendo palavras-chave e domínios.',
+                    : 'Edite a campanha e afrouxe os filtros. Cargos, local, faixa de funcionários e domínios se somam: quanto mais combinados, menos pessoas o Apollo encontra. Nichos marcados com "(palavra-chave)" no resumo trazem poucos resultados; troque por um nicho da lista.',
                 'Sem resultados no Apollo');
         }
         if ($m['enrolled'] === 0) {
@@ -289,7 +289,12 @@ class ProspectingCampaignRules
         if (!empty($f['person_locations'])) $out[] = ['label' => 'Local da pessoa', 'value' => $list($f['person_locations'])];
         if (!empty($f['organization_locations'])) $out[] = ['label' => 'Local da empresa', 'value' => $list($f['organization_locations'])];
         if (!empty($f['organization_num_employees_ranges'])) $out[] = ['label' => 'Funcionários', 'value' => $ranges($f['organization_num_employees_ranges'])];
-        if (!empty($f['q_keywords'])) $out[] = ['label' => 'Palavras-chave', 'value' => (string) $f['q_keywords']];
+        $niches = ApolloNicheRules::nichesFromFilters($f);
+        if ($niches) {
+            $r = ApolloNicheRules::resolve($niches);
+            $txt = implode(', ', array_map(fn($n) => isset($r['mapped'][$n]) ? $n : $n . ' (palavra-chave)', $niches));
+            $out[] = ['label' => 'Nicho', 'value' => $txt . ' — qualquer um deles'];
+        }
         if (!empty($f['q_organization_domains_list'])) $out[] = ['label' => 'Domínios', 'value' => $list($f['q_organization_domains_list'])];
         if (empty($out)) $out[] = ['label' => 'Busca', 'value' => 'Sem filtros (qualquer pessoa)'];
 

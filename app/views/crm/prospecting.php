@@ -526,12 +526,14 @@
                     </div>
 
                     <div class="col-md-6">
-                        <label class="form-label small">Nicho / termos (palavras-chave)</label>
+                        <label class="form-label small">Nicho (segmento da empresa)</label>
                         <div class="chips-group" data-chipset="f-keywords"></div>
                         <div class="chip-addbox">
-                            <input type="text" class="form-control form-control-sm" id="add-f-keywords" placeholder="Adicionar termo (ex: logística)">
+                            <input type="text" class="form-control form-control-sm" id="add-f-keywords" placeholder="Adicionar nicho (ex: odontologia)">
                             <button type="button" class="btn btn-sm btn-outline-secondary" onclick="chipAdd('f-keywords','add-f-keywords')">+</button>
                         </div>
+                        <div class="chip-hint">Pode marcar vários: a campanha busca empresas de <b>qualquer um</b> dos nichos marcados.</div>
+                        <div class="chip-hint text-warning-emphasis" id="niche-unknown" style="display:none;"></div>
                         <input type="hidden" id="camp-f-keywords">
                     </div>
 
@@ -690,10 +692,15 @@ const CHIP_OPTIONS = {
         {value:'1001,5000', label:'1001–5000'}, {value:'5001,10000', label:'5001–10000'}
     ],
     'f-keywords': [
-        {value:'logística', label:'Logística'}, {value:'saúde', label:'Saúde'}, {value:'educação', label:'Educação'},
-        {value:'varejo', label:'Varejo'}, {value:'indústria', label:'Indústria'}, {value:'tecnologia', label:'Tecnologia'},
-        {value:'construção civil', label:'Construção Civil'}, {value:'financeiro', label:'Financeiro'},
-        {value:'agronegócio', label:'Agronegócio'}, {value:'e-commerce', label:'E-commerce'}, {value:'serviços', label:'Serviços'}
+        {value:'saúde', label:'Saúde'}, {value:'clínica', label:'Clínicas'}, {value:'odontologia', label:'Odontologia'},
+        {value:'estética', label:'Estética/Beleza'}, {value:'logística', label:'Logística'}, {value:'transporte', label:'Transporte'},
+        {value:'educação', label:'Educação'}, {value:'varejo', label:'Varejo'}, {value:'atacado', label:'Atacado/Distribuição'},
+        {value:'indústria', label:'Indústria'}, {value:'tecnologia', label:'Tecnologia'}, {value:'construção civil', label:'Construção Civil'},
+        {value:'imobiliária', label:'Imobiliário'}, {value:'financeiro', label:'Financeiro'}, {value:'contabilidade', label:'Contabilidade'},
+        {value:'seguros', label:'Seguros'}, {value:'advocacia', label:'Advocacia'}, {value:'agronegócio', label:'Agronegócio'},
+        {value:'alimentos', label:'Alimentos'}, {value:'restaurantes', label:'Restaurantes'}, {value:'hotelaria', label:'Hotelaria/Turismo'},
+        {value:'e-commerce', label:'E-commerce'}, {value:'marketing', label:'Marketing/Agências'}, {value:'consultoria', label:'Consultoria'},
+        {value:'serviços', label:'Serviços'}, {value:'energia', label:'Energia'}, {value:'automotivo', label:'Automotivo'}
     ],
     'icp-sen': [
         {value:'owner', label:'Owner (Dono)'}, {value:'founder', label:'Founder (Fundador)'},
@@ -736,6 +743,25 @@ function chipSync(chipset) {
     // vírgula interna). Para não corromper os pares, usa ';' como separador entre
     // as faixas. Os demais chipsets seguem com vírgula.
     hidden.value = vals.join(chipset === 'f-emp' ? ';' : ', ');
+    if (chipset === 'f-keywords') nicheHint(vals);
+}
+
+// Nichos reconhecidos viram segmento do Apollo; os outros são buscados como
+// palavra-chave (bem menos resultados). Avisa quais termos caem nesse caso.
+const NICHE_KEYS = new Set(<?= json_encode(ApolloNicheRules::nicheKeys(), JSON_UNESCAPED_UNICODE) ?>);
+const NICHE_INDUSTRIES = new Set(<?= json_encode(ApolloNicheRules::knownIndustries(), JSON_UNESCAPED_UNICODE) ?>);
+function nicheNorm(s) {
+    return String(s || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ');
+}
+function nicheHint(vals) {
+    const el = document.getElementById('niche-unknown');
+    if (!el) return;
+    const unknown = vals.filter(v => !NICHE_KEYS.has(nicheNorm(v)) && !NICHE_INDUSTRIES.has(nicheNorm(v)));
+    el.style.display = unknown.length ? '' : 'none';
+    el.innerHTML = unknown.length
+        ? '<i class="bi bi-exclamation-triangle"></i> Não reconheci como nicho: <b>' + unknown.map(escapeH).join(', ')
+          + '</b>. Esses termos são buscados como palavra-chave no perfil da pessoa e trazem bem menos contatos. Prefira um dos nichos da lista.'
+        : '';
 }
 
 function chipAdd(chipset, inputId) {
@@ -1307,7 +1333,7 @@ function editCampaign(c) {
         // conflitar com a vírgula interna. Repara dados legados gravados como
         // números soltos (["11","50",...]) reagrupando-os em pares "min,max".
         chipVals['f-emp'] = normalizeEmpRangesForChips(f.organization_num_employees_ranges || []);
-        chipVals['f-keywords'] = f.q_keywords || '';
+        chipVals['f-keywords'] = (c.niche_terms || f.niches || []).join(', ');
         document.getElementById('camp-f-domains').value = (f.q_organization_domains_list||[]).join(', ');
     } catch(e){}
     try {

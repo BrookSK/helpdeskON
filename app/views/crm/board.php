@@ -55,7 +55,7 @@
                     <div class="crm-card outcome-<?= $outcome ?>" data-card-id="<?= $card['id'] ?>" onclick="openCardDetail(<?= $card['id'] ?>)">
                         <div class="crm-card-title">
                             <?php if ($tempColor): ?>
-                            <span class="d-inline-block rounded-circle me-1" style="width:8px;height:8px;background:<?= $tempColor ?>;" title="Lead <?= escape($card['lead_temperature']) ?>"></span>
+                            <span class="d-inline-block rounded-circle me-1 crm-temp-dot" style="width:8px;height:8px;background:<?= $tempColor ?>;" title="<?= escape(LeadTemperatureRules::explain($card['lead_temperature'], $card['engagement_score'] !== null ? (int) $card['engagement_score'] : null)) ?>"></span>
                             <?php endif; ?>
                             <?= escape($displayName) ?>
                         </div>
@@ -713,6 +713,7 @@ function renderBriefing(b) {
                     <option value="morno" ${sel('lead_temperature','morno')}>🟠 Morno</option>
                     <option value="quente" ${sel('lead_temperature','quente')}>🔴 Quente</option>
                 </select>
+                <small class="text-muted d-block mt-1" style="font-size:0.7rem;" id="bf-temp-help">Calculada sozinha pelo engajamento (e-mail aberto +1, clique +3, resposta +5). Frio 0 · Morno 1–4 · Quente 5+.</small>
             </div>
             <div class="col-md-6">
                 <label class="form-label small mb-1">Principal objeção</label>

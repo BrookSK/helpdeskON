@@ -83,6 +83,12 @@ $sourceLabels = [
         </div>
     </div>
 
+    <!-- O que é a temperatura -->
+    <div class="small text-muted mb-2" id="temp-legend">
+        <i class="bi bi-thermometer-half"></i> <?= escape(LeadTemperatureRules::legend()) ?>
+        Abaixo da temperatura aparecem os pontos do lead (ou "à mão" quando foi ajustada no briefing).
+    </div>
+
     <!-- Lista -->
     <div class="card">
         <div class="card-body p-0">
@@ -98,7 +104,7 @@ $sourceLabels = [
                         <tr>
                             <th>Lead</th>
                             <th>Telefone</th>
-                            <th>Temperatura</th>
+                            <th>Temperatura <i class="bi bi-info-circle text-muted" title="<?= escape(LeadTemperatureRules::legend()) ?>"></i></th>
                             <th>Fonte</th>
                             <th>Etapa CRM</th>
                             <?php if (!$isComercial): ?><th>Responsável</th><?php endif; ?>
@@ -120,9 +126,10 @@ $sourceLabels = [
                             <td><?= $l['phone'] ? escape($l['phone']) : '<span class="text-muted">—</span>' ?></td>
                             <td>
                                 <?php if ($tm): ?>
-                                <span class="badge rounded-pill" style="background:<?= $tm[1] ?>1a;color:<?= $tm[1] ?>;">
+                                <span class="badge rounded-pill lead-temp" style="background:<?= $tm[1] ?>1a;color:<?= $tm[1] ?>;" title="<?= escape(LeadTemperatureRules::explain($l['lead_temperature'], $l['engagement_score'] !== null ? (int) $l['engagement_score'] : null)) ?>">
                                     <i class="bi bi-circle-fill" style="font-size:0.5rem;"></i> <?= $tm[0] ?>
                                 </span>
+                                <small class="text-muted d-block lead-temp-why"><?= escape(LeadTemperatureRules::shortReason($l['lead_temperature'], $l['engagement_score'] !== null ? (int) $l['engagement_score'] : null)) ?></small>
                                 <?php else: ?><span class="text-muted">—</span><?php endif; ?>
                             </td>
                             <td><?= !empty($l['lead_source']) ? escape($sourceLabels[$l['lead_source']] ?? $l['lead_source']) : '<span class="text-muted">—</span>' ?></td>

@@ -149,18 +149,23 @@ class ApolloProspectingService
         $perPage = min(100, max(10, (int)($camp['search_per_page'] ?? 50)));
         $leadModel = new ApolloLead();
 
-        // Estado da busca: continua da página onde parou (não recomeça do zero).
-        $page = max(1, (int)($camp['search_page'] ?? 1));
-        $totalPages = null;
+        // Nichos: cada nicho vira segmento do Apollo (qualquer um deles); termo
+        // desconhecido vira uma busca separada. Ver ApolloNicheRules.
+        $variants = ApolloNicheRules::searchVariants($filters);
+
+        // Estado da busca: continua da busca/página onde parou (não recomeça do zero).
+        [$variant, $page] = ApolloNicheRules::decodeCursor($camp['search_page'] ?? 1, count($variants));
+        $finishedVariants = 0;
         $maxPagesPerRun = 20; // trava de segurança contra loop/consumo excessivo
 
         // Continua paginando enquanto não atingir a meta de NOVOS elegíveis
-        // e ainda houver resultados disponíveis para esta busca.
+        // e ainda houver resultados disponíveis nas buscas da campanha.
         while ($m['enrolled'] < $target && $m['pages'] < $maxPagesPerRun) {
-            $filters['page'] = $page;
-            $filters['per_page'] = $perPage;
+            $searchFilters = $variants[$variant];
+            $searchFilters['page'] = $page;
+            $searchFilters['per_page'] = $perPage;
 
-            $res = $this->apollo->searchPeople($filters);
+            $res = $this->apollo->searchPeople($searchFilters);
             if (empty($res['success'])) {
                 $m['error'] = $res['error'] ?? 'Falha na busca';
                 $this->logCampaign($camp['id'], 'search_failed', $m['error'] . ' (página ' . $page . ')');
@@ -177,9 +182,15 @@ class ApolloProspectingService
             $totalPages = ApolloIcpRules::totalPages(is_array($res['data'] ?? null) ? $res['data'] : [], $perPage);
             $m['pages']++;
             $m['searched'] += count($people);
-            $this->logCampaign($camp['id'], 'searched', count($people) . ' candidatos (página ' . $page . ')');
+            $label = !empty($searchFilters['q_keywords']) ? ' · palavra-chave "' . $searchFilters['q_keywords'] . '"' : '';
+            $this->logCampaign($camp['id'], 'searched', count($people) . ' candidatos (página ' . $page . $label . ')');
 
-            if (empty($people)) { $page = 1; break; } // sem resultados: reinicia ciclo
+            if (empty($people)) {
+                // Esta busca acabou: passa para a próxima; para quando todas acabaram.
+                [$variant, $page] = ApolloNicheRules::advance($variant, $page, $totalPages, count($variants), true);
+                if (++$finishedVariants >= count($variants)) break;
+                continue;
+            }
 
             // Qualifica os candidatos desta página (tudo barato: usa dados da busca)
             $candidates = [];
@@ -195,10 +206,10 @@ class ApolloProspectingService
                 if (!$localId) continue;
 
                 // Filtro ICP sobre os dados da busca
-                if (!ApolloIcpRules::matchesIcp($p, $icp, $filters)) { $m['out_of_icp']++; continue; }
+                if (!ApolloIcpRules::matchesIcp($p, $icp, $searchFilters)) { $m['out_of_icp']++; continue; }
 
                 // Lead Score sobre os dados da busca
-                $score = ApolloIcpRules::score($p, $icp, $filters);
+                $score = ApolloIcpRules::score($p, $icp, $searchFilters);
                 if ($score < $minScore) { $m['low_score']++; continue; }
 
                 $candidates[] = ['person' => $p, 'local_id' => $localId, 'score' => $score];
@@ -217,13 +228,13 @@ class ApolloProspectingService
                 elseif ($r === 'reveal_failed') { $m['reveal_failed']++; }
             }
 
-            // Avança a página (circular pelo total conhecido)
-            $page = ($totalPages > 0 && $page >= $totalPages) ? 1 : $page + 1;
-            if ($totalPages > 0 && $m['pages'] >= $totalPages) break; // varreu tudo
+            // Avança a página; no fim da busca atual, passa para a próxima busca.
+            [$variant, $page, $finished] = ApolloNicheRules::advance($variant, $page, $totalPages, count($variants), false);
+            if ($finished && ++$finishedVariants >= count($variants)) break; // varreu tudo
         }
 
-        // Persiste o cursor de busca e os contadores de estado
-        $this->db->update('apollo_campaigns', ['search_page' => $page], 'id = ?', [$camp['id']]);
+        // Persiste o cursor de busca (busca + página) e os contadores de estado
+        $this->db->update('apollo_campaigns', ['search_page' => ApolloNicheRules::encodeCursor($variant, $page)], 'id = ?', [$camp['id']]);
         $this->saveCampaignStats($camp['id'], $m);
         $this->logCampaign($camp['id'], 'done', json_encode($m, JSON_UNESCAPED_UNICODE));
         return $m;
@@ -430,10 +441,13 @@ class ApolloProspectingService
         // Vincula o staging ao lead do CRM + registra origem/campanha/ICP
         $leadModel->markImported($localId, $contactId, $camp['created_by'] ?: null);
 
-        // Score inicial do lead
-        try { (new LeadScoreService())->add($contactId, (int)$score, 'apollo_prospecting'); } catch (\Throwable $e) {}
+        // O score de PERFIL (ICP, 0–100) NÃO entra no score de engajamento: antes
+        // era somado nele e o lead nascia "quente" (5+ pontos) sem nunca ter aberto
+        // um e-mail. A temperatura agora reflete só interações. O score de perfil
+        // fica registrado na timeline de origem.
+        try { (new LeadScoreService())->ensure($contactId); } catch (\Throwable $e) {}
         (new LeadTimelineService())->add($contactId, 'origin',
-            'Capturado via Apollo (campanha: ' . $camp['name'] . ')',
+            'Capturado via Apollo (campanha: ' . $camp['name'] . ', score de perfil ' . (int) $score . ')',
             ['score' => $score, 'campaign_id' => $camp['id'], 'icp' => json_decode($camp['icp_rules'] ?? '{}', true)]);
         $this->logImported($camp['id'], $localId, $contactId, $name . ($preExistingId ? ' (existente)' : ' (novo)'));
 

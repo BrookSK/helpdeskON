@@ -63,13 +63,14 @@
                         <input type="text" id="ld-bf-decision_level" class="form-control form-control-sm">
                     </div>
                     <div class="col-md-4">
-                        <label class="form-label small mb-1">Temperatura</label>
+                        <label class="form-label small mb-1">Temperatura <i class="bi bi-info-circle text-muted" title="<?= escape(LeadTemperatureRules::legend()) ?>"></i></label>
                         <select id="ld-bf-lead_temperature" class="form-select form-select-sm">
                             <option value="">—</option>
                             <option value="frio">Frio</option>
                             <option value="morno">Morno</option>
                             <option value="quente">Quente</option>
                         </select>
+                        <small class="text-muted d-block mt-1" style="font-size:0.7rem;">Calculada sozinha pelo engajamento (e-mail aberto +1, clique +3, resposta +5). Frio 0 · Morno 1–4 · Quente 5+.</small>
                     </div>
                     <div class="col-md-4">
                         <label class="form-label small mb-1">Fonte do lead</label>
