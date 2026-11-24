@@ -18,6 +18,9 @@ class LeadResolver
 {
     private $db;
 
+    /** true quando o último resolve() criou um lead novo (false = já existia). */
+    public $lastWasCreated = false;
+
     public function __construct()
     {
         $this->db = Database::getInstance();
@@ -40,6 +43,7 @@ class LeadResolver
 
         $linkedin = $this->normalizeLinkedin($data['linkedin_url'] ?? null);
         $existing = $this->findExisting($email, $phoneDigits, $data['name'] ?? null, $data['company'] ?? null, $linkedin);
+        $this->lastWasCreated = !$existing;
 
         if ($existing) {
             $contactId = (int) $existing['id'];
@@ -124,6 +128,8 @@ class LeadResolver
         if ($this->hasLinkedinColumn()) {
             $insert['linkedin_url'] = $this->normalizeLinkedin($data['linkedin_url'] ?? null);
         }
+        // Cargo/empresa em colunas próprias (migration 174), para aparecerem no CRM.
+        foreach ($this->profileFields($data) as $col => $val) $insert[$col] = $val;
         $contactId = $this->db->insert('whatsapp_contacts', $insert);
 
         // Briefing (origem + campos comerciais opcionais)
@@ -158,6 +164,10 @@ class LeadResolver
         if ($this->hasLinkedinColumn() && empty($existing['linkedin_url']) && !empty($data['linkedin_url'])) {
             $update['linkedin_url'] = $this->normalizeLinkedin($data['linkedin_url']);
         }
+        // Cargo/empresa: preenche se estavam vazios (não sobrescreve).
+        foreach ($this->profileFields($data) as $col => $val) {
+            if (empty($existing[$col])) $update[$col] = $val;
+        }
         if (!empty($update)) {
             $this->db->update('whatsapp_contacts', $update, 'id = ?', [$contactId]);
         }
@@ -180,6 +190,20 @@ class LeadResolver
     }
 
     // ---- Helpers ----
+
+    /**
+     * Colunas de perfil (cargo/empresa) a gravar, só as que existem no banco
+     * (migration 174) e vieram preenchidas. Chaves aceitas: job_title, company.
+     */
+    private function profileFields(array $data)
+    {
+        $out = [];
+        $title = trim((string) ($data['job_title'] ?? ''));
+        $company = trim((string) ($data['company'] ?? ''));
+        if ($title !== '' && SchemaInfo::hasColumn('whatsapp_contacts', 'job_title')) $out['job_title'] = mb_substr($title, 0, 190);
+        if ($company !== '' && SchemaInfo::hasColumn('whatsapp_contacts', 'company_name')) $out['company_name'] = mb_substr($company, 0, 190);
+        return $out;
+    }
 
     /** Normaliza a URL do LinkedIn (trim; ignora vazio). Não faz scraping. */
     public function normalizeLinkedin($url)

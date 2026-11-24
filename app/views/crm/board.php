@@ -10,6 +10,9 @@
         </div>
         <div class="d-flex gap-2">
             <a href="<?= baseUrl('crm') ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> Boards</a>
+            <?php if (in_array($user['role'] ?? '', ['super_admin', 'comercial'], true)): ?>
+            <button class="btn btn-sm btn-outline-success" onclick="openImportSheet()" id="btn-import-sheet"><i class="bi bi-file-earmark-spreadsheet"></i> Importar planilha</button>
+            <?php endif; ?>
             <button class="btn btn-sm btn-outline-primary" onclick="openAddColumnModal()"><i class="bi bi-plus-lg"></i> Coluna</button>
             <button class="btn btn-sm btn-primary" onclick="openAddCardModal()"><i class="bi bi-plus-lg"></i> Card</button>
         </div>
@@ -41,6 +44,13 @@
                     $tempColors = ['frio' => '#3b82f6', 'morno' => '#f59e0b', 'quente' => '#ef4444'];
                     $tempColor = $tempColors[$card['lead_temperature'] ?? ''] ?? null;
                     $outcome = $card['lead_outcome'] ?? 'open';
+                    $prof = LeadOriginRules::profile([
+                        'lead_email' => $card['lead_email'] ?? null,
+                        'job_title' => $card['job_title'] ?? null,
+                        'company_name' => $card['company_name'] ?? null,
+                    ], [], $card['briefing_notes'] ?? null);
+                    $roleLine = implode(' · ', array_filter([$prof['job_title'], $prof['company']]));
+                    $originBadge = LeadOriginRules::originBadge($card['origin'] ?? null, $card['origin_detail'] ?? null);
                     ?>
                     <div class="crm-card outcome-<?= $outcome ?>" data-card-id="<?= $card['id'] ?>" onclick="openCardDetail(<?= $card['id'] ?>)">
                         <div class="crm-card-title">
@@ -49,7 +59,13 @@
                             <?php endif; ?>
                             <?= escape($displayName) ?>
                         </div>
+                        <?php if ($roleLine !== ''): ?>
+                        <div class="crm-card-role text-truncate" title="<?= escape($roleLine) ?>"><i class="bi bi-briefcase"></i> <?= escape($roleLine) ?></div>
+                        <?php endif; ?>
                         <div class="d-flex gap-1 flex-wrap mb-1">
+                            <?php if ($originBadge): ?>
+                            <span class="badge crm-origin-badge" style="background:<?= $originBadge['color'] ?>;" title="<?= escape($originBadge['label']) ?>"><i class="bi bi-<?= $originBadge['icon'] ?>"></i> <?= escape($originBadge['short']) ?></span>
+                            <?php endif; ?>
                             <?php if (!empty($card['label_name'])): ?>
                             <span class="badge" style="background:<?= escape($card['label_color'] ?? '#6c757d') ?>;font-size:0.62rem;"><?= escape($card['label_name']) ?></span>
                             <?php endif; ?>
@@ -68,6 +84,11 @@
                         <?php if ($card['phone']): ?>
                         <div class="crm-card-phone">
                             <i class="bi bi-telephone"></i> <?= escape($card['phone']) ?>
+                        </div>
+                        <?php endif; ?>
+                        <?php if (!empty($prof['email'])): ?>
+                        <div class="crm-card-phone text-truncate" title="<?= escape($prof['email']) ?>">
+                            <i class="bi bi-envelope"></i> <?= escape($prof['email']) ?>
                         </div>
                         <?php endif; ?>
                         <div class="crm-card-footer">
@@ -255,6 +276,7 @@
                 <div class="tab-pane fade show active" id="tab-card-details">
                 <div class="row g-3">
                     <div class="col-md-8">
+                        <div id="card-lead-profile" class="card-lead-profile mb-3" style="display:none;"></div>
                         <div class="mb-3">
                             <label class="form-label small fw-medium">Título</label>
                             <input type="text" id="card-title" class="form-control form-control-sm">
@@ -352,6 +374,18 @@
 
 <style>
 .crm-kanban-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 10px; }
+.crm-card-role { font-size: 0.72rem; color: #6c757d; margin: -2px 0 4px; }
+.crm-origin-badge { font-size: 0.62rem; color: #fff; }
+.card-lead-profile { border: 1px solid #e3e8ee; border-radius: 10px; padding: 10px 12px; background: #f8fbff; }
+.card-lead-profile .clp-title { font-size: 0.78rem; font-weight: 700; color: #495057; }
+.card-lead-profile .badge { font-size: 0.68rem; white-space: normal; text-align: left; }
+.clp-grid { display: grid; grid-template-columns: max-content 1fr; gap: 3px 12px; font-size: 0.82rem; }
+.clp-grid dt { font-weight: 500; color: #6c757d; }
+.clp-grid dd { margin: 0; word-break: break-word; min-width: 0; }
+@media (max-width: 575.98px) {
+    .clp-grid { grid-template-columns: 1fr; gap: 0; }
+    .clp-grid dd { margin-bottom: 5px; }
+}
 .briefing-view-item { padding: 8px 0; border-bottom: 1px solid #f0f0f0; }
 .briefing-view-item:last-child { border-bottom: none; }
 .briefing-view-label { font-size: 0.72rem; color: #888; text-transform: uppercase; letter-spacing: 0.3px; }
@@ -597,9 +631,41 @@ function openCardDetail(cardId) {
         }
 
         renderBriefing(data.briefing);
+        renderLeadProfile(data.profile || {}, data.origin || null);
 
         new bootstrap.Modal(document.getElementById('cardDetailModal')).show();
     });
+}
+
+// Dados do lead (e-mail, cargo, empresa, LinkedIn...) e origem, no topo do card.
+function renderLeadProfile(p, origin) {
+    const box = document.getElementById('card-lead-profile');
+    if (!box) return;
+    const esc = (s) => escapeHtmlSafe(String(s ?? ''));
+    const safeUrl = (u) => {
+        u = String(u || '').trim();
+        if (!u) return '';
+        if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
+        return /^https?:\/\/[^\s"'<>]+$/i.test(u) ? u : '';
+    };
+    const rows = [];
+    if (p.email) rows.push(['envelope', 'E-mail', `<a href="mailto:${esc(p.email)}">${esc(p.email)}</a>`]);
+    if (p.phone) rows.push(['telephone', 'Telefone', esc(p.phone)]);
+    if (p.job_title) rows.push(['briefcase', 'Cargo', esc(p.job_title)]);
+    if (p.company) rows.push(['building', 'Empresa', esc(p.company)]);
+    if (p.linkedin) { const u = safeUrl(p.linkedin); rows.push(['linkedin', 'LinkedIn', u ? `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(p.linkedin.replace(/^https?:\/\/(www\.)?/i, ''))}</a>` : esc(p.linkedin)]); }
+    if (p.website) { const u = safeUrl(p.website); rows.push(['globe', 'Site', u ? `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(p.website.replace(/^https?:\/\/(www\.)?/i, ''))}</a>` : esc(p.website)]); }
+    if (p.location) rows.push(['geo-alt', 'Local', esc(p.location)]);
+    if (!rows.length && !origin) { box.style.display = 'none'; box.innerHTML = ''; return; }
+    box.innerHTML =
+        `<div class="d-flex justify-content-between align-items-center flex-wrap gap-1 mb-1">
+            <span class="clp-title"><i class="bi bi-person-vcard"></i> Dados do lead</span>
+            ${origin ? `<span class="badge" style="background:${esc(origin.color)};" id="card-origin-badge"><i class="bi bi-${esc(origin.icon)}"></i> ${esc(origin.label)}</span>` : ''}
+         </div>` +
+        (rows.length
+            ? `<dl class="clp-grid mb-0">${rows.map(r => `<dt><i class="bi bi-${r[0]}"></i> ${r[1]}</dt><dd>${r[2]}</dd>`).join('')}</dl>`
+            : '<div class="small text-muted">Sem e-mail, cargo ou empresa cadastrados.</div>');
+    box.style.display = '';
 }
 
 function renderBriefing(b) {
@@ -871,5 +937,7 @@ function formatTime(datetime) {
     return d.getDate().toString().padStart(2,'0') + '/' + (d.getMonth()+1).toString().padStart(2,'0') + ' ' + d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0');
 }
 </script>
+
+<?php if (in_array($user['role'] ?? '', ['super_admin', 'comercial'], true)) { $importDefaultBoardId = (int) $board['id']; require APP_PATH . '/views/crm/_import_sheet_modal.php'; } ?>
 
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>

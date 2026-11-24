@@ -1454,11 +1454,31 @@ class CrmController extends Controller
 
         // Briefing comercial do contato vinculado (se houver)
         $briefing = null;
+        $apollo = [];
         if (!empty($card['contact_id'])) {
             $briefing = (new WhatsappContact())->getBriefing($card['contact_id']);
+            try {
+                $apollo = Database::getInstance()->fetch(
+                    "SELECT title, organization_name, organization_website, linkedin_url, email, phone, city, state, country
+                     FROM apollo_leads WHERE contact_id = ? ORDER BY id DESC LIMIT 1",
+                    [$card['contact_id']]
+                ) ?: [];
+            } catch (\Throwable $e) { $apollo = []; }
         }
 
-        $this->json(['card' => $card, 'activities' => $activities, 'briefing' => $briefing ?: null]);
+        // Dados do lead (e-mail, cargo, empresa, LinkedIn...) e origem do card,
+        // para aparecerem no card em vez de só nas observações do briefing.
+        $contactData = [
+            'lead_email' => $card['lead_email'] ?? null,
+            'phone' => ($card['contact_phone'] ?? null) ?: ($card['phone'] ?? null),
+            'job_title' => $card['job_title'] ?? null,
+            'company_name' => $card['company_name'] ?? null,
+            'linkedin_url' => $card['linkedin_url'] ?? null,
+        ];
+        $profile = LeadOriginRules::profile($contactData, $apollo, $card['briefing_notes'] ?? ($briefing['notes'] ?? null));
+        $origin = LeadOriginRules::originBadge($card['origin'] ?? null, $card['origin_detail'] ?? null);
+
+        $this->json(['card' => $card, 'activities' => $activities, 'briefing' => $briefing ?: null, 'profile' => $profile, 'origin' => $origin]);
     }
 
     /**
@@ -3039,6 +3059,7 @@ class CrmController extends Controller
                 'phone' => $lead['phone'] ?? null,
                 'linkedin_url' => $lead['linkedin_url'] ?? null,
                 'company' => $lead['organization_name'] ?? null,
+                'job_title' => $lead['title'] ?? null,
                 'source' => 'apollo',
                 'assigned_to' => $user['id'],
                 'briefing' => [
@@ -3051,7 +3072,7 @@ class CrmController extends Controller
                 $this->json(['error' => 'Não há uma instância de WhatsApp cadastrada para vincular os leads. Conecte o WhatsApp antes de importar.'], 400);
             }
 
-            // Board opcional: cria card na coluna escolhida
+            // Board: cria card na coluna escolhida, marcado como prospecção manual.
             if ($columnId) {
                 $this->boardModel->createCard([
                     'column_id' => $columnId,
@@ -3059,6 +3080,8 @@ class CrmController extends Controller
                     'contact_id' => $contactId,
                     'created_by' => $user['id'],
                     'assigned_to' => $user['id'],
+                    'origin' => LeadOriginRules::MANUAL,
+                    'origin_detail' => $user['name'] ?? null,
                 ]);
             }
 
@@ -3083,6 +3106,123 @@ class CrmController extends Controller
         }
 
         $this->json(['success' => true, 'imported' => $imported, 'skipped' => $skipped]);
+    }
+
+    /**
+     * Baixa a planilha modelo para importar leads (CSV que abre no Excel).
+     * GET crm/leadsSheetTemplate
+     */
+    public function leadsSheetTemplate()
+    {
+        $this->requireRole(['super_admin', 'comercial']);
+        header('Content-Type: text/csv; charset=UTF-8');
+        header('Content-Disposition: attachment; filename="modelo-importacao-leads.csv"');
+        header('Cache-Control: no-store');
+        echo LeadImportRules::templateCsv();
+        exit;
+    }
+
+    /**
+     * Importa leads de uma planilha (.csv ou .xlsx): modelo do sistema ou a
+     * exportação de contatos do Apollo. Cria/atualiza o lead em Meus Leads e o
+     * card no CRM (coluna escolhida), marcado como "Importado de planilha".
+     * POST crm/importLeadsSheet  (multipart) file, column_id, assigned_to?, sequence_id?
+     */
+    public function importLeadsSheet()
+    {
+        $this->requireRole(['super_admin', 'comercial']);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        @set_time_limit(300);
+        $user = $this->currentUser();
+
+        $file = $_FILES['file'] ?? null;
+        if (!$file || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || !is_uploaded_file($file['tmp_name'])) {
+            $this->json(['error' => 'Selecione a planilha (.csv ou .xlsx).'], 400);
+        }
+        if ((int) $file['size'] > 5 * 1024 * 1024) $this->json(['error' => 'Arquivo muito grande (máx. 5 MB).'], 400);
+        $ext = strtolower(pathinfo((string) $file['name'], PATHINFO_EXTENSION));
+        if (!in_array($ext, ['csv', 'txt', 'xlsx'], true)) {
+            $this->json(['error' => 'Formato não aceito. Use .csv ou .xlsx (no Excel: Arquivo > Salvar como).'], 400);
+        }
+
+        $columnId = !empty($_POST['column_id']) ? (int) $_POST['column_id'] : 0;
+        $column = $columnId ? $this->boardModel->findColumn($columnId) : null;
+        if (!$column) $this->json(['error' => 'Selecione o board e a coluna do CRM onde os leads vão entrar.'], 400);
+
+        // Responsável: comercial importa para si; super_admin pode escolher alguém do comercial.
+        $ownerId = (int) $user['id'];
+        if (($user['role'] ?? '') === 'super_admin' && !empty($_POST['assigned_to'])) {
+            $owner = Database::getInstance()->fetch(
+                "SELECT id FROM users WHERE id = ? AND role IN ('super_admin','comercial') AND is_active = 1",
+                [(int) $_POST['assigned_to']]
+            );
+            if (!$owner) $this->json(['error' => 'Responsável inválido.'], 400);
+            $ownerId = (int) $owner['id'];
+        }
+        $sequenceId = !empty($_POST['sequence_id']) ? (int) $_POST['sequence_id'] : 0;
+
+        $rows = $ext === 'xlsx'
+            ? LeadImportRules::parseXlsx($file['tmp_name'])
+            : LeadImportRules::parseCsv((string) file_get_contents($file['tmp_name']));
+        if ($rows === null) $this->json(['error' => 'Não foi possível ler o arquivo .xlsx. Salve como CSV e tente de novo.'], 400);
+
+        $parsed = LeadImportRules::extract($rows);
+        if ($parsed['missing_headers']) {
+            $this->json(['error' => 'Não encontrei as colunas de Nome e de contato (E-mail, Telefone ou LinkedIn). Use a planilha modelo ou a exportação do Apollo.'], 400);
+        }
+        if (!$parsed['leads'] && !$parsed['errors']) $this->json(['error' => 'A planilha está vazia.'], 400);
+
+        $fileName = mb_substr(basename((string) $file['name']), 0, 120);
+        $resolver = new LeadResolver();
+        $engine = $sequenceId ? new SequenceEngine() : null;
+        $db = Database::getInstance();
+        $res = ['created' => 0, 'existing' => 0, 'cards' => 0, 'enrolled' => 0,
+                'errors' => $parsed['errors'], 'warnings' => $parsed['warnings']];
+
+        foreach ($parsed['leads'] as $lead) {
+            try {
+                $contactId = $resolver->resolve([
+                    'name' => $lead['name'],
+                    'email' => $lead['email'],
+                    'phone' => $lead['phone'],
+                    'linkedin_url' => $lead['linkedin'],
+                    'company' => $lead['company'],
+                    'job_title' => $lead['job_title'],
+                    'source' => 'import',
+                    'assigned_to' => $ownerId,
+                    'briefing' => ['notes' => LeadImportRules::briefingNotes($lead)],
+                ], $user['id']);
+                if (!$contactId) {
+                    $this->json(['error' => 'Não há uma instância de WhatsApp cadastrada para vincular os leads. Conecte o WhatsApp antes de importar.'] + $res, 400);
+                }
+                $resolver->lastWasCreated ? $res['created']++ : $res['existing']++;
+
+                // Um card por lead: não duplica se o lead já está no CRM.
+                if (!$db->fetch("SELECT id FROM crm_cards WHERE contact_id = ? LIMIT 1", [$contactId])) {
+                    $this->boardModel->createCard([
+                        'column_id' => $columnId,
+                        'title' => $lead['name'],
+                        'contact_id' => $contactId,
+                        'phone' => $lead['phone'],
+                        'created_by' => $user['id'],
+                        'assigned_to' => $ownerId,
+                        'origin' => LeadOriginRules::SHEET,
+                        'origin_detail' => $fileName,
+                    ]);
+                    $res['cards']++;
+                }
+                if ($engine) {
+                    $r = $engine->enroll($sequenceId, $contactId, $user['id']);
+                    if (!empty($r['success'])) $res['enrolled']++;
+                }
+            } catch (\Throwable $e) {
+                Logger::error('importLeadsSheet', ['line' => $lead['line'], 'error' => $e->getMessage()]);
+                $res['errors'][] = ['line' => $lead['line'], 'message' => 'Erro ao gravar: ' . $e->getMessage()];
+            }
+        }
+
+        usort($res['errors'], fn($a, $b) => $a['line'] <=> $b['line']);
+        $this->json(['success' => true] + $res);
     }
 
     /**

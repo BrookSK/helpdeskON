@@ -22,7 +22,10 @@ $sourceLabels = [
             <h5 class="mb-0"><i class="bi bi-person-lines-fill"></i> <?= $isComercial ? 'Meus Leads' : 'Leads' ?></h5>
             <small class="text-muted"><?= $isComercial ? 'Leads atribuídos a você' : 'Todos os leads do sistema' ?></small>
         </div>
-        <a href="<?= baseUrl('crm') ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> CRM</a>
+        <div class="d-flex gap-2">
+            <button class="btn btn-sm btn-outline-success" onclick="openImportSheet()" id="btn-import-sheet"><i class="bi bi-file-earmark-spreadsheet"></i> Importar planilha</button>
+            <a href="<?= baseUrl('crm') ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> CRM</a>
+        </div>
     </div>
 
     <!-- Abas: Ativos / Arquivados -->
@@ -174,6 +177,7 @@ $sourceLabels = [
 </div>
 
 <?php require APP_PATH . '/views/crm/_lead_modal.php'; ?>
+<?php require APP_PATH . '/views/crm/_import_sheet_modal.php'; ?>
 
 <script>
 const BASE = '<?= baseUrl('') ?>';

@@ -141,8 +141,10 @@ class ApolloProspectingService
             'pages' => 0,
         ];
 
-        $filters = json_decode($camp['search_filters'] ?? '{}', true) ?: [];
         $icp = json_decode($camp['icp_rules'] ?? '{}', true) ?: [];
+        // A busca do Apollo não devolve seniority/porte: o que do ICP dá para o
+        // Apollo filtrar vai para a própria busca (ver ApolloIcpRules).
+        $filters = ApolloIcpRules::effectiveSearchFilters(json_decode($camp['search_filters'] ?? '{}', true) ?: [], $icp);
         $minScore = (int)($camp['min_score'] ?? 0);
         $perPage = min(100, max(10, (int)($camp['search_per_page'] ?? 50)));
         $leadModel = new ApolloLead();
@@ -169,8 +171,10 @@ class ApolloProspectingService
             $rp = is_array($res['data']['people'] ?? null) ? $res['data']['people'] : [];
             $rc = is_array($res['data']['contacts'] ?? null) ? $res['data']['contacts'] : [];
             $people = array_merge($rp, $rc);
-            $pagination = $res['data']['pagination'] ?? [];
-            $totalPages = (int)($pagination['total_pages'] ?? ($totalPages ?? 1));
+            // A busca nova informa total_entries (sem pagination.total_pages). Antes
+            // isso dava sempre 1 página: toda execução relia a página 1 e, depois da
+            // primeira captação, só encontrava duplicados.
+            $totalPages = ApolloIcpRules::totalPages(is_array($res['data'] ?? null) ? $res['data'] : [], $perPage);
             $m['pages']++;
             $m['searched'] += count($people);
             $this->logCampaign($camp['id'], 'searched', count($people) . ' candidatos (página ' . $page . ')');
@@ -191,10 +195,10 @@ class ApolloProspectingService
                 if (!$localId) continue;
 
                 // Filtro ICP sobre os dados da busca
-                if (!$this->matchesIcp($p, $icp)) { $m['out_of_icp']++; continue; }
+                if (!ApolloIcpRules::matchesIcp($p, $icp, $filters)) { $m['out_of_icp']++; continue; }
 
                 // Lead Score sobre os dados da busca
-                $score = $this->scoreProspect($p, $icp);
+                $score = ApolloIcpRules::score($p, $icp, $filters);
                 if ($score < $minScore) { $m['low_score']++; continue; }
 
                 $candidates[] = ['person' => $p, 'local_id' => $localId, 'score' => $score];
@@ -388,9 +392,10 @@ class ApolloProspectingService
         $name = $person['name'] ?? trim(($person['first_name'] ?? '') . ' ' . ($person['last_name'] ?? ''));
         $name = $name ?: ($org['name'] ?? 'Lead Apollo');
 
-        // REGRA DE PROPRIEDADE: todo lead NOVO captado automaticamente pela Apollo
-        // pertence ao Super Admin (sem round-robin, sem o criador, sem último responsável).
-        $superAdminId = $this->superAdminId();
+        // REGRA DE PROPRIEDADE: o lead NOVO pertence a quem toca a campanha
+        // (Responsável da campanha → quem criou → Super Admin). Antes ia sempre
+        // para o primeiro Super Admin e quem fazia a prospecção não via os leads.
+        $ownerId = LeadOriginRules::campaignLeadOwner($camp, $this->superAdminId());
 
         // Existe? (dedup central por e-mail revelado) — para preservar dono de lead já existente.
         $resolver = new LeadResolver();
@@ -398,15 +403,16 @@ class ApolloProspectingService
 
         // Cria/atualiza o Lead via LeadResolver (dedup central; nunca base paralela).
         // Passa e-mail e/ou telefone conforme disponível — o resolver deduplica por
-        // ambos. Só define assigned_to (Super Admin) quando o lead é NOVO.
+        // ambos. Só define assigned_to (dono da campanha) quando o lead é NOVO.
         $contactId = $resolver->resolve([
             'name' => $name,
             'email' => $emailIsReal ? $email : null,
             'phone' => $hasPhone ? $phone : null,
             'linkedin_url' => $person['linkedin_url'] ?? null,
             'company' => $org['name'] ?? null,
+            'job_title' => $person['title'] ?? null,
             'source' => 'apollo',
-            'assigned_to' => $preExistingId ? null : ($superAdminId ?: null),
+            'assigned_to' => $preExistingId ? null : ($ownerId ?: null),
             'briefing' => [
                 'need' => $org['industry'] ?? null,
                 'notes' => implode(' | ', $notesParts) ?: null,
@@ -415,10 +421,10 @@ class ApolloProspectingService
 
         if (!$contactId) return 'reveal_failed';
 
-        // Garante a atribuição ao Super Admin para leads NOVOS (mesmo que o resolver
-        // não a tenha aplicado). Nunca sobrescreve o dono de um lead pré-existente.
-        if (!$preExistingId && $superAdminId) {
-            $this->db->update('whatsapp_contacts', ['assigned_to' => $superAdminId], 'id = ? AND (assigned_to IS NULL OR assigned_to = 0)', [$contactId]);
+        // Garante a atribuição ao dono da campanha para leads NOVOS (mesmo que o
+        // resolver não a tenha aplicado). Nunca sobrescreve o dono de um lead pré-existente.
+        if (!$preExistingId && $ownerId) {
+            $this->db->update('whatsapp_contacts', ['assigned_to' => $ownerId], 'id = ? AND (assigned_to IS NULL OR assigned_to = 0)', [$contactId]);
         }
 
         // Vincula o staging ao lead do CRM + registra origem/campanha/ICP
@@ -429,7 +435,7 @@ class ApolloProspectingService
         (new LeadTimelineService())->add($contactId, 'origin',
             'Capturado via Apollo (campanha: ' . $camp['name'] . ')',
             ['score' => $score, 'campaign_id' => $camp['id'], 'icp' => json_decode($camp['icp_rules'] ?? '{}', true)]);
-        $this->logImported($camp['id'], $localId, $contactId, $name . ($preExistingId ? ' (existente)' : ' (novo → Super Admin)'));
+        $this->logImported($camp['id'], $localId, $contactId, $name . ($preExistingId ? ' (existente)' : ' (novo)'));
 
         // Board: cria card na coluna configurada (evita duplicar se já houver)
         if (!empty($camp['column_id'])) {
@@ -440,7 +446,9 @@ class ApolloProspectingService
                     'title' => $name,
                     'contact_id' => $contactId,
                     'created_by' => $camp['created_by'] ?: null,
-                    'assigned_to' => $preExistingId ? null : ($superAdminId ?: null),
+                    'assigned_to' => $preExistingId ? null : ($ownerId ?: null),
+                    'origin' => LeadOriginRules::AUTO,
+                    'origin_detail' => $camp['name'] ?? null,
                 ]);
             }
         }
@@ -780,77 +788,7 @@ class ApolloProspectingService
         return false;
     }
 
-    // ============ ICP + Score ============
-
-    /**
-     * Filtro ICP sobre os dados da busca (não gasta crédito).
-     * $icp: { seniorities:[], titles_any:[], employee_min, employee_max, countries:[], require_website:bool }
-     */
-    private function matchesIcp(array $person, array $icp)
-    {
-        if (empty($icp)) return true;
-        $org = $person['organization'] ?? [];
-
-        if (!empty($icp['seniorities'])) {
-            $sen = strtolower($person['seniority'] ?? '');
-            $ok = false;
-            foreach ($icp['seniorities'] as $s) if ($sen === strtolower($s)) { $ok = true; break; }
-            if (!$ok) return false;
-        }
-        if (!empty($icp['titles_any'])) {
-            $title = strtolower($person['title'] ?? '');
-            $ok = false;
-            foreach ($icp['titles_any'] as $t) if ($title !== '' && strpos($title, strtolower($t)) !== false) { $ok = true; break; }
-            if (!$ok) return false;
-        }
-        $emp = (int)($org['estimated_num_employees'] ?? 0);
-        if (!empty($icp['employee_min']) && $emp > 0 && $emp < (int)$icp['employee_min']) return false;
-        if (!empty($icp['employee_max']) && $emp > 0 && $emp > (int)$icp['employee_max']) return false;
-
-        if (!empty($icp['require_website']) && empty($org['website_url']) && empty($org['primary_domain'])) return false;
-
-        return true;
-    }
-
-    /**
-     * Lead Score sobre os dados da busca (configurável via icp_rules.score).
-     *
-     * Pesos padrão (rebalanceados para a fase de BUSCA, onde só há dados crus):
-     *   decisor +35, título-alvo +30, região +15, site +10, porte +10, tecnologia +0.
-     *
-     * Racional: seniority/título/região vêm quase sempre na People Search e são os
-     * sinais mais confiáveis, então concentram o peso. Porte (nº de funcionários)
-     * entra como bônus quando a busca o traz. Tecnologia praticamente nunca vem
-     * nesta fase (só no enrichment), por isso peso 0 — evita "matar" o score de
-     * bons leads. O total possível com dados confiáveis chega a ~100.
-     */
-    private function scoreProspect(array $person, array $icp)
-    {
-        $w = $icp['score'] ?? [];
-        $org = $person['organization'] ?? [];
-        $score = 0;
-
-        $sen = strtolower($person['seniority'] ?? '');
-        if (in_array($sen, ['owner', 'founder', 'c_suite', 'partner', 'vp', 'head', 'director'])) {
-            $score += (int)($w['decisor'] ?? 35);
-        }
-        if (!empty($icp['titles_any'])) {
-            $title = strtolower($person['title'] ?? '');
-            foreach ($icp['titles_any'] as $t) {
-                if ($title !== '' && strpos($title, strtolower($t)) !== false) { $score += (int)($w['title'] ?? 30); break; }
-            }
-        }
-        $emp = (int)($org['estimated_num_employees'] ?? 0);
-        if ($emp > 0 && (empty($icp['employee_min']) || $emp >= (int)$icp['employee_min'])
-            && (empty($icp['employee_max']) || $emp <= (int)$icp['employee_max'])) {
-            $score += (int)($w['size'] ?? 10);
-        }
-        if (!empty($person['country']) || !empty($org['country'])) $score += (int)($w['region'] ?? 15);
-        if (!empty($org['website_url']) || !empty($org['primary_domain'])) $score += (int)($w['website'] ?? 10);
-        if (!empty($org['technology_names'])) $score += (int)($w['technology'] ?? 0);
-
-        return $score;
-    }
+    // ICP + Score: ver ApolloIcpRules (regras puras, cobertas por teste).
 
     // ============ Helpers ============
 

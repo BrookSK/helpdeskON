@@ -23,6 +23,7 @@
             </span>
             <?php endif; ?>
             <span id="apollo-status-badge" class="badge bg-secondary"><i class="bi bi-hourglass"></i> Verificando…</span>
+            <button class="btn btn-sm btn-outline-success" onclick="openImportSheet()" id="btn-import-sheet" title="Importar contatos exportados do Apollo ou da planilha modelo"><i class="bi bi-file-earmark-spreadsheet"></i> Importar planilha</button>
             <a href="<?= baseUrl('crm/leads') ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-person-lines-fill"></i> Meus Leads</a>
         </div>
     </div>
@@ -222,7 +223,7 @@
                             <i class="bi bi-unlock"></i> Liberar dados
                         </button>
                         <button class="btn btn-sm btn-success" onclick="importSelected()">
-                            <i class="bi bi-download"></i> Enviar p/ Meus Leads (<span id="sel-count">0</span>)
+                            <i class="bi bi-download"></i> Enviar p/ CRM (<span id="sel-count">0</span>)
                         </button>
                     </div>
                 </div>
@@ -261,12 +262,14 @@
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header">
-                <h6 class="modal-title"><i class="bi bi-kanban"></i> Enviar para Meus Leads</h6>
+                <h6 class="modal-title"><i class="bi bi-kanban"></i> Enviar para o CRM</h6>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <p class="small text-muted mb-3">
-                    Todo lead puxado precisa ser atribuído a um board e uma coluna do CRM. Um card será criado automaticamente.
+                    O lead entra em Meus Leads e ganha um card no board e na coluna escolhidos, marcado como
+                    <span class="badge" style="background:#6f42c1;"><i class="bi bi-hand-index"></i> Manual</span>
+                    (os da captação automática aparecem como <span class="badge" style="background:#0d6efd;"><i class="bi bi-robot"></i> Automática</span>).
                 </p>
                 <input type="hidden" id="imp-ids">
                 <div class="mb-3">
@@ -328,4 +331,5 @@
 <?php endif; ?>
 
 <?php require APP_PATH . '/views/crm/_capture_script.php'; ?>
+<?php require APP_PATH . '/views/crm/_import_sheet_modal.php'; ?>
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>

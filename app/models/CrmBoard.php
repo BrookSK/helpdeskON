@@ -176,11 +176,21 @@ class CrmBoard
     // CARDS
     // =========================================
 
+    /** Colunas de perfil do contato (cargo/empresa/e-mail) para o card, conforme o schema. */
+    private function contactProfileSelect()
+    {
+        $sel = ", wc.lead_email";
+        $sel .= SchemaInfo::hasColumn('whatsapp_contacts', 'job_title') ? ", wc.job_title" : ", NULL AS job_title";
+        $sel .= SchemaInfo::hasColumn('whatsapp_contacts', 'company_name') ? ", wc.company_name" : ", NULL AS company_name";
+        $sel .= SchemaInfo::hasColumn('whatsapp_contacts', 'linkedin_url') ? ", wc.linkedin_url" : ", NULL AS linkedin_url";
+        return $sel;
+    }
+
     public function getCards($columnId)
     {
         return $this->db->fetchAll(
-            "SELECT c.*, u.name as assigned_name, wc.contact_name, wc.phone as contact_phone,
-                    cb.investment_range, cb.lead_temperature,
+            "SELECT c.*, u.name as assigned_name, wc.contact_name, wc.phone as contact_phone" . $this->contactProfileSelect() . ",
+                    cb.investment_range, cb.lead_temperature, cb.notes AS briefing_notes,
                     l.name as label_name, l.color as label_color
              FROM crm_cards c
              LEFT JOIN users u ON c.assigned_to = u.id
@@ -212,8 +222,8 @@ class CrmBoard
     {
         return $this->db->fetch(
             "SELECT c.*, col.name as column_name, col.board_id,
-                    u.name as assigned_name, wc.contact_name, wc.phone as contact_phone,
-                    wc.remote_jid, cb.investment_range
+                    u.name as assigned_name, wc.contact_name, wc.phone as contact_phone" . $this->contactProfileSelect() . ",
+                    wc.remote_jid, cb.investment_range, cb.notes AS briefing_notes
              FROM crm_cards c
              JOIN crm_columns col ON c.column_id = col.id
              LEFT JOIN users u ON c.assigned_to = u.id
@@ -232,6 +242,12 @@ class CrmBoard
             [$data['column_id']]
         );
         $data['position'] = ($last['max_pos'] ?? -1) + 1;
+
+        // Origem do card (migration 174): só grava se as colunas existirem.
+        foreach (['origin', 'origin_detail'] as $col) {
+            if (array_key_exists($col, $data) && !SchemaInfo::hasColumn('crm_cards', $col)) unset($data[$col]);
+        }
+        if (isset($data['origin_detail'])) $data['origin_detail'] = mb_substr((string) $data['origin_detail'], 0, 190);
 
         $cardId = $this->db->insert('crm_cards', $data);
 

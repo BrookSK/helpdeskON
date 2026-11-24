@@ -368,7 +368,7 @@ function personRow(p) {
         if (!revealed) {
             actions += `<button class="btn btn-outline-success" title="Liberar dados (e-mail e telefone)" onclick="revealOne(${p.local_id}, this)"><i class="bi bi-unlock"></i> Liberar</button>`;
         }
-        actions += `<button class="btn btn-success" title="Enviar p/ Meus Leads" onclick="importOne(${p.local_id}, this)"><i class="bi bi-download"></i></button>`;
+        actions += `<button class="btn btn-success" title="Enviar p/ CRM (Meus Leads + card no board)" onclick="importOne(${p.local_id}, this)"><i class="bi bi-download"></i></button>`;
     } else {
         // Já em Meus Leads: se ainda não tem e-mail revelado, permite liberar agora
         // (o e-mail/telefone é propagado ao lead do CRM e o habilita p/ captação automática).
@@ -703,7 +703,7 @@ function confirmImport(btn) {
             selected.clear();
             updateBulkBar();
             getImportModal().hide();
-            alert(`${d.imported} lead(s) enviado(s) para Meus Leads e adicionado(s) ao board.` + (d.skipped ? ` ${d.skipped} ignorado(s).` : ''));
+            alert(`${d.imported} lead(s) enviado(s) para o CRM: estão em Meus Leads e com card no board escolhido (marcados como "Manual").` + (d.skipped ? ` ${d.skipped} ignorado(s).` : ''));
         })
         .catch(() => { btn.disabled = false; btn.innerHTML = original; alert('Erro ao importar.'); });
 }
