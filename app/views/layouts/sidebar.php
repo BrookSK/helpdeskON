@@ -216,6 +216,11 @@
                 </a>
             </li>
             <li class="nav-item">
+                <a class="nav-link <?= ($currentPage ?? '') === 'prospection_templates' ? 'active' : '' ?>" href="<?= baseUrl('prospection/templates') ?>">
+                    <i class="bi bi-file-earmark-richtext"></i> Templates
+                </a>
+            </li>
+            <li class="nav-item">
                 <a class="nav-link <?= ($currentPage ?? '') === 'prospection_inbox' ? 'active' : '' ?>" href="<?= baseUrl('prospection/inbox') ?>">
                     <i class="bi bi-inbox"></i> Caixa de Entrada
                 </a>

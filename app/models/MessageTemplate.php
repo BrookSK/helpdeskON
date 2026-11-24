@@ -45,6 +45,49 @@ class MessageTemplate
     }
 
     /**
+     * Valida e normaliza os campos de um template vindos do formulário.
+     * E-mail: corpo HTML formatado (limpo de script/eventos). WhatsApp/LinkedIn:
+     * texto puro (se vier HTML colado, vira texto).
+     * @return array dados prontos para gravar, ou ['error' => mensagem]
+     */
+    public static function normalizeInput(array $in): array
+    {
+        $channel = in_array($in['channel'] ?? '', ['email', 'whatsapp', 'linkedin'], true) ? $in['channel'] : 'email';
+        $name = trim((string) ($in['name'] ?? ''));
+        $body = (string) ($in['body'] ?? '');
+        $subject = trim((string) ($in['subject'] ?? ''));
+
+        if ($channel === 'email') {
+            $body = EmailHtmlRules::isHtml($body) ? EmailHtmlRules::sanitize($body) : $body;
+            $plain = trim(html_entity_decode(strip_tags(str_replace(['<br>', '<br/>', '<br />'], "\n", $body)), ENT_QUOTES, 'UTF-8'));
+        } else {
+            if (EmailHtmlRules::isHtml($body)) {
+                $body = preg_replace('#<br\s*/?>|</p>\s*#i', "\n", $body);
+                $body = html_entity_decode(strip_tags($body), ENT_QUOTES, 'UTF-8');
+            }
+            $body = trim($body);
+            $plain = $body;
+        }
+        if ($name === '' || $plain === '') return ['error' => 'Informe o nome e o conteúdo do template.'];
+
+        return [
+            'channel' => $channel,
+            'name' => mb_substr($name, 0, 150),
+            'subject' => ($channel === 'email' && $subject !== '') ? mb_substr($subject, 0, 250) : null,
+            'body' => $body,
+        ];
+    }
+
+    /** Lead de exemplo para a pré-visualização dos templates. */
+    public static function sampleContact(): array
+    {
+        return [
+            'contact_name' => 'Maria Souza', 'lead_email' => 'maria@empresaexemplo.com.br', 'phone' => '(41) 99999-0000',
+            'company' => 'Empresa Exemplo', 'job_title' => 'Diretora Comercial', 'linkedin_url' => 'https://www.linkedin.com/in/maria-souza',
+        ];
+    }
+
+    /**
      * Substitui as variáveis do template pelos dados do contato.
      * $contact: array com contact_name/push_name, lead_email; $company opcional.
      * As variáveis extras (cargo, cidade, empresa, setor, linkedin) são lidas do
@@ -53,7 +96,23 @@ class MessageTemplate
     public static function render($text, $contact = [], $company = null)
     {
         if (strpos((string) $text, '{{') === false) return (string) $text;
+        return strtr((string) $text, self::variables($contact, $company));
+    }
 
+    /**
+     * Igual ao render(), para corpo HTML: os valores do lead são escapados
+     * (um nome com "<" ou "&" não quebra o HTML do e-mail).
+     */
+    public static function renderHtml($html, $contact = [], $company = null)
+    {
+        if (strpos((string) $html, '{{') === false) return (string) $html;
+        $vars = array_map(fn($v) => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'), self::variables($contact, $company));
+        return strtr((string) $html, $vars);
+    }
+
+    /** Mapa {{variável}} => valor, a partir do contato. */
+    private static function variables($contact = [], $company = null)
+    {
         $name = $contact['contact_name'] ?? ($contact['push_name'] ?? ($contact['name'] ?? ''));
         $first = trim(explode(' ', trim($name))[0] ?? '');
         $email = $contact['lead_email'] ?? ($contact['email'] ?? '');
@@ -71,19 +130,19 @@ class MessageTemplate
         // caindo para o valor do briefing quando ausente.
         $linkedin = !empty($contact['linkedin_url']) ? $contact['linkedin_url'] : $extra['linkedin'];
 
-        return strtr((string) $text, [
+        return [
             '{{nome}}' => $name,
             '{{primeiro_nome}}' => $first,
             '{{email}}' => $email,
             '{{telefone}}' => $phone,
-            '{{empresa}}' => $company ?? ($contact['company'] ?? $extra['empresa']),
-            '{{cargo}}' => $extra['cargo'],
+            '{{empresa}}' => $company ?? ($contact['company'] ?? (!empty($contact['company_name']) ? $contact['company_name'] : $extra['empresa'])),
+            '{{cargo}}' => !empty($contact['job_title']) ? $contact['job_title'] : $extra['cargo'],
             '{{cidade}}' => $extra['cidade'],
             '{{estado}}' => $extra['estado'],
             '{{setor}}' => $extra['setor'],
             '{{linkedin}}' => $linkedin,
             '{{remetente_nome}}' => $sender,
-        ]);
+        ];
     }
 
     /**

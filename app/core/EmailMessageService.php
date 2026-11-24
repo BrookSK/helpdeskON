@@ -131,7 +131,9 @@ class EmailMessageService
         $account = $params['account'];
         $to = trim($params['to']);
         $subject = trim($params['subject']);
-        $body = $params['body_html'];
+        // Texto puro vira parágrafos e a formatação do editor vira estilo inline
+        // (o layout e a assinatura entram na camada SMTP, EmailProspection::sendEmail).
+        $body = EmailHtmlRules::prepareBody($params['body_html']);
         $origin = $params['origin'] ?? 'manual';
 
         // Assinatura padrão: anexada quando add_signature=true (ex.: e-mails de

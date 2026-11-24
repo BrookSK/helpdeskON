@@ -154,5 +154,6 @@
 </div>
 
 <?php require APP_PATH . '/views/layouts/_var_picker.php'; ?>
+<?php require APP_PATH . '/views/layouts/_rich_editor.php'; ?>
 <?php require APP_PATH . '/views/sequences/_editor_script.php'; ?>
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>

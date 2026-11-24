@@ -460,17 +460,9 @@ class SequencesController extends Controller
 
         $user = $this->currentUser();
         $id = intval($_POST['id'] ?? 0);
-        $channel = in_array($_POST['channel'] ?? '', ['email', 'whatsapp', 'linkedin']) ? $_POST['channel'] : 'email';
-        $name = trim($_POST['name'] ?? '');
-        $body = $_POST['body'] ?? '';
-        if ($name === '' || trim($body) === '') $this->json(['error' => 'Informe nome e conteúdo do template.'], 400);
-
-        $data = [
-            'channel' => $channel,
-            'name' => $name,
-            'subject' => ($channel === 'email') ? (trim($_POST['subject'] ?? '') ?: null) : null,
-            'body' => $body,
-        ];
+        // Mesma validação/limpeza da tela de Templates (prospection/templates).
+        $data = MessageTemplate::normalizeInput($_POST);
+        if (isset($data['error'])) $this->json(['error' => $data['error']], 400);
         $model = new MessageTemplate();
         if ($id) {
             $model->update($id, $data);

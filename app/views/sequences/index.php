@@ -38,7 +38,7 @@
 
     <ul class="nav nav-pills seq-tabs mb-3" id="seq-tabs">
         <li class="nav-item"><button class="nav-link active" data-tab="sequences" onclick="switchSeqTab('sequences')"><i class="bi bi-diagram-3"></i> Sequências</button></li>
-        <li class="nav-item"><button class="nav-link" data-tab="templates" onclick="switchSeqTab('templates')"><i class="bi bi-file-earmark-text"></i> Templates</button></li>
+        <li class="nav-item"><a class="nav-link" href="<?= baseUrl('prospection/templates') ?>"><i class="bi bi-file-earmark-richtext"></i> Templates</a></li>
     </ul>
     <style>
     .seq-tabs .nav-link { color:#555; font-size:0.85rem; border-radius:8px; }

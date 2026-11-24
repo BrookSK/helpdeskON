@@ -48,6 +48,95 @@ class ProspectionController extends Controller
         ]);
     }
 
+    // =====================================================
+    // TEMPLATES DE MENSAGEM (tela própria)
+    // =====================================================
+
+    /** Tela de templates (e-mail, WhatsApp, LinkedIn). GET prospection/templates */
+    public function templates()
+    {
+        $this->requireRole($this->accessRoles);
+        $this->view('prospection/templates', ['user' => $this->currentUser()]);
+    }
+
+    /** Lista de templates. GET prospection/templateList?channel= */
+    public function templateList()
+    {
+        $this->requireRole($this->accessRoles);
+        $channel = in_array($_GET['channel'] ?? '', ['email', 'whatsapp', 'linkedin'], true) ? $_GET['channel'] : null;
+        $rows = (new MessageTemplate())->all($channel);
+        $this->json(['templates' => $rows]);
+    }
+
+    /** Cria/atualiza. POST prospection/templateSave  id?, channel, name, subject, body */
+    public function templateSave()
+    {
+        $this->requireRole($this->accessRoles);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $user = $this->currentUser();
+        $id = (int) ($_POST['id'] ?? 0);
+        $data = MessageTemplate::normalizeInput($_POST);
+        if (isset($data['error'])) $this->json(['error' => $data['error']], 400);
+
+        $model = new MessageTemplate();
+        if ($id) {
+            if (!$model->findById($id)) $this->json(['error' => 'Template não encontrado.'], 404);
+            $model->update($id, $data);
+        } else {
+            $data['created_by'] = $user['id'];
+            $id = (int) $model->create($data);
+        }
+        $this->json(['success' => true, 'id' => $id, 'template' => $model->findById($id)]);
+    }
+
+    /** Exclui. POST prospection/templateDelete/{id} */
+    public function templateDelete($id = null)
+    {
+        $this->requireRole($this->accessRoles);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
+        (new MessageTemplate())->delete((int) $id);
+        $this->json(['success' => true]);
+    }
+
+    /**
+     * Pré-visualização do e-mail como chega para o lead: variáveis trocadas (lead
+     * escolhido ou dados de exemplo), formatação, assinatura e layout do sistema.
+     * POST prospection/templatePreview  subject, body, contact_id?, account_id?
+     */
+    public function templatePreview()
+    {
+        $this->requireRole($this->accessRoles);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        $user = $this->currentUser();
+        $db = Database::getInstance();
+
+        $contact = null;
+        if (!empty($_POST['contact_id'])) {
+            $contact = $db->fetch("SELECT * FROM whatsapp_contacts WHERE id = ?", [(int) $_POST['contact_id']]);
+        }
+        $note = $contact
+            ? 'Variáveis preenchidas com os dados de ' . ($contact['contact_name'] ?: 'lead') . '.'
+            : 'Variáveis preenchidas com dados de exemplo. No envio, entram os dados de cada lead.';
+        $vars = $contact ?: MessageTemplate::sampleContact();
+
+        // Conta de envio (assinatura do domínio). Sem conta: assinatura padrão.
+        $account = null;
+        if (!empty($_POST['account_id'])) $account = $this->accountModel->findById((int) $_POST['account_id']);
+        if (!$account) {
+            $accs = $this->accountModel->getByUser($user['id']);
+            $account = $accs[0] ?? null;
+        }
+        if ($account && !empty($account['display_name'])) $vars['remetente_nome'] = $account['display_name'];
+
+        $subject = MessageTemplate::render((string) ($_POST['subject'] ?? ''), $vars);
+        $raw = (string) ($_POST['body'] ?? '');
+        $body = EmailHtmlRules::isHtml($raw) ? MessageTemplate::renderHtml($raw, $vars) : MessageTemplate::render($raw, $vars);
+        // Mesmo caminho do envio real (formatação + assinatura + layout).
+        $html = EmailProspection::buildHtml($body, $account);
+
+        $this->json(['success' => true, 'subject' => $subject, 'html' => $html, 'note' => $note]);
+    }
+
     /**
      * API: Enviar e-mail de prospecção.
      */
@@ -112,6 +201,18 @@ class ProspectionController extends Controller
                 ], $user['id']);
             }
         }
+
+        // Variáveis ({{primeiro_nome}}, {{empresa}}, {{cargo}}...) substituídas com os
+        // dados do lead no servidor (antes só algumas eram trocadas na tela e
+        // {{empresa}} saía vazia). Corpo HTML com valores escapados.
+        $leadVars = ['lead_email' => $recipientEmail, 'contact_name' => $recipientName ?: ''];
+        if ($contactId) {
+            $row = Database::getInstance()->fetch("SELECT * FROM whatsapp_contacts WHERE id = ?", [$contactId]);
+            if ($row) $leadVars = array_merge($row, array_filter($leadVars, fn($v) => $v !== ''));
+        }
+        if (!empty($account['display_name'])) $leadVars['remetente_nome'] = $account['display_name'];
+        $subject = MessageTemplate::render($subject, $leadVars);
+        $body = EmailHtmlRules::isHtml($body) ? MessageTemplate::renderHtml($body, $leadVars) : MessageTemplate::render($body, $leadVars);
 
         // A assinatura padrão é aplicada centralmente na camada de envio SMTP
         // (EmailProspection::sendEmail), de forma idempotente. Não concatenar aqui.

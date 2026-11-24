@@ -67,9 +67,12 @@
                             </div>
 
                             <!-- Template -->
-                            <?php if (!empty($templates)): ?>
                             <div class="col-12">
-                                <label class="form-label small fw-medium">Template <small class="text-muted">(preenche assunto e mensagem — você pode editar)</small></label>
+                                <div class="d-flex justify-content-between align-items-end">
+                                    <label class="form-label small fw-medium mb-1">Template <small class="text-muted">(preenche assunto e mensagem — você pode editar)</small></label>
+                                    <a href="<?= baseUrl('prospection/templates') ?>" class="small mb-1" id="pf-manage-templates"><i class="bi bi-pencil-square"></i> Criar / editar templates</a>
+                                </div>
+                                <?php if (!empty($templates)): ?>
                                 <select id="pf-template" class="form-select form-select-sm" onchange="applyEmailTemplate(this.value)">
                                     <option value="">— nenhum —</option>
                                     <?php foreach ($templates as $t): ?>
@@ -78,8 +81,10 @@
                                         data-body="<?= escape($t['body']) ?>"><?= escape($t['name']) ?></option>
                                     <?php endforeach; ?>
                                 </select>
+                                <?php else: ?>
+                                <div class="small text-muted">Nenhum template de e-mail ainda.</div>
+                                <?php endif; ?>
                             </div>
-                            <?php endif; ?>
 
                             <!-- Assunto -->
                             <div class="col-12">
@@ -92,7 +97,10 @@
                                 <label class="form-label small fw-medium">Mensagem *</label>
                                 <div id="pf-var-chips" class="mb-1"></div>
                                 <div id="pf-editor" style="min-height:200px;"></div>
-                                <small class="text-muted">Clique numa variável para inserir. Botão direito no assunto também insere variáveis.</small>
+                                <div class="d-flex justify-content-between flex-wrap gap-1 mt-1">
+                                    <small class="text-muted">Clique numa variável para inserir. As variáveis são trocadas pelos dados do lead no envio.</small>
+                                    <button type="button" class="btn btn-sm btn-outline-primary py-0" id="pf-preview" onclick="previewProspection()"><i class="bi bi-eye"></i> Ver como chega</button>
+                                </div>
                             </div>
 
                             <!-- Anexos -->
@@ -189,51 +197,23 @@
     <?php endif; ?>
 </div>
 
-<!-- Quill Editor CSS/JS -->
-<link href="https://cdn.quilljs.com/1.3.7/quill.snow.css" rel="stylesheet">
-<script src="https://cdn.quilljs.com/1.3.7/quill.min.js"></script>
+<?php require APP_PATH . '/views/layouts/_rich_editor.php'; ?>
 
 <script>
 const BASE = '<?= baseUrl("") ?>';
 let quill = null;
+let pfEditor = null;
 
 document.addEventListener('DOMContentLoaded', function() {
-    // Inicializar editor rich text
+    // Editor formatado (mesmo da tela de Templates e das sequências), com as variáveis.
     const editorEl = document.getElementById('pf-editor');
     if (editorEl) {
-        quill = new Quill('#pf-editor', {
-            theme: 'snow',
-            placeholder: 'Escreva sua mensagem...',
-            modules: {
-                toolbar: [
-                    [{'header': [1, 2, 3, false]}],
-                    ['bold', 'italic', 'underline', 'strike'],
-                    [{'color': []}, {'background': []}],
-                    [{'list': 'ordered'}, {'list': 'bullet'}],
-                    [{'align': []}],
-                    ['link', 'image'],
-                    ['clean']
-                ]
-            }
-        });
+        pfEditor = RichEditor.mount(editorEl, { chips: document.getElementById('pf-var-chips'), placeholder: 'Escreva sua mensagem...' });
+        quill = pfEditor.quill;
     }
 
     // Carregar últimos envios
     loadRecentSends();
-
-    // Barra de variáveis para o editor Quill (insere no cursor)
-    const chipsBox = document.getElementById('pf-var-chips');
-    if (chipsBox && window.VAR_LIST && quill) {
-        chipsBox.innerHTML = window.VAR_LIST.map(v =>
-            `<button type="button" class="btn btn-sm btn-light border py-0 px-1" title="${v.label}" style="font-size:0.72rem;margin:1px;" data-k="${v.k}"><code>${v.k}</code></button>`
-        ).join('');
-        chipsBox.querySelectorAll('button').forEach(b => {
-            b.onclick = () => {
-                const range = quill.getSelection(true);
-                quill.insertText(range ? range.index : quill.getLength(), '{{' + b.dataset.k + '}}');
-            };
-        });
-    }
     // Menu de contexto (botão direito) no assunto
     const subj = document.getElementById('pf-subject');
     if (subj && typeof attachVarPicker === 'function') attachVarPicker(subj);
@@ -347,24 +327,24 @@ function applyEmailTemplate(id) {
     if (!id) return;
     const opt = document.querySelector(`#pf-template option[value="${id}"]`);
     if (!opt) return;
-    let subject = opt.dataset.subject || '';
-    let body = opt.dataset.body || '';
-
-    // Substitui variáveis com o lead selecionado (se houver)
-    const sel = document.getElementById('pf-contact');
-    const leadName = sel.value ? (sel.options[sel.selectedIndex].textContent.split(' — ')[0].trim()) : '';
-    const first = leadName ? leadName.split(' ')[0] : '';
-    const email = document.getElementById('pf-recipient-email').value.trim();
-    const repl = (s) => s.replace(/\{\{nome\}\}/g, leadName).replace(/\{\{primeiro_nome\}\}/g, first)
-        .replace(/\{\{email\}\}/g, email).replace(/\{\{empresa\}\}/g, '');
-    subject = repl(subject); body = repl(body);
+    const subject = opt.dataset.subject || '';
+    const body = opt.dataset.body || '';
+    // As variáveis ({{primeiro_nome}}, {{empresa}}...) ficam no texto e são
+    // trocadas no envio, com os dados do lead.
 
     if (subject) document.getElementById('pf-subject').value = subject;
-    if (quill && body) {
-        // Se o template tiver HTML, injeta como HTML; senão como texto
-        if (/<[a-z][\s\S]*>/i.test(body)) quill.root.innerHTML = body;
-        else quill.setText(body);
-    }
+    // Template formatado entra formatado no editor (texto puro também funciona).
+    if (pfEditor && body) pfEditor.set(body);
+}
+
+// Mostra o e-mail como o lead vai receber (variáveis, assinatura e layout).
+function previewProspection() {
+    openEmailPreview({
+        subject: document.getElementById('pf-subject').value,
+        body: pfEditor ? pfEditor.get() : '',
+        contact_id: document.getElementById('pf-contact') ? document.getElementById('pf-contact').value : '',
+        account_id: document.getElementById('pf-account') ? document.getElementById('pf-account').value : '',
+    });
 }
 
 function toggleEnroll() {

@@ -186,15 +186,37 @@ class EmailProspection
     }
 
     /**
+     * HTML final que sai pelo SMTP (ponto único de saída). Idempotente.
+     *  1) formatação: texto puro vira parágrafos; a formatação do editor (negrito,
+     *     itálico, alinhamento...) vira estilo inline, que os clientes de e-mail entendem;
+     *  2) assinatura da CONTA/DOMÍNIO que envia (ou a padrão do sistema);
+     *  3) layout do sistema (mesmo visual dos e-mails do Helpdesk).
+     */
+    public static function buildHtml($htmlBody, $account = null)
+    {
+        $html = EmailHtmlRules::prepareBody((string) $htmlBody);
+        $html = self::appendSignature($html, $account);
+        return self::withLayout($html);
+    }
+
+    /** Envolve o corpo no layout de e-mail do sistema (com a logo configurada). */
+    public static function withLayout($htmlBody)
+    {
+        $logo = '';
+        try {
+            $path = (string) Config::get('app_logo');
+            if ($path !== '') $logo = (stripos($path, 'http') === 0) ? $path : baseUrl($path);
+        } catch (\Throwable $e) { $logo = ''; }
+        return EmailHtmlRules::wrapLayout((string) $htmlBody, ['logo_url' => $logo]);
+    }
+
+    /**
      * Envia o e-mail via SMTP usando os dados da conta.
      * Retorna true em caso de sucesso, ou string de erro.
      */
     public function sendEmail($account, $to, $subject, $htmlBody, $cc = null, $bcc = null, $attachments = [], array $options = [])
     {
-        // Assinatura em TODO e-mail que sai pelo SMTP (ponto único de saída).
-        // Usa a assinatura da CONTA/DOMÍNIO que está enviando; se a conta não tiver
-        // assinatura própria, cai na padrão do sistema. Idempotente.
-        $htmlBody = self::appendSignature($htmlBody, $account);
+        $htmlBody = self::buildHtml($htmlBody, $account);
 
         $host = $account['smtp_host'];
         $port = (int)$account['smtp_port'];

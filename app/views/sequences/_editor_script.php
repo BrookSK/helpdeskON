@@ -7,6 +7,8 @@
     background:#fff; box-shadow:-4px 0 20px rgba(0,0,0,.12); z-index:1200; transform:translateX(100%);
     transition:transform .2s ease; display:flex; flex-direction:column; }
 #inspector-drawer.open { transform:translateX(0); }
+#inspector-drawer.wide { width:480px; }
+#inspector-drawer .ql-editor { min-height:200px; }
 #inspector-drawer .drawer-hd { padding:12px 16px; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center; }
 #inspector-drawer .drawer-bd { padding:16px; overflow-y:auto; flex:1; }
 .seq-node { position:absolute; width:190px; background:#fff; border:2px solid #dee2e6; border-radius:10px;
@@ -334,8 +336,12 @@ function renderInspector() {
     if (n.type==='send') {
         h += templatePicker('email');
         h += field('Assunto', `<input id="insp-subject" class="form-control form-control-sm" value="${escapeAttr(n.data.subject||'')}" oninput="setData('subject',this.value)">`);
-        h += `<label class="form-label small mb-1">Mensagem (HTML)</label>` + varChipsHtml() +
-             `<textarea id="insp-body" class="form-control form-control-sm" rows="6" oninput="setData('body',this.value)">${escapeHtml(n.data.body||'')}</textarea>`;
+        h += `<label class="form-label small mb-1">Mensagem</label>` +
+             `<div id="insp-rich-chips"></div><div id="insp-rich" data-key="body"></div>` +
+             `<div class="d-flex justify-content-between align-items-center mt-1 gap-2">
+                <small class="text-muted">Negrito, itálico, listas e links chegam formatados, com assinatura e layout.</small>
+                <button type="button" class="btn btn-sm btn-outline-primary py-0 text-nowrap" id="insp-preview" onclick="previewNodeEmail('')"><i class="bi bi-eye"></i> Ver como chega</button>
+             </div>`;
         // Teste A/B
         h += abBlock(n, 'email');
     } else if (n.type==='whatsapp') {
@@ -552,6 +558,7 @@ function renderInspector() {
     }
     box.innerHTML = h;
     bindInspectorVars();
+    mountInspectorRich(n);
 }
 function field(label, input) { return `<div class="mb-2"><label class="form-label small mb-1">${label}</label>${input}</div>`; }
 
@@ -571,9 +578,11 @@ function bindInspectorVars() {
 // Seletor de template para preencher o bloco
 function templatePicker(channel) {
     const list = channel === 'whatsapp' ? WA_TEMPLATES : EMAIL_TEMPLATES;
-    if (!list.length) return '<div class="mb-2"><small class="text-muted">Nenhum template ' + (channel==='whatsapp'?'de WhatsApp':'de e-mail') + '. Crie em Sequências → Templates.</small></div>';
+    const manage = `<a href="${BASE}prospection/templates" target="_blank" rel="noopener" class="small"><i class="bi bi-pencil-square"></i> Criar / editar templates</a>`;
+    if (!list.length) return '<div class="mb-2"><small class="text-muted">Nenhum template ' + (channel==='whatsapp'?'de WhatsApp':'de e-mail') + '.</small> ' + manage + '</div>';
     const opts = '<option value="">— usar template —</option>' + list.map(t=>`<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
-    return field('Template', `<select class="form-select form-select-sm" onchange="applyTemplate('${channel}', this.value)">${opts}</select>`);
+    return `<div class="mb-2"><div class="d-flex justify-content-between align-items-end"><label class="form-label small mb-1">Template</label>${manage}</div>`
+         + `<select class="form-select form-select-sm" id="insp-template" onchange="applyTemplate('${channel}', this.value)">${opts}</select></div>`;
 }
 function applyTemplate(channel, id) {
     if (!id) return;
@@ -582,7 +591,11 @@ function applyTemplate(channel, id) {
     const n = nodes.find(x=>x.id===selectedId); if (!n) return;
     if (channel === 'email' && t.subject) { n.data.subject = t.subject; const s=document.getElementById('insp-subject'); if(s)s.value=t.subject; }
     n.data.body = t.body || '';
+    delete n.data.template_id;
     const b = document.getElementById('insp-body'); if (b) b.value = n.data.body;
+    // E-mail: o template entra FORMATADO no editor e continua editável.
+    const rich = document.getElementById('insp-rich');
+    if (rich && rich._richEditor) rich._richEditor.set(n.data.body);
     refreshNodeBody(n);
 }
 // Seletor de template de LinkedIn: preenche a mensagem base do nó.
@@ -611,10 +624,43 @@ function abBlock(n, channel) {
         if (channel === 'email') {
             h += field('Assunto B', `<input class="form-control form-control-sm" value="${escapeAttr(n.data.subject_b||'')}" oninput="setData('subject_b',this.value)">`);
         }
-        h += `<label class="form-label small mb-1">Mensagem B</label>` + varChipsHtml('b') +
-             `<textarea id="insp-body-b" class="form-control form-control-sm" rows="5" oninput="setData('body_b',this.value)">${escapeHtml(n.data.body_b||'')}</textarea>`;
+        if (channel === 'email') {
+            h += `<label class="form-label small mb-1">Mensagem B</label>` +
+                 `<div id="insp-rich-b-chips"></div><div id="insp-rich-b" data-key="body_b"></div>` +
+                 `<div class="text-end mt-1"><button type="button" class="btn btn-sm btn-outline-primary py-0" onclick="previewNodeEmail('b')"><i class="bi bi-eye"></i> Ver como chega (B)</button></div>`;
+        } else {
+            h += `<label class="form-label small mb-1">Mensagem B</label>` + varChipsHtml('b') +
+                 `<textarea id="insp-body-b" class="form-control form-control-sm" rows="5" oninput="setData('body_b',this.value)">${escapeHtml(n.data.body_b||'')}</textarea>`;
+        }
     }
     return h;
+}
+
+// Editor formatado do bloco "Enviar e-mail" (corpo A e, se houver, corpo B).
+// Grava o HTML no próprio bloco a cada alteração.
+function mountInspectorRich(n) {
+    const drawer = document.getElementById('inspector-drawer');
+    drawer.classList.toggle('wide', n && n.type === 'send');
+    if (!n || n.type !== 'send' || typeof RichEditor === 'undefined') return;
+    [['insp-rich', 'insp-rich-chips', 'body'], ['insp-rich-b', 'insp-rich-b-chips', 'body_b']].forEach(([id, chipsId, key]) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        RichEditor.mount(el, {
+            html: n.data[key] || '',
+            chips: document.getElementById(chipsId),
+            placeholder: 'Olá {{primeiro_nome}}, ...',
+            onChange: (html) => { n.data[key] = html; if (key === 'body') delete n.data.template_id; refreshNodeBody(n); },
+        });
+    });
+}
+function previewNodeEmail(variant) {
+    const n = nodes.find(x => x.id === selectedId); if (!n) return;
+    const b = variant === 'b';
+    openEmailPreview({
+        subject: (b && n.data.subject_b) ? n.data.subject_b : (n.data.subject || ''),
+        body: b ? (n.data.body_b || '') : (n.data.body || ''),
+        account_id: (document.getElementById('seq-account') || {}).value || '',
+    });
 }
 function toggleAb(on) { setData('ab_enabled', on ? 1 : 0); renderInspector(); bindInspectorVars(); }
 

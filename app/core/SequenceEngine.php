@@ -1115,7 +1115,9 @@ class SequenceEngine
     private function doSend($participant, $seq, $node, $testMode = false)
     {
         $contactId = $participant['contact_id'];
-        $contact = $this->db->fetch("SELECT id, lead_email, contact_name, push_name, phone FROM whatsapp_contacts WHERE id = ?", [$contactId]);
+        $profileCols = (SchemaInfo::hasColumn('whatsapp_contacts', 'job_title') ? ', job_title' : '')
+            . (SchemaInfo::hasColumn('whatsapp_contacts', 'company_name') ? ', company_name' : '');
+        $contact = $this->db->fetch("SELECT id, lead_email, contact_name, push_name, phone{$profileCols} FROM whatsapp_contacts WHERE id = ?", [$contactId]);
         if (empty($contact['lead_email'])) {
             if (!$testMode) $this->finish($participant, 'no_email');
             return 'Lead sem e-mail cadastrado';
@@ -1167,7 +1169,11 @@ class SequenceEngine
         }
 
         $subject = $this->render($subjectSrc, $contact);
-        $body = $this->render($bodySrc, $contact);
+        // Corpo formatado (HTML do editor): valores do lead escapados; texto puro
+        // segue o render normal e vira parágrafos no envio (EmailHtmlRules).
+        $body = EmailHtmlRules::isHtml($bodySrc)
+            ? MessageTemplate::renderHtml($bodySrc, $contact)
+            : EmailHtmlRules::textToHtml($this->render($bodySrc, $contact));
 
         // Agrupa e-mails consecutivos num único envio (flush ao fim da passada).
         // A assinatura é aplicada uma vez no flush (add_signature no send final).
