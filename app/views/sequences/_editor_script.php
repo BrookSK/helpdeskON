@@ -988,6 +988,23 @@ function onMoveBoardChange(boardId) {
 }
 
 // ================= Salvar / participantes =================
+// Explica o intervalo entre WhatsApps com um exemplo (20 mensagens).
+function seqGapHint() {
+    const el = document.getElementById('seq-gap-hint');
+    if (!el) return;
+    let a = parseInt(document.getElementById('seq-gap-min').value, 10) || 0;
+    let b = parseInt(document.getElementById('seq-gap-max').value, 10) || 0;
+    if (a > b) [a, b] = [b, a];
+    if (b <= 0) { el.textContent = 'Sem intervalo: os WhatsApps saem todos de uma vez (risco de bloqueio por spam).'; el.className = 'd-block text-danger small'; return; }
+    const fmt = (m) => m >= 60 ? (Math.floor(m / 60) + 'h' + (m % 60 ? String(m % 60).padStart(2, '0') : '')) : (m + ' min');
+    const avg = Math.round(19 * (a + b) / 2);
+    el.className = 'd-block text-muted small';
+    el.textContent = a === b
+        ? `Sempre ${a} min entre uma mensagem e outra (ritmo fixo é mais fácil de o WhatsApp perceber).`
+        : `Cada envio espera um tempo diferente entre ${a} e ${b} min. Ex.: 20 mensagens levam cerca de ${fmt(avg)} para sair, dentro do horário da sequência.`;
+}
+seqGapHint();
+
 function buildGraph() {
     const start = nodes.length ? nodes[0].id : null;
     return { start, nodes: nodes.map(n => ({ id:n.id, type:n.type, x:n.x, y:n.y, data:n.data, next:n.next, nextYes:n.nextYes, nextNo:n.nextNo, nextReply:n.nextReply })) };
@@ -1005,6 +1022,8 @@ function saveSeq() {
     fd.append('window_start', document.getElementById('seq-wstart').value + ':00');
     fd.append('window_end', document.getElementById('seq-wend').value + ':00');
     fd.append('send_weekends', document.getElementById('seq-weekends').checked ? 1 : 0);
+    const gapMin = document.getElementById('seq-gap-min'), gapMax = document.getElementById('seq-gap-max');
+    if (gapMin && gapMax) { fd.append('wa_gap_min_minutes', gapMin.value); fd.append('wa_gap_max_minutes', gapMax.value); }
     fd.append('is_active', document.getElementById('seq-active').checked ? 1 : 0);
     fd.append('graph', JSON.stringify(buildGraph()));
     fetch(BASE + 'sequences/save', { method:'POST', body:fd, headers:{'X-Requested-With':'XMLHttpRequest'} })

@@ -135,6 +135,7 @@
                                 <div class="btn-group btn-group-sm">
                                     <button class="btn btn-outline-primary" title="Executar agora" onclick="runCampaign(<?= $c['id'] ?>, this)"><i class="bi bi-play-fill"></i></button>
                                     <button class="btn btn-outline-secondary" title="Editar" onclick='editCampaign(<?= json_encode($c, JSON_HEX_APOS|JSON_HEX_QUOT) ?>)'><i class="bi bi-pencil"></i></button>
+                                    <button class="btn btn-outline-secondary" title="Duplicar campanha" aria-label="Duplicar campanha" onclick='duplicateCampaign(<?= json_encode($c, JSON_HEX_APOS|JSON_HEX_QUOT) ?>)'><i class="bi bi-copy"></i></button>
                                     <button class="btn btn-outline-info" title="Acompanhar: ver o que está acontecendo" onclick="showLog(<?= $c['id'] ?>)"><i class="bi bi-activity"></i></button>
                                     <button class="btn btn-outline-<?= $c['is_active'] ? 'warning' : 'success' ?>" title="Ativar/Inativar" onclick="toggleCampaign(<?= $c['id'] ?>, this)"><i class="bi bi-power"></i></button>
                                     <button class="btn btn-outline-danger" title="Excluir" onclick="deleteCampaign(<?= $c['id'] ?>, this)"><i class="bi bi-trash"></i></button>
@@ -317,6 +318,9 @@
             </div>
             <div class="modal-body">
                 <input type="hidden" id="camp-id">
+                <div class="alert alert-info py-2 px-3 small mb-3" id="camp-copy-note" style="display:none;">
+                    <i class="bi bi-copy"></i> Cópia com as mesmas configurações da campanha original. Mude o que precisar (segmento, nº de funcionários...) e salve. Ela é criada <strong>inativa</strong>: marque "Ativa" quando quiser que comece a captar. Os leads já captados pela original não vêm junto.
+                </div>
                 <div class="row g-3">
                     <div class="col-md-8">
                         <label class="form-label small fw-medium">Nome da campanha *</label>
@@ -334,7 +338,8 @@
                         $seqOptions = '';
                         foreach ($sequences as $s) {
                             $chLbl = ['email' => 'E-mail', 'whatsapp' => 'WhatsApp', 'mixed' => 'Mista'][$s['channel_type'] ?? 'email'] ?? 'E-mail';
-                            $seqOptions .= '<option value="' . $s['id'] . '" data-channel="' . escape($s['channel_type'] ?? 'email') . '">' . escape($s['name']) . ' · ' . $chLbl . '</option>';
+                            [$gMin, $gMax] = WhatsappPacingRules::normalize($s['wa_gap_min_minutes'] ?? null, $s['wa_gap_max_minutes'] ?? null);
+                            $seqOptions .= '<option value="' . $s['id'] . '" data-channel="' . escape($s['channel_type'] ?? 'email') . '" data-gap="' . $gMin . '-' . $gMax . '">' . escape($s['name']) . ' · ' . $chLbl . '</option>';
                         }
                     ?>
                     <div class="col-md-4" id="camp-single-seq-wrap">
@@ -1116,7 +1121,15 @@ function onCampSequenceChange() {
         whatsapp: 'Canal WhatsApp: só entram leads COM telefone.',
         mixed:    'Canal Misto: entram leads com e-mail e/ou telefone (blocos sem o canal do lead são pulados).',
     };
-    hint.textContent = ch ? map[ch] || '' : '';
+    let txt = ch ? map[ch] || '' : '';
+    // Intervalo entre WhatsApps (configurado na sequência, em Configurações)
+    if (ch === 'whatsapp' || ch === 'mixed') {
+        const [a, b] = String(opt.dataset.gap || '').split('-').map(n => parseInt(n, 10) || 0);
+        txt += b > 0
+            ? ` Os WhatsApps saem com intervalo variado de ${a} a ${b} min entre um lead e outro (ajuste em Sequências → Configurações).`
+            : ' Atenção: esta sequência está sem intervalo entre WhatsApps (ajuste em Sequências → Configurações).';
+    }
+    hint.textContent = txt;
     hint.style.display = ch ? '' : 'none';
 }
 
@@ -1244,6 +1257,7 @@ function onCampBoardChange() {
 
 function openCampaign() {
     document.getElementById('camp-modal-title').textContent = 'Nova campanha';
+    document.getElementById('camp-copy-note').style.display = 'none';
     ['camp-id','camp-name','camp-f-titles','camp-f-seniorities','camp-f-ploc','camp-f-emp','camp-f-keywords','camp-f-domains','camp-icp-sen','camp-icp-titles','camp-icp-empmin','camp-icp-empmax'].forEach(f => document.getElementById(f).value = '');
     document.getElementById('camp-sequence').value = '';
     document.getElementById('camp-board').value = '';
@@ -1347,6 +1361,23 @@ function editCampaign(c) {
         ['decisor','title','size','region','website','technology'].forEach(k => { if (w[k]!=null) document.getElementById('camp-w-'+k).value = w[k]; });
     } catch(e){}
     chipRenderAll(chipVals);
+}
+
+// Duplicar: abre o formulário já preenchido com tudo da campanha original, como
+// campanha NOVA (sem id), com "(cópia)" no nome e inativa — só começa a captar
+// depois de revisar e marcar "Ativa". Os leads já captados não vêm junto.
+function duplicateCampaign(c) {
+    editCampaign(c);
+    document.getElementById('camp-modal-title').textContent = 'Duplicar campanha';
+    document.getElementById('camp-id').value = '';
+    const names = Array.from(document.querySelectorAll('#tab-campaigns tbody tr[data-id] td:first-child'))
+        .map(td => (td.childNodes[0] ? td.childNodes[0].textContent : '').trim());
+    let name = (c.name || 'Campanha') + ' (cópia)', n = 2;
+    while (names.includes(name)) name = (c.name || 'Campanha') + ' (cópia ' + (n++) + ')';
+    document.getElementById('camp-name').value = name;
+    document.getElementById('camp-active').checked = false;
+    const note = document.getElementById('camp-copy-note');
+    if (note) note.style.display = '';
 }
 
 function saveCampaign(btn) {

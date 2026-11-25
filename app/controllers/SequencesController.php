@@ -300,6 +300,12 @@ class SequencesController extends Controller
             'window_end' => $_POST['window_end'] ?? '18:00:00',
             'send_weekends' => !empty($_POST['send_weekends']) ? 1 : 0,
         ];
+        // Intervalo variável entre WhatsApps (migration 175). Sem a coluna, não grava.
+        if (array_key_exists('wa_gap_min_minutes', $_POST) && SchemaInfo::hasColumn('email_sequences', 'wa_gap_min_minutes')) {
+            [$gapMin, $gapMax] = WhatsappPacingRules::normalize($_POST['wa_gap_min_minutes'], $_POST['wa_gap_max_minutes'] ?? null);
+            $data['wa_gap_min_minutes'] = $gapMin;
+            $data['wa_gap_max_minutes'] = $gapMax;
+        }
 
         if ($id) {
             $this->model->update($id, $data);

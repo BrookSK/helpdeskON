@@ -907,6 +907,15 @@ class SequenceEngine
                         $this->logExec($participant['id'], $nodeId, $type, 'skipped', 'Limite diário atingido: reagendado.');
                         return 'skipped';
                     }
+                    // Intervalo variável entre WhatsApps da mesma conta (anti-spam).
+                    // Vale também no "Executar agora": o disparo manual não pode
+                    // mandar tudo de uma vez.
+                    $waitUntil = $this->whatsappPacingWaitUntil($seq);
+                    if ($waitUntil !== null) {
+                        $this->reschedule($participant, date('Y-m-d H:i:s', $waitUntil));
+                        $this->logExec($participant['id'], $nodeId, $type, 'skipped', WhatsappPacingRules::waitLabel($waitUntil, time()));
+                        return 'skipped';
+                    }
                     $sentByAccount[$key] = ($sentByAccount[$key] ?? 0) + 1;
                 }
                 $waResult = $this->doWhatsapp($participant, $node);
@@ -2773,6 +2782,30 @@ class SequenceEngine
         if ($this->withinWindow($seq)) return true;
         $this->reschedule($participant, $this->nextWindowStart($seq));
         return false;
+    }
+
+    /**
+     * Intervalo entre WhatsApps automáticos da mesma conta (instância).
+     * Olha o último WhatsApp que o motor mandou por essa conta (de qualquer
+     * sequência) e sorteia o intervalo com a faixa desta sequência.
+     * @param array $seq linha de email_sequences
+     * @return int|null timestamp até quando esperar; null = pode enviar agora
+     */
+    public function whatsappPacingWaitUntil(array $seq): ?int
+    {
+        [$min, $max] = WhatsappPacingRules::normalize($seq['wa_gap_min_minutes'] ?? null, $seq['wa_gap_max_minutes'] ?? null);
+        if (!WhatsappPacingRules::isEnabled($min, $max)) return null;
+        $inst = $this->resolveWhatsappInstance($seq['whatsapp_instance_id'] ?? null);
+        if (!$inst) return null; // sem conta: o envio já falha e avisa em doWhatsapp
+        $last = $this->db->fetch(
+            "SELECT id, timestamp FROM whatsapp_messages
+             WHERE instance_id = ? AND from_me = 1 AND sender_name = 'Prospecção'
+             ORDER BY id DESC LIMIT 1",
+            [(int) $inst['id']]
+        );
+        if (!$last || empty($last['timestamp'])) return null;
+        $allowed = WhatsappPacingRules::nextAllowedTs(strtotime($last['timestamp']) ?: null, $last['id'], $min, $max);
+        return $allowed > time() ? $allowed : null;
     }
 
     private function sentToday($sequenceId)

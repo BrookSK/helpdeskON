@@ -95,6 +95,18 @@
                             <label class="form-check-label small" for="seq-active">Ativa</label>
                         </div>
                     </div>
+                    <?php [$gapMin, $gapMax] = WhatsappPacingRules::normalize($sequence['wa_gap_min_minutes'] ?? null, $sequence['wa_gap_max_minutes'] ?? null); ?>
+                    <div class="col-12" id="seq-wa-gap">
+                        <div class="d-flex align-items-center gap-1 flex-wrap">
+                            <label class="small fw-medium me-1" for="seq-gap-min"><i class="bi bi-whatsapp text-success"></i> Intervalo entre WhatsApps (proteção contra spam):</label>
+                            <span class="small">de</span>
+                            <input type="number" id="seq-gap-min" class="form-control form-control-sm" style="width:4.5rem;" min="0" max="<?= WhatsappPacingRules::LIMIT ?>" value="<?= $gapMin ?>" oninput="seqGapHint()">
+                            <span class="small">a</span>
+                            <input type="number" id="seq-gap-max" class="form-control form-control-sm" style="width:4.5rem;" min="0" max="<?= WhatsappPacingRules::LIMIT ?>" value="<?= $gapMax ?>" oninput="seqGapHint()">
+                            <span class="small">minutos, sorteado a cada mensagem</span>
+                        </div>
+                        <small class="text-muted d-block" id="seq-gap-hint"></small>
+                    </div>
                 </div>
             </div>
             <small class="text-muted d-block mt-1" style="font-size:0.7rem;">Clique num bloco acima para adicioná-lo. Arraste no quadro para posicionar. Selecione um bloco para editar as propriedades.</small>
