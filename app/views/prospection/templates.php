@@ -72,8 +72,18 @@
                             <div id="te-editor"></div>
                         </div>
                         <div id="te-plain" style="display:none;">
-                            <div id="te-chips-text"></div>
-                            <textarea id="te-text" class="form-control form-control-sm" rows="9" placeholder="Olá {{primeiro_nome}}, ..."></textarea>
+                            <div class="row g-2">
+                                <div class="col-12" id="te-text-col">
+                                    <div id="te-chips-text"></div>
+                                    <div id="te-wa-toolbar" hidden></div>
+                                    <textarea id="te-text" class="form-control form-control-sm" rows="10" placeholder="Olá {{primeiro_nome}}, ..."></textarea>
+                                </div>
+                                <div class="col-lg-5" id="te-wa-side" hidden>
+                                    <div class="small fw-medium mb-1"><i class="bi bi-whatsapp text-success"></i> Como chega no WhatsApp</div>
+                                    <div id="te-wa-preview"></div>
+                                    <small class="text-muted d-block mt-1">Variáveis com dados de exemplo.</small>
+                                </div>
+                            </div>
                         </div>
                         <small class="text-muted d-block mt-1" id="te-help"></small>
                     </div>
@@ -93,6 +103,7 @@
 
 <?php require APP_PATH . '/views/layouts/_var_picker.php'; ?>
 <?php require APP_PATH . '/views/layouts/_rich_editor.php'; ?>
+<?php require APP_PATH . '/views/layouts/_wa_editor.php'; ?>
 
 <script>
 const BASE = '<?= baseUrl('') ?>';
@@ -127,7 +138,7 @@ function tplRender() {
                 <div style="min-width:0;"><h6>${esc(t.name)}</h6>${t.subject ? `<div class="tpl-subj">Assunto: ${esc(t.subject)}</div>` : ''}</div>
                 <span class="badge ${c[1]} flex-shrink-0"><i class="bi bi-${c[2]}"></i> ${c[0]}</span>
             </div>
-            <div class="tpl-snippet">${esc(plain(t.body).slice(0, 220))}</div>
+            <div class="tpl-snippet">${esc((t.channel === 'whatsapp' ? WaFormat.strip(t.body).replace(/\s+/g, ' ').trim() : plain(t.body)).slice(0, 220))}</div>
             <div class="d-flex gap-1 flex-wrap">
                 <button class="btn btn-sm btn-outline-primary" onclick="tplEdit(${t.id})"><i class="bi bi-pencil"></i> Editar</button>
                 ${t.channel === 'email' ? `<button class="btn btn-sm btn-outline-secondary" onclick="tplPreviewId(${t.id})" title="Ver como chega"><i class="bi bi-eye"></i></button>` : ''}
@@ -150,21 +161,39 @@ function teOpen(t, title) {
     teModal.show();
 }
 
-// Troca editor formatado (e-mail) x texto puro (WhatsApp/LinkedIn), levando o conteúdo junto.
-let teMode = 'rich';
+// Troca editor formatado (e-mail) x texto (WhatsApp com formatação própria / LinkedIn puro),
+// levando o conteúdo junto. E-mail ↔ WhatsApp mantém negrito, itálico, tachado e listas.
+let teMode = 'rich', teLastCh = null, teWa = null;
 function teChannel(body) {
-    const isEmail = document.getElementById('te-channel').value === 'email';
+    const ch = document.getElementById('te-channel').value;
+    const isEmail = ch === 'email', isWa = ch === 'whatsapp';
     const ta = document.getElementById('te-text');
+    if (!teWa) teWa = WaEditor.attach(ta, { toolbar: document.getElementById('te-wa-toolbar'), preview: document.getElementById('te-wa-preview') });
+    const fromCh = body !== undefined ? null : teLastCh;
     let current = body !== undefined ? body : (teMode === 'rich' ? teEditor.get() : ta.value);
     document.getElementById('te-subject-wrap').style.display = isEmail ? '' : 'none';
     document.getElementById('te-preview').style.display = isEmail ? '' : 'none';
     document.getElementById('te-rich').style.display = isEmail ? '' : 'none';
     document.getElementById('te-plain').style.display = isEmail ? 'none' : '';
-    if (isEmail) { teEditor.set(current); teMode = 'rich'; }
-    else { ta.value = /<[a-z][\s\S]*>/i.test(current) ? htmlToText(current) : current; teMode = 'text'; }
+    document.getElementById('te-wa-toolbar').hidden = !isWa;
+    document.getElementById('te-wa-side').hidden = !isWa;
+    document.getElementById('te-text-col').className = isWa ? 'col-lg-7' : 'col-12';
+    if (isEmail) {
+        teEditor.set(fromCh === 'whatsapp' && current ? WaFormat.toEmailHtml(current) : current);
+        teMode = 'rich';
+    } else {
+        let txt = /<[a-z][\s\S]*>/i.test(current) ? (isWa ? WaFormat.fromHtml(current) : htmlToText(current)) : current;
+        if (!isWa && fromCh === 'whatsapp') txt = WaFormat.strip(txt);
+        ta.value = txt;
+        teMode = 'text';
+    }
+    teWa.refresh();
+    teLastCh = ch;
     document.getElementById('te-help').textContent = isEmail
         ? 'Use a barra para negrito, itálico, listas e links. O e-mail chega com essa formatação, com a sua assinatura e o layout do sistema. Clique numa variável para inserir.'
-        : 'Texto simples (WhatsApp/LinkedIn não aceitam formatação de e-mail). Clique numa variável para inserir.';
+        : isWa
+            ? 'Selecione o texto e use a barra: negrito, itálico, tachado, listas e citação (atalhos Ctrl+B e Ctrl+I). O WhatsApp não aceita cor de letra: para destacar, use os emojis de "Destaque". Clique numa variável para inserir.'
+            : 'Texto simples (o LinkedIn não aceita formatação). Clique numa variável para inserir.';
 }
 function htmlToText(html) {
     const d = document.createElement('div');

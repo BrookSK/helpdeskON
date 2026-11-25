@@ -184,7 +184,7 @@ function nodeSummary(n) {
     const d = n.data || {};
     switch (n.type) {
         case 'send': return d.subject ? ('Assunto: ' + escapeHtml(d.subject)) : '<em>sem assunto</em>';
-        case 'whatsapp': return d.body ? escapeHtml(d.body.slice(0,50)) : '<em>sem mensagem</em>';
+        case 'whatsapp': return d.body ? escapeHtml((window.WaFormat ? WaFormat.strip(d.body) : d.body).slice(0,50)) : '<em>sem mensagem</em>';
         case 'wait': return 'Aguardar ' + (d.amount||0) + ' ' + ({minutes:'min',hours:'h',days:'dias'}[d.unit]||'dias');
         case 'condition': return 'Se ' + ({replied:'respondeu',opened:'abriu',clicked:'clicou'}[d.kind]||'?') + '?';
         case 'ai': {
@@ -561,8 +561,10 @@ function renderInspector() {
     } else if (n.type==='whatsapp') {
         h += templatePicker('whatsapp');
         h += `<label class="form-label small mb-1">Mensagem</label>` + varChipsHtml() +
-             `<textarea id="insp-body" class="form-control form-control-sm" rows="6" oninput="setData('body',this.value)">${escapeHtml(n.data.body||'')}</textarea>`;
-        h += `<small class="text-muted d-block mt-1">Enviada pela conexão de WhatsApp.</small>`;
+             `<div id="insp-wa-toolbar"></div>` +
+             `<textarea id="insp-body" class="form-control form-control-sm" rows="6" oninput="setData('body',this.value)">${escapeHtml(n.data.body||'')}</textarea>` +
+             waPreviewDetails('insp-wa-preview');
+        h += `<small class="text-muted d-block mt-1">Enviada pela conexão de WhatsApp. Negrito, itálico, tachado e listas chegam formatados. O WhatsApp não tem cor de letra: use os emojis de "Destaque".</small>`;
         h += abBlock(n, 'whatsapp');
     } else if (n.type==='wait') {
         h += field('Quantidade', `<input type="number" min="1" class="form-control form-control-sm" value="${n.data.amount||1}" oninput="setData('amount',parseInt(this.value)||1)">`);
@@ -773,6 +775,20 @@ function renderInspector() {
     box.innerHTML = h;
     bindInspectorVars();
     mountInspectorRich(n);
+    mountInspectorWa(n);
+}
+// Prévia recolhível "como chega no WhatsApp" (o painel lateral é estreito)
+function waPreviewDetails(id) {
+    return `<details class="mt-1"><summary class="small text-primary" style="cursor:pointer;">Ver como chega no WhatsApp</summary>`
+         + `<div id="${id}" class="mt-1"></div><small class="text-muted">Variáveis com dados de exemplo.</small></details>`;
+}
+// Barra de formatação do WhatsApp nos corpos A e B do bloco "Enviar WhatsApp"
+function mountInspectorWa(n) {
+    if (!n || n.type !== 'whatsapp' || typeof WaEditor === 'undefined') return;
+    [['insp-body', 'insp-wa-toolbar', 'insp-wa-preview'], ['insp-body-b', 'insp-wa-toolbar-b', 'insp-wa-preview-b']].forEach(([t, tb, pv]) => {
+        const ta = document.getElementById(t);
+        if (ta) WaEditor.attach(ta, { toolbar: document.getElementById(tb), preview: document.getElementById(pv) });
+    });
 }
 function field(label, input) { return `<div class="mb-2"><label class="form-label small mb-1">${label}</label>${input}</div>`; }
 
@@ -806,7 +822,7 @@ function applyTemplate(channel, id) {
     if (channel === 'email' && t.subject) { n.data.subject = t.subject; const s=document.getElementById('insp-subject'); if(s)s.value=t.subject; }
     n.data.body = t.body || '';
     delete n.data.template_id;
-    const b = document.getElementById('insp-body'); if (b) b.value = n.data.body;
+    const b = document.getElementById('insp-body'); if (b) { b.value = n.data.body; if (b._wa) b._wa.refresh(); }
     // E-mail: o template entra FORMATADO no editor e continua editável.
     const rich = document.getElementById('insp-rich');
     if (rich && rich._richEditor) rich._richEditor.set(n.data.body);
@@ -843,8 +859,11 @@ function abBlock(n, channel) {
                  `<div id="insp-rich-b-chips"></div><div id="insp-rich-b" data-key="body_b"></div>` +
                  `<div class="text-end mt-1"><button type="button" class="btn btn-sm btn-outline-primary py-0" onclick="previewNodeEmail('b')"><i class="bi bi-eye"></i> Ver como chega (B)</button></div>`;
         } else {
+            const wa = channel === 'whatsapp';
             h += `<label class="form-label small mb-1">Mensagem B</label>` + varChipsHtml('b') +
-                 `<textarea id="insp-body-b" class="form-control form-control-sm" rows="5" oninput="setData('body_b',this.value)">${escapeHtml(n.data.body_b||'')}</textarea>`;
+                 (wa ? `<div id="insp-wa-toolbar-b"></div>` : '') +
+                 `<textarea id="insp-body-b" class="form-control form-control-sm" rows="5" oninput="setData('body_b',this.value)">${escapeHtml(n.data.body_b||'')}</textarea>` +
+                 (wa ? waPreviewDetails('insp-wa-preview-b') : '');
         }
     }
     return h;

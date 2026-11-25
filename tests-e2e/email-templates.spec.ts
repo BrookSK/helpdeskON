@@ -106,7 +106,7 @@ test.describe('desktop', () => {
     expect(saved.body).toContain('{{primeiro_nome}}');
   });
 
-  test('editar e duplicar mantêm a formatação; WhatsApp vira texto simples', async ({ page }) => {
+  test('editar e duplicar mantêm a formatação; WhatsApp vira texto com marcadores', async ({ page }) => {
     await login(page);
     await page.goto('/prospection/templates');
     const card = page.locator(`.tpl-card:has-text("E2E Modelo ${fx.u}")`);
@@ -123,7 +123,8 @@ test.describe('desktop', () => {
     await page.locator('#te-channel').selectOption('whatsapp');
     await expect(page.locator('#te-text')).toBeVisible();
     await expect(page.locator('#te-subject-wrap')).toBeHidden();
-    await expect(page.locator('#te-text')).toHaveValue(/Negrito do modelo e itálico/);
+    // E-mail → WhatsApp mantém a formatação com os marcadores do WhatsApp
+    await expect(page.locator('#te-text')).toHaveValue(/\*Negrito do modelo\* e _itálico_\n• Primeiro ponto/);
     await page.locator('#te-save').click();
     await expect(page.locator('#tplEditModal')).toBeHidden();
     const dup = JSON.parse(php(['template', `E2E Modelo ${fx.u} (cópia)`]));

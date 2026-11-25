@@ -61,6 +61,9 @@ class MessageTemplate
             $body = EmailHtmlRules::isHtml($body) ? EmailHtmlRules::sanitize($body) : $body;
             $plain = trim(html_entity_decode(strip_tags(str_replace(['<br>', '<br/>', '<br />'], "\n", $body)), ENT_QUOTES, 'UTF-8'));
         } else {
+            // O envio por formulário troca as quebras por \r\n: grava só \n. Os
+            // marcadores do WhatsApp (*negrito*, _itálico_, ~tachado~) ficam como estão.
+            $body = str_replace(["\r\n", "\r"], "\n", $body);
             if (EmailHtmlRules::isHtml($body)) {
                 $body = preg_replace('#<br\s*/?>|</p>\s*#i', "\n", $body);
                 $body = html_entity_decode(strip_tags($body), ENT_QUOTES, 'UTF-8');
