@@ -10,6 +10,7 @@
  *   sequences/save               -> POST (cria/atualiza definição + grafo)
  *   sequences/delete/{id}        -> POST
  *   sequences/duplicate/{id}     -> POST (copia fluxo + configurações, sem os leads)
+ *   sequences/scanBounces        -> POST (procura e-mails devolvidos e tira os leads das sequências)
  *   sequences/detail/{id}        -> JSON (participantes/stats)
  *   sequences/progress/{id}      -> JSON (acompanhamento legível do estado de cada lead)
  *   sequences/addLeads           -> POST (inscreve leads por contact_ids[])
@@ -315,6 +316,34 @@ class SequencesController extends Controller
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$id) $this->json(['error' => 'Requisição inválida'], 400);
         $this->model->delete($id);
         $this->json(['success' => true]);
+    }
+
+    /**
+     * Revê as últimas mensagens das caixas de e-mail atrás de e-mails devolvidos
+     * (endereço não existe) e tira esses leads das sequências.
+     * super_admin: todas as caixas; comercial: as caixas vinculadas a ele.
+     * POST sequences/scanBounces
+     */
+    public function scanBounces()
+    {
+        $this->requireRole($this->roles);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') $this->json(['error' => 'Método inválido'], 405);
+        @set_time_limit(240);
+
+        $user = $this->currentUser();
+        $accModel = new EmailAccount();
+        $accounts = ($user['role'] ?? '') === 'super_admin'
+            ? array_filter($accModel->getAll(), fn($a) => !empty($a['is_active']))
+            : $accModel->getByUser($user['id']);
+        $accounts = array_values(array_filter($accounts, fn($a) => !empty($a['imap_host'])));
+        if (!$accounts) $this->json(['error' => 'Nenhuma caixa de e-mail com recebimento (IMAP) configurado para você.'], 400);
+
+        $r = (new EmailBounceScanner())->scan($accounts, 300);
+        Logger::info('sequences/scanBounces', [
+            'user_id' => $user['id'] ?? null, 'accounts' => $r['accounts'], 'checked' => $r['checked'],
+            'bounces' => count($r['bounces']), 'errors' => count($r['errors']),
+        ]);
+        $this->json(['success' => true] + $r);
     }
 
     /**

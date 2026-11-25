@@ -8,7 +8,7 @@
             <h5 class="mb-0"><i class="bi bi-diagram-3"></i> Sequências de E-mail</h5>
             <small class="text-muted">Follow-up automático de leads do CRM</small>
         </div>
-        <div class="d-flex gap-2 align-items-center">
+        <div class="d-flex flex-wrap gap-2 align-items-center" id="seq-actions">
             <!-- Quebra-galho MANUAL: imita o botão "Executar campanha" da tela de
                  Prospecção Automática (Apollo), porém disparado por aqui, sem cron.
                  Seleciona-se uma CAMPANHA; ao executar, faz a captação da campanha
@@ -31,6 +31,7 @@
                     <i class="bi bi-play-fill"></i> Executar agora
                 </button>
             </div>
+            <button class="btn btn-sm btn-outline-danger text-nowrap" id="btn-scan-bounces" onclick="scanBounces(this)" title="Procura e-mails que voltaram (endereço não existe) e tira esses leads das sequências"><i class="bi bi-envelope-x"></i> E-mails devolvidos</button>
             <a href="<?= baseUrl('sequences/edit') ?>" class="btn btn-sm btn-primary" id="btn-new-seq"><i class="bi bi-plus-lg"></i> Nova sequência</a>
             <button class="btn btn-sm btn-primary d-none" id="btn-new-tpl" onclick="openTemplate()"><i class="bi bi-plus-lg"></i> Novo template</button>
         </div>
@@ -43,6 +44,12 @@
     <style>
     .seq-tabs .nav-link { color:#555; font-size:0.85rem; border-radius:8px; }
     .seq-tabs .nav-link.active { background: var(--primary); color:#fff; }
+    @media (max-width: 575.98px) {
+        #seq-actions { width:100%; }
+        #seq-actions #run-now-group { width:100% !important; flex-wrap:nowrap; }
+        #seq-actions #run-campaign-select { max-width:none !important; min-width:0; }
+        #seq-actions #btn-run-now { white-space:nowrap; }
+    }
     </style>
 
     <!-- ABA TEMPLATES -->
@@ -628,4 +635,5 @@ function delTemplate(id) {
 }
 function escapeHtml(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 </script>
+<?php require APP_PATH . '/views/sequences/_bounce_scan.php'; ?>
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>

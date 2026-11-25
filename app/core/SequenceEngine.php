@@ -148,7 +148,11 @@ class SequenceEngine
         // - whatsapp: exige telefone
         // - mixed:    exige e-mail, telefone OU LinkedIn (prospecção híbrida)
         $channel = $seq['channel_type'] ?? 'email';
-        $hasEmail = !empty($contact['lead_email']);
+        // E-mail que voltou como inexistente não conta como e-mail do lead.
+        if (!empty($contact['email_bounced']) && $channel === 'email') {
+            return ['success' => false, 'error' => 'O e-mail deste lead voltou como inexistente. Corrija o e-mail do lead antes de inscrever.'];
+        }
+        $hasEmail = !empty($contact['lead_email']) && empty($contact['email_bounced']);
         $hasPhone = !empty($contact['phone']);
         $hasLinkedin = !empty($contact['linkedin_url']);
         // A própria sequência pode revelar o telefone depois (bloco reveal_phone),

@@ -112,7 +112,7 @@ final class EmailThreadRulesTest extends TestCase
         $this->assertArrayNotHasKey('message_id', $conv['items'][0], 'cabeçalhos internos não vão para a tela');
 
         $this->assertSame(['total' => 5, 'sent' => 3, 'failed' => 0, 'replies' => 2,
-            'last_reply_at' => '2026-11-21 16:00:00', 'last_at' => '2026-11-22 09:00:00'], $r['summary']);
+            'last_reply_at' => '2026-11-21 16:00:00', 'last_at' => '2026-11-22 09:00:00', 'bounced' => 0], $r['summary']);
     }
 
     public function testRespostaAntigaSemTextoEFalhaDeEnvio(): void

@@ -148,6 +148,13 @@
     .seq-sel-count { font-size:0.76rem; font-weight:600; color:#667; min-width:150px; }
     .seq-sel-count.on { color:var(--primary); }
     .seq-sel-tip { font-size:0.68rem; color:#8a8f98; flex:1 1 260px; }
+    .part-search { flex:1 1 260px; }
+    .part-status { width:auto; flex:0 1 210px; }
+    #part-list mark { padding:0 1px; background:#fff3a3; }
+    #part-list td { overflow-wrap:anywhere; }
+    #part-list td:nth-child(2) { width:1%; min-width:96px; }
+    #part-list td:last-child { width:1%; }
+    @media (max-width: 575.98px) { .part-status { flex:1 1 100%; } #part-count { margin-left:0 !important; } }
     #sel-toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#1a1a2e; color:#fff; padding:8px 16px;
         border-radius:20px; font-size:0.8rem; z-index:2000; box-shadow:0 4px 12px rgba(0,0,0,.3); display:none; max-width:calc(100vw - 24px); text-align:center; }
     @media (max-width: 575.98px) {
@@ -181,6 +188,23 @@
                     <select id="add-lead-select" class="form-select form-select-sm"><option value="">Carregando leads...</option></select>
                     <button class="btn btn-primary" onclick="addSelectedLead()"><i class="bi bi-plus-lg"></i> Adicionar</button>
                 </div>
+                <div class="part-tools d-flex flex-wrap gap-2 align-items-center mb-2">
+                    <div class="input-group input-group-sm part-search">
+                        <span class="input-group-text"><i class="bi bi-search"></i></span>
+                        <input type="search" id="part-search" class="form-control" placeholder="Pesquisar lead na sequência (nome ou e-mail)" oninput="renderParticipants()" autocomplete="off">
+                    </div>
+                    <select id="part-status" class="form-select form-select-sm part-status" onchange="renderParticipants()" title="Filtrar pela situação">
+                        <option value="">Todas as situações</option>
+                        <option value="active">Ativos</option>
+                        <option value="paused">Pausados</option>
+                        <option value="finished">Concluídos</option>
+                        <option value="stopped">Interrompidos</option>
+                        <option value="bounce">E-mail inválido (voltou)</option>
+                        <option value="failed">Falha</option>
+                    </select>
+                    <small class="text-muted ms-auto" id="part-count"></small>
+                    <button type="button" class="btn btn-sm btn-outline-danger text-nowrap" id="part-scan-bounces" onclick="scanBounces(this, () => loadParticipants())" title="Procura e-mails que voltaram (endereço não existe) e tira esses leads das sequências"><i class="bi bi-envelope-x"></i> E-mails devolvidos</button>
+                </div>
                 <div id="part-list"><div class="text-center text-muted py-3"><span class="spinner-border spinner-border-sm"></span></div></div>
             </div>
         </div>
@@ -190,4 +214,5 @@
 <?php require APP_PATH . '/views/layouts/_var_picker.php'; ?>
 <?php require APP_PATH . '/views/layouts/_rich_editor.php'; ?>
 <?php require APP_PATH . '/views/sequences/_editor_script.php'; ?>
+<?php require APP_PATH . '/views/sequences/_bounce_scan.php'; ?>
 <?php require APP_PATH . '/views/layouts/footer.php'; ?>

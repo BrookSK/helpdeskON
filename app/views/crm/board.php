@@ -695,8 +695,9 @@ function prepareCardEmails(cardId, summary) {
         const total = summary ? (summary.total || 0) : 0;
         badge.textContent = total;
         badge.style.display = total ? '' : 'none';
-        badge.className = 'badge rounded-pill ' + (summary && summary.replies ? 'bg-success' : 'bg-secondary');
-        badge.title = summary && summary.replies ? 'O lead respondeu' : '';
+        const replied = summary && summary.replies, bounced = summary && summary.bounced;
+        badge.className = 'badge rounded-pill ' + (replied ? 'bg-success' : (bounced ? 'bg-danger' : 'bg-secondary'));
+        badge.title = replied ? 'O lead respondeu' : (bounced ? 'Um e-mail para este lead voltou' : '');
     }
     document.getElementById('card-emails-content').innerHTML = '<div class="text-muted small text-center py-4">Carregando e-mails...</div>';
     const pane = document.getElementById('tab-card-emails');
@@ -727,6 +728,7 @@ function renderCardEmails(d) {
     let sum = `<i class="bi bi-envelope-paper"></i> <strong>${ceCount(s.sent || 0, 'e-mail enviado', 'e-mails enviados')}</strong> · <strong>${ceCount(s.replies || 0, 'resposta do lead', 'respostas do lead')}</strong>`;
     if (s.last_reply_at) sum += ` · última resposta em ${ceDate(s.last_reply_at)}`;
     if (s.failed) sum += ` · <span class="text-danger">${ceCount(s.failed, 'envio falhou', 'envios falharam')}</span>`;
+    if (s.bounced) sum += ` · <span class="text-danger">${ceCount(s.bounced, 'e-mail devolvido', 'e-mails devolvidos')}</span>`;
 
     cardEmailsItems = {};
     box.innerHTML = `<div class="ce-summary" id="ce-summary">${sum}</div>` + convs.map(c => {
@@ -753,6 +755,7 @@ function ceMessage(it) {
     } else {
         const src = CE_SOURCE[it.source] || 'Envio';
         hd = `<i class="bi bi-send-fill text-primary"></i> <strong>Enviado</strong>${it.sender ? ' por ' + ceEsc(it.sender) : ''} · ${src}${it.sequence ? ': ' + ceEsc(it.sequence) : ''} · ${ceDate(it.at)}`;
+        if (it.bounced_at) hd += ` <span class="badge bg-danger" title="O servidor do lead devolveu este e-mail">Devolvido em ${ceDate(it.bounced_at)}</span>`;
         if (it.status === 'failed') hd += ` <span class="badge bg-danger" title="${ceEsc(it.error || '')}">Falhou</span>`;
         else if (it.status === 'queued') hd += ' <span class="badge bg-secondary">Na fila</span>';
         if (it.opens > 0) hd += ` <span class="badge bg-light text-dark border" title="Aberturas registradas pelo pixel (sinal aproximado)">Aberto ${it.opens}x</span>`;
@@ -760,8 +763,9 @@ function ceMessage(it) {
         if (it.replied_at) hd += ` <span class="badge bg-success">Respondido em ${ceDate(it.replied_at)}</span>`;
     }
     const to = (it.direction === 'out' && it.to) ? `<div class="text-muted" style="font-size:0.72rem;">Para: ${ceEsc(it.to)}</div>` : '';
-    const failed = it.status === 'failed' && it.error ? `<div class="text-danger" style="font-size:0.74rem;">Erro: ${ceEsc(it.error)}</div>` : '';
-    return `<div class="ce-msg ${it.direction}${it.status === 'failed' ? ' failed' : ''}" data-key="${ceEsc(it.key)}">
+    const failed = (it.status === 'failed' || it.bounced_at) && it.error
+        ? `<div class="text-danger" style="font-size:0.74rem;">${it.bounced_at ? '' : 'Erro: '}${ceEsc(it.error)}</div>` : '';
+    return `<div class="ce-msg ${it.direction}${(it.status === 'failed' || it.bounced_at) ? ' failed' : ''}" data-key="${ceEsc(it.key)}">
         <div class="ce-msg-hd">${hd}</div>${to}${failed}
         <div class="ce-msg-preview">${it.preview ? ceEsc(it.preview) : '<em class="text-muted">sem texto</em>'}</div>
         <div class="ce-msg-full" style="display:none;"></div>
@@ -812,7 +816,8 @@ function renderLeadProfile(p, origin) {
         return /^https?:\/\/[^\s"'<>]+$/i.test(u) ? u : '';
     };
     const rows = [];
-    if (p.email) rows.push(['envelope', 'E-mail', `<a href="mailto:${esc(p.email)}">${esc(p.email)}</a>`]);
+    if (p.email) rows.push(['envelope', 'E-mail', `<a href="mailto:${esc(p.email)}">${esc(p.email)}</a>`
+        + (p.email_bounced ? ' <span class="badge bg-danger" id="card-email-bounced" title="Um e-mail para este endereço voltou como inexistente. O lead saiu das sequências e novos e-mails ficam bloqueados. Corrigir o e-mail do lead libera de novo.">e-mail inválido</span>' : '')]);
     if (p.phone) rows.push(['telephone', 'Telefone', esc(p.phone)]);
     if (p.job_title) rows.push(['briefcase', 'Cargo', esc(p.job_title)]);
     if (p.company) rows.push(['building', 'Empresa', esc(p.company)]);

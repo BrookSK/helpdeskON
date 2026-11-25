@@ -65,7 +65,7 @@ class EmailSequence
     {
         return $this->db->fetchAll(
             "SELECT sp.*, COALESCE(wc.contact_name, wc.push_name) AS lead_name, wc.lead_email,
-                    ls.score, ls.classification
+                    COALESCE(wc.email_bounced, 0) AS email_bounced, ls.score, ls.classification
              FROM sequence_participants sp
              JOIN whatsapp_contacts wc ON sp.contact_id = wc.id
              LEFT JOIN lead_score ls ON ls.contact_id = wc.id

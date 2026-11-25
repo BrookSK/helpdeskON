@@ -1032,19 +1032,46 @@ function addSelectedLead() {
     fetch(BASE + 'sequences/addLeads', {method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest'}})
         .then(r=>r.json()).then(d=>{ if(d.errors&&d.errors.length)alert(d.errors.join('\n')); loadParticipants(); });
 }
+let PARTICIPANTS = [];
+const PART_STATUS = {active:['Ativo','success'],finished:['Concluído','secondary'],stopped:['Interrompido','warning'],failed:['Falha','danger'],paused:['Pausado','info']};
+const PART_REASON = { completed:'Concluiu o fluxo', replied:'Respondeu', unsubscribed:'Descadastrado', manual:'Removido à mão',
+    bounce:'E-mail inválido (voltou)', no_email:'Sem e-mail', no_account:'Sem conta de envio', connected:'Foi para outra sequência', no_interest:'Sem interesse' };
+
 function loadParticipants() {
     fetch(BASE + 'sequences/detail/' + SEQ_ID, {headers:{'X-Requested-With':'XMLHttpRequest'}})
-        .then(r=>r.json()).then(d=>{
-            const box = document.getElementById('part-list'); const ps = d.participants||[];
-            if (!ps.length) { box.innerHTML = '<p class="text-muted small text-center py-3 mb-0">Nenhum lead nesta sequência.</p>'; return; }
-            const stMap = {active:['Ativo','success'],finished:['Concluído','secondary'],stopped:['Interrompido','warning'],failed:['Falha','danger'],paused:['Pausado','info']};
-            box.innerHTML = `<table class="table table-sm mb-0" style="font-size:0.82rem;"><tbody>` + ps.map(p=>{
-                const s = stMap[p.status]||[p.status,'secondary'];
-                return `<tr><td>${escapeHtml(p.lead_name||p.lead_email)}<br><small class="text-muted">${escapeHtml(p.lead_email||'')}</small></td>
-                    <td><span class="badge bg-${s[1]}">${s[0]}</span>${p.stop_reason?'<br><small class="text-muted">'+p.stop_reason+'</small>':''}</td>
-                    <td class="text-end"><button class="btn btn-sm btn-link text-danger p-0" onclick="removePart(${p.id})"><i class="bi bi-x-lg"></i></button></td></tr>`;
-            }).join('') + `</tbody></table>`;
-        });
+        .then(r=>r.json()).then(d=>{ PARTICIPANTS = d.participants || []; renderParticipants(); });
+}
+// Busca sem acento e sem maiúsculas.
+function partNorm(s) { return String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase(); }
+function partHighlight(text, q) {
+    const t = String(text ?? '');
+    if (!q) return escapeHtml(t);
+    const i = partNorm(t).indexOf(q);
+    if (i < 0) return escapeHtml(t);
+    return escapeHtml(t.slice(0, i)) + '<mark>' + escapeHtml(t.slice(i, i + q.length)) + '</mark>' + escapeHtml(t.slice(i + q.length));
+}
+function renderParticipants() {
+    const box = document.getElementById('part-list');
+    const count = document.getElementById('part-count');
+    const q = partNorm((document.getElementById('part-search') || {}).value || '').trim();
+    const st = (document.getElementById('part-status') || {}).value || '';
+    const ps = PARTICIPANTS;
+    if (!ps.length) { box.innerHTML = '<p class="text-muted small text-center py-3 mb-0">Nenhum lead nesta sequência.</p>'; if (count) count.textContent = ''; return; }
+    const list = ps.filter(p => {
+        if (st === 'bounce') { if (!(p.stop_reason === 'bounce' || p.email_bounced == 1)) return false; }
+        else if (st && p.status !== st) return false;
+        return !q || partNorm(p.lead_name).includes(q) || partNorm(p.lead_email).includes(q);
+    });
+    if (count) count.textContent = (q || st) ? `${list.length} de ${ps.length} leads` : `${ps.length} ${ps.length === 1 ? 'lead' : 'leads'}`;
+    if (!list.length) { box.innerHTML = '<p class="text-muted small text-center py-3 mb-0">Nenhum lead encontrado com essa pesquisa.</p>'; return; }
+    box.innerHTML = `<table class="table table-sm mb-0" style="font-size:0.82rem;"><tbody>` + list.map(p=>{
+        const s = PART_STATUS[p.status]||[p.status,'secondary'];
+        const reason = p.stop_reason ? (PART_REASON[p.stop_reason] || p.stop_reason) : '';
+        const bad = p.email_bounced == 1 ? ' <span class="badge bg-danger-subtle text-danger border border-danger-subtle" title="Este e-mail voltou como inexistente; novos e-mails para ele ficam bloqueados">e-mail inválido</span>' : '';
+        return `<tr data-part="${p.id}"><td>${partHighlight(p.lead_name||p.lead_email, q)}<br><small class="text-muted">${partHighlight(p.lead_email||'', q)}</small>${bad}</td>
+            <td><span class="badge bg-${s[1]}">${s[0]}</span>${reason?'<br><small class="text-muted">'+escapeHtml(reason)+'</small>':''}</td>
+            <td class="text-end"><button class="btn btn-sm btn-link text-danger p-0" onclick="removePart(${p.id})" title="Tirar da sequência"><i class="bi bi-x-lg"></i></button></td></tr>`;
+    }).join('') + `</tbody></table>`;
 }
 function removePart(id) {
     const fd = new FormData(); fd.append('participant_id', id);

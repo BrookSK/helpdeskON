@@ -507,10 +507,18 @@ class CronController extends Controller
 
                     // Classifica por cabeçalho: ruído (auto-reply/bulk/bounce),
                     // match (token casado com nosso envio) ou sem âncora.
+                    // E-mail devolvido (endereço não existe etc.): tira o lead das
+                    // sequências e bloqueia novos envios. Nunca vira "resposta".
+                    if (EmailBounceRules::isBounce($m)) {
+                        try { $emailSvc->processBounce($m, $reader->fetchBounceText($uid), (int) $acc['id']); }
+                        catch (\Throwable $e) { Logger::error('detectReplies bounce', ['uid' => $uid, 'error' => $e->getMessage()]); }
+                        continue;
+                    }
+
                     $verdict = EmailReplyRules::classify($m);
 
                     if ($verdict['result'] === EmailReplyRules::NOISE) {
-                        continue; // ignora auto-resposta/bulk/bounce
+                        continue; // ignora auto-resposta/bulk
                     }
 
                     if ($verdict['result'] === EmailReplyRules::MATCH && !empty($verdict['token'])) {

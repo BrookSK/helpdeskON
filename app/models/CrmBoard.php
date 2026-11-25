@@ -224,7 +224,7 @@ class CrmBoard
         return $this->db->fetch(
             "SELECT c.*, col.name as column_name, col.board_id,
                     u.name as assigned_name, wc.contact_name, wc.phone as contact_phone" . $this->contactProfileSelect() . ",
-                    wc.remote_jid, cb.investment_range, cb.notes AS briefing_notes
+                    wc.remote_jid, COALESCE(wc.email_bounced, 0) AS email_bounced, cb.investment_range, cb.notes AS briefing_notes
              FROM crm_cards c
              JOIN crm_columns col ON c.column_id = col.id
              LEFT JOIN users u ON c.assigned_to = u.id

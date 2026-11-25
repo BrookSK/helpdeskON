@@ -758,6 +758,10 @@ class CrmController extends Controller
         if (isset($_POST['lead_email'])) {
             $em = trim($_POST['lead_email']);
             $data['lead_email'] = ($em && filter_var($em, FILTER_VALIDATE_EMAIL)) ? $em : null;
+            // E-mail corrigido: o bloqueio de "e-mail devolvido" era do endereço antigo.
+            if (EmailBounceRules::shouldClearBounce($contact['lead_email'] ?? null, $data['lead_email'])) {
+                $data['email_bounced'] = 0;
+            }
         }
 
         // Ao cadastrar um telefone real num lead captado (JID sintético lead_/manual_),
@@ -1476,6 +1480,7 @@ class CrmController extends Controller
             'linkedin_url' => $card['linkedin_url'] ?? null,
         ];
         $profile = LeadOriginRules::profile($contactData, $apollo, $card['briefing_notes'] ?? ($briefing['notes'] ?? null));
+        $profile['email_bounced'] = !empty($card['email_bounced']);
         $origin = LeadOriginRules::originBadge($card['origin'] ?? null, $card['origin_detail'] ?? null);
 
         // Contagem para a aba "E-mails" (o conteúdo carrega só ao abrir a aba).

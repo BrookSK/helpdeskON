@@ -195,9 +195,30 @@ class ImapReader
                 'x_autoreply' => $h['x-autoreply'] ?? '',
                 'x_autorespond' => $h['x-autorespond'] ?? '',
                 'content_type' => $h['content-type'] ?? '',
+                'x_failed_recipients' => $h['x-failed-recipients'] ?? '',
             ];
         }
         return $messages;
+    }
+
+    /**
+     * Texto de uma notificação de falha de entrega (bounce): as partes de texto
+     * decodificadas mais o corpo cru (onde ficam "Final-Recipient", "Status" e o
+     * cabeçalho do e-mail original com o nosso Message-ID). Não marca como lida.
+     */
+    public function fetchBounceText($uid, $maxLen = 200000)
+    {
+        if (!$this->connection) return '';
+        try {
+            $structure = @imap_fetchstructure($this->connection, $uid, FT_UID);
+            $tmp = ['body_html' => '', 'body_text' => '', 'attachments' => []];
+            if ($structure) $this->extractParts($structure, $uid, $tmp);
+            $decoded = trim($tmp['body_text']) !== '' ? $tmp['body_text'] : EmailThreadRules::htmlToText((string) $tmp['body_html']);
+            $raw = (string) @imap_body($this->connection, $uid, FT_UID | FT_PEEK);
+            return mb_substr($decoded . "\n\n" . $raw, 0, $maxLen);
+        } catch (\Throwable $e) {
+            return '';
+        }
     }
 
     /**

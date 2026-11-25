@@ -38,7 +38,8 @@ class LeadEmailHistory
     {
         $cols = "m.id, m.direction, m.origin, m.subject, m.status, m.error_message, m.sent_at, m.created_at,
                  m.replied_at, m.open_count, m.click_count, m.first_open_at, m.message_id, m.in_reply_to,
-                 m.recipient_email, u.name AS sender_name, s.name AS sequence_name";
+                 m.recipient_email, u.name AS sender_name, s.name AS sequence_name,
+                 (SELECT MIN(e.created_at) FROM email_events e WHERE e.message_id = m.id AND e.event_type = 'bounce') AS bounced_at";
         // Colunas da migration 140 (resposta casada por cabeçalho), se já aplicada.
         foreach (['received_at', 'references_header', 'reply_snippet'] as $c) {
             if (SchemaInfo::hasColumn('email_messages', $c)) $cols .= ", m.{$c}";

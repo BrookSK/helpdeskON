@@ -522,15 +522,103 @@ class EmailMessageService
     }
 
     /** Marca bounce e bloqueia. */
-    public function registerBounce($contactId, $hard = true)
+    public function registerBounce($contactId, $hard = true, $detail = null)
     {
         if ($hard) {
             $this->db->update('whatsapp_contacts', ['email_bounced' => 1], 'id = ?', [$contactId]);
             (new SequenceEngine())->stopForContact($contactId, 'bounce');
         }
-        (new LeadTimelineService())->add($contactId, 'bounce', $hard ? 'Bounce definitivo (hard)' : 'Bounce temporário (soft)');
+        $title = $hard ? 'E-mail devolvido (definitivo)' : 'E-mail devolvido (temporário)';
+        if ($detail) $title .= ': ' . $detail;
+        if ($hard) $title .= '. Lead tirado das sequências; novos e-mails para ele ficam bloqueados.';
+        (new LeadTimelineService())->add($contactId, 'bounce', mb_substr($title, 0, 250));
         (new LeadScoreService())->add($contactId, LeadScoreService::W_BOUNCE, 'bounce');
         return true;
+    }
+
+    /**
+     * Trata uma notificação de falha de entrega (bounce) lida na caixa.
+     *
+     * Acha o NOSSO envio que voltou (pelo Message-ID original citado na
+     * notificação; senão pelo último envio para o endereço que falhou). Se for
+     * definitivo (endereço não existe), marca o e-mail do lead como inválido,
+     * tira o lead de todas as sequências e bloqueia novos envios, inclusive nos
+     * cadastros duplicados com o mesmo e-mail. Temporário só fica registrado.
+     * A mesma notificação não é tratada duas vezes.
+     *
+     * @return array {handled, already, hard, reason, email, contact_id, contact_name, stopped}
+     */
+    public function processBounce(array $msg, string $text, $accountId = null)
+    {
+        $p = EmailBounceRules::parse($msg, $text);
+        $out = ['handled' => false, 'already' => false, 'hard' => $p['hard'], 'reason' => $p['reason'],
+                'email' => null, 'contact_id' => null, 'contact_name' => null, 'stopped' => 0];
+
+        $outbound = null;
+        $cols = "id, contact_id, recipient_email, error_message";
+        if ($p['token']) {
+            $outbound = $this->db->fetch("SELECT $cols FROM email_messages WHERE track_token = ? AND direction='outbound' LIMIT 1", [$p['token']]);
+        }
+        if (!$outbound) {
+            // Sem o Message-ID: só os endereços dos campos de falha; os demais
+            // citados no corpo entram apenas se a notificação não trouxe nenhum.
+            $candidates = $p['recipients'] ?: $p['mentioned'];
+            foreach ($candidates as $email) {
+                $outbound = $this->db->fetch(
+                    "SELECT $cols FROM email_messages WHERE direction='outbound' AND LOWER(recipient_email) = ? ORDER BY id DESC LIMIT 1",
+                    [$email]
+                );
+                if ($outbound) break;
+            }
+        }
+        if (!$outbound) return $out; // não voltou um e-mail nosso
+
+        $email = $this->normalize($outbound['recipient_email']);
+        $contactId = (int) $outbound['contact_id'];
+        $contact = $this->db->fetch("SELECT contact_name, push_name, email_bounced FROM whatsapp_contacts WHERE id = ?", [$contactId]);
+        $out['email'] = $email;
+        $out['contact_id'] = $contactId;
+        $out['contact_name'] = $contact ? ($contact['contact_name'] ?: $contact['push_name']) : null;
+
+        $dup = $this->db->fetch("SELECT id FROM email_events WHERE message_id = ? AND event_type = 'bounce' LIMIT 1", [$outbound['id']]);
+        if ($dup) {
+            $out['already'] = true;
+            return $out;
+        }
+
+        $this->db->insert('email_events', [
+            'message_id' => $outbound['id'], 'contact_id' => $contactId, 'event_type' => 'bounce',
+        ]);
+        // O motivo fica no próprio envio (aparece na aba "E-mails" do card).
+        $this->db->update('email_messages', [
+            'error_message' => mb_substr('Devolvido: ' . $p['reason'], 0, 1000),
+        ], 'id = ?', [$outbound['id']]);
+
+        if ($p['hard']) {
+            // O mesmo e-mail em outros cadastros (lead duplicado) também é bloqueado.
+            $ids = [$contactId];
+            foreach ($this->db->fetchAll(
+                "SELECT id FROM whatsapp_contacts WHERE LOWER(lead_email) = ? AND COALESCE(email_bounced,0) = 0",
+                [$email]
+            ) as $r) {
+                $ids[] = (int) $r['id'];
+            }
+            $before = (int) ($this->db->fetch(
+                "SELECT COUNT(*) c FROM sequence_participants WHERE contact_id IN (" . implode(',', array_map('intval', array_unique($ids))) . ") AND status IN ('active','paused')"
+            )['c'] ?? 0);
+            foreach (array_unique($ids) as $cid) {
+                $row = $cid === $contactId ? $contact : $this->db->fetch("SELECT email_bounced FROM whatsapp_contacts WHERE id = ?", [$cid]);
+                if ($cid === $contactId || empty($row['email_bounced'])) {
+                    $this->registerBounce($cid, true, $email . ' — ' . $p['reason']);
+                }
+            }
+            $out['stopped'] = $before;
+        } else {
+            $this->registerBounce($contactId, false, $email . ' — ' . $p['reason']);
+        }
+
+        $out['handled'] = true;
+        return $out;
     }
 
     // ---- tracking ----

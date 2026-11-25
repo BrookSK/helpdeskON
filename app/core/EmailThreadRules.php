@@ -184,6 +184,7 @@ class EmailThreadRules
             'clicks' => (int) ($m['click_count'] ?? 0),
             'first_open_at' => $m['first_open_at'] ?? null,
             'replied_at' => $m['replied_at'] ?? null,
+            'bounced_at' => $m['bounced_at'] ?? null,
             'body_html' => $html !== '' ? $html : null,
             'preview' => $html !== '' ? self::preview(self::htmlToText($html)) : '',
             'message_id' => $m['message_id'] ?? null,
@@ -216,7 +217,7 @@ class EmailThreadRules
         return array_merge([
             'key' => '', 'direction' => 'out', 'source' => 'manual', 'subject' => '', 'at' => null,
             'status' => 'sent', 'error' => null, 'sender' => null, 'sequence' => null, 'to' => null, 'from' => null,
-            'opens' => 0, 'clicks' => 0, 'first_open_at' => null, 'replied_at' => null,
+            'opens' => 0, 'clicks' => 0, 'first_open_at' => null, 'replied_at' => null, 'bounced_at' => null,
             'body_html' => null, 'body_text' => null, 'preview' => '',
             'message_id' => null, 'in_reply_to' => null, 'references' => null,
         ], $v);
@@ -262,7 +263,7 @@ class EmailThreadRules
             if (!empty($it['message_id'])) $byMessageId[self::messageKey($it['message_id'])] = $idx;
         }
 
-        $sent = 0; $failed = 0; $replies = 0; $lastReply = null; $lastAt = null;
+        $sent = 0; $failed = 0; $bounced = 0; $replies = 0; $lastReply = null; $lastAt = null;
         foreach ($convs as &$c) {
             $c['count'] = count($c['items']);
             $c['last_at'] = end($c['items'])['at'];
@@ -273,6 +274,7 @@ class EmailThreadRules
                     if (!$lastReply || strtotime((string) $it['at']) > strtotime((string) $lastReply)) $lastReply = $it['at'];
                 } else {
                     if ($it['status'] === 'failed') $failed++; elseif ($it['status'] === 'sent') $sent++;
+                    if (!empty($it['bounced_at'])) $bounced++;
                     if (!empty($it['replied_at']) && !$legacyReply) $legacyReply = $it['replied_at'];
                 }
                 unset($it['message_id'], $it['in_reply_to'], $it['references']);
@@ -299,6 +301,7 @@ class EmailThreadRules
                 'replies' => $replies,
                 'last_reply_at' => $lastReply,
                 'last_at' => $lastAt,
+                'bounced' => $bounced,
             ],
             'conversations' => $convs,
         ];
